@@ -15,6 +15,7 @@ on:
       - ".github/trigger-drain"
       - ".github/trigger-bazaar-refresh"
       - ".github/trigger-bazaar-register"
+      - ".github/trigger-bazaar-solana"
   workflow_dispatch:
     inputs:
       mode:
@@ -54,6 +55,7 @@ jobs:
       marketplace: ${{ steps.parse.outputs.marketplace }}
       bazaar_refresh: ${{ steps.parse.outputs.bazaar_refresh }}
       bazaar_register: ${{ steps.parse.outputs.bazaar_register }}
+      bazaar_solana: ${{ steps.parse.outputs.bazaar_solana }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -66,7 +68,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          MARKERS="test deploy publish probe drain demand paytest purl marketplace bazaar-refresh bazaar-register"
+          MARKERS="test deploy publish probe drain demand paytest purl marketplace bazaar-refresh bazaar-register bazaar-solana"
           if [ "$EVENT_NAME" != "push" ]; then
             echo "Event is $EVENT_NAME (not push) — emitting all markers as false."
             for m in $MARKERS; do
@@ -154,6 +156,56 @@ jobs:
           path: agent-address.txt
       - name: Wait for funding, then buy from the live API
         run: MODE=run KEY_FILE=$RUNNER_TEMP/agent-key node scripts/agent-e2e.js
+      # Isolate the Base settlement outage: boot the server locally and buy
+      # on Base against localhost through the CDP facilitator (same key-id
+      # fallback the deploy job uses). A prior run proved code + payloads +
+      # clients are fine — 55/60 settled when the local boot fell back to
+      # PayAI for Base. If the CDP path fails from a GitHub runner too, CDP
+      # is rejecting our credentials/account — not Railway, not our code.
+      # If it settles, prod's Railway CDP env is the problem.
+      - name: Local CDP-path buy (isolates CDP-account vs Railway-env)
+        if: always()
+        env:
+          CDP_API_KEY_ID: ${{ secrets.CDP_API_KEY_ID || 'ff16e708-0590-4a24-8a17-b0e978143f68' }}
+          CDP_API_KEY_SECRET: ${{ secrets.CDP_API_KEY_SECRET }}
+          WALLET_ADDRESS: ${{ secrets.WALLET_ADDRESS || '0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0' }}
+          SOLANA_WALLET_ADDRESS: J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg
+          PAYMENT_NETWORKS: base,solana,polygon,arbitrum
+          NETWORK: base
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+        run: |
+          printf '%s' "$BURNER_KEY" > /tmp/bisect-key
+          PORT=3777 node src/server.js > /tmp/server-cdp.log 2>&1 &
+          SRV=$!
+          for i in $(seq 1 60); do curl -sf http://localhost:3777/health >/dev/null 2>&1 && break; sleep 1; done
+          echo "=== boot facilitator lines (must say CDP first) ==="
+          grep -iE 'facilitator|multi-chain|accepting usdc' /tmp/server-cdp.log || true
+          echo
+          echo "=== buying on Base via localhost through CDP (@x402 2.16, lockfile) ==="
+          TARGET_URL=http://localhost:3777 KEY_FILE=/tmp/bisect-key MODE=run node scripts/agent-e2e.js 2>&1 | tail -8 || true
+          kill $SRV 2>/dev/null || true
+          sleep 2
+          echo "=== server log 2.16 (payment lines) ==="
+          grep -viE '\[tool-error\]' /tmp/server-cdp.log | grep -iE 'facilitator|x402|error|fail|verify|settle|warn' | grep -vi 'extension responses' | tail -20 || true
+          echo
+          # CDP rejected every 2.16-server buy from two networks while PayAI
+          # settles the same payloads — test whether CDP now requires the
+          # 2.17-era server behavior (published June 26; our lockfile pins
+          # 2.16.0 from June 19).
+          echo "=== upgrading server SDK to @x402 2.17 and retrying ==="
+          npm install --no-save @x402/express@2.17.0 @x402/evm@2.17.0 @x402/svm@2.17.0 @x402/core@2.17.0 @x402/extensions@2.17.0 >/dev/null 2>&1 \
+            || npm install --no-save @x402/express@2.17.0 @x402/evm@2.17.0 @x402/svm@2.17.0 >/dev/null
+          PORT=3778 node src/server.js > /tmp/server-cdp217.log 2>&1 &
+          SRV2=$!
+          for i in $(seq 1 60); do curl -sf http://localhost:3778/health >/dev/null 2>&1 && break; sleep 1; done
+          grep -iE 'facilitator|multi-chain' /tmp/server-cdp217.log || true
+          echo "=== buying on Base via localhost through CDP (@x402 2.17) ==="
+          TARGET_URL=http://localhost:3778 KEY_FILE=/tmp/bisect-key MODE=run node scripts/agent-e2e.js 2>&1 | tail -8 || true
+          kill $SRV2 2>/dev/null || true
+          sleep 2
+          echo "=== server log 2.17 (payment lines) ==="
+          grep -viE '\[tool-error\]' /tmp/server-cdp217.log | grep -iE 'facilitator|x402|error|fail|verify|settle|warn' | grep -vi 'extension responses' | tail -20 || true
+          shred -u /tmp/bisect-key 2>/dev/null || rm -f /tmp/bisect-key
       - name: Shred burner key
         if: always()
         run: |
@@ -163,6 +215,38 @@ jobs:
           if [ -f "$RUNNER_TEMP/agent-key" ]; then
             shred -u "$RUNNER_TEMP/agent-key" 2>/dev/null || rm -f "$RUNNER_TEMP/agent-key"
           fi
+
+  bazaar-solana:
+    # One-shot sweep: pays every catalog route priced <= $0.05 once VIA SOLANA
+    # (SVM client -> PayAI facilitator), so settlement-driven indexes register
+    # each tool for Solana — PayAI's merchant listing, x402scan's facilitator
+    # view — and every harvester re-observes the live 402 with the full
+    # multi-chain accepts. Skips the LLM/image/audio/code proxies (real
+    # upstream credit per call). Payments recycle burner -> revenue wallet.
+    needs: markers
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-solana' || needs.markers.outputs.bazaar_solana == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      TARGET_URL: https://agent402.tools
+      MODE: sweep
+      PAY_NETWORK: solana
+      MAX_PRICE_USD: "0.05"
+      MAX_SPEND_USD: "8"
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 @x402/svm@2.16.0 @solana/kit viem
+      - name: Sweep the catalog via Solana settlement
+        env:
+          SOLANA_BURNER_KEY: ${{ secrets.SOLANA_BURNER_KEY }}
+        run: |
+          [ -n "$SOLANA_BURNER_KEY" ] || { echo "No SOLANA_BURNER_KEY — cannot pay the Solana sweep"; exit 1; }
+          echo "::add-mask::$SOLANA_BURNER_KEY"
+          node scripts/refresh-bazaar.js
 
   bazaar-refresh:
     # One-shot job: makes a tiny paid request against every Agent402 Bazaar
@@ -404,6 +488,12 @@ jobs:
 
       - name: USDC settle-receipt network attribution (viaUSDCByNetwork)
         run: node scripts/test-stats-network.js
+
+      - name: Builder Code suffix parser (ERC-8021 round-trip vs @x402/extensions encoder)
+        run: node scripts/test-builder-attribution.js
+
+      - name: LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
+        run: node scripts/test-llm-gateway.js
 
       - name: Paid-canary verdict (pages on real buying breaks, warns on upstream)
         run: node scripts/test-paid-canary.js
@@ -1287,9 +1377,21 @@ jobs:
             echo "=== build logs (tail) for latest deployment ==="
             jq -n --arg d "$LATEST_ID" '{query:"query($d:String!) { buildLogs(deploymentId: $d, limit: 60) { timestamp message } }", variables:{d:$d}}' | gql \
               | jq -r '.data.buildLogs[]? | "\(.timestamp)  \(.message)"' | tail -60 || true
-            echo "=== deploy logs (tail) ==="
-            jq -n --arg d "$LATEST_ID" '{query:"query($d:String!) { deploymentLogs(deploymentId: $d, limit: 40) { timestamp message } }", variables:{d:$d}}' | gql \
-              | jq -r '.data.deploymentLogs[]? | "\(.timestamp)  \(.message)"' | tail -40 || true
+          fi
+          # Runtime logs unconditionally: settlement failures (facilitator
+          # verify/settle errors, sync warnings) only surface here — a
+          # SUCCESS deployment can still be failing every USDC purchase.
+          # Two views: a raw tail, and a payment/boot-line filter that
+          # survives tool-error floods (a sweep's 400s drown a plain tail).
+          if [ -n "$LATEST_ID" ]; then
+            jq -n --arg d "$LATEST_ID" '{query:"query($d:String!) { deploymentLogs(deploymentId: $d, limit: 5000) { timestamp message } }", variables:{d:$d}}' | gql \
+              | jq -r '.data.deploymentLogs[]? | "\(.timestamp)  \(.message)"' > /tmp/runtime.log || true
+            echo "=== runtime logs (raw tail, latest deployment) ==="
+            tail -40 /tmp/runtime.log || true
+            echo "=== runtime logs — payment/facilitator/boot lines ==="
+            grep -viE '\[tool-error\]' /tmp/runtime.log \
+              | grep -iE 'facilitator|x402 payments|multi-chain|accepting usdc|builder code|solana payto|warn|error|fail|settle|verify|listening' \
+              | tail -80 || echo "(no matching lines)"
           fi
 
       - name: Read the agent402.app marketplace API docs (read-only)
@@ -1411,21 +1513,40 @@ jobs:
                 '.items[] | select(((.resource // "") | ascii_downcase | contains("agent402")) or (any(.accepts[]?; (.payTo // "" | ascii_downcase) == $w)))' \
                 2>/dev/null || true)
               if [ -n "$HITS" ]; then
-                found=1
-                echo ">>> FOUND at offset $offset:"
-                echo "$HITS" | jq '{resource, type, lastUpdated, payTo: [.accepts[]?.payTo]}'
+                # Count matches; print only the first page of hits. Dumping
+                # every listed resource (~1,300 rows) floods the job log so
+                # badly the logs API's tail window can't reach the output of
+                # any earlier step.
+                if [ "$found" = "0" ]; then
+                  echo ">>> FOUND (first hits at offset $offset; sample):"
+                  echo "$HITS" | head -3 | jq '{resource, type, lastUpdated, payTo: [.accepts[]?.payTo]}'
+                fi
+                found=$((found + $(echo "$HITS" | wc -l)))
               fi
               if [ "$N" -lt 100 ]; then break; fi
               offset=$((offset+100))
               if [ "$offset" -ge 20000 ]; then echo "(stopping after 20000 items)"; break; fi
             done
-            if [ "$found" = "1" ]; then
-              echo ">>> RESULT: agent402 IS LISTED in this index (scanned $total items)"
+            if [ "$found" -gt 0 ]; then
+              echo ">>> RESULT: agent402 IS LISTED in this index ($found resources across $total scanned items)"
             else
               echo ">>> RESULT: agent402 NOT FOUND (scanned $total items)"
             fi
             echo
           done
+
+      # Base Builder Code (ERC-8021) attribution, end-to-end: is the extension
+      # declared on live 402s (BASE_BUILDER_CODE on Railway), and do recent
+      # on-chain settlements actually carry the calldata suffix the Base
+      # dashboard indexes? Dependency-free script — no npm ci in this job.
+      # LAST step on purpose: the logs API serves a bounded tail of the job
+      # log, so the verdict must sit at the end to stay retrievable.
+      # ~8 days of history (43,200 blocks/day), evenly sampled: the per-day
+      # attribution table separates "indexer hasn't caught up with a recent
+      # rollout" from "suffixes have landed for a week and the dashboard
+      # still counts zero" (a Base-side bug report with tx-hash evidence).
+      - name: Builder Code attribution check (live 402 declaration + on-chain suffix scan)
+        run: SPAN_BLOCKS=350000 MAX_TXS=80 node scripts/check-builder-attribution.js || true
 
   deploy:
     needs: [markers, test]
