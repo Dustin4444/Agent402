@@ -2,11 +2,22 @@
 
 ## Unreleased
 
+- **Claims audit** (site + GitHub + packages): every public factual claim re-verified against
+  the live system. Tool counts corrected 1,338 → **1,346** across 27 files (README, wiki, npm
+  package descriptions, site pages, badges); free-tier count corrected to **1,156**
+  (was variously ~1,040/~1,100/1,158); the hardcoded GitHub star count removed from the site
+  nav; hand-written chain lists that omitted the USDG/Robinhood rail completed (landing metas,
+  pricing meta, MCP connector tool descriptions); third-party claims hedged (Cloudflare
+  gateway status, Stripe's x402 role stated as client tooling); absolutes softened ("every
+  x402 seller" → indexed sellers, "guaranteed valid JSON" → schema-enforced, "only public
+  gate" → one of the few). Packages republished for the corrected npm metadata:
+  agent402-mcp 0.11.1, agent402-client 0.4.1, agent402-tollbooth 0.4.1.
+
 - **x402 Economy Observatory** (`/x402-economy` + `GET /api/x402-economy`): live, chain-wide
   analytics on the x402 economy — daily gasless EIP-3009 USDC settlements on Base, unique
   payers, volume, and the top-earning seller wallets, measured directly from decoded on-chain
   events (Transfer + AuthorizationUsed pairs on the USDC contract) across EVERY seller, not
-  just Agent402. The only public dashboard of its kind; data flows through the same paid
+  just Agent402 — including sellers no directory has indexed. Data flows through the same paid
   `onchain-sql` tool agents can buy. 30-minute cache, per-query error resilience, graceful
   "warming up" state without CDP keys.
 
