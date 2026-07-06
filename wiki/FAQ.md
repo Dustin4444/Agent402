@@ -7,13 +7,13 @@ No. Nothing here has a signup. Payment (USDC or proof-of-work) is the only crede
 Flat per-call prices, $0.001–$0.02, published in [`/api/pricing`](https://agent402.tools/api/pricing) and quoted exactly in every 402 response. No subscriptions or tiers.
 
 **Can I use it without any money?**
-Yes — ~1,105 pure-CPU tools accept proof-of-work (sub-second of your CPU), and the hosted MCP connector runs the same set free (rate-limited). See [[Paying with Compute]].
+Yes — ~1,181 pure-CPU tools accept proof-of-work (sub-second of your CPU), and the hosted MCP connector runs the same set free (rate-limited). See [[Paying with Compute]].
 
 **What is x402?**
 An open HTTP payment standard built on the `402 Payment Required` status code, with settlement infrastructure from Coinbase and open client tooling from Stripe. See [[Paying with x402]].
 
 **Which chain/asset?**
-USDC on Base (primary), Solana, Polygon, or Arbitrum — plus USDG (Global Dollar) on Robinhood Chain. The buyer needs only the stablecoin — gas is sponsored by the facilitator on EVM chains.
+USDC on Base (primary), Solana, Polygon, Arbitrum, or Stellar — plus USDG (Global Dollar) on Robinhood Chain. The buyer needs only the stablecoin — gas is sponsored by the facilitator on EVM chains.
 
 **Does using this spend my AI tokens?**
 No. There's no LLM anywhere in the serving path — every tool is deterministic code. Proof-of-work spends your CPU; x402 spends USDC.

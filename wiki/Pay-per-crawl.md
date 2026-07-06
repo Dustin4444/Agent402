@@ -6,8 +6,8 @@ package is the inverse: it lets **any site charge the AI bots that crawl it**.
 
 > Put it in front of any site or API: human visitors browse free, while AI
 > crawlers and agents pay per request — in USDC over x402, or for free by solving
-> a proof-of-work. The open, self-hostable answer to Cloudflare's closed
-> pay-per-crawl: no CDN lock-in, no Stripe, no Merchant-of-Record, no signup.
+> a proof-of-work. An open, self-hostable, vendor-neutral pay-per-crawl gate
+> you run yourself: no CDN lock-in, no Stripe, no Merchant-of-Record, no signup.
 
 ### Three ways to use it
 

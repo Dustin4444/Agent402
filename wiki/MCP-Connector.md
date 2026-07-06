@@ -19,7 +19,7 @@ It exposes four read-only tools (each carries safety annotations):
 |---|---|
 | `find_tool` | Describe a task in plain language; returns the best-matching tool(s) **ready to call** — slug, price, input schema, an example, and the exact `call_tool` invocation. Skips the token-heavy "explore to find a tool" step |
 | `search_tools` | Find tools by description across the catalog; returns slugs + input schemas |
-| `call_tool` | Execute a tool by slug. The ~1,105 pure-CPU tools run **free** (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
+| `call_tool` | Execute a tool by slug. The ~1,181 pure-CPU tools run **free** (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
 | `about_agent402` | Service description, free-vs-paid breakdown |
 
 ## 2. `agent402-mcp` (npm) — the full catalog, payment underneath
@@ -35,7 +35,7 @@ It exposes four read-only tools (each carries safety annotations):
 } } }
 ```
 
-- **With `AGENT_KEY`** (a wallet holding USDC on Base, Solana, Polygon, or Arbitrum): every tool works; each call settles via x402 invisibly under the MCP call. Spend controls (`AGENT402_BUDGET`, `AGENT402_MAX_PER_CALL`) are enforced *before any payment is signed*.
+- **With `AGENT_KEY`** (a wallet holding USDC on Base, Solana, Polygon, Arbitrum, or Stellar): every tool works; each call settles via x402 invisibly under the MCP call. Spend controls (`AGENT402_BUDGET`, `AGENT402_MAX_PER_CALL`) are enforced *before any payment is signed*.
 - **Without a key:** the pure-CPU tools work free via proof-of-work; wallet-only tools explain what they'd cost and how to enable them.
 
 High-value tools (`search`, `extract`, `render`, `screenshot`, `pdf`, `meta`, `dns`, the `memory-*` family, …) are first-class MCP tools; the long tail is reachable via `search_tools` + `call_tool` to keep your context window small.

@@ -8,7 +8,7 @@
 > - **Route** — [`POST /api/route`](https://agent402.tools/api/route) is the **neutral Smart Order Router**: rank tools across every x402 seller crawled (auto-discovered from the Coinbase CDP Bazaar), health-aware, with `include=external` to exclude us.
 > - **Leaderboard** — [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) is the **public on-chain ranking** of every x402 seller by **Base USDC settled volume** — calls served, totalUsd, unique buyers per seller. Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate by `payTo`. Hourly snapshot.
 >
-> Plus the whole **1,407-tool catalog** and **46 curated skill packs** (multi-tool
+> Plus the whole **1,407-tool catalog** and **100 curated skill packs** (multi-tool
 > workflows callable as MCP prompts), all runnable yourself, plus
 > [`agent402-tollbooth`](tollbooth) — an open pay-per-crawl gate for the other
 > side of x402.
@@ -331,7 +331,7 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 | Path | What |
 |---|---|
 | `src/server.js` | Express app + the tool catalog (routes, prices, schemas, discovery) |
-| `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, ~1,150 pure-CPU utilities) — **add tools here** |
+| `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, ~1,000 pure-CPU utilities) — **add tools here** |
 | `src/mcp-http.js` | Hosted MCP connector (streamable HTTP, authless free tier) |
 | `src/pow.js` | Proof-of-work tier (signed, single-use, slug-scoped challenges) |
 | `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Stellar + USDG on Robinhood Chain (6 chains), CDP facilitator, Bazaar discovery |

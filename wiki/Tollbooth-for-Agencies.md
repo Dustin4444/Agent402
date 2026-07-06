@@ -13,8 +13,8 @@ service menu — without locking clients into a single CDN.
 
 In 2024-2025 every major news publisher, SaaS, e-commerce, and DTC brand
 quietly discovered that **AI training crawlers had been eating their content
-for years**. The Cloudflare AI Crawl Toll is the loudest answer; it's also a
-single-vendor lock-in priced as a CDN add-on. Tollbooth is the open,
+for years**. The mainstream managed options mean single-vendor lock-in
+priced as a CDN add-on. Tollbooth is the open,
 portable alternative:
 
 - **Block AI training scrapers today** (no AI vendor cooperation required —
@@ -24,7 +24,7 @@ portable alternative:
   Stripe, no merchant of record, no agency in the middle of the money*).
 - **Portable across hosts**: Express, Next.js middleware, a reverse proxy,
   a Cloudflare Worker, Deno or Bun. WordPress plugin in beta. Move a client
-  off Cloudflare, the gate moves with them.
+  off a locked-in managed toll, the gate moves with them.
 
 ## Pricing & partner economics
 
