@@ -763,6 +763,9 @@ jobs:
       - name: Buyer SDK (agent402-client — resolve + auto-pay via PoW; boots paid-mode)
         run: node client/test.js
 
+      - name: Buyer SDK spending caps (concurrency reservation + 402-amount inspection — wallet-safety lock — offline)
+        run: node scripts/test-client-caps.js
+
       - name: Adapter tests (openai-tools + anthropic-tools + ai-sdk + langchain + openai-agents + llamaindex + strands + google-adk + langchain-py)
         run: |
           FREE_MODE=true PORT=3091 node src/server.js > /tmp/a402-test.log 2>&1 &
@@ -1251,7 +1254,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          node client/test.js   # gate: the buyer SDK must pass before shipping
+          node client/test.js            # gate: the buyer SDK must pass before shipping
+          node scripts/test-client-caps.js  # gate: spending-cap safety must pass too
           cd client
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.

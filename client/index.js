@@ -183,15 +183,38 @@ export class Agent402 {
     // Wallet-only tool → settle in USDC via the provided x402 fetch.
     if (!tool.computePayable) {
       if (this.payFetch) {
-        // Spending policy: refuse to pay BEFORE signing if the quoted price
-        // breaks a configured ceiling (per-call / rolling-24h / per-host).
-        const usd = parseUsd(tool.price);
+        // Spending policy: refuse to pay BEFORE signing if the price breaks a
+        // configured ceiling (per-call / rolling-24h / per-host).
         const host = hostOf(this.baseUrl);
-        this._spendCheck(host, usd, slug);
-        const r = await send({}, this.payFetch);
-        if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
-        this._spendCommit(host, usd); // record spend only once the call actually settled
-        return this._store(cacheKey, await r.json(), cache);
+        let usd = parseUsd(tool.price);
+        // The catalog price is seller-ADVERTISED — a hostile server could under-
+        // state it and then quote more in the 402. When a cap is set, preflight
+        // the 402 to learn the price the wallet will actually be asked to sign and
+        // check the cap against the larger of the two. Fail-open: if the 402 can't
+        // be read (FREE_MODE / non-402 / unparseable), fall back to the advertised
+        // price — never block a legitimate payment on a parse miss.
+        if (this._spendCapsConfigured()) {
+          try {
+            const pre = await send();
+            if (pre.status === 402) {
+              const quoted = parse402Usd(await pre.json().catch(() => null));
+              if (quoted != null) usd = Math.max(usd, quoted);
+            }
+          } catch { /* fail-open to the advertised price */ }
+        }
+        // Reserve the amount synchronously (before the await) so concurrent calls
+        // can't each observe the pre-commit total and collectively blow a rolling
+        // cap; release the reservation if the call doesn't settle.
+        const reservation = this._spendReserve(host, usd, slug);
+        try {
+          const r = await send({}, this.payFetch);
+          if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
+          this._spendSettle(reservation); // confirm the reservation as settled spend
+          return this._store(cacheKey, await r.json(), cache);
+        } catch (e) {
+          this._spendRelease(reservation); // roll back — nothing settled
+          throw e;
+        }
       }
       const r = await send(); // no wallet — succeeds only on a FREE_MODE instance
       if (r.ok) return this._store(cacheKey, await r.json(), cache);
@@ -249,13 +272,36 @@ export class Agent402 {
     }
   }
 
-  /** Record a settled paid call against the rolling budget. */
-  _spendCommit(host, usd) { if (usd > 0) this._spend.log.push({ ts: Date.now(), host, usd }); }
+  /** True if any spending ceiling is configured (worth preflighting the 402). */
+  _spendCapsConfigured() {
+    const s = this._spend;
+    return s.maxPerCall != null || s.daily != null || s.perHost != null;
+  }
+
+  /** Check caps AND reserve the amount atomically (no await in between), so
+   *  concurrent calls account for each other's in-flight reservations instead of
+   *  all passing against the same pre-commit total. Returns a reservation handle
+   *  (or null for a $0 call). Throws SpendingLimitError before reserving if over. */
+  _spendReserve(host, usd, slug) {
+    this._spendCheck(host, usd, slug);
+    if (!(usd > 0)) return null;
+    const entry = { ts: Date.now(), host, usd, pending: true };
+    this._spend.log.push(entry);
+    return entry;
+  }
+  /** Confirm a reservation as settled spend. */
+  _spendSettle(entry) { if (entry) entry.pending = false; }
+  /** Roll back a reservation whose call did not settle (failed / errored). */
+  _spendRelease(entry) {
+    if (!entry) return;
+    const i = this._spend.log.indexOf(entry);
+    if (i >= 0) this._spend.log.splice(i, 1);
+  }
 
   /** Rolling-24h spend summary (settled paid calls only) — for observability. */
   spendingSummary() {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    const log = this._spend.log.filter((e) => e.ts >= cutoff);
+    const log = this._spend.log.filter((e) => e.ts >= cutoff && !e.pending);
     const byHost = {};
     for (const e of log) byHost[e.host] = Number(((byHost[e.host] || 0) + e.usd).toFixed(6));
     return {
@@ -275,6 +321,25 @@ export class SpendingLimitError extends Error {
     this.name = "SpendingLimitError";
     Object.assign(this, details);
   }
+}
+
+// Parse the USD amount an x402 `402` challenge actually requires — the max across
+// the offered rails. x402 is stablecoin-settled (USDC/USDG), so
+// atomic / 10^decimals ≈ USD. Returns null if the body isn't a parseable 402
+// challenge, so the caller fails open to the advertised catalog price.
+function parse402Usd(body) {
+  const accepts = body && body.accepts;
+  if (!Array.isArray(accepts) || !accepts.length) return null;
+  let maxUsd = 0;
+  for (const a of accepts) {
+    const atomic = Number(a && a.maxAmountRequired);
+    if (!Number.isFinite(atomic) || atomic < 0) return null;
+    const decimals = Number((a && a.extra && a.extra.decimals) ?? (a && a.decimals) ?? 6);
+    if (!Number.isFinite(decimals) || decimals < 0 || decimals > 30) return null;
+    const usd = atomic / 10 ** decimals;
+    if (usd > maxUsd) maxUsd = usd;
+  }
+  return maxUsd;
 }
 
 function numOrNull(v) { if (v == null) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : null; }

@@ -119,16 +119,16 @@ Only **settled** paid calls count against the rolling window — a blocked or fa
 call never consumes budget. Free proof-of-work calls are never counted. Omit a cap
 (or leave it `null`) for no limit; with none set, behavior is unchanged.
 
-**What the caps do and don't cover.** The ceiling is checked against the tool's
-**advertised** price (from the seller's `/api/pricing`) before your wallet fetch
-signs anything — so it protects you from an honestly-expensive tool and your own
-fat-finger/misconfiguration. It does **not** currently inspect the amount the
-`402` challenge actually quotes, so it is *not* a defense against a hostile server
-that under-advertises its price and then quotes more in the `402`: only point a
-funded wallet at Agent402 instances you trust. Caps are also enforced per
-**sequential** call — many calls fired concurrently can collectively exceed a
-rolling cap, since each checks the pre-commit total. For a hard guarantee, cap the
-amount inside your `payFetch` (which sees the real signed value) as well.
+**What the caps check.** When a cap is set, the client preflights the `402` and
+checks the ceiling against the **larger** of the advertised price (from the
+seller's `/api/pricing`) and the amount the `402` challenge actually quotes — so a
+server that under-advertises and then quotes more in the `402` is refused *before*
+your wallet fetch signs anything. If the `402` can't be read (FREE_MODE, or an
+unrecognized challenge shape) it falls back to the advertised price rather than
+block a legitimate payment. Caps hold under **concurrency** too: each call reserves
+its amount synchronously, so N simultaneous calls can't each pass against the same
+pre-commit total. (The `402` amount is derived assuming stablecoin settlement —
+`atomic / 10^decimals ≈ USD` — which matches x402's USDC/USDG rails.)
 
 - **Zero dependencies** for the free/proof-of-work path (uses `node:crypto`).
 - **Non-custodial:** paid settlement is your `@x402/fetch` + wallet; this client never sees your key.

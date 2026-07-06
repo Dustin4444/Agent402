@@ -258,8 +258,11 @@ function readBody(req, cap = 10 * 1024 * 1024) {
 async function startCli() {
   const upstream = process.env.TOLLBOOTH_UPSTREAM;
   const port = Number(process.env.PORT) || 4021;
-  if (!process.env.TOLLBOOTH_SECRET) {
+  const _secret = process.env.TOLLBOOTH_SECRET;
+  if (!_secret) {
     console.warn("⚠ TOLLBOOTH_SECRET not set — proof-of-work tokens use a random per-process secret: they won't survive a restart and will be rejected across multiple workers/instances. Set a stable TOLLBOOTH_SECRET in production.");
+  } else if (/^change-me/i.test(_secret) || _secret === "change-me-to-a-long-random-string") {
+    console.warn("⚠ TOLLBOOTH_SECRET is the public placeholder from the deploy template — it's readable by anyone, so proof-of-work tokens can be FORGED to bypass your gate for free. Set a real random secret: `openssl rand -hex 32`.");
   }
   const { default: express } = await import("express");
   const app = express();
@@ -274,6 +277,9 @@ async function startCli() {
   const { timingSafeEqual } = await import("node:crypto");
   const ADMIN_TOKEN = process.env.TOLLBOOTH_ADMIN_TOKEN || "";
   const STATS_TOKEN = process.env.TOLLBOOTH_STATS_TOKEN || "";
+  if (!ADMIN_TOKEN) {
+    console.warn("⚠ TOLLBOOTH_ADMIN_TOKEN not set — the /__tollbooth analytics dashboard is publicly reachable (aggregate counts only, no per-request/payer data). Set TOLLBOOTH_ADMIN_TOKEN to require a token.");
+  }
   const presented = (req) => {
     const auth = req.headers["authorization"];
     if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7);

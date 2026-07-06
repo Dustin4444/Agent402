@@ -3,7 +3,7 @@
 # Configure via env (see README): TOLLBOOTH_UPSTREAM, TOLLBOOTH_SECRET, TOLLBOOTH_PAYTO.
 FROM node:20-alpine
 WORKDIR /app
-RUN npm init -y >/dev/null 2>&1 && npm install agent402-tollbooth@^0.2
+RUN npm init -y >/dev/null 2>&1 && npm install agent402-tollbooth@^0.4
 ENV PORT=4021
 EXPOSE 4021
 # Reverse-proxy mode (needs TOLLBOOTH_UPSTREAM); serves the operator dashboard at /__tollbooth.
