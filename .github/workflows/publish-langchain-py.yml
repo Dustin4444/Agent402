@@ -1,0 +1,38 @@
+name: Publish agent402-langchain (PyPI)
+
+# Publishes the Python adapter (adapters/langchain-py) to PyPI via Trusted
+# Publishing (OpenID Connect) — no API token stored anywhere. PyPI verifies the
+# request came from THIS repo + THIS workflow via a short-lived OIDC token.
+#
+# Trigger: a manual run (Actions tab → this workflow → Run workflow), or by
+# pushing a tag like `langchain-py-v0.1.0`.
+#
+# One-time PyPI setup (see the maintainer notes below) must be done first, or
+# the publish step is rejected with "not a trusted publisher".
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "langchain-py-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # REQUIRED for Trusted Publishing (OIDC). No secret needed.
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel + sdist
+        run: |
+          python -m pip install --quiet build
+          python -m build adapters/langchain-py
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: adapters/langchain-py/dist/
