@@ -78,28 +78,37 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <div style="position:absolute;right:-30px;top:10px;font-family:var(--font-body);font-weight:900;font-size:420px;line-height:1;letter-spacing:-.04em;color:transparent;-webkit-text-stroke:2px #16150f14;pointer-events:none;user-select:none;">402</div>
     <div style="max-width:1180px;margin:0 auto;padding:70px 30px 0;position:relative;">
       <div class="ml-hero-grid" style="display:grid;grid-template-columns:1.08fr .92fr;gap:50px;align-items:start;">
-        <div>
-          <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:22px;">▸ open source · x402 · ${packCount} skill packs · ${fmtNum(count)} tools · free tier</div>
-          <h1 class="ml-hero-h1" style="font-family:var(--font-body);font-weight:800;font-size:66px;line-height:.96;letter-spacing:-.03em;margin:0 0 8px;color:var(--ink);">Where agents<br><span style="color:var(--accent);">pay</span> agents.</h1>
-          <div style="display:inline-block;transform:rotate(-7deg);border:2.5px solid var(--accent);color:var(--accent);padding:5px 11px 4px;margin:14px 0 22px;font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.12em;line-height:1.3;text-align:center;">PAYMENT REQUIRED<br><span style="font-size:9px;letter-spacing:.18em;opacity:.8;">· 402 · agent402.tools ·</span></div>
-          <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:500px;margin:0 0 30px;"><strong style="color:var(--ink);font-weight:700;">${packCount} skill packs — a whole agent job, one x402 payment.</strong> Research a stock end to end, audit a domain's SEO, run SQL over Base, check a wallet's readiness to pay. Built on ${fmtNum(count)} deterministic pay-per-call tools; free via proof-of-work; USDC on Base + 4 more chains — or <a href="/guides/usdg-payments-robinhood-chain" style="color:var(--ink);font-weight:700;">USDG on Robinhood Chain</a> — from <strong style="color:var(--ink);font-weight:700;">$0.001/call</strong>. No signup, no API keys — <strong style="color:var(--ink);font-weight:700;">the wallet is the identity</strong>.</p>
-          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;">
-            <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">ADD TO CLAUDE →</a>
-            <a href="/skills" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE ${packCount} SKILL PACKS</a>
+        <div class="ml-stagger">
+          <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">open source · <span style="color:var(--accent);">x402</span> · mcp-native · settle in seconds</div>
+          <h1 class="ml-hero-h1" style="font-family:var(--font-body);font-weight:800;font-size:70px;line-height:.94;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);">Where agents<br><span style="color:var(--accent);">pay</span> agents.</h1>
+          <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 24px;"><strong style="color:var(--ink);font-weight:700;">${fmtNum(count)} tools your AI agent calls and pays for by the request</strong> — live web search, market data, PDF &amp; OCR, on-chain reads. No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
+          <div style="display:flex;flex-wrap:wrap;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);margin:0 0 26px;max-width:560px;">
+            ${[[fmtNum(count),"tools"],[String(packCount),"skill packs"],[fmtNum(freeCount),"free · pow"],['<span style="color:var(--accent);">$</span>0.001',"per call"],["6","chains"]].map(([n,l])=>`<div class="ml-spec-cell" style="flex:1 1 auto;padding:11px 16px 10px 0;margin-right:16px;border-right:1px dashed #b3a98f;"><div style="font-family:var(--font-mono);font-weight:700;font-size:19px;line-height:1;font-variant-numeric:tabular-nums;">${n}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px;">${l}</div></div>`).join("")}
+          </div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;margin-bottom:18px;">
+            <a class="ml-cta" href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;box-shadow:4px 4px 0 #16150f22;">ADD TO CLAUDE →</a>
+            <a class="ml-cta" href="/tools" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE THE CATALOG</a>
+          </div>
+          <div style="display:flex;align-items:center;gap:9px;font-family:var(--font-mono);font-size:13px;color:var(--muted);">
+            <span class="ml-dot"></span><span>live · <strong style="color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums;">${fmtNum(served?.total || 0)}</strong> calls settled to date</span>
           </div>
         </div>
-        <div style="background:var(--ink);border:1.5px solid var(--ink);box-shadow:8px 8px 0 #16150f1f;">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>~ / agent402</span><span>SH</span></div>
-          <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:#E7DFCD;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># ${fmtNum(count)} x402 tools in Claude Code.
+        <div class="ml-stagger" style="position:relative;">
+          <div style="background:var(--ink);border:1.5px solid var(--ink);box-shadow:8px 8px 0 #16150f1f;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>~ / agent402</span><span>SH</span></div>
+            <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:#E7DFCD;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># ${fmtNum(count)} x402 tools in Claude Code.
 # no signup, no API key.
 </span><span style="color:var(--accent);">$</span> <span style="color:var(--cream);">claude mcp add agent402 -s user \\
     -- npx -y agent402-mcp@latest
 
 </span><span style="color:var(--dk-muted3);"># then ask Claude:
-# "run financial-research on AAPL"
-# "seo-audit example.com"
-# free tier pays in compute.
+# "quote AAPL and its 52-week range"
+# "run financial-research on NVDA"
+# "audit example.com for SEO"
+# free tier pays in compute —
 # ${RAILS_SHORT} when you scale.</span></pre>
+          </div>
+          <div style="position:absolute;top:-16px;right:-14px;transform:rotate(9deg);border:2.5px solid var(--accent);color:var(--accent);background:var(--paper);padding:6px 12px 5px;font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.12em;line-height:1.25;text-align:center;box-shadow:2px 2px 0 #16150f14;">PAYMENT REQUIRED<br><span style="font-size:9px;letter-spacing:.18em;opacity:.85;">· 402 · agent402.tools ·</span></div>
         </div>
       </div>
 

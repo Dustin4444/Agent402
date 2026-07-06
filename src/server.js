@@ -24,7 +24,7 @@ import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCa
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogSettlement, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -33,6 +33,7 @@ import { contactPage } from "./contact.js";
 import { quickstartPage } from "./quickstart.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
+import { runSelfCheck } from "./selfcheck.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools } from "./find.js";
 import { indexPage, indexSnapshot, routeQuery, startCrawler } from "./x402-index.js";
@@ -1052,6 +1053,29 @@ app.get("/api/reliability", (_req, res) =>
     stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }),
   }))
 );
+// Synthetic self-check — runs a curated set of high-value tools' own examples
+// live (see src/selfcheck.js) so a paid tool that breaks in prod is caught even
+// with zero organic traffic. Cached 5 min + single-flighted so repeated polls
+// (and any abuse) can't hammer the upstreams; the tool-alert.yml Action polls
+// this and opens an issue on failure, mirroring the heartbeat. Free/unpaywalled.
+const SELFCHECK_TTL_MS = 5 * 60 * 1000;
+let selfCheckCache = { at: 0, value: null };
+let selfCheckInFlight = null;
+app.get("/api/selfcheck", async (_req, res) => {
+  if (selfCheckCache.value && Date.now() - selfCheckCache.at < SELFCHECK_TTL_MS) {
+    return res.json({ ...selfCheckCache.value, cached: true });
+  }
+  if (!selfCheckInFlight) {
+    selfCheckInFlight = runSelfCheck(CATALOG)
+      .then((v) => { selfCheckCache = { at: Date.now(), value: v }; return v; })
+      .finally(() => { selfCheckInFlight = null; });
+  }
+  try {
+    res.json({ ...(await selfCheckInFlight), cached: false });
+  } catch {
+    res.status(500).json({ ok: false, error: "selfcheck failed to run" });
+  }
+});
 // Stripe Agentic Commerce Protocol (ACP) — lets AI agents on Stripe's payment
 // rails discover and browse our tool catalog. Free, unpaywalled discovery surface.
 app.get("/acp/feed", (_req, res) =>
@@ -1486,6 +1510,10 @@ app.get("/api/pow/challenge", (req, res) => {
   if (!POW_SLUGS.has(requested)) {
     return res.status(404).json({ error: `Unknown or wallet-only tool "${requested}". Compute-payable slugs: GET /api/pow` });
   }
+  // Funnel stage 2b — a free-tier challenge was issued (agent asked how to pay
+  // for free). Paired with payment_settled{rail=pow} this is the free-tier
+  // take rate. Only genuine issuances count (past the 429/404 guards above).
+  capturePostHogPowChallenge({ slug: requested, synthetic: isSyntheticRequest(req) });
   res.json(issueChallenge(requested));
 });
 
@@ -1750,11 +1778,20 @@ if (FREE_MODE) {
     if (def) {
       res.on("finish", () => {
         if (res.statusCode === 402) {
+          // Classify the bounce by what the caller tried. A payment header that
+          // still ended in 402 means the authorization was rejected (tried,
+          // couldn't); its absence means a first-contact quote (no wallet /
+          // crawl / looked-and-left). This is the couldn't-pay vs wouldn't-pay
+          // split — the single most useful cut on the 402→settle drop-off.
+          const paidAttempt = req.header("x-payment") || req.header("payment-signature");
+          const powAttempt = req.header("x-pow-solution");
+          const attempt = paidAttempt ? "usdc_failed" : powAttempt ? "pow_failed" : "none";
           capturePostHogPaywall({
             slug: def.slug,
             priceUsd: Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0,
             powEligible: POW_SLUGS.has(def.slug),
             synthetic: isSyntheticRequest(req),
+            attempt,
           });
         }
       });

@@ -667,6 +667,9 @@ jobs:
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 
+      - name: Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)
+        run: node scripts/test-selfcheck.js
+
       - name: Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
         run: node scripts/test-sales-ledger.js
 
@@ -1989,11 +1992,21 @@ jobs:
           echo "health: $code"
           [ "$code" = "200" ] || { echo "Service did not become healthy in 10 minutes"; exit 1; }
           echo "=== pricing ==="
-          curl -s "https://$URL/api/pricing"
-          echo; echo "=== 402 check ==="
-          paid=$(curl -s -o /dev/null -w '%{http_code}' -X POST "https://$URL/api/extract" -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{"url":"https://example.com"}')
+          curl -s --max-time 15 "https://$URL/api/pricing"
+          echo; echo "=== 402 check (paywall engaged) ==="
+          # Retry the paywall probe — a single blip (cold container warming up, a
+          # transient network hiccup) must NOT mark a healthy deploy as failed.
+          # A red deploy that isn't real is monitoring noise; only a paywall that
+          # stays un-engaged across several attempts is a genuine regression.
+          paid=000
+          for i in 1 2 3 4 5; do
+            paid=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "https://$URL/api/extract" -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{"url":"https://example.com"}' || echo 000)
+            [ "$paid" = "402" ] && break
+            echo "attempt $i: HTTP $paid (expect 402) — retrying in 6s"
+            sleep 6
+          done
           echo "unpaid request returned HTTP $paid (expect 402)"
-          [ "$paid" = "402" ] || exit 1
+          [ "$paid" = "402" ] || { echo "paywall not engaged after 5 attempts — real regression"; exit 1; }
           echo
           echo "🚀 LIVE: https://$URL"
           if [ -n "$CUSTOM_DOMAIN" ]; then

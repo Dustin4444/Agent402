@@ -29,11 +29,15 @@ function bad(message, statusCode = 400) {
 
 // A modern Chrome UA keeps Yahoo's chart endpoint and Nasdaq's calendar happy.
 // Yahoo's API gateway is more relaxed; Nasdaq's CloudFront edge is the stricter
-// of the two. Override via FINANCE_USER_AGENT for deployer-specific values.
+// of the two. CONFIRMED by an in-container test from Railway prod: Nasdaq
+// tar-pits the old "Agent402/1.0" UA (request times out) but returns 200 to a
+// browser UA from the same egress IP. So the default MUST be a browser UA —
+// the previous Agent402 default is exactly what silently broke earnings-calendar.
+// Override via FINANCE_USER_AGENT for deployer-specific values.
 function financeUserAgent() {
   return (
     (process.env.FINANCE_USER_AGENT || "").trim() ||
-    "Mozilla/5.0 (compatible; Agent402/1.0; +https://agent402.tools)"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
   );
 }
 
@@ -120,12 +124,19 @@ async function fetchChart(symbol, params = {}) {
 // pattern as fetchChart/yfinance-relay: Railway egress IPs are null-routed
 // by Nasdaq's CloudFront. See workers/nasdaq-relay/README.md.
 async function fetchNasdaq(path) {
+  // Go DIRECT first. Confirmed from inside Railway prod: api.nasdaq.com returns
+  // 200 to a browser UA (see financeUserAgent) from our own egress IP — there is
+  // no IP block. The CF Worker relay is now the BROKEN path: Nasdaq blocks
+  // Cloudflare's Worker egress IPs and returns 520 through it. So the relay is
+  // only a fallback for a hypothetical future direct failure, never the primary.
   const relayUrl = (process.env.NASDAQ_RELAY_URL || "").trim().replace(/\/$/, "");
   const relayToken = (process.env.NASDAQ_RELAY_TOKEN || "").trim();
-  if (relayUrl && relayToken) {
+  if (!(relayUrl && relayToken)) return jsonGet(`https://api.nasdaq.com${path}`, "Nasdaq");
+  try {
+    return await jsonGet(`https://api.nasdaq.com${path}`, "Nasdaq");
+  } catch (e) {
     return jsonGet(`${relayUrl}${path}`, "Nasdaq (relay)", { Authorization: `Bearer ${relayToken}` });
   }
-  return jsonGet(`https://api.nasdaq.com${path}`, "Nasdaq");
 }
 
 export const FINANCE_TOOLS = [
@@ -173,7 +184,13 @@ export const FINANCE_TOOLS = [
       const r = data?.chart?.result?.[0];
       const m = r?.meta;
       if (!m || typeof m.regularMarketPrice !== "number") {
-        throw bad("Yahoo Finance returned no quote data for this symbol", 422);
+        // The bulk of this tool's real errors are well-formed-but-wrong symbols
+        // (an agent guessing the ticker format). Return the exact conventions so
+        // the agent can self-correct on the next call instead of re-guessing.
+        throw bad(
+          `No quote data for "${symbol}". Check the symbol format — equity: AAPL · index needs a caret: ^GSPC · FX pair uses =X: EURUSD=X · crypto uses -USD: BTC-USD.`,
+          422,
+        );
       }
       const price = m.regularMarketPrice;
       const prev = m.chartPreviousClose ?? m.previousClose ?? null;

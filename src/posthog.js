@@ -153,7 +153,11 @@ export function capturePostHogToolCall({ slug, latencyMs, cached, errored, statu
 //                          search_tools…). Property: surface.
 //   2. "paywall_402"     — a catalog route answered HTTP 402 (a real quote
 //                          was issued). Rolled up (see below); property
-//                          `count` carries the true total.
+//                          `count` carries the true total. `attempt` splits
+//                          the bounce: none / usdc_failed / pow_failed.
+//   2b. "pow_challenge"  — a free-tier PoW challenge was issued. Paired with
+//                          payment_settled{rail=pow} it measures free-tier
+//                          take rate (issued → solved). Rolled up like (2).
 //   3. "payment_settled" — the gate accepted payment and the tool returned
 //                          200. Properties: slug, rail (usdc / pow /
 //                          heartbeat / marketplace), network for USDC.
@@ -193,51 +197,103 @@ export function capturePostHogDiscovery({ surface, synthetic }) {
 // is the exact total — nothing is sampled away.
 const PAYWALL_FLUSH_MS = Math.max(1_000, Number(process.env.POSTHOG_PAYWALL_FLUSH_MS) || 900_000);
 const PAYWALL_TOP_SLUGS = 50;
-let paywallCounts = new Map(); // "slug|synthetic" -> { slug, priceUsd, powEligible, synthetic, count }
+let paywallCounts = new Map(); // "slug|synthetic|attempt" -> { slug, priceUsd, powEligible, synthetic, attempt, count }
 let paywallTimer = null;
 
-export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic }) {
+// One timer drives the whole rolled-up funnel (paywall_402 + pow_challenge).
+// Created lazily on the first captured count, unref'd so it never holds the
+// process open.
+function ensureFunnelTimer() {
+  if (!paywallTimer) {
+    paywallTimer = setInterval(flushPaywallRollup, PAYWALL_FLUSH_MS);
+    if (paywallTimer.unref) paywallTimer.unref();
+  }
+}
+
+// `attempt` classifies a 402 by what the caller actually tried — the
+// couldn't-pay vs wouldn't-pay split that turns a flat "93% bounce" into a
+// diagnosis:
+//   "none"        — no payment/PoW header on the request: a first-contact quote.
+//                   An agent with no funded wallet, a discovery crawl, or a
+//                   buyer that saw the price and left. Expected-to-bounce.
+//   "usdc_failed" — an X-PAYMENT authorization WAS present but the route still
+//                   answered 402 (facilitator/verification rejected it). A
+//                   buyer that tried to pay and couldn't — the fixable leak.
+//   "pow_failed"  — an X-Pow-Solution was present but rejected (bad/expired
+//                   work). Tried the free tier and missed.
+export function capturePostHogPaywall({ slug, priceUsd, powEligible, synthetic, attempt }) {
   if (!active()) return;
   try {
-    const key = `${slug}|${synthetic ? 1 : 0}`;
+    const att = attempt === "usdc_failed" || attempt === "pow_failed" ? attempt : "none";
+    const key = `${slug}|${synthetic ? 1 : 0}|${att}`;
     const cur = paywallCounts.get(key) || {
       slug: String(slug || "unknown"),
       priceUsd: Number(priceUsd) || 0,
       powEligible: !!powEligible,
       synthetic: !!synthetic,
+      attempt: att,
       count: 0,
     };
     cur.count++;
     paywallCounts.set(key, cur);
-    if (!paywallTimer) {
-      paywallTimer = setInterval(flushPaywallRollup, PAYWALL_FLUSH_MS);
-      if (paywallTimer.unref) paywallTimer.unref();
-    }
+    ensureFunnelTimer();
   } catch { /* never throw from telemetry */ }
 }
 
 function flushPaywallRollup() {
   try {
-    if (!paywallCounts.size) return;
-    const entries = [...paywallCounts.values()].sort((a, b) => b.count - a.count);
-    paywallCounts = new Map();
-    for (const e of entries.slice(0, PAYWALL_TOP_SLUGS)) {
-      capture("paywall_402", { slug: e.slug, count: e.count, priceUsd: e.priceUsd, powEligible: e.powEligible, synthetic: e.synthetic });
+    if (paywallCounts.size) {
+      const entries = [...paywallCounts.values()].sort((a, b) => b.count - a.count);
+      paywallCounts = new Map();
+      for (const e of entries.slice(0, PAYWALL_TOP_SLUGS)) {
+        capture("paywall_402", { slug: e.slug, count: e.count, priceUsd: e.priceUsd, powEligible: e.powEligible, synthetic: e.synthetic, attempt: e.attempt });
+      }
+      const rest = entries.slice(PAYWALL_TOP_SLUGS);
+      if (rest.length) {
+        // Fold the long tail per `attempt` (not into one bucket) so the
+        // couldn't-pay vs wouldn't-pay split survives for tail slugs too —
+        // at most three "_other" rows, and sum(count) stays the exact total.
+        const byAttempt = new Map();
+        for (const e of rest) byAttempt.set(e.attempt, (byAttempt.get(e.attempt) || 0) + e.count);
+        for (const [attempt, count] of byAttempt) {
+          capture("paywall_402", { slug: "_other", count, priceUsd: 0, powEligible: false, synthetic: false, attempt });
+        }
+      }
     }
-    const rest = entries.slice(PAYWALL_TOP_SLUGS);
-    if (rest.length) {
-      capture("paywall_402", {
-        slug: "_other",
-        count: rest.reduce((s, e) => s + e.count, 0),
-        priceUsd: 0,
-        powEligible: false,
-        synthetic: false,
-      });
-    }
+    flushPowChallengeRollup();
   } catch { /* never throw from telemetry */ }
 }
 export function _flushPaywallRollupForTest() {
   flushPaywallRollup();
+}
+
+// Free-tier funnel: a proof-of-work challenge was ISSUED (an agent asked how to
+// pay for free via GET /api/pow/challenge). Compared against
+// payment_settled{rail=pow}, this yields the free-tier take rate — of the
+// agents that fetched a challenge, how many solved it vs abandoned the work.
+// A near-zero take rate means the free path is discovered but too much friction;
+// zero issuance means it isn't discovered at all. Rolled up like paywall_402
+// (registry crawlers fetch challenges too), sharing the same flush timer.
+let powChallengeCounts = new Map(); // "slug|synthetic" -> { slug, synthetic, count }
+export function capturePostHogPowChallenge({ slug, synthetic }) {
+  if (!active()) return;
+  try {
+    const key = `${slug}|${synthetic ? 1 : 0}`;
+    const cur = powChallengeCounts.get(key) || { slug: String(slug || "unknown"), synthetic: !!synthetic, count: 0 };
+    cur.count++;
+    powChallengeCounts.set(key, cur);
+    ensureFunnelTimer();
+  } catch { /* never throw from telemetry */ }
+}
+function flushPowChallengeRollup() {
+  if (!powChallengeCounts.size) return;
+  const entries = [...powChallengeCounts.values()].sort((a, b) => b.count - a.count);
+  powChallengeCounts = new Map();
+  for (const e of entries.slice(0, PAYWALL_TOP_SLUGS)) {
+    capture("pow_challenge", { slug: e.slug, count: e.count, synthetic: e.synthetic });
+  }
+  const rest = entries.slice(PAYWALL_TOP_SLUGS);
+  if (rest.length) capture("pow_challenge", { slug: "_other", count: rest.reduce((s, e) => s + e.count, 0), synthetic: false });
 }
 
 // Settlements are rare and precious — always per-event. `rail` is what the

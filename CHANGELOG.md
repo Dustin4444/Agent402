@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Conversion funnel: diagnose the 402→settle drop-off** (`paywall_402` + new `pow_challenge`).
+  The funnel could show *that* agents bounce at the paywall but not *why*. Two privacy-preserving
+  dimensions fix that (still counts-only — no IP/UA/wallet): (1) `paywall_402` gains `attempt`,
+  splitting every 402 into `none` (first-contact quote — no payment header: no wallet, a crawl, or
+  looked-and-left), `usdc_failed` (an `X-PAYMENT` authorization was present but rejected — a buyer
+  that *tried* and couldn't, the fixable leak), or `pow_failed` (bad/expired proof-of-work). (2) A
+  new `pow_challenge` event counts free-tier challenges *issued* (`GET /api/pow/challenge`); paired
+  with `payment_settled{rail=pow}` it yields the free-tier take rate (issued → solved), exposing
+  whether the free path is undiscovered or just too much friction. Both roll up per `(slug, …)` on
+  the existing 15-min flush so crawler sweeps can't blow the event budget; the long tail folds per
+  `attempt` so the split survives for tail slugs. CI-locked (`scripts/test-posthog-funnel.js`).
+
 - **Buyer SDK spending caps** (`agent402-client` → **0.5.0**): the client now takes optional
   `maxPerCallUsd`, `dailyLimitUsd`, and `maxPerHostUsd` ceilings. A paid call that would break
   a cap is refused with `SpendingLimitError` **before any payment is signed** — a buyer-side

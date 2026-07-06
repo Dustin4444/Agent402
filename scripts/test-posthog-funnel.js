@@ -25,6 +25,7 @@ process.env.POSTHOG_TEST_CAPTURE = "1";
 const {
   capturePostHogDiscovery,
   capturePostHogPaywall,
+  capturePostHogPowChallenge,
   capturePostHogSettlement,
   capturePostHogToolError,
   _flushPaywallRollupForTest,
@@ -59,8 +60,37 @@ ok(got.length === 3 && got.every((e) => e.event === "paywall_402"), `flush emits
 ok(byKey.get("hash|0")?.count === 3 && byKey.get("hash|0")?.powEligible === true, "counts aggregate per slug");
 ok(byKey.get("hash|1")?.count === 1, "synthetic 402s roll up separately");
 ok(byKey.get("screenshot|0")?.count === 1 && byKey.get("screenshot|0")?.priceUsd === 0.01, "price rides along");
+ok(byKey.get("hash|0")?.attempt === "none", "402 with no payment header rolls up as attempt=none");
 _flushPaywallRollupForTest();
 ok(take().length === 0, "empty rollup flush emits nothing");
+
+// --- unit: attempt dimension splits couldn't-pay from wouldn't-pay ---------------
+capturePostHogPaywall({ slug: "search", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "none" });
+capturePostHogPaywall({ slug: "search", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "usdc_failed" });
+capturePostHogPaywall({ slug: "search", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "usdc_failed" });
+capturePostHogPaywall({ slug: "search", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "pow_failed" });
+_flushPaywallRollupForTest();
+got = take().filter((e) => e.properties.slug === "search");
+const byAttempt = new Map(got.map((e) => [e.properties.attempt, e.properties.count]));
+ok(got.length === 3, `same slug splits into one event per attempt (got ${got.length})`);
+ok(byAttempt.get("none") === 1 && byAttempt.get("usdc_failed") === 2 && byAttempt.get("pow_failed") === 1,
+  `attempt buckets counted independently (none=${byAttempt.get("none")}, usdc_failed=${byAttempt.get("usdc_failed")}, pow_failed=${byAttempt.get("pow_failed")})`);
+capturePostHogPaywall({ slug: "search", priceUsd: 0.02, powEligible: false, synthetic: false, attempt: "bogus" });
+_flushPaywallRollupForTest();
+ok(take().find((e) => e.properties.slug === "search")?.properties.attempt === "none", "unknown attempt value normalizes to none");
+
+// --- unit: pow_challenge rollup (free-tier issuance) -----------------------------
+for (let i = 0; i < 4; i++) capturePostHogPowChallenge({ slug: "hash", synthetic: false });
+capturePostHogPowChallenge({ slug: "qr", synthetic: false });
+capturePostHogPowChallenge({ slug: "hash", synthetic: true });
+ok(take().length === 0, "pow_challenge captures accumulate silently until flush");
+_flushPaywallRollupForTest();
+got = take().filter((e) => e.event === "pow_challenge");
+const pc = new Map(got.map((e) => [`${e.properties.slug}|${e.properties.synthetic ? 1 : 0}`, e.properties.count]));
+ok(pc.get("hash|0") === 4 && pc.get("qr|0") === 1 && pc.get("hash|1") === 1,
+  `pow_challenge rolls up per (slug, synthetic) (hash=${pc.get("hash|0")}, qr=${pc.get("qr|0")}, hash-synth=${pc.get("hash|1")})`);
+ok(got.every((e) => Object.keys(e.properties).sort().join(",") === "count,slug,synthetic"),
+  "pow_challenge properties are exactly {slug, count, synthetic} — no caller identity");
 
 // --- unit: rollup "_other" remainder keeps the exact total -----------------------
 for (let i = 0; i < 60; i++) {
@@ -175,6 +205,11 @@ try {
   const pw = of("paywall_402").find((e) => e.properties.slug === "hash");
   ok(Boolean(pw) && pw.properties.count >= 1 && pw.properties.powEligible === true,
     `server captured the 402 rollup for hash (count ${pw?.properties.count})`);
+  ok(pw?.properties.attempt === "none",
+    `the unpaid 402 is classified attempt=none — no payment header was sent (got ${pw?.properties.attempt})`);
+  const chal = of("pow_challenge").find((e) => e.properties.slug === "hash");
+  ok(Boolean(chal) && chal.properties.count >= 1,
+    `server captured a pow_challenge issuance for hash (count ${chal?.properties.count})`);
   const settled = of("payment_settled");
   ok(settled.length === 1 && settled[0].properties.slug === "hash" && settled[0].properties.rail === "pow",
     `exactly one settlement, slug=hash rail=pow (got ${settled.length}: ${JSON.stringify(settled.map((e) => e.properties))})`);

@@ -7,6 +7,16 @@ node_modules/
 agent-key
 agent-address.txt
 
+# Runtime databases (sales ledger, memory tools) — created at runtime and may
+# hold payer wallet addresses + settle tx hashes. Never commit; a public fork
+# must not inherit anyone's payment data.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
 # Private, machine-local Claude Code memory (never committed)
 CLAUDE.local.md
 

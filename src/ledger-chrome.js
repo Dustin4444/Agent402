@@ -71,6 +71,26 @@ a { color: inherit; }
   .ml-nav-gh  { display: none !important; }
   .ml-h1      { font-size: 40px !important; }
   .ml-hero-h1 { font-size: 42px !important; }
+  .ml-spec-cell { border-right: none !important; }
+}
+
+/* --- home hero (settled-calls proof, spec strip, staggered load) --- */
+@keyframes ml-ring { 0% { box-shadow: 0 0 0 0 #d63c1a66; } 70% { box-shadow: 0 0 0 7px #d63c1a00; } 100% { box-shadow: 0 0 0 0 #d63c1a00; } }
+@keyframes ml-rise { to { opacity: 1; transform: none; } }
+.ml-stagger > * { opacity: 0; transform: translateY(8px); animation: ml-rise .6s ease forwards; }
+.ml-stagger > *:nth-child(1) { animation-delay: .02s; }
+.ml-stagger > *:nth-child(2) { animation-delay: .10s; }
+.ml-stagger > *:nth-child(3) { animation-delay: .18s; }
+.ml-stagger > *:nth-child(4) { animation-delay: .26s; }
+.ml-stagger > *:nth-child(5) { animation-delay: .34s; }
+.ml-stagger > *:nth-child(6) { animation-delay: .42s; }
+.ml-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: ml-ring 2s infinite; flex: none; }
+.ml-cta { transition: transform .12s ease; }
+.ml-cta:hover { transform: translateY(-2px); }
+.ml-spec-cell:last-child { border-right: none; margin-right: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .ml-stagger > * { opacity: 1; transform: none; animation: none; }
+  .ml-dot { animation: none; }
 }
 `;
 
@@ -159,7 +179,7 @@ export function ledgerFooterFull() {
       </div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:36px;padding-top:18px;border-top:1px solid #cdc3ad;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
-      <span>open-source x402 + MCP server · built by <a href="https://github.com/MikeyPetrillo" rel="noopener" style="color:var(--muted);text-decoration:none;">Mike Petrillo</a> · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:none;">mike@agent402.tools</a></span>
+      <span>© 2026 Havok Holdings LLC · open-source x402 + MCP server · built by <a href="https://github.com/MikeyPetrillo" rel="noopener" style="color:var(--muted);text-decoration:none;">Mike Petrillo</a> · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:none;">mike@agent402.tools</a></span>
       <span style="display:flex;gap:16px;"><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
     </div>
   </div>
@@ -178,7 +198,7 @@ export function ledgerFooterCompact() {
       <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #cdc3ad;">
-      <span>built by <a href="https://github.com/MikeyPetrillo" rel="noopener" style="color:var(--muted);text-decoration:none;">Mike Petrillo</a> · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:none;">mike@agent402.tools</a></span>
+      <span>© 2026 Havok Holdings LLC · built by <a href="https://github.com/MikeyPetrillo" rel="noopener" style="color:var(--muted);text-decoration:none;">Mike Petrillo</a> · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:none;">mike@agent402.tools</a></span>
       <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
     </div>
   </div>
