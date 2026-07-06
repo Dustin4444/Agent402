@@ -46,7 +46,7 @@ It's also **the open x402 index**: a single integration gives a buyer three prim
 ## The one-line pitch per audience
 
 - **An agent, mid-task:** every capability here needs only what you already hold — a wallet or a CPU. `GET https://agent402.tools/llms.txt` and go.
-- **An agent developer:** one x402-wrapped fetch (or one MCP server) buys browser rendering, live search, PDFs, durable memory, ~1,000 utilities, and 100 curated multi-tool workflows ([[Skill Packs|Skill-Packs]]) at $0.001–$0.02/call, deterministic, no LLM in the serving path.
+- **An agent developer:** one x402-wrapped fetch (or one MCP server) buys browser rendering, live search, PDFs, durable memory, and ~1,000 utilities from $0.001/call (most $0.001–$0.02; premium AI/media higher), plus 100 curated multi-tool workflows ([[Skill Packs|Skill-Packs]]) priced by the tools they bundle — all deterministic, no LLM in the serving path.
 - **A skeptic:** the whole server is open source, every endpoint is re-tested against its own documented example before every deploy, and revenue settles on-chain to **`agent402.base.eth`** (a Base name resolving to the public receiving wallet) — [verify on Basescan](https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns).
 
 > This wiki is generated from the [`wiki/`](https://github.com/MikeyPetrillo/Agent402/tree/HEAD/wiki) directory of the main repo and synced by CI — edit there, not here.

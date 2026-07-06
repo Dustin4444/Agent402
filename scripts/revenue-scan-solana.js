@@ -97,7 +97,14 @@ export function payerFromMeta(meta, owner, mint = USDC_MINT) {
 /** Same contract as revenue-scan.js: external = not one of our wallets AND
  *  within the per-call price range. Unknown payers stay countable — on Solana
  *  the source account can be absent from meta, and an incoming per-call-sized
- *  transfer is still revenue. */
+ *  transfer is still revenue.
+ *
+ *  SIBLING COPY: scripts/revenue-scan.js has the EVM version. Difference is
+ *  deliberate — this one does NOT lowercase (base58 is case-sensitive) and counts
+ *  null-payer rows; the EVM one lowercases and rejects null. src/revenue-live.js
+ *  imports THIS copy for every rail (pre-lowercasing EVM payers itself). Keep the
+ *  amount/ownership logic in sync with the EVM copy so the digest and the live
+ *  /revenue page never diverge. */
 export function isExternalPayment(row, { ourWallets, maxUsd }) {
   if (!row) return false;
   if (row.payer && ourWallets.has(row.payer)) return false;

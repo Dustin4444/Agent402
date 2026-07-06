@@ -108,7 +108,17 @@ export function payerFromLog(l) {
 
 /** A transfer is a real external payment only if it's from a wallet that isn't
  *  ours AND the amount is within the per-call price range. Larger inbound
- *  (funding, manual tests, swaps) is not a tool purchase. */
+ *  (funding, manual tests, swaps) is not a tool purchase.
+ *
+ *  SIBLING COPY: scripts/revenue-scan-solana.js has a parallel isExternalPayment.
+ *  The two differ ON PURPOSE — this EVM version lowercases the payer (hex is
+ *  case-insensitive) and treats a null payer as non-external (EVM Transfer logs
+ *  always carry topics[1]); the Solana version must NOT lowercase (base58 is
+ *  case-sensitive) and counts null-source rows (the source can be absent from
+ *  meta). src/revenue-live.js imports the SOLANA copy and pre-lowercases EVM
+ *  payers before calling it, so all three surfaces classify identically today.
+ *  Keep the amount/ownership logic in sync across both — a change here that isn't
+ *  mirrored will drift the daily digest from the live /revenue page. */
 export function isExternalPayment(row, { ourWallets, maxUsd }) {
   if (!row || !row.payer) return false;
   const p = row.payer.toLowerCase();

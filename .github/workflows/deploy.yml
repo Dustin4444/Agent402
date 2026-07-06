@@ -760,6 +760,9 @@ jobs:
       - name: Idempotency (opt-in safe retry of paid/proven calls; boots paid-mode)
         run: node scripts/test-idempotency.js
 
+      - name: Tool correctness regressions (20 wrong-answer bugs from the review; boots free-mode, TZ=UTC)
+        run: node scripts/test-correctness-fixes.js
+
       - name: Buyer SDK (agent402-client — resolve + auto-pay via PoW; boots paid-mode)
         run: node client/test.js
 

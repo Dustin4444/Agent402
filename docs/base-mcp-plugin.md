@@ -1,6 +1,6 @@
 ---
 title: "Agent402 Plugin"
-description: "Discover and call 1,407 pay-per-call web tools via x402 payments (USDC on Base, Solana, Polygon & Arbitrum; USDG on Robinhood Chain) through Agent402.tools"
+description: "Discover and call 1,407 pay-per-call web tools via x402 payments (USDC on Base, Solana, Polygon, Arbitrum & Stellar; USDG on Robinhood Chain) through Agent402.tools"
 tags: [x402, tools, api, payments, agents]
 name: agent402
 version: 0.1.0
@@ -23,7 +23,7 @@ risk: []
 
 Agent402 is an open-source x402 tool server hosting 1,407 deterministic, pay-per-call web tools for AI agents at `https://agent402.tools`. Tools span browser rendering, web search, PDFs, OCR, image processing, financial data, crypto analytics, SEC EDGAR filings, unit conversions, encoding, hashing, and wallet-keyed memory. Every tool is called over HTTP: the agent receives an HTTP 402 response with exact USDC payment terms, pays via x402, and gets the result. Prices range $0.001--$0.02 per call. No signup, no API key -- the payment is the only credential.
 
-Agent402 exposes free discovery endpoints (no payment required) that resolve tasks to the right tool, plus paid tool endpoints that settle via x402 in USDC on Base, Solana, Polygon, or Arbitrum (or USDG on Robinhood Chain). This plugin teaches agents to discover tools, understand pricing, and call any tool using Base MCP's `initiate_x402_request` / `complete_x402_request` flow.
+Agent402 exposes free discovery endpoints (no payment required) that resolve tasks to the right tool, plus paid tool endpoints that settle via x402 in USDC on Base, Solana, Polygon, Arbitrum, or Stellar (or USDG on Robinhood Chain). This plugin teaches agents to discover tools, understand pricing, and call any tool using Base MCP's `initiate_x402_request` / `complete_x402_request` flow.
 
 ## Surface Routing
 
@@ -298,7 +298,7 @@ Then call `complete_x402_request` with the returned `requestId` to get the resul
 - **No signup or API key required.** The USDC payment via x402 is the only credential. The wallet address is the identity.
 - **Deterministic tools.** No LLM in the serving path -- same input always yields the same output. Results are trustworthy and reproducible.
 - **Idempotency.** For safe retries, pass an `Idempotency-Key` header. If the same key + endpoint is replayed, the cached result is returned without re-charging.
-- **Price range.** All tools cost $0.001--$0.02 per call. Use a `maxPayment` of `"0.05"` or less for any single tool. Check exact prices via `/api/find` or `/api/pricing`.
+- **Price range.** Most single tools cost $0.001--$0.02, but premium AI/media tools run up to $0.50, and multi-tool skill packs up to $1.50. **Don't hardcode a `maxPayment` cap** — read the exact price from `/api/pricing` (or the `402` quote) before paying, so you never under-cap and fail a legitimate call.
 - **Free discovery.** The endpoints `/api/find`, `/api/pricing`, `/api/route`, `/api/leaderboard`, `/.well-known/x402`, and `/api/reliability` are all free and require no payment.
 - **MCP connector.** For direct MCP access (outside Base MCP), paste `https://agent402.tools/mcp` into any MCP client. Pure-CPU tools run free there (rate-limited); paid tools require the `agent402-mcp` npm package with a funded wallet.
 - **Open source.** The full server is MIT-licensed at https://github.com/MikeyPetrillo/Agent402 -- read every line, self-host, or fork.
