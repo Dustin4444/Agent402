@@ -1397,8 +1397,8 @@ const cardSvg = (width = 1200, height = 630) => {
   <rect x="86" y="96" width="150" height="150" rx="30" fill="#000" stroke="#1f4a1d" stroke-width="2"/>
   <text x="161" y="186" font-size="56" font-weight="700" font-family="ui-monospace,Menlo,monospace" text-anchor="middle" fill="#4ade80">402</text>
   <text x="86" y="350" font-size="74" font-weight="800" font-family="system-ui,-apple-system,sans-serif" fill="#e6e9f0">Where agents pay agents<tspan fill="#4ade80">.</tspan></text>
-  <text x="88" y="416" font-size="33" font-family="system-ui,-apple-system,sans-serif" fill="#8b93a7">The open x402 index: ${n.toLocaleString("en-US")} pay-per-call tools for AI agents.</text>
-  <text x="88" y="492" font-size="26" font-family="ui-monospace,Menlo,monospace" fill="#4ade80">x402 · USDC on Base · Solana · Polygon · Arbitrum · open source</text>
+  <text x="88" y="416" font-size="33" font-family="system-ui,-apple-system,sans-serif" fill="#8b93a7">The open x402 index: ${n.toLocaleString("en-US")} tools + ${SKILL_PACKS.length} skill packs.</text>
+  <text x="88" y="492" font-size="26" font-family="ui-monospace,Menlo,monospace" fill="#4ade80">USDC on Base, Solana, Polygon, Arbitrum, Stellar · USDG on Robinhood</text>
   <text x="88" y="552" font-size="28" font-weight="600" font-family="ui-monospace,Menlo,monospace" fill="#e6e9f0">agent402.tools</text>
   </g>
 </svg>`;
