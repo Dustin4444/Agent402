@@ -73,7 +73,7 @@ const DISCOVERY_SOURCES = [
 // tunnels (*.trycloudflare.com and friends flap to STALE on every restart).
 const DEFAULT_SEEDS = [
   "https://agents.daedalusdevelopmentgroup.com", // DDG Agent-Payable Services (#222)
-  "https://jmt-x402-proxy.eastern-witch.workers.dev", // JMT x402 server (#221)
+  "https://jmt-x402-proxy.jmthomasofficial.workers.dev", // JMT x402 server (#221)
 ];
 
 const seedList = () => {
