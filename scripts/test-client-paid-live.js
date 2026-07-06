@@ -22,12 +22,24 @@ const client = new x402Client();
 registerExactEvmScheme(client, { signer: account });
 
 // Same internal-traffic marker the canary uses (HMAC(POW_SECRET, UTC minute)).
+// Also logs each outgoing request (whether it carried a payment) + the response,
+// so we can see if payFetch actually SENT a paid request or gave up.
 const secret = (process.env.POW_SECRET || "").trim();
-const synthFetch = !secret ? fetch : (url, init = {}) => {
-  const token = createHmac("sha256", secret).update(`heartbeat:${Math.floor(Date.now() / 60000)}`).digest("base64url").slice(0, 32);
+const reqLog = [];
+const decodePR = (r) => {
+  const hdr = r.headers.get("payment-required") || r.headers.get("www-authenticate") || "";
+  if (!hdr) return "";
+  try { return JSON.stringify(JSON.parse(Buffer.from(hdr.replace(/^Bearer /, ""), "base64").toString("utf8"))).slice(0, 300); }
+  catch { return hdr.slice(0, 120); }
+};
+const synthFetch = (url, init = {}) => {
   const headers = new Headers(init.headers || {});
-  headers.set("X-Heartbeat-Token", token);
-  return fetch(url, { ...init, headers });
+  if (secret) headers.set("X-Heartbeat-Token", createHmac("sha256", secret).update(`heartbeat:${Math.floor(Date.now() / 60000)}`).digest("base64url").slice(0, 32));
+  const paid = headers.has("x-payment");
+  return fetch(url, { ...init, headers }).then((r) => {
+    reqLog.push(`  ${(init.method || "GET")} ${String(url).split("/").pop().split("?")[0]} paid=${paid} -> ${r.status}${r.status !== 200 ? " · x402: " + decodePR(r) : ""}`);
+    return r;
+  });
 };
 const payFetch = wrapFetchWithPayment(synthFetch, client);
 
@@ -92,5 +104,6 @@ try {
   ok(e instanceof SpendingLimitError || e?.name === "SpendingLimitError", `cap BELOW price: refused before paying (${e?.name || "error"})`);
 }
 
+console.log(`--- request flow (payFetch internals) ---\n${reqLog.join("\n")}`);
 console.log(`\n${failed ? "FAILED" : "OK"}: ${pass} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
