@@ -3,11 +3,28 @@
 // (Treasury Fiscal Data, Frankfurter/ECB, or World Bank). Fails only if an
 // assertion breaks or if EVERY live call fails (which would mean our
 // integration is broken, not one upstream).
-import { MACRO_TOOLS } from "../src/tools/macro-kit.js";
+import { MACRO_TOOLS, retryTransient } from "../src/tools/macro-kit.js";
 
 const h = (slug) => MACRO_TOOLS.find((t) => t.slug === slug).handler;
 let assertFail = 0, liveOk = 0, liveErr = 0;
 const ok = (c, m) => { if (c) console.log(`ok - ${m}`); else { assertFail++; console.error(`ASSERT FAIL - ${m}`); } };
+
+// --- retry policy (offline, deterministic) — locks the fix for the treasury
+// 504s: retry transient transport failures, NEVER a deterministic 4xx. ---
+{
+  const mk = (failN, sc) => { let n = 0; return async () => { n++; if (n <= failN) throw Object.assign(new Error("boom"), { statusCode: sc }); return { n }; }; };
+  const r = await retryTransient(mk(1, 504), { retries: 1, backoffMs: 0 });
+  ok(r.n === 2, "retryTransient retries a 504 once, then succeeds (2 attempts)");
+  try { await retryTransient(mk(9, 503), { retries: 1, backoffMs: 0 }); ok(false, "persistent 503 should throw after retries exhausted"); }
+  catch (e) { ok(e.statusCode === 503, `persistent 503 throws the last error (got ${e.statusCode})`); }
+  const det = mk(9, 422);
+  try { await retryTransient(det, { retries: 1, backoffMs: 0 }); ok(false, "422 should throw"); }
+  catch (e) { ok(e.statusCode === 422, `deterministic 422 throws (got ${e.statusCode})`); }
+  // The 422 thunk must have been called EXACTLY once — no retry burned.
+  let onceCount = 0;
+  try { await retryTransient(async () => { onceCount++; throw Object.assign(new Error("x"), { statusCode: 400 }); }, { retries: 2, backoffMs: 0 }); } catch { /* expected */ }
+  ok(onceCount === 1, `a deterministic 4xx is never retried (called ${onceCount}× of a possible 3)`);
+}
 
 // --- deterministic validation (no network) ---
 for (const [slug, args, label] of [

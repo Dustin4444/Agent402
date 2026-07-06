@@ -173,7 +173,13 @@ export const FINANCE_TOOLS = [
       const r = data?.chart?.result?.[0];
       const m = r?.meta;
       if (!m || typeof m.regularMarketPrice !== "number") {
-        throw bad("Yahoo Finance returned no quote data for this symbol", 422);
+        // The bulk of this tool's real errors are well-formed-but-wrong symbols
+        // (an agent guessing the ticker format). Return the exact conventions so
+        // the agent can self-correct on the next call instead of re-guessing.
+        throw bad(
+          `No quote data for "${symbol}". Check the symbol format — equity: AAPL · index needs a caret: ^GSPC · FX pair uses =X: EURUSD=X · crypto uses -USD: BTC-USD.`,
+          422,
+        );
       }
       const price = m.regularMarketPrice;
       const prev = m.chartPreviousClose ?? m.previousClose ?? null;

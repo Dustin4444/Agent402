@@ -27,8 +27,45 @@ function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
+// api.fiscaldata.treasury.gov (and, more rarely, World Bank / Frankfurter)
+// intermittently time out or return a transient gateway error on the first hit
+// — observed as ~4-7% `504`s on treasury-debt / treasury-avg-rates. safeFetch
+// makes ONE attempt, so a single blip becomes a paid caller's error. One retry
+// with a short backoff clears the common single-blip case. Retry ONLY transient
+// transport failures (504 timeout/network, 502/503 gateway); a 4xx/422 is
+// deterministic, so retrying just wastes the caller's ~30s budget. Capped at one
+// extra attempt so worst-case latency stays within a tool's time budget
+// (2 × the 15s fetch timeout).
+// Retry a thunk on TRANSIENT upstream failures only — 504 (timeout/network),
+// 502/503 (gateway). A 4xx (400/422) is deterministic: the request itself is
+// wrong, so retrying just wastes the caller's budget — fail fast. Capped at one
+// extra attempt by default so worst-case latency stays within a tool's time
+// budget. Exported so the policy is unit-locked (test-macro-kit.js) — the
+// "never retry a deterministic error" rule is the part that must not regress.
+export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const sc = e?.statusCode;
+      if (attempt < retries && (sc === 504 || sc === 502 || sc === 503)) {
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
+async function safeFetchRetry(url, opts = {}) {
+  return retryTransient(() => safeFetch(url, opts));
+}
+
 async function getJson(url) {
-  const { html } = await safeFetch(url, { maxBytes: 5 * 1024 * 1024 });
+  const { html } = await safeFetchRetry(url, { maxBytes: 5 * 1024 * 1024 });
   try {
     return JSON.parse(html);
   } catch {
@@ -37,7 +74,7 @@ async function getJson(url) {
 }
 
 async function getText(url) {
-  const { html } = await safeFetch(url, { maxBytes: 5 * 1024 * 1024 });
+  const { html } = await safeFetchRetry(url, { maxBytes: 5 * 1024 * 1024 });
   return html;
 }
 
