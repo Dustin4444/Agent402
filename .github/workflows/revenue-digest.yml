@@ -39,6 +39,10 @@ jobs:
           curl -s --max-time 90 "$PROD/api/x402-economy" -o /dev/null -w "economy snapshot: HTTP %{http_code}\n" || true
 
       - name: Scan every offered rail
+        # Alchemy key gives revenue-scan.js reliable getLogs — free public RPCs
+        # (Polygon especially) rate-limit the runner's cloud IP and skip the rail.
+        env:
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
         run: |
           mkdir -p /tmp/digest
           # The live 402 is the source of truth for which chains are offered

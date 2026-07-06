@@ -36,20 +36,28 @@ const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.5");
 // x402 accepts (same 0x payTo, different native-USDC contract) — without this
 // their settlements are as invisible as Solana's were. Native Circle USDC
 // addresses + RPC lists mirror src/tools/x402-kit.js.
+// Alchemy first (reliable getLogs) — free public RPCs rate-limit cloud IPs,
+// which is why this scanner's Polygon reads flaked from the GitHub Actions
+// runner even though the chunked-scan fix was in place. One Alchemy key works
+// across every network via its subdomain; when unset we fall back to the free
+// RPCs unchanged. Same pattern as src/revenue-live.js.
+const ALCHEMY = process.env.ALCHEMY_API_KEY;
+const alchemy = (sub) => (ALCHEMY ? [`https://${sub}.g.alchemy.com/v2/${ALCHEMY}`] : []);
+
 const EVM_NETWORKS = {
   base: {
     usdc: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-    rpcs: ["https://mainnet.base.org", "https://base.llamarpc.com", "https://base.drpc.org"],
+    rpcs: [...alchemy("base-mainnet"), "https://mainnet.base.org", "https://base.llamarpc.com", "https://base.drpc.org"],
     spanBlocks: 12000, // ~6.5h at 2s blocks
   },
   polygon: {
     usdc: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
-    rpcs: ["https://polygon-rpc.com", "https://polygon.llamarpc.com", "https://polygon.drpc.org"],
+    rpcs: [...alchemy("polygon-mainnet"), "https://polygon.drpc.org", "https://polygon.llamarpc.com", "https://polygon-rpc.com"],
     spanBlocks: 9500, // ~5.5h at 2.1s blocks — free-tier RPCs cap getLogs ranges at 10k blocks
   },
   arbitrum: {
     usdc: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
-    rpcs: ["https://arb1.arbitrum.io/rpc", "https://arbitrum.llamarpc.com", "https://arbitrum.drpc.org"],
+    rpcs: [...alchemy("arb-mainnet"), "https://arb1.arbitrum.io/rpc", "https://arbitrum.llamarpc.com", "https://arbitrum.drpc.org"],
     spanBlocks: 90000, // ~6h at 0.25s blocks (address-filtered getLogs stays cheap)
   },
   // Robinhood Chain settles USDG (Global Dollar), not USDC — same 6 decimals,
@@ -58,7 +66,7 @@ const EVM_NETWORKS = {
   robinhood: {
     usdc: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     token: "USDG",
-    rpcs: ["https://rpc.mainnet.chain.robinhood.com"],
+    rpcs: [...alchemy("robinhood-mainnet"), "https://rpc.mainnet.chain.robinhood.com"],
     spanBlocks: 12000, // ~6.5h at 2s blocks (Arbitrum Orbit defaults)
   },
 };
