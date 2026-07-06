@@ -1,20 +1,25 @@
 # Agent402 + LangChain Starter
-# pip install agent402-langchain langchain-openai
+# pip install "agent402-langchain[langchain]" langchain langchain-openai
+#
+# Pure-CPU tools are FREE via built-in proof-of-work (no wallet, no keys).
+# Live-data tools (market data, web search, EDGAR, on-chain) are wallet-only:
+# construct the toolkit with x402_fetch=<callable> that signs USDC payment.
+# See https://agent402.tools/docs.
 
 from agent402_langchain import Agent402Toolkit
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate
 
-# Agent402 tools — free via proof-of-work, no wallet needed
+# Agent402's 1,407 tools as four LangChain meta-tools (find / route / call / about)
 toolkit = Agent402Toolkit(base_url="https://agent402.tools")
 tools = toolkit.get_tools()
 
-# Your LLM (bring your own key)
-llm = ChatOpenAI(model="gpt-4o")
+llm = ChatOpenAI(model="gpt-4o")  # bring your own key
 
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a helpful assistant with access to Agent402's 1,355 web tools."),
+    ("system", "You are an assistant with access to Agent402's 1,407 pay-per-call tools. "
+               "Use agent402_find to pick a tool, then agent402_call to run it."),
     ("human", "{input}"),
     ("placeholder", "{agent_scratchpad}"),
 ])
@@ -22,6 +27,6 @@ prompt = ChatPromptTemplate.from_messages([
 agent = create_tool_calling_agent(llm, tools, prompt)
 executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 
-# Try it
-result = executor.invoke({"input": "What's the current price of AAPL stock?"})
+# Runs on the free tier (proof-of-work): a pure-CPU tool, no wallet needed.
+result = executor.invoke({"input": "Generate a QR code for https://agent402.tools"})
 print(result["output"])

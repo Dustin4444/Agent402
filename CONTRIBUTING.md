@@ -6,7 +6,20 @@ useful to every agent that connects. Bug fixes and docs are just as welcome.
 
 Issues and tool ideas: [open an issue](https://github.com/MikeyPetrillo/Agent402/issues).
 For anything that doesn't fit a public issue, email **mike@agent402.tools**.
-MIT licensed — by contributing you agree your contribution is too.
+MIT licensed — by contributing you agree your contribution is too (standard
+"inbound = outbound": you keep the copyright on your code, shared under MIT like
+the rest of the project).
+
+## List your x402 seller
+
+Running your own x402 service? Get it into the index in one line:
+
+1. Publish a service manifest at `/.well-known/x402` (identity + payment options).
+2. Add your origin to `DEFAULT_SEEDS` in
+   [`src/x402-index.js`](src/x402-index.js) — **stable HTTPS origins only** (no
+   ephemeral tunnels like `*.trycloudflare.com`; they flap to `STALE`).
+3. Open a PR. The index crawls and health-checks it automatically every few
+   minutes — a dead origin just shows `STALE`, so there's nothing to maintain.
 
 ## Dev quickstart
 

@@ -23,3 +23,10 @@ CLAUDE.local.md
 # Local Claude Code per-project settings — never committed
 .claude/
 *.traineddata
+
+# Python build artifacts
+__pycache__/
+*.pyc
+dist/
+build/
+*.egg-info/
