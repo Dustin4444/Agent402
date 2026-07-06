@@ -141,7 +141,7 @@ export const AGENT_TOOLS = [
     handler: async (i) => {
       const text = cap(need(i, "text"));
       const { enc, encoding } = await getEncoder(i.model || "gpt-4o");
-      return { tokens: enc.encode(text).length, characters: text.length, model: i.model || "gpt-4o", encoding };
+      return { tokens: enc.encode(text).length, characters: [...text].length, model: i.model || "gpt-4o", encoding };
     },
   },
   {
@@ -174,10 +174,20 @@ export const AGENT_TOOLS = [
       if (unit === "tokens") {
         const { enc, encoding } = await getEncoder(i.model || "gpt-4o");
         const toks = enc.encode(text);
-        for (let s = 0; s < toks.length; s += step) chunks.push(enc.decode(toks.slice(s, s + size)));
+        for (let s = 0; s < toks.length; s += step) {
+          chunks.push(enc.decode(toks.slice(s, s + size)));
+          if (s + size >= toks.length) break; // reached the end; skip redundant tail chunks
+        }
         return { unit, size, overlap, model: i.model || "gpt-4o", encoding, count: chunks.length, chunks };
       }
-      for (let s = 0; s < text.length; s += step) chunks.push(text.slice(s, s + size));
+      // Chunk by code points (not UTF-16 units) so emoji/surrogate pairs aren't
+      // split, and stop once a chunk reaches the end so a large overlap can't emit
+      // redundant tail chunks wholly contained in earlier ones.
+      const cp = [...text];
+      for (let s = 0; s < cp.length; s += step) {
+        chunks.push(cp.slice(s, s + size).join(""));
+        if (s + size >= cp.length) break;
+      }
       return { unit, size, overlap, count: chunks.length, chunks };
     },
   },

@@ -119,7 +119,16 @@ export const MATH_TOOLS = [
       }
 
       const g = gcd(a, b);
-      const lcm = (a / g) * b; // avoid overflow by dividing first
+      // Compute LCM in BigInt so it stays exact past 2^53 (a plain double product
+      // silently lost precision); return a Number when it fits, else a string.
+      let lcm;
+      if (Number.isInteger(a) && Number.isInteger(b) && g !== 0) {
+        const lcmBig = (BigInt(a) / BigInt(g)) * BigInt(b);
+        lcm = lcmBig <= BigInt(Number.MAX_SAFE_INTEGER) && lcmBig >= -BigInt(Number.MAX_SAFE_INTEGER)
+          ? Number(lcmBig) : lcmBig.toString();
+      } else {
+        lcm = g === 0 ? 0 : (a / g) * b;
+      }
 
       return { a, b, gcd: g, lcm, coprime: g === 1 };
     },

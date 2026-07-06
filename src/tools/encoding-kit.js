@@ -248,14 +248,16 @@ export const ENCODING_TOOLS = [
       if (!input.text && input.text !== "") throw bad('Missing "text"');
       const text = String(input.text);
       if (input.decode) {
-        const bytes = text.trim().split(/\s+/);
-        const decoded = bytes.map((b) => {
-          if (!/^[01]{1,8}$/.test(b)) throw bad(`Invalid binary byte "${b}"`);
-          return String.fromCharCode(parseInt(b, 2));
-        }).join("");
+        const groups = text.trim().split(/\s+/);
+        for (const b of groups) if (!/^[01]{1,8}$/.test(b)) throw bad(`Invalid binary byte "${b}"`);
+        // Reassemble bytes and UTF-8-decode, so multi-byte characters round-trip.
+        const decoded = new TextDecoder().decode(Uint8Array.from(groups.map((b) => parseInt(b, 2))));
         return { result: decoded, mode: "decode", original: text };
       }
-      const encoded = [...text].map((ch) => ch.charCodeAt(0).toString(2).padStart(8, "0")).join(" ");
+      // Encode via UTF-8 bytes — charCodeAt(0) dropped astral chars to a lone
+      // surrogate and emitted >8-bit groups for any code point >255 (which the
+      // decoder then rejected). UTF-8 keeps every byte 8 bits and round-trips.
+      const encoded = [...new TextEncoder().encode(text)].map((byte) => byte.toString(2).padStart(8, "0")).join(" ");
       return { result: encoded, mode: "encode", original: text };
     },
   },

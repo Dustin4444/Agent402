@@ -85,6 +85,9 @@ function csvLint(text, delimiter) {
 function ipv6Expand(addr) {
   let full = addr.toLowerCase().trim();
   if (full.includes("::")) {
+    // "::" may appear at most once; "1::2::3" is invalid. split("::") on multiple
+    // occurrences silently dropped groups and returned a bogus "valid" result.
+    if (full.indexOf("::") !== full.lastIndexOf("::")) throw bad("invalid IPv6 address: '::' may appear only once");
     const [left, right] = full.split("::");
     const lGroups = left ? left.split(":") : [];
     const rGroups = right ? right.split(":") : [];

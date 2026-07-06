@@ -266,7 +266,7 @@ export const STRING_TOOLS = [
 
       const freq = {};
       const categories = { letters: 0, digits: 0, spaces: 0, punctuation: 0, other: 0 };
-      const total = input.text.length;
+      const total = [...input.text].length; // count code points, matching the code-point iteration below
 
       for (const ch of input.text) {
         freq[ch] = (freq[ch] || 0) + 1;

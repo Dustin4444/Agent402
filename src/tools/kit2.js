@@ -608,6 +608,12 @@ const conversion = [
         const cur = map[s[k]], next = map[s[k + 1]] || 0;
         total += cur < next ? -cur : cur;
       }
+      // Charset-only wasn't enough — "IIII", "VV", "IC" all passed. Require the
+      // canonical form to round-trip: re-encode the parsed value and demand it
+      // equals the input, which rejects any non-standard numeral.
+      let canon = "", n = total;
+      for (const [val, sym] of ROMAN) while (n >= val) { canon += sym; n -= val; }
+      if (canon !== s) throw bad("Not a valid Roman numeral");
       return { result: total };
     },
   },
@@ -867,11 +873,24 @@ const time = [
       const b = parseDate(need(i, "birthdate", "any"), "birthdate");
       const now = parseDate(i.asOf, "asOf");
       if (b > now) throw bad("birthdate is in the future");
-      let years = now.getUTCFullYear() - b.getUTCFullYear();
-      let months = now.getUTCMonth() - b.getUTCMonth();
-      let days = now.getUTCDate() - b.getUTCDate();
-      if (days < 0) { months--; days += new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)).getUTCDate(); }
-      if (months < 0) { years--; months += 12; }
+      // Anchor-and-clamp: add whole months to the birth date (clamping the day to
+      // the target month's length, so Jan 31 + 1mo = Feb 28/29), back off if we
+      // overshot `now`, then the remainder is the day count. The old subtract-and-
+      // borrow approach produced NEGATIVE days when the birth-day exceeded the
+      // borrow month's length (e.g. born the 31st, measured into a short month).
+      const addMonths = (d, m) => {
+        const mo = d.getUTCMonth() + m;
+        const ty = d.getUTCFullYear() + Math.floor(mo / 12);
+        const tm = ((mo % 12) + 12) % 12;
+        const lastDay = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate();
+        return new Date(Date.UTC(ty, tm, Math.min(d.getUTCDate(), lastDay), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()));
+      };
+      let totalMonths = (now.getUTCFullYear() - b.getUTCFullYear()) * 12 + (now.getUTCMonth() - b.getUTCMonth());
+      if (addMonths(b, totalMonths) > now) totalMonths--;
+      const anchor = addMonths(b, totalMonths);
+      const years = Math.floor(totalMonths / 12);
+      const months = totalMonths % 12;
+      const days = Math.floor((now - anchor) / 86400000);
       return { years, months, days, totalDays: Math.floor((now - b) / 86400000) };
     },
   },

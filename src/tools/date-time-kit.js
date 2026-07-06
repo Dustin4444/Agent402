@@ -159,8 +159,17 @@ function lastWeekday(year, month, dow) {
 
 function getUSHolidays(year) {
   const holidays = [];
-  // Fixed-date holidays
-  for (const [m, d] of US_HOLIDAYS_FIXED) holidays.push(new Date(year, m - 1, d));
+  // Fixed-date holidays, with federal weekend observation: a holiday on Saturday
+  // is observed the preceding Friday, on Sunday the following Monday (the actual
+  // non-working weekday). Without this, a weekend holiday was counted as a normal
+  // business day and its observed weekday was missed.
+  for (const [m, d] of US_HOLIDAYS_FIXED) {
+    let hd = new Date(year, m - 1, d);
+    const dow = hd.getDay();
+    if (dow === 6) hd = new Date(year, m - 1, d - 1);
+    else if (dow === 0) hd = new Date(year, m - 1, d + 1);
+    holidays.push(hd);
+  }
   // Monday-observed holidays
   holidays.push(nthWeekday(year, 1, 1, 3));   // MLK Day: 3rd Monday in January
   holidays.push(nthWeekday(year, 2, 1, 3));   // Presidents' Day: 3rd Monday in February
@@ -356,7 +365,9 @@ export const DATE_TIME_TOOLS = [
       if (secs < 0) { mins--; secs += 60; }
       if (mins < 0) { hrs--; mins += 60; }
       if (hrs < 0) { days--; hrs += 24; }
-      if (days < 0) { months--; days += 30; } // approx
+      // Borrow the real number of days in the preceding month, not a flat 30 —
+      // the hardcoded approximation was off by a day for 31-day months.
+      if (days < 0) { months--; days += new Date(later.getUTCFullYear(), later.getUTCMonth(), 0).getDate(); }
 
       const totalDays = Math.floor(absDiffMs / 86400000);
       return {
