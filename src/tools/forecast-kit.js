@@ -367,9 +367,9 @@ export const FORECAST_TOOLS = [
         example: {
           method: "holt", n: 10, horizon: 3, alpha: 0.5, beta: 0.3,
           forecast: [
-            { step: 1, point: 163.2012, lower95: 162.4237, upper95: 163.9786 },
-            { step: 2, point: 169.7416, lower95: 168.4665, upper95: 171.0167 },
-            { step: 3, point: 176.282, lower95: 174.5007, upper95: 178.0633 },
+            { step: 1, point: 163.2012, lower95: 161.6463, upper95: 164.756 },
+            { step: 2, point: 169.7416, lower95: 167.8871, upper95: 171.596 },
+            { step: 3, point: 176.282, lower95: 174.049, upper95: 178.515 },
           ],
         },
       },

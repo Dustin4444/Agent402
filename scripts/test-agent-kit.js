@@ -17,7 +17,9 @@ ok(r.tokens === 9 && r.characters === 43, `token-count sentence = 9 tokens / 43 
 
 // text-chunk: chars with overlap
 r = await run("text-chunk", { text: "abcdefghij", size: 4, overlap: 1, unit: "chars" });
-ok(JSON.stringify(r.chunks) === JSON.stringify(["abcd", "defg", "ghij", "j"]), `text-chunk chars size4 overlap1 (got ${JSON.stringify(r.chunks)})`);
+// "ghij" already reaches the end (index 9), so the old trailing "j" chunk was a
+// redundant tail wholly contained in it — the fix drops it.
+ok(JSON.stringify(r.chunks) === JSON.stringify(["abcd", "defg", "ghij"]), `text-chunk chars size4 overlap1 — no redundant tail (got ${JSON.stringify(r.chunks)})`);
 // text-chunk: tokens round-trips back to original text when concatenated without overlap
 r = await run("text-chunk", { text: "The quick brown fox jumps over the lazy dog", size: 3, overlap: 0, unit: "tokens" });
 ok(r.chunks.join("") === "The quick brown fox jumps over the lazy dog", `text-chunk tokens reassembles original (got ${r.count} chunks)`);

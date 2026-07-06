@@ -475,7 +475,7 @@ export const DATE_TIME_TOOLS = [
         example: {
           start: "2026-01-01", end: "2026-12-31",
           holidaysExcluded: true,
-          businessDays: 251, weekendDays: 104, holidayDays: 10, totalDays: 365,
+          businessDays: 250, weekendDays: 104, holidayDays: 11, totalDays: 365,
         },
       },
     },
