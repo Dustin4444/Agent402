@@ -32,12 +32,18 @@ const decodePR = (r) => {
   try { return JSON.stringify(JSON.parse(Buffer.from(hdr.replace(/^Bearer /, ""), "base64").toString("utf8"))).slice(0, 300); }
   catch { return hdr.slice(0, 120); }
 };
-const synthFetch = (url, init = {}) => {
-  const headers = new Headers(init.headers || {});
-  if (secret) headers.set("X-Heartbeat-Token", createHmac("sha256", secret).update(`heartbeat:${Math.floor(Date.now() / 60000)}`).digest("base64url").slice(0, 32));
-  const paid = headers.has("x-payment");
-  return fetch(url, { ...init, headers }).then((r) => {
-    reqLog.push(`  ${(init.method || "GET")} ${String(url).split("/").pop().split("?")[0]} paid=${paid} -> ${r.status}${r.status !== 200 ? " · x402: " + decodePR(r) : ""}`);
+const synthFetch = (input, init) => {
+  // input may be a string URL or a Request object — @x402/fetch passes a Request
+  // (with the X-PAYMENT header) for the paid retry. Build via `new Request` so the
+  // method/body/payment header are PRESERVED, then ADD the heartbeat header. The
+  // old `fetch(url, {...init, headers})` rebuilt the request and dropped X-PAYMENT,
+  // so no payment was ever sent.
+  const req = new Request(input, init);
+  if (secret) req.headers.set("X-Heartbeat-Token", createHmac("sha256", secret).update(`heartbeat:${Math.floor(Date.now() / 60000)}`).digest("base64url").slice(0, 32));
+  const paid = req.headers.has("x-payment");
+  const label = req.url.split("/").pop().split("?")[0];
+  return fetch(req).then((r) => {
+    reqLog.push(`  ${req.method} ${label} paid=${paid} -> ${r.status}${r.status !== 200 ? " · x402err: " + decodePR(r).slice(0, 90) : ""}`);
     return r;
   });
 };
