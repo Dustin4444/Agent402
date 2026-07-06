@@ -1979,13 +1979,15 @@ export const SKILL_PACKS = [
     toolSlugs: [
       "edgar-recent-ipos",
       "search",
+      "search-news",
     ],
     workflow: [
       "Pull recent IPO/S-1 filings from EDGAR over the last 14 days.",
       "Search the web for recent IPO filings and pricing news.",
+      "Pull recent news specifically with search-news — pricing dates, debut-day moves, and withdrawals surface in news faster than in the general web index.",
     ],
     claudePrompt:
-      "What companies are going public this month? Use Agent402's ipo-watch skill pack to (1) pull recent S-1/IPO filings from EDGAR, (2) search for IPO news. Summarize the pipeline.",
+      "What companies are going public this month? Use Agent402's ipo-watch skill pack to (1) pull recent S-1/IPO filings from EDGAR, (2) search the web, (3) pull recent IPO news with search-news. Summarize the pipeline.",
   },
 
   {
@@ -2045,13 +2047,15 @@ export const SKILL_PACKS = [
     toolSlugs: [
       "fx-rate",
       "fx-dashboard",
+      "fx-historical",
     ],
     workflow: [
       "Pull EUR/USD, GBP/USD, and JPY/USD spot rates.",
       "Get the full FX dashboard for a broader view of currency movements.",
+      "Pull the recent historical series for EUR/USD with fx-historical — a spot rate only means something read against its own trend.",
     ],
     claudePrompt:
-      "Give me a major currency snapshot using Agent402's fx-monitor skill pack. Get EUR/USD, GBP/USD, JPY/USD rates plus the full FX dashboard. Flag any pair at a multi-month extreme.",
+      "Give me a major currency snapshot using Agent402's fx-monitor skill pack. Get (1) EUR/USD, GBP/USD, JPY/USD spot rates, (2) the full FX dashboard, (3) the recent EUR/USD history via fx-historical. Flag any pair at a multi-month extreme.",
   },
 
   {
@@ -2313,13 +2317,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "password", description: "The password to evaluate", required: true, substitute: "MyP@ssw0rd123" },
     ],
-    toolSlugs: ["password-strength", "password"],
+    toolSlugs: ["password-strength", "password", "hash"],
     workflow: [
       "Evaluate the submitted password with password-strength — returns entropy bits, estimated crack time, and a list of weaknesses (common patterns, dictionary words, keyboard walks).",
       "Generate a strong replacement with password — length 16, symbols enabled. The user can adopt it if the original fails the strength check.",
+      "Hash the accepted password with hash (sha256) to show the at-rest representation — you store the digest, never the plaintext. This demonstrates the correct storage step; production systems should use a dedicated password KDF (bcrypt/scrypt/argon2) rather than a bare hash.",
     ],
     claudePrompt:
-      "Audit the password \"MyP@ssw0rd123\" using Agent402: (1) password-strength {password} — get entropy + crack time + weaknesses. (2) password {length:16} — generate a strong replacement. Return {strength, replacement}.",
+      "Audit the password \"MyP@ssw0rd123\" using Agent402: (1) password-strength {password} — get entropy + crack time + weaknesses. (2) password {length:16} — generate a strong replacement. (3) hash {text:<accepted password>, algo:\"sha256\"} — show the at-rest digest. Return {strength, replacement, digest}.",
   },
 
   {
@@ -2351,13 +2356,14 @@ export const SKILL_PACKS = [
       { name: "pattern", description: "Regex pattern to test (e.g. \\b\\w+@\\w+\\.\\w+\\b)", required: true, substitute: "\\b\\w+@\\w+\\.\\w+\\b" },
       { name: "text", description: "Text to match against", required: true, substitute: "Contact us at hello@example.com or support@test.org" },
     ],
-    toolSlugs: ["regex", "text-stats"],
+    toolSlugs: ["regex", "text-stats", "extract-entities"],
     workflow: [
       "Run the regex against the text — returns all matches, capture groups, and match indices.",
       "Compute text-stats on the input text — word count, character count, line count. Useful context for understanding match density (e.g. 2 matches in 50 words = low density).",
+      "Cross-check with extract-entities — the built-in deterministic extractor for emails, URLs, phone numbers, and more. Anything it finds that your pattern missed (or vice-versa) is a discrepancy in the pattern worth investigating before you ship it.",
     ],
     claudePrompt:
-      "Test the regex \\b\\w+@\\w+\\.\\w+\\b against \"Contact us at hello@example.com or support@test.org\" using Agent402: (1) regex {pattern, text, flags:\"g\"} — get matches. (2) text-stats {text} — get word/char counts. Return {matches, stats}.",
+      "Test the regex \\b\\w+@\\w+\\.\\w+\\b against \"Contact us at hello@example.com or support@test.org\" using Agent402: (1) regex {pattern, text, flags:\"g\"} — get matches. (2) text-stats {text} — get word/char counts. (3) extract-entities {text} — cross-check against the built-in extractor. Return {matches, stats, entities}.",
   },
 
   {
@@ -2413,13 +2419,14 @@ export const SKILL_PACKS = [
       { name: "a", description: "First version (e.g. 2.4.0)", required: true, substitute: "2.4.0" },
       { name: "b", description: "Second version (e.g. 2.10.1)", required: true, substitute: "2.10.1" },
     ],
-    toolSlugs: ["semver", "json-diff"],
+    toolSlugs: ["semver", "json-diff", "regex"],
     workflow: [
+      "Validate both inputs against a strict semver pattern with regex (e.g. ^\\d+\\.\\d+\\.\\d+ with optional pre-release/build) — catches a trailing tag, a missing patch segment, or a stray 'v' prefix before you trust the comparison.",
       "Compare the two versions with semver — returns which is greater, the difference type (major/minor/patch), and parsed components.",
       "Show the structural difference with json-diff — wraps each version in an object and diffs them, making the changed fields visible.",
     ],
     claudePrompt:
-      "Compare versions using Agent402: (1) semver {a:\"2.4.0\", b:\"2.10.1\"} — compare. (2) json-diff {a:{version:\"2.4.0\"}, b:{version:\"2.10.1\"}} — structural diff. Return {comparison, diff}.",
+      "Compare versions using Agent402: (1) regex {pattern:<strict semver shape>, text:\"2.4.0\"} — validate both are well-formed. (2) semver {a:\"2.4.0\", b:\"2.10.1\"} — compare. (3) json-diff {a:{version:\"2.4.0\"}, b:{version:\"2.10.1\"}} — structural diff. Return {valid, comparison, diff}.",
   },
 
   {
@@ -2432,13 +2439,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "words", description: "Number of words to generate (default 100)", required: false, substitute: "100" },
     ],
-    toolSlugs: ["lorem", "text-stats"],
+    toolSlugs: ["lorem", "text-stats", "token-count"],
     workflow: [
       "Generate placeholder text with lorem — produces N words of lorem ipsum.",
       "Measure the generated text with text-stats — returns word count, character count, sentence count, and estimated tokens.",
+      "Get a precise LLM token estimate with token-count — the exact figure you need when sizing the placeholder against a model's context window, rather than the approximate word-based guess text-stats gives.",
     ],
     claudePrompt:
-      "Generate and measure placeholder text using Agent402: (1) lorem {words:100} — generate text. (2) text-stats on the generated text — get counts. Return {text, stats}.",
+      "Generate and measure placeholder text using Agent402: (1) lorem {words:100} — generate text. (2) text-stats on the generated text — get counts. (3) token-count on the text — precise LLM token budget. Return {text, stats, tokens}.",
   },
 
   {
@@ -2451,13 +2459,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "text", description: "URL or text to encode (e.g. https://agent402.tools)", required: true, substitute: "https://agent402.tools" },
     ],
-    toolSlugs: ["qr", "url-parse"],
+    toolSlugs: ["qr", "url-parse", "hash"],
     workflow: [
       "Generate the QR code with qr — returns a base64-encoded PNG image at 512px.",
       "Parse the URL with url-parse — validates structure and returns protocol, hostname, path, query params. Catches malformed URLs before they're encoded.",
+      "Derive a stable content-addressed filename with hash (sha256 of the URL) — the same URL always yields the same digest, so regenerating the QR is idempotent and you never accumulate duplicate image files for one destination.",
     ],
     claudePrompt:
-      "Generate a QR code using Agent402: (1) qr {text:\"https://agent402.tools\", size:512} — get base64 PNG. (2) url-parse {url:\"https://agent402.tools\"} — validate URL structure. Return {qrImage, urlParsed}.",
+      "Generate a QR code using Agent402: (1) qr {text:\"https://agent402.tools\", size:512} — get base64 PNG. (2) url-parse {url:\"https://agent402.tools\"} — validate URL structure. (3) hash {text:\"https://agent402.tools\", algo:\"sha256\"} — stable filename for the PNG. Return {qrImage, urlParsed, filename}.",
   },
 
   {
@@ -2532,13 +2541,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "markdown", description: "Markdown text to convert", required: true, substitute: "# Hello\\n\\nThis is **bold** and _italic_." },
     ],
-    toolSlugs: ["markdown-to-html", "html-to-markdown"],
+    toolSlugs: ["markdown-to-html", "html-to-markdown", "text-diff"],
     workflow: [
       "Convert markdown to HTML with markdown-to-html — produces clean semantic HTML.",
       "Convert the HTML back to markdown with html-to-markdown — verifies round-trip fidelity. Differences indicate formatting that doesn't survive the conversion.",
+      "Diff the original markdown against the round-tripped markdown with text-diff — the diff IS the fidelity report: an empty diff means lossless, and every hunk is exactly the formatting that didn't survive the HTML round-trip.",
     ],
     claudePrompt:
-      "Round-trip markdown using Agent402: (1) markdown-to-html {markdown:\"# Hello\\n\\nThis is **bold** and _italic_.\"} — get HTML. (2) html-to-markdown on the result — verify round-trip. Return {html, roundTripped}.",
+      "Round-trip markdown using Agent402: (1) markdown-to-html {markdown:\"# Hello\\n\\nThis is **bold** and _italic_.\"} — get HTML. (2) html-to-markdown on the result — verify round-trip. (3) text-diff {a:<original>, b:<round-tripped>} — quantify what changed. Return {html, roundTripped, diff}.",
   },
 
   {
@@ -2551,13 +2561,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "xml", description: "XML string to convert", required: true, substitute: "<root><item>hello</item></root>" },
     ],
-    toolSlugs: ["xml-to-json", "json-format"],
+    toolSlugs: ["xml-to-json", "json-format", "json-validate"],
     workflow: [
       "Convert XML to JSON with xml-to-json — parses the XML structure into a JSON object.",
       "Pretty-print the result with json-format — indented, readable JSON for inspection or downstream use.",
+      "Validate the converted JSON with json-validate — confirms the XML parsed into well-formed JSON (no truncation, no dangling structure) before you hand it to a downstream consumer that would choke on malformed input.",
     ],
     claudePrompt:
-      "Convert XML to JSON using Agent402: (1) xml-to-json {xml:\"<root><item>hello</item></root>\"} — parse. (2) json-format on the result — pretty-print. Return the formatted JSON.",
+      "Convert XML to JSON using Agent402: (1) xml-to-json {xml:\"<root><item>hello</item></root>\"} — parse. (2) json-format on the result — pretty-print. (3) json-validate on the result — confirm well-formed. Return the formatted, validated JSON.",
   },
 
   {
@@ -2615,13 +2626,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "topic", description: "Topic to research (e.g. x402 payment protocol)", required: true, substitute: "x402 payment protocol" },
     ],
-    toolSlugs: ["search", "answer"],
+    toolSlugs: ["search", "answer", "search-news"],
     workflow: [
       "Run search with q=<topic> and count=5 to get the top web results — titles, URLs, and snippets.",
       "Run answer with q=<topic> to get a synthesized response with citations. Compare against the search results for consistency.",
+      "Run search-news with q=<topic> to surface recent, time-sensitive developments the general web index may lag on — the difference between a brief that's current and one that's months stale.",
     ],
     claudePrompt:
-      "Research 'x402 payment protocol' using Agent402's article-digest skill pack: (1) search for the top 5 results, (2) get an AI-generated answer with citations. Summarize findings in a brief with key points and sources.",
+      "Research 'x402 payment protocol' using Agent402's article-digest skill pack: (1) search for the top 5 results, (2) get an AI-generated answer with citations, (3) pull recent news with search-news. Summarize findings in a brief with key points, recent developments, and sources.",
   },
 
   {
@@ -2674,13 +2686,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "url", description: "URL of the page to grade", required: true, substitute: "https://blog.cloudflare.com/x402/" },
     ],
-    toolSlugs: ["extract", "keywords"],
+    toolSlugs: ["extract", "keywords", "readability-score"],
     workflow: [
       "Call extract to pull the page's readable content as clean markdown — strips nav, ads, and boilerplate.",
       "Call keywords on the extracted text to identify the top terms and their frequency — reveals topic focus and potential keyword stuffing.",
+      "Call readability-score on the extracted text — Flesch reading ease and grade level put a number on how accessible the writing is, the other half of a content grade beyond topic focus.",
     ],
     claudePrompt:
-      "Grade the content quality of https://blog.cloudflare.com/x402/ using Agent402's content-grade skill pack: (1) extract the readable content, (2) run keyword analysis on the extracted text. Report the top keywords, density, and whether the content is well-focused.",
+      "Grade the content quality of https://blog.cloudflare.com/x402/ using Agent402's content-grade skill pack: (1) extract the readable content, (2) run keyword analysis on the extracted text, (3) score readability with readability-score. Report the top keywords, density, reading-ease/grade level, and whether the content is well-focused.",
   },
 
   {
@@ -2693,13 +2706,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "url", description: "URL of the OpenAPI spec (JSON or YAML)", required: true, substitute: "https://petstore3.swagger.io/api/v3/openapi.json" },
     ],
-    toolSlugs: ["openapi-lint", "openapi-validate-payload"],
+    toolSlugs: ["openapi-lint", "openapi-validate-payload", "openapi-security-summary"],
     workflow: [
       "Call openapi-lint with the spec URL to get lint warnings and errors — missing descriptions, unused schemas, invalid references.",
       "Call openapi-validate-payload with an empty payload to surface required-field violations and schema mismatches.",
+      "Call openapi-security-summary to map the spec's auth posture — which security schemes are declared, which operations require them, and which are left unprotected. A clean lint on an endpoint that forgot its auth requirement is the audit finding that matters most.",
     ],
     claudePrompt:
-      "Audit the OpenAPI spec at https://petstore3.swagger.io/api/v3/openapi.json using Agent402's openapi-audit skill pack: (1) lint it for warnings and errors, (2) validate an empty payload against the first endpoint. Report lint issues and validation failures.",
+      "Audit the OpenAPI spec at https://petstore3.swagger.io/api/v3/openapi.json using Agent402's openapi-audit skill pack: (1) lint it for warnings and errors, (2) validate an empty payload against the first endpoint, (3) summarize the security posture with openapi-security-summary. Report lint issues, validation failures, and any unprotected operations.",
   },
 
   {
@@ -2730,15 +2744,16 @@ export const SKILL_PACKS = [
     useCase:
       "An agent has CSV data and needs it in both JSON and YAML for different consumers (an API expects JSON, a config file needs YAML). This chain parses the CSV into JSON, then converts that JSON to YAML — two hops, one payment.",
     promptArgs: [
-      { name: "csv", description: "CSV string to convert", required: true, substitute: "name,age\nAlice,30" },
+      { name: "csv", description: "CSV string to convert", required: true, substitute: "name,age\\nAlice,30" },
     ],
-    toolSlugs: ["csv-to-json", "json-to-yaml"],
+    toolSlugs: ["csv-to-json", "json-format", "json-to-yaml"],
     workflow: [
       "Call csv-to-json to parse the CSV into a JSON array of objects (headers become keys).",
+      "Call json-format to pretty-print that JSON — the JSON consumer gets clean, indented output rather than a single dense line.",
       "Call json-to-yaml on the resulting JSON to produce clean YAML output.",
     ],
     claudePrompt:
-      "Convert this CSV through Agent402's data-convert pipeline: 'name,age\\nAlice,30'. (1) Parse to JSON, (2) convert to YAML. Return both the JSON and YAML representations.",
+      "Convert this CSV through Agent402's data-convert pipeline: 'name,age\\nAlice,30'. (1) Parse to JSON, (2) pretty-print the JSON, (3) convert to YAML. Return the JSON and YAML representations.",
   },
 
   {
@@ -2771,13 +2786,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "country", description: "ISO 3166-1 alpha-2 country code (e.g. US, GB, JP)", required: true, substitute: "US" },
     ],
-    toolSlugs: ["world-bank-indicator", "world-bank-indicator"],
+    toolSlugs: ["world-bank-indicator", "world-bank-indicator", "world-bank-indicator"],
     workflow: [
       "Call world-bank-indicator with country and indicator='NY.GDP.MKTP.CD' to get GDP (current USD).",
       "Call world-bank-indicator with country and indicator='SP.POP.TOTL' to get total population.",
+      "Call world-bank-indicator with country and indicator='FP.CPI.TOTL.ZG' to get inflation (annual consumer-price %) — the price-stability read that turns a raw GDP + population snapshot into economic context.",
     ],
     claudePrompt:
-      "Get GDP and population for the US using Agent402's world-data skill pack: (1) World Bank GDP indicator NY.GDP.MKTP.CD, (2) World Bank population indicator SP.POP.TOTL. Compute GDP per capita from the results.",
+      "Get key indicators for the US using Agent402's world-data skill pack: (1) World Bank GDP NY.GDP.MKTP.CD, (2) population SP.POP.TOTL, (3) inflation FP.CPI.TOTL.ZG. Compute GDP per capita and note the inflation backdrop.",
   },
 
   {
@@ -2808,13 +2824,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "email", description: "Email address to verify (e.g. test@gmail.com)", required: true, substitute: "test@gmail.com" },
     ],
-    toolSlugs: ["email-validate", "dns-lookup"],
+    toolSlugs: ["email-validate", "dns-lookup", "spf-check"],
     workflow: [
       "Call email-validate to check syntax, domain existence, and mailbox reachability.",
       "Call dns-lookup with host=<domain from email> and type='MX' to independently verify the domain has mail exchange records.",
+      "Call spf-check on the domain — a domain that publishes a valid SPF record is configured for legitimate sending, an added deliverability signal beyond MX (and a hint the domain isn't a throwaway).",
     ],
     claudePrompt:
-      "Verify the email address test@gmail.com using Agent402's contact-verify skill pack: (1) email-validate for syntax and reachability, (2) dns-lookup for MX records on gmail.com. Report whether the address is likely deliverable.",
+      "Verify the email address test@gmail.com using Agent402's contact-verify skill pack: (1) email-validate for syntax and reachability, (2) dns-lookup for MX records on gmail.com, (3) spf-check on gmail.com. Report whether the address is likely deliverable and whether the domain is properly configured for sending.",
   },
 
   {
@@ -2887,13 +2904,14 @@ export const SKILL_PACKS = [
     promptArgs: [
       { name: "token", description: "JWT token string", required: true, substitute: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.xxx" },
     ],
-    toolSlugs: ["jwt-decode", "jwt-verify"],
+    toolSlugs: ["jwt-decode", "jwt-verify", "jwt-sign"],
     workflow: [
       "Call jwt-decode to extract the header (algorithm, type) and payload (claims, expiry) without verification.",
       "Call jwt-verify with the token and secret='test' to check whether the signature is valid.",
+      "Call jwt-sign with the decoded claims and secret='test' to re-issue a fresh token — the round-trip you need when rotating a signing secret, reproducing a token in a test fixture, or confirming the decode captured every claim.",
     ],
     claudePrompt:
-      "Analyze this JWT using Agent402's jwt-toolkit skill pack: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.xxx. (1) Decode it to see the claims, (2) verify the signature with secret='test'. Report the payload and verification result.",
+      "Analyze this JWT using Agent402's jwt-toolkit skill pack: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.xxx. (1) Decode it to see the claims, (2) verify the signature with secret='test', (3) re-sign the claims with jwt-sign (secret='test'). Report the payload, verification result, and the re-issued token.",
   },
 
   {
@@ -2946,7 +2964,7 @@ export const SKILL_PACKS = [
     useCase:
       "An agent processing raw text (log files, user submissions, scraped content) needs to clean it before storage or analysis: redact emails and phone numbers, remove duplicate lines, and sort for consistency. Three cleanup operations in one payment.",
     promptArgs: [
-      { name: "text", description: "Text to clean", required: true, substitute: "line b\nline a\nline b\nemail: test@test.com" },
+      { name: "text", description: "Text to clean", required: true, substitute: "line b\\nline a\\nline b\\nemail: test@test.com" },
     ],
     toolSlugs: ["redact", "dedupe-lines", "sort-lines"],
     workflow: [
