@@ -44,16 +44,16 @@ const KNOWN = [
   { slug: "stock-quote", input: { symbol: "AAPL" } },
 ];
 let chosen = null;
-for (const k of KNOWN) { const t = cat.get(k.slug); if (t && !t.computePayable) { chosen = { t, input: k.input }; break; } }
+for (const k of KNOWN) { const t = cat.get(k.slug); if (t && !t.computePayable) { chosen = { slug: k.slug, t, input: k.input }; break; } }
 if (!chosen) { console.log("SKIP: no known wallet-only tool in the live catalog"); process.exit(0); }
 const price = parseFloat(String(chosen.t.price).replace(/[^0-9.]/g, "")) || 0;
-console.log(`live target: "${chosen.t.slug}" @ $${price} on ${TARGET} (payer ${account.address})`);
+console.log(`live target: "${chosen.slug}" @ $${price} on ${TARGET} (payer ${account.address})`);
 
 // TEST A — cap ABOVE price: the preflight runs, then the real payment must SETTLE.
 // This is the live proof the added preflight doesn't break production payments.
 try {
   const a = new Agent402({ baseUrl: TARGET, fetch: payFetch, fetchImpl: synthFetch, maxPerCallUsd: price + 0.02 });
-  const res = await a.call(chosen.t.slug, chosen.input, { cache: false });
+  const res = await a.call(chosen.slug, chosen.input, { cache: false });
   ok(res && typeof res === "object", "cap ABOVE price: preflight + real x402 settle SUCCEEDED");
   console.log(`  settled spend recorded: $${a.spendingSummary().dailyUsd}`);
 } catch (e) {
@@ -63,7 +63,7 @@ try {
 // TEST B — cap BELOW price: refused before signing, no funds move.
 try {
   const b = new Agent402({ baseUrl: TARGET, fetch: payFetch, fetchImpl: synthFetch, maxPerCallUsd: Math.max(price / 2, 0.0001) });
-  await b.call(chosen.t.slug, chosen.input, { cache: false });
+  await b.call(chosen.slug, chosen.input, { cache: false });
   ok(false, "cap BELOW price: should have refused, but the call went through");
 } catch (e) {
   ok(e instanceof SpendingLimitError || e?.name === "SpendingLimitError", `cap BELOW price: refused before paying (${e?.name || "error"})`);
