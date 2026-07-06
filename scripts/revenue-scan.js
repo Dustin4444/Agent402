@@ -44,6 +44,15 @@ const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.5");
 const ALCHEMY = process.env.ALCHEMY_API_KEY;
 const alchemy = (sub) => (ALCHEMY ? [`https://${sub}.g.alchemy.com/v2/${ALCHEMY}`] : []);
 
+// An RPC key must never ride along in an error string — this scan's stdout JSON
+// (including `reason`) is machine-readable and could be logged publicly. Strip the
+// exact key and any `/v2/<token>` segment before any URL/message is surfaced.
+const redact = (s) => {
+  let out = String(s);
+  if (ALCHEMY) out = out.split(ALCHEMY).join("***");
+  return out.replace(/\/v2\/[A-Za-z0-9_-]{8,}/g, "/v2/***");
+};
+
 const EVM_NETWORKS = {
   base: {
     usdc: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
@@ -127,16 +136,16 @@ async function rpc(method, params, { passes = 2 } = {}) {
         const text = await r.text();
         let j;
         try { j = JSON.parse(text); }
-        catch { lastErr = new Error(`${url}: non-JSON (${r.status})`); continue; }
+        catch { lastErr = new Error(`${redact(url)}: non-JSON (${r.status})`); continue; }
         if (j.result !== undefined) return j.result;
-        lastErr = new Error(`${url}: ${JSON.stringify(j.error ?? j).slice(0, 120)}`);
+        lastErr = new Error(`${redact(url)}: ${JSON.stringify(j.error ?? j).slice(0, 120)}`);
       } catch (e) {
         lastErr = e;
       }
     }
     if (attempt < passes - 1) await sleep(1500 * (attempt + 1));
   }
-  throw new Error(`All RPCs failed for ${method}: ${lastErr?.message}`);
+  throw new Error(redact(`All RPCs failed for ${method}: ${lastErr?.message}`));
 }
 
 async function main() {

@@ -48,6 +48,12 @@ const RPCS = (process.env.SOLANA_RPCS || [
   "https://api.mainnet-beta.solana.com",
   "https://solana-rpc.publicnode.com",
 ].join(",")).split(",").map((s) => s.trim()).filter(Boolean);
+// SOLANA_RPCS is operator-supplied and may carry a keyed provider URL (Helius
+// ?api-key=…, Alchemy /v2/…). Strip such secrets before any URL reaches an error
+// string — this scan's stdout `reason` is machine-readable and could be logged.
+const redact = (s) => String(s)
+  .replace(/\/v2\/[A-Za-z0-9_-]{8,}/g, "/v2/***")
+  .replace(/([?&](?:api-key|apikey|access-token|token|key)=)[^&\s]+/gi, "$1***");
 const log = (...a) => console.error(...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -115,16 +121,16 @@ async function rpc(method, params, { passes = 2 } = {}) {
         const text = await r.text();
         let j;
         try { j = JSON.parse(text); }
-        catch { lastErr = new Error(`${url}: non-JSON (${r.status})`); continue; }
+        catch { lastErr = new Error(`${redact(url)}: non-JSON (${r.status})`); continue; }
         if (j.result !== undefined) return j.result;
-        lastErr = new Error(`${url}: ${JSON.stringify(j.error ?? j).slice(0, 120)}`);
+        lastErr = new Error(`${redact(url)}: ${JSON.stringify(j.error ?? j).slice(0, 120)}`);
       } catch (e) {
         lastErr = e;
       }
     }
     if (attempt < passes - 1) await sleep(1500 * (attempt + 1));
   }
-  throw new Error(`All RPCs failed for ${method}: ${lastErr?.message}`);
+  throw new Error(redact(`All RPCs failed for ${method}: ${lastErr?.message}`));
 }
 
 async function main() {

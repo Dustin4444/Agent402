@@ -279,16 +279,20 @@ export const DATE_TIME_TOOLS = [
       if (/Z|[+-]\d{2}:\d{2}$/.test(inputStr) || /^\d{10,13}$/.test(inputStr)) {
         date = raw; // already absolute
       } else {
-        // Treat as local time in the "from" timezone. Convert via formatter.
+        // Naive datetime: interpret its wall-clock digits as local time in `fromTz`
+        // and resolve to the correct absolute instant. Treat the digits as UTC, see
+        // what wall-clock that instant shows in fromTz, and correct by the resulting
+        // offset. (Previously it discarded this and used the server-local parse, so
+        // the input was read in whatever zone the host ran in — wrong on prod/UTC.)
+        const asUtc = new Date(`${inputStr.replace(" ", "T")}Z`);
         const parts = new Intl.DateTimeFormat("en-CA", {
           timeZone: fromTz, year: "numeric", month: "2-digit", day: "2-digit",
           hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-        }).formatToParts(raw);
-        const get = (t) => parts.find(p => p.type === t)?.value || "00";
-        const utcStr = `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}Z`;
-        // The raw date may be off; we need the offset between fromTz and UTC at this time.
-        // Simple approach: use the raw Date directly — it was parsed as local time.
-        date = raw;
+        }).formatToParts(asUtc);
+        const get = (t) => parts.find((p) => p.type === t)?.value || "00";
+        const tzWall = Date.UTC(+get("year"), +get("month") - 1, +get("day"), +get("hour") % 24, +get("minute"), +get("second"));
+        const offset = tzWall - asUtc.getTime();
+        date = new Date(asUtc.getTime() - offset);
       }
       return {
         input: i.datetime,

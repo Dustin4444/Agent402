@@ -282,8 +282,12 @@ export const MATH_TOOLS = [
       if (!["mod", "modpow", "modinverse"].includes(op)) throw bad('"op" must be "mod", "modpow", or "modinverse"');
       if (input.a === undefined) throw bad('Missing "a"');
       if (input.m === undefined) throw bad('Missing "m"');
-      const a = BigInt(Number(input.a));
-      const m = BigInt(Number(input.m));
+      // BigInt(String(x)) preserves integers passed as strings (the only way JSON
+      // carries values >2^53); BigInt(Number(x)) would round them first, defeating
+      // the tool's whole point. Throw a clean 400 on a non-integer.
+      const big = (x, name) => { try { return BigInt(String(x).trim()); } catch { throw bad(`"${name}" must be an integer`); } };
+      const a = big(input.a, "a");
+      const m = big(input.m, "m");
       if (m <= 0n) throw bad('"m" must be > 0');
 
       if (op === "mod") {
@@ -293,7 +297,7 @@ export const MATH_TOOLS = [
 
       if (op === "modpow") {
         if (input.b === undefined) throw bad('"b" is required for modpow');
-        let b = BigInt(Number(input.b));
+        let b = big(input.b, "b");
         if (b < 0n) throw bad('"b" must be >= 0 for modpow');
         let base = ((a % m) + m) % m;
         let result = 1n;

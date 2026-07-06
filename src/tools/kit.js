@@ -1340,7 +1340,9 @@ const timeTools = [
       if (typeof v === "number") seconds = v;
       else if (typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim())) seconds = Number(v);
       else if (typeof v === "string") {
-        const matches = [...v.toLowerCase().matchAll(/(\d+(?:\.\d+)?)\s*(w|d|h|m|s|ms)/g)];
+        // `ms` must precede `m` — JS alternation is first-match-wins, so listing
+        // `m` first made `ms` dead code (parsing "500ms" as 500 minutes).
+        const matches = [...v.toLowerCase().matchAll(/(\d+(?:\.\d+)?)\s*(ms|w|d|h|m|s)/g)];
         if (!matches.length) throw bad(`Cannot parse duration: ${v}`);
         const mult = { w: 604800, d: 86400, h: 3600, m: 60, s: 1, ms: 0.001 };
         seconds = matches.reduce((acc, m) => acc + Number(m[1]) * mult[m[2]], 0);

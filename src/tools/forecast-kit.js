@@ -147,12 +147,15 @@ function fitHolt(values, horizon, alpha, beta) {
   const sigma = stddev(residuals, mean(residuals));
   const point = new Array(horizon);
   const sigmaH = new Array(horizon);
-  let varSum = 0;
+  // Holt forecast-error variance: σ²·(1 + Σ_{j=1}^{h-1}(α + jαβ)²). The leading 1
+  // is the h-step base term — omitting it made the h=1 interval σ·α instead of σ
+  // (intervals ~2x too narrow at short horizons).
+  let varSum = 0; // Σ_{j=1}^{h-1} (α + jαβ)²
   for (let h = 1; h <= horizon; h++) {
     point[h - 1] = level + h * trend;
-    const coef = alpha + (h - 1) * alpha * beta;
+    sigmaH[h - 1] = sigma * Math.sqrt(1 + varSum);
+    const coef = alpha + h * alpha * beta; // c_h, accumulated for the next step
     varSum += coef * coef;
-    sigmaH[h - 1] = sigma * Math.sqrt(varSum);
   }
   return { point, sigmaH };
 }
