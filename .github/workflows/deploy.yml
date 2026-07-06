@@ -667,6 +667,9 @@ jobs:
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 
+      - name: Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)
+        run: node scripts/test-selfcheck.js
+
       - name: Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
         run: node scripts/test-sales-ledger.js
 
