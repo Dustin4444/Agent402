@@ -64,13 +64,25 @@ const DISCOVERY_SOURCES = [
   { name: "Coinbase CDP Bazaar", url: "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources" },
 ];
 
+// Operator-curated seeds committed in-repo — the version-controlled companion
+// to the X402_INDEX_SEEDS env var, and what the /index page's "open a PR adding
+// your origin to the seed list" invitation points at. It exists for sellers who
+// can't reach the CDP Bazaar auto-discovery source (Coinbase account/phone
+// verification blocks). Health-aware routing drops any seed that goes dark, so a
+// stale entry self-heals — but keep this to STABLE origins only. No ephemeral
+// tunnels (*.trycloudflare.com and friends flap to STALE on every restart).
+const DEFAULT_SEEDS = [
+  "https://agents.daedalusdevelopmentgroup.com", // DDG Agent-Payable Services (#222)
+  "https://jmt-x402-proxy.eastern-witch.workers.dev", // JMT x402 server (#221)
+];
+
 const seedList = () => {
   const envSeeds = String(process.env.X402_INDEX_SEEDS || "")
     .split(",")
     .map((s) => s.trim().replace(/\/+$/, ""))
     .filter((s) => /^https?:\/\//i.test(s));
-  // env seeds first (operator-curated), then auto-discovered.
-  return [...new Set([...envSeeds, ...discoveredSeeds])];
+  // committed defaults + env seeds (both operator-curated), then auto-discovered.
+  return [...new Set([...DEFAULT_SEEDS, ...envSeeds, ...discoveredSeeds])];
 };
 
 function extractOrigin(rawUrl) {
