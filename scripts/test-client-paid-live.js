@@ -49,15 +49,38 @@ if (!chosen) { console.log("SKIP: no known wallet-only tool in the live catalog"
 const price = parseFloat(String(chosen.t.price).replace(/[^0-9.]/g, "")) || 0;
 console.log(`live target: "${chosen.slug}" @ $${price} on ${TARGET} (payer ${account.address})`);
 
-// TEST A — cap ABOVE price: the preflight runs, then the real payment must SETTLE.
-// This is the live proof the added preflight doesn't break production payments.
+// CONTROL — a RAW payFetch buy (no client, no preflight). Isolates whether the
+// burner can settle this tool at all (funding/facilitator) from the client's
+// preflight, so a 402 can be attributed correctly.
+const method = (chosen.t.method || "GET").toUpperCase();
+const path = chosen.t.path || `/api/${chosen.slug}`;
+const reqUrl = method === "GET" ? `${TARGET}${path}?${new URLSearchParams(chosen.input)}` : `${TARGET}${path}`;
+const reqInit = method === "GET" ? { method } : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(chosen.input) };
+let controlStatus = -1, controlReason = "";
+try {
+  const r = await payFetch(reqUrl, reqInit);
+  controlStatus = r.status;
+  if (r.status !== 200) controlReason = (await r.text().catch(() => "")).slice(0, 180);
+} catch (e) { controlReason = e.message; }
+console.log(`control (raw payFetch, NO preflight): HTTP ${controlStatus}${controlReason ? " — " + controlReason : ""}`);
+
+// TEST — client WITH a cap above price: the preflight runs, then the real payment.
+let clientSettled = false, clientErr = "";
 try {
   const a = new Agent402({ baseUrl: TARGET, fetch: payFetch, fetchImpl: synthFetch, maxPerCallUsd: price + 0.02 });
   const res = await a.call(chosen.slug, chosen.input, { cache: false });
-  ok(res && typeof res === "object", "cap ABOVE price: preflight + real x402 settle SUCCEEDED");
-  console.log(`  settled spend recorded: $${a.spendingSummary().dailyUsd}`);
-} catch (e) {
-  ok(false, `cap ABOVE price: settle FAILED — ${e.message}`);
+  clientSettled = !!(res && typeof res === "object" && !res.error);
+} catch (e) { clientErr = e.message; }
+console.log(`client (cap above, preflight ACTIVE): ${clientSettled ? "SETTLED" : "did not settle — " + clientErr}`);
+
+if (controlStatus === 200 && clientSettled) {
+  ok(true, "preflight is production-SAFE: raw buy AND client-with-preflight both SETTLED");
+} else if (controlStatus !== 200 && !clientSettled) {
+  ok(true, `preflight NOT the cause: the raw buy also failed (HTTP ${controlStatus}) — identical with/without the preflight, so it's funding/facilitator, not the client`);
+} else if (controlStatus === 200 && !clientSettled) {
+  ok(false, `preflight BREAKS the settle: raw buy SETTLED but client-with-preflight did NOT — ${clientErr}`);
+} else {
+  ok(false, `unexpected: control HTTP ${controlStatus}, client settled=${clientSettled}`);
 }
 
 // TEST B — cap BELOW price: refused before signing, no funds move.

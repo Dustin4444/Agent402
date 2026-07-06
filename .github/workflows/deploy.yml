@@ -138,6 +138,26 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm ci && npm install --no-save --ignore-scripts @x402/fetch viem
+
+      # Run FIRST (before the slow faucet-funding E2E) for fast iteration. Live
+      # proof of the agent402-client 402-inspection preflight (v0.6.0): a real Base
+      # burner buy on PROD, with a raw-payFetch CONTROL right beside the client buy
+      # so a 402 is attributed correctly (client bug vs funding/facilitator).
+      - name: Live client-SDK 402-inspection (real Base burner buy vs prod)
+        if: always()
+        continue-on-error: true
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+          TARGET_URL: https://agent402.tools
+        run: |
+          if [ -z "$BURNER_KEY" ]; then echo "BURNER_KEY unset — skipping live client paid test."; exit 0; fi
+          echo "::add-mask::$BURNER_KEY"
+          printf '%s' "$BURNER_KEY" > /tmp/client-burner-key
+          KEY_FILE=/tmp/client-burner-key node scripts/test-client-paid-live.js; rc=$?
+          shred -u /tmp/client-burner-key 2>/dev/null || rm -f /tmp/client-burner-key
+          exit $rc
+
       # Wallet birth-to-first-purchase E2E: a keypair generated inside the
       # runner (never printed, never persisted — only its address) is faucet-
       # funded with testnet USDC and completes a REAL x402 purchase against a
@@ -280,26 +300,6 @@ jobs:
             sleep 2
           done
           shred -u /tmp/burner-key 2>/dev/null || rm -f /tmp/burner-key
-
-      # Live proof that the agent402-client 402-inspection preflight (added in
-      # v0.6.0) does NOT break a real settle against the live facilitator — the one
-      # thing the offline client-caps test can't check. A real Base burner buy of a
-      # cheap wallet-only tool on PROD. continue-on-error: a facilitator flap or an
-      # unfunded burner shouldn't gate; the result is in the log either way.
-      - name: Live client-SDK 402-inspection (real Base burner buy vs prod)
-        if: always()
-        continue-on-error: true
-        env:
-          BURNER_KEY: ${{ secrets.BURNER_KEY }}
-          POW_SECRET: ${{ secrets.POW_SECRET }}
-          TARGET_URL: https://agent402.tools
-        run: |
-          if [ -z "$BURNER_KEY" ]; then echo "BURNER_KEY unset — skipping live client paid test."; exit 0; fi
-          echo "::add-mask::$BURNER_KEY"
-          printf '%s' "$BURNER_KEY" > /tmp/client-burner-key
-          KEY_FILE=/tmp/client-burner-key node scripts/test-client-paid-live.js; rc=$?
-          shred -u /tmp/client-burner-key 2>/dev/null || rm -f /tmp/client-burner-key
-          exit $rc
           if [ "$settled" = "1" ]; then echo "RESULT: ✅ real USDG settlement on Robinhood Chain succeeded"; else echo "RESULT: settlement did not succeed (see reasons above)"; fi
       # Polygon USDC settlement via PayAI facilitator. Boots a Polygon-ONLY
       # server so the buyer's only option is USDC on chain 137, then buys one
