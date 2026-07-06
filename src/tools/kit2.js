@@ -667,7 +667,15 @@ function evalExpr(expr) {
 const UNITS = {
   length: { m: 1, km: 1000, cm: 0.01, mm: 0.001, mi: 1609.344, yd: 0.9144, ft: 0.3048, in: 0.0254, nmi: 1852 },
   mass: { g: 1, kg: 1000, mg: 0.001, t: 1e6, lb: 453.592, oz: 28.3495, st: 6350.29 },
-  data: { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3, tb: 1024 ** 4, kbit: 128, mbit: 128 * 1024 },
+  // Bytes. Decimal SI names (kb=1000, matching the convert-* tools and the SI
+  // standard) and separate binary IEC names (kib=1024). Bit units are decimal —
+  // 1 kbit = 1000 bits = 125 bytes (the old kbit:128/mbit:131072 were ~2.4% off).
+  data: {
+    b: 1, byte: 1, bit: 0.125,
+    kb: 1000, mb: 1000 ** 2, gb: 1000 ** 3, tb: 1000 ** 4,
+    kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4,
+    kbit: 125, mbit: 125_000, gbit: 125_000_000,
+  },
   time: { s: 1, ms: 0.001, min: 60, h: 3600, d: 86400, wk: 604800, yr: 31557600 },
   speed: { mps: 1, kph: 1 / 3.6, mph: 0.44704, kn: 0.514444 },
 };

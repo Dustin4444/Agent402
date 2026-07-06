@@ -11,7 +11,7 @@ function bad(message, statusCode = 400) {
 // silent-e, floor at 1.
 function countSyllables(word) {
   const w = word.toLowerCase().replace(/[^a-z]/g, "");
-  if (!w) return 0;
+  if (!w) return /\d/.test(word) ? 1 : 0; // a numeric token is ~1 syllable, not 0 (kept Flesch off-scale)
   if (w.length <= 2) return 1;
   let count = 0;
   let prev = false;
@@ -221,7 +221,9 @@ export const TEXT_ANALYSIS_TOOLS = [
         .sort((a, b) => b.count - a.count || a.bigram.localeCompare(b.bigram))
         .slice(0, top);
 
-      return { words, bigrams, totalWords: tokens.length, uniqueWords: wordMap.size };
+      // totalWords must count the same population as uniqueWords (stop words
+      // excluded) or the lexical-diversity ratio uniqueWords/totalWords is bogus.
+      return { words, bigrams, totalWords: filtered.length, uniqueWords: wordMap.size };
     },
   },
 

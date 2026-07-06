@@ -167,7 +167,12 @@ export const VALIDATION_TOOLS = [
         const cfg = PHONE_COUNTRIES[hint];
         if (!cfg) throw bad(`unsupported country "${input.country}" (US, UK, DE, FR, AU, IN)`);
         country = hint;
-        national = digits.startsWith(cfg.code) ? digits.slice(cfg.code.length) : digits;
+        // Only strip the country code if the number is actually longer than a
+        // national number — else a valid national number that happens to start
+        // with the country digits (e.g. an Indian mobile beginning "91") got its
+        // real digits chopped off and marked invalid.
+        const maxNat = Math.max(...cfg.len);
+        national = (digits.length > maxNat && digits.startsWith(cfg.code)) ? digits.slice(cfg.code.length) : digits;
       } else if (hasPlus || digits.length > 10) {
         const detected = detectCountry(digits);
         if (detected) { country = detected.country; national = detected.national; }
