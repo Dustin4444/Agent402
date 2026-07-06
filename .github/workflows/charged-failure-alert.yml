@@ -1,0 +1,81 @@
+name: Charged-failure alert
+
+# The "an agent paid and got an error" alarm — the earnings-calendar failure class,
+# but for EVERY paid tool, using data the server already records.
+#
+# When a tool settles USDC on-chain and the handler then returns non-200, the
+# server records it in /api/stats -> chargedFailures[] (the code calls this "an
+# operational red alert"). Nothing consumed it. This polls that surface every
+# 30 min and opens a GitHub issue if any tool charged-and-failed a paying agent
+# in the recent window. It complements the synthetic self-check (which only covers
+# a curated set): this catches real paid failures on ANY of the ~1,400 tools,
+# with zero config — /api/stats is free and public.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  push:
+    branches:
+      - "main"
+      - "claude/sweet-brown-i99jl3"
+    paths:
+      - ".github/trigger-charged-alert"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  PROD: https://agent402.tools
+  WINDOW_HOURS: "2"
+
+jobs:
+  charged-failure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Poll /api/stats for charged failures
+        id: check
+        run: |
+          RESP="$(curl -s --max-time 30 "$PROD/api/stats" || true)"
+          # Unreadable /api/stats = a prod outage, which is heartbeat's job, not
+          # ours — skip quietly rather than false-alert.
+          echo "$RESP" | jq -e '.chargedFailures' >/dev/null 2>&1 || { echo "stats unreadable — skip"; echo "status=skip" >> "$GITHUB_OUTPUT"; exit 0; }
+          CUTOFF="$(date -u -d "$WINDOW_HOURS hours ago" +%Y-%m-%dT%H:%M:%SZ)"
+          # Charged failures in the window, summarized as "slug(httpStatus)xN".
+          SUMMARY="$(echo "$RESP" | jq -r --arg cut "$CUTOFF" '
+            [.chargedFailures[] | select(.at > $cut)]
+            | group_by(.slug + ":" + (.status|tostring))
+            | map("\(.[0].slug)(\(.[0].status))x\(length)")
+            | join(", ")')"
+          if [ -z "$SUMMARY" ]; then
+            echo "no charged failures in the last ${WINDOW_HOURS}h"
+            echo "status=clear" >> "$GITHUB_OUTPUT"
+          else
+            echo "charged failures: $SUMMARY"
+            echo "status=alert" >> "$GITHUB_OUTPUT"
+            { echo "detail<<EOF"; echo "$SUMMARY"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open, comment, or close the alert issue
+        if: steps.check.outputs.status != 'skip'
+        run: |
+          TITLE="Charged failure: a paid tool returned an error to a paying agent"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "${{ steps.check.outputs.status }}" = "alert" ]; then
+            BODY="One or more paid tools settled USDC on-chain and then returned an error to the paying agent in the last ${WINDOW_HOURS}h — **they paid and got nothing.**
+
+          **Failing (slug(httpStatus)×count):** ${{ steps.check.outputs.detail }}
+
+          This is the earnings-calendar failure class — a broken paid tool — caught for ALL ~1,400 tools (not just the self-check's curated set), from data the server already records at \`/api/stats\` -> \`chargedFailures[]\`.
+          Live: $PROD/api/stats · Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            if [ -n "$OPEN" ]; then
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still charging-and-failing at $(date -u +%FT%TZ): ${{ steps.check.outputs.detail }}"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+            fi
+            exit 1
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "No charged failures in the last ${WINDOW_HOURS}h at $(date -u +%FT%TZ)."
+          fi

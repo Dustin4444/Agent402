@@ -30,6 +30,15 @@ export const SELFCHECK_SLUGS = [
   "stock-history",         // wedge (Yahoo) — second Yahoo endpoint beyond the quote
   "crypto-market",         // crypto prices
   "whois",                 // DNS / RDAP
+  // High-value paid tools the reliability review flagged as unmonitored — added so
+  // a break in EDGAR / crypto / on-chain / DeFi is caught proactively (synthetically,
+  // no real traffic needed), not only when an agent happens to pay-and-fail. Keyless.
+  "company-financials",    // SEC EDGAR — the priciest tool ($0.02)
+  "edgar-company-lookup",  // SEC EDGAR
+  "price-coingecko",       // CoinGecko price
+  "defi-tvl",              // DeFiLlama
+  "gas-estimate",          // on-chain gas (public RPC)
+  "crypto-global",         // crypto market globals
 ];
 // Key-gated tools: checked ONLY when their key env var is actually set. This is
 // how we monitor key EXPIRY without false-paging on an intentional unset — a
