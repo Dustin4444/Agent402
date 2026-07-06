@@ -1522,9 +1522,9 @@ export const SKILL_PACKS = [
 
   {
     slug: "any-to-markdown",
-    title: "Any URL to markdown",
+    title: "Convert anything to markdown",
     tagline:
-      "The 'I have a URL but it might be HTML, PDF, or an image — give me clean markdown either way' workflow. HEAD-detect the content-type, branch to the right deterministic extractor (article extract for HTML, pdf-to-markdown for PDFs, OCR for images), and report token/word stats on the output so the caller can budget the result against an LLM context window.",
+      "Convert anything at a URL — HTML, PDF, or an image — to clean markdown. The 'I have a URL but it might be any content-type, give me markdown either way' workflow: HEAD-detect the content-type, branch to the right deterministic extractor (article extract for HTML, pdf-to-markdown for PDFs, OCR for images), and report token/word stats on the output so the caller can budget the result against an LLM context window.",
     useCase:
       "An agent is handed a URL by a user and needs LLM-clean text out — but the URL might point at an HTML article, a PDF whitepaper, or a JPG screenshot, and the naive single-tool approach (just call extract on everything) silently fails on PDFs (returns empty) and images (returns nothing at all). Agents currently hand-roll the content-type detection + branching, often badly: they call extract first, get an empty body, then guess at a PDF extractor. This pack hands them the canonical decision tree — HEAD probe → branch → extract → stat — as a single workflow. Output is markdown plus a {chars, words, est_tokens} block so the caller can decide whether to chunk before feeding an LLM. The same pattern powers any 'ingest the document at this URL' agent step: research assistants, RAG ingest pipelines, document QA bots, archive-to-knowledge-base scripts.",
     toolSlugs: [
@@ -2524,7 +2524,7 @@ export const SKILL_PACKS = [
 
   {
     slug: "markdown-convert",
-    title: "Markdown converter",
+    title: "Markdown to HTML round-trip",
     tagline:
       "Markdown to HTML and back — a round-trip conversion that proves fidelity and gives you both formats from one input.",
     useCase:
