@@ -45,7 +45,7 @@ const agent = new Agent({ tools });
 const out = await agent.invoke("Extract the article at https://example.com/post");
 ```
 
-Free-tier tools (~1,061 of them) pay automatically via proof-of-work — **no wallet required**. For the ~47 wallet-only tools, pass an `@x402/fetch`-wrapped `fetch`; AgentCore Payments signs with the CDP-backed key in Identity, so you never see private keys in your code.
+Free-tier tools (~1,181 of them) pay automatically via proof-of-work — **no wallet required**. For the ~226 wallet-only tools, pass an `@x402/fetch`-wrapped `fetch`; AgentCore Payments signs with the CDP-backed key in Identity, so you never see private keys in your code.
 
 ```ts
 const { tools } = await agent402Tools({
