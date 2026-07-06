@@ -2,6 +2,7 @@
 // most: exact token counting, RAG-style chunking, JSON-Schema validation, and
 // JSONL <-> array conversion. All pure-CPU (proof-of-work eligible), no network,
 // no LLM in the serving path. Covered by scripts/test-agent-kit.js.
+import { compileUserRegex } from "./safe-regex.js";
 
 function bad(message) {
   const err = new Error(message);
@@ -82,7 +83,7 @@ function validateNode(data, schema, path, errors) {
   if (t === "string") {
     if (schema.minLength != null && data.length < schema.minLength) errors.push(`${at}: shorter than minLength ${schema.minLength}`);
     if (schema.maxLength != null && data.length > schema.maxLength) errors.push(`${at}: longer than maxLength ${schema.maxLength}`);
-    if (schema.pattern && !new RegExp(schema.pattern).test(data)) errors.push(`${at}: does not match pattern`);
+    if (schema.pattern && !compileUserRegex(schema.pattern).test(data)) errors.push(`${at}: does not match pattern`);
     if (schema.format && FORMATS[schema.format] && !FORMATS[schema.format].test(data)) errors.push(`${at}: invalid ${schema.format}`);
   }
   if (t === "number" || t === "integer") {
