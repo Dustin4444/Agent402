@@ -24,7 +24,7 @@ import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCa
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogSettlement, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -1486,6 +1486,10 @@ app.get("/api/pow/challenge", (req, res) => {
   if (!POW_SLUGS.has(requested)) {
     return res.status(404).json({ error: `Unknown or wallet-only tool "${requested}". Compute-payable slugs: GET /api/pow` });
   }
+  // Funnel stage 2b — a free-tier challenge was issued (agent asked how to pay
+  // for free). Paired with payment_settled{rail=pow} this is the free-tier
+  // take rate. Only genuine issuances count (past the 429/404 guards above).
+  capturePostHogPowChallenge({ slug: requested, synthetic: isSyntheticRequest(req) });
   res.json(issueChallenge(requested));
 });
 
@@ -1750,11 +1754,20 @@ if (FREE_MODE) {
     if (def) {
       res.on("finish", () => {
         if (res.statusCode === 402) {
+          // Classify the bounce by what the caller tried. A payment header that
+          // still ended in 402 means the authorization was rejected (tried,
+          // couldn't); its absence means a first-contact quote (no wallet /
+          // crawl / looked-and-left). This is the couldn't-pay vs wouldn't-pay
+          // split — the single most useful cut on the 402→settle drop-off.
+          const paidAttempt = req.header("x-payment") || req.header("payment-signature");
+          const powAttempt = req.header("x-pow-solution");
+          const attempt = paidAttempt ? "usdc_failed" : powAttempt ? "pow_failed" : "none";
           capturePostHogPaywall({
             slug: def.slug,
             priceUsd: Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0,
             powEligible: POW_SLUGS.has(def.slug),
             synthetic: isSyntheticRequest(req),
+            attempt,
           });
         }
       });
