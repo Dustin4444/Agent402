@@ -3,10 +3,21 @@
 // fails TWICE (single transient blips are filtered), a tool that fails-then-
 // recovers is flagged `flaky` but NOT reported failing, and a timeout counts as
 // a failure. Uses a synthetic catalog of fake handlers — no network.
-import { runSelfCheck } from "../src/selfcheck.js";
+import { runSelfCheck, selfcheckSlugs, SELFCHECK_SLUGS } from "../src/selfcheck.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
+
+// --- key-gated curation: monitor expiry only when the key is configured -------
+delete process.env.FRED_API_KEY;
+delete process.env.BRAVE_API_KEY;
+ok(!selfcheckSlugs().includes("cpi-yoy") && !selfcheckSlugs().includes("search"),
+  "keyed tools are SKIPPED when their key is unset (no false-page on a fork / disabled feature)");
+ok(selfcheckSlugs().length === SELFCHECK_SLUGS.length, "unset keys leave the keyless list unchanged");
+process.env.FRED_API_KEY = "test-key";
+ok(selfcheckSlugs().includes("cpi-yoy") && !selfcheckSlugs().includes("search"),
+  "a keyed tool is ADDED once its key is set (catches expiry), others stay skipped");
+delete process.env.FRED_API_KEY;
 
 // A catalog is route->def; runSelfCheck maps by def.slug. Build fakes whose
 // handlers behave as named. `attempts` counts calls so we can model flakiness.

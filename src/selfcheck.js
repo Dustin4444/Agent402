@@ -31,10 +31,26 @@ export const SELFCHECK_SLUGS = [
   "crypto-market",         // crypto prices
   "whois",                 // DNS / RDAP
 ];
-// NOTE: deliberately keyless only. A key-gated tool (cpi-yoy/FRED, search/BRAVE,
-// the LLM proxies/OpenAI) returns a legitimate 503 when its key is unset, which
-// would false-page. Monitoring key EXPIRY is a real but separate concern —
-// a keyed-tool check gated on the key being configured — not this liveness alarm.
+// Key-gated tools: checked ONLY when their key env var is actually set. This is
+// how we monitor key EXPIRY without false-paging on an intentional unset — a
+// set-but-invalid key makes the tool fail and we page; an unset key is simply
+// skipped (a fork or a deliberately-disabled feature never trips the alarm).
+// These cover the keyed tools whose outage costs revenue: FRED (macro) and
+// Brave (search — a top earner).
+export const KEYED_SELFCHECKS = [
+  { slug: "cpi-yoy", envVar: "FRED_API_KEY" },  // FRED JSON API — key expiry ⇒ every FRED tool dies
+  { slug: "search", envVar: "BRAVE_API_KEY" },  // Brave search — top revenue tool
+];
+
+// The effective curated list for this deployment: the always-on keyless set plus
+// any key-gated tool whose key is configured here. Computed at call time because
+// it depends on process.env.
+export function selfcheckSlugs() {
+  const keyed = KEYED_SELFCHECKS
+    .filter((k) => (process.env[k.envVar] || "").trim())
+    .map((k) => k.slug);
+  return [...SELFCHECK_SLUGS, ...keyed];
+}
 
 // Run one tool's documented example, with a hard timeout. Returns a plain result
 // object; never throws.
@@ -58,7 +74,7 @@ async function checkOne(def, timeoutMs) {
 // retried ONCE after a short backoff before being reported failed, so a single
 // transient upstream blip (Yahoo/Nasdaq hiccup) can't page us — only a tool that
 // fails twice in a row is real.
-export async function runSelfCheck(catalog, slugs = SELFCHECK_SLUGS, { timeoutMs = 12000 } = {}) {
+export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutMs = 12000 } = {}) {
   const bySlug = new Map();
   for (const def of Object.values(catalog)) bySlug.set(def.slug, def);
   const results = [];
