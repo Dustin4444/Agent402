@@ -196,5 +196,67 @@ function throws(fn, statusCode, msg) {
   throws(() => t.handler({ cashflows: [-100, -200] }), 400, "irr: all-negative cashflows rejected");
 }
 
+// ---- black-scholes (vs textbook + put-call parity) ----
+{
+  const t = bySlug["black-scholes"];
+  const call = t.handler({ type: "call", spot: 100, strike: 100, timeToExpiryYears: 1, riskFreeRate: 0.05, volatility: 0.2 });
+  ok(approxEq(call.price, 10.4506, 0.001), "black-scholes: ATM call 100/100/1/5%/20% ≈ 10.4506 (textbook)");
+  ok(approxEq(call.delta, 0.6368, 0.001), "black-scholes: call delta ≈ 0.6368");
+  const put = t.handler({ type: "put", spot: 100, strike: 100, timeToExpiryYears: 1, riskFreeRate: 0.05, volatility: 0.2 });
+  ok(approxEq(call.price - put.price, 100 - 100 * Math.exp(-0.05), 0.01), "black-scholes: put-call parity C - P = S - K·e^(-rT)");
+  throws(() => t.handler({ type: "swap", spot: 100, strike: 100, timeToExpiryYears: 1, riskFreeRate: 0.05, volatility: 0.2 }), 400, "black-scholes: invalid type rejected");
+  throws(() => t.handler({ type: "call", spot: 100, strike: 100, timeToExpiryYears: 1, riskFreeRate: 0.05, volatility: 0 }), 400, "black-scholes: zero volatility rejected");
+}
+
+// ---- bond-price / bond-ytm (round-trip + par identity) ----
+{
+  const bp = bySlug["bond-price"].handler({ faceValue: 1000, couponRate: 0.05, yieldToMaturity: 0.06, years: 10, periodsPerYear: 2 });
+  ok(approxEq(bp.price, 925.61, 0.01), "bond-price: 5% coupon @ 6% YTM, 10y semi ≈ 925.61");
+  ok(bp.premiumOrDiscount === "discount", "bond-price: below par → discount");
+  const ytm = bySlug["bond-ytm"].handler({ price: 925.61, faceValue: 1000, couponRate: 0.05, years: 10, periodsPerYear: 2 });
+  ok(approxEq(ytm.yieldToMaturity, 0.06, 1e-4), "bond-ytm: inverts bond-price back to ~6%");
+  const par = bySlug["bond-ytm"].handler({ price: 1000, faceValue: 1000, couponRate: 0.05, years: 10, periodsPerYear: 2 });
+  ok(approxEq(par.yieldToMaturity, 0.05, 1e-4), "bond-ytm: par price → YTM equals coupon");
+}
+
+// ---- cagr ----
+{
+  const t = bySlug["cagr"];
+  ok(approxEq(t.handler({ beginValue: 1000, endValue: 2000, years: 5 }).cagr, 0.148698, 1e-5), "cagr: doubling over 5y ≈ 14.87%");
+  ok(approxEq(t.handler({ beginValue: 100, endValue: 100, years: 3 }).cagr, 0, 1e-9), "cagr: no change → 0%");
+  throws(() => t.handler({ beginValue: -1, endValue: 2, years: 5 }), 400, "cagr: non-positive begin rejected");
+}
+
+// ---- sharpe-ratio ----
+{
+  const t = bySlug["sharpe-ratio"];
+  ok(approxEq(t.handler({ returns: [0.1, 0.05, 0.15, -0.02, 0.08], riskFreeRate: 0.02 }).sharpe, 0.825293, 1e-5), "sharpe-ratio: sample Sharpe ≈ 0.8253");
+  ok(approxEq(t.handler({ returns: [0.1, 0.05, 0.15, -0.02, 0.08], riskFreeRate: 0.02, periodsPerYear: 12 }).annualizedSharpe, 0.825293 * Math.sqrt(12), 1e-4), "sharpe-ratio: annualized × sqrt(12)");
+  throws(() => t.handler({ returns: [0.05, 0.05, 0.05] }), 400, "sharpe-ratio: zero-variance returns rejected");
+}
+
+// ---- annuity ----
+{
+  const t = bySlug["annuity"];
+  const o = t.handler({ payment: 100, ratePerPeriod: 0.05, periods: 10, type: "ordinary" });
+  ok(approxEq(o.presentValue, 772.17, 0.01) && approxEq(o.futureValue, 1257.79, 0.01), "annuity: ordinary PV 772.17 / FV 1257.79");
+  ok(approxEq(t.handler({ payment: 100, ratePerPeriod: 0.05, periods: 10, type: "due" }).presentValue, 772.17 * 1.05, 0.02), "annuity: due = ordinary × (1+r)");
+}
+
+// ---- break-even ----
+{
+  const t = bySlug["break-even"];
+  const be = t.handler({ fixedCost: 10000, pricePerUnit: 50, variableCostPerUnit: 30 });
+  ok(be.breakEvenUnits === 500 && be.breakEvenRevenue === 25000, "break-even: 500 units / $25k revenue");
+  throws(() => t.handler({ fixedCost: 10000, pricePerUnit: 30, variableCostPerUnit: 30 }), 400, "break-even: non-positive margin rejected");
+}
+
+// ---- effective-annual-rate ----
+{
+  const t = bySlug["effective-annual-rate"];
+  ok(approxEq(t.handler({ nominalAnnualRate: 0.12, compoundingPerYear: 12 }).effectiveAnnualRate, 0.126825, 1e-5), "EAR: 12% APR monthly → 12.6825%");
+  ok(approxEq(t.handler({ nominalAnnualRate: 0.12, continuous: true }).effectiveAnnualRate, Math.exp(0.12) - 1, 1e-6), "EAR: continuous → e^0.12 - 1");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

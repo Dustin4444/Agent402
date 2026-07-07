@@ -2,7 +2,7 @@
 
 ## What is Agent402?
 
-Agent402.Tools is an open-source, self-hostable x402 + MCP server with 1,407 pay-per-call tools and 100 multi-tool skill packs for AI agents. Agents pay per API call in USDC — no signup, no API keys. The wallet IS the identity.
+Agent402.Tools is an open-source, self-hostable x402 + MCP server with 1,415 pay-per-call tools and 100 multi-tool skill packs for AI agents. Agents pay per API call in USDC — no signup, no API keys. The wallet IS the identity.
 
 ## Stellar Integration
 
@@ -24,10 +24,10 @@ Agent402 accepts USDC payments on Stellar via the x402 protocol using the Built 
 
 ## Product Scope
 
-- **1,407 deterministic tools** — web search, browser rendering, PDFs, OCR, finance/EDGAR data, crypto market data, DNS/security, text processing, and ~1,000 pure-CPU utilities
+- **1,415 deterministic tools** — web search, browser rendering, PDFs, OCR, finance/EDGAR data, crypto market data, DNS/security, text processing, and ~1,000 pure-CPU utilities
 - **100 skill packs** — multi-tool workflows that solve entire agent jobs in one call (company research dossiers, domain security audits, crypto market briefs, financial analysis)
 - **6 payment chains** — Base, Solana, Polygon, Arbitrum, Stellar, Robinhood Chain
-- **Free tier** — 1,181 pure-CPU tools available via proof-of-work (no wallet needed)
+- **Free tier** — 1,189 pure-CPU tools available via proof-of-work (no wallet needed)
 - **MCP native** — works with Claude Code, Cursor, and any MCP-compatible agent
 - **Open source** — https://github.com/MikeyPetrillo/Agent402
 - **Buyer SDK** — `agent402-client` (npm) with auto-payment via PoW or x402
