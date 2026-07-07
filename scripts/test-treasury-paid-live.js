@@ -34,9 +34,9 @@ console.log(`buyer ${account.address} on ${TARGET}`);
 
 // The tools that were 504ing on the IPv6 race, and how to tell a real result from a fail.
 const TOOLS = [
-  { slug: "treasury-debt", n: 12, ok: (r) => r && (r.totalDebt || r.tot_pub_debt_out_amt || r.latestDate || r.recordDate) },
-  { slug: "treasury-avg-rates", n: 10, ok: (r) => r && !r.error && typeof r === "object" && Object.keys(r).length > 0 },
-  { slug: "gov-data", n: 8, ok: (r) => r && !r.error && typeof r === "object" },
+  { slug: "treasury-debt", n: 12, input: {}, ok: (r) => r && (r.totalDebt || r.tot_pub_debt_out_amt || r.latestDate || r.recordDate) },
+  { slug: "treasury-avg-rates", n: 10, input: {}, ok: (r) => r && !r.error && typeof r === "object" && Object.keys(r).length > 0 },
+  { slug: "gov-data", n: 8, input: { q: "electric vehicle charging stations", rows: 5 }, ok: (r) => r && !r.error && typeof r === "object" },
 ];
 
 let totalOk = 0, totalFail = 0;
@@ -44,7 +44,7 @@ for (const t of TOOLS) {
   let ok = 0, fail = 0; const errs = [];
   for (let i = 0; i < t.n; i++) {
     try {
-      const r = await a.call(t.slug, {}, { cache: false });
+      const r = await a.call(t.slug, t.input, { cache: false });
       if (t.ok(r)) ok++; else { fail++; errs.push(JSON.stringify(r).slice(0, 50)); }
     } catch (e) { fail++; errs.push((e.message || String(e)).slice(0, 60)); }
   }
