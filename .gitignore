@@ -30,3 +30,6 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+
+# Session handoff notes — machine-local, keep strategy out of the public repo
+.remember/
