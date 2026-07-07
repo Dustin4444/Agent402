@@ -31,7 +31,7 @@
 [![npm](https://img.shields.io/npm/v/agent402-openai-agents?label=openai-agents)](https://www.npmjs.com/package/agent402-openai-agents)
 
 **Give your AI agent 1,407 ready-to-use web tools — plus 92 multi-tool skill packs — from one server. Browser
-rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats and forecasting, compression, and ~1,000 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
+rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and ~1,000 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
 plain HTTP, no API keys, no signup), connect it to Claude/ChatGPT/any MCP
 client, and add your own tools in a few lines. Every tool is deterministic —
 **no LLM in the serving path** — and re-tested against its own example before
@@ -100,7 +100,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | **Crypto & payments** | `usdc-balance`, `tx-status`, `gas-estimate`, `ens-resolve`, `x402-quote`/`verify`, `transfer-authorization` — non-custodial, multi-chain (Base/Polygon/Arbitrum/Optimism/Ethereum) |
 | **Agent memory** | wallet-keyed KV + TTL, atomic counters, cross-wallet grants, hash-chained audit log, similarity recall |
 | **Stats & forecasting** | `stats-summary`, `stats-correlation`, `linear-regression`, `moving-average`, `outliers`; `forecast-naive`/`ses`/`holt`/`holt-winters` + `forecast-eval` (MAPE/RMSE backtest) |
-| **Finance math** | `compound-interest`, `loan-payment`, `amortization`, `npv`, `irr` (pure-CPU, deterministic) |
+| **Finance math** | `black-scholes` (option pricing + greeks), `bond-price`/`bond-ytm`, `cagr`, `sharpe-ratio`, `annuity`, `npv`/`irr`, `compound-interest`, `loan-payment`/`amortization`, `break-even`, `effective-annual-rate` (pure-CPU, deterministic) |
 | **Compression** | `gzip`/`gunzip`, `brotli-compress`/`decompress`, `compress-compare` (algorithm shootout, pure-CPU via node:zlib) |
 | **HTML extraction** | `html-select` (CSS query), `html-table`, `html-strip`, `html-links`, `html-meta` — deterministic counterpart to `extract` |
 | **Network ops** | `dns-lookup`, `dns-propagation`, `spf`/`dmarc`/`dkim` checks, `email-deliverability`; `cert-transparency`, `http-headers` (security audit), `tech-stack`, `asn-info` (IP geo) |
