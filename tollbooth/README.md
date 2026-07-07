@@ -11,7 +11,7 @@ and now its [Monetization Gateway](https://blog.cloudflare.com/monetization-gate
 (launched July 2026 — x402 charging in USDC on Base for anything behind Cloudflare:
 pages, APIs, datasets, MCP tools) confirm that pay-per-request is the business model
 of the agentic web. Tollbooth is the **open-source monetization gateway**: the same
-idea, but MIT-licensed and live today (Cloudflare's is waitlist-only), running in
+idea, but MIT-licensed and live today, running in
 front of *any* origin (even a Cloudflare Worker), non-custodial (you hold the wallet,
 no signup or Merchant-of-Record), and — the wedge the platform gateways don't offer —
 with a **proof-of-work free tier** so a walletless agent still has a path through.
