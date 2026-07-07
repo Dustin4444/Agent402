@@ -20,7 +20,7 @@ via x402 + USDC nanopayments. Agent402 is a natural fit — we already speak x40
    - Payment: x402 / USDC on Base (primary), Solana, Polygon, Arbitrum
    - MCP endpoint: `https://agent402.tools/mcp`
    - Discovery: `https://agent402.tools/.well-known/x402`
-   - Tool count: 1,407 + 100 skill packs
+   - Tool count: 1,407 + 92 skill packs
 4. Reference our Bazaar registration (already indexed by Coinbase CDP)
 
 **Why it matters:** Circle has "high enterprise visibility" — their marketplace is where

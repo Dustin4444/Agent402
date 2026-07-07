@@ -1,4 +1,4 @@
-# Agent402.Tools — the open x402 index (Find · Route · Leaderboard) + 1,407 tools & 100 skill packs for AI agents
+# Agent402.Tools — the open x402 index (Find · Route · Leaderboard) + 1,407 tools & 92 skill packs for AI agents
 
 > **What makes it different:** Agent402 is **open-source and self-hostable** — and a
 > single integration gives a buyer **three free primitives over the whole x402
@@ -8,7 +8,7 @@
 > - **Route** — [`POST /api/route`](https://agent402.tools/api/route) is the **neutral Smart Order Router**: rank tools across every x402 seller crawled (auto-discovered from the Coinbase CDP Bazaar), health-aware, with `include=external` to exclude us.
 > - **Leaderboard** — [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) is the **public on-chain ranking** of every x402 seller by **Base USDC settled volume** — calls served, totalUsd, unique buyers per seller. Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate by `payTo`. Hourly snapshot.
 >
-> Plus the whole **1,407-tool catalog** and **100 curated skill packs** (multi-tool
+> Plus the whole **1,407-tool catalog** and **92 curated skill packs** (multi-tool
 > workflows callable as MCP prompts), all runnable yourself, plus
 > [`agent402-tollbooth`](tollbooth) — an open pay-per-crawl gate for the other
 > side of x402.
@@ -30,8 +30,8 @@
 [![npm](https://img.shields.io/npm/v/agent402-google-adk?label=google-adk)](https://www.npmjs.com/package/agent402-google-adk)
 [![npm](https://img.shields.io/npm/v/agent402-openai-agents?label=openai-agents)](https://www.npmjs.com/package/agent402-openai-agents)
 
-**Give your AI agent 1,407 ready-to-use web tools — plus 100 multi-tool skill packs — from one server. Browser
-rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats and forecasting, compression, and ~1,000 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
+**Give your AI agent 1,407 ready-to-use web tools — plus 92 multi-tool skill packs — from one server. Browser
+rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and ~1,000 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
 plain HTTP, no API keys, no signup), connect it to Claude/ChatGPT/any MCP
 client, and add your own tools in a few lines. Every tool is deterministic —
 **no LLM in the serving path** — and re-tested against its own example before
@@ -100,7 +100,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | **Crypto & payments** | `usdc-balance`, `tx-status`, `gas-estimate`, `ens-resolve`, `x402-quote`/`verify`, `transfer-authorization` — non-custodial, multi-chain (Base/Polygon/Arbitrum/Optimism/Ethereum) |
 | **Agent memory** | wallet-keyed KV + TTL, atomic counters, cross-wallet grants, hash-chained audit log, similarity recall |
 | **Stats & forecasting** | `stats-summary`, `stats-correlation`, `linear-regression`, `moving-average`, `outliers`; `forecast-naive`/`ses`/`holt`/`holt-winters` + `forecast-eval` (MAPE/RMSE backtest) |
-| **Finance math** | `compound-interest`, `loan-payment`, `amortization`, `npv`, `irr` (pure-CPU, deterministic) |
+| **Finance math** | `black-scholes` (option pricing + greeks), `bond-price`/`bond-ytm`, `cagr`, `sharpe-ratio`, `annuity`, `npv`/`irr`, `compound-interest`, `loan-payment`/`amortization`, `break-even`, `effective-annual-rate` (pure-CPU, deterministic) |
 | **Compression** | `gzip`/`gunzip`, `brotli-compress`/`decompress`, `compress-compare` (algorithm shootout, pure-CPU via node:zlib) |
 | **HTML extraction** | `html-select` (CSS query), `html-table`, `html-strip`, `html-links`, `html-meta` — deterministic counterpart to `extract` |
 | **Network ops** | `dns-lookup`, `dns-propagation`, `spf`/`dmarc`/`dkim` checks, `email-deliverability`; `cert-transparency`, `http-headers` (security audit), `tech-stack`, `asn-info` (IP geo) |
@@ -113,7 +113,7 @@ and [`/llms.txt`](https://agent402.tools/llms.txt). Don't know which tool you ne
 a task description to the right tool — route, price, schema, and a ready example —
 so an agent skips the token-heavy "search around to find a tool" step.
 
-## Skill packs — 100 multi-tool workflows
+## Skill packs — 92 multi-tool workflows
 
 For jobs that span several tools — "audit a domain", "diagnose deliverability",
 "work up a time-series", "peel an opaque blob" — Agent402 ships curated
@@ -133,7 +133,7 @@ A task-shaped query to `search_tools` returns the matching pack alongside indivi
 | [`status-snapshot`](https://agent402.tools/skills/status-snapshot) | dns · http-check · http-headers · tls-cert · robots | One-shot service-health sweep |
 | [`webhook-debug`](https://agent402.tools/skills/webhook-debug) | json-format · jwt-decode · hmac-verify · json-schema-validate · time-render · redact · extract-entities | Triage a webhook payload |
 
-All 100 packs at [`/skills`](https://agent402.tools/skills) · JSON index at [`/api/skill-packs.json`](https://agent402.tools/api/skill-packs.json) ·
+All 92 packs at [`/skills`](https://agent402.tools/skills) · JSON index at [`/api/skill-packs.json`](https://agent402.tools/api/skill-packs.json) ·
 on MCP the packs appear under `prompts/list` so any MCP-aware client picks them up automatically.
 
 ## x402 Index — Find · Route · Leaderboard

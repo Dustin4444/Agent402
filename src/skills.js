@@ -17,6 +17,88 @@ import { ledgerShell, ledgerFooterCompact, esc as ledgerEsc } from "./ledger-chr
 
 export const SKILL_PACKS = [
   {
+    slug: "earnings-deep-dive",
+    title: "Earnings deep-dive",
+    tagline:
+      "Everything you need before a company reports: the upcoming earnings date, the latest financials, recent SEC filings, the live quote, and fresh analyst news — in one pass.",
+    useCase:
+      "Prepping for an earnings call or positioning ahead of a print — you want the date, the fundamentals, any recent filings, the market's current read, and the news narrative without stitching five sources together by hand.",
+    promptArgs: [
+      { name: "ticker", description: "Stock ticker (e.g. TSLA, MSFT)", required: true, substitute: "TSLA" },
+    ],
+    toolSlugs: ["earnings-calendar", "company-financials", "edgar-filings", "stock-quote", "search"],
+    workflow: [
+      "Get the next earnings date from earnings-calendar so you know the window you're positioning around.",
+      "Pull the latest fundamentals from company-financials — revenue, margins, EPS, cash flow — the baseline the print will be judged against.",
+      "List recent SEC filings via edgar-filings to catch any 8-K, guidance, or S-1 activity since the last report.",
+      "Get the live quote from stock-quote for the market's current positioning (price vs 52-week range).",
+      "Search the web for analyst expectations and recent news to frame the whisper number and the key debates.",
+    ],
+    claudePrompt:
+      "Prepare an earnings deep-dive on TSLA using Agent402's earnings-deep-dive skill pack. (1) Get the next earnings date, (2) pull the latest financials, (3) list recent SEC filings, (4) get the live quote, (5) search for analyst expectations. Summarize as a pre-earnings brief: date, what to watch in fundamentals, filing flags, current positioning, and the key debate going into the print.",
+  },
+  {
+    slug: "options-analytics",
+    title: "Options analytics",
+    tagline:
+      "Price a European option on a live stock: pull the current quote, estimate volatility from recent history, run Black-Scholes for fair value + the full greeks, and check the news for catalysts.",
+    useCase:
+      "Sizing an options trade or hedging a position — you want a fair value and the greeks (delta, gamma, vega, theta, rho) grounded in the stock's live price and realized volatility, not a stale textbook input.",
+    promptArgs: [
+      { name: "ticker", description: "Stock ticker (e.g. AAPL, NVDA)", required: true, substitute: "AAPL" },
+    ],
+    toolSlugs: ["stock-quote", "stock-history", "black-scholes", "search"],
+    workflow: [
+      "Get the live spot price from stock-quote — the underlying S for the option.",
+      "Pull ~60 days of closes from stock-history and compute annualized realized volatility (stddev of daily log returns × sqrt(252)) — the sigma input.",
+      "Run black-scholes with the live spot, your strike/expiry, the current risk-free rate, and that volatility to get fair value plus delta, gamma, vega, theta, and rho.",
+      "Search the web for any earnings, guidance, or events before expiry that could move implied vol beyond the realized estimate.",
+    ],
+    claudePrompt:
+      "Price a call option on AAPL using Agent402's options-analytics skill pack. (1) Get the live quote for the spot price, (2) pull 60 days of history and compute annualized realized volatility, (3) run black-scholes with spot=live price, strike=nearest round number, 30 days to expiry, riskFreeRate=0.05 and the realized vol, (4) search for events before expiry. Report the fair value, all five greeks, and whether the option looks rich or cheap versus the model.",
+  },
+  {
+    slug: "fixed-income-desk",
+    title: "Fixed-income desk",
+    tagline:
+      "Read the rate environment and price a bond in one workflow: the live Treasury curve, the recession-signal spread, inflation context, then price and yield a specific coupon bond at current rates.",
+    useCase:
+      "Evaluating a bond or building a rates view — you want the current curve, the 2s10s spread as a cycle signal, real-yield context from inflation, and the price/yield math on a specific coupon bond, all grounded in live Treasury data.",
+    promptArgs: [
+      { name: "couponRate", description: "Bond annual coupon rate as a decimal (e.g. 0.05)", required: false, substitute: "0.05" },
+    ],
+    toolSlugs: ["treasury-yield-curve", "yield-curve-spread", "bond-price", "bond-ytm", "cpi-yoy"],
+    workflow: [
+      "Pull the live Treasury yield curve with treasury-yield-curve — every maturity from 1M to 30Y.",
+      "Check yield-curve-spread for the 2s10s (and 3M-10Y) spread — a persistent inversion is the classic recession lead indicator.",
+      "Get year-over-year CPI from cpi-yoy so you can read the curve in real (inflation-adjusted) terms.",
+      "Price a coupon bond with bond-price using the relevant maturity's yield from the curve as the YTM.",
+      "Invert it with bond-ytm from a market price to confirm the yield, and compare to the curve to see if the bond is cheap or rich.",
+    ],
+    claudePrompt:
+      "Analyze the bond market using Agent402's fixed-income-desk skill pack. (1) Pull the live Treasury yield curve, (2) get the 2s10s spread and say whether it's inverted, (3) get YoY CPI for real-yield context, (4) price a 10-year bond with a 0.05 coupon at the current 10Y yield, (5) invert that price with bond-ytm to confirm the yield. Summarize the rate environment and whether the bond is fairly priced.",
+  },
+  {
+    slug: "defi-protocol-scanner",
+    title: "DeFi protocol scanner",
+    tagline:
+      "Due-diligence a DeFi protocol in one workflow: live token price, market context, protocol TVL across chains, and recent news — the on-chain and off-chain picture together.",
+    useCase:
+      "Evaluating a DeFi protocol or its token before allocating — you want the token price, its scale in the broader market, the protocol's total value locked (the real usage signal), and the latest news, without hopping between explorers and aggregators.",
+    promptArgs: [
+      { name: "protocol", description: "DeFiLlama protocol slug (e.g. aave, uniswap)", required: true, substitute: "aave" },
+    ],
+    toolSlugs: ["crypto-price", "crypto-market", "defi-tvl", "search"],
+    workflow: [
+      "Get the token's live price with crypto-price — the current quote and 24h move.",
+      "Pull crypto-market for market cap, volume, and rank so you know the token's scale and liquidity.",
+      "Get the protocol's total value locked from defi-tvl — headline TVL across chains is the clearest real-usage signal for a DeFi protocol.",
+      "Search the web for recent news, audits, or incidents the price and TVL don't yet reflect.",
+    ],
+    claudePrompt:
+      "Scan the aave DeFi protocol using Agent402's defi-protocol-scanner skill pack. (1) Get the token's live price, (2) pull market cap and volume, (3) get the protocol TVL across chains, (4) search for recent news or security incidents. Summarize as a due-diligence note: price and momentum, market scale, real usage (TVL), and any risk flags from the news.",
+  },
+  {
     slug: "security-audit",
     title: "Security audit",
     tagline:
@@ -2287,63 +2369,8 @@ export const SKILL_PACKS = [
   // Light tier — batch 2 (2026-07). All pure-CPU, PoW-eligible.
   // ──────────────────────────────────────────────────────────────────────
 
-  {
-    slug: "color-palette",
-    title: "Color palette analysis",
-    tagline:
-      "Full color analysis in one call: parse any color format, check WCAG contrast against white, and simulate all three forms of color blindness.",
-    useCase:
-      "A designer or front-end agent picked a brand color and needs the accessibility picture before committing: does it pass WCAG AA/AAA against a white background? What do protanopia / deuteranopia / tritanopia users see? What's the HSL breakdown? One pack replaces three separate calls.",
-    promptArgs: [
-      { name: "color", description: "Any CSS color (hex, rgb, hsl, named — e.g. #4ade80)", required: true, substitute: "#4ade80" },
-    ],
-    toolSlugs: ["color", "color-contrast", "color-blindness"],
-    workflow: [
-      "Parse the color with the color tool — returns hex, RGB, HSL, and named-color lookup.",
-      "Check WCAG contrast against white (#ffffff) with color-contrast — returns ratio and AA/AAA pass/fail for normal and large text.",
-      "Simulate color blindness with color-blindness — returns the color as seen by protanopia, deuteranopia, and tritanopia viewers.",
-    ],
-    claudePrompt:
-      "Analyze the color #4ade80 using Agent402: (1) color {color: \"#4ade80\"} — get hex/RGB/HSL. (2) color-contrast {foreground: \"#4ade80\", background: \"#ffffff\"} — WCAG ratio + AA/AAA pass. (3) color-blindness {color: \"#4ade80\"} — simulated values for all three types. Return {parsed, contrast, blindness}.",
-  },
 
-  {
-    slug: "password-audit",
-    title: "Password audit",
-    tagline:
-      "Check a password's strength (entropy, crack time, weaknesses) and generate a strong replacement — two tools, one security decision.",
-    useCase:
-      "A user or agent needs to know whether a password is strong enough and, if not, get a better one immediately. Useful for onboarding flows, credential rotation scripts, and security reviews.",
-    promptArgs: [
-      { name: "password", description: "The password to evaluate", required: true, substitute: "MyP@ssw0rd123" },
-    ],
-    toolSlugs: ["password-strength", "password", "hash"],
-    workflow: [
-      "Evaluate the submitted password with password-strength — returns entropy bits, estimated crack time, and a list of weaknesses (common patterns, dictionary words, keyboard walks).",
-      "Generate a strong replacement with password — length 16, symbols enabled. The user can adopt it if the original fails the strength check.",
-      "Hash the accepted password with hash (sha256) to show the at-rest representation — you store the digest, never the plaintext. This demonstrates the correct storage step; production systems should use a dedicated password KDF (bcrypt/scrypt/argon2) rather than a bare hash.",
-    ],
-    claudePrompt:
-      "Audit the password \"MyP@ssw0rd123\" using Agent402: (1) password-strength {password} — get entropy + crack time + weaknesses. (2) password {length:16} — generate a strong replacement. (3) hash {text:<accepted password>, algo:\"sha256\"} — show the at-rest digest. Return {strength, replacement, digest}.",
-  },
 
-  {
-    slug: "uuid-suite",
-    title: "UUID suite",
-    tagline:
-      "Generate all common ID formats in one call: UUIDv4 (random), ULID (time-sortable), and UUIDv5 (deterministic namespace-based).",
-    useCase:
-      "An agent is setting up a new entity and needs IDs in multiple formats — a random primary key (UUIDv4), a time-sortable index key (ULID), and a stable derived key (UUIDv5 for deduplication). One call instead of three.",
-    promptArgs: [],
-    toolSlugs: ["uuid", "ulid", "uuid-v5"],
-    workflow: [
-      "Generate a random UUIDv4 with uuid — the standard primary key format.",
-      "Generate a ULID with ulid — lexicographically sortable by creation time, useful for time-ordered indexes.",
-      "Generate a UUIDv5 with uuid-v5 using namespace=url and name=test — deterministic: same inputs always produce the same ID, useful for deduplication and content-addressing.",
-    ],
-    claudePrompt:
-      "Generate all ID formats using Agent402: (1) uuid — random UUIDv4. (2) ulid — time-sortable ULID. (3) uuid-v5 {name:\"test\", namespace:\"url\"} — deterministic UUIDv5. Return all three.",
-  },
 
   {
     slug: "regex-test",
@@ -2366,108 +2393,10 @@ export const SKILL_PACKS = [
       "Test the regex \\b\\w+@\\w+\\.\\w+\\b against \"Contact us at hello@example.com or support@test.org\" using Agent402: (1) regex {pattern, text, flags:\"g\"} — get matches. (2) text-stats {text} — get word/char counts. (3) extract-entities {text} — cross-check against the built-in extractor. Return {matches, stats, entities}.",
   },
 
-  {
-    slug: "math-suite",
-    title: "Math suite",
-    tagline:
-      "Calculate an expression, summarize a dataset, and compute percentages — the three most common math operations agents need, bundled.",
-    useCase:
-      "An agent is doing quick quantitative work: evaluate a formula (compound growth, unit conversion), get descriptive stats on a set of numbers, and express a value as a percentage of a total. One call covers the common cases.",
-    promptArgs: [
-      { name: "expression", description: "Math expression to evaluate (e.g. (100 * 1.05^10))", required: true, substitute: "(100 * 1.05^10)" },
-      { name: "values", description: "Comma-separated numbers for stats (e.g. 10,20,30,40,50)", required: false, substitute: "10,20,30,40,50" },
-    ],
-    toolSlugs: ["calc", "stats", "percentage"],
-    workflow: [
-      "Evaluate the math expression with calc — supports arithmetic, exponents, parentheses, and common functions.",
-      "Compute descriptive statistics on the values array with stats — mean, median, mode, min, max, stddev.",
-      "Compute the first value as a percentage of the total with percentage.",
-    ],
-    claudePrompt:
-      "Run the math suite using Agent402: (1) calc {expression:\"(100 * 1.05^10)\"} — evaluate. (2) stats {values:[10,20,30,40,50]} — descriptive stats. (3) percentage {value:10, total:150} — percent. Return all three results.",
-  },
 
-  {
-    slug: "date-math",
-    title: "Date math",
-    tagline:
-      "Date calculations in one pass: difference between two dates, add time to a date, and compute age from a birthdate.",
-    useCase:
-      "An agent needs to answer date questions: how many days between two events, what date is 30 days from now, how old is someone. Common in scheduling, contract management, and user-profile logic.",
-    promptArgs: [
-      { name: "from", description: "Start date (ISO format, e.g. 2024-01-01)", required: true, substitute: "2024-01-01" },
-      { name: "to", description: "End date (ISO format, e.g. 2026-07-04)", required: true, substitute: "2026-07-04" },
-    ],
-    toolSlugs: ["date-diff", "add-time", "age"],
-    workflow: [
-      "Compute the difference between the two dates with date-diff — returns days, hours, minutes, and a human-readable string.",
-      "Add 30 days to the start date with add-time — demonstrates forward-projection from an anchor date.",
-      "Compute age from the start date as a birthdate with age — returns years, months, days.",
-    ],
-    claudePrompt:
-      "Run date math using Agent402: (1) date-diff {from:\"2024-01-01\", to:\"2026-07-04\"} — get difference. (2) add-time {date:\"2024-01-01\", amount:30, unit:\"days\"} — project forward. (3) age {birthdate:\"2024-01-01\"} — compute age. Return all three.",
-  },
 
-  {
-    slug: "semver-check",
-    title: "Semver check",
-    tagline:
-      "Compare two semantic versions and see the structural diff — is it a major/minor/patch bump, and what changed?",
-    useCase:
-      "An agent is evaluating a dependency update or release decision and needs to know: which version is newer, what type of bump is it, and what's the structural difference? One call answers both questions.",
-    promptArgs: [
-      { name: "a", description: "First version (e.g. 2.4.0)", required: true, substitute: "2.4.0" },
-      { name: "b", description: "Second version (e.g. 2.10.1)", required: true, substitute: "2.10.1" },
-    ],
-    toolSlugs: ["semver", "json-diff", "regex"],
-    workflow: [
-      "Validate both inputs against a strict semver pattern with regex (e.g. ^\\d+\\.\\d+\\.\\d+ with optional pre-release/build) — catches a trailing tag, a missing patch segment, or a stray 'v' prefix before you trust the comparison.",
-      "Compare the two versions with semver — returns which is greater, the difference type (major/minor/patch), and parsed components.",
-      "Show the structural difference with json-diff — wraps each version in an object and diffs them, making the changed fields visible.",
-    ],
-    claudePrompt:
-      "Compare versions using Agent402: (1) regex {pattern:<strict semver shape>, text:\"2.4.0\"} — validate both are well-formed. (2) semver {a:\"2.4.0\", b:\"2.10.1\"} — compare. (3) json-diff {a:{version:\"2.4.0\"}, b:{version:\"2.10.1\"}} — structural diff. Return {valid, comparison, diff}.",
-  },
 
-  {
-    slug: "lorem-gen",
-    title: "Lorem generator",
-    tagline:
-      "Generate placeholder text and immediately analyze it — word count, character count, estimated tokens. The 'fill a content slot and know its size' workflow.",
-    useCase:
-      "A designer or content pipeline needs placeholder text of a specific length AND needs to know its token budget for LLM context planning. Chain mode: lorem generates, text-stats measures.",
-    promptArgs: [
-      { name: "words", description: "Number of words to generate (default 100)", required: false, substitute: "100" },
-    ],
-    toolSlugs: ["lorem", "text-stats", "token-count"],
-    workflow: [
-      "Generate placeholder text with lorem — produces N words of lorem ipsum.",
-      "Measure the generated text with text-stats — returns word count, character count, sentence count, and estimated tokens.",
-      "Get a precise LLM token estimate with token-count — the exact figure you need when sizing the placeholder against a model's context window, rather than the approximate word-based guess text-stats gives.",
-    ],
-    claudePrompt:
-      "Generate and measure placeholder text using Agent402: (1) lorem {words:100} — generate text. (2) text-stats on the generated text — get counts. (3) token-count on the text — precise LLM token budget. Return {text, stats, tokens}.",
-  },
 
-  {
-    slug: "qr-gen",
-    title: "QR code generator",
-    tagline:
-      "Generate a QR code and validate the URL in one pass — the encoded image plus a parsed breakdown of the URL structure.",
-    useCase:
-      "An agent is generating a QR code for a URL and wants to confirm the URL is well-formed before encoding it. Catches typos in URLs before they get printed on physical media.",
-    promptArgs: [
-      { name: "text", description: "URL or text to encode (e.g. https://agent402.tools)", required: true, substitute: "https://agent402.tools" },
-    ],
-    toolSlugs: ["qr", "url-parse", "hash"],
-    workflow: [
-      "Generate the QR code with qr — returns a base64-encoded PNG image at 512px.",
-      "Parse the URL with url-parse — validates structure and returns protocol, hostname, path, query params. Catches malformed URLs before they're encoded.",
-      "Derive a stable content-addressed filename with hash (sha256 of the URL) — the same URL always yields the same digest, so regenerating the QR is idempotent and you never accumulate duplicate image files for one destination.",
-    ],
-    claudePrompt:
-      "Generate a QR code using Agent402: (1) qr {text:\"https://agent402.tools\", size:512} — get base64 PNG. (2) url-parse {url:\"https://agent402.tools\"} — validate URL structure. (3) hash {text:\"https://agent402.tools\", algo:\"sha256\"} — stable filename for the PNG. Return {qrImage, urlParsed, filename}.",
-  },
 
   {
     slug: "number-crunch",
@@ -2511,25 +2440,6 @@ export const SKILL_PACKS = [
       "Run financial calculators using Agent402: (1) compound-interest {principal:10000, annualRate:0.07, years:10, compoundingPerYear:12}. (2) amortization {principal:300000, annualRate:0.065, termYears:30, maxRows:12}. (3) loan-payment {principal:300000, annualRate:0.065, termYears:30}. Return {growth, schedule, payment}.",
   },
 
-  {
-    slug: "text-transform",
-    title: "Text transform",
-    tagline:
-      "Convert text to all common cases in one call: camelCase, slug-form, and snake_case. The 'name this variable/URL/column' workflow.",
-    useCase:
-      "A developer or content pipeline has a human-readable string and needs it in multiple programming conventions at once — for a JS variable (camel), a URL path (slug), and a database column (snake).",
-    promptArgs: [
-      { name: "text", description: "Text to convert (e.g. Hello World Example)", required: true, substitute: "Hello World Example" },
-    ],
-    toolSlugs: ["case", "slugify", "case"],
-    workflow: [
-      "Convert to camelCase with case {to:\"camel\"} — for JavaScript/TypeScript variable names.",
-      "Convert to a URL slug with slugify — lowercase, hyphens, URL-safe.",
-      "Convert to snake_case with case {to:\"snake\"} — for database columns and Python variables.",
-    ],
-    claudePrompt:
-      "Transform \"Hello World Example\" using Agent402: (1) case {text, to:\"camel\"} → helloWorldExample. (2) slugify {text} → hello-world-example. (3) case {text, to:\"snake\"} → hello_world_example. Return all three.",
-  },
 
   {
     slug: "markdown-convert",
@@ -2571,25 +2481,6 @@ export const SKILL_PACKS = [
       "Convert XML to JSON using Agent402: (1) xml-to-json {xml:\"<root><item>hello</item></root>\"} — parse. (2) json-format on the result — pretty-print. (3) json-validate on the result — confirm well-formed. Return the formatted, validated JSON.",
   },
 
-  {
-    slug: "checksum-suite",
-    title: "Checksum suite",
-    tagline:
-      "All checksums at once: SHA-256 (cryptographic), CRC32 (fast integrity), and Adler-32 (streaming check). Three algorithms, one input, one call.",
-    useCase:
-      "An agent needs to verify file or message integrity and wants multiple checksum algorithms for different use cases: SHA-256 for security, CRC32 for quick dedup checks, Adler-32 for streaming validation.",
-    promptArgs: [
-      { name: "text", description: "Text to checksum (e.g. file integrity check)", required: true, substitute: "file integrity check" },
-    ],
-    toolSlugs: ["hash", "crc32", "checksum"],
-    workflow: [
-      "Compute SHA-256 with hash — cryptographically secure, used for content-addressing and tamper detection.",
-      "Compute CRC32 with crc32 — fast, non-cryptographic, used for quick equality checks and network frame validation.",
-      "Compute Adler-32 with checksum — lightweight rolling checksum used in zlib/deflate streams and rsync-style delta detection.",
-    ],
-    claudePrompt:
-      "Checksum \"file integrity check\" using Agent402: (1) hash {text, algo:\"sha256\"} — SHA-256. (2) crc32 {text} — CRC32. (3) checksum {text, algo:\"adler32\"} — Adler-32. Return all three checksums.",
-  },
 
   {
     slug: "validator-suite",
@@ -2854,45 +2745,7 @@ export const SKILL_PACKS = [
       "Check the age and legitimacy of google.com using Agent402's domain-age skill pack: (1) whois for registration age and registrar, (2) dns-lookup for A record resolution, (3) tls-cert for certificate validity. Report a trust assessment based on age, DNS health, and cert status.",
   },
 
-  {
-    slug: "hash-verify",
-    title: "Hash verification suite",
-    tagline:
-      "All major hash algorithms at once — SHA-256, SHA-512, and MD5 for any input text.",
-    useCase:
-      "An agent needs to produce file or content hashes for integrity verification, deduplication, or comparison. Instead of three separate calls, get all three standard hashes in one payment. Useful for content fingerprinting, checksum generation, and cache-key derivation.",
-    promptArgs: [
-      { name: "text", description: "Text to hash", required: true, substitute: "hello world" },
-    ],
-    toolSlugs: ["hash", "hash", "hash"],
-    workflow: [
-      "Call hash with text and algo='sha256' for the most common integrity hash.",
-      "Call hash with text and algo='sha512' for higher-security applications.",
-      "Call hash with text and algo='md5' for legacy compatibility and quick fingerprinting.",
-    ],
-    claudePrompt:
-      "Hash 'hello world' using Agent402's hash-verify skill pack: (1) SHA-256, (2) SHA-512, (3) MD5. Return all three digests for comparison and integrity verification.",
-  },
 
-  {
-    slug: "encoding-suite",
-    title: "Encoding suite",
-    tagline:
-      "Encode text in all common formats at once — Base64, hex, and URL encoding in one pass.",
-    useCase:
-      "An agent preparing data for different transport layers needs multiple encodings: Base64 for binary-in-text, hex for debugging and low-level protocols, URL encoding for query parameters. One payment produces all three.",
-    promptArgs: [
-      { name: "text", description: "Text to encode", required: true, substitute: "hello world" },
-    ],
-    toolSlugs: ["base64", "hex", "url-code"],
-    workflow: [
-      "Call base64 with text and mode='encode' for Base64 representation.",
-      "Call hex with text and mode='encode' for hexadecimal representation.",
-      "Call url-code with text and mode='encode' for URL-encoded representation.",
-    ],
-    claudePrompt:
-      "Encode 'hello world' using Agent402's encoding-suite skill pack: (1) Base64, (2) hex, (3) URL encoding. Return all three encoded forms.",
-  },
 
   {
     slug: "jwt-toolkit",

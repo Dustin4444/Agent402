@@ -696,6 +696,9 @@ jobs:
       - name: Safe-regex guard (rejects ReDoS patterns for caller-supplied regexes — DoS lock — offline)
         run: node scripts/test-safe-regex.js
 
+      - name: Tool-count sync (static surfaces match the live catalog total — no count drift)
+        run: node scripts/sync-count.js --check
+
       - name: Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
         run: node scripts/test-sales-ledger.js
 
@@ -827,6 +830,9 @@ jobs:
 
       - name: Agent-kit tests (token-count, text-chunk, json-validate, jsonl)
         run: node scripts/test-agent-kit.js
+
+      - name: Finance-math-kit tests (TVM, Black-Scholes, bonds, CAGR, Sharpe — vs textbook values)
+        run: node scripts/test-finance-math-kit.js
 
       - name: Barcode-kit tests (QR/barcode decode round-trip, PNG + JPEG)
         run: node scripts/test-barcode.js
