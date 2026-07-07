@@ -11,6 +11,8 @@ never double-charges.
 npm install agent402-client
 ```
 
+Runnable copy of the free-tier quickstart below: [`examples/hello-agent402.js`](https://github.com/MikeyPetrillo/Agent402/blob/main/examples/hello-agent402.js) — discover a tool and call it in ~15 lines, no wallet.
+
 ## Free tier (proof-of-work, no wallet)
 
 ```js
