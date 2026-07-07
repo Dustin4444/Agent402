@@ -28,6 +28,11 @@
 //   light    ($0.05 floor)  pure-CPU bundles, PoW-eligible
 //
 import { SKILL_PACKS } from "../skills.js";
+import { safeFetch } from "./fetch-guard.js";
+
+// Cap for the media-pipeline URL→base64 bridge below. Must route through
+// safeFetch (SSRF guard + size cap), never raw fetch — the URL is caller-supplied.
+const MAX_FETCH_BASE64_BYTES = 25 * 1024 * 1024;
 
 // Sentinel error thrown by stub mapInput functions. The runner converts it to
 // a per-step partial-failure {ok:false, statusCode:501} so the rest of the
@@ -2032,14 +2037,11 @@ function bakeOffValues(prior) {
 // because image-kit tools take base64 inputs while media-info / audio-normalize
 // take URLs — the chain needs to bridge between the two shapes.
 async function fetchAsBase64(url) {
-  if (!url || !/^https?:\/\//i.test(String(url))) {
-    throw Object.assign(new Error(`not a fetchable URL: ${url}`), { statusCode: 422 });
-  }
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw Object.assign(new Error(`fetch ${res.status} for ${url}`), { statusCode: res.status });
-  }
-  return Buffer.from(await res.arrayBuffer()).toString("base64");
+  // The URL is caller-supplied, so this MUST route through safeFetch — it enforces
+  // the SSRF guard (blocks private/link-local IPs, DNS-rebind, redirect-to-private)
+  // and a byte cap. A raw fetch() here was an SSRF hole (internal/metadata exfil).
+  const { buffer } = await safeFetch(url, { binary: true, maxBytes: MAX_FETCH_BASE64_BYTES });
+  return buffer.toString("base64");
 }
 
 // Auto-generate a step config for any pack not explicitly in PACK_STEPS.

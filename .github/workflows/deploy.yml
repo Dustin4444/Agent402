@@ -138,6 +138,26 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm ci && npm install --no-save --ignore-scripts @x402/fetch viem
+
+      # Run FIRST (before the slow faucet-funding E2E) for fast iteration. Live
+      # proof of the agent402-client 402-inspection preflight (v0.6.0): a real Base
+      # burner buy on PROD, with a raw-payFetch CONTROL right beside the client buy
+      # so a 402 is attributed correctly (client bug vs funding/facilitator).
+      - name: Live client-SDK 402-inspection (real Base burner buy vs prod)
+        if: always()
+        continue-on-error: true
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+          TARGET_URL: https://agent402.tools
+        run: |
+          if [ -z "$BURNER_KEY" ]; then echo "BURNER_KEY unset — skipping live client paid test."; exit 0; fi
+          echo "::add-mask::$BURNER_KEY"
+          printf '%s' "$BURNER_KEY" > /tmp/client-burner-key
+          KEY_FILE=/tmp/client-burner-key node scripts/test-client-paid-live.js; rc=$?
+          shred -u /tmp/client-burner-key 2>/dev/null || rm -f /tmp/client-burner-key
+          exit $rc
+
       # Wallet birth-to-first-purchase E2E: a keypair generated inside the
       # runner (never printed, never persisted — only its address) is faucet-
       # funded with testnet USDC and completes a REAL x402 purchase against a
@@ -670,6 +690,12 @@ jobs:
       - name: Self-check policy (transient-filtering, timeout, unknown-slug — the prod tool-failure alarm — offline)
         run: node scripts/test-selfcheck.js
 
+      - name: Payer identity (reads X-PAYMENT + legacy header; rejects unsigned/invalid — money-path regression lock — offline)
+        run: node scripts/test-payer.js
+
+      - name: Safe-regex guard (rejects ReDoS patterns for caller-supplied regexes — DoS lock — offline)
+        run: node scripts/test-safe-regex.js
+
       - name: Sales ledger unit tests (named sales, internal/external classification, revenue math — offline)
         run: node scripts/test-sales-ledger.js
 
@@ -754,8 +780,14 @@ jobs:
       - name: Idempotency (opt-in safe retry of paid/proven calls; boots paid-mode)
         run: node scripts/test-idempotency.js
 
+      - name: Tool correctness regressions (20 wrong-answer bugs from the review; boots free-mode, TZ=UTC)
+        run: node scripts/test-correctness-fixes.js
+
       - name: Buyer SDK (agent402-client — resolve + auto-pay via PoW; boots paid-mode)
         run: node client/test.js
+
+      - name: Buyer SDK spending caps (concurrency reservation + 402-amount inspection — wallet-safety lock — offline)
+        run: node scripts/test-client-caps.js
 
       - name: Adapter tests (openai-tools + anthropic-tools + ai-sdk + langchain + openai-agents + llamaindex + strands + google-adk + langchain-py)
         run: |
@@ -1245,7 +1277,8 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          node client/test.js   # gate: the buyer SDK must pass before shipping
+          node client/test.js            # gate: the buyer SDK must pass before shipping
+          node scripts/test-client-caps.js  # gate: spending-cap safety must pass too
           cd client
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.

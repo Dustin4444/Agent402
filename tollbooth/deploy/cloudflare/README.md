@@ -31,8 +31,10 @@ curl -O https://raw.githubusercontent.com/MikeyPetrillo/Agent402/main/tollbooth/
 #    TOLLBOOTH_PAYTO to advertise a USDC quote. Set the signing secret:
 npx wrangler secret put TOLLBOOTH_SECRET     # paste any long random string
 
-# 3. Deploy in observe mode first (recommended)
-TOLLBOOTH_OBSERVE=true npx wrangler deploy
+# 3. Deploy in observe mode first (recommended). A shell env var does NOT reach
+#    the Worker — pass it as a Worker var (or uncomment TOLLBOOTH_OBSERVE in
+#    wrangler.toml [vars]):
+npx wrangler deploy --var TOLLBOOTH_OBSERVE:true
 ```
 
 Point your domain (or a route) at the Worker. Open

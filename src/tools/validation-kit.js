@@ -85,6 +85,9 @@ function csvLint(text, delimiter) {
 function ipv6Expand(addr) {
   let full = addr.toLowerCase().trim();
   if (full.includes("::")) {
+    // "::" may appear at most once; "1::2::3" is invalid. split("::") on multiple
+    // occurrences silently dropped groups and returned a bogus "valid" result.
+    if (full.indexOf("::") !== full.lastIndexOf("::")) throw bad("invalid IPv6 address: '::' may appear only once");
     const [left, right] = full.split("::");
     const lGroups = left ? left.split(":") : [];
     const rGroups = right ? right.split(":") : [];
@@ -164,7 +167,12 @@ export const VALIDATION_TOOLS = [
         const cfg = PHONE_COUNTRIES[hint];
         if (!cfg) throw bad(`unsupported country "${input.country}" (US, UK, DE, FR, AU, IN)`);
         country = hint;
-        national = digits.startsWith(cfg.code) ? digits.slice(cfg.code.length) : digits;
+        // Only strip the country code if the number is actually longer than a
+        // national number — else a valid national number that happens to start
+        // with the country digits (e.g. an Indian mobile beginning "91") got its
+        // real digits chopped off and marked invalid.
+        const maxNat = Math.max(...cfg.len);
+        national = (digits.length > maxNat && digits.startsWith(cfg.code)) ? digits.slice(cfg.code.length) : digits;
       } else if (hasPlus || digits.length > 10) {
         const detected = detectCountry(digits);
         if (detected) { country = detected.country; national = detected.national; }

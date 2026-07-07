@@ -608,6 +608,12 @@ const conversion = [
         const cur = map[s[k]], next = map[s[k + 1]] || 0;
         total += cur < next ? -cur : cur;
       }
+      // Charset-only wasn't enough — "IIII", "VV", "IC" all passed. Require the
+      // canonical form to round-trip: re-encode the parsed value and demand it
+      // equals the input, which rejects any non-standard numeral.
+      let canon = "", n = total;
+      for (const [val, sym] of ROMAN) while (n >= val) { canon += sym; n -= val; }
+      if (canon !== s) throw bad("Not a valid Roman numeral");
       return { result: total };
     },
   },
@@ -661,7 +667,15 @@ function evalExpr(expr) {
 const UNITS = {
   length: { m: 1, km: 1000, cm: 0.01, mm: 0.001, mi: 1609.344, yd: 0.9144, ft: 0.3048, in: 0.0254, nmi: 1852 },
   mass: { g: 1, kg: 1000, mg: 0.001, t: 1e6, lb: 453.592, oz: 28.3495, st: 6350.29 },
-  data: { b: 1, kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3, tb: 1024 ** 4, kbit: 128, mbit: 128 * 1024 },
+  // Bytes. Decimal SI names (kb=1000, matching the convert-* tools and the SI
+  // standard) and separate binary IEC names (kib=1024). Bit units are decimal —
+  // 1 kbit = 1000 bits = 125 bytes (the old kbit:128/mbit:131072 were ~2.4% off).
+  data: {
+    b: 1, byte: 1, bit: 0.125,
+    kb: 1000, mb: 1000 ** 2, gb: 1000 ** 3, tb: 1000 ** 4,
+    kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4,
+    kbit: 125, mbit: 125_000, gbit: 125_000_000,
+  },
   time: { s: 1, ms: 0.001, min: 60, h: 3600, d: 86400, wk: 604800, yr: 31557600 },
   speed: { mps: 1, kph: 1 / 3.6, mph: 0.44704, kn: 0.514444 },
 };
@@ -867,11 +881,24 @@ const time = [
       const b = parseDate(need(i, "birthdate", "any"), "birthdate");
       const now = parseDate(i.asOf, "asOf");
       if (b > now) throw bad("birthdate is in the future");
-      let years = now.getUTCFullYear() - b.getUTCFullYear();
-      let months = now.getUTCMonth() - b.getUTCMonth();
-      let days = now.getUTCDate() - b.getUTCDate();
-      if (days < 0) { months--; days += new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)).getUTCDate(); }
-      if (months < 0) { years--; months += 12; }
+      // Anchor-and-clamp: add whole months to the birth date (clamping the day to
+      // the target month's length, so Jan 31 + 1mo = Feb 28/29), back off if we
+      // overshot `now`, then the remainder is the day count. The old subtract-and-
+      // borrow approach produced NEGATIVE days when the birth-day exceeded the
+      // borrow month's length (e.g. born the 31st, measured into a short month).
+      const addMonths = (d, m) => {
+        const mo = d.getUTCMonth() + m;
+        const ty = d.getUTCFullYear() + Math.floor(mo / 12);
+        const tm = ((mo % 12) + 12) % 12;
+        const lastDay = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate();
+        return new Date(Date.UTC(ty, tm, Math.min(d.getUTCDate(), lastDay), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()));
+      };
+      let totalMonths = (now.getUTCFullYear() - b.getUTCFullYear()) * 12 + (now.getUTCMonth() - b.getUTCMonth());
+      if (addMonths(b, totalMonths) > now) totalMonths--;
+      const anchor = addMonths(b, totalMonths);
+      const years = Math.floor(totalMonths / 12);
+      const months = totalMonths % 12;
+      const days = Math.floor((now - anchor) / 86400000);
       return { years, months, days, totalDays: Math.floor((now - b) / 86400000) };
     },
   },

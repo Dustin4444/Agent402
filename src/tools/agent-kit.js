@@ -2,6 +2,7 @@
 // most: exact token counting, RAG-style chunking, JSON-Schema validation, and
 // JSONL <-> array conversion. All pure-CPU (proof-of-work eligible), no network,
 // no LLM in the serving path. Covered by scripts/test-agent-kit.js.
+import { compileUserRegex } from "./safe-regex.js";
 
 function bad(message) {
   const err = new Error(message);
@@ -82,7 +83,7 @@ function validateNode(data, schema, path, errors) {
   if (t === "string") {
     if (schema.minLength != null && data.length < schema.minLength) errors.push(`${at}: shorter than minLength ${schema.minLength}`);
     if (schema.maxLength != null && data.length > schema.maxLength) errors.push(`${at}: longer than maxLength ${schema.maxLength}`);
-    if (schema.pattern && !new RegExp(schema.pattern).test(data)) errors.push(`${at}: does not match pattern`);
+    if (schema.pattern && !compileUserRegex(schema.pattern).test(data)) errors.push(`${at}: does not match pattern`);
     if (schema.format && FORMATS[schema.format] && !FORMATS[schema.format].test(data)) errors.push(`${at}: invalid ${schema.format}`);
   }
   if (t === "number" || t === "integer") {
@@ -140,7 +141,7 @@ export const AGENT_TOOLS = [
     handler: async (i) => {
       const text = cap(need(i, "text"));
       const { enc, encoding } = await getEncoder(i.model || "gpt-4o");
-      return { tokens: enc.encode(text).length, characters: text.length, model: i.model || "gpt-4o", encoding };
+      return { tokens: enc.encode(text).length, characters: [...text].length, model: i.model || "gpt-4o", encoding };
     },
   },
   {
@@ -173,10 +174,20 @@ export const AGENT_TOOLS = [
       if (unit === "tokens") {
         const { enc, encoding } = await getEncoder(i.model || "gpt-4o");
         const toks = enc.encode(text);
-        for (let s = 0; s < toks.length; s += step) chunks.push(enc.decode(toks.slice(s, s + size)));
+        for (let s = 0; s < toks.length; s += step) {
+          chunks.push(enc.decode(toks.slice(s, s + size)));
+          if (s + size >= toks.length) break; // reached the end; skip redundant tail chunks
+        }
         return { unit, size, overlap, model: i.model || "gpt-4o", encoding, count: chunks.length, chunks };
       }
-      for (let s = 0; s < text.length; s += step) chunks.push(text.slice(s, s + size));
+      // Chunk by code points (not UTF-16 units) so emoji/surrogate pairs aren't
+      // split, and stop once a chunk reaches the end so a large overlap can't emit
+      // redundant tail chunks wholly contained in earlier ones.
+      const cp = [...text];
+      for (let s = 0; s < cp.length; s += step) {
+        chunks.push(cp.slice(s, s + size).join(""));
+        if (s + size >= cp.length) break;
+      }
       return { unit, size, overlap, count: chunks.length, chunks };
     },
   },

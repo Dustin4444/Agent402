@@ -10,6 +10,7 @@
 // All pure-CPU, no network, no LLM → proof-of-work eligible (free tier).
 // Covered by scripts/test-html-kit.js.
 import { JSDOM } from "jsdom";
+import { compileUserRegex } from "./safe-regex.js";
 
 function bad(message) {
   const err = new Error(message);
@@ -248,7 +249,10 @@ export const HTML_TOOLS = [
       const base = i.base ? String(i.base) : null;
       let filterRe = null;
       if (i.filter) {
-        try { filterRe = new RegExp(String(i.filter)); } catch (e) { throw bad(`"filter" is not a valid regex: ${e.message}`); }
+        // compileUserRegex rejects catastrophic-backtracking patterns (ReDoS) and
+        // over-long ones, then throws a 400 on an invalid pattern — the filter runs
+        // on the main event loop against every href, so it must be bounded.
+        filterRe = compileUserRegex(i.filter);
       }
       const rawLimit = i.limit === undefined ? 200 : Number(i.limit);
       if (!Number.isFinite(rawLimit) || rawLimit < 1 || rawLimit > 1000) throw bad(`"limit" must be 1-1000`);

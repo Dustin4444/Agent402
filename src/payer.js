@@ -11,7 +11,11 @@
  * different wallet, letting a caller act under a victim's memory namespace.
  */
 export function payerFromRequest(req) {
-  const header = req.header("payment-signature");
+  // x402 v2 clients send the authorization in `X-PAYMENT` (what @x402/fetch and
+  // the middleware use); `payment-signature` is the legacy name. Read X-PAYMENT
+  // first so real buyers aren't silently attributed to null — every other
+  // consumer (replay-guard, the gate) already reads both.
+  const header = req.header("x-payment") || req.header("payment-signature");
   if (!header) return null;
   try {
     const payload = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));

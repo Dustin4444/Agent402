@@ -50,4 +50,4 @@ To settle in real USDC instead, fund a wallet on Base and run `AGENT_KEY=0xYOUR_
 
 ## What things cost
 
-Flat per-call prices from **$0.001** (utilities, conversions) to **$0.02** (browser rendering, audio transcode). No tiers, no subscriptions, no rate-limit plans — every call settles on-chain in seconds and the next one is independent. Prices are in the catalog and in every 402 response.
+Flat per-call prices from **$0.001** (utilities, conversions); most tools are **$0.001–$0.02** (e.g. browser rendering), with premium AI, media, and multi-tool skill packs priced higher. No tiers, no subscriptions, no rate-limit plans — every call settles on-chain in seconds and the next one is independent. Prices are in the catalog and in every 402 response.

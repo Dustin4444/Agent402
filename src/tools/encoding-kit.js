@@ -65,6 +65,7 @@ const BRAILLE_MAP = {
   "-": "\u2824", ":": "\u2812", ";": "\u2806", "'": "\u2804",
 };
 const NUM_PREFIX = "\u283C"; // number indicator
+const LETTER_SIGN = "\u2830"; // letter sign \u2014 ends number mode before an a-j letter (whose cell == a digit)
 const BRAILLE_REV = {};
 for (const [k, v] of Object.entries(BRAILLE_MAP)) {
   if (k >= "a" && k <= "z") BRAILLE_REV[v] = k;
@@ -83,6 +84,10 @@ function toBraille(text) {
       if (!inNum) { parts.push(NUM_PREFIX); inNum = true; }
       parts.push(BRAILLE_MAP[ch] || ch);
     } else {
+      // Leaving number mode: an a-j letter shares its cell with a digit, so emit a
+      // letter sign to tell the decoder "this is a letter". k-z and punctuation
+      // cells don't collide, and a space already resets number mode.
+      if (inNum && ch >= "a" && ch <= "j") parts.push(LETTER_SIGN);
       inNum = false;
       parts.push(BRAILLE_MAP[ch] || ch);
     }
@@ -96,6 +101,7 @@ function fromBraille(braille) {
   let inNum = false;
   for (const ch of chars) {
     if (ch === NUM_PREFIX) { inNum = true; continue; }
+    if (ch === LETTER_SIGN) { inNum = false; continue; } // ends number mode; emits nothing
     if (ch === " ") { inNum = false; parts.push(" "); continue; }
     if (inNum) {
       // Number: braille digits map to 1-9,0 (same cells as a-j)
@@ -248,14 +254,16 @@ export const ENCODING_TOOLS = [
       if (!input.text && input.text !== "") throw bad('Missing "text"');
       const text = String(input.text);
       if (input.decode) {
-        const bytes = text.trim().split(/\s+/);
-        const decoded = bytes.map((b) => {
-          if (!/^[01]{1,8}$/.test(b)) throw bad(`Invalid binary byte "${b}"`);
-          return String.fromCharCode(parseInt(b, 2));
-        }).join("");
+        const groups = text.trim().split(/\s+/);
+        for (const b of groups) if (!/^[01]{1,8}$/.test(b)) throw bad(`Invalid binary byte "${b}"`);
+        // Reassemble bytes and UTF-8-decode, so multi-byte characters round-trip.
+        const decoded = new TextDecoder().decode(Uint8Array.from(groups.map((b) => parseInt(b, 2))));
         return { result: decoded, mode: "decode", original: text };
       }
-      const encoded = [...text].map((ch) => ch.charCodeAt(0).toString(2).padStart(8, "0")).join(" ");
+      // Encode via UTF-8 bytes — charCodeAt(0) dropped astral chars to a lone
+      // surrogate and emitted >8-bit groups for any code point >255 (which the
+      // decoder then rejected). UTF-8 keeps every byte 8 bits and round-trips.
+      const encoded = [...new TextEncoder().encode(text)].map((byte) => byte.toString(2).padStart(8, "0")).join(" ");
       return { result: encoded, mode: "encode", original: text };
     },
   },

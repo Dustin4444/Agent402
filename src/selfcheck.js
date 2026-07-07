@@ -30,6 +30,15 @@ export const SELFCHECK_SLUGS = [
   "stock-history",         // wedge (Yahoo) — second Yahoo endpoint beyond the quote
   "crypto-market",         // crypto prices
   "whois",                 // DNS / RDAP
+  // High-value paid tools the reliability review flagged as unmonitored — added so
+  // a break in EDGAR / crypto / on-chain / DeFi is caught proactively (synthetically,
+  // no real traffic needed), not only when an agent happens to pay-and-fail. Keyless.
+  "company-financials",    // SEC EDGAR — the priciest tool ($0.02)
+  "edgar-company-lookup",  // SEC EDGAR
+  "price-coingecko",       // CoinGecko price
+  "defi-tvl",              // DeFiLlama
+  "gas-estimate",          // on-chain gas (public RPC)
+  "crypto-global",         // crypto market globals
 ];
 // Key-gated tools: checked ONLY when their key env var is actually set. This is
 // how we monitor key EXPIRY without false-paging on an intentional unset — a
@@ -57,16 +66,19 @@ export function selfcheckSlugs() {
 async function checkOne(def, timeoutMs) {
   const input = def.discovery?.input || {};
   const t0 = Date.now();
+  let timer;
   try {
     await Promise.race([
       Promise.resolve().then(() => def.handler(input)),
-      new Promise((_, rej) =>
-        setTimeout(() => rej(Object.assign(new Error("selfcheck timeout"), { statusCode: 504 })), timeoutMs),
-      ),
+      new Promise((_, rej) => {
+        timer = setTimeout(() => rej(Object.assign(new Error("selfcheck timeout"), { statusCode: 504 })), timeoutMs);
+      }),
     ]);
     return { slug: def.slug, ok: true, ms: Date.now() - t0 };
   } catch (e) {
     return { slug: def.slug, ok: false, ms: Date.now() - t0, status: e?.statusCode || 0, error: String(e?.message || e).slice(0, 160) };
+  } finally {
+    clearTimeout(timer); // don't leave a pending timer holding the loop after a fast success
   }
 }
 

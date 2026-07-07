@@ -159,8 +159,17 @@ function lastWeekday(year, month, dow) {
 
 function getUSHolidays(year) {
   const holidays = [];
-  // Fixed-date holidays
-  for (const [m, d] of US_HOLIDAYS_FIXED) holidays.push(new Date(year, m - 1, d));
+  // Fixed-date holidays, with federal weekend observation: a holiday on Saturday
+  // is observed the preceding Friday, on Sunday the following Monday (the actual
+  // non-working weekday). Without this, a weekend holiday was counted as a normal
+  // business day and its observed weekday was missed.
+  for (const [m, d] of US_HOLIDAYS_FIXED) {
+    let hd = new Date(year, m - 1, d);
+    const dow = hd.getDay();
+    if (dow === 6) hd = new Date(year, m - 1, d - 1);
+    else if (dow === 0) hd = new Date(year, m - 1, d + 1);
+    holidays.push(hd);
+  }
   // Monday-observed holidays
   holidays.push(nthWeekday(year, 1, 1, 3));   // MLK Day: 3rd Monday in January
   holidays.push(nthWeekday(year, 2, 1, 3));   // Presidents' Day: 3rd Monday in February
@@ -279,16 +288,20 @@ export const DATE_TIME_TOOLS = [
       if (/Z|[+-]\d{2}:\d{2}$/.test(inputStr) || /^\d{10,13}$/.test(inputStr)) {
         date = raw; // already absolute
       } else {
-        // Treat as local time in the "from" timezone. Convert via formatter.
+        // Naive datetime: interpret its wall-clock digits as local time in `fromTz`
+        // and resolve to the correct absolute instant. Treat the digits as UTC, see
+        // what wall-clock that instant shows in fromTz, and correct by the resulting
+        // offset. (Previously it discarded this and used the server-local parse, so
+        // the input was read in whatever zone the host ran in — wrong on prod/UTC.)
+        const asUtc = new Date(`${inputStr.replace(" ", "T")}Z`);
         const parts = new Intl.DateTimeFormat("en-CA", {
           timeZone: fromTz, year: "numeric", month: "2-digit", day: "2-digit",
           hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
-        }).formatToParts(raw);
-        const get = (t) => parts.find(p => p.type === t)?.value || "00";
-        const utcStr = `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}:${get("second")}Z`;
-        // The raw date may be off; we need the offset between fromTz and UTC at this time.
-        // Simple approach: use the raw Date directly — it was parsed as local time.
-        date = raw;
+        }).formatToParts(asUtc);
+        const get = (t) => parts.find((p) => p.type === t)?.value || "00";
+        const tzWall = Date.UTC(+get("year"), +get("month") - 1, +get("day"), +get("hour") % 24, +get("minute"), +get("second"));
+        const offset = tzWall - asUtc.getTime();
+        date = new Date(asUtc.getTime() - offset);
       }
       return {
         input: i.datetime,
@@ -352,7 +365,9 @@ export const DATE_TIME_TOOLS = [
       if (secs < 0) { mins--; secs += 60; }
       if (mins < 0) { hrs--; mins += 60; }
       if (hrs < 0) { days--; hrs += 24; }
-      if (days < 0) { months--; days += 30; } // approx
+      // Borrow the real number of days in the preceding month, not a flat 30 —
+      // the hardcoded approximation was off by a day for 31-day months.
+      if (days < 0) { months--; days += new Date(later.getUTCFullYear(), later.getUTCMonth(), 0).getDate(); }
 
       const totalDays = Math.floor(absDiffMs / 86400000);
       return {
@@ -460,7 +475,7 @@ export const DATE_TIME_TOOLS = [
         example: {
           start: "2026-01-01", end: "2026-12-31",
           holidaysExcluded: true,
-          businessDays: 251, weekendDays: 104, holidayDays: 10, totalDays: 365,
+          businessDays: 250, weekendDays: 104, holidayDays: 11, totalDays: 365,
         },
       },
     },

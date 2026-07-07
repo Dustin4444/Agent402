@@ -73,6 +73,8 @@
 //   - openapi-lint emits violations in deterministic spec-traversal order so
 //     two runs against the same input produce byte-identical output.
 
+import { escapeRegex } from "./safe-regex.js";
+
 function bad(message) {
   const err = new Error(message);
   err.statusCode = 400;
@@ -625,7 +627,7 @@ export const API_TOOLS = [
       // Path: substitute every {name} with its example value (URL-encoded).
       let url = baseUrl + pathTemplate;
       for (const p of allParams.filter((q) => q.in === "path")) {
-        url = url.replace(new RegExp(`\\{${p.name}\\}`, "g"), encodeURIComponent(String(paramExample(p))));
+        url = url.replace(new RegExp(`\\{${escapeRegex(p.name)}\\}`, "g"), encodeURIComponent(String(paramExample(p))));
       }
 
       // Query string: required params only. Optional ones are deliberately

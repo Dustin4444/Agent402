@@ -220,7 +220,15 @@ export const PRICE_FEED_TOOLS = [
       const data = await feedFetch(`https://api.llama.fi/protocol/${protocol}`);
       // DeFiLlama returns chainTvls as an object keyed by chain. Flatten for the
       // caller — they don't want to iterate object keys.
+      // DeFiLlama's chainTvls object also carries aggregate pseudo-keys
+      // (borrowed, staking, pool2, …) and per-chain suffixed variants
+      // (Ethereum-borrowed, Polygon-staking). Those are NOT chains and must not be
+      // summed as TVL — doing so double-counts and folds in borrowed/staked value
+      // (it was overstating TVL ~2.6x). Keep only real, unsuffixed chain keys.
+      const PSEUDO_TVL_KEYS = new Set(["borrowed", "staking", "pool2", "offers", "treasury", "vesting", "masterchef", "dcAndLsOverlap"]);
+      const isChainKey = (k) => !k.includes("-") && !PSEUDO_TVL_KEYS.has(k);
       const chainTvls = Object.entries(data?.chainTvls ?? {})
+        .filter(([chain]) => isChainKey(chain))
         .map(([chain, payload]) => {
           // Newer chainTvls entries are objects { tvl: [...timeseries] }; older
           // ones can be flat numbers. Handle both shapes.
@@ -230,11 +238,13 @@ export const PRICE_FEED_TOOLS = [
         })
         .filter((r) => r.tvlUsd != null && r.tvlUsd > 0)
         .sort((a, b) => b.tvlUsd - a.tvlUsd);
-      // Top-level tvlUsd: prefer the explicit field, fall back to sum of chains.
-      const explicit = typeof data?.currentChainTvls === "object"
-        ? Object.values(data.currentChainTvls).filter((v) => typeof v === "number").reduce((a, b) => a + b, 0)
-        : null;
-      const tvlUsd = explicit && explicit > 0 ? explicit : chainTvls.reduce((a, b) => a + (b.tvlUsd || 0), 0);
+      // Top-level tvlUsd: prefer DeFiLlama's canonical aggregate series (data.tvl,
+      // the headline figure), else sum the real (non-pseudo) chains.
+      const tvlSeries = Array.isArray(data?.tvl) ? data.tvl : null;
+      const headlineTvl = tvlSeries && tvlSeries.length ? tvlSeries[tvlSeries.length - 1]?.totalLiquidityUSD : null;
+      const tvlUsd = typeof headlineTvl === "number" && headlineTvl > 0
+        ? headlineTvl
+        : chainTvls.reduce((a, b) => a + (b.tvlUsd || 0), 0);
       return {
         protocol,
         name: data?.name ?? null,
