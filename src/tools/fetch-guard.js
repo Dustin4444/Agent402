@@ -193,7 +193,7 @@ export async function assertPublicUrl(rawUrl) {
  * Fetch a public http(s) URL with SSRF protection, size cap, and timeout.
  * Returns { finalUrl, html } — or { finalUrl, buffer } with `binary: true`.
  */
-export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES } = {}) {
+export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, headers = {} } = {}) {
   const url = await assertPublicUrl(rawUrl);
 
   const controller = new AbortController();
@@ -204,7 +204,9 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES }
       signal: controller.signal,
       redirect: "follow",
       dispatcher: ssrfDispatcher,
-      headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml,*/*" },
+      // Caller headers (e.g. an upstream API key) merge over the defaults;
+      // headers don't change the connection target, so SSRF safety is unaffected.
+      headers: { "User-Agent": USER_AGENT, Accept: "text/html,application/xhtml+xml,*/*", ...headers },
     });
   } catch (err) {
     if (isSsrfBlock(err)) throw badRequest("URL resolves to a private address");

@@ -10,14 +10,14 @@ function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-async function getJson(url) {
+async function getJson(url, opts = {}) {
   let html;
   // Retry once — data.gov and weather.gov intermittently 404/502 on first
   // attempt then succeed immediately. Without this, Bazaar registration and
   // paid-canary fail on the same tools every run.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      ({ html } = await safeFetch(url, { maxBytes: 5 * 1024 * 1024 }));
+      ({ html } = await safeFetch(url, { maxBytes: 5 * 1024 * 1024, ...opts }));
       break;
     } catch (e) {
       if (attempt === 0 && (e.statusCode === 422 || e.statusCode === 502)) continue;
@@ -76,11 +76,18 @@ export const GOV_TOOLS = [
       const q = String(i.q ?? "").trim();
       if (!q) throw bad('"q" is required');
       const rows = Math.min(Math.max(parseInt(i.rows, 10) || 5, 1), 20);
-      const data = await getJson(`https://catalog.data.gov/api/3/action/package_search?q=${encodeURIComponent(q)}&rows=${rows}`);
-      // CKAN's shape is { success, result: { count, results } } — but data.gov
-      // intermittently returns a 200 with a different/empty body during its
-      // (frequent) outages. Treat a missing result block as an honest 502
-      // rather than silently returning nulls.
+      // data.gov retired the public catalog.data.gov/api/3/action CKAN API (now
+      // 404s). The current CKAN-compatible endpoint is proxied through api.data.gov
+      // at api.gsa.gov/technology/datagov/v3 and needs an x-api-key. DATA_GOV_API_KEY
+      // (set on Railway) → the real key; falls back to the public rate-limited
+      // DEMO_KEY so the tool still works if the key isn't configured.
+      const key = process.env.DATA_GOV_API_KEY || "DEMO_KEY";
+      const data = await getJson(
+        `https://api.gsa.gov/technology/datagov/v3/action/package_search?q=${encodeURIComponent(q)}&rows=${rows}`,
+        { headers: { "x-api-key": key } },
+      );
+      // CKAN's shape is { success, result: { count, results } } — a missing result
+      // block is an honest 502 rather than silently returning nulls.
       const result = data?.result;
       if (data?.success !== true || !result || (result.count === undefined && !Array.isArray(result.results))) {
         throw bad("data.gov is not returning results right now (upstream outage) — retry later", 502);
