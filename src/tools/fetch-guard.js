@@ -86,7 +86,13 @@ function badRequest(message) {
  * every redirect hop re-resolves through the same guard.
  */
 function guardedLookup(hostname, options, callback) {
-  lookupCb(hostname, options, (err, address, family) => {
+  // Force IPv4. Railway's egress has NO working IPv6 — every AAAA address is
+  // ENETUNREACH — and Node's happy-eyeballs races the IPv6 address on a dual-stack
+  // host ~15% of the time, surfacing as UND_ERR_SOCKET / "could not connect"
+  // (the repeatable ~4-7% 504s on treasury-debt/avg-rates, gov-data, fx, edgar).
+  // Resolving IPv4-only never attempts v6; an IPv6-only host is unreachable here
+  // anyway, so nothing is lost.
+  lookupCb(hostname, { ...options, family: 4 }, (err, address, family) => {
     if (err) return callback(err);
     const entries = Array.isArray(address) ? address : [{ address, family }];
     for (const e of entries) {

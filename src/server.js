@@ -1,4 +1,13 @@
 import { RAILS_OR } from "./rails.js";
+// Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
+// happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
+// the time (UND_ERR_SOCKET / "could not connect"). Force IPv4 process-wide for the
+// payment client and any raw fetch (the SSRF dispatcher forces it separately for
+// the tool fetchers). Nothing is lost — an IPv6-only host is unreachable here anyway.
+import dns from "node:dns";
+import { setGlobalDispatcher, Agent as UndiciAgent } from "undici";
+dns.setDefaultResultOrder("ipv4first");
+setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
 import express from "express";
 import { readFileSync } from "node:fs";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
