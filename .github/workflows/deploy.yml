@@ -158,6 +158,25 @@ jobs:
           shred -u /tmp/client-burner-key 2>/dev/null || rm -f /tmp/client-burner-key
           exit $rc
 
+      # Real end-to-end proof of the IPv4 egress fix: buy the exact wallet-only tools
+      # that were 504ing on the IPv6 race (treasury-debt/avg-rates, gov-data) many
+      # times with the real burner and assert every paid call delivers data — zero
+      # charged failures. Runs early (before the slow faucet E2E) for fast iteration.
+      - name: Live IPv4-egress proof (real burner buys of the previously-504ing tools)
+        if: always()
+        continue-on-error: true
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+          TARGET_URL: https://agent402.tools
+        run: |
+          if [ -z "$BURNER_KEY" ]; then echo "BURNER_KEY unset — skipping live treasury paid test."; exit 0; fi
+          echo "::add-mask::$BURNER_KEY"
+          printf '%s' "$BURNER_KEY" > /tmp/treasury-burner-key
+          KEY_FILE=/tmp/treasury-burner-key node scripts/test-treasury-paid-live.js; rc=$?
+          shred -u /tmp/treasury-burner-key 2>/dev/null || rm -f /tmp/treasury-burner-key
+          exit $rc
+
       # Wallet birth-to-first-purchase E2E: a keypair generated inside the
       # runner (never printed, never persisted — only its address) is faucet-
       # funded with testnet USDC and completes a REAL x402 purchase against a
