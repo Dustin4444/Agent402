@@ -45,6 +45,12 @@ export const TIERS = {
     price: 0.003,
     maxInputChars: 12_000,
     maxTokens: 768,
+    // Server-chosen upstream failover, tried in order when the requested
+    // model's provider errors. The terminal entry is deliberately gpt-4o-mini:
+    // the daily canary proves it alive every morning, and at the nano caps its
+    // worst case (~$0.0009) stays ~3x under the price. Fallback models bypass
+    // the tier allowlist (server-chosen, caps still enforced by the body).
+    fallbacks: ["deepseek/deepseek-chat", "openai/gpt-4o-mini"],
     prefixes: [
       "openai/gpt-4.1-nano", "openai/gpt-5-nano",
       "google/gemini-2.0-flash-lite", "google/gemini-2.5-flash-lite",
@@ -237,7 +243,29 @@ async function callOpenRouter(body) {
 }
 
 function makeHandler(tierSlug) {
-  return async (input) => callOpenRouter(validateRequest(input, tierSlug));
+  return async (input) => {
+    const body = validateRequest(input, tierSlug);
+    // Payment settles BEFORE this handler runs, so an upstream provider
+    // failure must not become the buyer's problem when an equivalent model
+    // can serve: walk the tier's fallback chain on upstream errors
+    // (502/503/504) only — our own validation 4xxs pass through untouched.
+    // The response's `model` field discloses which model actually served.
+    // (Origin: openai/gpt-4.1-nano returned persistent provider errors on
+    // 2026-07-08 — two independent paid runs — and buyers were charged $0.003
+    // for 502s. No allowlist can guarantee a provider stays alive; a chain
+    // ending in a canary-proven model can.)
+    const chain = [body.model, ...(TIERS[tierSlug].fallbacks || []).filter((m) => m !== body.model)];
+    let lastErr;
+    for (const model of chain) {
+      try {
+        return await callOpenRouter({ ...body, model });
+      } catch (e) {
+        if (![502, 503, 504].includes(e?.statusCode)) throw e;
+        lastErr = e;
+      }
+    }
+    throw lastErr;
+  };
 }
 
 const SHARED_TAGS = ["llm", "ai", "inference", "chat", "gateway", "openai-compatible", "openrouter"];
