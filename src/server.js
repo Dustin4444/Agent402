@@ -2165,6 +2165,10 @@ for (const tool of ALL_KIT) {
         res.setHeader("X-Cache", cacheKey ? "miss" : "skip");
       }
       if (result && result.__binary) return res.type(result.contentType).send(result.__binary);
+      // SSE escape hatch (LLM gateway streaming): the handler returns a
+      // writer instead of a body and takes over the response. Runs after the
+      // paywall settled; never cached (idempotency hooks res.json only).
+      if (result && typeof result.__sse === "function") { await result.__sse(res); return; }
 
       // Cache successful, non-error JSON responses. Errors are never cached —
       // an upstream blip shouldn't poison the key for the whole TTL.
@@ -2175,6 +2179,7 @@ for (const tool of ALL_KIT) {
     } catch (err) {
       errored = true;
       status = err.statusCode || 500;
+      if (res.headersSent) { try { res.end(); } catch { /* stream already gone */ } return; }
       // Probe detection: a 4xx with zero meaningful input keys is a scanning/
       // discovery call (agent probing endpoints without arguments), not a real
       // schema mismatch. Tag it so the dashboard can exclude it from error rates.
