@@ -122,6 +122,20 @@ export const TOOLS = [
     check: (r) => (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0) || `expected choices[0].message.content, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Streaming leg — stream: true must settle AND deliver real SSE frames.
+    // raw: the check reads the response as text and asserts OpenAI wire
+    // framing (data: chunks ending in [DONE]). deepseek-chat is requested
+    // directly (proven alive) so this leg tests the streaming path itself,
+    // orthogonal to the nano leg above which exercises the failover chain.
+    kit: "llm-stream",
+    path: "/v1/nano/chat/completions",
+    method: "POST",
+    raw: true,
+    body: { model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5, stream: true },
+    priceUsd: 0.003,
+    check: (text) => (typeof text === "string" && text.includes("data:") && text.includes("[DONE]")) || `expected SSE frames ending in [DONE], got ${String(text).slice(0, 100)}`,
+  },
+  {
     // Route-and-execute — the SOR's executing surface. Dispatches internally
     // to /api/hash; a real digest in the receipt-bearing envelope proves the
     // resolve → guard → dispatch → receipt chain on prod.
@@ -292,7 +306,7 @@ async function main() {
     if (t.body) { init.headers = { "Content-Type": "application/json" }; init.body = JSON.stringify(t.body); }
     try {
       const res = await payOnceWithRetryOn5xx(url, init);
-      const body = await res.json().catch(() => ({}));
+      const body = t.raw ? await res.text().catch(() => "") : await res.json().catch(() => ({}));
       const shapeOk = res.status === 200 ? t.check(body) : false;
       const row = { kit: t.kit, path: t.path, status: res.status, shapeOk, priceUsd: t.priceUsd };
       results.push(row);
