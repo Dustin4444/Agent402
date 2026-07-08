@@ -496,8 +496,13 @@ async function main() {
       // ExactStellarScheme wants { address, signAuthEntry } — basicNodeSigner
       // supplies the signing half, the public key is added alongside.
       const signer = { address: keypair.publicKey(), ...sdk.contract.basicNodeSigner(keypair, sdk.Networks.PUBLIC) };
+      // The client-side scheme builds the Soroban transfer itself, so it needs
+      // a Soroban RPC — mainnet has no default (the SDK throws without one).
+      // Override with STELLAR_RPC_URL; the fallback is the free public endpoint
+      // from the providers list at developers.stellar.org/docs/data/apis/rpc.
+      const rpcUrl = (process.env.STELLAR_RPC_URL || "https://mainnet.sorobanrpc.com").trim();
       const stellarClient = new StellarX402Client();
-      stellarClient.register("stellar:*", new ExactStellarScheme(signer));
+      stellarClient.register("stellar:*", new ExactStellarScheme(signer, { url: rpcUrl }));
       const stellarPay = wrapStellar(synthFetch, stellarClient);
       const res = await stellarPay(`${TARGET}/api/hash`, {
         method: "POST", headers: { "Content-Type": "application/json" },

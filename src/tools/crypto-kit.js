@@ -90,17 +90,36 @@ function normalizeCurrency(raw, dflt = "usd") {
 
 async function jsonGet(url, host = "CoinGecko") {
   const safeUrl = await assertPublicUrl(url);
-  let res;
-  try {
-    res = await fetch(safeUrl, {
+  const attempt = (timeout) =>
+    fetch(safeUrl, {
       headers: {
         "User-Agent": cryptoUserAgent(),
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(timeout),
     });
+  let res;
+  try {
+    res = await attempt(10000);
   } catch (e) {
-    throw bad(`${host} request failed: ${e.message}`, 504);
+    // Single retry on network/timeout failure (same pattern as finance-kit).
+    try {
+      res = await attempt(12000);
+    } catch (e2) {
+      throw bad(`${host} request failed: ${e2.message}`, 504);
+    }
+  }
+  // Retry once on 429/5xx after a short backoff. CoinGecko burst-limits per
+  // IP; a chained skill pack (crypto-dossier: price → history → trending →
+  // global) fires four CG calls in ~3s and the fourth intermittently 429s —
+  // the backoff clears the burst window without threatening the pack's
+  // overall time budget. (finance-kit/gov-kit carry the same 5xx retry.)
+  if (res.status === 429 || res.status >= 500) {
+    await new Promise((r) => setTimeout(r, 2500));
+    try {
+      const retryRes = await attempt(12000);
+      if (retryRes.ok || retryRes.status !== res.status) res = retryRes;
+    } catch { /* fall through with the original response */ }
   }
   const text = await res.text();
   if (!res.ok) {
