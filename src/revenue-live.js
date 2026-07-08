@@ -67,7 +67,9 @@ export const EVM = {
     tx: (h) => `https://arbiscan.io/tx/${h}`,
   },
   robinhood: {
-    label: "Robinhood Chain", asset: "USDG", span: 30000,
+    // Measured ~0.15s blocks (not the 2s Orbit default) — 30k blocks was only
+    // ~76 real minutes; 600k ≈ 25h so the daily canary settle stays visible.
+    label: "Robinhood Chain", asset: "USDG", span: 600000,
     token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     rpcs: [
       ...(process.env.ALCHEMY_API_KEY ? [`https://robinhood-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []),
@@ -103,12 +105,14 @@ export async function rpcCall(urls, method, params, timeoutMs = 5000) {
 
 // One eth_getLogs over the whole span trips free-RPC range/"archive" caps
 // (that's an RPC-provider upsell, not a real constraint), so the transfer
-// scan walks BACKWARD from the head in span/4 chunks — newest first, early
-// stop once 8 transfers are in hand, hard 12s budget. A failed chunk is a
-// partial window, never an error: the balance (a cheap head read) stays up
-// and the card says the scan was partial instead of parroting vendor text.
-const LOG_CHUNKS = 4;
+// scan walks BACKWARD from the head in chunks — newest first, early stop once
+// 8 transfers are in hand, hard 12s budget. Chunks are capped at 9,000 blocks
+// (Alchemy rejects getLogs ranges over 10k on some chains — Robinhood,
+// verified 2026-07-08) with a minimum of 4. A failed chunk is a partial
+// window, never an error: the balance (a cheap head read) stays up and the
+// card says the scan was partial instead of parroting vendor text.
 async function recentInbound(c, wallet, latest) {
+  const LOG_CHUNKS = Math.max(4, Math.ceil(c.span / 9000));
   const chunk = Math.ceil(c.span / LOG_CHUNKS);
   const deadline = Date.now() + 12_000;
   const logs = [];
@@ -150,7 +154,7 @@ async function recentInbound(c, wallet, latest) {
       if (blk?.timestamp) t.when = new Date(parseInt(blk.timestamp, 16) * 1000).toISOString();
     } catch { /* timestamp is nice-to-have, not required */ }
   }
-  return { recent, missed };
+  return { recent, missed, chunks: LOG_CHUNKS };
 }
 
 async function evmRail(name, wallet) {
@@ -161,11 +165,11 @@ async function evmRail(name, wallet) {
     const balHex = await rpcCall(c.rpcs, "eth_call", [{ to: c.token, data: "0x70a08231" + pad(wallet).slice(2) }, "latest"]);
     out.balance = Number(BigInt(balHex && balHex !== "0x" ? balHex : "0x0")) / 1e6;
     const latest = parseInt(await rpcCall(c.rpcs, "eth_blockNumber", []), 16);
-    const { recent, missed } = await recentInbound(c, wallet, latest);
+    const { recent, missed, chunks } = await recentInbound(c, wallet, latest);
     out.recent = recent;
     out.externalUsd = Number(recent.filter((t) => t.external).reduce((s, t) => s + t.usd, 0).toFixed(6));
     out.windowBlocks = c.span;
-    if (missed) out.scanNote = `transfer scan partial: ${missed}/${LOG_CHUNKS} windows unavailable from public RPCs (balance is live)`;
+    if (missed) out.scanNote = `transfer scan partial: ${missed}/${chunks} windows unavailable from public RPCs (balance is live)`;
   } catch (e) {
     out.error = String(e?.message || e).slice(0, 120);
   }
