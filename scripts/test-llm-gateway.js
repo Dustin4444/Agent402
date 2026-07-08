@@ -83,5 +83,34 @@ ok(tierAllows("v1-chat-nano", "deepseek/deepseek-chat"), "deepseek-chat on nano 
 }
 ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/") && t.route.endsWith("/chat/completions") || t.route === "POST /v1/chat/completions", ), "routes live at OpenAI wire paths");
 
+// Upstream failover: a provider error on the requested model must not become
+// the buyer's 502 when the tier has a fallback chain (payment already settled).
+{
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const calls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(body.model);
+    if (body.model === "openai/gpt-4.1-nano") {
+      return { ok: false, status: 502, text: async () => JSON.stringify({ error: { message: "Provider returned error" } }) };
+    }
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-1", object: "chat.completion", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  const res = await nano.handler({ model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], max_tokens: 5 });
+  ok(res.choices?.[0]?.message?.content === "OK", "failover serves the buyer despite the requested model's provider error");
+  ok(res.model === "deepseek/deepseek-chat", `response discloses the serving model (got ${res.model})`);
+  ok(calls.join(",") === "openai/gpt-4.1-nano,deepseek/deepseek-chat", `tried requested model first, then the chain (got ${calls.join(",")})`);
+
+  // Validation errors must NOT trigger the chain — the buyer's input is wrong.
+  calls.length = 0;
+  let threw = null;
+  try { await nano.handler({ model: "openai/gpt-4o", messages: [{ role: "user", content: "hi" }] }); } catch (e) { threw = e; }
+  ok(threw?.statusCode === 400 && calls.length === 0, "tier-allowlist 400 throws before any upstream call — no silent substitution");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
