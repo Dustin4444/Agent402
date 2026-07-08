@@ -250,8 +250,14 @@ export function ledgerTape(recentCalls) {
  * @param {string} [opts.extraCss]  - page-specific CSS
  * @param {string} opts.body        - main content HTML (including footer)
  */
+// Social crawlers (X, Slack, Discord, …) cache the card image by its exact URL,
+// so a fixed /card.png keeps showing a stale tool count long after it changes.
+// The server stamps the current count here at boot; the query param makes every
+// count change a new image URL, which busts those caches on the next crawl.
+let ogImageVersion = "";
+export function setOgImageVersion(v) { ogImageVersion = String(v || ""); }
 export function ledgerShell({ title, description, canonical, baseUrl, activePath = "", ogImage, jsonLd, extraCss = "", body }) {
-  const og = ogImage || (baseUrl + "/card.png");
+  const og = ogImage || (baseUrl + "/card.png" + (ogImageVersion ? `?v=${ogImageVersion}` : ""));
   // Base ecosystem JSON-LD — every page rendered through the ledger shell
   // carries this so crawlers and discovery agents see Base chain support
   // regardless of which page they land on.

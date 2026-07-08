@@ -126,6 +126,7 @@ import { uptimePage } from "./uptime.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
+import { setOgImageVersion } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
@@ -545,6 +546,10 @@ for (const tool of ALL_KIT) {
   if (CATALOG[tool.route]) throw new Error(`Duplicate route in kit: ${tool.route}`);
   CATALOG[tool.route] = tool;
 }
+
+// Version the default OG card URL by tool count so social crawlers re-fetch
+// the card image when the catalog changes instead of serving a stale cache.
+setOgImageVersion(Object.keys(CATALOG).length);
 
 // Skill packs as paid bundled-execution endpoints. Built AFTER ALL_KIT
 // finishes populating CATALOG so each skill handler can resolve underlying
