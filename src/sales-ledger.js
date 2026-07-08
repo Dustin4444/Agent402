@@ -25,13 +25,20 @@
 import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { OUR_EVM_WALLETS } from "./revenue-live.js";
+import { OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS } from "./revenue-live.js";
+import { normalizePayerAddress } from "./payer.js";
 
 const HAS_DATA_DIR = existsSync("/data");
 const DB_PATH = process.env.SALES_LEDGER_DB || join(HAS_DATA_DIR ? "/data" : "/tmp", "agent402-sales.db");
 export const salesPersistent = HAS_DATA_DIR || Boolean(process.env.SALES_LEDGER_DB);
 
-const BURNERS = new Set([...OUR_EVM_WALLETS].map((w) => String(w).toLowerCase()));
+// EVM burners lowercase; Solana/Stellar burners case-exact (base58 and
+// Stellar G-addresses are case-sensitive — lowercasing them breaks matching).
+const BURNERS = new Set([
+  ...[...OUR_EVM_WALLETS].map((w) => String(w).toLowerCase()),
+  ...OUR_SOLANA_WALLETS,
+  ...OUR_STELLAR_WALLETS,
+]);
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
@@ -72,7 +79,7 @@ export function txFromPaymentResponse(headerValue) {
  */
 export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic }) {
   try {
-    const p = typeof payer === "string" && payer ? payer.toLowerCase() : null;
+    const p = normalizePayerAddress(payer); // lowercases EVM only — base58/Stellar stay case-exact
     const internal = Boolean(synthetic) || rail === "heartbeat" || (p !== null && BURNERS.has(p));
     insertSale.run(
       Date.now(),

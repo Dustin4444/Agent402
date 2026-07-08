@@ -20,7 +20,7 @@ import {
   grant, revoke, listGrants, getLog, remember, recall, forget,
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
-import { payerFromRequest } from "./payer.js";
+import { payerFromRequest, payerFromPaymentResponse } from "./payer.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { landingPage } from "./landing.js";
 import { statusPage } from "./status.js";
@@ -1958,7 +1958,11 @@ app.use((req, res, next) => {
           const network = method === "usdc" ? networkFromPaymentResponse(settleReceipt) : null;
           const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
           const synthetic = method === "heartbeat" || isSyntheticRequest(req);
-          const payer = payerFromRequest(req);
+          // Request-payload attribution covers EVM (EIP-3009 authorization.from);
+          // SVM/Stellar payloads carry no such field, so fall back to the
+          // facilitator-verified payer in the settle receipt — otherwise every
+          // Solana/Stellar buyer records as null in PostHog and the sales ledger.
+          const payer = payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           capturePostHogSettlement({ slug: def.slug, rail, network, priceUsd, synthetic, payer });
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
