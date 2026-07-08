@@ -1,0 +1,231 @@
+// B20 kit — read-only tools for Base's B20 token standard (native-precompile
+// ERC-20 superset, factory at 0xB20f…0000, tokens prefixed 0xB200…). Launched
+// alongside the mainnet Activation Registry (2026-07-08); these tools answer
+// honestly BEFORE activation too (the registry simply reports not-activated).
+//
+//   b20-activation-check   is a B20 feature activated on Base mainnet?
+//   b20-token-info         ERC-20 metadata + B20 signals for any address
+//   b20-verify             boolean verdict: is this address a real B20 token?
+//   b20-feature-id         pure-CPU: feature string -> registry calldata
+//
+// Read-only eth_calls against Base mainnet only — B20 is a Base-native
+// primitive. No keys, no writes. The three RPC tools are wallet-only (egress);
+// b20-feature-id is pure CPU and PoW-eligible.
+import sha3 from "js-sha3"; // CommonJS — default import, then destructure
+const { keccak256 } = sha3;
+import { ssrfDispatcher } from "./fetch-guard.js";
+
+// Documented Base addresses (docs.base.org/get-started/launch-b20-token).
+const REGISTRY = "0x8453000000000000000000000000000000000001";
+const FACTORY = "0xb20f000000000000000000000000000000000000";
+const TOKEN_PREFIX = "0xb200";
+const KNOWN_FEATURES = ["base.b20_asset", "base.b20_stablecoin"];
+
+// Selectors verified locally against js-sha3 (standard ERC-20 ones match the
+// canonical values, which validates the hashing path for the B20-specific one).
+const SEL_IS_ACTIVATED = "0xba87af80"; // isActivated(bytes32)
+const SEL = {
+  name: "0x06fdde03",
+  symbol: "0x95d89b41",
+  decimals: "0x313ce567",
+  totalSupply: "0x18160ddd",
+  paused: "0x5c975abb", // optional on B20 — best-effort
+  cap: "0x355274ea", // optional on B20 — best-effort
+};
+
+const BASE_RPCS = [
+  ...(process.env.ALCHEMY_API_KEY ? [`https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []),
+  "https://mainnet.base.org",
+  "https://base-rpc.publicnode.com",
+  "https://base.llamarpc.com",
+];
+
+function bad(message, statusCode = 400) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function rpc(method, params, { passes = 2 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < passes; attempt++) {
+    for (const url of BASE_RPCS) {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+          signal: AbortSignal.timeout(15000),
+          dispatcher: ssrfDispatcher,
+        });
+        const text = await r.text();
+        let j; try { j = JSON.parse(text); } catch { lastErr = new Error(`${url}: non-JSON`); continue; }
+        if (j.result !== undefined) return j.result;
+        // eth_call reverts land here — surface them as a null result rather
+        // than an outage: the next URL would just revert identically.
+        if (j.error && /revert|execution/i.test(String(j.error.message || ""))) return null;
+        lastErr = new Error(`${url}: ${JSON.stringify(j.error ?? j).slice(0, 120)}`);
+      } catch (e) { lastErr = e; }
+    }
+    if (attempt < passes - 1) await sleep(1000 * (attempt + 1));
+  }
+  throw bad(`Base RPC unavailable: ${String(lastErr?.message || lastErr).slice(0, 160)}`, 502);
+}
+
+const ethCall = (to, data) => rpc("eth_call", [{ to, data }, "latest"]);
+
+function normAddress(a) {
+  const addr = String(a || "").trim().toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(addr)) throw bad('address must be a 0x-prefixed 20-byte hex address');
+  return addr;
+}
+
+const featureId = (feature) => "0x" + keccak256(String(feature));
+
+// --- minimal ABI decoding (we only read simple returns) ----------------------
+const hexBody = (h) => (typeof h === "string" ? h.replace(/^0x/, "") : "");
+function decodeBool(h) {
+  const b = hexBody(h);
+  if (!b) return null; // empty return: precompile not live / no code at address
+  return BigInt("0x" + b) === 1n;
+}
+function decodeUint(h) {
+  const b = hexBody(h);
+  if (!b) return null;
+  return BigInt("0x" + b.slice(0, 64)).toString();
+}
+function decodeString(h) {
+  const b = hexBody(h);
+  if (b.length < 128) return null;
+  try {
+    const len = Number(BigInt("0x" + b.slice(64, 128)));
+    return Buffer.from(b.slice(128, 128 + len * 2), "hex").toString("utf8");
+  } catch { return null; }
+}
+function formatSupply(raw, decimals) {
+  if (raw == null || decimals == null) return null;
+  const d = Number(decimals);
+  const v = BigInt(raw);
+  const base = 10n ** BigInt(d);
+  const frac = (v % base).toString().padStart(d, "0").replace(/0+$/, "");
+  return `${v / base}${frac ? "." + frac : ""}`;
+}
+
+async function checkFeature(feature) {
+  const id = featureId(feature);
+  const res = await ethCall(REGISTRY, SEL_IS_ACTIVATED + id.slice(2));
+  const activated = decodeBool(res);
+  return {
+    feature,
+    featureId: id,
+    activated: activated === true,
+    ...(activated === null ? { note: "registry returned empty — Activation Registry precompile not live yet" } : {}),
+  };
+}
+
+async function readToken(addr) {
+  const [name, symbol, decimals, totalSupply, paused, cap, code] = await Promise.all([
+    ethCall(addr, SEL.name).then(decodeString).catch(() => null),
+    ethCall(addr, SEL.symbol).then(decodeString).catch(() => null),
+    ethCall(addr, SEL.decimals).then(decodeUint).catch(() => null),
+    ethCall(addr, SEL.totalSupply).then(decodeUint).catch(() => null),
+    ethCall(addr, SEL.paused).then(decodeBool).catch(() => null),
+    ethCall(addr, SEL.cap).then(decodeUint).catch(() => null),
+    rpc("eth_getCode", [addr, "latest"]).catch(() => null),
+  ]);
+  return { name, symbol, decimals: decimals == null ? null : Number(decimals), totalSupply, paused, cap, codeSize: code ? hexBody(code).length / 2 : 0 };
+}
+
+export const B20_TOOLS = [
+  {
+    route: "GET /api/b20-activation-check", name: "B20 activation check", slug: "b20-activation-check", category: "payments", price: "$0.002",
+    description:
+      "Is B20 live on Base mainnet? Queries the Activation Registry precompile for base.b20_asset and base.b20_stablecoin (or a custom feature id). Honest pre-launch too: reports not-activated until the registry flips. ?feature=base.b20_asset (optional)",
+    tags: ["b20", "base", "activation", "registry", "token-standard", "precompile"],
+    discovery: {
+      input: {},
+      inputSchema: { properties: { feature: { type: "string", description: "optional: a single feature string to check (default: both known B20 features)" } } },
+      output: { example: { registry: REGISTRY, features: [{ feature: "base.b20_asset", featureId: "0xcdcc…", activated: false }] } },
+    },
+    handler: async (i) => {
+      const features = i.feature ? [String(i.feature)] : KNOWN_FEATURES;
+      const results = await Promise.all(features.map(checkFeature));
+      return { network: "base", registry: REGISTRY, features: results, allActivated: results.every((f) => f.activated) };
+    },
+  },
+  {
+    route: "GET /api/b20-token-info", name: "B20 token info", slug: "b20-token-info", category: "payments", price: "$0.005",
+    description:
+      "ERC-20 metadata plus B20 signals for any Base address: name, symbol, decimals, total supply, best-effort paused/cap, bytecode size, and whether the address carries the factory-issued 0xB200 prefix. Works on plain ERC-20s too (isB20 comes back false). ?address=0x…",
+    tags: ["b20", "base", "erc20", "token", "metadata", "supply"],
+    discovery: {
+      input: { address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" },
+      inputSchema: { properties: { address: { type: "string", description: "0x token address on Base" } }, required: ["address"] },
+      output: { example: { address: "0x8335…2913", isB20: false, prefixMatch: false, name: "USD Coin", symbol: "USDC", decimals: 6, totalSupply: "…", totalSupplyFormatted: "…" } },
+    },
+    handler: async (i) => {
+      const addr = normAddress(i.address);
+      const t = await readToken(addr);
+      const prefixMatch = addr.startsWith(TOKEN_PREFIX);
+      const erc20Readable = t.name != null && t.symbol != null && t.decimals != null;
+      return {
+        network: "base", address: addr,
+        isB20: prefixMatch && erc20Readable,
+        prefixMatch, erc20Readable,
+        name: t.name, symbol: t.symbol, decimals: t.decimals,
+        totalSupply: t.totalSupply, totalSupplyFormatted: formatSupply(t.totalSupply, t.decimals),
+        paused: t.paused, supplyCap: t.cap, codeSize: t.codeSize,
+        factory: FACTORY,
+      };
+    },
+  },
+  {
+    route: "GET /api/b20-verify", name: "Verify B20 token", slug: "b20-verify", category: "payments", price: "$0.005",
+    description:
+      "Boolean verdict with reasons: is this address a real factory-issued B20 on Base? Checks the 0xB200 address prefix, ERC-20 readability, and whether the B20 feature set is activated on the registry. ?address=0x…",
+    tags: ["b20", "base", "verify", "token", "trust", "registry"],
+    discovery: {
+      input: { address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" },
+      inputSchema: { properties: { address: { type: "string", description: "0x token address on Base" } }, required: ["address"] },
+      output: { example: { address: "0x8335…2913", isB20: false, checks: { prefixMatch: false, erc20Readable: true, registryActivated: false } } },
+    },
+    handler: async (i) => {
+      const addr = normAddress(i.address);
+      const [t, asset] = await Promise.all([readToken(addr), checkFeature(KNOWN_FEATURES[0])]);
+      const checks = {
+        prefixMatch: addr.startsWith(TOKEN_PREFIX),
+        erc20Readable: t.name != null && t.symbol != null && t.decimals != null,
+        registryActivated: asset.activated,
+      };
+      const reasons = [];
+      if (!checks.prefixMatch) reasons.push("address does not carry the factory-issued 0xB200 prefix");
+      if (!checks.erc20Readable) reasons.push("ERC-20 metadata (name/symbol/decimals) not readable at this address");
+      if (!checks.registryActivated) reasons.push("B20 asset feature not (yet) activated on the registry");
+      return { network: "base", address: addr, isB20: checks.prefixMatch && checks.erc20Readable, checks, reasons, name: t.name, symbol: t.symbol };
+    },
+  },
+  {
+    route: "POST /api/b20-feature-id", name: "B20 feature id", slug: "b20-feature-id", category: "payments", price: "$0.001",
+    description:
+      "Pure-CPU helper: turn a B20 feature string (e.g. base.b20_asset) into its bytes32 feature id and ready-to-send isActivated(bytes32) calldata for the Activation Registry. No network egress.",
+    tags: ["b20", "base", "keccak", "calldata", "registry", "encoding"],
+    discovery: {
+      bodyType: "json",
+      input: { feature: "base.b20_asset" },
+      inputSchema: { properties: { feature: { type: "string", description: "feature string to hash (keccak256)" } }, required: ["feature"] },
+      output: { example: { feature: "base.b20_asset", featureId: "0xcdcc772f…", registry: REGISTRY, calldata: "0xba87af80cdcc…" } },
+    },
+    handler: async (i) => {
+      const feature = String(i.feature || "").trim();
+      if (!feature) throw bad("feature is required (e.g. base.b20_asset)");
+      if (feature.length > 256) throw bad("feature too long (max 256 chars)");
+      const id = featureId(feature);
+      return {
+        feature, featureId: id, registry: REGISTRY,
+        calldata: SEL_IS_ACTIVATED + id.slice(2),
+        knownFeatures: KNOWN_FEATURES,
+        note: "eth_call { to: registry, data: calldata } on Base mainnet returns bool",
+      };
+    },
+  },
+];
