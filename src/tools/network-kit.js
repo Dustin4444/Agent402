@@ -179,7 +179,7 @@ export const NETWORK_TOOLS = [
     name: "DNS lookup",
     slug: "dns-lookup",
     category: "network",
-    price: "$0.002",
+    price: "$0.005",
     description:
       "Resolve any DNS record type for a host: A, AAAA, MX, TXT, CNAME, NS, SOA, CAA, SRV, PTR. Returns the records plus a count. Built on Node's native resolver — no external API.",
     tags: ["dns", "lookup", "network", "diagnostic", "a", "aaaa", "mx", "txt", "cname", "ns"],

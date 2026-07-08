@@ -55,7 +55,22 @@ console.log(`FUNDED: $${formatUnits(bal, 6)} USDC. Buying the verification catal
 
 const client = new x402Client();
 registerExactEvmScheme(client, { signer: account });
-const payFetch = wrapFetchWithPayment(fetch, client);
+// Mark every e2e purchase as internal traffic: X-Heartbeat-Token =
+// HMAC(POW_SECRET, UTC minute), the same unspoofable marker paid-canary.js
+// sends. Without it a full-suite run (63 real buys) shows up as an organic
+// external buyer in the sales ledger and every PostHog revenue analysis.
+// Minted per request (the token is minute-scoped).
+const POW_SECRET = (process.env.POW_SECRET || "").trim();
+if (!POW_SECRET) console.warn("WARN  POW_SECRET not set — e2e buys will record as EXTERNAL demand in the sales ledger");
+const synthFetch = !POW_SECRET ? fetch : async (url, init = {}) => {
+  const { createHmac } = await import("node:crypto");
+  const minute = Math.floor(Date.now() / 60_000);
+  const token = createHmac("sha256", POW_SECRET).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32);
+  const headers = new Headers(init.headers || {});
+  headers.set("X-Heartbeat-Token", token);
+  return fetch(url, { ...init, headers });
+};
+const payFetch = wrapFetchWithPayment(synthFetch, client);
 
 const stamp = `e2e-${Date.now()}`;
 const b64url = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64url");

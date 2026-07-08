@@ -24,6 +24,11 @@ jobs:
       # Optional: base58 secret key of a Solana wallet funded with USDC (+ a
       # little SOL). Enables the daily Solana-path purchase; unset = skipped.
       SOLANA_BURNER_KEY: ${{ secrets.SOLANA_BURNER_KEY }}
+      # Marks every canary buy with X-Heartbeat-Token so it records as internal
+      # traffic (synthetic) instead of external demand in the sales ledger and
+      # PostHog. Without it paid-canary.js warns and the daily basket shows up
+      # as an organic buyer in every revenue analysis.
+      POW_SECRET: ${{ secrets.POW_SECRET }}
       TARGET_URL: https://agent402.tools
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
