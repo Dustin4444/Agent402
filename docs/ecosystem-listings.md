@@ -276,3 +276,61 @@ Not a submittable directory: Cursor (users add MCP servers to their own
 not an MCP listing).
 Next up once submitted: the Anthropic connector directory
 (see anthropic-directory-submission.md).
+
+---
+
+## 9. July 2026 scour — new surfaces since this playbook was written
+
+### Auto-indexed (verify, don't submit)
+
+- **Agentic.Market (Coinbase)** — the new consumer-facing public directory of
+  x402 services (live pricing, volume, top lists). Indexes AUTOMATICALLY from
+  CDP-facilitator payments on Bazaar-discovery-enabled endpoints — our 64
+  Bazaar-registered routes should already be present. Action: browse
+  agentic.market for the Agent402 entries, confirm metadata quality and that
+  the accepts show all six chains.
+- **Onyx Bazaar** — free public leaderboard of every paid x402 service,
+  re-derived from the CDP discovery API every 15 minutes. No submission
+  surface; we appear iff the Bazaar entry is healthy.
+- **kenoodl.com/agentic-market** — third-party mirror of the Agentic.Market
+  catalog. Rides the same index; no action.
+
+### Open submission, all chains (good non-EVM visibility)
+
+- **402 Index** — no signature, no chain allowlist: non-EVM families (Stellar,
+  Robinhood Chain via custom { id, rpcUrl }) are listable and findable. One of
+  the few places the FULL six-chain roster can be first-class.
+- **PipRail Discovery (piprail.com/discovery)** — one POST to list, no auth,
+  no fee, every chain; probed on submit, domain verification for instant go-live.
+
+### Curated directories (apply/PR)
+
+- **gold-402 (24K Labs)** — curated x402 directory, 300+ entries, editorial
+  writeups + "verified" badges for production-confirmed services. Apply with
+  the on-chain revenue proof.
+- **awesome-agentic-commerce (Merit-Systems)** — the same maintainers as
+  x402scan; PR an Agent402 entry (aggregator/seller + tollbooth sell-side).
+
+### Identity / reputation registries (per-chain trust layer)
+
+- **AgentZone** — unified explorer combining ERC-8004 identity, x402 payment
+  history, reputation, live status across **Base and Arbitrum**. We already
+  carry an erc8004 identity (agent402.app registration) — register/claim on
+  AgentZone so Base + Arbitrum settlements attribute to it.
+- **Solana Agent Registry (solana.com/agent-registry)** + **8004-solana
+  (QuantuLabs/PayAI)** — the ERC-8004 port on Solana with on-chain feedback
+  and trust tiers, integrated with PayAI (our Solana facilitator). Register
+  the Solana revenue wallet as an agent identity; PayAI-settled traffic then
+  builds portable reputation.
+
+### Watchlist (no action yet)
+
+- **x402station** — x402 analytics/monitoring platform; check for a
+  registration surface once it matures.
+- **RelAI (relai.fi)** — "x402 API marketplace" still on their roadmap.
+- **Google AP2 x x402** — agents paying via Google's Agent Payments Protocol
+  settle over x402; no public AP2 merchant directory yet. Revisit when one
+  exists.
+- **CoinGecko "x402 ecosystem" category** — token listings only; N/A (no token).
+- **Robinhood Chain** — still no ecosystem directory (see 7b); 402 Index /
+  PipRail are the interim places its rail can be advertised.
