@@ -759,7 +759,7 @@ app.get("/robinhood", (_req, res) => htmlCache(res, 300, 900).send(robinhoodPage
 // Live consolidated revenue view — every rail's wallet on one page instead
 // of one explorer tab per chain. Server-side reads with a 60s module cache;
 // individual rail failures degrade to "unavailable" without a 500.
-const revenueWallets = () => ({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null });
+const revenueWallets = () => ({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null });
 app.get("/api/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
@@ -2233,7 +2233,7 @@ const httpServer = app.listen(PORT, () =>
 
 // All-time revenue ledger sync loop — self-gates on /data (prod volume) or
 // REVENUE_LEDGER=true, so test/CI boots never touch public RPCs.
-startRevenueLedger({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null });
+startRevenueLedger({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null });
 
 // Tollbooth leads — lazy Postgres init. No-op if DATABASE_URL is unset; in
 // that case /api/tollbooth/waitlist returns 503 and the form falls back to the

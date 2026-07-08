@@ -236,7 +236,7 @@ async function solanaRail(wallet) {
 }
 
 // Stellar — read USDC balance + recent payments via Horizon API.
-const USDC_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+export const USDC_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
 async function stellarRail(wallet) {
   const out = { rail: "Stellar", asset: "USDC", wallet: wallet || null, explorer: wallet ? `https://stellar.expert/explorer/public/account/${wallet}` : null, balance: null, recent: [], error: null };
   if (!wallet) { out.error = "STELLAR_WALLET_ADDRESS unset"; return out; }
@@ -265,7 +265,9 @@ async function stellarRail(wallet) {
           let entry = null;
           if (r.type === "payment" || r.type === "path_payment_strict_send" || r.type === "path_payment_strict_receive") {
             if (r.to !== wallet) continue;
-            if (r.asset_code !== "USDC") continue;
+            // Issuer check, not just code: anyone can issue an asset named
+            // "USDC" and pay the wallet to fake revenue on the card.
+            if (r.asset_code !== "USDC" || r.asset_issuer !== USDC_ISSUER) continue;
             entry = {
               tx: `https://stellar.expert/explorer/public/tx/${r.transaction_hash}`,
               when: r.created_at || null,
@@ -397,7 +399,7 @@ export function revenuePage(baseUrl, snap) {
   const title = "Live revenue — Agent402";
   const description =
     "Consolidated live view of the Agent402 revenue wallets across every payment rail — USDC on Base, Solana, Polygon & Arbitrum, plus USDG on Robinhood Chain. One page instead of three explorer tabs; every figure links to its on-chain proof.";
-  const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana" };
+  const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar" };
   const railCard = (r) => {
     const at = snap.allTime?.perChain?.[chainKeyByLabel[r.rail]];
     return `

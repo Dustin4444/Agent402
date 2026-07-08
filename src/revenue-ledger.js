@@ -10,7 +10,8 @@
 // eth_getLogs sweeps, persisting a per-chain cursor as it goes — restarts
 // resume, they never rescan — then keeps tailing the head. Solana pages
 // getSignaturesForAddress back to the account's genesis once, then follows
-// new signatures. SUM(external) is the all-time revenue figure; every row
+// new signatures. Stellar forward-pages Horizon /payments with one ascending
+// cursor. SUM(external) is the all-time revenue figure; every row
 // keeps its tx id, so the number stays independently verifiable.
 //
 // Zero config: runs whenever /data exists (i.e., prod) or when
@@ -21,7 +22,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   EVM, SOLANA_RPCS, rpcCall, pad, TRANSFER_TOPIC, USDC_SOL_MINT,
-  MAX_CALL_USD, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS,
+  MAX_CALL_USD, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, USDC_ISSUER,
 } from "./revenue-live.js";
 import { usdcDeltaForOwner, payerFromMeta, isExternalPayment } from "../scripts/revenue-scan-solana.js";
 
@@ -178,8 +179,64 @@ async function syncSolana(wallet, { maxPages = 5 } = {}) {
   return { caughtUp: sawEnd };
 }
 
+/** Stellar: forward-page Horizon /payments from account genesis, then keep
+ *  following. One ascending cursor (the record paging_token, stored in the
+ *  newest_sig column) covers both backfill and tail — Horizon pages are
+ *  ordered and cursor-resumable, so restarts continue where they left off.
+ *  Classification mirrors stellarRail: classic payments checked for the
+ *  Circle USDC issuer; Soroban invoke_host_function credited from its
+ *  asset_balance_changes (r.source_account is the facilitator's fee channel,
+ *  the change's `from` is the actual payer). */
+export async function syncStellar(wallet, { maxPages = 5 } = {}) {
+  const chain = "stellar";
+  const cur = getCursor.get(chain, wallet);
+  let cursor = cur?.newest_sig || null;
+  const ours = new Set([...OUR_STELLAR_WALLETS, wallet]);
+  let sawEnd = false;
+  for (let pages = 0; pages < maxPages && !sawEnd; pages++) {
+    const url = new URL(`https://horizon.stellar.org/accounts/${wallet}/payments`);
+    url.searchParams.set("order", "asc");
+    url.searchParams.set("limit", "200");
+    if (cursor) url.searchParams.set("cursor", cursor);
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`Horizon HTTP ${res.status}`);
+    const records = (await res.json())?._embedded?.records || [];
+    if (!records.length) { sawEnd = true; break; }
+    for (const r of records) {
+      cursor = r.paging_token;
+      let usd = null, payer = null;
+      if (r.type === "payment" || r.type === "path_payment_strict_send" || r.type === "path_payment_strict_receive") {
+        if (r.to !== wallet || r.asset_code !== "USDC" || r.asset_issuer !== USDC_ISSUER) continue;
+        usd = Number(r.amount) || 0;
+        payer = r.from || null;
+      } else if (r.type === "invoke_host_function") {
+        const changes = (r.asset_balance_changes || []).filter(
+          (c) => c.type === "transfer" && c.to === wallet && c.asset_code === "USDC" && c.asset_issuer === USDC_ISSUER
+        );
+        if (!changes.length) continue;
+        usd = Number(changes.reduce((s, c) => s + Number(c.amount || 0), 0).toFixed(7));
+        payer = changes[0].from || null;
+      } else continue;
+      recordTransfer({
+        chain, wallet, txid: String(r.id), tx_hash: r.transaction_hash,
+        block: null, when_ts: r.created_at ? Math.floor(Date.parse(r.created_at) / 1000) : null,
+        payer, usd, asset: "USDC",
+        external: isExternalPayment({ payer, usd }, { ourWallets: ours, maxUsd: MAX_CALL_USD }),
+      });
+    }
+    if (records.length < 200) sawEnd = true;
+    putCursor.run({
+      chain, wallet, next_block: null, newest_sig: cursor,
+      backfilled: sawEnd ? 1 : 0, caught_up: sawEnd ? 1 : 0,
+      updated_ts: Math.floor(Date.now() / 1000),
+    });
+    if (!sawEnd) await sleep(300); // stay polite to Horizon
+  }
+  return { caughtUp: sawEnd };
+}
+
 /** All-time totals + sync progress — cheap enough to run per request. */
-export function ledgerSummary({ walletAddress, solanaWallet }) {
+export function ledgerSummary({ walletAddress, solanaWallet, stellarWallet }) {
   const per = {};
   let allTimeExternalUsd = 0;
   let allTimeExternalCount = 0;
@@ -188,8 +245,9 @@ export function ledgerSummary({ walletAddress, solanaWallet }) {
       COALESCE(SUM(CASE WHEN external = 1 THEN usd END), 0) AS extUsd,
       COALESCE(SUM(external), 0) AS extN
     FROM transfers WHERE chain = ? AND wallet = ?`);
-  // EVM rows are stored lowercase (sync normalizes); Solana base58 is case-exact.
-  const chains = [...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]), ["solana", solanaWallet]];
+  // EVM rows are stored lowercase (sync normalizes); Solana base58 and
+  // Stellar G… addresses are case-exact.
+  const chains = [...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]), ["solana", solanaWallet], ["stellar", stellarWallet]];
   for (const [chain, wallet] of chains) {
     if (!wallet) continue;
     const t = q.get(chain, wallet);
@@ -217,9 +275,9 @@ export function ledgerSummary({ walletAddress, solanaWallet }) {
 let loopStarted = false;
 /** Boot the background sync loop. Fast ticks while backfilling, then a
  *  5-minute tail. Errors back off to the next tick — never crash the app. */
-export function startRevenueLedger({ walletAddress, solanaWallet }) {
+export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet }) {
   const enabled = HAS_DATA_DIR || process.env.REVENUE_LEDGER === "true";
-  if (loopStarted || !enabled || (!walletAddress && !solanaWallet)) return false;
+  if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet)) return false;
   loopStarted = true;
   const tick = async () => {
     let allCaughtUp = true;
@@ -241,6 +299,15 @@ export function startRevenueLedger({ walletAddress, solanaWallet }) {
       } catch (e) {
         allCaughtUp = false;
         console.warn(`revenue-ledger: solana sync tick failed (will retry): ${String(e?.message || e).slice(0, 100)}`);
+      }
+    }
+    if (stellarWallet) {
+      try {
+        const r = await syncStellar(stellarWallet);
+        if (!r.caughtUp) allCaughtUp = false;
+      } catch (e) {
+        allCaughtUp = false;
+        console.warn(`revenue-ledger: stellar sync tick failed (will retry): ${String(e?.message || e).slice(0, 100)}`);
       }
     }
     setTimeout(tick, allCaughtUp ? 300_000 : 20_000).unref?.();
