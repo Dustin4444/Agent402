@@ -3,7 +3,7 @@
 // wallet-keyed memory (400 after charging) and nulled payer analytics. The
 // existing suites can't catch it: test-memory injects `actor` directly and
 // never goes through the HTTP header. Pure-function, offline.
-import { payerFromRequest } from "../src/payer.js";
+import { payerFromRequest, payerFromPaymentResponse, normalizePayerAddress } from "../src/payer.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -24,6 +24,20 @@ ok(payerFromRequest(req({ "x-payment": Buffer.from(JSON.stringify({ payload: { a
   "well-formed payload with an invalid address → null");
 ok(payerFromRequest(req({ "x-payment": Buffer.from(JSON.stringify({ from: A })).toString("base64") })) === null,
   "top-level `from` (unsigned field) is NOT accepted — only authorization.from");
+
+// Receipt fallback — the facilitator-verified payer on chains whose request
+// payloads carry no EIP-3009 authorization (SVM, Stellar).
+const receipt = (payer) => Buffer.from(JSON.stringify({ success: true, transaction: "sig", network: "solana", payer })).toString("base64");
+const SOL = "9EMAayAfBR32J5d3ApEAG3NdKArRBtAqN7LA8c2WRM5o";
+const STL = "GBA2DDJ4KQXQCGNB7RUU5I2BK5SXROJFUNZV7EZ4XUS7RXFOXEPNY6O4";
+ok(payerFromPaymentResponse(receipt(SOL)) === SOL, "settle receipt yields the Solana payer, case preserved");
+ok(payerFromPaymentResponse(receipt(STL)) === STL, "settle receipt yields the Stellar payer");
+ok(payerFromPaymentResponse(receipt(A)) === A.toLowerCase(), "EVM payer from receipt normalizes to lowercase");
+ok(payerFromPaymentResponse(receipt("l0Il0Il0")) === null, "non-address payer string → null (0/I/l are not base58 anyway)");
+ok(payerFromPaymentResponse("garbage!") === null, "garbage receipt → null, no throw");
+ok(payerFromPaymentResponse(null) === null, "missing receipt → null");
+ok(normalizePayerAddress(SOL.toLowerCase()) === null || normalizePayerAddress(SOL.toLowerCase()) !== SOL,
+  "lowercased base58 does NOT round-trip to the original — why the sales ledger must not lowercase non-EVM payers");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
