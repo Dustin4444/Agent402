@@ -133,11 +133,25 @@ async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
 }
 
 /** Solana: one-time page-to-genesis backfill, then follow new signatures. */
-async function syncSolana(wallet, { maxPages = 5 } = {}) {
+export async function syncSolana(wallet, { maxPages = 5 } = {}) {
   const chain = "solana";
+  // Signatures MUST be read from the USDC associated token account, not the
+  // owner: an inbound SPL transfer references only the token accounts, so
+  // the owner's signature list never shows incoming settles (it only carried
+  // ATA-creation/funding txs — the ledger recorded those, marked itself
+  // caught up, and froze). Same resolution as the live card's solanaRail.
+  const accts = await rpcCall(SOLANA_RPCS, "getTokenAccountsByOwner", [wallet, { mint: USDC_SOL_MINT }, { encoding: "jsonParsed" }], 8000);
+  const tokenAccount = accts?.value?.[0]?.pubkey;
+  if (!tokenAccount) throw new Error("no USDC token account found for the wallet");
   const cur = getCursor.get(chain, wallet);
-  const backfilled = Boolean(cur?.backfilled);
-  let newest = cur?.newest_sig || null;
+  // next_block (unused on Solana) doubles as a mode sentinel: cursors written
+  // before the token-account fix lack it, and their backfilled flag and
+  // newest anchor describe the owner's history — discard both so the first
+  // tick re-pages the token account's full history (the transfers PK dedupes
+  // anything already recorded).
+  const tokenMode = cur?.next_block === 1;
+  const backfilled = tokenMode && Boolean(cur?.backfilled);
+  let newest = tokenMode ? (cur?.newest_sig || null) : null;
   let before = null; // backfill pagination anchor (restarts refetch dup pages; PK dedupes)
   let pages = 0;
   let sawEnd = backfilled;
@@ -145,7 +159,7 @@ async function syncSolana(wallet, { maxPages = 5 } = {}) {
     const opts = { limit: 100 };
     if (backfilled && newest) opts.until = newest;
     if (!backfilled && before) opts.before = before;
-    const sigs = await rpcCall(SOLANA_RPCS, "getSignaturesForAddress", [wallet, opts], 8000);
+    const sigs = await rpcCall(SOLANA_RPCS, "getSignaturesForAddress", [tokenAccount, opts], 8000);
     if (!Array.isArray(sigs) || !sigs.length) { sawEnd = true; break; }
     if (!newest) newest = sigs[0].signature;
     if (backfilled) newest = sigs[0].signature; // follow mode: advance the anchor
@@ -172,7 +186,7 @@ async function syncSolana(wallet, { maxPages = 5 } = {}) {
     if (sigs.length < 100) { sawEnd = true; break; }
   }
   putCursor.run({
-    chain, wallet, next_block: null, newest_sig: newest,
+    chain, wallet, next_block: 1, newest_sig: newest,
     backfilled: sawEnd ? 1 : 0, caught_up: sawEnd ? 1 : 0,
     updated_ts: Math.floor(Date.now() / 1000),
   });
