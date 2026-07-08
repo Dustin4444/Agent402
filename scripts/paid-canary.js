@@ -226,12 +226,17 @@ async function main() {
   // PostHog settlement stream. Minted per request (minute-scoped token).
   const secret = (process.env.POW_SECRET || "").trim();
   if (!secret) console.warn("WARN  POW_SECRET not set — canary buys will record as EXTERNAL demand in the sales ledger");
-  const synthFetch = !secret ? fetch : (url, init = {}) => {
+  // @x402/fetch passes a Request object (with the X-PAYMENT header) for the
+  // paid retry — build via `new Request` so method/body/payment header are
+  // preserved, then ADD the heartbeat header. Rebuilding with
+  // fetch(url, {...init, headers}) drops X-PAYMENT and no payment is sent
+  // (see test-client-paid-live.js, which hit exactly this).
+  const synthFetch = !secret ? fetch : (input, init) => {
     const minute = Math.floor(Date.now() / 60_000);
     const token = createHmac("sha256", secret).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32);
-    const headers = new Headers(init.headers || {});
-    headers.set("X-Heartbeat-Token", token);
-    return fetch(url, { ...init, headers });
+    const req = new Request(input, init);
+    req.headers.set("X-Heartbeat-Token", token);
+    return fetch(req);
   };
   const payFetch = wrapFetchWithPayment(synthFetch, client);
 

@@ -55,14 +55,17 @@ if (AGENT_KEY) {
   // buys carry X-Heartbeat-Token and record as internal traffic in the sales
   // ledger, same as the canary. External users never set this — plain fetch,
   // zero behavior change; the on-chain payments are real either way.
+  // NOTE: @x402/fetch passes a Request object (with the X-PAYMENT header) for
+  // the paid retry — build via `new Request` so method/body/payment header are
+  // preserved, then ADD the heartbeat header (see test-client-paid-live.js).
   const POW_SECRET = (process.env.POW_SECRET || "").trim();
-  const baseFetch = !POW_SECRET ? fetch : async (url, init = {}) => {
+  const baseFetch = !POW_SECRET ? fetch : async (input, init) => {
     const { createHmac } = await import("node:crypto");
     const minute = Math.floor(Date.now() / 60_000);
     const token = createHmac("sha256", POW_SECRET).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32);
-    const headers = new Headers(init.headers || {});
-    headers.set("X-Heartbeat-Token", token);
-    return fetch(url, { ...init, headers });
+    const req = new Request(input, init);
+    req.headers.set("X-Heartbeat-Token", token);
+    return fetch(req);
   };
   const payFetch = wrapFetchWithPayment(baseFetch, xClient);
   client = new Agent402({ baseUrl: TARGET, fetch: payFetch });

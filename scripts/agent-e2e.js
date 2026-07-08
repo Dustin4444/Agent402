@@ -62,13 +62,17 @@ registerExactEvmScheme(client, { signer: account });
 // Minted per request (the token is minute-scoped).
 const POW_SECRET = (process.env.POW_SECRET || "").trim();
 if (!POW_SECRET) console.warn("WARN  POW_SECRET not set — e2e buys will record as EXTERNAL demand in the sales ledger");
-const synthFetch = !POW_SECRET ? fetch : async (url, init = {}) => {
+// @x402/fetch passes a Request object (with the X-PAYMENT header) for the paid
+// retry — build via `new Request` so method/body/payment header are preserved,
+// then ADD the heartbeat header (rebuilding from init drops X-PAYMENT; see
+// test-client-paid-live.js).
+const synthFetch = !POW_SECRET ? fetch : async (input, init) => {
   const { createHmac } = await import("node:crypto");
   const minute = Math.floor(Date.now() / 60_000);
   const token = createHmac("sha256", POW_SECRET).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32);
-  const headers = new Headers(init.headers || {});
-  headers.set("X-Heartbeat-Token", token);
-  return fetch(url, { ...init, headers });
+  const req = new Request(input, init);
+  req.headers.set("X-Heartbeat-Token", token);
+  return fetch(req);
 };
 const payFetch = wrapFetchWithPayment(synthFetch, client);
 

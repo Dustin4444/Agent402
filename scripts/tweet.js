@@ -43,13 +43,14 @@ const DRY = process.env.DRY_RUN === "1";
 
 // ---- args -----------------------------------------------------------------
 function parseArgs(argv) {
-  const out = { force: false, replyTo: null, quote: null, text: null, file: null, dryRun: false };
+  const out = { force: false, replyTo: null, quote: null, media: null, text: null, file: null, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--text" || a === "-t") out.text = argv[++i];
     else if (a === "--file" || a === "-f") out.file = argv[++i];
     else if (a === "--reply-to" || a === "-r") out.replyTo = argv[++i];
     else if (a === "--quote" || a === "-q") out.quote = argv[++i];
+    else if (a === "--media" || a === "-m") out.media = argv[++i];
     else if (a === "--force") out.force = true;
     else if (a === "--dry-run") out.dryRun = true;
     else if (!a.startsWith("-") && out.text == null) out.text = a; // positional
@@ -72,7 +73,7 @@ function resolveText(args) {
 const pct = (s) =>
   encodeURIComponent(s).replace(/[!*'()]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
 
-function authHeader(method, url) {
+function authHeader(method, url, bodyParams = {}) {
   const oauth = {
     oauth_consumer_key: CONSUMER_KEY,
     oauth_nonce: crypto.randomBytes(32).toString("hex"),
@@ -81,11 +82,13 @@ function authHeader(method, url) {
     oauth_token: ACCESS_TOKEN,
     oauth_version: "1.0",
   };
-  // Signature base string. The body is JSON, so per OAuth 1.0a only the oauth_*
-  // params (and any query params — none here) are signed.
-  const paramString = Object.keys(oauth)
+  // Signature base string. For a JSON body only the oauth_* params (and any
+  // query params — none here) are signed; for form-encoded bodies (the v1.1
+  // media upload) the body params must be included too.
+  const all = { ...oauth, ...bodyParams };
+  const paramString = Object.keys(all)
     .sort()
-    .map((k) => `${pct(k)}=${pct(oauth[k])}`)
+    .map((k) => `${pct(k)}=${pct(all[k])}`)
     .join("&");
   const base = [method.toUpperCase(), pct(url), pct(paramString)].join("&");
   const signingKey = `${pct(CONSUMER_SECRET)}&${pct(ACCESS_SECRET)}`;
@@ -98,6 +101,28 @@ function authHeader(method, url) {
       .map((k) => `${pct(k)}="${pct(oauth[k])}"`)
       .join(", ");
   return header;
+}
+
+// Upload an image via the v1.1 media endpoint (form-encoded base64 — the same
+// signed-form pattern as profile-image updates); returns a media_id string for
+// attaching to the v2 tweet.
+async function uploadMedia(path) {
+  const MEDIA_URL = "https://upload.twitter.com/1.1/media/upload.json";
+  const media_data = readFileSync(path).toString("base64");
+  const res = await fetch(MEDIA_URL, {
+    method: "POST",
+    headers: {
+      Authorization: authHeader("POST", MEDIA_URL, { media_data }),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: `media_data=${pct(media_data)}`,
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.media_id_string) {
+    console.error(`media upload ${res.status}:`, JSON.stringify(json).slice(0, 300));
+    process.exit(2);
+  }
+  return json.media_id_string;
 }
 
 // ---- main -----------------------------------------------------------------
@@ -124,6 +149,7 @@ async function main() {
 
   if (DRY || args.dryRun) {
     console.log("DRY RUN — would POST", API_URL);
+    if (args.media) console.log(`with media: ${args.media}`);
     console.log(JSON.stringify(body, null, 2));
     console.log(`(${text.length} chars)`);
     return;
@@ -132,6 +158,8 @@ async function main() {
   for (const [name, v] of Object.entries({ X_API_KEY: CONSUMER_KEY, X_API_SECRET: CONSUMER_SECRET, X_ACCESS_TOKEN: ACCESS_TOKEN, X_ACCESS_SECRET: ACCESS_SECRET })) {
     if (!v) { console.error(`${name} is required (from an X developer App with Read-and-write permissions). Set it in the environment; do not commit it.`); process.exit(1); }
   }
+
+  if (args.media) body.media = { media_ids: [await uploadMedia(args.media)] };
 
   let res, json;
   try {
