@@ -19,11 +19,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "probe, test, paytest, purl (Stripe client interop), publish (npm), marketplace (list on agent402.app), bazaar-refresh, bazaar-register (one-shot: pay missing routes so the Coinbase harvester registers them), or deploy"
+        description: "probe, test, paytest, purl (Stripe client interop), publish (npm), marketplace (list on agent402.app), bazaar-refresh, bazaar-register (one-shot: pay missing routes so the Coinbase harvester registers them), demo (run the company one-pager with the funded burner, upload output), or deploy"
         default: "deploy"
       burner_key:
         description: "Existing funded burner key for paytest (hex). Leave empty to generate a fresh wallet."
         default: ""
+      demo_ticker:
+        description: "Ticker for mode=demo (US symbol)."
+        default: "NVDA"
 
 # Least privilege by default: jobs get a read-only GITHUB_TOKEN. The only job
 # that needs more (publish → OIDC) overrides this with its own permissions block.
@@ -599,6 +602,39 @@ jobs:
           else
             echo "paid call did not complete (likely dust balance) — not failing the job"
           fi
+
+  # On-demand: run the company one-pager demo against prod with the funded
+  # burner, real USDC buys end to end, and upload the terminal output as an
+  # artifact. Dispatch-only (gh workflow run deploy.yml -f mode=demo
+  # [-f demo_ticker=AAPL]) — no marker, repeatable any time.
+  demo:
+    needs: markers
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'demo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_URL: https://agent402.tools
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch viem
+      - name: Run the demo (real paid buys from the burner)
+        env:
+          AGENT_KEY: ${{ secrets.BURNER_KEY }}
+          # Marks the buys as internal traffic in the sales ledger (see the
+          # note in scripts/demo-company-onepager.js); on-chain txs stay real.
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+        run: |
+          [ -n "$AGENT_KEY" ] || { echo "::error::BURNER_KEY secret is not set"; exit 1; }
+          node scripts/demo-company-onepager.js "${{ inputs.demo_ticker || 'NVDA' }}" | tee demo-output.txt
+      - name: Upload demo output
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: demo-output
+          path: demo-output.txt
 
   test:
     # Test job runs on its own [test] marker AND auto-runs whenever a commit

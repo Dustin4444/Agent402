@@ -51,7 +51,20 @@ if (AGENT_KEY) {
   const { privateKeyToAccount } = await import("viem/accounts");
   const xClient = new x402Client();
   registerExactEvmScheme(xClient, { signer: privateKeyToAccount(AGENT_KEY) });
-  const payFetch = wrapFetchWithPayment(fetch, xClient);
+  // Operator-only attribution: when POW_SECRET is set (internal demo runs),
+  // buys carry X-Heartbeat-Token and record as internal traffic in the sales
+  // ledger, same as the canary. External users never set this — plain fetch,
+  // zero behavior change; the on-chain payments are real either way.
+  const POW_SECRET = (process.env.POW_SECRET || "").trim();
+  const baseFetch = !POW_SECRET ? fetch : async (url, init = {}) => {
+    const { createHmac } = await import("node:crypto");
+    const minute = Math.floor(Date.now() / 60_000);
+    const token = createHmac("sha256", POW_SECRET).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32);
+    const headers = new Headers(init.headers || {});
+    headers.set("X-Heartbeat-Token", token);
+    return fetch(url, { ...init, headers });
+  };
+  const payFetch = wrapFetchWithPayment(baseFetch, xClient);
   client = new Agent402({ baseUrl: TARGET, fetch: payFetch });
 } else {
   client = new Agent402({ baseUrl: TARGET });
