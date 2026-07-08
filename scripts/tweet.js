@@ -20,6 +20,7 @@
 //   node scripts/tweet.js --file path/to/tweet.txt
 //   echo "posting from stdin" | node scripts/tweet.js
 //   node scripts/tweet.js --text "part 2 of the thread" --reply-to 1234567890
+//   node scripts/tweet.js --text "commentary" --quote 1234567890   # quote tweet
 //   DRY_RUN=1 node scripts/tweet.js --text "dry run, nothing leaves the box"
 //   node scripts/tweet.js --text "over 280 on purpose…" --force   # skip length guard
 //
@@ -42,12 +43,13 @@ const DRY = process.env.DRY_RUN === "1";
 
 // ---- args -----------------------------------------------------------------
 function parseArgs(argv) {
-  const out = { force: false, replyTo: null, text: null, file: null, dryRun: false };
+  const out = { force: false, replyTo: null, quote: null, text: null, file: null, dryRun: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--text" || a === "-t") out.text = argv[++i];
     else if (a === "--file" || a === "-f") out.file = argv[++i];
     else if (a === "--reply-to" || a === "-r") out.replyTo = argv[++i];
+    else if (a === "--quote" || a === "-q") out.quote = argv[++i];
     else if (a === "--force") out.force = true;
     else if (a === "--dry-run") out.dryRun = true;
     else if (!a.startsWith("-") && out.text == null) out.text = a; // positional
@@ -118,6 +120,7 @@ async function main() {
 
   const body = { text };
   if (args.replyTo) body.reply = { in_reply_to_tweet_id: String(args.replyTo) };
+  if (args.quote) body.quote_tweet_id = String(args.quote);
 
   if (DRY || args.dryRun) {
     console.log("DRY RUN — would POST", API_URL);
