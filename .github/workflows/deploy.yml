@@ -699,6 +699,9 @@ jobs:
       - name: LLM gateway validation (OpenAI-compat tiers, caps, env-gated 503)
         run: node scripts/test-llm-gateway.js
 
+      - name: Route-and-execute (SOR executing surface — resolution, caps, receipts — offline)
+        run: node scripts/test-route-execute.js
+
       - name: Paid-canary verdict (pages on real buying breaks, warns on upstream)
         run: node scripts/test-paid-canary.js
 

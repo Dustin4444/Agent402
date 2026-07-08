@@ -142,6 +142,7 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
 const ALL_KIT = [...KIT, ...KIT2, ...CONVERSIONS, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...LLM_GATEWAY_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
+import { buildRouteExecuteTool } from "./tools/route-execute.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 
@@ -578,6 +579,13 @@ for (const tool of SKILL_TOOLS) {
   CATALOG[tool.route] = tool;
   ALL_KIT.push(tool); // so the route-binding loop below picks them up too
 }
+
+// Route-and-execute: the SOR's executing surface (internal dispatch v1).
+// Registered after the skill tools so its runtime catalog getter sees them.
+const ROUTE_EXECUTE_TOOL = buildRouteExecuteTool({ getCatalog: () => CATALOG, baseUrl: BASE_URL });
+if (CATALOG[ROUTE_EXECUTE_TOOL.route]) throw new Error(`Duplicate route: ${ROUTE_EXECUTE_TOOL.route}`);
+CATALOG[ROUTE_EXECUTE_TOOL.route] = ROUTE_EXECUTE_TOOL;
+ALL_KIT.push(ROUTE_EXECUTE_TOOL);
 
 // Routes that accept proof-of-work in lieu of payment: the pure-CPU tools.
 // Map "METHOD /path" -> tool slug, for the gate and the challenge endpoint.

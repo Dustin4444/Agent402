@@ -64,10 +64,23 @@ await gatewayTool.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 
 const list = modelsList();
 ok(list.object === "list" && Array.isArray(list.data) && list.data.length > 10, "models list has OpenAI shape");
 ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402?.endpoint?.startsWith("/v1")), "every model entry carries x402 tier metadata");
-ok(new Set(list.data.map((m) => m.x402.tier)).size === 3, "all three tiers represented");
+ok(new Set(list.data.map((m) => m.x402.tier)).size === 4, "all four tiers represented");
 
 // Catalog invariants: three wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 3, "three gateway routes");
+ok(LLM_GATEWAY_TOOLS.length === 4, "four gateway routes");
+
+// Nano tier — priced for loops; nano models keep working on the base tier
+// (drop-in callers can overpay) but tierFor leads with the cheapest home.
+ok(TIERS["v1-chat-nano"].price === 0.003, "nano tier priced at $0.003");
+ok(tierAllows("v1-chat-nano", "gpt-4.1-nano"), "gpt-4.1-nano allowed on nano tier");
+ok(tierAllows("v1-chat", "gpt-4.1-nano"), "gpt-4.1-nano STILL allowed on base tier (non-breaking)");
+ok(tierFor("openai/gpt-4.1-nano") === "v1-chat-nano", "tierFor leads with the nano tier");
+ok(!tierAllows("v1-chat-nano", "openai/gpt-4o"), "gpt-4o NOT on nano tier");
+ok(tierAllows("v1-chat-nano", "deepseek/deepseek-chat"), "deepseek-chat on nano tier");
+{
+  const v = validateRequest({ model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], max_tokens: 99999 }, "v1-chat-nano");
+  ok(v.max_tokens === TIERS["v1-chat-nano"].maxTokens, "nano output cap clamps");
+}
 ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/") && t.route.endsWith("/chat/completions") || t.route === "POST /v1/chat/completions", ), "routes live at OpenAI wire paths");
 
 console.log(`\n${pass} passed, ${fail} failed`);
