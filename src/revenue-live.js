@@ -31,6 +31,12 @@ export const OUR_SOLANA_WALLETS = new Set(
   (process.env.OUR_SOLANA_WALLETS || "9EMAayAfBR32J5d3ApEAG3NdKArRBtAqN7LA8c2WRM5o")
     .split(",").map((s) => s.trim()).filter(Boolean)
 );
+// Same convention for Stellar: the canary burner's public address is committed;
+// extend via env (comma-separated) if other internal wallets settle here.
+export const OUR_STELLAR_WALLETS = new Set(
+  (process.env.OUR_STELLAR_WALLETS || "GBA2DDJ4KQXQCGNB7RUU5I2BK5SXROJFUNZV7EZ4XUS7RXFOXEPNY6O4")
+    .split(",").map((s) => s.trim()).filter(Boolean)
+);
 
 // Chain read-config. Stablecoin contracts mirror scripts/revenue-scan.js;
 // span ≈ a few hours of blocks so "recent inbound" stays a cheap filtered read.
@@ -121,13 +127,24 @@ async function recentInbound(c, wallet, latest) {
     const to = latest - i * chunk;
     if (to <= 0) break;
     const from = Math.max(0, to - chunk + 1);
+    // One retry per failed chunk (budget permitting): the newest chunk holds
+    // the most recent settles, and a single transient RPC failure there made
+    // the card show "no inbound transfers" for a full snapshot TTL even
+    // though the canary had just settled (observed 2026-07-08 on Polygon).
+    const attemptChunk = () => rpcCall(c.rpcs, "eth_getLogs", [{
+      address: c.token,
+      topics: [TRANSFER_TOPIC, null, pad(wallet)],
+      fromBlock: "0x" + from.toString(16),
+      toBlock: "0x" + to.toString(16),
+    }], 4000);
     try {
-      const part = await rpcCall(c.rpcs, "eth_getLogs", [{
-        address: c.token,
-        topics: [TRANSFER_TOPIC, null, pad(wallet)],
-        fromBlock: "0x" + from.toString(16),
-        toBlock: "0x" + to.toString(16),
-      }], 4000);
+      let part;
+      try {
+        part = await attemptChunk();
+      } catch (e1) {
+        if (Date.now() + 4500 > deadline) throw e1; // no budget left for a retry
+        part = await attemptChunk();
+      }
       if (Array.isArray(part)) logs.push(...part);
     } catch {
       missed++;
@@ -239,28 +256,43 @@ async function stellarRail(wallet) {
       if (payRes.ok) {
         const payData = await payRes.json();
         const records = payData?._embedded?.records || [];
+        // Internal = the committed canary burner set + this wallet itself
+        // (self-transfers/funding moves are never external revenue).
+        const ours = new Set([...OUR_STELLAR_WALLETS, wallet]);
         for (const r of records) {
           // x402 settlements are invoke_host_function (Soroban); wallet funding
           // can be path_payment_strict_send or payment. Accept all that carry USDC.
+          let entry = null;
           if (r.type === "payment" || r.type === "path_payment_strict_send" || r.type === "path_payment_strict_receive") {
             if (r.to !== wallet) continue;
             if (r.asset_code !== "USDC") continue;
-            out.recent.push({
+            entry = {
               tx: `https://stellar.expert/explorer/public/tx/${r.transaction_hash}`,
               when: r.created_at || null,
               usd: Number(r.amount) || 0,
               from: r.from || null,
-            });
+            };
           } else if (r.type === "invoke_host_function") {
-            // Soroban x402 settlement — no amount/asset in the operation itself,
-            // but it's a confirmed interaction with this wallet. Show it.
-            out.recent.push({
+            // Soroban x402 settlement — the operation itself carries no
+            // amount/asset, but Horizon attaches asset_balance_changes with
+            // the real SEP-41 transfer. NOTE: r.source_account is the
+            // facilitator's fee-sponsoring channel account, NOT the payer —
+            // the balance change's `from` is the actual buying wallet.
+            const changes = (r.asset_balance_changes || []).filter(
+              (c) => c.type === "transfer" && c.to === wallet && c.asset_code === "USDC" && c.asset_issuer === USDC_ISSUER
+            );
+            if (!changes.length) continue; // touched the wallet but paid it nothing
+            entry = {
               tx: `https://stellar.expert/explorer/public/tx/${r.transaction_hash}`,
               when: r.created_at || null,
-              usd: null, // amount not directly available from the operation
-              from: r.source_account || null,
-            });
+              usd: Number(changes.reduce((s, c) => s + Number(c.amount || 0), 0).toFixed(7)),
+              from: changes[0].from || null,
+            };
           }
+          if (!entry) continue;
+          entry.external = isExternalPayment({ payer: entry.from, usd: entry.usd }, { ourWallets: ours, maxUsd: MAX_CALL_USD });
+          entry.internal = entry.from != null && ours.has(entry.from);
+          out.recent.push(entry);
         }
       }
     } catch { /* payment scan is best-effort */ }
@@ -382,7 +414,7 @@ export function revenuePage(baseUrl, snap) {
                 const dim = t.usd !== undefined && !t.external ? "opacity:.62;" : "";
                 const when = t.when ? ` · <span style="color:var(--muted);">${esc(t.when.slice(0, 16))}Z</span>` : "";
                 return t.usd !== undefined
-                  ? `<div style="${dim}">+$${t.usd} from <code>${esc(short(t.from))}</code> · <a href="${esc(t.tx)}" rel="noopener">tx</a>${tag}${when}</div>`
+                  ? `<div style="${dim}">+$${t.usd ?? "?"} from <code>${esc(short(t.from))}</code> · <a href="${esc(t.tx)}" rel="noopener">tx</a>${tag}${when}</div>`
                   : `<div><a href="${esc(t.tx)}" rel="noopener">tx</a>${when}${t.err ? " · failed" : ""}</div>`;
               })
               .join("")}</div>`
