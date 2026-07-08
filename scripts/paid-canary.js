@@ -110,6 +110,29 @@ export const TOOLS = [
     check: (r) => (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0) || `expected choices[0].message.content, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Nano tier — the loop-priced gateway. Same upstream path as the base
+    // tier; this leg proves the tier constants + model allowlist against a
+    // REAL completion daily (gpt-4.1-nano already served via v1-chat before
+    // the nano tier existed, so the model id itself is prod-proven).
+    kit: "llm-nano",
+    path: "/v1/nano/chat/completions",
+    method: "POST",
+    body: { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
+    priceUsd: 0.003,
+    check: (r) => (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0) || `expected choices[0].message.content, got ${JSON.stringify(r).slice(0, 100)}`,
+  },
+  {
+    // Route-and-execute — the SOR's executing surface. Dispatches internally
+    // to /api/hash; a real digest in the receipt-bearing envelope proves the
+    // resolve → guard → dispatch → receipt chain on prod.
+    kit: "route-exec",
+    path: "/api/route/execute",
+    method: "POST",
+    body: { slug: "hash", params: { text: "canary", algo: "sha256" } },
+    priceUsd: 0.01,
+    check: (r) => (r.receipt?.slug === "hash" && typeof r.result?.hex === "string" && r.result.hex.length === 64) || `expected receipt.slug=hash + 64-char hex, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     kit: "edgar",
     path: "/api/company-financials?ticker=AAPL",
     method: "GET",
