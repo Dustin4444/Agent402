@@ -18,8 +18,11 @@
 //
 // Pricing is deterministic by design (flat per tier), matching the project's
 // predictability brand: model allowlists + input/output caps keep worst-case
-// upstream cost well under the x402 price. Streaming is rejected in v1 — the
-// paywall settles against a buffered response.
+// upstream cost well under the x402 price. Streaming (stream: true) is
+// supported: payment settles BEFORE the handler runs, so the response can
+// stream out with no credit risk; max_tokens is clamped before the upstream
+// call, so the provider stops the stream at the cap. Streamed responses are
+// not idempotency-replayable (the cache hooks res.json only).
 
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -161,10 +164,6 @@ export function validateRequest(input, tierSlug) {
   const tier = TIERS[tierSlug];
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
 
-  if (input.stream === true) {
-    throw bad('Streaming is not supported on the x402 gateway (payment settles against a complete response). Set "stream": false.');
-  }
-
   const model = canonicalModel(input.model);
   if (!model) throw bad('"model" is required (e.g. "openai/gpt-4o-mini" or "gpt-4o-mini")');
   if (!tierAllows(tierSlug, model)) {
@@ -200,16 +199,18 @@ export function validateRequest(input, tierSlug) {
 
   const body = { model, messages, max_tokens: maxTokens };
   for (const k of PASSTHROUGH) if (input[k] !== undefined) body[k] = input[k];
+  if (input.stream === true) {
+    body.stream = true;
+    if (input.stream_options !== undefined) body.stream_options = input.stream_options;
+  }
   return body;
 }
 
-async function callOpenRouter(body) {
+async function fetchOpenRouter(body, { timeoutMs, signal } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
-
-  let res;
   try {
-    res = await fetch(OPENROUTER_URL, {
+    return await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
@@ -218,28 +219,63 @@ async function callOpenRouter(body) {
         "X-Title": "Agent402.Tools x402 gateway",
       },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(90_000),
+      signal: signal ?? AbortSignal.timeout(timeoutMs ?? 90_000),
     });
   } catch (e) {
     throw bad(`Upstream request failed: ${e.message}`, 504);
   }
+}
 
+async function throwUpstreamError(res) {
+  const text = await res.text().catch(() => "");
+  if (res.status === 401 || res.status === 403) throw bad("Gateway upstream auth failed", 502);
+  if (res.status === 402) throw bad("Gateway upstream balance exhausted — the operator has been notified", 502);
+  if (res.status === 429) throw bad("Upstream rate-limited — retry shortly", 503);
+  if (res.status >= 500) throw bad(`Upstream error (HTTP ${res.status})`, 502);
+  let msg = text.slice(0, 200);
+  try { msg = JSON.parse(text).error?.message || msg; } catch { /* keep raw slice */ }
+  throw bad(`Upstream error: ${msg}`, 502);
+}
+
+async function callOpenRouter(body) {
+  const res = await fetchOpenRouter(body);
+  if (!res.ok) await throwUpstreamError(res);
   const text = await res.text();
-  if (!res.ok) {
-    if (res.status === 401 || res.status === 403) throw bad("Gateway upstream auth failed", 502);
-    if (res.status === 402) throw bad("Gateway upstream balance exhausted — the operator has been notified", 502);
-    if (res.status === 429) throw bad("Upstream rate-limited — retry shortly", 503);
-    if (res.status >= 500) throw bad(`Upstream error (HTTP ${res.status})`, 502);
-    let msg = text.slice(0, 200);
-    try { msg = JSON.parse(text).error?.message || msg; } catch { /* keep raw slice */ }
-    throw bad(`Upstream error: ${msg}`, 502);
-  }
-
   let data;
   try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
   // Full OpenAI wire shape passes through untouched (id, object, created,
   // model, choices incl. tool_calls, usage) — drop-in fidelity is the product.
   return data;
+}
+
+/** Stream the upstream SSE body to the client verbatim (OpenAI wire format:
+ *  `data: {chunk}` lines, terminated by `data: [DONE]`). Throws ONLY before
+ *  headers are written — once streaming starts, an upstream drop just ends
+ *  the stream. Output cost stays bounded: max_tokens was clamped server-side
+ *  before the upstream call, so the provider stops the stream at the cap. */
+async function streamOpenRouterTo(body, res) {
+  // One controller covers connect AND the whole body read; client disconnect
+  // aborts the upstream so a closed tab never keeps burning tokens.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 180_000);
+  res.on?.("close", () => ctrl.abort());
+  try {
+    const upstream = await fetchOpenRouter(body, { signal: ctrl.signal });
+    if (!upstream.ok) await throwUpstreamError(upstream);
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-store",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.flushHeaders?.();
+    try {
+      for await (const chunk of upstream.body) res.write(chunk);
+    } catch { /* upstream dropped mid-stream — end what we have */ }
+    res.end();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function makeHandler(tierSlug) {
@@ -255,6 +291,25 @@ function makeHandler(tierSlug) {
     // for 502s. No allowlist can guarantee a provider stays alive; a chain
     // ending in a canary-proven model can.)
     const chain = [body.model, ...(TIERS[tierSlug].fallbacks || []).filter((m) => m !== body.model)];
+    if (body.stream === true) {
+      // The route binder invokes __sse(res) after the paywall settled.
+      // streamOpenRouterTo throws only BEFORE headers are written, so the
+      // failover chain is safe: once bytes flow, errors just end the stream.
+      return {
+        __sse: async (res) => {
+          let lastErr;
+          for (const model of chain) {
+            try {
+              return await streamOpenRouterTo({ ...body, model }, res);
+            } catch (e) {
+              if (res.headersSent || ![502, 503, 504].includes(e?.statusCode)) throw e;
+              lastErr = e;
+            }
+          }
+          throw lastErr;
+        },
+      };
+    }
     let lastErr;
     for (const model of chain) {
       try {
@@ -293,7 +348,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.003",
     description:
-      "OpenAI-compatible chat completions, nano tier: gpt-4.1-nano, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat — $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). No API key, no signup.",
+      "OpenAI-compatible chat completions, nano tier: gpt-4.1-nano, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat — $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). Streaming supported (stream: true). No API key, no signup.",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-4.1-nano" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4.1-nano" } } },
     handler: makeHandler("v1-chat-nano"),
@@ -305,7 +360,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.02",
     description:
-      "OpenAI-compatible chat completions over x402 — point any OpenAI SDK at base_url https://agent402.tools/v1 and pay per call in USDC (Base, Solana, Polygon, Arbitrum, Stellar), no API key, no signup. Budget/mid models: gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen. Full wire compatibility incl. tools/function-calling and response_format. GET /v1/models lists every model. No streaming.",
+      "OpenAI-compatible chat completions over x402 — point any OpenAI SDK at base_url https://agent402.tools/v1 and pay per call in USDC (Base, Solana, Polygon, Arbitrum, Stellar), no API key, no signup. Budget/mid models: gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen. Full wire compatibility incl. tools/function-calling and response_format. GET /v1/models lists every model. Streaming supported (stream: true).",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: EXAMPLE, inputSchema: INPUT_SCHEMA, output: { example: EXAMPLE_OUT } },
     handler: makeHandler("v1-chat"),

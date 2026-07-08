@@ -46,7 +46,12 @@ throws(() => validateRequest({ model: "gpt-4o", messages: msg1() }, "v1-chat"), 
 throws(() => validateRequest({ model: "made-up-model-9000", messages: msg1() }, "v1-chat"), "/v1/models", "unknown model error points at the models list");
 
 // Hard rejections.
-throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), stream: true }, "v1-chat"), "Streaming", "stream:true rejected with guidance");
+{
+  const v = validateRequest({ model: "gpt-4o-mini", messages: msg1(), stream: true, stream_options: { include_usage: true } }, "v1-chat");
+  ok(v.stream === true && v.stream_options?.include_usage === true, "stream:true accepted and carried to the upstream body (with stream_options)");
+  const nv = validateRequest({ model: "gpt-4o-mini", messages: msg1() }, "v1-chat");
+  ok(nv.stream === undefined, "non-stream requests carry no stream flag");
+}
 throws(() => validateRequest({ model: "gpt-4o-mini", messages: [] }, "v1-chat"), "non-empty", "empty messages rejected");
 throws(() => validateRequest({ messages: msg1() }, "v1-chat"), "required", "missing model rejected");
 throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1("x".repeat(40_000)) }, "v1-chat"), "Input too large", "input char cap enforced");
@@ -108,6 +113,60 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/") && t.route.end
   let threw = null;
   try { await nano.handler({ model: "openai/gpt-4o", messages: [{ role: "user", content: "hi" }] }); } catch (e) { threw = e; }
   ok(threw?.statusCode === 400 && calls.length === 0, "tier-allowlist 400 throws before any upstream call — no silent substitution");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// Streaming: stream:true returns an __sse writer; SSE passes through verbatim
+// with correct headers; pre-stream provider errors walk the failover chain.
+{
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  const sseBody = (lines) => ({
+    async *[Symbol.asyncIterator]() { for (const l of lines) yield Buffer.from(l); },
+  });
+  const fakeRes = () => {
+    const r = {
+      headersSent: false, headers: null, chunks: [], ended: false, listeners: {},
+      writeHead(status, headers) { r.headersSent = true; r.status = status; r.headers = headers; },
+      flushHeaders() {},
+      write(c) { r.chunks.push(String(c)); },
+      end() { r.ended = true; },
+      on(ev, cb) { r.listeners[ev] = cb; },
+    };
+    return r;
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+
+  // Happy path — deepseek streams (it's in the nano allowlist).
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    ok(body.stream === true, "stream flag reaches the upstream body");
+    return { ok: true, status: 200, body: sseBody(['data: {"choices":[{"delta":{"content":"O"}}]}\n\n', "data: [DONE]\n\n"]) };
+  };
+  const streamResult = await nano.handler({ model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "hi" }], stream: true });
+  ok(typeof streamResult.__sse === "function", "stream:true returns the __sse writer sentinel");
+  const res1 = fakeRes();
+  await streamResult.__sse(res1);
+  ok(res1.status === 200 && res1.headers["Content-Type"].startsWith("text/event-stream"), "SSE headers written");
+  ok(res1.chunks.join("").includes("[DONE]") && res1.ended, "chunks pass through verbatim and the stream ends");
+
+  // Pre-stream failover: requested model 502s before any bytes → fallback streams.
+  const tried = [];
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    tried.push(body.model);
+    if (body.model === "openai/gpt-4.1-nano") return { ok: false, status: 502, text: async () => "provider down" };
+    return { ok: true, status: 200, body: sseBody(["data: [DONE]\n\n"]) };
+  };
+  const res2 = fakeRes();
+  await (await nano.handler({ model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], stream: true })).__sse(res2);
+  ok(tried.join(",") === "openai/gpt-4.1-nano,deepseek/deepseek-chat" && res2.ended, `pre-stream failover walks the chain (tried ${tried.join(",")})`);
+
+  // Validation still precedes everything: wrong-tier model rejects with 400.
+  let threw = null;
+  try { await nano.handler({ model: "openai/gpt-4o", messages: [{ role: "user", content: "hi" }], stream: true }); } catch (e) { threw = e; }
+  ok(threw?.statusCode === 400, "stream requests still validate before any upstream call");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
