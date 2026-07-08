@@ -85,7 +85,15 @@ export const EVM = {
     tx: (h) => `https://robinhoodchain.blockscout.com/tx/${h}`,
   },
 };
-export const SOLANA_RPCS = ["https://api.mainnet-beta.solana.com"];
+// Fallback matters: the card's per-tx decodes and the all-time ledger's
+// backfill share these endpoints, and the public mainnet-beta RPC 429s under
+// that contention — without a second lane the card loses its amount/external
+// tags whenever the ledger is paging. Same list + env override as
+// scripts/revenue-scan-solana.js.
+export const SOLANA_RPCS = (process.env.SOLANA_RPCS || [
+  "https://api.mainnet-beta.solana.com",
+  "https://solana-rpc.publicnode.com",
+].join(",")).split(",").map((s) => s.trim()).filter(Boolean);
 
 export const pad = (a) => "0x" + "0".repeat(24) + a.toLowerCase().replace(/^0x/, "");
 
