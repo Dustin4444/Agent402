@@ -165,20 +165,25 @@ export async function syncSolana(wallet, { maxPages = 5 } = {}) {
     if (backfilled) newest = sigs[0].signature; // follow mode: advance the anchor
     for (const s of sigs) {
       if (s.err) continue;
-      try {
-        const txn = await rpcCall(SOLANA_RPCS, "getTransaction", [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], 8000);
-        const usd = Number(usdcDeltaForOwner(txn?.meta, wallet).toFixed(6));
-        if (usd > 0) {
-          const payer = payerFromMeta(txn?.meta, wallet);
-          recordTransfer({
-            chain, wallet, txid: s.signature, tx_hash: s.signature,
-            block: s.slot ?? null, when_ts: s.blockTime ?? null,
-            payer, usd, asset: "USDC",
-            external: isExternalPayment({ payer, usd }, { ourWallets: OUR_SOLANA_WALLETS, maxUsd: MAX_CALL_USD }),
-          });
-        }
-        await sleep(200);
-      } catch { /* skip an undecodable tx; the next full backfill pass never happens, but PK-idempotency makes a manual re-run safe */ }
+      // No try/catch here: rpcCall only throws when the RPC lane itself fails
+      // (429/timeout — a genuinely undecodable tx returns a null result, and
+      // usdcDeltaForOwner(null) is just 0). Swallowing that error silently
+      // dropped the settle from all-time forever, because the cursor advanced
+      // past it and no full re-pass ever happens. Let it propagate instead:
+      // putCursor never runs, the tick retries in 20s, and the PK dedupes the
+      // replayed page.
+      const txn = await rpcCall(SOLANA_RPCS, "getTransaction", [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], 8000);
+      const usd = Number(usdcDeltaForOwner(txn?.meta, wallet).toFixed(6));
+      if (usd > 0) {
+        const payer = payerFromMeta(txn?.meta, wallet);
+        recordTransfer({
+          chain, wallet, txid: s.signature, tx_hash: s.signature,
+          block: s.slot ?? null, when_ts: s.blockTime ?? null,
+          payer, usd, asset: "USDC",
+          external: isExternalPayment({ payer, usd }, { ourWallets: OUR_SOLANA_WALLETS, maxUsd: MAX_CALL_USD }),
+        });
+      }
+      await sleep(200);
     }
     pages++;
     if (backfilled) break; // follow mode needs one page per tick
