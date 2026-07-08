@@ -478,11 +478,51 @@ async function main() {
     }
   }
 
-  // Stellar leg — still pending: needs a funded Stellar burner (secret) and a
-  // stellar-scheme client registration; @x402/stellar is now on npm, so this
-  // is buildable as a follow-up. First Stellar settlement was proven manually
-  // 2026-07-04; until a daily leg exists the Stellar rail has no recurring
-  // internal proof on /revenue.
+  // Optional Stellar leg — gated on STELLAR_BURNER_SECRET (an S… Stellar
+  // secret key; fund the account with USDC — Circle trustline — plus a little
+  // XLM). A dedicated client registers ONLY the Stellar scheme, so the payment
+  // can only settle on a stellar:* accept — a true Stellar-rail proof with no
+  // silent EVM fallback (same isolation trick as the Solana leg). Fees are
+  // facilitator-sponsored per the exact-scheme spec, so the burner spends
+  // USDC, not XLM. Informational: failures WARN, never page.
+  await (async () => {
+    const secret = (process.env.STELLAR_BURNER_SECRET || "").trim();
+    if (!secret) { console.log("\nstellar leg: skipped (no STELLAR_BURNER_SECRET)"); return; }
+    try {
+      const [{ x402Client: StellarX402Client }, { ExactStellarScheme }, { wrapFetchWithPayment: wrapStellar }, sdk] = await Promise.all([
+        import("@x402/core/client"), import("@x402/stellar/exact/client"), import("@x402/fetch"), import("@stellar/stellar-sdk"),
+      ]);
+      const keypair = sdk.Keypair.fromSecret(secret);
+      // ExactStellarScheme wants { address, signAuthEntry } — basicNodeSigner
+      // supplies the signing half, the public key is added alongside.
+      const signer = { address: keypair.publicKey(), ...sdk.contract.basicNodeSigner(keypair, sdk.Networks.PUBLIC) };
+      const stellarClient = new StellarX402Client();
+      stellarClient.register("stellar:*", new ExactStellarScheme(signer));
+      const stellarPay = wrapStellar(synthFetch, stellarClient);
+      const res = await stellarPay(`${TARGET}/api/hash`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "stellar-canary" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 200 && typeof body.hex === "string") {
+        let tx = null;
+        const receiptHdr = res.headers.get("payment-response") || res.headers.get("x-payment-response");
+        if (receiptHdr) {
+          try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"))?.transaction || null; } catch { /* best-effort */ }
+        }
+        console.log(`\nOK    stellar    /api/hash  → settled $0.001 USDC on Stellar (payer ${keypair.publicKey()})${tx ? `\n      tx: https://stellar.expert/explorer/public/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+      } else if (res.status === 402) {
+        const h = res.headers.get("payment-required");
+        let reason = null;
+        if (h) { try { reason = JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ } }
+        console.warn(`\nWARN  stellar leg did NOT settle (HTTP 402, payer ${keypair.publicKey()}) — facilitator reason: ${JSON.stringify(reason)} (missing USDC trustline/funds, facilitator outage, or stellar missing from the live accepts)`);
+      } else {
+        console.warn(`\nWARN  stellar leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
+      }
+    } catch (e) {
+      console.warn(`\nWARN  stellar leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
+    }
+  })();
 
   const decision = decideCanary(results);
   const spentUsd = decision.rows.filter((r) => r.cls === "settled").reduce((s, r) => s + (r.priceUsd || 0), 0);
