@@ -7,6 +7,7 @@
 // reasoning turn, in loops, not per occasional tool call.
 //
 //   POST /v1/chat/completions          $0.02  — budget/mid models
+//   POST /v1/auto/chat/completions     $0.01  — eval-ranked routing, no model needed
 //   POST /v1/pro/chat/completions      $0.10  — mid-frontier models
 //   POST /v1/premium/chat/completions  $0.50  — frontier models
 //   GET  /v1/models                    free   — served by server.js from TIERS
@@ -31,6 +32,55 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
+}
+
+// ---------------------------------------------------------------------------
+// Auto tier — eval-ranked model routing. The buyer sends messages and NO
+// model; the gateway classifies the prompt and serves it with the top-ranked
+// budget model for that task type. The classification is lexical-signal only
+// and the ranking is a fixed, human-curated table distilled from public evals
+// (LMArena + OpenRouter usage rankings for sub-$1/M models) — updated by code
+// review, never at runtime — so the routing decision is fully deterministic:
+// no LLM in the routing path, identical requests always route identically.
+//
+// Each list doubles as the tier's failover chain: a provider error walks down
+// the ranking, and every list contains openai/gpt-4o-mini — the model the
+// daily paid canary proves alive. Worst-case upstream at the auto caps
+// (~4k tokens in / 1024 out) is deepseek-chat at ~$0.0022 — >4x under the
+// $0.01 price, same headroom discipline as the other tiers.
+export const AUTO_RANKINGS = {
+  code: ["deepseek/deepseek-chat", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
+  reasoning: ["deepseek/deepseek-chat", "google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
+  long: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+  general: ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001", "deepseek/deepseek-chat"],
+};
+
+// Explicit code/reasoning signals outrank raw length, so a long code review
+// routes to a code model, not a long-context generalist. Keywords are chosen
+// to be rare in plain prose (no bare "class"/"let"); a misclassification is
+// benign — every ranked model is a competent generalist — but determinism is
+// the contract, so the signal lists only ever change by code review.
+const CODE_RE = /```|\bfunction\s*\(|\bdef\s+\w+\s*\(|\bimport\s+[\w{.]|\bconsole\.log\b|\bTraceback\b|\bstack trace\b|\bregex\b|\brefactor\b|\bunit test\b|\bcompile error\b|\btypescript\b|\bjavascript\b|\bpython\b|\bSELECT\b[\s\S]{0,120}\bFROM\b/i;
+const REASONING_RE = /[∑∫√π≠≤≥]|\bprove\b|\btheorem\b|\bderive\b|\bcalculate\b|\bsolve\b|\bequation\b|\bintegral\b|\bprobability\b|\bhow many\b|\bstep[ -]by[ -]step\b|\blogic puzzle\b|\briddle\b/i;
+const LONG_CHARS = 8000;
+
+/** Deterministic prompt classifier for the auto tier. Tolerates malformed
+ *  messages (returns "general") — validateRequest raises the real 400 right
+ *  after, so garbage never reaches the upstream anyway. */
+export function classifyPrompt(messages) {
+  let text = "";
+  if (Array.isArray(messages)) {
+    for (const m of messages) {
+      if (typeof m?.content === "string") text += m.content + "\n";
+      else if (Array.isArray(m?.content)) {
+        for (const b of m.content) if (b?.type === "text" && typeof b.text === "string") text += b.text + "\n";
+      }
+    }
+  }
+  if (CODE_RE.test(text)) return "code";
+  if (REASONING_RE.test(text)) return "reasoning";
+  if (text.length > LONG_CHARS) return "long";
+  return "general";
 }
 
 // Tier → OpenRouter model-id prefixes, input char budget, output token cap.
@@ -99,6 +149,20 @@ export const TIERS = {
       "anthropic/claude-opus",
     ],
   },
+  // Auto tier — model chosen server-side (see AUTO_RANKINGS above). Listed
+  // LAST so tierFor() keeps resolving explicit models to their existing home
+  // tiers: the auto prefixes deliberately overlap the nano/base allowlists
+  // (an explicit ranked model is honored here at the auto caps), and listing
+  // this tier first would hijack those models' self-correcting 400s.
+  "v1-chat-auto": {
+    route: "POST /v1/auto/chat/completions",
+    price: 0.01,
+    maxInputChars: 16_000,
+    maxTokens: 1024,
+    router: true,
+    fallbacks: ["openai/gpt-4o-mini"],
+    prefixes: [...new Set(Object.values(AUTO_RANKINGS).flat())],
+  },
 };
 
 // Drop-in compatibility: bare OpenAI-style names map to their OpenRouter ids,
@@ -166,7 +230,14 @@ export function validateRequest(input, tierSlug) {
   const tier = TIERS[tierSlug];
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
 
-  const model = canonicalModel(input.model);
+  let model = canonicalModel(input.model);
+  if (tier.router === true && (!model || model === "auto")) {
+    // Auto tier, no model (or model:"auto") → deterministic eval-ranked pick.
+    // Resolving HERE (not in the handler) keeps promptCacheKey correct: the
+    // resolved model is part of the normalized body, so cached entries
+    // invalidate cleanly when the ranking table changes.
+    model = AUTO_RANKINGS[classifyPrompt(input.messages)][0];
+  }
   if (!model) throw bad('"model" is required (e.g. "openai/gpt-4o-mini" or "gpt-4o-mini")');
   if (!tierAllows(tierSlug, model)) {
     const home = tierFor(model);
@@ -362,7 +433,17 @@ function makeHandler(tierSlug) {
     // 2026-07-08 — two independent paid runs — and buyers were charged $0.003
     // for 502s. No allowlist can guarantee a provider stays alive; a chain
     // ending in a canary-proven model can.)
-    const chain = [body.model, ...(TIERS[tierSlug].fallbacks || []).filter((m) => m !== body.model)];
+    // Auto tier with no explicit model: the routed category's full ranking IS
+    // the failover chain (body.model is already its head). Explicit-model
+    // requests — on any tier — keep the requested model first, then the
+    // tier's static fallbacks.
+    const routedCategory =
+      TIERS[tierSlug].router === true && (!canonicalModel(input.model) || canonicalModel(input.model) === "auto")
+        ? classifyPrompt(input.messages)
+        : null;
+    const chain = routedCategory
+      ? [...AUTO_RANKINGS[routedCategory]]
+      : [body.model, ...(TIERS[tierSlug].fallbacks || []).filter((m) => m !== body.model)];
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
       // streamOpenRouterTo throws only BEFORE headers are written, so the
@@ -386,6 +467,12 @@ function makeHandler(tierSlug) {
     for (const model of chain) {
       try {
         const data = await callOpenRouter({ ...body, model });
+        // Routed requests disclose the decision: additive key, OpenAI wire
+        // shape otherwise untouched (the standard `model` field already names
+        // the server, this adds WHY). Streams pass through unannotated.
+        if (routedCategory && data && typeof data === "object") {
+          data.agent402_router = { category: routedCategory, served: data.model || model };
+        }
         if (input.cache === true) {
           try { promptCacheStore(promptCacheKey(tierSlug, input), data); } catch { /* never fail a served response over the cache */ }
         }
@@ -416,6 +503,15 @@ const INPUT_SCHEMA = {
   required: ["model", "messages"],
 };
 
+const AUTO_INPUT_SCHEMA = {
+  properties: {
+    messages: INPUT_SCHEMA.properties.messages,
+    model: { type: "string", description: 'Optional — omit (or send "auto") for eval-ranked server-side routing. An explicit model from the auto ranking is honored at the auto caps.' },
+    max_tokens: INPUT_SCHEMA.properties.max_tokens,
+  },
+  required: ["messages"],
+};
+
 export const LLM_GATEWAY_TOOLS = [
   {
     route: "POST /v1/nano/chat/completions",
@@ -428,6 +524,23 @@ export const LLM_GATEWAY_TOOLS = [
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-4.1-nano" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4.1-nano" } } },
     handler: makeHandler("v1-chat-nano"),
+  },
+  {
+    route: "POST /v1/auto/chat/completions",
+    name: "Chat completions — auto tier (eval-ranked routing)",
+    slug: "v1-chat-auto",
+    category: "llm",
+    price: "$0.01",
+    description:
+      'OpenAI-compatible chat completions with server-side model choice: omit "model" (or send "auto") and the gateway routes the prompt to the top-ranked budget model for its task type (code / reasoning / long-context / general) from a fixed eval-derived ranking — deterministic, no LLM in the routing path. Provider errors fail over down the ranking automatically; the response adds agent402_router {category, served} alongside the standard model field. $0.01 per call in USDC over x402, caps 16k chars in / 1024 tokens out. Streaming supported (stream: true). No API key, no signup.',
+    tags: [...SHARED_TAGS, "router", "auto"],
+    discovery: {
+      bodyType: "json",
+      input: { messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
+      inputSchema: AUTO_INPUT_SCHEMA,
+      output: { example: { ...EXAMPLE_OUT, agent402_router: { category: "general", served: "openai/gpt-4o-mini" } } },
+    },
+    handler: makeHandler("v1-chat-auto"),
   },
   {
     route: "POST /v1/chat/completions",

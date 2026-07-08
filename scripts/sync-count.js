@@ -5,10 +5,10 @@
 //   node scripts/sync-count.js          # rewrite the total everywhere it's stale
 //   node scripts/sync-count.js --check  # exit 1 if the total is stale (CI guard)
 //
-// How it stays safe: the catalog has several legitimate counts (total ~1,413,
+// How it stays safe: the catalog has several legitimate counts (total ~1,414,
 // free/PoW tier ~1,189, "~1,000 utilities"). We only ever touch the TOTAL, by an
 // EXACT value replace of the previously-documented total → the real one. Because
-// each count is a distinct comma-grouped value, replacing e.g. "1,413" → "1,413"
+// each count is a distinct comma-grouped value, replacing e.g. "1,414" → "1,414"
 // can't disturb the free-tier or the approximate figures. The real total comes
 // from a booted free-mode server (/health.meta.toolCount); the currently-documented
 // total is read from the README H1 (which is unambiguously the total). Runtime
@@ -29,7 +29,7 @@ try {
     await sleep(500);
   }
   if (!total) { console.error("sync-count: could not read the tool count from /health"); process.exit(2); }
-  const want = total.toLocaleString("en-US"); // "1,413"
+  const want = total.toLocaleString("en-US"); // "1,414"
 
   // The documented total = the first comma-grouped 4-digit number in the README H1.
   const readmeH1 = (readFileSync("README.md", "utf8").split("\n")[0]) || "";

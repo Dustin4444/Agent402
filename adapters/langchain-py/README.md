@@ -1,6 +1,6 @@
 # agent402-langchain (Python)
 
-Turn [Agent402](https://agent402.tools)'s 1,413 x402 pay-per-call tools into
+Turn [Agent402](https://agent402.tools)'s 1,414 x402 pay-per-call tools into
 **LangChain** and **CrewAI** tools for Python agents.
 
 Pure-CPU tools (hashing, encoding, QR, markdown, JSON, readability…) are **free**
@@ -18,7 +18,7 @@ toolkit = Agent402Toolkit(base_url="https://agent402.tools")
 tools = toolkit.get_tools()   # four meta-tools your agent can call
 ```
 
-It exposes **four meta-tools** rather than 1,413 individual ones (frameworks and
+It exposes **four meta-tools** rather than 1,414 individual ones (frameworks and
 LLMs both choke on thousands of tools):
 
 | Tool | What it does |
