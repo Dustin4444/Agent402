@@ -17,6 +17,9 @@ COPY scripts ./scripts
 # wiki/ is the source of truth for /docs (server-rendered) and is CI-synced
 # to the GitHub wiki. Must be in the image or /docs is empty.
 COPY wiki ./wiki
+# assets/fonts is embedded into the brand images at boot — a missing file is
+# a boot crash, not a degraded render.
+COPY assets ./assets
 
 EXPOSE 3000
 CMD ["node", "src/server.js"]
