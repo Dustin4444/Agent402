@@ -1213,12 +1213,16 @@ jobs:
           curl -s "$PROD/api/pricing" | jq -r '.endpoints[] | "\(.method) \(.path) \(.price)"'
           echo "=== SEO + discovery surfaces on production (hard gate) ==="
           # These have all been live in production for a while — a miss now is a
-          # real regression, not rollout lag.
+          # real regression, not rollout lag. NOTE: this step runs BEFORE the
+          # deploy job, so it checks the PREVIOUS build's homepage — a fix to
+          # these surfaces goes green on the run AFTER the one that ships it.
           FAILS=0
           ck() { if eval "$2"; then echo "  $1 ✓"; else echo "  $1 MISSING"; FAILS=$((FAILS+1)); fi; }
           HTML=$(curl -s "$PROD/")
           ck "FAQPage JSON-LD"            'echo "$HTML" | grep -q "\"FAQPage\""'
-          ck "visible FAQ"               'echo "$HTML" | grep -q "<h2>FAQ</h2>"'
+          # The ledger homepage renders the FAQ section with a "$ GET /faq"
+          # kicker (its h2 is styled, so the old <h2>FAQ</h2> literal is gone).
+          ck "visible FAQ"               'echo "$HTML" | grep -q "GET /faq"'
           ck "AggregateOffer"            'echo "$HTML" | grep -q AggregateOffer'
           ck "robots welcomes AI crawlers" 'curl -s "$PROD/robots.txt" | grep -q GPTBot'
           ck "MCP connector on landing"  'echo "$HTML" | grep -q agent402-mcp'

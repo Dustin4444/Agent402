@@ -52,6 +52,18 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const title = `Agent402 — ${packCount} agent skill packs, one x402 payment each (${fmtNum(count)} tools)`;
   const description = `${packCount} skill packs that do a whole agent job in one x402 payment — research a stock, audit a domain's SEO, run SQL over Base — built on ${fmtNum(count)} deterministic pay-per-call tools. Free via proof-of-work; ${RAILS_SHORT} — from $0.001/call. No signup, no API key — the wallet is the identity.`;
 
+  // One source of truth for the FAQ: these five Q&As render as the visible
+  // section below AND as FAQPage JSON-LD (rich-result eligibility the old
+  // landing page had and the ledger redesign initially dropped — the deploy
+  // workflow's SEO gate greps prod for both surfaces).
+  const faqs = [
+    { q: "What is Agent402?", a: `A live node in the machine-to-machine economy: ${fmtNum(count)} web tools an autonomous agent can call and pay for per request in USDC via x402 — or with proof-of-work, no wallet. No human, no signup, no API key.` },
+    { q: "How does an agent pay for a tool?", a: "It calls an endpoint and gets an HTTP 402 quote. An x402 client signs a USDC payment from the agent's own wallet on Base (or Solana, Polygon, Arbitrum, Stellar — or USDG on Robinhood Chain) and retries; the call settles on-chain in seconds. The wallet is the identity." },
+    { q: "Are any tools free?", a: `Yes — ${fmtNum(freeCount)} of the ${fmtNum(count)} pure-CPU tools work with no wallet: solve a short proof-of-work puzzle (a few seconds of CPU) instead of paying USDC.` },
+    { q: "Does it spend my model tokens?", a: "No. Every tool is deterministic code — parsers, hashes, math, a real browser — with no LLM in the path. Tools like /api/extract exist to save your tokens: clean markdown out instead of 100k tokens of raw HTML in." },
+    { q: "Which frameworks are supported?", a: "Zero-dependency adapters on npm for OpenAI, Anthropic, LangChain, LlamaIndex, Vercel AI SDK, Google ADK and AWS Strands — each returning native tool objects with payment handled underneath." },
+  ];
+
   const jsonLd = [
     {
       "@context": "https://schema.org",
@@ -68,7 +80,14 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       url: baseUrl,
       applicationCategory: "DeveloperApplication",
       operatingSystem: "Any",
-      offers: { "@type": "Offer", price: "0.001", priceCurrency: "USD", description: `Pay-per-call ${RAILS_AMP}` },
+      // AggregateOffer (not a single Offer): the catalog spans $0.001 tool
+      // calls to $0.50 premium-tier calls, and offerCount is the catalog size.
+      offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "0.50", priceCurrency: "USD", description: `Per-call micropayments ${RAILS_AMP}, or free with proof-of-work` },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      mainEntity: faqs.map(({ q, a }) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })),
     },
   ];
 
@@ -267,11 +286,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /faq</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:40px;line-height:1;letter-spacing:-.02em;margin:0 0 28px;color:var(--ink);">Questions.</h2>
     <div style="display:flex;flex-direction:column;">
-      <div style="padding:20px 0;border-top:1.5px solid var(--ink);"><h3 style="font-size:16px;font-weight:700;margin:0 0 7px;">What is Agent402?</h3><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;">A live node in the machine-to-machine economy: ${fmtNum(count)} web tools an autonomous agent can call and pay for per request in USDC via x402 — or with proof-of-work, no wallet. No human, no signup, no API key.</p></div>
-      <div style="padding:20px 0;border-top:1px solid var(--hairline);"><h3 style="font-size:16px;font-weight:700;margin:0 0 7px;">How does an agent pay for a tool?</h3><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;">It calls an endpoint and gets an HTTP 402 quote. An x402 client signs a USDC payment from the agent's own wallet on Base (or Solana, Polygon, Arbitrum, Stellar — or USDG on Robinhood Chain) and retries; the call settles on-chain in seconds. The wallet is the identity.</p></div>
-      <div style="padding:20px 0;border-top:1px solid var(--hairline);"><h3 style="font-size:16px;font-weight:700;margin:0 0 7px;">Are any tools free?</h3><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;">Yes — ${fmtNum(freeCount)} of the ${fmtNum(count)} pure-CPU tools work with no wallet: solve a short proof-of-work puzzle (a few seconds of CPU) instead of paying USDC.</p></div>
-      <div style="padding:20px 0;border-top:1px solid var(--hairline);"><h3 style="font-size:16px;font-weight:700;margin:0 0 7px;">Does it spend my model tokens?</h3><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;">No. Every tool is deterministic code — parsers, hashes, math, a real browser — with no LLM in the path. Tools like /api/extract exist to save your tokens: clean markdown out instead of 100k tokens of raw HTML in.</p></div>
-      <div style="padding:20px 0;border-top:1px solid var(--hairline);border-bottom:1.5px solid var(--ink);"><h3 style="font-size:16px;font-weight:700;margin:0 0 7px;">Which frameworks are supported?</h3><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;">Zero-dependency adapters on npm for OpenAI, Anthropic, LangChain, LlamaIndex, Vercel AI SDK, Google ADK and AWS Strands — each returning native tool objects with payment handled underneath.</p></div>
+      ${faqs.map(({ q, a }, i) => `<div style="padding:20px 0;border-top:${i === 0 ? "1.5px solid var(--ink)" : "1px solid var(--hairline)"};${i === faqs.length - 1 ? "border-bottom:1.5px solid var(--ink);" : ""}"><h3 style="font-size:16px;font-weight:700;margin:0 0 7px;">${esc(q)}</h3><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;">${esc(a)}</p></div>`).join("\n      ")}
     </div>
   </section>
 
