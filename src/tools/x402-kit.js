@@ -69,7 +69,14 @@ const NETWORKS = {
   // gas-estimate) work here today; USDC payments await facilitator + USDG support.
   robinhood: {
     chainId: 4663,
-    rpcs: ["https://rpc.mainnet.chain.robinhood.com"],
+    // Alchemy first when the key is set (per-app network enablement required
+    // on the Alchemy dashboard — a not-enabled network 403s and falls through
+    // to the public RPC). This chain has exactly one public endpoint, so the
+    // Alchemy lane is the only redundancy available.
+    rpcs: [
+      ...(process.env.ALCHEMY_API_KEY ? [`https://robinhood-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []),
+      "https://rpc.mainnet.chain.robinhood.com",
+    ],
   },
 };
 const NETWORK_NAMES = Object.keys(NETWORKS);
