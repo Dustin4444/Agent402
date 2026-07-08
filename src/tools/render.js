@@ -137,6 +137,9 @@ export async function rasterizeSvg(svg, size = 512) {
   try {
     const page = await context.newPage();
     await page.setContent(`<!doctype html><style>*{margin:0;padding:0}svg{display:block}</style>${svg}`);
+    // SVGs may embed @font-face data URIs; screenshotting before the face is
+    // parsed captures the fallback font, and the result gets cached upstream.
+    await page.evaluate(() => document.fonts?.ready).catch(() => {});
     return await page.screenshot({ type: "png", clip: { x: 0, y: 0, width, height } });
   } finally {
     await context.close().catch(() => {});
