@@ -1332,10 +1332,24 @@ app.get("/demo.js", (_req, res) =>
   res.type("text/javascript").set("Cache-Control", "public, max-age=3600").send(readFileSync(new URL("../scripts/demo-payment.js", import.meta.url), "utf-8"))
 );
 
-// Brand mark — the same 402 glyph as the favicon, at logo size. The PNG is
-// rasterized once via the existing headless Chromium and cached for the
-// process lifetime (marketplaces and link previews often refuse SVG).
-const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" rx="96" fill="#0b0e14"/><text x="256" y="295" font-size="170" font-weight="700" font-family="ui-monospace,Menlo,monospace" text-anchor="middle" fill="#4ade80">402</text><text x="256" y="408" font-size="42" font-family="ui-monospace,Menlo,monospace" text-anchor="middle" fill="#8b93a7">agent402.tools</text></svg>`;
+// Brand images (logo + social cards) use the site's ledger design tokens:
+// paper #ECE4D2, ink #16150F, accent #D63C1A, Space Mono / Archivo. The two
+// typefaces are embedded as data-URI @font-face (latin subsets committed in
+// assets/fonts/, OFL-licensed) so rasterization is deterministic and offline —
+// no Google Fonts fetch in the serving path. rasterizeSvg awaits fonts.ready.
+const fontB64 = (f) => readFileSync(new URL(`../assets/fonts/${f}`, import.meta.url)).toString("base64");
+const BRAND_FONT_STYLE = `<style>
+@font-face{font-family:'Space Mono';font-weight:400;src:url(data:font/woff2;base64,${fontB64("spacemono-400.woff2")}) format('woff2')}
+@font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}
+@font-face{font-family:'Archivo';font-weight:800;src:url(data:font/woff2;base64,${fontB64("archivo-800.woff2")}) format('woff2')}
+</style>`;
+const BRAND = { paper: "#ECE4D2", card: "#F4EEDE", ink: "#16150F", muted: "#4f4b3f", hairline: "#d8cfb6", accent: "#D63C1A", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
+
+// Brand mark — the ink slab: cream 402 with the accent period on dark ink,
+// matching the ledger chrome (and the X avatar). The PNG is rasterized once
+// via the existing headless Chromium and cached for the process lifetime
+// (marketplaces and link previews often refuse SVG).
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}<rect width="512" height="512" fill="${BRAND.ink}"/><text x="256" y="308" font-size="150" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-4" fill="${BRAND.paper}">402<tspan fill="${BRAND.accent}">.</tspan></text></svg>`;
 app.get("/logo.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(LOGO_SVG));
 
 // Marketplace bridge endpoint. agent402.app POSTs the caller's JSON body here
@@ -1428,16 +1442,23 @@ const cardSvg = (width = 1200, height = 630) => {
   const s = Math.min(width / 1200, height / 630);
   const tx = (width - 1200 * s) / 2;
   const ty = (height - 630 * s) / 2;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
-  <rect width="${width}" height="${height}" fill="#0b0e14"/>
+  const mono = JSON.stringify(BRAND.mono);
+  const display = JSON.stringify(BRAND.display);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${BRAND_FONT_STYLE}
+  <rect width="${width}" height="${height}" fill="${BRAND.paper}"/>
   <g transform="translate(${tx},${ty}) scale(${s})">
-  <rect x="40" y="40" width="1120" height="550" rx="28" fill="none" stroke="#1e2638" stroke-width="2"/>
-  <rect x="86" y="96" width="150" height="150" rx="30" fill="#000" stroke="#1f4a1d" stroke-width="2"/>
-  <text x="161" y="186" font-size="56" font-weight="700" font-family="ui-monospace,Menlo,monospace" text-anchor="middle" fill="#4ade80">402</text>
-  <text x="86" y="350" font-size="74" font-weight="800" font-family="system-ui,-apple-system,sans-serif" fill="#e6e9f0">Where agents pay agents<tspan fill="#4ade80">.</tspan></text>
-  <text x="88" y="416" font-size="33" font-family="system-ui,-apple-system,sans-serif" fill="#8b93a7">The open x402 index: ${n.toLocaleString("en-US")} tools + ${SKILL_PACKS.length} skill packs.</text>
-  <text x="88" y="492" font-size="26" font-family="ui-monospace,Menlo,monospace" fill="#4ade80">USDC on Base, Solana, Polygon, Arbitrum, Stellar · USDG on Robinhood</text>
-  <text x="88" y="552" font-size="28" font-weight="600" font-family="ui-monospace,Menlo,monospace" fill="#e6e9f0">agent402.tools</text>
+  <rect x="36" y="36" width="1128" height="558" fill="${BRAND.card}" stroke="${BRAND.ink}" stroke-width="3"/>
+  <!-- nav row: bordered 402 badge + wordmark, ruled off like the site header -->
+  <rect x="84" y="84" width="64" height="64" fill="none" stroke="${BRAND.ink}" stroke-width="5"/>
+  <text x="116" y="126" font-size="26" font-weight="700" font-family=${mono} text-anchor="middle" fill="${BRAND.ink}">402</text>
+  <text x="170" y="127" font-size="34" font-weight="800" font-family=${display} letter-spacing="-0.5" fill="${BRAND.ink}">AGENT402<tspan fill="${BRAND.accent}">.</tspan>TOOLS</text>
+  <text x="1116" y="127" font-size="24" font-weight="700" font-family=${mono} text-anchor="end" fill="${BRAND.accent}">agent402.tools</text>
+  <line x1="84" y1="172" x2="1116" y2="172" stroke="${BRAND.ink}" stroke-width="2.5"/>
+  <text x="84" y="330" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">Where agents pay</text>
+  <text x="84" y="416" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">agents<tspan fill="${BRAND.accent}">.</tspan></text>
+  <line x1="84" y1="462" x2="1116" y2="462" stroke="${BRAND.hairline}" stroke-width="2"/>
+  <text x="84" y="510" font-size="27" font-family=${mono} fill="${BRAND.muted}">The open x402 index: ${n.toLocaleString("en-US")} tools + ${SKILL_PACKS.length} skill packs.</text>
+  <text x="84" y="554" font-size="23" font-family=${mono} fill="${BRAND.muted}">USDC on Base, Solana, Polygon, Arbitrum, Stellar · USDG on Robinhood</text>
   </g>
 </svg>`;
 };
@@ -1486,9 +1507,9 @@ app.get("/tools/:slug/card.png", async (req, res) => {
   const catLabel = CATEGORIES[tool.category]?.label ?? tool.category;
   const svgEsc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const nameT = tool.name.length > 36 ? tool.name.slice(0, 34) + "\u2026" : tool.name;
-  const descT = tool.description.length > 100 ? tool.description.slice(0, 98) + "\u2026" : tool.description;
+  const descT = tool.description.length > 74 ? tool.description.slice(0, 72) + "\u2026" : tool.description;
   const free = POW_SLUGS.has(tool.slug) ? "FREE w/ PoW \u00b7 " : "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630"><rect width="1200" height="630" fill="#0a0d13"/><g><rect x="40" y="40" width="1120" height="550" rx="28" fill="none" stroke="#1e2638" stroke-width="2"/><rect x="86" y="96" width="100" height="100" rx="22" fill="#000" stroke="#1f4a1d" stroke-width="2"/><text x="136" y="158" font-size="40" font-weight="700" font-family="ui-monospace,Menlo,monospace" text-anchor="middle" fill="#4ade80">402</text><text x="210" y="130" font-size="24" font-weight="600" font-family="system-ui,sans-serif" fill="#8b93a7">agent402.tools</text><text x="210" y="168" font-size="22" font-family="ui-monospace,Menlo,monospace" fill="#4ade80">${svgEsc(catLabel)}</text><text x="86" y="300" font-size="56" font-weight="800" font-family="system-ui,-apple-system,sans-serif" fill="#e6e9f0">${svgEsc(nameT)}</text><text x="88" y="370" font-size="28" font-family="system-ui,-apple-system,sans-serif" fill="#8b93a7">${svgEsc(descT)}</text><text x="88" y="450" font-size="30" font-weight="600" font-family="ui-monospace,Menlo,monospace" fill="#4ade80">${svgEsc(free)}${svgEsc(tool.price)} per call \u00b7 ${svgEsc(tool.method)} ${svgEsc(tool.path)}</text><text x="88" y="520" font-size="24" font-family="system-ui,sans-serif" fill="#8b93a7">Pay in USDC on Base via x402 \u2014 no API key, no signup</text></g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">${BRAND_FONT_STYLE}<rect width="1200" height="630" fill="${BRAND.paper}"/><g><rect x="36" y="36" width="1128" height="558" fill="${BRAND.card}" stroke="${BRAND.ink}" stroke-width="3"/><rect x="84" y="84" width="64" height="64" fill="none" stroke="${BRAND.ink}" stroke-width="5"/><text x="116" y="126" font-size="26" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" fill="${BRAND.ink}">402</text><text x="170" y="118" font-size="26" font-weight="800" font-family=${JSON.stringify(BRAND.display)} fill="${BRAND.ink}">AGENT402<tspan fill="${BRAND.accent}">.</tspan>TOOLS</text><text x="170" y="146" font-size="20" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(catLabel)}</text><line x1="84" y1="172" x2="1116" y2="172" stroke="${BRAND.ink}" stroke-width="2.5"/><text x="84" y="308" font-size="58" font-weight="800" font-family=${JSON.stringify(BRAND.display)} letter-spacing="-1" fill="${BRAND.ink}">${svgEsc(nameT)}</text><text x="84" y="372" font-size="22" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(descT)}</text><line x1="84" y1="440" x2="1116" y2="440" stroke="${BRAND.hairline}" stroke-width="2"/><text x="84" y="496" font-size="29" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.accent}">${svgEsc(free)}${svgEsc(tool.price)} per call \u00b7 ${svgEsc(tool.method)} ${svgEsc(tool.path)}</text><text x="84" y="550" font-size="23" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">Pay in USDC on Base via x402 \u2014 no API key, no signup</text></g></svg>`;
   try {
     if (!toolCardCache.has(tool.slug)) toolCardCache.set(tool.slug, await rasterizeSvg(svg, { width: 1200, height: 630 }));
     res.set("Cache-Control", "public, max-age=86400").type("image/png").send(toolCardCache.get(tool.slug));
