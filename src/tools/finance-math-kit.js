@@ -80,7 +80,7 @@ export const FINANCE_MATH_TOOLS = [
   // ---------------------------------------------------------------------------
   {
     route: "POST /api/compound-interest", name: "Compound interest", slug: "compound-interest",
-    category: "data", price: "$0.001",
+    category: "data", price: "$0.002",
     description:
       "Compute future value of a principal under compound interest. Returns future value, total interest earned, and the effective annual rate (APY) given the compounding frequency. Matches Excel's FV(rate, nper, 0, -principal) and the classic (1+r/n)^(nt) textbook formula.",
     tags: ["finance", "interest", "compound", "future-value", "fv", "apy", "savings"],

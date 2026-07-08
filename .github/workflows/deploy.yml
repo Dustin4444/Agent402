@@ -274,6 +274,11 @@ jobs:
           name: agent-address
           path: agent-address.txt
       - name: Wait for funding, then buy from the live API
+        env:
+          # Marks every e2e buy with X-Heartbeat-Token → synthetic in the
+          # sales ledger + PostHog, so full-suite proof runs don't read as
+          # organic external demand in revenue analyses.
+          POW_SECRET: ${{ secrets.POW_SECRET }}
         run: MODE=run KEY_FILE=$RUNNER_TEMP/agent-key node scripts/agent-e2e.js
       # Forward-looking: prove the Robinhood Chain (chain 4663) params baked
       # into x402-kit are correct and its public RPC is live, so the

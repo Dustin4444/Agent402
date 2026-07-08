@@ -701,7 +701,7 @@ function percentile(sorted, p) {
 
 const math = [
   {
-    route: "POST /api/calc", name: "Calculator", slug: "calc", category: "math", price: "$0.001",
+    route: "POST /api/calc", name: "Calculator", slug: "calc", category: "math", price: "$0.002",
     description: "Safely evaluate an arithmetic expression (+ - * / % ^ and parentheses). No code execution — a real parser, not eval.",
     tags: ["calc", "math", "expression", "arithmetic"],
     discovery: { bodyType: "json", input: { expr: "2 + 3 * (4 - 1) ^ 2" }, inputSchema: { properties: { expr: { type: "string" } }, required: ["expr"] }, output: { example: { result: 29 } } },
@@ -812,7 +812,7 @@ const math = [
     },
   },
   {
-    route: "POST /api/finance", name: "Finance", slug: "finance", category: "math", price: "$0.002",
+    route: "POST /api/finance", name: "Finance", slug: "finance", category: "math", price: "$0.005",
     description: 'Financial math. op: "compound" (future value of principal at a rate) or "loan" (monthly payment + total for a loan).',
     tags: ["finance", "interest", "loan", "compound", "money"],
     discovery: { bodyType: "json", input: { op: "loan", principal: 20000, annualRatePct: 6, months: 60 }, inputSchema: { properties: { op: { type: "string", description: "compound | loan" }, principal: { type: "number" }, annualRatePct: { type: "number" }, months: { type: "number" }, years: { type: "number" }, compoundsPerYear: { type: "number" } }, required: ["op", "principal", "annualRatePct"] }, output: { example: { monthlyPayment: 386.66, totalPaid: 23199.36, totalInterest: 3199.36 } } },
