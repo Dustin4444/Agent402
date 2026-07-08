@@ -201,6 +201,14 @@ async function evmRail(name, wallet) {
   return out;
 }
 
+// The EVM rails bound "recent" by a block window; Solana (last 6 signatures)
+// and Stellar (Horizon's last 10 payment ops) are bounded by COUNT — entries
+// can be arbitrarily old. The per-rail externalUsd (and therefore the site
+// total) must not count stale history as in-window revenue: sum only entries
+// younger than this. Display still lists the older entries with honest tags.
+const RECENT_WINDOW_MS = 24 * 3600 * 1000;
+const inWindow = (t) => t.when != null && Date.now() - Date.parse(t.when) <= RECENT_WINDOW_MS;
+
 async function solanaRail(wallet) {
   const out = { rail: "Solana", asset: "USDC", wallet: wallet || null, explorer: wallet ? `https://solscan.io/account/${wallet}` : null, balance: null, recent: [], error: null };
   if (!wallet) { out.error = "SOLANA_WALLET_ADDRESS unset"; return out; }
@@ -236,7 +244,7 @@ async function solanaRail(wallet) {
       }
       out.recent.push(item);
     }
-    out.externalUsd = Number(out.recent.filter((t) => t.external).reduce((s, t) => s + t.usd, 0).toFixed(6));
+    out.externalUsd = Number(out.recent.filter((t) => t.external && inWindow(t)).reduce((s, t) => s + t.usd, 0).toFixed(6));
   } catch (e) {
     out.error = String(e?.message || e).slice(0, 120);
   }
@@ -245,7 +253,7 @@ async function solanaRail(wallet) {
 
 // Stellar — read USDC balance + recent payments via Horizon API.
 export const USDC_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
-async function stellarRail(wallet) {
+export async function stellarRail(wallet) {
   const out = { rail: "Stellar", asset: "USDC", wallet: wallet || null, explorer: wallet ? `https://stellar.expert/explorer/public/account/${wallet}` : null, balance: null, recent: [], error: null };
   if (!wallet) { out.error = "STELLAR_WALLET_ADDRESS unset"; return out; }
   try {
@@ -308,7 +316,7 @@ async function stellarRail(wallet) {
       // Same aggregation the EVM and Solana rails do: sum the per-call-sized
       // external inbound so the card's "external in window" line and the
       // site-wide windowExternalUsd total include Stellar.
-      out.externalUsd = Number(out.recent.filter((t) => t.external).reduce((s, t) => s + (t.usd || 0), 0).toFixed(6));
+      out.externalUsd = Number(out.recent.filter((t) => t.external && inWindow(t)).reduce((s, t) => s + (t.usd || 0), 0).toFixed(6));
     } catch { /* payment scan is best-effort */ }
   } catch (e) {
     out.error = String(e?.message || e).slice(0, 120);
