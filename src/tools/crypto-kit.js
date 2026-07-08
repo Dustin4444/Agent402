@@ -95,6 +95,11 @@ async function jsonGet(url, host = "CoinGecko") {
       headers: {
         "User-Agent": cryptoUserAgent(),
         Accept: "application/json",
+        // CoinGecko Demo key (env-gated; keyless works too, just worse):
+        // keyless requests are rate-limited PER IP — and Railway egress IPs
+        // are shared, so the effective quota is whatever other tenants left.
+        // A key moves metering to our own ~30 req/min quota.
+        ...(process.env.COINGECKO_API_KEY ? { "x-cg-demo-api-key": process.env.COINGECKO_API_KEY.trim() } : {}),
       },
       signal: AbortSignal.timeout(timeout),
     });
