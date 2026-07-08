@@ -169,7 +169,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   // PoW would let one client farm our API keys for free.
   "llm", "llm-pro", "llm-premium",
   // OpenAI-compatible gateway (OpenRouter upstream) — same reasoning.
-  "v1-chat", "v1-chat-pro", "v1-chat-premium",
+  "v1-chat-nano", "v1-chat", "v1-chat-pro", "v1-chat-premium",
+  // Route-and-execute can dispatch to any paid/egress tool — never PoW-free.
+  "route-execute",
   // Image generation kit: every call burns real upstream inference credit
   // (OpenAI GPT Image API). Same rationale as LLM proxy.
   "image-gen", "image-gen-hd", "image-gen-premium",

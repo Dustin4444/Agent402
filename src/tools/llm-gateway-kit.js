@@ -33,6 +33,27 @@ function bad(message, statusCode = 400) {
 // (budget models run ~$0.15-0.60/M tokens; 2048 output + 32k input tops out
 // around $0.003 — a $0.02 price leaves >6x headroom).
 export const TIERS = {
+  // Nano tier — priced for agent LOOPS, not occasional calls. The x402
+  // leaderboard's top earner does ~800k inference calls/day at sub-cent
+  // average prices; the $0.02 base tier is priced out of that traffic.
+  // Caps keep worst-case upstream (~3k tokens in / 768 out on ~$0.10-0.40/M
+  // models) around $0.0006 — >5x headroom under the $0.003 price, same
+  // discipline as the other tiers. Listed FIRST so tierFor()'s
+  // self-correcting 400s and /v1/models lead with the cheapest home.
+  "v1-chat-nano": {
+    route: "POST /v1/nano/chat/completions",
+    price: 0.003,
+    maxInputChars: 12_000,
+    maxTokens: 768,
+    prefixes: [
+      "openai/gpt-4.1-nano", "openai/gpt-5-nano",
+      "google/gemini-2.0-flash-lite", "google/gemini-2.5-flash-lite",
+      "meta-llama/llama-3.2-1b-instruct", "meta-llama/llama-3.2-3b-instruct",
+      "mistralai/ministral-3b", "mistralai/ministral-8b",
+      "qwen/qwen-2.5-7b-instruct",
+      "deepseek/deepseek-chat",
+    ],
+  },
   "v1-chat": {
     route: "POST /v1/chat/completions",
     price: 0.02,
@@ -237,6 +258,18 @@ const INPUT_SCHEMA = {
 };
 
 export const LLM_GATEWAY_TOOLS = [
+  {
+    route: "POST /v1/nano/chat/completions",
+    name: "Chat completions — nano tier",
+    slug: "v1-chat-nano",
+    category: "llm",
+    price: "$0.003",
+    description:
+      "OpenAI-compatible chat completions, nano tier: gpt-4.1-nano, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat — $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). No API key, no signup.",
+    tags: SHARED_TAGS,
+    discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-4.1-nano" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4.1-nano" } } },
+    handler: makeHandler("v1-chat-nano"),
+  },
   {
     route: "POST /v1/chat/completions",
     name: "Chat completions (OpenAI-compatible)",
