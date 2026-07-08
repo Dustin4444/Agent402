@@ -29,6 +29,10 @@ jobs:
       # PostHog. Without it paid-canary.js warns and the daily basket shows up
       # as an organic buyer in every revenue analysis.
       POW_SECRET: ${{ secrets.POW_SECRET }}
+      # Optional: S… secret key of a Stellar account holding USDC (Circle
+      # trustline) + a little XLM. Enables the daily Stellar-path purchase;
+      # unset = the leg is skipped.
+      STELLAR_BURNER_SECRET: ${{ secrets.STELLAR_BURNER_SECRET }}
       TARGET_URL: https://agent402.tools
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -39,7 +43,7 @@ jobs:
         # @x402/* pinned to the server's version (src/payments.js runs 2.16) —
         # an unpinned install pulled 2.17 and protocol skew is one suspect for
         # SVM settle failures. viem/@solana/kit float within their majors.
-        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 @x402/svm@2.16.0 @solana/kit viem
+        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 @x402/svm@2.16.0 @x402/stellar@2.17.0 @stellar/stellar-sdk @solana/kit viem
       - name: Buy one tool from production (real USDC)
         id: canary
         run: |

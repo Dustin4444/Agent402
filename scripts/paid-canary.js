@@ -415,6 +415,115 @@ async function main() {
     }
   })();
 
+  // Pinned EVM legs — Polygon + Arbitrum, same negotiation as the Robinhood
+  // leg above (filter the live 402's accepts down to ONE CAIP-2 chain and pay
+  // that, so settlement cannot silently fall back to Base). Same burner
+  // address, funded with USDC on each chain. $0.001/day per rail keeps a
+  // visible internal settle on /revenue for every offered rail. Informational:
+  // failures WARN, never page (the Base verdict above decides paging).
+  for (const leg of [
+    { key: "polygon", caip2: "eip155:137", sym: "USDC", chainLabel: "Polygon", tx: (h) => `https://polygonscan.com/tx/${h}` },
+    { key: "arbitrum", caip2: "eip155:42161", sym: "USDC", chainLabel: "Arbitrum", tx: (h) => `https://arbiscan.io/tx/${h}` },
+  ]) {
+    try {
+      const { x402HTTPClient } = await import("@x402/core/client");
+      const http = new x402HTTPClient(client);
+      const reqInit = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: `${leg.key}-canary` }) };
+      const bare = await synthFetch(`${TARGET}/api/hash`, reqInit);
+      if (bare.status !== 402) {
+        console.warn(`\nWARN  ${leg.key} leg: expected a 402 challenge from /api/hash, got HTTP ${bare.status}`);
+        continue;
+      }
+      let paymentRequired;
+      try {
+        const bareBody = await bare.json().catch(() => undefined);
+        paymentRequired = http.getPaymentRequiredResponse((n) => bare.headers.get(n), bareBody);
+      } catch (e) {
+        console.warn(`\nWARN  ${leg.key} leg: could not parse the 402 challenge: ${(e?.message || String(e)).slice(0, 120)}`);
+        continue;
+      }
+      const accepts = (paymentRequired.accepts || []).filter((a) => String(a.network || "") === leg.caip2);
+      if (!accepts.length) {
+        console.warn(`\nWARN  ${leg.key} leg: ${leg.caip2} NOT among the live 402 accepts — the ${leg.chainLabel} rail has dropped out of the offer (PAYMENT_NETWORKS changed on prod?)`);
+        continue;
+      }
+      const payload = await client.createPaymentPayload({ ...paymentRequired, accepts });
+      const payHeaders = http.encodePaymentSignatureHeader(payload);
+      const paid = await synthFetch(`${TARGET}/api/hash`, {
+        ...reqInit,
+        headers: { ...reqInit.headers, ...payHeaders, "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" },
+      });
+      const body = await paid.json().catch(() => ({}));
+      if (paid.status === 200 && typeof body.hex === "string") {
+        let tx = null, net = null;
+        const receiptHdr = paid.headers.get("payment-response") || paid.headers.get("x-payment-response");
+        if (receiptHdr) {
+          try {
+            const receipt = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"));
+            tx = receipt?.transaction || null;
+            net = receipt?.network || null;
+          } catch { /* best-effort */ }
+        }
+        console.log(`\nOK    ${leg.key.padEnd(9)} /api/hash  → settled $0.001 ${leg.sym} on ${leg.chainLabel} (payer ${account.address}${net ? `, network ${net}` : ""})${tx ? `\n      tx: ${leg.tx(tx)}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+      } else if (paid.status === 402) {
+        const h = paid.headers.get("payment-required");
+        let reason = null;
+        if (h) { try { reason = JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ } }
+        console.warn(`\nWARN  ${leg.key} leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded ${leg.sym} burner on ${leg.chainLabel}, facilitator outage, or EIP-712 domain drift)`);
+      } else {
+        console.warn(`\nWARN  ${leg.key} leg: HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
+      }
+    } catch (e) {
+      console.warn(`\nWARN  ${leg.key} leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
+    }
+  }
+
+  // Optional Stellar leg — gated on STELLAR_BURNER_SECRET (an S… Stellar
+  // secret key; fund the account with USDC — Circle trustline — plus a little
+  // XLM). A dedicated client registers ONLY the Stellar scheme, so the payment
+  // can only settle on a stellar:* accept — a true Stellar-rail proof with no
+  // silent EVM fallback (same isolation trick as the Solana leg). Fees are
+  // facilitator-sponsored per the exact-scheme spec, so the burner spends
+  // USDC, not XLM. Informational: failures WARN, never page.
+  await (async () => {
+    const secret = (process.env.STELLAR_BURNER_SECRET || "").trim();
+    if (!secret) { console.log("\nstellar leg: skipped (no STELLAR_BURNER_SECRET)"); return; }
+    try {
+      const [{ x402Client: StellarX402Client }, { ExactStellarScheme }, { wrapFetchWithPayment: wrapStellar }, sdk] = await Promise.all([
+        import("@x402/core/client"), import("@x402/stellar/exact/client"), import("@x402/fetch"), import("@stellar/stellar-sdk"),
+      ]);
+      const keypair = sdk.Keypair.fromSecret(secret);
+      // ExactStellarScheme wants { address, signAuthEntry } — basicNodeSigner
+      // supplies the signing half, the public key is added alongside.
+      const signer = { address: keypair.publicKey(), ...sdk.contract.basicNodeSigner(keypair, sdk.Networks.PUBLIC) };
+      const stellarClient = new StellarX402Client();
+      stellarClient.register("stellar:*", new ExactStellarScheme(signer));
+      const stellarPay = wrapStellar(synthFetch, stellarClient);
+      const res = await stellarPay(`${TARGET}/api/hash`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "stellar-canary" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 200 && typeof body.hex === "string") {
+        let tx = null;
+        const receiptHdr = res.headers.get("payment-response") || res.headers.get("x-payment-response");
+        if (receiptHdr) {
+          try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"))?.transaction || null; } catch { /* best-effort */ }
+        }
+        console.log(`\nOK    stellar    /api/hash  → settled $0.001 USDC on Stellar (payer ${keypair.publicKey()})${tx ? `\n      tx: https://stellar.expert/explorer/public/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+      } else if (res.status === 402) {
+        const h = res.headers.get("payment-required");
+        let reason = null;
+        if (h) { try { reason = JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ } }
+        console.warn(`\nWARN  stellar leg did NOT settle (HTTP 402, payer ${keypair.publicKey()}) — facilitator reason: ${JSON.stringify(reason)} (missing USDC trustline/funds, facilitator outage, or stellar missing from the live accepts)`);
+      } else {
+        console.warn(`\nWARN  stellar leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
+      }
+    } catch (e) {
+      console.warn(`\nWARN  stellar leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
+    }
+  })();
+
   const decision = decideCanary(results);
   const spentUsd = decision.rows.filter((r) => r.cls === "settled").reduce((s, r) => s + (r.priceUsd || 0), 0);
   console.log(`\npayer ${account.address}`);

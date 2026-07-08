@@ -76,7 +76,11 @@ const EVM_NETWORKS = {
     usdc: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168",
     token: "USDG",
     rpcs: [...alchemy("robinhood-mainnet"), "https://rpc.mainnet.chain.robinhood.com"],
-    spanBlocks: 12000, // ~6.5h at 2s blocks (Arbitrum Orbit defaults)
+    // Measured ~0.15s blocks (block 4.04M seven days after the 2026-07-01
+    // launch) — NOT the 2s Orbit default first assumed. 12k blocks was only
+    // ~30 real minutes; the daily canary settle only appeared in the digest
+    // because the digest happens to run 24 minutes after the canary.
+    spanBlocks: 140000, // ~6h at 0.15s blocks
   },
 };
 const SCAN_NETWORK = (process.env.SCAN_NETWORK || "base").toLowerCase();
@@ -183,9 +187,10 @@ async function main() {
   let missedChunks = 0;
   // Chunked scan: one whole-span eth_getLogs trips free-RPC range caps and
   // "archive" upsells (the 2026-07-03 digest skipped Base/Polygon this way).
-  // SPAN/4 windows stay inside every free tier; a failed chunk degrades to a
-  // partial scan instead of skipping the rail.
-  const LOG_CHUNKS = 4;
+  // Chunks are capped at 9,000 blocks — Alchemy rejects getLogs ranges over
+  // 10k on some chains (Robinhood, verified 2026-07-08) — with a minimum of
+  // 4 chunks; a failed chunk degrades to a partial scan, never skips the rail.
+  const LOG_CHUNKS = Math.max(4, Math.ceil(SPAN / 9000));
   try {
     latest = parseInt(await rpc("eth_blockNumber", []), 16);
   } catch (e) {
