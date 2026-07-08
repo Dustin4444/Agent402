@@ -136,6 +136,22 @@ export const TOOLS = [
     check: (text) => (typeof text === "string" && text.includes("data:") && text.includes("[DONE]")) || `expected SSE frames ending in [DONE], got ${String(text).slice(0, 100)}`,
   },
   {
+    // Auto tier — eval-ranked routing. NO model in the body: the gateway must
+    // classify server-side, serve via the ranked chain, and disclose the
+    // decision. "Reply with exactly: OK" classifies general → gpt-4o-mini
+    // heads that ranking (canary-proven daily), so this leg proves the router
+    // itself, orthogonal to the nano leg's failover-chain coverage.
+    kit: "llm-auto",
+    path: "/v1/auto/chat/completions",
+    method: "POST",
+    body: { messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
+    priceUsd: 0.01,
+    check: (r) =>
+      (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0 &&
+        r.agent402_router?.category === "general" && typeof r.agent402_router?.served === "string") ||
+      `expected routed completion + agent402_router disclosure, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Route-and-execute — the SOR's executing surface. Dispatches internally
     // to /api/hash; a real digest in the receipt-bearing envelope proves the
     // resolve → guard → dispatch → receipt chain on prod.

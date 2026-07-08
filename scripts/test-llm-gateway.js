@@ -2,7 +2,7 @@
 // layer that gates what reaches the paid OpenRouter upstream: model → tier
 // routing (incl. bare-name mapping and self-correcting cross-tier errors),
 // input/output caps, stream rejection, and the env-gated 503. No network.
-import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH } from "../src/tools/llm-gateway-kit.js";
+import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -69,10 +69,10 @@ await gatewayTool.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 
 const list = modelsList();
 ok(list.object === "list" && Array.isArray(list.data) && list.data.length > 10, "models list has OpenAI shape");
 ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402?.endpoint?.startsWith("/v1")), "every model entry carries x402 tier metadata");
-ok(new Set(list.data.map((m) => m.x402.tier)).size === 4, "all four tiers represented");
+ok(new Set(list.data.map((m) => m.x402.tier)).size === 5, "all five tiers represented");
 
-// Catalog invariants: three wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 4, "four gateway routes");
+// Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
+ok(LLM_GATEWAY_TOOLS.length === 5, "five gateway routes");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -188,7 +188,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/") && t.route.end
   ok(promptCacheGet(k3) === null, "different key misses");
 
   ok(GATEWAY_TIER_BY_PATH["/v1/nano/chat/completions"] === "v1-chat-nano", "path -> tier map covers nano");
-  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 4, "path -> tier map covers all four tiers");
+  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 5, "path -> tier map covers all five tiers");
 
   // The handler writes the cache ONLY when the buyer opted in.
   process.env.OPENROUTER_API_KEY = "test-key";
@@ -207,6 +207,71 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/") && t.route.end
   ok(promptCacheGet(promptCacheKey("v1-chat-nano", { ...noOpt, cache: true })) === null, "without cache:true nothing is stored");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
+}
+
+// Auto tier — eval-ranked routing: deterministic classification, optional
+// model, ranking-as-failover-chain, disclosure, and the tier-ordering lock.
+{
+  ok(TIERS["v1-chat-auto"].price === 0.01, "auto tier priced at $0.01");
+  ok(Object.values(AUTO_RANKINGS).every((list) => list.includes("openai/gpt-4o-mini")), "every ranking contains the canary-proven terminal model");
+
+  // Classification is lexical and deterministic.
+  ok(classifyPrompt([{ role: "user", content: "Refactor this function:\n```js\nreturn 1\n```" }]) === "code", "code prompts classify as code");
+  ok(classifyPrompt([{ role: "user", content: "Solve the equation 3x + 5 = 20 step by step" }]) === "reasoning", "math prompts classify as reasoning");
+  ok(classifyPrompt([{ role: "user", content: "x".repeat(9000) }]) === "long", "big plain prompts classify as long");
+  ok(classifyPrompt([{ role: "user", content: `Refactor this function:\n\`\`\`js\nreturn 1\n\`\`\`\n${"x".repeat(9000)}` }]) === "code", "code signal outranks raw length");
+  ok(classifyPrompt([{ role: "user", content: "What is the capital of France?" }]) === "general", "plain prompts classify as general");
+  ok(classifyPrompt("not-an-array") === "general", "malformed messages tolerate as general (validation 400s right after)");
+
+  // Model resolution: omitted or "auto" routes; explicit ranked models honored.
+  const noModel = validateRequest({ messages: msg1("What is the capital of France?") }, "v1-chat-auto");
+  ok(noModel.model === AUTO_RANKINGS.general[0], `missing model resolves to the general ranking head (got ${noModel.model})`);
+  const autoModel = validateRequest({ model: "auto", messages: msg1("Solve the equation 3x + 5 = 20 step by step") }, "v1-chat-auto");
+  ok(autoModel.model === AUTO_RANKINGS.reasoning[0], "model:'auto' resolves via the classifier");
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1() }, "v1-chat-auto").model === "openai/gpt-4o-mini", "explicit ranked model honored on the auto tier");
+  throws(() => validateRequest({ model: "openai/gpt-4o", messages: msg1() }, "v1-chat-auto"), "/v1/pro/chat/completions", "off-ranking model still self-corrects to its home tier");
+  {
+    const v = validateRequest({ messages: msg1(), max_tokens: 99999 }, "v1-chat-auto");
+    ok(v.max_tokens === TIERS["v1-chat-auto"].maxTokens, "auto output cap clamps");
+  }
+
+  // Ordering lock: the auto tier is listed LAST, so tierFor keeps resolving
+  // explicit models to their pre-existing home tiers.
+  ok(tierFor("openai/gpt-4o-mini") === "v1-chat", "tierFor: gpt-4o-mini's home stays the base tier");
+  ok(tierFor("deepseek/deepseek-chat") === "v1-chat-nano", "tierFor: deepseek-chat's home stays the nano tier");
+
+  // Handler: routed request uses the category ranking as the failover chain
+  // and discloses the decision; explicit-model requests stay unannotated.
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(body.model);
+    if (body.model === AUTO_RANKINGS.code[0]) return { ok: false, status: 502, text: async () => "provider down" };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-a", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+  };
+  const auto = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-auto");
+  const routed = await auto.handler({ messages: [{ role: "user", content: "Refactor this function:\n```js\nreturn 1\n```" }], max_tokens: 5 });
+  ok(routed.agent402_router?.category === "code", `routed response discloses the category (got ${routed.agent402_router?.category})`);
+  ok(routed.agent402_router?.served === AUTO_RANKINGS.code[1], `provider error walks DOWN the ranking (served ${routed.agent402_router?.served})`);
+  ok(calls.join(",") === AUTO_RANKINGS.code.slice(0, 2).join(","), `chain follows the ranking order (got ${calls.join(",")})`);
+
+  calls.length = 0;
+  const explicit = await auto.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 5 });
+  ok(explicit.agent402_router === undefined, "explicit-model requests carry no router annotation");
+  ok(calls.join(",") === "openai/gpt-4o-mini", `explicit model goes straight upstream (got ${calls.join(",")})`);
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+
+  // Prompt cache composes: model-less requests key on the RESOLVED model, so
+  // identical routed requests collapse to one entry and ranking-table changes
+  // invalidate cleanly.
+  const kAuto1 = promptCacheKey("v1-chat-auto", { messages: msg1("hello there"), cache: true });
+  const kAuto2 = promptCacheKey("v1-chat-auto", { cache: true, messages: msg1("hello there") });
+  ok(kAuto1 && kAuto1 === kAuto2, "auto-tier cache key is stable without a model field");
+  ok(kAuto1 === promptCacheKey("v1-chat-auto", { model: AUTO_RANKINGS.general[0], messages: msg1("hello there"), cache: true }), "routed and explicit-equivalent requests share one cache entry");
+  ok(GATEWAY_TIER_BY_PATH["/v1/auto/chat/completions"] === "v1-chat-auto", "path -> tier map covers auto");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
