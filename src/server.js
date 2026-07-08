@@ -96,7 +96,7 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, GATEWAY_TIER_BY_PATH } from "./tools/llm-gateway-kit.js";
 import { IMAGE_GEN_TOOLS } from "./tools/image-gen-kit.js";
 import { CODE_RUN_TOOLS } from "./tools/code-run-kit.js";
 import { TTS_TOOLS } from "./tools/tts-kit.js";
@@ -1842,6 +1842,27 @@ if (FREE_MODE) {
     }
     next();
   });
+  // Prompt cache (LLM gateway, explicit `cache: true` opt-in): a
+  // byte-identical repeat of an already-paid generation is served HERE,
+  // before the paywall — the repeat is free. Pre-payment means buyer-agnostic
+  // by construction; only opted-in, non-streamed 200s are ever stored (see
+  // llm-gateway-kit.js). Invalid bodies fall through so the normal path
+  // produces the real 402/400.
+  app.use((req, res, next) => {
+    if (req.method !== "POST" || req.body?.cache !== true || req.body?.stream === true) return next();
+    const tierSlug = GATEWAY_TIER_BY_PATH[req.path];
+    if (!tierSlug) return next();
+    try {
+      const hit = promptCacheGet(promptCacheKey(tierSlug, req.body));
+      if (hit) {
+        res.setHeader("X-Cache", "hit");
+        res.setHeader("Cache-Control", "no-store, private");
+        return res.status(200).json(hit);
+      }
+    } catch { /* invalid input — let the paywall + handler answer honestly */ }
+    next();
+  });
+
   // Gate: for a compute-payable route, a valid proof-of-work bypasses the x402
   // paywall; otherwise the normal USDC paywall applies (and we advertise the
   // PoW alternative via a response header on its 402). PoW redemption is

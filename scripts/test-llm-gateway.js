@@ -2,7 +2,7 @@
 // layer that gates what reaches the paid OpenRouter upstream: model → tier
 // routing (incl. bare-name mapping and self-correcting cross-tier errors),
 // input/output caps, stream rejection, and the env-gated 503. No network.
-import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS } from "../src/tools/llm-gateway-kit.js";
+import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -167,6 +167,44 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/") && t.route.end
   let threw = null;
   try { await nano.handler({ model: "openai/gpt-4o", messages: [{ role: "user", content: "hi" }], stream: true }); } catch (e) { threw = e; }
   ok(threw?.statusCode === 400, "stream requests still validate before any upstream call");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// Prompt cache: explicit opt-in, normalized keying, opt-in-only writes.
+{
+  ok(stableStringify({ b: 1, a: [{ y: 2, x: 1 }] }) === stableStringify({ a: [{ x: 1, y: 2 }], b: 1 }), "stableStringify is key-order independent");
+
+  const msgs = [{ role: "user", content: "hi" }];
+  const k1 = promptCacheKey("v1-chat-nano", { model: "gpt-4.1-nano", messages: msgs, cache: true });
+  const k2 = promptCacheKey("v1-chat-nano", { cache: true, messages: msgs, model: "openai/gpt-4.1-nano" });
+  ok(k1 && k1 === k2, "model alias + field order collapse to one cache key");
+  const k3 = promptCacheKey("v1-chat-nano", { model: "gpt-4.1-nano", messages: msgs, temperature: 0.7, cache: true });
+  ok(k3 !== k1, "sampling params (temperature) change the key");
+  ok(promptCacheKey("v1-chat-nano", { model: "gpt-4.1-nano", messages: msgs, stream: true, cache: true }) === null, "streamed requests are never cacheable");
+
+  promptCacheStore(k1, { id: "gen-cached", choices: [] });
+  ok(promptCacheGet(k1)?.id === "gen-cached", "store/get roundtrip");
+  ok(promptCacheGet(k3) === null, "different key misses");
+
+  ok(GATEWAY_TIER_BY_PATH["/v1/nano/chat/completions"] === "v1-chat-nano", "path -> tier map covers nano");
+  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 4, "path -> tier map covers all four tiers");
+
+  // The handler writes the cache ONLY when the buyer opted in.
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    ok(body.cache === undefined, "cache flag never rides to the upstream");
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-fresh", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  const optIn = { model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "cache me" }], cache: true };
+  await nano.handler(optIn);
+  ok(promptCacheGet(promptCacheKey("v1-chat-nano", optIn))?.id === "gen-fresh", "opted-in success is stored under the normalized key");
+  const noOpt = { model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "do not cache me" }] };
+  await nano.handler(noOpt);
+  ok(promptCacheGet(promptCacheKey("v1-chat-nano", { ...noOpt, cache: true })) === null, "without cache:true nothing is stored");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }

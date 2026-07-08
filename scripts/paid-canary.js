@@ -566,6 +566,34 @@ async function main() {
     }
   })();
 
+  // Prompt-cache leg — pays once with cache:true, then repeats the IDENTICAL
+  // request unpaid: the pre-paywall cache must answer 200 + X-Cache: hit with
+  // the same response object. Real-money proof that opted-in repeats are
+  // free. Informational: failures WARN, never page.
+  await (async () => {
+    try {
+      const init = {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5, cache: true }),
+      };
+      const paid = await payOnceWithRetryOn5xx(`${TARGET}/v1/nano/chat/completions`, init);
+      const paidBody = await paid.json().catch(() => ({}));
+      if (paid.status !== 200 || typeof paidBody.choices?.[0]?.message?.content !== "string") {
+        console.warn(`\nWARN  prompt-cache leg: priming buy failed — HTTP ${paid.status} ${JSON.stringify(paidBody).slice(0, 100)}`);
+        return;
+      }
+      const free = await synthFetch(`${TARGET}/v1/nano/chat/completions`, init); // NO payment wrapper — must not need one
+      const freeBody = await free.json().catch(() => ({}));
+      if (free.status === 200 && free.headers.get("x-cache") === "hit" && freeBody.id === paidBody.id) {
+        console.log(`\nOK    prompt-cache /v1/nano/chat/completions  → paid once ($0.003), identical repeat served FREE (X-Cache: hit)`);
+      } else {
+        console.warn(`\nWARN  prompt-cache leg: repeat was NOT a free hit — HTTP ${free.status}, X-Cache=${free.headers.get("x-cache")}, sameId=${freeBody.id === paidBody.id}`);
+      }
+    } catch (e) {
+      console.warn(`\nWARN  prompt-cache leg errored: ${(e?.message || String(e)).slice(0, 140)}`);
+    }
+  })();
+
   const decision = decideCanary(results);
   const spentUsd = decision.rows.filter((r) => r.cls === "settled").reduce((s, r) => s + (r.priceUsd || 0), 0);
   console.log(`\npayer ${account.address}`);

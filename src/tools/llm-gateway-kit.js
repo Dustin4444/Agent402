@@ -24,6 +24,8 @@
 // call, so the provider stops the stream at the cap. Streamed responses are
 // not idempotency-replayable (the cache hooks res.json only).
 
+import { createHash } from "node:crypto";
+
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
@@ -278,6 +280,76 @@ async function streamOpenRouterTo(body, res) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Prompt cache — EXPLICIT opt-in (`cache: true` in the request body).
+//
+// A byte-identical repeat of an already-paid generation is served from this
+// cache BEFORE the paywall (see the pre-gate middleware in server.js), so the
+// repeat costs the buyer nothing — retry-heavy agent loops stop re-paying for
+// work already done. Opt-in is load-bearing: LLM output is sampled, and a
+// buyer resending the same prompt often WANTS a fresh sample; only requests
+// that declare cache:true ever read or write this cache.
+//
+// Keying: sha256 over the tier + the NORMALIZED body (validateRequest output,
+// stable-stringified), so model aliases (gpt-4o-mini vs openai/gpt-4o-mini)
+// and caller field order collapse to one entry, and every sampling-relevant
+// field (temperature, seed, max_tokens, …) is part of the key. Pre-paywall
+// service is necessarily buyer-agnostic — identical requests share entries.
+// Streamed requests are never cached. Values are our own 200 responses.
+const PROMPT_CACHE_TTL_MS = 10 * 60 * 1000;
+const PROMPT_CACHE_MAX_ENTRIES = 5000;
+const PROMPT_CACHE_MAX_BYTES = 50 * 1024 * 1024;
+const PROMPT_CACHE_MAX_ENTRY_BYTES = 256 * 1024;
+const promptStore = new Map(); // key -> { at, body, bytes } (insertion order ≈ FIFO eviction)
+let promptStoreBytes = 0;
+
+export function stableStringify(v) {
+  if (v === null || typeof v !== "object") return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${stableStringify(v[k])}`).join(",")}}`;
+}
+
+/** Cache key for an opted-in, non-streamed gateway request. Throws (via
+ *  validateRequest) on invalid input — callers treat that as "no cache" and
+ *  let the normal path produce the real 402/400. Returns null for streams. */
+export function promptCacheKey(tierSlug, input) {
+  const body = validateRequest(input, tierSlug);
+  if (body.stream === true) return null;
+  return createHash("sha256").update(`${tierSlug}\n${stableStringify(body)}`).digest("hex");
+}
+
+export function promptCacheGet(key) {
+  if (!key) return null;
+  const hit = promptStore.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > PROMPT_CACHE_TTL_MS) {
+    promptStore.delete(key);
+    promptStoreBytes -= hit.bytes;
+    return null;
+  }
+  return hit.body;
+}
+
+export function promptCacheStore(key, body) {
+  if (!key || body == null) return;
+  let bytes = 0;
+  try { bytes = Buffer.byteLength(JSON.stringify(body), "utf8"); } catch { return; }
+  if (!bytes || bytes > PROMPT_CACHE_MAX_ENTRY_BYTES) return;
+  while ((promptStore.size >= PROMPT_CACHE_MAX_ENTRIES || promptStoreBytes + bytes > PROMPT_CACHE_MAX_BYTES) && promptStore.size > 0) {
+    const firstKey = promptStore.keys().next().value;
+    const ev = promptStore.get(firstKey);
+    if (ev) promptStoreBytes -= ev.bytes;
+    promptStore.delete(firstKey);
+  }
+  promptStore.set(key, { at: Date.now(), body, bytes });
+  promptStoreBytes += bytes;
+}
+
+/** "POST /v1/…" path -> tier slug, for the pre-paywall middleware. */
+export const GATEWAY_TIER_BY_PATH = Object.fromEntries(
+  Object.entries(TIERS).map(([slug, t]) => [t.route.split(" ")[1], slug])
+);
+
 function makeHandler(tierSlug) {
   return async (input) => {
     const body = validateRequest(input, tierSlug);
@@ -313,7 +385,11 @@ function makeHandler(tierSlug) {
     let lastErr;
     for (const model of chain) {
       try {
-        return await callOpenRouter({ ...body, model });
+        const data = await callOpenRouter({ ...body, model });
+        if (input.cache === true) {
+          try { promptCacheStore(promptCacheKey(tierSlug, input), data); } catch { /* never fail a served response over the cache */ }
+        }
+        return data;
       } catch (e) {
         if (![502, 503, 504].includes(e?.statusCode)) throw e;
         lastErr = e;
