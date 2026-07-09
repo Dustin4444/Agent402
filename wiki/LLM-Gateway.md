@@ -24,8 +24,13 @@ Because tiers are flat-priced while upstream bills per token, every request is a
 | `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok) | 48k chars | 4,096 tokens |
 | `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) | 64k chars | 8,192 tokens |
 | `POST /v1/embeddings` | $0.002 | text-embedding-3-small (default), 3-large, ada-002 — batch up to 64 inputs | 16k chars | — |
+| `POST /v1/images/generations` | $0.08 | Gemini 2.5 Flash Image (nano banana) — one image per call, inline base64 out | 4k-char prompt | 1 image |
 
 Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a model on the wrong tier returns a self-correcting 400 naming the right endpoint and price. All tiers are **wallet-only** — every call burns real upstream credit, so there is no proof-of-work free tier (see [[Security Model]]).
+
+## Image generation
+
+`POST /v1/images/generations` speaks the OpenAI images wire — any OpenAI SDK's `images.generate()` works by changing `base_url`. Send `{"prompt": "..."}` (up to 4,000 chars) and get `{created, model, data: [{b64_json, media_type}]}` back — one image per call at a flat $0.08, `n` locked to 1, `response_format` is always inline `b64_json` (nothing is hosted). `zdr: true` works here too. Upstream is Gemini 2.5 Flash Image via OpenRouter with server-owned price bounds, same margin discipline as the chat tiers.
 
 ## The auto tier — routing without picking a model
 
