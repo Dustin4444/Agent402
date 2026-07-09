@@ -136,6 +136,76 @@ async function readToken(addr) {
   return { name, symbol, decimals: decimals == null ? null : Number(decimals), totalSupply, paused, cap, codeSize: code ? hexBody(code).length / 2 : 0 };
 }
 
+// --- log-scanning helpers (b20-new-tokens, b20-memos) ------------------------
+// CDP published B20 event SIGNATURES but not indexed layouts, so decoding is
+// defensive: topic0 filters are layout-independent; fields are located by
+// shape (0xb200 prefix; final bytes32 word) rather than assumed position.
+const topicOf = (signature) => "0x" + keccak256(signature);
+const TOPIC_B20_CREATED = topicOf("B20Created(address,uint8,string,string,uint8,bytes)");
+const TOPIC_TRANSFER = topicOf("Transfer(address,address,uint256)");
+const TOPIC_MEMO = topicOf("Memo(address,bytes32)");
+
+const logIndexNum = (h) => Number(BigInt(h));
+
+// 32-byte words of a log: indexed topics (minus topic0) then data words.
+function logWords(log) {
+  const topicWords = (log.topics || []).slice(1).map(hexBody);
+  const dataWords = hexBody(log.data).match(/.{64}/g) || [];
+  return [...topicWords, ...dataWords];
+}
+
+// Locate the new token's address in a B20Created log by its 0xb200 prefix.
+// Address-shaped = 12 zero bytes then 20 bytes; the prefix makes it unambiguous.
+function findB20Address(log) {
+  for (const w of logWords(log)) {
+    if (w.length !== 64 || !w.startsWith("0".repeat(24))) continue;
+    const addr = "0x" + w.slice(24);
+    if (addr.startsWith(TOKEN_PREFIX)) return addr;
+  }
+  return null;
+}
+
+// Canonical ERC-20 Transfer (from/to indexed) with a non-indexed fallback.
+function decodeTransfer(log) {
+  const t = log.topics || [];
+  if (t.length >= 3) {
+    const value = decodeUint(log.data);
+    if (value == null) return null;
+    return { from: "0x" + hexBody(t[1]).slice(24), to: "0x" + hexBody(t[2]).slice(24), value };
+  }
+  const words = hexBody(log.data).match(/.{64}/g) || [];
+  if (words.length >= 3) {
+    return { from: "0x" + words[0].slice(24), to: "0x" + words[1].slice(24), value: BigInt("0x" + words[2]).toString() };
+  }
+  return null;
+}
+
+// The memo is the event's only bytes32 payload: prefer the (last) data word,
+// fall back to the last topic beyond topic0.
+function memoWord(log) {
+  const dataWords = hexBody(log.data).match(/.{64}/g) || [];
+  if (dataWords.length) return "0x" + dataWords[dataWords.length - 1];
+  const t = log.topics || [];
+  if (t.length > 1) return "0x" + hexBody(t[t.length - 1]);
+  return null;
+}
+
+// Best-effort UTF-8: trim NUL padding, require printable, reject replacement chars.
+function memoText(hex) {
+  try {
+    const buf = Buffer.from(hexBody(hex), "hex");
+    let end = buf.length;
+    while (end > 0 && buf[end - 1] === 0) end--;
+    if (end === 0) return null;
+    const s = buf.subarray(0, end).toString("utf8");
+    if (s.includes("�") || /[\x00-\x1f\x7f]/.test(s)) return null;
+    return s;
+  } catch { return null; }
+}
+
+// Test-only export: offline unit tests exercise the decode layer directly.
+export const B20_INTERNALS = { TOPIC_B20_CREATED, TOPIC_TRANSFER, TOPIC_MEMO, findB20Address, decodeTransfer, memoWord, memoText, logIndexNum, logWords };
+
 export const B20_TOOLS = [
   {
     route: "GET /api/b20-activation-check", name: "B20 activation check", slug: "b20-activation-check", category: "payments", price: "$0.002",
