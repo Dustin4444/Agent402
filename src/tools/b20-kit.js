@@ -332,11 +332,12 @@ export const B20_TOOLS = [
         blocks: { type: "number", description: "lookback window in blocks (default 50000 ≈ 28h, max 200000)" },
         limit: { type: "number", description: "max tokens returned, newest first (default 25, max 100)" },
       } },
-      output: { example: { fromBlock: 1, toBlock: 2, count: 0, skipped: 0, tokens: [] } },
+      output: { example: { network: "base", factory: FACTORY, fromBlock: 1, toBlock: 2, count: 0, skipped: 0, tokens: [] } },
     },
     handler: async (i) => {
       const blocks = windowInput(i);
-      const limit = Math.min(Math.max(Math.floor(Number(i.limit ?? 25)) || 25, 1), 100);
+      const rawLimit = i.limit == null ? 25 : Math.floor(Number(i.limit));
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 25;
       const toBlock = await latestBlock();
       const fromBlock = Math.max(0, toBlock - blocks + 1);
       const logs = await getLogsChunked({ address: FACTORY, topics: [TOPIC_B20_CREATED], fromBlock, toBlock });
@@ -352,10 +353,13 @@ export const B20_TOOLS = [
         found.push({ address, txHash: log.transactionHash, blockNumber: logIndexNum(log.blockNumber) });
         if (found.length >= limit) break;
       }
-      const tokens = await Promise.all(found.map(async (f) => {
-        const t = await readToken(f.address).catch(() => null);
-        return { ...f, name: t?.name ?? null, symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
-      }));
+      const tokens = [];
+      for (let k = 0; k < found.length; k += 8) {
+        tokens.push(...await Promise.all(found.slice(k, k + 8).map(async (f) => {
+          const t = await readToken(f.address).catch(() => null);
+          return { ...f, name: t?.name ?? null, symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
+        })));
+      }
       return { network: "base", factory: FACTORY, fromBlock, toBlock, count: tokens.length, skipped, tokens };
     },
   },
