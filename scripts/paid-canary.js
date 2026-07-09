@@ -184,6 +184,21 @@ export const TOOLS = [
     check: (r) => (r.receipt?.slug === "hash" && typeof r.result?.hex === "string" && r.result.hex.length === 64) || `expected receipt.slug=hash + 64-char hex, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
+    // Buyer usage report — payment IS the identity. By this point the run has
+    // settled several Base buys from the burner, so the report must echo the
+    // payer wallet and show real history: totals >= 1 and a non-empty slug
+    // table. Proves the payerFromRequest → sales-ledger read path end to end.
+    kit: "my-usage",
+    path: "/api/my-usage",
+    method: "POST",
+    body: { days: 7 },
+    priceUsd: 0.005,
+    check: (r) =>
+      (typeof r.wallet === "string" && /^0x[0-9a-f]{40}$/.test(r.wallet) &&
+        r.totals?.calls >= 1 && Array.isArray(r.bySlug) && r.bySlug.length >= 1) ||
+      `expected the payer's own usage report, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     kit: "edgar",
     path: "/api/company-financials?ticker=AAPL",
     method: "GET",
