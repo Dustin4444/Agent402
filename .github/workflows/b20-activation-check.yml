@@ -47,23 +47,3 @@ jobs:
             esac
           done
           exit $FAILED
-
-  # TEMPORARY piggyback (reverted after one dispatch): OpenRouter TTS model-id
-  # probe — see openrouter-tts-probe.yml, which becomes dispatchable once it
-  # reaches the default branch.
-  openrouter-tts-probe:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: TTS docs page + audio model pricing
-        run: |
-          echo "=== /docs TTS page model ids ==="
-          curl -sSL --max-time 30 "https://openrouter.ai/docs/guides/overview/multimodal/tts" -o /tmp/tts-docs.html || echo "(docs fetch failed)"
-          grep -oE '"[a-z0-9-]+/[a-z0-9.+-]+"' /tmp/tts-docs.html | grep -iE 'tts|audio|voxtral|chirp|gemini|gpt' | sort -u | head -30 || true
-          grep -oE '[a-z0-9-]+/[a-z0-9.+-]*(tts|audio)[a-z0-9.+-]*' /tmp/tts-docs.html | sort -u | head -30 || true
-          echo "=== announcement page ==="
-          curl -sSL --max-time 30 "https://openrouter.ai/blog/announcements/announcing-audio-apis/" -o /tmp/ann.html || true
-          grep -oE '[a-z0-9-]+/[a-z0-9.+-]*(tts|audio|voxtral|chirp)[a-z0-9.+-]*' /tmp/ann.html | sort -u | head -30 || true
-          echo "=== pricing of audio chat models ==="
-          curl -sS --max-time 30 https://openrouter.ai/api/v1/models -o /tmp/models.json
-          jq -r '.data[] | select(.id | test("audio|tts|voxtral";"i")) | {id, pricing}' /tmp/models.json
