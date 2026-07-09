@@ -58,6 +58,8 @@ For persistent state (stats, memory, PoW replay protection), mount a volume at `
 4. Set environment variables in the Railway dashboard (see table below).
 5. Deploy. Railway auto-detects the start command from `package.json`.
 
+> **Protect in-flight paid calls across redeploys:** set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` on the service. Railway's default grace between SIGTERM and SIGKILL is **0 seconds**, which kills in-flight (already paid-for) requests on every redeploy. With the variable set, the server's built-in graceful drain finishes active requests (up to 75s) before exiting.
+
 ## Environment variables
 
 Set these on your host. None are committed to the repo.

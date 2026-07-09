@@ -84,6 +84,21 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.
   Never lowercase base58/Stellar addresses (EVM only).
+- **Deploy safety (live-buyer protection):** deploy job runs `scripts/deploy-quiet-gate.js`
+  BEFORE the Railway variable upsert (the upsert itself can trigger a redeploy) — polls
+  `/api/stats` `recentCalls`, waits for 180s with no external USDC call (heartbeat/PoW never
+  block); fail-open on stats-down, sustained traffic past `QUIET_GATE_MAX_WAIT` (repo var,
+  default 1200s), or repo var `QUIET_GATE=off`. Deploy also sets
+  `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` — Railway's default SIGTERM→SIGKILL grace is **0s**,
+  so without it the server's graceful drain never runs. Drain (`src/server.js` shutdown):
+  `closeIdleConnections()` sweep every 5s + 75s hard deadline (covers transcribe's 60s
+  upstream timeout).
+- **STT margin cap (`src/tools/stt-kit.js`):** per-tier `maxMinutes` (5/10) is enforced
+  locally via a `music-metadata` duration probe BEFORE any OpenAI spend — upstream bills
+  per audio minute (~$0.003 mini / ~$0.006 4o), so break-even on the $0.03 tier is ~10 min
+  and the cap is the margin bound, not a UX nicety. Unreadable duration → 422 (an
+  unreadable container would be an unbounded upstream bill). `assertWithinDurationCap` /
+  `probeDurationSeconds` exported for `scripts/test-stt-cap.js`.
 - **Homepage = `src/ledger-home.js`** (`ledgerHomePage`; the old `src/landing.js` is unused
   but still unit-tested). Its `faqs` array renders BOTH the visible FAQ and the FAQPage
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
