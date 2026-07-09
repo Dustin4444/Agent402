@@ -167,6 +167,10 @@ const NETWORK = new Set([
   "/api/moderate",
 ]);
 const isMemory = (p) => p.startsWith("/api/memory");
+// Wallet-keyed tools (payment = identity): in free mode there is no payment,
+// so their documented "pay to unlock" 4xx is the CORRECT answer, not a bug —
+// same leniency class as the memory tools.
+const isWalletIdentity = (p) => isMemory(p) || p === "/api/my-usage";
 
 const spec = await (await fetch(`${TARGET}/openapi.json`)).json();
 const paths = Object.entries(spec.paths);
@@ -253,7 +257,7 @@ for (const [path, methods] of paths) {
       // Tolerate upstream/egress failures (502/504) and browser-not-available
       // (503) — these tools need real network/Chromium, present in CI.
       if (status >= 500 && ![502, 503, 504].includes(status)) { serverErr++; failures.push(`${method} ${path} → server ${status}`); }
-    } else if (isMemory(path)) {
+    } else if (isWalletIdentity(path)) {
       lenient++;
       if (threw || (status >= 500)) { serverErr++; failures.push(`${method} ${path} → ${threw || status}`); }
     } else {

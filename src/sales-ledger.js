@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS sales (
 );
 CREATE INDEX IF NOT EXISTS idx_sales_ext_ts ON sales (internal, ts);
 CREATE INDEX IF NOT EXISTS idx_sales_slug   ON sales (slug);
+CREATE INDEX IF NOT EXISTS idx_sales_payer  ON sales (payer, ts);
 `);
 
 const insertSale = db.prepare(
@@ -114,6 +115,56 @@ const qTotals = db.prepare(`
   SELECT internal, rail, COUNT(*) AS n, SUM(price_usd) AS usd
   FROM sales WHERE ts >= ? GROUP BY internal, rail`);
 const qFirstTs = db.prepare("SELECT MIN(ts) AS ts FROM sales");
+
+// Payer-scoped view (the /api/my-usage tool). Money rails only — PoW rows
+// carry no payer, so they can never appear in a wallet-keyed report anyway.
+const qPayerTotals = db.prepare(`
+  SELECT COUNT(*) AS n, SUM(price_usd) AS usd, MIN(ts) AS first_ts, MAX(ts) AS last_ts
+  FROM sales WHERE payer = ? AND rail IN ('usdc','marketplace') AND ts >= ?`);
+const qPayerBySlug = db.prepare(`
+  SELECT slug, COUNT(*) AS n, SUM(price_usd) AS usd, MAX(ts) AS last_ts
+  FROM sales WHERE payer = ? AND rail IN ('usdc','marketplace') AND ts >= ?
+  GROUP BY slug ORDER BY n DESC, usd DESC LIMIT 50`);
+const qPayerByNetwork = db.prepare(`
+  SELECT network, COUNT(*) AS n, SUM(price_usd) AS usd
+  FROM sales WHERE payer = ? AND rail IN ('usdc','marketplace') AND ts >= ?
+  GROUP BY network`);
+const qPayerRecent = db.prepare(`
+  SELECT ts, slug, price_usd, network, tx
+  FROM sales WHERE payer = ? AND rail IN ('usdc','marketplace')
+  ORDER BY ts DESC LIMIT ?`);
+
+/**
+ * One wallet's own purchase history — ONLY ever called with a payer address
+ * the payment middleware verified (payment = identity, same model as the
+ * memory tools). No internal/external filter: a wallet always sees all of
+ * its own rows.
+ */
+export function payerUsage(payer, { days = 30, limit = 50 } = {}) {
+  const since = Date.now() - days * 86_400_000;
+  const t = qPayerTotals.get(payer, since);
+  return {
+    wallet: payer,
+    days,
+    persistent: salesPersistent,
+    totals: {
+      calls: t?.n || 0,
+      paidUsd: +(t?.usd || 0).toFixed(4),
+      firstAt: t?.first_ts ? new Date(t.first_ts).toISOString() : null,
+      lastAt: t?.last_ts ? new Date(t.last_ts).toISOString() : null,
+    },
+    byNetwork: Object.fromEntries(
+      qPayerByNetwork.all(payer, since).map((r) => [r.network || "unknown", { calls: r.n, usd: +(r.usd || 0).toFixed(4) }])
+    ),
+    bySlug: qPayerBySlug.all(payer, since).map((r) => ({
+      slug: r.slug, calls: r.n, usd: +(r.usd || 0).toFixed(4), lastAt: new Date(r.last_ts).toISOString(),
+    })),
+    recent: qPayerRecent.all(payer, limit).map((r) => ({
+      at: new Date(r.ts).toISOString(), slug: r.slug, priceUsd: r.price_usd, network: r.network, tx: r.tx,
+    })),
+    note: "Rows are recorded at settle time and every USDC row keeps its settle tx, so this report is independently verifiable on-chain. The call that paid for this report will appear in the next one.",
+  };
+}
 
 /**
  * The merchant view: external paid sales by name, recent named sales,

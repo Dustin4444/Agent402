@@ -702,6 +702,9 @@ jobs:
       - name: Route-and-execute (SOR executing surface — resolution, caps, receipts — offline)
         run: node scripts/test-route-execute.js
 
+      - name: Usage report (payment-keyed identity, payer-scoped ledger view, spoof lock — offline)
+        run: node scripts/test-usage.js
+
       - name: Paid-canary verdict (pages on real buying breaks, warns on upstream)
         run: node scripts/test-paid-canary.js
 
