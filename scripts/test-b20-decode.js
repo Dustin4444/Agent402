@@ -46,6 +46,8 @@ ok(memoWord({ topics: [TOPIC_MEMO, pad(EOA)], data: MEMO_HEX }) === MEMO_HEX, "m
 // layout B — memo indexed (last topic), empty data
 ok(memoWord({ topics: [TOPIC_MEMO, pad(EOA), MEMO_HEX], data: "0x" }) === MEMO_HEX, "memoWord falls back to the last topic");
 ok(memoWord({ topics: [TOPIC_MEMO], data: "0x" }) === null, "memoWord returns null when no candidate word");
+// layout C — memo indexed, sender address in data (disambiguated by shape)
+ok(memoWord({ topics: [TOPIC_MEMO, MEMO_HEX], data: pad(EOA) }) === MEMO_HEX, "memoWord prefers a non-address-shaped topic over an address-shaped data word");
 
 // memoText: printable, binary, all-zero
 ok(memoText(MEMO_HEX) === "invoice-42", "memoText decodes printable UTF-8 and trims NUL padding");
@@ -54,6 +56,7 @@ ok(memoText("0x" + "fe".repeat(32)) === null, "memoText returns null for non-UTF
 
 // logIndexNum
 ok(logIndexNum("0x1f") === 31, "logIndexNum parses hex quantities");
+ok(logIndexNum(undefined) === -1 && logIndexNum("junk") === -1, "logIndexNum returns -1 on malformed input instead of throwing");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

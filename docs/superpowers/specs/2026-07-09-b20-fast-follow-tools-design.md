@@ -73,7 +73,7 @@ via `readToken()` (name, symbol, decimals).
 **Output:**
 ```json
 {
-  "fromBlock": 123, "toBlock": 456, "count": 1,
+  "fromBlock": 123, "toBlock": 456, "scannedFromBlock": 123, "truncated": false, "count": 1,
   "tokens": [{ "address": "0xb200…", "name": "…", "symbol": "…",
                "decimals": 18, "txHash": "0x…", "blockNumber": 400 }]
 }
@@ -82,7 +82,10 @@ via `readToken()` (name, symbol, decimals).
 **Edge cases:** zero deployments in window → `{count: 0, tokens: []}` (an honest
 answer, consistent with the kit's pre-activation philosophy). A log whose topics/data
 contain no `0xb200`-prefixed word is skipped and counted in a `skipped` field rather
-than guessed at. RPC exhaustion → 502 via the kit's existing `rpc()` retry ladder.
+than guessed at. RPC exhaustion → 502 via the kit's existing `rpc()` retry ladder. If
+the scan hits the internal log budget before reaching the requested floor, the
+response reports the actually-scanned floor as scannedFromBlock with truncated: true —
+a bounded answer is labeled as bounded, never passed off as full coverage.
 
 ## Tool 2: `GET /api/b20-memos` — $0.005
 
@@ -102,7 +105,9 @@ Payment memos attached to B20 transfers.
 - **`tx` mode:** one `eth_getTransactionReceipt`; walk its logs for the token address,
   pair each `Memo` log with the `Transfer` log at `logIndex - 1` (same contract).
 - **Window mode:** `getLogs` on the token for `topic0 ∈ {Transfer, Memo}` over the
-  chunked window; pair memos to transfers by `(txHash, logIndex + 1)`.
+  chunked window; pair memos to transfers by `(txHash, logIndex + 1)`. Window
+  responses carry the same scannedFromBlock/truncated coverage fields as
+  b20-new-tokens.
 
 Transfers without a memo are omitted (this is a memo reader, not a transfer lister).
 `address` filter applies to the decoded Transfer's from/to.

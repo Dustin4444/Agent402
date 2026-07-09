@@ -145,7 +145,8 @@ const TOPIC_B20_CREATED = topicOf("B20Created(address,uint8,string,string,uint8,
 const TOPIC_TRANSFER = topicOf("Transfer(address,address,uint256)");
 const TOPIC_MEMO = topicOf("Memo(address,bytes32)");
 
-const logIndexNum = (h) => Number(BigInt(h));
+// Malformed/missing hex from a flaky public RPC must not 500 a paid request.
+const logIndexNum = (h) => { try { return Number(BigInt(h)); } catch { return -1; } };
 
 // 32-byte words of a log: indexed topics (minus topic0) then data words.
 function logWords(log) {
@@ -181,13 +182,21 @@ function decodeTransfer(log) {
 }
 
 // The memo is the event's only bytes32 payload: prefer the (last) data word,
-// fall back to the last topic beyond topic0.
+// fall back to the last topic beyond topic0. One exception: if the data word
+// is address-shaped (12 zero bytes + 20) while the last topic is not, this is
+// the memo-INDEXED layout (data = sender address, topic = memo) — take the
+// topic. Printable bytes32 memos are left-aligned, so they never look
+// address-shaped.
 function memoWord(log) {
   const dataWords = hexBody(log.data).match(/.{64}/g) || [];
-  if (dataWords.length) return "0x" + dataWords[dataWords.length - 1];
   const t = log.topics || [];
-  if (t.length > 1) return "0x" + hexBody(t[t.length - 1]);
-  return null;
+  const dataWord = dataWords.length ? dataWords[dataWords.length - 1] : null;
+  const lastTopic = t.length > 1 ? hexBody(t[t.length - 1]) : null;
+  if (dataWord && lastTopic && dataWord.startsWith("0".repeat(24)) && !lastTopic.startsWith("0".repeat(24))) {
+    return "0x" + lastTopic;
+  }
+  if (dataWord) return "0x" + dataWord;
+  return lastTopic ? "0x" + lastTopic : null;
 }
 
 // Best-effort UTF-8: trim NUL padding, require printable, reject replacement chars.
@@ -211,16 +220,22 @@ async function latestBlock() {
 }
 
 // Chunked eth_getLogs, newest chunk first (<=9k blocks per call: inside
-// Alchemy's range cap, small enough for public RPCs). Stops early at maxLogs.
+// Alchemy's range cap, small enough for public RPCs). Stops early at maxLogs
+// and reports how far back it actually scanned, so callers never claim
+// coverage of blocks it didn't fetch. A malformed (non-array) chunk ends the
+// reliable-coverage region the same way.
 async function getLogsChunked({ address, topics, fromBlock, toBlock, maxLogs = 2000 }) {
   const CHUNK = 9000;
   const out = [];
+  let scannedFrom = toBlock + 1; // nothing scanned yet
   for (let hi = toBlock; hi >= fromBlock && out.length < maxLogs; hi -= CHUNK) {
     const lo = Math.max(fromBlock, hi - CHUNK + 1);
     const logs = await rpc("eth_getLogs", [{ address, topics, fromBlock: "0x" + lo.toString(16), toBlock: "0x" + hi.toString(16) }]);
-    if (Array.isArray(logs)) out.push(...logs);
+    if (!Array.isArray(logs)) break;
+    out.push(...logs);
+    scannedFrom = lo;
   }
-  return out;
+  return { logs: out, scannedFrom, truncated: scannedFrom > fromBlock };
 }
 
 function windowInput(i, { defBlocks = 50000, maxBlocks = 200000 } = {}) {
@@ -332,7 +347,7 @@ export const B20_TOOLS = [
         blocks: { type: "number", description: "lookback window in blocks (default 50000 ≈ 28h, max 200000)" },
         limit: { type: "number", description: "max tokens returned, newest first (default 25, max 100)" },
       } },
-      output: { example: { network: "base", factory: FACTORY, fromBlock: 1, toBlock: 2, count: 0, skipped: 0, tokens: [] } },
+      output: { example: { network: "base", factory: FACTORY, fromBlock: 1, toBlock: 2, scannedFromBlock: 1, truncated: false, count: 0, skipped: 0, tokens: [] } },
     },
     handler: async (i) => {
       const blocks = windowInput(i);
@@ -340,7 +355,10 @@ export const B20_TOOLS = [
       const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 25;
       const toBlock = await latestBlock();
       const fromBlock = Math.max(0, toBlock - blocks + 1);
-      const logs = await getLogsChunked({ address: FACTORY, topics: [TOPIC_B20_CREATED], fromBlock, toBlock });
+      const { logs, scannedFrom, truncated } = await getLogsChunked({ address: FACTORY, topics: [TOPIC_B20_CREATED], fromBlock, toBlock });
+      // Deviation from the spec's "stop early once limit addresses are found":
+      // we scan the requested window fully (bounded by maxLogs) and trim after
+      // sorting — chunk order alone can't guarantee the newest hits otherwise.
       logs.sort((a, b) => logIndexNum(b.blockNumber) - logIndexNum(a.blockNumber));
       const seen = new Set();
       let skipped = 0;
@@ -360,7 +378,7 @@ export const B20_TOOLS = [
           return { ...f, name: t?.name ?? null, symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
         })));
       }
-      return { network: "base", factory: FACTORY, fromBlock, toBlock, count: tokens.length, skipped, tokens };
+      return { network: "base", factory: FACTORY, fromBlock, toBlock, scannedFromBlock: scannedFrom, truncated, count: tokens.length, skipped, tokens };
     },
   },
   {
@@ -399,8 +417,9 @@ export const B20_TOOLS = [
         const blocks = windowInput(i);
         const toBlock = await latestBlock();
         const fromBlock = Math.max(0, toBlock - blocks + 1);
-        window = { fromBlock, toBlock };
-        logs = await getLogsChunked({ address: token, topics: [[TOPIC_TRANSFER, TOPIC_MEMO]], fromBlock, toBlock });
+        const r = await getLogsChunked({ address: token, topics: [[TOPIC_TRANSFER, TOPIC_MEMO]], fromBlock, toBlock });
+        window = { fromBlock, toBlock, scannedFromBlock: r.scannedFrom, truncated: r.truncated };
+        logs = r.logs;
       }
 
       // Index Transfer logs by (txHash, logIndex); each Memo pairs with the
