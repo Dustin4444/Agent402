@@ -395,7 +395,7 @@ export const B20_TOOLS = [
         blocks: { type: "number", description: "window-scan lookback (default 50000, max 200000; ignored when tx is given)" },
         limit: { type: "number", description: "max memo rows (default 50, max 200)" },
       }, required: ["token"] },
-      output: { example: { token: "0xb200…0001", mode: "window", count: 0, memos: [] } },
+      output: { example: { token: "0xb200…0001", mode: "window", fromBlock: 1, toBlock: 2, scannedFromBlock: 1, truncated: false, count: 0, memos: [] } },
     },
     handler: async (i) => {
       const token = String(i.token || "").trim().toLowerCase();
