@@ -820,7 +820,12 @@ async function imagesHandler(input) {
 // cached (sampled output).
 export const SPEECH_PATH = "/v1/audio/speech";
 const OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech";
+// Buyers send the friendly family id (or nothing); OpenRouter's live slug is
+// DATED and the undated alias 502s upstream ("Model does not exist" —
+// discovered by the first real register buy, 2026-07-09). Accept the family,
+// send the dated slug.
 const SPEECH_MODEL = "openai/gpt-4o-mini-tts";
+const SPEECH_UPSTREAM_MODEL = "openai/gpt-4o-mini-tts-2025-12-15";
 const SPEECH_PRICE = 0.06;
 const SPEECH_MAX_CHARS = 2_000;
 const SPEECH_FORMATS = { mp3: "audio/mpeg", pcm: "audio/pcm" };
@@ -851,7 +856,7 @@ export function validateSpeechRequest(input) {
       throw bad('"speed" must be between 1 and 4 — values below 1 stretch the same text into more metered audio');
     }
   }
-  const body = { model: SPEECH_MODEL, input: text, voice, response_format: format };
+  const body = { model: SPEECH_UPSTREAM_MODEL, input: text, voice, response_format: format };
   if (instructions) body.instructions = instructions;
   if (input.speed !== undefined) body.speed = Number(input.speed);
   if (input.zdr === true || input.provider?.zdr === true) body.provider = { zdr: true };
@@ -1180,7 +1185,7 @@ export function modelsList() {
     x402: { tier: "v1-images", endpoint: IMAGES_PATH, priceUsd: IMAGES_PRICE, maxPromptChars: IMAGES_MAX_PROMPT_CHARS, imagesPerCall: 1 },
   });
   data.push({
-    id: SPEECH_MODEL,
+    id: SPEECH_UPSTREAM_MODEL,
     object: "model",
     owned_by: "openai",
     x402: { tier: "v1-audio-speech", endpoint: SPEECH_PATH, priceUsd: SPEECH_PRICE, maxInputChars: SPEECH_MAX_CHARS },

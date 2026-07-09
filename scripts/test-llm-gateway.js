@@ -604,8 +604,9 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(speechTool && speechTool.route === "POST /v1/audio/speech" && speechTool.price === "$0.060", "speech tool registered at the OpenAI wire path");
 
   const v = validateSpeechRequest({ input: "hello world" });
-  ok(v.body.model === "openai/gpt-4o-mini-tts" && v.body.voice === "alloy" && v.body.response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: locked model, alloy, mp3");
-  ok(validateSpeechRequest({ input: "hi", model: "gpt-4o-mini-tts" }).body.model === "openai/gpt-4o-mini-tts", "bare locked-model id accepted");
+  ok(v.body.model === "openai/gpt-4o-mini-tts-2025-12-15" && v.body.voice === "alloy" && v.body.response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: dated upstream slug (undated alias 502s on OpenRouter), alloy, mp3");
+  ok(validateSpeechRequest({ input: "hi", model: "gpt-4o-mini-tts" }).body.model === "openai/gpt-4o-mini-tts-2025-12-15", "bare family id accepted, dated slug sent upstream");
+  ok(validateSpeechRequest({ input: "hi", model: "openai/gpt-4o-mini-tts-2025-12-15" }).body.model === "openai/gpt-4o-mini-tts-2025-12-15", "the dated slug itself is accepted (echoed from /v1/models)");
   ok(validateSpeechRequest({ input: "hi", response_format: "pcm" }).contentType === "audio/pcm", "pcm supported");
   throws(() => validateSpeechRequest({}), '"input" is required', "missing input rejected");
   throws(() => validateSpeechRequest({ input: "x".repeat(1500), instructions: "y".repeat(600) }), "Input too long", "instructions count against the char cap");
@@ -626,7 +627,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   };
   const out = await speechTool.handler({ input: "hello", voice: "nova" });
   ok(seenUrl.includes("openrouter.ai/api/v1/audio/speech"), "hits OpenRouter's audio speech endpoint");
-  ok(seen.model === "openai/gpt-4o-mini-tts" && seen.voice === "nova", "upstream body carries the locked model and chosen voice");
+  ok(seen.model === "openai/gpt-4o-mini-tts-2025-12-15" && seen.voice === "nova", "upstream body carries the dated slug and chosen voice");
   ok(Buffer.isBuffer(out.__binary) && out.__binary.length === FAKE_MP3.length && out.contentType === "audio/mpeg", "raw bytes returned via the __binary sentinel");
 
   globalThis.fetch = async () => ({ ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) });
