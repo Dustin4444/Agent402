@@ -147,16 +147,22 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   identical unpaid repeat must be 200 + `X-Cache: hit`). Trigger via workflow_dispatch on
   `paid-canary.yml` (ref main) after a deploy; verdict is the job log tail.
 
-## Open follow-ups (as of 2026-07-08)
-- Contributor PR **#258** (agentservices.to integration) — merge decision pending; sanity-check
-  its `/.well-known/x402` first.
-- Directory/web-form submissions: copy-paste-ready text lives in `docs/ecosystem-listings.md`
-  ("July 2026 scour" section).
-- B20 marketplace: activation status check on the Basescan registry + announcement
-  (`scripts/tweet.js`) once confirmed.
-- Cross-seller executing router (B2) — designed, not started; awaiting operator go-ahead.
-- Dev branch may carry a trigger-bump-only commit ahead of main (timestamp file only) — folds
-  into the next PR.
+## Open follow-ups (as of 2026-07-09)
+- **/v1/audio/speech is DELISTED** (code complete, filtered from the catalog). Re-enable
+  procedure: verify OpenRouter's audio API with one curl from a keyed machine
+  (`.github/workflows/openrouter-tts-probe.yml` is dispatchable from main and probes
+  candidate model ids); on a 200, set `OPENROUTER_TTS_ENABLED=true` on Railway, re-add the
+  llm-speech canary leg in `scripts/paid-canary.js`, run `node scripts/sync-count.js`
+  (count goes 1,419 → 1,420), and re-run `[bazaar-register]`.
+- OpenRouter account top-up is manual (their programmatic top-up API is deprecated). If a
+  "Gateway credits LOW" issue opens, top up the account; the alarm auto-closes the issue
+  once `/api/gateway-status` reports `ok` again.
+- Contributor PR **#258** (agentservices.to integration) — merge decision pending;
+  sanity-check its `/.well-known/x402` first. Issue **#282** — awaiting the contributor's
+  follow-up PR.
+- CI nicety (non-blocking): add an Actions concurrency group to the deploy job so rapid
+  pushes stop surfacing benign Railway "superseded build" failures.
+- Directory/web-form submissions: copy-paste-ready text lives in `docs/ecosystem-listings.md`.
 
 ## Environment / ops (set on Railway, not in repo)
 `WALLET_ADDRESS`, `WALLET_ENS`, `NETWORK`, `CDP_API_KEY_ID/SECRET`, `FACILITATOR_URL`,
