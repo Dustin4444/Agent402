@@ -74,10 +74,10 @@ await gatewayTool.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 
 const list = modelsList();
 ok(list.object === "list" && Array.isArray(list.data) && list.data.length > 10, "models list has OpenAI shape");
 ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402?.endpoint?.startsWith("/v1")), "every model entry carries x402 tier metadata");
-ok(new Set(list.data.map((m) => m.x402.tier)).size === 6, "all five chat tiers + embeddings represented");
+ok(new Set(list.data.map((m) => m.x402.tier)).size === 7, "all five chat tiers + embeddings + images represented");
 
 // Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 6, "six gateway routes");
+ok(LLM_GATEWAY_TOOLS.length === 7, "seven gateway routes");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -511,6 +511,59 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   // Cheap tiers keep today's behavior: the tier's own cap is the binding one.
   const nanoBody = validateRequest({ model: "gpt-4.1-nano", messages: msg1(), max_tokens: 768 }, "v1-chat-nano");
   ok(nanoBody.max_tokens === 768, "nano-tier small input is untouched by the margin clamp");
+}
+
+// /v1/images/generations — OpenAI images wire over OpenRouter chat modalities.
+// Cost knobs are server-owned: model locked, n locked to 1, max_tokens and
+// provider.max_price bound the upstream bill.
+{
+  const { validateImagesRequest, IMAGES_PATH, LLM_GATEWAY_TOOLS: tools } = await import("../src/tools/llm-gateway-kit.js");
+  ok(IMAGES_PATH === "/v1/images/generations", "images path constant");
+  const imagesTool = tools.find((t) => t.slug === "v1-images");
+  ok(imagesTool && imagesTool.route === "POST /v1/images/generations" && imagesTool.price === "$0.080", "images tool registered at the OpenAI wire path");
+
+  ok(validateImagesRequest({ prompt: "a fox" }).prompt === "a fox", "prompt-only request validates");
+  ok(validateImagesRequest({ prompt: "a fox", model: "gemini-2.5-flash-image" }).prompt === "a fox", "the locked model id is accepted (bare form canonicalized)");
+  throws(() => validateImagesRequest({}), '"prompt" is required', "missing prompt rejected");
+  throws(() => validateImagesRequest({ prompt: "x".repeat(5000) }), "Prompt too long", "prompt cap enforced");
+  throws(() => validateImagesRequest({ prompt: "a fox", model: "dall-e-3" }), "fixed to", "other models rejected with the locked id");
+  throws(() => validateImagesRequest({ prompt: "a fox", n: 2 }), "locked to 1", "n>1 rejected — output cost is metered");
+  throws(() => validateImagesRequest({ prompt: "a fox", response_format: "url" }), "b64_json", "url response_format rejected (images are inline)");
+  ok(validateImagesRequest({ prompt: "a fox", size: "1024x1024", quality: "hd" }).prompt === "a fox", "cost-neutral OpenAI params (size/quality) are ignored, not rejected");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  const PNG_B64 = Buffer.from("fake-png-bytes".repeat(4)).toString("base64");
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return {
+      ok: true, status: 200,
+      text: async () => JSON.stringify({
+        id: "gen-i", model: seen.model,
+        choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${PNG_B64}` } }] }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304, cost: 0.039, cost_details: {}, is_byok: false },
+      }),
+    };
+  };
+  const out = await imagesTool.handler({ prompt: "a fox", zdr: true });
+  ok(seen.model === "google/gemini-2.5-flash-image" && Array.isArray(seen.modalities) && seen.modalities.includes("image"), "upstream call is chat-shaped with image modality and the locked model");
+  ok(seen.max_tokens === 1600 && seen.provider?.max_price?.completion === 35, "upstream response is token- and price-bounded");
+  ok(seen.provider?.zdr === true, "zdr folds into the images provider prefs too");
+  ok(seen.usage?.include === true, "images calls request usage accounting");
+  ok(out.data[0].b64_json === PNG_B64 && out.data[0].media_type === "image/png" && typeof out.created === "number", "data URI translated to the OpenAI images shape");
+  ok(out.usage.cost === undefined && out.usage.cost_details === undefined, "upstream cost stripped from the images response");
+  const { _testEventsForTest } = await import("../src/posthog.js");
+  const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+  ok(ev?.properties.tier === "v1-images" && ev?.properties.upstreamUsd === 0.039 && ev?.properties.priceUsd === 0.08, "images margin telemetry captured");
+
+  globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-i2", model: "x", choices: [{ index: 0, message: { role: "assistant", content: "no can do" }, finish_reason: "stop" }] }) });
+  await imagesTool.handler({ prompt: "a fox" }).then(
+    () => ok(false, "an imageless upstream response must not serve"),
+    (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response → 502")
+  );
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

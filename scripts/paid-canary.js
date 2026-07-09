@@ -173,6 +173,20 @@ export const TOOLS = [
       `expected an OpenAI embeddings list with a real vector, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Image generation tier — OpenAI images wire over OpenRouter (Gemini
+    // flash-image). A real base64 payload of plausible image size proves the
+    // modalities translation, the price-capped provider call, and settlement.
+    kit: "llm-image",
+    path: "/v1/images/generations",
+    method: "POST",
+    body: { prompt: "A tiny pixel-art lighthouse at dusk" },
+    priceUsd: 0.08,
+    check: (r) =>
+      (Array.isArray(r.data) && typeof r.data[0]?.b64_json === "string" && r.data[0].b64_json.length > 10_000 &&
+        typeof r.created === "number") ||
+      `expected OpenAI images shape with a real b64_json payload, got ${JSON.stringify(r).slice(0, 100)}`,
+  },
+  {
     // Route-and-execute — the SOR's executing surface. Dispatches internally
     // to /api/hash; a real digest in the receipt-bearing envelope proves the
     // resolve → guard → dispatch → receipt chain on prod.

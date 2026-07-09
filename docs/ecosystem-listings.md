@@ -39,7 +39,7 @@ Coinbase reviews within ~5 business days. Category: **Services/Endpoints**.
 ```json
 {
   "name": "Agent402",
-  "description": "1,418 pay-per-call tools for AI agents over x402 — headless browser, live web search, OCR, PDFs, financial/SEC/macro data, durable wallet-keyed memory, and an OpenAI-compatible LLM gateway (/v1: chat, embeddings, auto-routing) — USDC on Base, Solana, Polygon, Arbitrum & Stellar, USDG on Robinhood Chain, or free via proof-of-work. Also an x402 Index + Smart Order Router that ranks the cheapest healthy tool across the ecosystem (auto-discovered from the CDP Bazaar). Open source, self-hostable, MCP server included.",
+  "description": "1,419 pay-per-call tools for AI agents over x402 — headless browser, live web search, OCR, PDFs, financial/SEC/macro data, durable wallet-keyed memory, and an OpenAI-compatible LLM gateway (/v1: chat, embeddings, auto-routing) — USDC on Base, Solana, Polygon, Arbitrum & Stellar, USDG on Robinhood Chain, or free via proof-of-work. Also an x402 Index + Smart Order Router that ranks the cheapest healthy tool across the ecosystem (auto-discovered from the CDP Bazaar). Open source, self-hostable, MCP server included.",
   "logoUrl": "/logos/agent402.png",
   "websiteUrl": "https://agent402.tools",
   "category": "Services/Endpoints"
@@ -97,7 +97,7 @@ tollbooth-gated endpoint paid by an AgentCore agent.
 
    > **Proposal: Add `integrations/agent402/` sample — x402 buy + sell side**
    >
-   > Agent402 is an open-source x402 + MCP server with 1,418 pay-per-call web
+   > Agent402 is an open-source x402 + MCP server with 1,419 pay-per-call web
    > tools, plus `agent402-tollbooth` for pay-per-crawl on the other side.
    > Both speak vanilla x402, so an AgentCore-hosted Strands agent works
    > end-to-end with no protocol bridging.
@@ -144,7 +144,7 @@ that takes a GitHub repo URL; no PR, no fork.
    - **Short description (one line, ~150 chars):**
 
      ```
-     1,418 pay-per-call web tools + 92 skill packs for AI agents over x402 (USDC on Base + 4 more chains (Solana, Polygon, Arbitrum, Stellar), or USDG on Robinhood Chain) — or free via proof-of-work. Browser, search, OCR, finance, EDGAR, durable memory.
+     1,419 pay-per-call web tools + 92 skill packs for AI agents over x402 (USDC on Base + 4 more chains (Solana, Polygon, Arbitrum, Stellar), or USDG on Robinhood Chain) — or free via proof-of-work. Browser, search, OCR, finance, EDGAR, durable memory.
      ```
 
    - **Long description / why (if asked):**
@@ -243,7 +243,7 @@ The directory solana.com/x402 cross-links. Form submission, no PR.
    - **One-liner:**
 
      ```
-     1,418 pay-per-call web tools + 92 skill packs for AI agents over x402 — USDC on Solana (and Base/Polygon/Arbitrum/Stellar) plus USDG on Robinhood Chain — 6 chains — or free via proof-of-work. Open-source, self-hostable, MCP-native.
+     1,419 pay-per-call web tools + 92 skill packs for AI agents over x402 — USDC on Solana (and Base/Polygon/Arbitrum/Stellar) plus USDG on Robinhood Chain — 6 chains — or free via proof-of-work. Open-source, self-hostable, MCP-native.
      ```
 
    - **Description:** reuse the mcpservers.org long description above; lead

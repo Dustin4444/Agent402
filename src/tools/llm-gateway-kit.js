@@ -667,6 +667,108 @@ async function embeddingsHandler(input) {
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// /v1/images/generations — OpenAI wire-path image generation over OpenRouter.
+// OpenRouter serves image models through chat/completions with
+// modalities: ["image","text"]; this route translates the OpenAI images API
+// to that shape and back, so any OpenAI SDK's images.generate() works by
+// changing base_url. The model is locked and n is locked to 1 — image output
+// is metered upstream, so every knob that multiplies cost is server-owned
+// (same discipline as image-gen's locked size/quality). Sampling is
+// non-deterministic → never cached; no streaming.
+//
+// Margin (two layers, same scheme as the chat tiers): flash-image output is
+// ~1300 completion tokens per image at ~$30/M list (~$0.04/image) against
+// the $0.08 price; IMAGES_MAX_TOKENS bounds the response and
+// IMAGES_MAX_PRICE rides upstream as provider.max_price so a repriced or
+// hijacked provider is refused instead of quietly eating the margin. Usage
+// accounting reports the exact bill to PostHog on every call.
+export const IMAGES_PATH = "/v1/images/generations";
+const IMAGES_MODEL = "google/gemini-2.5-flash-image";
+const IMAGES_PRICE = 0.08;
+const IMAGES_MAX_PROMPT_CHARS = 4_000;
+const IMAGES_MAX_TOKENS = 1_600; // one image (~1300 tok) + a little text headroom
+// Worst case at these bounds: 1600 tok × $35/M = $0.056 ≤ 70% of the price.
+const IMAGES_MAX_PRICE = { prompt: 1, completion: 35, image: 0.05, request: 0.05 };
+
+export function validateImagesRequest(input) {
+  if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
+  const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
+  if (!prompt) throw bad('"prompt" is required — a text description of the image to generate');
+  if (prompt.length > IMAGES_MAX_PROMPT_CHARS) throw bad(`Prompt too long (${prompt.length} chars). Maximum is ${IMAGES_MAX_PROMPT_CHARS}`);
+  if (input.model !== undefined) {
+    const m = canonicalModel(input.model);
+    if (m !== IMAGES_MODEL) throw bad(`"model" is fixed to ${IMAGES_MODEL} on this endpoint (omit it, or send that id)`);
+  }
+  if (input.n !== undefined && parseInt(input.n, 10) !== 1) {
+    throw bad('"n" is locked to 1 — the flat price is per image; call again for more');
+  }
+  if (input.response_format !== undefined && input.response_format !== "b64_json") {
+    throw bad('"response_format" must be "b64_json" — generated images are returned inline, not hosted');
+  }
+  // size/quality/style have no upstream meaning for this model and no cost
+  // impact — ignored for drop-in friendliness rather than rejected.
+  const body = { prompt };
+  if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
+  return body;
+}
+
+async function imagesHandler(input) {
+  const { prompt, zdr } = validateImagesRequest(input);
+  const upstreamBody = {
+    model: IMAGES_MODEL,
+    messages: [{ role: "user", content: prompt }],
+    modalities: ["image", "text"],
+    max_tokens: IMAGES_MAX_TOKENS,
+    provider: { max_price: IMAGES_MAX_PRICE, ...(zdr ? { zdr: true } : {}) },
+    usage: { include: true },
+  };
+  const res = await fetchOpenRouter(upstreamBody, { timeoutMs: 120_000 });
+  if (!res.ok) await throwUpstreamError(res);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+
+  const images = data?.choices?.[0]?.message?.images;
+  if (!Array.isArray(images) || images.length === 0) {
+    throw bad("Upstream returned no image — retry, or rephrase the prompt", 502);
+  }
+
+  // Exact upstream bill → operator telemetry, stripped before the response.
+  const usage = data.usage && typeof data.usage === "object" ? data.usage : null;
+  if (usage) {
+    const upstreamUsd = typeof usage.cost === "number" ? usage.cost : null;
+    delete usage.cost;
+    delete usage.cost_details;
+    delete usage.is_byok;
+    try {
+      const { capturePostHogGatewayUsage } = await import("../posthog.js");
+      capturePostHogGatewayUsage({
+        tier: "v1-images",
+        model: data.model || IMAGES_MODEL,
+        priceUsd: IMAGES_PRICE,
+        upstreamUsd,
+        promptTokens: usage.prompt_tokens,
+        completionTokens: usage.completion_tokens,
+      });
+    } catch { /* telemetry must never fail a served response */ }
+  }
+
+  // Translate back to the OpenAI images wire: data URI → b64_json.
+  const out = images.map((im) => {
+    const url = typeof im?.image_url?.url === "string" ? im.image_url.url : "";
+    const m = /^data:(image\/[\w.+-]+);base64,(.+)$/s.exec(url);
+    if (!m) throw bad("Upstream returned an image in an unexpected format", 502);
+    return { b64_json: m[2], media_type: m[1] };
+  });
+  return {
+    created: Math.floor(Date.now() / 1000),
+    model: data.model || IMAGES_MODEL,
+    data: out,
+    ...(usage ? { usage } : {}),
+  };
+}
+
 function makeHandler(tierSlug) {
   return async (input) => {
     const body = validateRequest(input, tierSlug);
@@ -885,6 +987,29 @@ export const LLM_GATEWAY_TOOLS = [
     },
     handler: embeddingsHandler,
   },
+  {
+    route: "POST /v1/images/generations",
+    name: "Image generation (OpenAI-compatible)",
+    slug: "v1-images",
+    category: "llm",
+    price: "$0.080",
+    description:
+      "OpenAI-compatible image generation over x402 — point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and pay $0.08 per image in USDC, no API key, no signup. Served by Gemini 2.5 Flash Image (nano banana); prompt in (up to 4k chars), inline base64 image out (response_format b64_json). One image per call (n locked to 1). Optional zdr:true routes only to zero-data-retention providers.",
+    tags: ["image-generation", "images", "text-to-image", "nano-banana", "gemini", ...SHARED_TAGS],
+    discovery: {
+      bodyType: "json",
+      input: { prompt: "A minimalist watercolor of a fox reading a newspaper in a forest clearing" },
+      inputSchema: {
+        properties: {
+          prompt: { type: "string", description: "Text description of the image to generate (up to 4,000 chars)" },
+          zdr: { type: "boolean", description: "Optional — true routes only to zero-data-retention providers" },
+        },
+        required: ["prompt"],
+      },
+      output: { example: { created: 1750000000, model: IMAGES_MODEL, data: [{ b64_json: "iVBORw0KGgoAAAANSUhEUgAA…", media_type: "image/png" }], usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304 } } },
+    },
+    handler: imagesHandler,
+  },
 ];
 
 /** OpenAI-compatible GET /v1/models payload — free discovery surface. */
@@ -908,5 +1033,11 @@ export function modelsList() {
       x402: { tier: "v1-embeddings", endpoint: EMBEDDINGS_PATH, priceUsd: 0.002, maxInputChars: EMBEDDINGS_MAX_CHARS, maxItems: EMBEDDINGS_MAX_ITEMS },
     });
   }
+  data.push({
+    id: IMAGES_MODEL,
+    object: "model",
+    owned_by: "google",
+    x402: { tier: "v1-images", endpoint: IMAGES_PATH, priceUsd: IMAGES_PRICE, maxPromptChars: IMAGES_MAX_PROMPT_CHARS, imagesPerCall: 1 },
+  });
   return { object: "list", data, note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) — no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped." };
 }

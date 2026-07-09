@@ -1,6 +1,6 @@
 # Agent402.Tools — project memory for Claude Code
 
-Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 1,418 deterministic
+Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 1,419 deterministic
 web tools an AI agent can call and pay for per request (USDC on Base via the x402
 protocol, or free via proof-of-work). It's two-sided — it also ships
 `agent402-tollbooth` (pay-per-crawl for site owners) and `agent402-client` (a buyer SDK).
@@ -70,7 +70,11 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   response adds `agent402_router {category, quality, served}`; tier listed LAST in `TIERS`
   so `tierFor()` ordering is stable), base `$0.02`, pro `$0.10`, premium `$0.50`,
   plus **`/v1/embeddings` `$0.002`** (OpenAI upstream, batch ≤64/16k chars, cache
-  DEFAULT-ON — deterministic output; `cache:false` opts out; `embeddingsCacheKey`). Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
+  DEFAULT-ON — deterministic output; `cache:false` opts out; `embeddingsCacheKey`),
+  plus **`/v1/images/generations` `$0.08`** (`v1-images` — OpenAI images wire translated
+  to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
+  n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →
+  `b64_json`, no cache/stream, imageless upstream → 502). Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
   the chain on upstream 502/503/504 only — every chain ends in the canary-proven model.
   **Streaming** (`stream:true`): handler returns `{__sse}` sentinel, route binder pipes SSE
   after settlement. **Prompt cache** (`cache:true`, opt-in): byte-identical repeat served
@@ -119,10 +123,12 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
-- **Paid canary (`scripts/paid-canary.js`):** 21 legs — tools across chains
+- **Paid canary (`scripts/paid-canary.js`):** 24 legs — tools across chains
   (Base/Solana/Polygon/Arbitrum/Stellar/Robinhood) plus llm-nano (failover), llm-stream
   (`raw:true`, asserts SSE `data:`…`[DONE]`), llm-auto (model-less request must carry the
-  `agent402_router` disclosure), route-exec (receipt + digest), prompt-cache (pays once,
+  `agent402_router` disclosure), llm-embed + embed-cache (default-on free repeat,
+  per-run nonce input), llm-image (real b64_json payload >10k chars), my-usage
+  (self-referential history), route-exec (receipt + digest), prompt-cache (pays once,
   identical unpaid repeat must be 200 + `X-Cache: hit`). Trigger via workflow_dispatch on
   `paid-canary.yml` (ref main) after a deploy; verdict is the job log tail.
 
