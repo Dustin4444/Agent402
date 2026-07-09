@@ -453,8 +453,14 @@ jobs:
     # Cost is bounded by MAX_SPEND_USD; the script refuses to run if the
     # estimate exceeds that ceiling. With 42 skill packs ($0.05-$1.50 each)
     # the missing set can sum to ~$11 on a fresh pass.
-    needs: markers
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-register' || needs.markers.outputs.bazaar_register == 'true'
+    #
+    # Ordering: buys hit PROD, so when this run also deploys, wait for the
+    # deploy — otherwise the sweep buys routes the old build still serves
+    # (2026-07-09: three runs bought a route whose fix was sitting in the
+    # same run's undeployed commit — settled, then 502'd). deploy skipped
+    # (no [deploy] marker) still runs the sweep immediately.
+    needs: [markers, deploy]
+    if: always() && (github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-register' || needs.markers.outputs.bazaar_register == 'true') && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -506,8 +512,11 @@ jobs:
           fi
 
   marketplace:
-    needs: markers
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'marketplace' || needs.markers.outputs.marketplace == 'true'
+    # Registers the LIVE catalog on agent402.app — same prod-ordering rule as
+    # bazaar-register: when this run also deploys, wait for the deploy so the
+    # sweep sees the new tools; deploy skipped → run immediately.
+    needs: [markers, deploy]
+    if: always() && (github.event_name == 'workflow_dispatch' && inputs.mode == 'marketplace' || needs.markers.outputs.marketplace == 'true') && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
     runs-on: ubuntu-latest
     env:
       A402APP_KEY: ${{ secrets.AGENT402_APP_API_KEY }}
