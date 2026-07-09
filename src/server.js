@@ -2334,6 +2334,11 @@ startLeaderboardRefresh();
 // Graceful shutdown: a Railway redeploy sends SIGTERM. Stop accepting new
 // connections but let in-flight (already paid-for) requests finish before
 // exiting — a hard kill would take an agent's money and return nothing.
+// This only works if the platform grants a grace period: Railway defaults to
+// 0 seconds between SIGTERM and SIGKILL, so the deploy pipeline sets
+// RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90 (self-hosters: set it too, or this
+// drain never runs). The hard deadline below stays under that grace and
+// above the slowest single-call upstream timeout (transcribe: 60s OpenAI).
 let shuttingDown = false;
 function shutdown(signal) {
   if (shuttingDown) return;
@@ -2344,8 +2349,14 @@ function shutdown(signal) {
   // PostHog is disabled); the drain deadline below still governs exit.
   shutdownPostHog().catch(() => {});
   httpServer.close(() => process.exit(0));
+  // server.close() waits for ALL connections, including idle keep-alive
+  // sockets agents hold open between calls. Sweep those now and every few
+  // seconds (a socket goes idle the moment its in-flight response finishes),
+  // so an idle connection can't pin the drain to the hard deadline.
+  httpServer.closeIdleConnections();
+  setInterval(() => httpServer.closeIdleConnections(), 5_000).unref();
   // Hard deadline so a stuck request can't block the redeploy.
-  setTimeout(() => process.exit(0), 25_000).unref();
+  setTimeout(() => process.exit(0), 75_000).unref();
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));

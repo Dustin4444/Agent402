@@ -10,6 +10,8 @@ client = OpenAI(base_url="https://agent402.tools/v1", api_key="unused")
 
 Payment settles **before** the handler runs (standard x402), so responses can stream with no credit risk. Upstream is OpenRouter for chat and OpenAI for embeddings; per-tier model allowlists and input/output caps keep worst-case upstream cost well below the flat x402 price. `GET /v1/models` (free) lists every model with its tier, price, and caps.
 
+Because tiers are flat-priced while upstream bills per token, every request is also priced server-side before it goes upstream: input tokens are counted exactly (including tool schemas and images), and `max_tokens` is automatically tightened when an expensive model plus a large input would otherwise approach the tier price. Cheap and mid-priced models never hit this bound. A request whose input alone exceeds the budget returns a `400` explaining the fix (shrink the input, lower `n`, or pick a cheaper model). `n` is capped at 4.
+
 ## Tiers
 
 | Endpoint | Price | Serves | Input cap | Output cap |

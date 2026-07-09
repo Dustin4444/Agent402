@@ -75,7 +75,14 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   **Streaming** (`stream:true`): handler returns `{__sse}` sentinel, route binder pipes SSE
   after settlement. **Prompt cache** (`cache:true`, opt-in): byte-identical repeat served
   free pre-paywall within 10 min (`X-Cache: hit`); keys on the tier + normalized body
-  (resolved model included). All tiers in `WALLET_ONLY_SLUGS` and test-all's lenient
+  (resolved model included). **Margin protection (two layers, both in `validateRequest`):**
+  (1) per-tier `maxPrice` rides upstream as `provider.max_price` on every call — buyer-supplied
+  `provider` can never loosen it; (2) margin clamp — exact-BPE (`gpt-tokenizer` o200k, static
+  import: must stay sync for `promptCacheKey`) prices the FULL outbound body (incl. tools
+  schemas, images flat 1600 tok, `n`≤4 multiplier) against `MODEL_COST` (longest-prefix,
+  elementwise-min'd with `maxPrice`), then shrinks `max_tokens` so worst-case upstream ≤ 70%
+  of tier price; input alone over budget → self-explaining 400. Deterministic → cache-key
+  safe; cheap models never feel it. All tiers in `WALLET_ONLY_SLUGS` and test-all's lenient
   NETWORK set.
 - **Route-and-execute (`POST /api/route/execute`, $0.01, `src/tools/route-execute.js`):**
   resolves a task/slug via `findTools`, dispatches the underlying internal tool (underlying
@@ -84,6 +91,21 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.
   Never lowercase base58/Stellar addresses (EVM only).
+- **Deploy safety (live-buyer protection):** deploy job runs `scripts/deploy-quiet-gate.js`
+  BEFORE the Railway variable upsert (the upsert itself can trigger a redeploy) — polls
+  `/api/stats` `recentCalls`, waits for 180s with no external USDC call (heartbeat/PoW never
+  block); fail-open on stats-down, sustained traffic past `QUIET_GATE_MAX_WAIT` (repo var,
+  default 1200s), or repo var `QUIET_GATE=off`. Deploy also sets
+  `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` — Railway's default SIGTERM→SIGKILL grace is **0s**,
+  so without it the server's graceful drain never runs. Drain (`src/server.js` shutdown):
+  `closeIdleConnections()` sweep every 5s + 75s hard deadline (covers transcribe's 60s
+  upstream timeout).
+- **STT margin cap (`src/tools/stt-kit.js`):** per-tier `maxMinutes` (5/10) is enforced
+  locally via a `music-metadata` duration probe BEFORE any OpenAI spend — upstream bills
+  per audio minute (~$0.003 mini / ~$0.006 4o), so break-even on the $0.03 tier is ~10 min
+  and the cap is the margin bound, not a UX nicety. Unreadable duration → 422 (an
+  unreadable container would be an unbounded upstream bill). `assertWithinDurationCap` /
+  `probeDurationSeconds` exported for `scripts/test-stt-cap.js`.
 - **Homepage = `src/ledger-home.js`** (`ledgerHomePage`; the old `src/landing.js` is unused
   but still unit-tested). Its `faqs` array renders BOTH the visible FAQ and the FAQPage
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps

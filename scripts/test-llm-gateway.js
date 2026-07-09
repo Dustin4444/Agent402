@@ -297,6 +297,42 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(GATEWAY_TIER_BY_PATH["/v1/auto/chat/completions"] === "v1-chat-auto", "path -> tier map covers auto");
 }
 
+// Upstream price caps: every chat tier declares a maxPrice catastrophe bound,
+// it rides to OpenRouter as provider.max_price on every call (stream included),
+// and a buyer-supplied provider object can never replace it.
+{
+  const chatTiers = Object.entries(TIERS);
+  ok(chatTiers.every(([, t]) => t.maxPrice && t.maxPrice.prompt > 0 && t.maxPrice.completion > 0), "every chat tier carries a positive maxPrice bound");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-p", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5 });
+  ok(seen.provider?.max_price?.prompt === TIERS["v1-chat-nano"].maxPrice.prompt, "non-stream upstream call carries the tier's provider.max_price");
+
+  // A buyer-sent provider object must not replace the cap.
+  seen = null;
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, provider: { max_price: { prompt: 999999, completion: 999999 } } });
+  ok(seen.provider?.max_price?.completion === TIERS["v1-chat-nano"].maxPrice.completion, "buyer-supplied provider cannot loosen the cap");
+
+  // Stream path carries it too.
+  seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, body: { async *[Symbol.asyncIterator]() { yield Buffer.from("data: [DONE]\n\n"); } } };
+  };
+  const streamRes = { headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} };
+  await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), stream: true })).__sse(streamRes);
+  ok(seen.provider?.max_price?.prompt === TIERS["v1-chat-nano"].maxPrice.prompt, "streamed upstream call carries the tier's provider.max_price");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
 // /v1/embeddings — wire-path validation, default model, batching caps,
 // default-ON cache (deterministic output), and the wire-shape passthrough.
 {
@@ -350,6 +386,54 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(promptCacheGet(embeddingsCacheKey({ input: "do not cache me" })) === null, "cache:false skips the store");
   globalThis.fetch = realFetch;
   delete process.env.OPENAI_API_KEY;
+}
+
+// Margin clamp: every request is priced before it goes upstream — max_tokens
+// shrinks so input + output can never exceed MARGIN × tier price for the
+// actual model requested. This closes the flat-price/metered-upstream
+// arbitrage on the pricey families (opus, o3-pro) without touching cheap ones.
+{
+  const { costFor } = await import("../src/tools/llm-gateway-kit.js");
+  ok(costFor("claude-opus-4")?.completion === 75, "costFor resolves opus by prefix (bare name canonicalized)");
+  ok(costFor("openai/o3-pro-2026")?.prompt === 20, "longest prefix wins (o3-pro, not o3)");
+  ok(costFor("acme/unknown-model") === null, "unknown family → null (callers fall back to the tier max_price bound)");
+
+  const ascii = "The quick brown fox jumps over the lazy dog. ".repeat(1300); // ~58k chars
+  const opusFull = validateRequest({ model: "anthropic/claude-opus-4", messages: msg1(ascii), max_tokens: 8192 }, "v1-chat-premium");
+  ok(opusFull.max_tokens < 8192 && opusFull.max_tokens >= 64, `opus at full input is clamped below the tier cap (got ${opusFull.max_tokens})`);
+  const gpt5Full = validateRequest({ model: "gpt-5", messages: msg1(ascii), max_tokens: 8192 }, "v1-chat-premium");
+  ok(gpt5Full.max_tokens === 8192, "a cheap frontier model with the same input keeps the full tier cap");
+
+  // Worst-case arithmetic: the clamped opus request must cost under the price.
+  const worstUsd = (58_500 / 3 / 1e6) * 15 + (opusFull.max_tokens / 1e6) * 75;
+  ok(worstUsd < 0.5, `clamped opus worst case stays under the $0.50 price (est $${worstUsd.toFixed(3)})`);
+
+  // Token-dense text is priced by TOKENS, not chars — CJK that fits the char
+  // cap but busts the token budget is rejected, not silently served at a loss.
+  throws(() => validateRequest({ model: "anthropic/claude-opus-4", messages: msg1("漢字".repeat(15_000)), max_tokens: 8192 }, "v1-chat-premium"), "too large", "CJK token-density arbitrage → self-explaining 400");
+  const asciiSame = validateRequest({ model: "anthropic/claude-opus-4", messages: msg1("a".repeat(30_000)), max_tokens: 8192 }, "v1-chat-premium");
+  ok(asciiSame.max_tokens >= 64, "the same char count in ASCII still serves (tokens are what's priced)");
+
+  // A giant tool schema is input too — it must tighten the clamp.
+  const bigTools = [{ type: "function", function: { name: "f", parameters: { description: "x".repeat(40_000) } } }];
+  const withTools = validateRequest({ model: "anthropic/claude-opus-4", messages: msg1(), max_tokens: 8192, tools: bigTools }, "v1-chat-premium");
+  const withoutTools = validateRequest({ model: "anthropic/claude-opus-4", messages: msg1(), max_tokens: 8192 }, "v1-chat-premium");
+  ok(withTools.max_tokens < withoutTools.max_tokens, "tool schemas count as priced input");
+
+  // n multiplies output cost: bounded, and priced into the clamp.
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), n: 9 }, "v1-chat"), "between 1 and 4", "n is bounded at 4");
+  const n1 = validateRequest({ model: "anthropic/claude-opus-4", messages: msg1("write a poem"), max_tokens: 8192 }, "v1-chat-premium");
+  const n4 = validateRequest({ model: "anthropic/claude-opus-4", messages: msg1("write a poem"), max_tokens: 8192, n: 4 }, "v1-chat-premium");
+  ok(n4.max_tokens <= Math.ceil(n1.max_tokens / 4) + 1, `n=4 tightens the per-completion clamp ~4x (${n1.max_tokens} → ${n4.max_tokens})`);
+
+  // Determinism: the clamp is part of the normalized body, so the prompt-cache
+  // key must be identical across repeat validations.
+  const again = validateRequest({ model: "anthropic/claude-opus-4", messages: msg1(ascii), max_tokens: 8192 }, "v1-chat-premium");
+  ok(again.max_tokens === opusFull.max_tokens, "clamp is deterministic (cache keys stay stable)");
+
+  // Cheap tiers keep today's behavior: the tier's own cap is the binding one.
+  const nanoBody = validateRequest({ model: "gpt-4.1-nano", messages: msg1(), max_tokens: 768 }, "v1-chat-nano");
+  ok(nanoBody.max_tokens === 768, "nano-tier small input is untouched by the margin clamp");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

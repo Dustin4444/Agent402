@@ -705,6 +705,12 @@ jobs:
       - name: Usage report (payment-keyed identity, payer-scoped ledger view, spoof lock — offline)
         run: node scripts/test-usage.js
 
+      - name: STT margin cap (duration enforced locally before any OpenAI spend — offline)
+        run: node scripts/test-stt-cap.js
+
+      - name: Deploy quiet gate (lull detection, fail-open paths — offline)
+        run: node scripts/test-quiet-gate.js
+
       - name: Paid-canary verdict (pages on real buying breaks, warns on upstream)
         run: node scripts/test-paid-canary.js
 
@@ -2000,6 +2006,19 @@ jobs:
             echo "$RESP" | jq .
           fi
 
+      # Hold the deploy until external paid traffic has a lull, so a container
+      # swap never lands in the middle of a buyer's burst. Fail-open by design
+      # (stats down / sustained traffic past the max wait → proceed with a
+      # warning) — the in-server SIGTERM drain plus the 90s Railway grace set
+      # below still protect whatever is in flight. Runs BEFORE the variable
+      # upsert because that upsert can itself trigger a redeploy.
+      - name: Quiet gate — wait for a lull in external paid traffic
+        env:
+          TARGET_URL: https://${{ env.CUSTOM_DOMAIN || steps.domain.outputs.domain }}
+          QUIET_GATE: ${{ vars.QUIET_GATE }}
+          MAX_WAIT_SECS: ${{ vars.QUIET_GATE_MAX_WAIT || '1200' }}
+        run: node scripts/deploy-quiet-gate.js
+
       - name: Set environment variables (triggers deploy)
         run: |
           gql() {
@@ -2008,8 +2027,13 @@ jobs:
               --data @-
           }
           BASE="https://${CUSTOM_DOMAIN:-${{ steps.domain.outputs.domain }}}"
+          # RAILWAY_DEPLOYMENT_DRAINING_SECONDS: Railway's default grace between
+          # SIGTERM and SIGKILL is 0 seconds — without this, the server's
+          # graceful drain never runs and every deploy hard-kills in-flight
+          # (already paid-for) requests. 90s covers the slowest single call
+          # (transcribe's 60s OpenAI timeout) plus the server's 75s deadline.
           VARS=$(jq -n --arg w "$WALLET_ADDRESS" --arg n "$NETWORK" --arg f "$FACILITATOR_URL" --arg b "$BASE" \
-            '{WALLET_ADDRESS:$w, NETWORK:$n, FACILITATOR_URL:$f, BASE_URL:$b}')
+            '{WALLET_ADDRESS:$w, NETWORK:$n, FACILITATOR_URL:$f, BASE_URL:$b, RAILWAY_DEPLOYMENT_DRAINING_SECONDS:"90"}')
           if [ -n "$CDP_KEY_ID" ] && [ -n "$CDP_KEY_SECRET" ]; then
             VARS=$(echo "$VARS" | jq --arg i "$CDP_KEY_ID" --arg s "$CDP_KEY_SECRET" '. + {CDP_API_KEY_ID:$i, CDP_API_KEY_SECRET:$s}')
           fi

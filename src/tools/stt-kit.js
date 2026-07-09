@@ -5,7 +5,14 @@
 // Tiers:
 //   transcribe      $0.03  — gpt-4o-mini-transcribe  (5 min max)
 //   transcribe-pro  $0.10  — gpt-4o-transcribe        (10 min max)
+//
+// The per-tier duration cap is a MARGIN bound, not just a UX limit: OpenAI
+// bills ~$0.003/min (mini) / ~$0.006/min (4o), so an unchecked 25 MB file
+// (~26 min at 128 kbps mp3) would cost more upstream than the tool charges.
+// Duration is probed locally (header parse, no upstream call) and enforced
+// BEFORE the file is sent to OpenAI.
 
+import { parseBuffer } from "music-metadata";
 import { safeFetch } from "./fetch-guard.js";
 
 const OPENAI_KEY = () => (process.env.OPENAI_API_KEY || "").trim();
@@ -58,6 +65,37 @@ async function fetchAudio(url) {
   return { buf, filename };
 }
 
+/** Audio duration in seconds from the container headers, or null when it
+ *  cannot be determined. Pure local parse — no upstream call, no cost. */
+export async function probeDurationSeconds(buf, filename) {
+  try {
+    const meta = await parseBuffer(buf, { path: filename }, { duration: true });
+    const d = meta?.format?.duration;
+    return Number.isFinite(d) && d > 0 ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Throws 422 when the audio exceeds the tier's advertised duration cap, or
+ *  when the duration cannot be read at all (an unreadable container would
+ *  otherwise be an unbounded upstream bill). Small tolerance for container
+ *  rounding. Exported for tests. */
+export async function assertWithinDurationCap(buf, filename, tierSlug) {
+  const tier = TIERS[tierSlug];
+  const durationSec = await probeDurationSeconds(buf, filename);
+  if (durationSec === null) {
+    throw bad("Could not read the audio duration from the file — send a standard mp3, wav, m4a, ogg, flac, or webm file", 422);
+  }
+  const capSec = tier.maxMinutes * 60;
+  if (durationSec > capSec + 2) {
+    const mins = (durationSec / 60).toFixed(1);
+    const upsell = tierSlug === "transcribe" ? " For up to 10 minutes, use /api/transcribe-pro." : "";
+    throw bad(`Audio is ${mins} minutes — this tier accepts up to ${tier.maxMinutes} minutes.${upsell} Split longer recordings into chunks.`, 422);
+  }
+  return durationSec;
+}
+
 async function callOpenAI(audioBuffer, filename, model, language) {
   const key = OPENAI_KEY();
   if (!key) throw bad("OpenAI not configured", 503);
@@ -106,6 +144,7 @@ function makeHandler(tierSlug) {
   return async (input) => {
     const { url, language } = validateInput(input);
     const { buf, filename } = await fetchAudio(url);
+    await assertWithinDurationCap(buf, filename, tierSlug);
     const tier = TIERS[tierSlug];
     return callOpenAI(buf, filename, tier.model, language);
   };
