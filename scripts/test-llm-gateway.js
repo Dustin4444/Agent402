@@ -13,6 +13,11 @@ const throws = (fn, substr, msg) => {
 
 const msg1 = (content = "hi") => [{ role: "user", content }];
 
+// Route PostHog captures to the in-memory test sink. Must be set before the
+// FIRST handler call in this file — the gateway loads posthog.js lazily on
+// first use, and the module freezes its mode at import time.
+process.env.POSTHOG_TEST_CAPTURE = "1";
+
 // Bare OpenAI-style names map to OpenRouter ids — drop-in SDK compatibility.
 ok(canonicalModel("gpt-4o-mini") === "openai/gpt-4o-mini", "bare gpt name maps to openai/");
 ok(canonicalModel("claude-opus-4") === "anthropic/claude-opus-4", "bare claude name maps to anthropic/");
@@ -329,6 +334,78 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const streamRes = { headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} };
   await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), stream: true })).__sse(streamRes);
   ok(seen.provider?.max_price?.prompt === TIERS["v1-chat-nano"].maxPrice.prompt, "streamed upstream call carries the tier's provider.max_price");
+  ok(seen.usage === undefined, "streams never request usage accounting (cost would ride the buyer's raw SSE)");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// zdr — zero-data-retention provider routing: the ONE provider field a buyer
+// may set. Rides upstream as provider.zdr next to the server-owned max_price
+// cap; part of the normalized body so zdr/non-zdr never share a cache entry.
+{
+  const withZdr = validateRequest({ model: "gpt-4o-mini", messages: msg1(), zdr: true }, "v1-chat");
+  ok(withZdr.zdr === true, "top-level zdr:true lands in the normalized body");
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), provider: { zdr: true } }, "v1-chat").zdr === true, "provider.zdr form accepted too");
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), zdr: false }, "v1-chat").zdr === undefined, "zdr:false is a no-op");
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), zdr: "yes" }, "v1-chat").zdr === undefined, "non-boolean zdr never sneaks in");
+  ok(promptCacheKey("v1-chat", { model: "gpt-4o-mini", messages: msg1(), zdr: true }) !== promptCacheKey("v1-chat", { model: "gpt-4o-mini", messages: msg1() }),
+    "zdr and non-zdr requests get distinct cache entries");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-z", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, provider: { zdr: true, max_price: { prompt: 999999, completion: 999999 } } });
+  ok(seen.provider?.zdr === true, "zdr rides upstream as provider.zdr");
+  ok(seen.provider?.max_price?.prompt === TIERS["v1-chat-nano"].maxPrice.prompt, "zdr cannot loosen the server-owned price cap");
+  ok(!("zdr" in seen) || seen.zdr === undefined, "top-level zdr is stripped from the outbound body");
+
+  seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, body: { async *[Symbol.asyncIterator]() { yield Buffer.from("data: [DONE]\n\n"); } } };
+  };
+  const streamRes = { headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} };
+  await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), stream: true, zdr: true })).__sse(streamRes);
+  ok(seen.provider?.zdr === true && seen.provider?.max_price, "streamed calls carry zdr AND the price cap");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// Margin telemetry: non-stream calls request OpenRouter usage accounting, the
+// exact upstream cost is captured for the operator and STRIPPED before the
+// response reaches the buyer (or the prompt cache).
+{
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return {
+      ok: true, status: 200,
+      text: async () => JSON.stringify({
+        id: "gen-u", model: seen.model,
+        choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.00042, cost_details: { upstream_inference_cost: 0.0004 }, is_byok: false },
+      }),
+    };
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  const out = await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, cache: true });
+  ok(seen.usage?.include === true, "non-stream upstream call requests usage accounting");
+  ok(out.usage.prompt_tokens === 10 && out.usage.total_tokens === 15, "standard token counts still reach the buyer");
+  ok(out.usage.cost === undefined && out.usage.cost_details === undefined && out.usage.is_byok === undefined, "upstream cost never reaches the buyer");
+  const cached = promptCacheGet(promptCacheKey("v1-chat-nano", { model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, cache: true }));
+  ok(cached && cached.usage.cost === undefined, "the cached copy is the sanitized one");
+  const { _testEventsForTest } = await import("../src/posthog.js");
+  const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+  ok(ev?.properties.upstreamUsd === 0.00042 && ev?.properties.tier === "v1-chat-nano", "gateway_usage event carries the exact upstream cost");
+  ok(ev?.properties.priceUsd === TIERS["v1-chat-nano"].price && Math.abs(ev.properties.marginUsd - (0.003 - 0.00042)) < 1e-9, "event pairs price with cost → margin");
+  ok(ev?.properties.upstreamReported === true && ev?.properties.promptTokens === 10, "token volume and reporting flag captured");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }

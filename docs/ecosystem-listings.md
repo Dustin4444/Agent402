@@ -39,7 +39,7 @@ Coinbase reviews within ~5 business days. Category: **Services/Endpoints**.
 ```json
 {
   "name": "Agent402",
-  "description": "Headless browser, live web search, OCR, and durable wallet-keyed memory an AI agent's sandbox doesn't have — rented per call via x402 (USDC on Base + 4 more chains (Solana, Polygon, Arbitrum, Stellar), or USDG on Robinhood Chain) — plus 1,000+ deterministic utilities. Also an x402 Index + Smart Order Router that ranks the cheapest healthy tool across the whole ecosystem (auto-discovered from the CDP Bazaar). $0.001–$0.02/call, or free with proof-of-work. Open source, MCP server included.",
+  "description": "1,418 pay-per-call tools for AI agents over x402 — headless browser, live web search, OCR, PDFs, financial/SEC/macro data, durable wallet-keyed memory, and an OpenAI-compatible LLM gateway (/v1: chat, embeddings, auto-routing) — USDC on Base, Solana, Polygon, Arbitrum & Stellar, USDG on Robinhood Chain, or free via proof-of-work. Also an x402 Index + Smart Order Router that ranks the cheapest healthy tool across the ecosystem (auto-discovered from the CDP Bazaar). Open source, self-hostable, MCP server included.",
   "logoUrl": "/logos/agent402.png",
   "websiteUrl": "https://agent402.tools",
   "category": "Services/Endpoints"

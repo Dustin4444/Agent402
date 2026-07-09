@@ -311,6 +311,28 @@ export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthe
   });
 }
 
+// Per-call gateway margin accounting. OpenRouter reports the exact upstream
+// bill when usage accounting is requested; this event pairs it with the flat
+// tier price so real margin per tier/model is a PostHog insight instead of a
+// list-price estimate — and it back-checks the MODEL_COST table the margin
+// clamp prices against. upstreamUsd null (provider didn't report) still
+// captures tokens so volume stays queryable.
+export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens }) {
+  if (!active()) return;
+  const price = Number(priceUsd) || 0;
+  const upstream = Number(upstreamUsd) || 0;
+  capture("gateway_usage", {
+    tier: String(tier || "unknown"),
+    model: String(model || ""),
+    priceUsd: price,
+    upstreamUsd: upstream,
+    marginUsd: +(price - upstream).toFixed(6),
+    upstreamReported: upstreamUsd != null,
+    promptTokens: Number(promptTokens) || 0,
+    completionTokens: Number(completionTokens) || 0,
+  });
+}
+
 // Graceful shutdown helper — call from a SIGTERM handler if you want
 // in-flight events flushed before Railway kills the process. Optional;
 // PostHog's own batching usually catches them anyway. Also drains the

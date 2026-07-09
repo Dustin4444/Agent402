@@ -12,6 +12,8 @@ Payment settles **before** the handler runs (standard x402), so responses can st
 
 Because tiers are flat-priced while upstream bills per token, every request is also priced server-side before it goes upstream: input tokens are counted exactly (including tool schemas and images), and `max_tokens` is automatically tightened when an expensive model plus a large input would otherwise approach the tier price. Cheap and mid-priced models never hit this bound. A request whose input alone exceeds the budget returns a `400` explaining the fix (shrink the input, lower `n`, or pick a cheaper model). `n` is capped at 4.
 
+**Privacy routing:** send `zdr: true` (or `provider: {zdr: true}`) on any chat tier to route only to providers with a zero-data-retention policy. Same price, same models where available; a model with no ZDR provider errors upstream and the failover chain walks to one that has it. `zdr` is the only provider preference a buyer can set — pricing bounds stay server-owned.
+
 ## Tiers
 
 | Endpoint | Price | Serves | Input cap | Output cap |
