@@ -26,6 +26,10 @@
 // not idempotency-replayable (the cache hooks res.json only).
 
 import { createHash } from "node:crypto";
+// Static import (not agent-kit's lazy pattern): validateRequest must stay
+// synchronous because promptCacheKey — called from the pre-paywall cache
+// middleware — normalizes through it.
+import { countTokens } from "gpt-tokenizer/model/gpt-4o";
 
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -234,6 +238,102 @@ export function tierFor(model) {
 const MAX_MESSAGES = 100;
 const MAX_IMAGES = 4;
 const MAX_IMAGE_URL_LEN = 2048;
+const MAX_N = 4; // `n` multiplies output cost — bounded and priced in the margin clamp
+
+// ---------------------------------------------------------------------------
+// Margin clamp — the flat tier price must ALWAYS cover the metered upstream
+// bill. Char caps alone can't guarantee that: token-dense text (CJK packs
+// 4-8x more tokens per char than English), giant tool schemas, `n`
+// completions, and expensive model families (opus, o3-pro) can push the
+// worst case past the price. So every request is priced BEFORE it goes
+// upstream: estimate input tokens on the full outbound body, look up the
+// model family's list price, and clamp max_tokens so
+// input + output ≤ MARGIN × tier price. Cheap models never feel it (the
+// affordable output exceeds the tier cap); pricey models get proportionally
+// tighter output — and a request whose INPUT alone busts the budget gets a
+// self-explaining 400 instead of a useless clamp.
+//
+// Upstream list prices (USD per 1M tokens) by canonical-id prefix, longest
+// prefix wins. Rounded UP — this table only needs to never UNDERestimate.
+// Effective cost is elementwise-min'd with the tier's provider max_price
+// bound (OpenRouter refuses pricier providers), so an overestimate here
+// can't reject traffic the provider bound already makes safe.
+const MODEL_COST = [
+  ["openai/o3-pro", { prompt: 20, completion: 80 }],
+  ["openai/o3-mini", { prompt: 1.1, completion: 4.4 }],
+  ["openai/o3", { prompt: 2, completion: 8 }],
+  ["openai/o4-mini", { prompt: 1.1, completion: 4.4 }],
+  ["openai/o4", { prompt: 20, completion: 80 }], // unreleased flagship — assume pro-tier pricing until known
+  ["openai/gpt-5-nano", { prompt: 0.05, completion: 0.4 }],
+  ["openai/gpt-5-mini", { prompt: 0.25, completion: 2 }],
+  ["openai/gpt-5", { prompt: 1.25, completion: 10 }],
+  ["openai/gpt-4o-mini", { prompt: 0.15, completion: 0.6 }],
+  ["openai/gpt-4o", { prompt: 2.5, completion: 10 }],
+  ["openai/gpt-4.1-nano", { prompt: 0.1, completion: 0.4 }],
+  ["openai/gpt-4.1-mini", { prompt: 0.4, completion: 1.6 }],
+  ["openai/gpt-4.1", { prompt: 2, completion: 8 }],
+  ["anthropic/claude-opus", { prompt: 15, completion: 75 }],
+  ["anthropic/claude-sonnet", { prompt: 3, completion: 15 }],
+  ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
+  ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
+  ["anthropic/claude", { prompt: 1, completion: 5 }], // haiku family
+  ["google/gemini-2.5-pro", { prompt: 2.5, completion: 15 }],
+  ["google/gemini-pro", { prompt: 2.5, completion: 15 }],
+  ["google/gemini", { prompt: 0.4, completion: 2.5 }], // flash family
+  ["x-ai/grok", { prompt: 3, completion: 15 }],
+  ["deepseek/", { prompt: 0.6, completion: 2.5 }],
+  ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
+  ["mistralai/", { prompt: 2, completion: 6 }],
+  ["qwen/", { prompt: 1.6, completion: 6.4 }],
+];
+
+/** Upstream list price for a model (longest matching prefix), or null when
+ *  the family is unknown — callers fall back to the tier's max_price bound. */
+export function costFor(model) {
+  const id = canonicalModel(model).toLowerCase();
+  let best = null;
+  for (const [prefix, cost] of MODEL_COST) {
+    if (id.startsWith(prefix) && (!best || prefix.length > best.prefix.length)) best = { prefix, cost };
+  }
+  return best ? best.cost : null;
+}
+
+const MARGIN = 0.7;          // worst-case upstream ≤ 70% of the tier price
+const MIN_OUT_TOKENS = 64;   // a clamp below this is useless — reject with guidance instead
+const IMAGE_TOKENS = 1600;   // conservative flat per-image input estimate (high-detail tiling)
+const TOKEN_SAFETY = 1.15;   // headroom for BPE drift across vendors
+
+function estimateInputTokens(body, imageCount) {
+  // Price the ENTIRE outbound body — messages, tools, response_format, stop
+  // sequences — so a giant tool schema is input like any other input. Image
+  // URLs are excluded from the text count (a data: URL is not prompt text)
+  // and billed flat per image instead. Exact-BPE via gpt-tokenizer (o200k);
+  // deterministic, so the prompt-cache key stays stable.
+  const probe = { ...body };
+  delete probe.max_tokens;
+  const text = JSON.stringify(probe, (k, v) => (k === "image_url" ? undefined : v));
+  return Math.ceil(countTokens(text) * TOKEN_SAFETY) + imageCount * IMAGE_TOKENS;
+}
+
+function clampToMargin(body, tier, imageCount) {
+  const listed = costFor(body.model) || tier.maxPrice;
+  const cost = {
+    prompt: Math.min(listed.prompt, tier.maxPrice.prompt),
+    completion: Math.min(listed.completion, tier.maxPrice.completion),
+  };
+  const budgetUsd = tier.price * MARGIN;
+  const inTokens = estimateInputTokens(body, imageCount);
+  const inUsd = (inTokens / 1e6) * cost.prompt;
+  const n = body.n || 1;
+  const affordableOut = Math.floor(((budgetUsd - inUsd) * 1e6) / cost.completion / n);
+  if (affordableOut < MIN_OUT_TOKENS) {
+    throw bad(
+      `Input is too large for "${body.model}" at this tier's price (est. ${inTokens} input tokens). ` +
+      `Shrink the input, lower "n", or use a cheaper model — GET /v1/models lists every model and its tier.`
+    );
+  }
+  if (body.max_tokens > affordableOut) body.max_tokens = affordableOut;
+}
 
 function contentChars(content) {
   if (typeof content === "string") return { chars: content.length, images: 0 };
@@ -319,10 +419,16 @@ export function validateRequest(input, tierSlug) {
 
   const body = { model, messages, max_tokens: maxTokens };
   for (const k of PASSTHROUGH) if (input[k] !== undefined) body[k] = input[k];
+  if (body.n !== undefined) {
+    const n = parseInt(body.n, 10);
+    if (Number.isNaN(n) || n < 1 || n > MAX_N) throw bad(`"n" must be an integer between 1 and ${MAX_N} — each completion is metered output`);
+    body.n = n;
+  }
   if (input.stream === true) {
     body.stream = true;
     if (input.stream_options !== undefined) body.stream_options = input.stream_options;
   }
+  clampToMargin(body, tier, totalImages);
   return body;
 }
 

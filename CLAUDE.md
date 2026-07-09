@@ -75,7 +75,14 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   **Streaming** (`stream:true`): handler returns `{__sse}` sentinel, route binder pipes SSE
   after settlement. **Prompt cache** (`cache:true`, opt-in): byte-identical repeat served
   free pre-paywall within 10 min (`X-Cache: hit`); keys on the tier + normalized body
-  (resolved model included). All tiers in `WALLET_ONLY_SLUGS` and test-all's lenient
+  (resolved model included). **Margin protection (two layers, both in `validateRequest`):**
+  (1) per-tier `maxPrice` rides upstream as `provider.max_price` on every call — buyer-supplied
+  `provider` can never loosen it; (2) margin clamp — exact-BPE (`gpt-tokenizer` o200k, static
+  import: must stay sync for `promptCacheKey`) prices the FULL outbound body (incl. tools
+  schemas, images flat 1600 tok, `n`≤4 multiplier) against `MODEL_COST` (longest-prefix,
+  elementwise-min'd with `maxPrice`), then shrinks `max_tokens` so worst-case upstream ≤ 70%
+  of tier price; input alone over budget → self-explaining 400. Deterministic → cache-key
+  safe; cheap models never feel it. All tiers in `WALLET_ONLY_SLUGS` and test-all's lenient
   NETWORK set.
 - **Route-and-execute (`POST /api/route/execute`, $0.01, `src/tools/route-execute.js`):**
   resolves a task/slug via `findTools`, dispatches the underlying internal tool (underlying
