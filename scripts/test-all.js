@@ -148,6 +148,9 @@ const NETWORK = new Set([
   // OpenAI-compatible gateway: every call hits OpenRouter upstream. Returns
   // 503 without OPENROUTER_API_KEY — same tolerance as the LLM proxy.
   "/v1/nano/chat/completions", "/v1/auto/chat/completions", "/v1/chat/completions", "/v1/pro/chat/completions", "/v1/premium/chat/completions",
+  // Embeddings wire path: hits OpenAI upstream. 503 without OPENAI_API_KEY —
+  // same tolerance as the LLM proxy.
+  "/v1/embeddings",
   // Image generation kit: every call hits OpenAI GPT Image API upstream.
   // Returns 503 without OPENAI_API_KEY — same tolerance as LLM proxy.
   "/api/image-gen", "/api/image-gen-hd", "/api/image-gen-premium",

@@ -421,6 +421,94 @@ export const GATEWAY_TIER_BY_PATH = Object.fromEntries(
   Object.entries(TIERS).map(([slug, t]) => [t.route.split(" ")[1], slug])
 );
 
+// ---------------------------------------------------------------------------
+// /v1/embeddings — OpenAI wire-path embeddings, loop-priced with batching.
+// Upstream is OpenAI directly (OpenRouter serves chat only); env-gated on
+// OPENAI_API_KEY like llm-kit/embed-kit. Unlike the sampled chat tiers,
+// embeddings are DETERMINISTIC per model — so the response cache is
+// default-ON (opt out with cache:false): a byte-identical repeat within the
+// TTL is served free pre-paywall with zero freshness concerns.
+//
+// Cost discipline: caps 16k chars (~4k tokens) / 64 items per request.
+// Worst-case upstream at the caps: 3-small $0.00008, ada-002 $0.0004,
+// 3-large $0.00052 — all ≥3.8x under the $0.002 price.
+const OPENAI_KEY = () => (process.env.OPENAI_API_KEY || "").trim();
+const OPENAI_EMBEDDINGS_URL = "https://api.openai.com/v1/embeddings";
+export const EMBEDDINGS_PATH = "/v1/embeddings";
+const EMBEDDINGS_DEFAULT_MODEL = "text-embedding-3-small";
+const EMBEDDINGS_MODELS = new Set([EMBEDDINGS_DEFAULT_MODEL, "text-embedding-3-large", "text-embedding-ada-002"]);
+const EMBEDDINGS_MAX_ITEMS = 64;
+const EMBEDDINGS_MAX_CHARS = 16_000;
+
+export function validateEmbeddingsRequest(input) {
+  if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
+  let model = String(input.model || EMBEDDINGS_DEFAULT_MODEL).trim();
+  if (model.startsWith("openai/")) model = model.slice("openai/".length);
+  if (!EMBEDDINGS_MODELS.has(model)) {
+    throw bad(`"model" must be one of: ${[...EMBEDDINGS_MODELS].join(", ")} (default ${EMBEDDINGS_DEFAULT_MODEL})`);
+  }
+  const raw = input.input;
+  // Normalize string -> [string]: OpenAI returns the same list shape either
+  // way, and normalizing collapses both spellings to ONE cache entry.
+  const items = typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw : null;
+  if (!items || items.length === 0) throw bad('"input" is required — a string or an array of strings to embed');
+  if (items.length > EMBEDDINGS_MAX_ITEMS) throw bad(`Too many inputs (${items.length}). Maximum is ${EMBEDDINGS_MAX_ITEMS} per request`);
+  let totalChars = 0;
+  for (const it of items) {
+    if (typeof it !== "string" || !it) throw bad("Every input item must be a non-empty string");
+    totalChars += it.length;
+  }
+  if (totalChars > EMBEDDINGS_MAX_CHARS) throw bad(`Input too large (${totalChars} chars). /v1/embeddings allows up to ${EMBEDDINGS_MAX_CHARS} chars per request`);
+  const body = { model, input: items };
+  if (input.dimensions !== undefined) {
+    if (model === "text-embedding-ada-002") throw bad('"dimensions" is not supported by text-embedding-ada-002');
+    const d = parseInt(input.dimensions, 10);
+    if (Number.isNaN(d) || d < 1 || d > 3072) throw bad('"dimensions" must be an integer between 1 and 3072');
+    body.dimensions = d;
+  }
+  if (input.encoding_format !== undefined) {
+    if (input.encoding_format !== "float" && input.encoding_format !== "base64") throw bad('"encoding_format" must be "float" or "base64"');
+    body.encoding_format = input.encoding_format;
+  }
+  return body;
+}
+
+/** Cache key for /v1/embeddings — default-ON (deterministic output), so the
+ *  only opt-out is an explicit cache:false. Returns null when opted out;
+ *  throws (via validation) on invalid bodies — callers treat that as "no
+ *  cache" and let the normal path answer honestly. */
+export function embeddingsCacheKey(input) {
+  if (input?.cache === false) return null;
+  const body = validateEmbeddingsRequest(input);
+  return createHash("sha256").update(`v1-embeddings\n${stableStringify(body)}`).digest("hex");
+}
+
+async function embeddingsHandler(input) {
+  const body = validateEmbeddingsRequest(input);
+  const key = OPENAI_KEY();
+  if (!key) throw bad("Embeddings gateway not configured (OPENAI_API_KEY unset)", 503);
+  let res;
+  try {
+    res = await fetch(OPENAI_EMBEDDINGS_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e) {
+    throw bad(`Upstream request failed: ${e.message}`, 504);
+  }
+  if (!res.ok) await throwUpstreamError(res);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+  // Full OpenAI wire shape passes through untouched (object, data[], model,
+  // usage). Store unless the buyer opted out; oversized batches are skipped
+  // by the store's own per-entry byte cap.
+  try { promptCacheStore(embeddingsCacheKey(input), data); } catch { /* never fail a served response over the cache */ }
+  return data;
+}
+
 function makeHandler(tierSlug) {
   return async (input) => {
     const body = validateRequest(input, tierSlug);
@@ -578,6 +666,30 @@ export const LLM_GATEWAY_TOOLS = [
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "anthropic/claude-opus-4" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "anthropic/claude-opus-4" } } },
     handler: makeHandler("v1-chat-premium"),
   },
+  {
+    route: "POST /v1/embeddings",
+    name: "Embeddings (OpenAI-compatible)",
+    slug: "v1-embeddings",
+    category: "llm",
+    price: "$0.002",
+    description:
+      "OpenAI-compatible text embeddings over x402 — point any OpenAI SDK at base_url https://agent402.tools/v1 and pay $0.002 per call in USDC, no API key, no signup. Batch up to 64 inputs / 16k chars per request; text-embedding-3-small by default (3-large and ada-002 supported; dimensions and encoding_format pass through). Embeddings are deterministic, so a byte-identical repeat within 10 minutes is served FREE from cache automatically (X-Cache: hit; opt out with cache:false).",
+    tags: ["embeddings", "vector", "rag", "semantic-search", ...SHARED_TAGS],
+    discovery: {
+      bodyType: "json",
+      input: { input: "Agent402 is an open-source x402 tool server." },
+      inputSchema: {
+        properties: {
+          input: { type: "string", description: "Text to embed — a string or an array of up to 64 strings (16k chars total)" },
+          model: { type: "string", description: `Optional — ${EMBEDDINGS_DEFAULT_MODEL} (default), text-embedding-3-large, or text-embedding-ada-002` },
+          dimensions: { type: "number", description: "Optional output dimensions (3-small/3-large only)" },
+        },
+        required: ["input"],
+      },
+      output: { example: { object: "list", data: [{ object: "embedding", index: 0, embedding: [0.0023, -0.0091, 0.0152] }], model: EMBEDDINGS_DEFAULT_MODEL, usage: { prompt_tokens: 12, total_tokens: 12 } } },
+    },
+    handler: embeddingsHandler,
+  },
 ];
 
 /** OpenAI-compatible GET /v1/models payload — free discovery surface. */
@@ -592,6 +704,14 @@ export function modelsList() {
         x402: { tier: slug, endpoint: tier.route.split(" ")[1], priceUsd: tier.price, maxTokens: tier.maxTokens, maxInputChars: tier.maxInputChars },
       });
     }
+  }
+  for (const m of EMBEDDINGS_MODELS) {
+    data.push({
+      id: m,
+      object: "model",
+      owned_by: "openai",
+      x402: { tier: "v1-embeddings", endpoint: EMBEDDINGS_PATH, priceUsd: 0.002, maxInputChars: EMBEDDINGS_MAX_CHARS, maxItems: EMBEDDINGS_MAX_ITEMS },
+    });
   }
   return { object: "list", data, note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) — no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped." };
 }

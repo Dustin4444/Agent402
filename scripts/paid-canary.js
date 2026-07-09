@@ -25,6 +25,12 @@ import { createHmac } from "node:crypto";
 
 export const CORE_KIT = "core"; // deterministic baseline (hash): no upstream, so a failure = paywall/facilitator down
 
+// Embeddings cache is DEFAULT-ON, so the llm-embed leg's input carries a
+// per-run nonce — otherwise a canary re-run within the 10-min TTL would be
+// served from cache for free and fake a "settled". The embed-cache follow-up
+// reuses the SAME body to prove the free repeat.
+export const EMBED_CANARY_INPUT = `agent402 canary embedding ${Date.now()}`;
+
 // Per-tool spec: { kit, path, method, body?, priceUsd, check(body) → true | string }
 export const TOOLS = [
   {
@@ -150,6 +156,20 @@ export const TOOLS = [
       (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0 &&
         r.agent402_router?.category === "general" && typeof r.agent402_router?.served === "string") ||
       `expected routed completion + agent402_router disclosure, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
+    // Embeddings tier — OpenAI wire path, loop-priced. Asserts the untouched
+    // OpenAI list shape with a real vector; the default-on cache behavior is
+    // proven by the embed-cache follow-up below (pays here, repeats free).
+    kit: "llm-embed",
+    path: "/v1/embeddings",
+    method: "POST",
+    body: { input: EMBED_CANARY_INPUT, model: "text-embedding-3-small" },
+    priceUsd: 0.002,
+    check: (r) =>
+      (r.object === "list" && Array.isArray(r.data) && Array.isArray(r.data[0]?.embedding) &&
+        r.data[0].embedding.length >= 256 && typeof r.model === "string") ||
+      `expected an OpenAI embeddings list with a real vector, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
     // Route-and-execute — the SOR's executing surface. Dispatches internally
@@ -607,6 +627,28 @@ async function main() {
       }
     } catch (e) {
       console.warn(`\nWARN  prompt-cache leg errored: ${(e?.message || String(e)).slice(0, 140)}`);
+    }
+  })();
+
+  // Embeddings cache — DEFAULT-ON (no cache flag anywhere): the llm-embed leg
+  // above already paid for this exact body, so an unpaid identical repeat must
+  // come back 200 + X-Cache: hit with the same response object. This is the
+  // billing-relevant promise in the tool description — prove it daily.
+  await (async () => {
+    try {
+      const init = {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ input: EMBED_CANARY_INPUT, model: "text-embedding-3-small" }),
+      };
+      const free = await synthFetch(`${TARGET}/v1/embeddings`, init); // NO payment wrapper — must not need one
+      const freeBody = await free.json().catch(() => ({}));
+      if (free.status === 200 && free.headers.get("x-cache") === "hit" && Array.isArray(freeBody.data?.[0]?.embedding)) {
+        console.log(`\nOK    embed-cache /v1/embeddings  → paid once ($0.002), identical repeat served FREE (X-Cache: hit, default-on)`);
+      } else {
+        console.warn(`\nWARN  embed-cache leg: repeat was NOT a free hit — HTTP ${free.status}, X-Cache=${free.headers.get("x-cache")}`);
+      }
+    } catch (e) {
+      console.warn(`\nWARN  embed-cache leg errored: ${(e?.message || String(e)).slice(0, 140)}`);
     }
   })();
 
