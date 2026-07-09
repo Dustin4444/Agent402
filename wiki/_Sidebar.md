@@ -12,6 +12,7 @@
 - [[Skill Packs|Skill-Packs]]
 - [[x402 Index and Router|x402-Index-and-Router]]
 - [[x402 Leaderboard|x402-Leaderboard]]
+- [[LLM Gateway (OpenAI /v1)|LLM-Gateway]]
 - [[LLM Proxy Gateway|LLM-Proxy]]
 - [[Image Generation Gateway|Image-Gen]]
 - [[Code Execution Sandbox|Code-Execution]]

@@ -1,0 +1,65 @@
+# LLM Gateway (OpenAI-compatible /v1)
+
+Pay-per-call inference and embeddings at the **OpenAI wire paths** — any OpenAI SDK, agent framework, or plain HTTP client adopts the gateway by changing one setting:
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="https://agent402.tools/v1", api_key="unused")
+# pay per call with USDC over x402 — no API key, no signup, no account
+```
+
+Payment settles **before** the handler runs (standard x402), so responses can stream with no credit risk. Upstream is OpenRouter for chat and OpenAI for embeddings; per-tier model allowlists and input/output caps keep worst-case upstream cost well below the flat x402 price. `GET /v1/models` (free) lists every model with its tier, price, and caps.
+
+## Tiers
+
+| Endpoint | Price | Serves | Input cap | Output cap |
+|---|---|---|---|---|
+| `POST /v1/nano/chat/completions` | $0.003 | nano models (gpt-4.1-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat) — priced for high-frequency agent loops | 12k chars | 768 tokens |
+| `POST /v1/auto/chat/completions` | $0.01 | **model optional** — deterministic eval-ranked routing (see below) | 16k chars | 1,024 tokens |
+| `POST /v1/chat/completions` | $0.02 | budget/mid models (gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen) | 32k chars | 2,048 tokens |
+| `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok) | 48k chars | 4,096 tokens |
+| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) | 64k chars | 8,192 tokens |
+| `POST /v1/embeddings` | $0.002 | text-embedding-3-small (default), 3-large, ada-002 — batch up to 64 inputs | 16k chars | — |
+
+Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a model on the wrong tier returns a self-correcting 400 naming the right endpoint and price. All tiers are **wallet-only** — every call burns real upstream credit, so there is no proof-of-work free tier (see [[Security Model]]).
+
+## The auto tier — routing without picking a model
+
+Send messages with **no `model` field** (or `model: "auto"`) and the gateway routes the prompt to the top-ranked model for its task type. Routing is fully deterministic — lexical classification (code / reasoning / long-context / general) against a fixed, eval-derived ranking table; no LLM in the routing path, identical requests always route identically.
+
+An optional `quality` field picks the ranking band at the **same flat price** (a per-request price cannot exist under x402's fixed per-route quote):
+
+- `"fast"` — cheapest/snappiest serving, right for loop turns
+- `"balanced"` — the default
+- `"best"` — the strongest models the price still covers
+
+The response discloses the decision alongside the standard `model` field:
+
+```json
+"agent402_router": { "category": "code", "quality": "balanced", "served": "deepseek/deepseek-chat" }
+```
+
+Each ranking doubles as a failover chain: if a provider returns 502/503/504, the gateway walks down the list instead of charging you for an upstream error — every chain ends in the model the daily paid canary proves alive.
+
+## Streaming
+
+Add `stream: true` on any chat tier for standard OpenAI SSE framing (`data: {chunk}` … `data: [DONE]`). Payment settles before the first byte; `max_tokens` is clamped server-side so the stream stops at the tier cap. Streamed responses are not idempotency-replayable and never cached.
+
+## Response caching
+
+Two policies over one cache (10-minute TTL, served **before** the paywall — a hit costs nothing):
+
+- **Chat tiers — opt-in.** LLM output is sampled, and a resend usually wants a fresh sample, so nothing is cached unless the request carries `cache: true`. A byte-identical opted-in repeat returns the stored response free with `X-Cache: hit`.
+- **Embeddings — default-on.** Embeddings are deterministic per model, so identical repeats are free automatically; opt out with `cache: false`.
+
+Keys are computed over the *normalized* body (model aliases and field order collapse; every sampling-relevant field is included), so equivalent requests share one entry.
+
+## Related paid surfaces
+
+- `POST /api/route/execute` ($0.01) — resolve a task description to the best-matching catalog tool and run it in the same call, returning `{result, receipt}`. See [[x402 Index and Router|x402-Index-and-Router]].
+- `POST /api/my-usage` ($0.005) — your wallet's own purchase history (totals, per-tool counts, per-chain breakdown, receipts with settle txs). No wallet parameter: the x402 payment that buys the report determines whose report it is — nobody can read another wallet's profile.
+- The older custom-JSON proxies remain available: [[LLM Proxy Gateway|LLM-Proxy]] (`/api/llm*`) and [[Text Embeddings|Embeddings]] (`/api/embed*`).
+
+## Verified daily
+
+The paid canary buys from the gateway every day with real USDC: a nano completion (exercising the failover chain), a model-less auto completion (asserting the router disclosure), a live SSE stream, an embeddings vector, and both cache behaviors (paid once → identical repeat served free). If any of it breaks, an alarm issue opens on the repo.

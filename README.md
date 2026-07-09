@@ -113,6 +113,33 @@ and [`/llms.txt`](https://agent402.tools/llms.txt). Don't know which tool you ne
 a task description to the right tool — route, price, schema, and a ready example —
 so an agent skips the token-heavy "search around to find a tool" step.
 
+## OpenAI-compatible LLM gateway (`/v1`) — inference & embeddings, pay per call
+
+Point any OpenAI SDK at `base_url = https://agent402.tools/v1` and pay per call in
+USDC over x402 — no API key, no signup, no account:
+
+| Endpoint | Price | Serves |
+|---|---|---|
+| `POST /v1/nano/chat/completions` | $0.003 | nano models — priced for high-frequency agent loops |
+| `POST /v1/auto/chat/completions` | $0.01 | **no model needed** — deterministic eval-ranked routing (code / reasoning / long / general), optional `quality: fast \| balanced \| best` at the same price, decision disclosed via `agent402_router` |
+| `POST /v1/chat/completions` | $0.02 | budget/mid models (gpt-4o-mini, claude haiku, gemini flash, deepseek, llama…) |
+| `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok) |
+| `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) |
+| `POST /v1/embeddings` | $0.002 | OpenAI embeddings, batch up to 64 inputs — identical repeats are **free** (deterministic output, cache default-on) |
+
+Streaming (`stream: true`), full tools/function-calling passthrough, an opt-in
+prompt cache on the chat tiers (`cache: true` → byte-identical repeats free for
+10 minutes), upstream failover chains that end in a canary-proven model, and a
+free [`GET /v1/models`](https://agent402.tools/v1/models) listing every model with
+its tier and caps. A real-money canary buys from every one of these surfaces
+daily — streaming, routing disclosure, and both cache behaviors included.
+
+Two companion tools close the loop: `POST /api/route/execute` ($0.01) resolves a
+task description to the best catalog tool and runs it in one paid call, and
+`POST /api/my-usage` ($0.005) returns the **paying wallet's own** purchase
+history — no wallet parameter; the x402 payment is the identity, so nobody can
+read another wallet's profile.
+
 ## Skill packs — 92 multi-tool workflows
 
 For jobs that span several tools — "audit a domain", "diagnose deliverability",
