@@ -81,7 +81,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // x402 payments toolkit — kept off the free connector (paid surface only).
   "x402-quote", "usdc-balance", "tx-status", "gas-estimate", "x402-verify", "transfer-authorization", "ens-resolve", "x402-audit",
   // B20 kit — RPC egress against Base (b20-feature-id is pure CPU and stays PoW-eligible).
-  "b20-activation-check", "b20-token-info", "b20-verify",
+  "b20-activation-check", "b20-token-info", "b20-verify", "b20-new-tokens", "b20-memos",
   // Chain-kit: every tool talks to Alchemy and counts against our compute-unit
   // quota. PoW would let one client farm our paid upstream.
   "wallet-balance", "token-metadata", "token-price", "wallet-transactions",

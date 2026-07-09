@@ -136,6 +136,114 @@ async function readToken(addr) {
   return { name, symbol, decimals: decimals == null ? null : Number(decimals), totalSupply, paused, cap, codeSize: code ? hexBody(code).length / 2 : 0 };
 }
 
+// --- log-scanning helpers (b20-new-tokens, b20-memos) ------------------------
+// CDP published B20 event SIGNATURES but not indexed layouts, so decoding is
+// defensive: topic0 filters are layout-independent; fields are located by
+// shape (0xb200 prefix; final bytes32 word) rather than assumed position.
+const topicOf = (signature) => "0x" + keccak256(signature);
+const TOPIC_B20_CREATED = topicOf("B20Created(address,uint8,string,string,uint8,bytes)");
+const TOPIC_TRANSFER = topicOf("Transfer(address,address,uint256)");
+const TOPIC_MEMO = topicOf("Memo(address,bytes32)");
+
+// Malformed/missing hex from a flaky public RPC must not 500 a paid request.
+const logIndexNum = (h) => { try { return Number(BigInt(h)); } catch { return -1; } };
+
+// 32-byte words of a log: indexed topics (minus topic0) then data words.
+function logWords(log) {
+  const topicWords = (log.topics || []).slice(1).map(hexBody);
+  const dataWords = hexBody(log.data).match(/.{64}/g) || [];
+  return [...topicWords, ...dataWords];
+}
+
+// Locate the new token's address in a B20Created log by its 0xb200 prefix.
+// Address-shaped = 12 zero bytes then 20 bytes; the prefix makes it unambiguous.
+function findB20Address(log) {
+  for (const w of logWords(log)) {
+    if (w.length !== 64 || !w.startsWith("0".repeat(24))) continue;
+    const addr = "0x" + w.slice(24);
+    if (addr.startsWith(TOKEN_PREFIX)) return addr;
+  }
+  return null;
+}
+
+// Canonical ERC-20 Transfer (from/to indexed) with a non-indexed fallback.
+function decodeTransfer(log) {
+  const t = log.topics || [];
+  if (t.length >= 3) {
+    const value = decodeUint(log.data);
+    if (value == null) return null;
+    return { from: "0x" + hexBody(t[1]).slice(24), to: "0x" + hexBody(t[2]).slice(24), value };
+  }
+  const words = hexBody(log.data).match(/.{64}/g) || [];
+  if (words.length >= 3) {
+    return { from: "0x" + words[0].slice(24), to: "0x" + words[1].slice(24), value: BigInt("0x" + words[2]).toString() };
+  }
+  return null;
+}
+
+// The memo is the event's only bytes32 payload: prefer the (last) data word,
+// fall back to the last topic beyond topic0. One exception: if the data word
+// is address-shaped (12 zero bytes + 20) while the last topic is not, this is
+// the memo-INDEXED layout (data = sender address, topic = memo) — take the
+// topic. Printable bytes32 memos are left-aligned, so they never look
+// address-shaped.
+function memoWord(log) {
+  const dataWords = hexBody(log.data).match(/.{64}/g) || [];
+  const t = log.topics || [];
+  const dataWord = dataWords.length ? dataWords[dataWords.length - 1] : null;
+  const lastTopic = t.length > 1 ? hexBody(t[t.length - 1]) : null;
+  if (dataWord && lastTopic && dataWord.startsWith("0".repeat(24)) && !lastTopic.startsWith("0".repeat(24))) {
+    return "0x" + lastTopic;
+  }
+  if (dataWord) return "0x" + dataWord;
+  return lastTopic ? "0x" + lastTopic : null;
+}
+
+// Best-effort UTF-8: trim NUL padding, require printable, reject replacement chars.
+function memoText(hex) {
+  try {
+    const buf = Buffer.from(hexBody(hex), "hex");
+    let end = buf.length;
+    while (end > 0 && buf[end - 1] === 0) end--;
+    if (end === 0) return null;
+    const s = buf.subarray(0, end).toString("utf8");
+    if (s.includes("�") || /[\x00-\x1f\x7f]/.test(s)) return null;
+    return s;
+  } catch { return null; }
+}
+
+// Test-only export: offline unit tests exercise the decode layer directly.
+export const B20_INTERNALS = { TOPIC_B20_CREATED, TOPIC_TRANSFER, TOPIC_MEMO, findB20Address, decodeTransfer, memoWord, memoText, logIndexNum, logWords };
+
+async function latestBlock() {
+  return Number(BigInt(await rpc("eth_blockNumber", [])));
+}
+
+// Chunked eth_getLogs, newest chunk first (<=9k blocks per call: inside
+// Alchemy's range cap, small enough for public RPCs). Stops early at maxLogs
+// and reports how far back it actually scanned, so callers never claim
+// coverage of blocks it didn't fetch. A malformed (non-array) chunk ends the
+// reliable-coverage region the same way.
+async function getLogsChunked({ address, topics, fromBlock, toBlock, maxLogs = 2000 }) {
+  const CHUNK = 9000;
+  const out = [];
+  let scannedFrom = toBlock + 1; // nothing scanned yet
+  for (let hi = toBlock; hi >= fromBlock && out.length < maxLogs; hi -= CHUNK) {
+    const lo = Math.max(fromBlock, hi - CHUNK + 1);
+    const logs = await rpc("eth_getLogs", [{ address, topics, fromBlock: "0x" + lo.toString(16), toBlock: "0x" + hi.toString(16) }]);
+    if (!Array.isArray(logs)) break;
+    out.push(...logs);
+    scannedFrom = lo;
+  }
+  return { logs: out, scannedFrom, truncated: scannedFrom > fromBlock };
+}
+
+function windowInput(i, { defBlocks = 50000, maxBlocks = 200000 } = {}) {
+  const blocks = Math.floor(Number(i.blocks ?? defBlocks));
+  if (!Number.isFinite(blocks) || blocks < 1 || blocks > maxBlocks) throw bad(`blocks must be 1..${maxBlocks}`);
+  return blocks;
+}
+
 export const B20_TOOLS = [
   {
     route: "GET /api/b20-activation-check", name: "B20 activation check", slug: "b20-activation-check", category: "payments", price: "$0.002",
@@ -226,6 +334,114 @@ export const B20_TOOLS = [
         knownFeatures: KNOWN_FEATURES,
         note: "eth_call { to: registry, data: calldata } on Base mainnet returns bool",
       };
+    },
+  },
+  {
+    route: "GET /api/b20-new-tokens", name: "New B20 tokens", slug: "b20-new-tokens", category: "payments", price: "$0.005",
+    description:
+      "Recently deployed B20 tokens on Base: scans the factory's B20Created logs over a block window, locates each new token by its 0xB200 address prefix, and enriches it with live name/symbol/decimals eth_calls. ?blocks=50000&limit=25",
+    tags: ["b20", "base", "factory", "logs", "discovery", "token-standard"],
+    discovery: {
+      input: { blocks: 1000 },
+      inputSchema: { properties: {
+        blocks: { type: "number", description: "lookback window in blocks (default 50000 ≈ 28h, max 200000)" },
+        limit: { type: "number", description: "max tokens returned, newest first (default 25, max 100)" },
+      } },
+      output: { example: { network: "base", factory: FACTORY, fromBlock: 1, toBlock: 2, scannedFromBlock: 1, truncated: false, count: 0, skipped: 0, tokens: [] } },
+    },
+    handler: async (i) => {
+      const blocks = windowInput(i);
+      const rawLimit = i.limit == null ? 25 : Math.floor(Number(i.limit));
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 25;
+      const toBlock = await latestBlock();
+      const fromBlock = Math.max(0, toBlock - blocks + 1);
+      const { logs, scannedFrom, truncated } = await getLogsChunked({ address: FACTORY, topics: [TOPIC_B20_CREATED], fromBlock, toBlock });
+      // Deviation from the spec's "stop early once limit addresses are found":
+      // we scan the requested window fully (bounded by maxLogs) and trim after
+      // sorting — chunk order alone can't guarantee the newest hits otherwise.
+      logs.sort((a, b) => logIndexNum(b.blockNumber) - logIndexNum(a.blockNumber));
+      const seen = new Set();
+      let skipped = 0;
+      const found = [];
+      for (const log of logs) {
+        const address = findB20Address(log);
+        if (!address) { skipped++; continue; }
+        if (seen.has(address)) continue;
+        seen.add(address);
+        found.push({ address, txHash: log.transactionHash, blockNumber: logIndexNum(log.blockNumber) });
+        if (found.length >= limit) break;
+      }
+      const tokens = [];
+      for (let k = 0; k < found.length; k += 8) {
+        tokens.push(...await Promise.all(found.slice(k, k + 8).map(async (f) => {
+          const t = await readToken(f.address).catch(() => null);
+          return { ...f, name: t?.name ?? null, symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
+        })));
+      }
+      return { network: "base", factory: FACTORY, fromBlock, toBlock, scannedFromBlock: scannedFrom, truncated, count: tokens.length, skipped, tokens };
+    },
+  },
+  {
+    route: "GET /api/b20-memos", name: "B20 payment memos", slug: "b20-memos", category: "payments", price: "$0.005",
+    description:
+      "Payment memos attached to B20 transfers: pairs each Memo(address,bytes32) log with its Transfer at the previous log index (same tx, same token). Give a tx hash for one transaction, or scan a block window. Returns memoHex always and memoText when printable UTF-8. ?token=0xb200…&tx=0x…|&blocks=50000&address=0x…&limit=50",
+    tags: ["b20", "base", "memo", "payments", "logs", "transfer"],
+    discovery: {
+      input: { token: "0xb200000000000000000000000000000000000001", blocks: 1000 },
+      inputSchema: { properties: {
+        token: { type: "string", description: "B20 token address (must carry the 0xb200 prefix)" },
+        tx: { type: "string", description: "optional: decode memos in this transaction only" },
+        address: { type: "string", description: "optional: only transfers where from or to equals this address" },
+        blocks: { type: "number", description: "window-scan lookback (default 50000, max 200000; ignored when tx is given)" },
+        limit: { type: "number", description: "max memo rows (default 50, max 200)" },
+      }, required: ["token"] },
+      output: { example: { token: "0xb200…0001", mode: "window", fromBlock: 1, toBlock: 2, scannedFromBlock: 1, truncated: false, count: 0, memos: [] } },
+    },
+    handler: async (i) => {
+      const token = String(i.token || "").trim().toLowerCase();
+      if (!/^0xb200[0-9a-f]{36}$/.test(token)) throw bad("token must be a 0xb200-prefixed B20 token address");
+      const rawLimit = i.limit == null ? 50 : Math.floor(Number(i.limit));
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
+      const filter = i.address ? normAddress(i.address) : null;
+
+      let logs, mode, window = {};
+      if (i.tx) {
+        mode = "tx";
+        const tx = String(i.tx).trim().toLowerCase();
+        if (!/^0x[0-9a-f]{64}$/.test(tx)) throw bad("tx must be a 0x-prefixed 32-byte transaction hash");
+        const receipt = await rpc("eth_getTransactionReceipt", [tx]);
+        if (!receipt) throw bad("transaction not found on Base", 404);
+        logs = (receipt.logs || []).filter((l) => String(l.address).toLowerCase() === token);
+      } else {
+        mode = "window";
+        const blocks = windowInput(i);
+        const toBlock = await latestBlock();
+        const fromBlock = Math.max(0, toBlock - blocks + 1);
+        const r = await getLogsChunked({ address: token, topics: [[TOPIC_TRANSFER, TOPIC_MEMO]], fromBlock, toBlock });
+        window = { fromBlock, toBlock, scannedFromBlock: r.scannedFrom, truncated: r.truncated };
+        logs = r.logs;
+      }
+
+      // Index Transfer logs by (txHash, logIndex); each Memo pairs with the
+      // Transfer at logIndex - 1 in the same tx (CDP-documented adjacency).
+      const transfers = new Map();
+      for (const l of logs) {
+        if ((l.topics || [])[0] === TOPIC_TRANSFER) transfers.set(`${l.transactionHash}:${logIndexNum(l.logIndex)}`, l);
+      }
+      const memos = [];
+      for (const l of logs) {
+        if ((l.topics || [])[0] !== TOPIC_MEMO) continue;
+        const t = transfers.get(`${l.transactionHash}:${logIndexNum(l.logIndex) - 1}`);
+        if (!t) continue;
+        const d = decodeTransfer(t);
+        if (!d) continue;
+        if (filter && d.from !== filter && d.to !== filter) continue;
+        const hex = memoWord(l);
+        if (!hex) continue;
+        memos.push({ txHash: l.transactionHash, blockNumber: logIndexNum(l.blockNumber), from: d.from, to: d.to, amount: d.value, memoHex: hex, memoText: memoText(hex) });
+      }
+      memos.sort((a, b) => b.blockNumber - a.blockNumber);
+      return { network: "base", token, mode, ...window, count: Math.min(memos.length, limit), memos: memos.slice(0, limit) };
     },
   },
 ];

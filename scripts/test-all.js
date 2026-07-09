@@ -37,6 +37,8 @@ const NETWORK = new Set([
   // must not hard-block the deploy gate).
   "/api/weather-current", "/api/weather-daily", "/api/weather-hourly",
   "/api/weather-history", "/api/weather-air-quality",
+  // B20 log scans: chunked eth_getLogs against public Base RPCs — flappy in CI.
+  "/api/b20-new-tokens", "/api/b20-memos",
   // CDP kit: live Coinbase Developer Platform calls, env-gated on CDP keys
   // (503 without them — the CI test env has none; scripts/test-cdp-live.js
   // covers the real calls where the secrets exist).
