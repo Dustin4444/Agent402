@@ -32,7 +32,9 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   "answers its own example" CI check (`scripts/test-all.js`).
 - Pure-CPU tools are PoW-eligible (free tier) automatically unless in `WALLET_ONLY_SLUGS`.
 - **After adding/removing tools, run `node scripts/sync-count.js`** to update the total-count string across the ~60 static surfaces (README, wiki, docs, adapters). CI runs `sync-count.js --check` and fails on drift. Runtime surfaces (`/api/pricing`, `/openapi.json`, `docs.js`) already derive the count — leave those.
-- Memory tools (`/api/memory*`) are wallet-keyed (payment = identity), routed via `memHandler`, and must be in `WALLET_ONLY_SLUGS` + excluded from the marketplace bridge.
+- Memory tools (`/api/memory*`) are wallet-keyed (payment = identity), routed via `memHandler`, and must be in `WALLET_ONLY_SLUGS` + excluded from the marketplace bridge. Per-namespace
+  quotas: 10k keys AND a 32MB total-value byte budget (`MEMORY_MAX_NS_BYTES`, call-time read;
+  413 when full) — the byte budget is the disk-fill guard for the shared /data volume.
 
 ## Key machine-readable surfaces (free, unpaywalled)
 `/health`, `/api/pricing`, `/openapi.json`, `/llms.txt`, `/.well-known/x402`,
