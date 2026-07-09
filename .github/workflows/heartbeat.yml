@@ -102,6 +102,29 @@ jobs:
           done
           echo "status=down" >> "$GITHUB_OUTPUT"
           echo "fails=$FAILS" >> "$GITHUB_OUTPUT"
+      # Gateway credits: /v1 tiers settle the buyer's USDC before the handler
+      # runs, so an empty OpenRouter balance turns every gateway call into
+      # "charged but failed". Alarm on "low" BEFORE that happens. Separate
+      # issue from "production DOWN" (prod is serving fine); never fails the
+      # heartbeat run itself, and "unknown"/"unconfigured" never page.
+      - name: Gateway credits check (alarm on low OpenRouter balance)
+        if: always()
+        continue-on-error: true
+        run: |
+          STATUS=$(curl -s --max-time 15 "$PROD/api/gateway-status" | jq -r '.status // "unknown"' 2>/dev/null || echo unknown)
+          echo "gateway credits: $STATUS"
+          TITLE="Gateway credits LOW (OpenRouter)"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$STATUS" = "low" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The OpenRouter balance behind the /v1 gateway is below the low-water mark (OPENROUTER_LOW_CREDITS_USD, default \$5). Paid gateway calls settle BEFORE the upstream call, so an empty balance charges buyers for 503s. Top up: https://openrouter.ai/settings/credits (USDC accepted; auto-top-up available)."
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ)."
+            fi
+          elif [ "$STATUS" = "ok" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
+          fi
+
       - name: Alert (open issue) or clear (close issue)
         run: |
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Heartbeat: production DOWN"' --json number --jq '.[0].number // empty')

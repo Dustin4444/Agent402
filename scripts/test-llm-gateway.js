@@ -566,5 +566,33 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   delete process.env.OPENROUTER_API_KEY;
 }
 
+// Gateway credits status — the low-balance alarm feed. Bucketed statuses
+// only (no numbers leak), fail-safe "unknown" on upstream trouble, and a
+// cache so the public endpoint can't hammer OpenRouter through us.
+{
+  const { gatewayCreditsStatus } = await import("../src/tools/llm-gateway-kit.js");
+  delete process.env.OPENROUTER_API_KEY;
+  const un = await gatewayCreditsStatus();
+  ok(un.configured === false && un.status === "unconfigured", "no key → unconfigured, no fetch");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  process.env.OPENROUTER_LOW_CREDITS_USD = "5";
+  const realFetch = globalThis.fetch;
+  let fetches = 0;
+  globalThis.fetch = async () => {
+    fetches++;
+    return { ok: true, status: 200, json: async () => ({ data: { total_credits: 20, total_usage: 17.5 } }) };
+  };
+  const low = await gatewayCreditsStatus();
+  ok(low.status === "low" && low.configured === true, `$2.50 remaining under a $5 mark → low (got ${low.status})`);
+  ok(!JSON.stringify(low).match(/\d\.\d|20|17/), "no balance numbers in the public payload");
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ data: { total_credits: 100, total_usage: 1 } }) });
+  const cached = await gatewayCreditsStatus();
+  ok(cached.status === "low" && fetches === 1, "result is cached — the endpoint can't be used to hammer OpenRouter");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.OPENROUTER_LOW_CREDITS_USD;
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

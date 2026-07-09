@@ -96,7 +96,7 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
 import { IMAGE_GEN_TOOLS } from "./tools/image-gen-kit.js";
 import { CODE_RUN_TOOLS } from "./tools/code-run-kit.js";
 import { TTS_TOOLS } from "./tools/tts-kit.js";
@@ -749,6 +749,13 @@ app.get("/health", (_req, res) => {
 // models before it ever pays.
 app.get("/v1/models", (_req, res) => {
   res.set("Cache-Control", "public, max-age=300").json(modelsList());
+});
+// Bucketed gateway-credits status ("ok"/"low"/"unknown"/"unconfigured") — the
+// heartbeat alarms on "low" BEFORE an empty OpenRouter balance turns paid /v1
+// calls into charged-but-failed 503s. Numbers never leave the server; the
+// 5-minute in-module cache makes this safe to expose unpaywalled.
+app.get("/api/gateway-status", async (_req, res) => {
+  res.set("Cache-Control", "public, max-age=60").json(await gatewayCreditsStatus());
 });
 app.get("/.well-known/glama.json", (_req, res) => {
   const email = process.env.GLAMA_MAINTAINER_EMAIL || "mike@agent402.tools";
