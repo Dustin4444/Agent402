@@ -712,7 +712,31 @@ function makeHandler(tierSlug) {
     let lastErr;
     for (const model of chain) {
       try {
-        const data = await callOpenRouter({ ...body, model, ...(provider ? { provider } : {}) });
+        // usage.include asks OpenRouter for the exact upstream bill on this
+        // call — margin telemetry. Injected at call time (like provider), so
+        // it is never part of the normalized body or cache keys. Non-stream
+        // only: on streams the accounting rides the raw SSE the buyer sees.
+        const data = await callOpenRouter({ ...body, model, ...(provider ? { provider } : {}), usage: { include: true } });
+        // The exact upstream cost is operator telemetry, never a buyer-visible
+        // field — capture it, then strip it before the response is cached or
+        // returned. Standard token counts stay (OpenAI wire shape).
+        if (data && typeof data === "object" && data.usage && typeof data.usage === "object") {
+          const upstreamUsd = typeof data.usage.cost === "number" ? data.usage.cost : null;
+          delete data.usage.cost;
+          delete data.usage.cost_details;
+          delete data.usage.is_byok;
+          try {
+            const { capturePostHogGatewayUsage } = await import("../posthog.js");
+            capturePostHogGatewayUsage({
+              tier: tierSlug,
+              model: data.model || model,
+              priceUsd: TIERS[tierSlug].price,
+              upstreamUsd,
+              promptTokens: data.usage.prompt_tokens,
+              completionTokens: data.usage.completion_tokens,
+            });
+          } catch { /* telemetry must never fail a served response */ }
+        }
         // Routed requests disclose the decision: additive key, OpenAI wire
         // shape otherwise untouched (the standard `model` field already names
         // the server, this adds WHY). Streams pass through unannotated.

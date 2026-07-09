@@ -82,8 +82,13 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   schemas, images flat 1600 tok, `n`≤4 multiplier) against `MODEL_COST` (longest-prefix,
   elementwise-min'd with `maxPrice`), then shrinks `max_tokens` so worst-case upstream ≤ 70%
   of tier price; input alone over budget → self-explaining 400. Deterministic → cache-key
-  safe; cheap models never feel it. All tiers in `WALLET_ONLY_SLUGS` and test-all's lenient
-  NETWORK set.
+  safe; cheap models never feel it. **Margin telemetry:** non-stream calls ride
+  `usage:{include:true}` to OpenRouter (call-time inject, never in cache keys); exact
+  upstream cost → PostHog `gateway_usage` event (price/upstream/margin/tokens), then
+  `cost`/`cost_details`/`is_byok` are STRIPPED before the response is cached or returned
+  (never leak the bill to buyers; posthog.js loaded lazily in the handler). Streams skip
+  accounting — cost would ride the buyer's raw SSE. All tiers in `WALLET_ONLY_SLUGS` and
+  test-all's lenient NETWORK set.
 - **Route-and-execute (`POST /api/route/execute`, $0.01, `src/tools/route-execute.js`):**
   resolves a task/slug via `findTools`, dispatches the underlying internal tool (underlying
   price cap $0.005), returns `{result, receipt}`; underlying errors pass through.

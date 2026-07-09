@@ -13,6 +13,11 @@ const throws = (fn, substr, msg) => {
 
 const msg1 = (content = "hi") => [{ role: "user", content }];
 
+// Route PostHog captures to the in-memory test sink. Must be set before the
+// FIRST handler call in this file — the gateway loads posthog.js lazily on
+// first use, and the module freezes its mode at import time.
+process.env.POSTHOG_TEST_CAPTURE = "1";
+
 // Bare OpenAI-style names map to OpenRouter ids — drop-in SDK compatibility.
 ok(canonicalModel("gpt-4o-mini") === "openai/gpt-4o-mini", "bare gpt name maps to openai/");
 ok(canonicalModel("claude-opus-4") === "anthropic/claude-opus-4", "bare claude name maps to anthropic/");
@@ -329,6 +334,41 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const streamRes = { headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} };
   await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), stream: true })).__sse(streamRes);
   ok(seen.provider?.max_price?.prompt === TIERS["v1-chat-nano"].maxPrice.prompt, "streamed upstream call carries the tier's provider.max_price");
+  ok(seen.usage === undefined, "streams never request usage accounting (cost would ride the buyer's raw SSE)");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// Margin telemetry: non-stream calls request OpenRouter usage accounting, the
+// exact upstream cost is captured for the operator and STRIPPED before the
+// response reaches the buyer (or the prompt cache).
+{
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return {
+      ok: true, status: 200,
+      text: async () => JSON.stringify({
+        id: "gen-u", model: seen.model,
+        choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.00042, cost_details: { upstream_inference_cost: 0.0004 }, is_byok: false },
+      }),
+    };
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  const out = await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, cache: true });
+  ok(seen.usage?.include === true, "non-stream upstream call requests usage accounting");
+  ok(out.usage.prompt_tokens === 10 && out.usage.total_tokens === 15, "standard token counts still reach the buyer");
+  ok(out.usage.cost === undefined && out.usage.cost_details === undefined && out.usage.is_byok === undefined, "upstream cost never reaches the buyer");
+  const cached = promptCacheGet(promptCacheKey("v1-chat-nano", { model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, cache: true }));
+  ok(cached && cached.usage.cost === undefined, "the cached copy is the sanitized one");
+  const { _testEventsForTest } = await import("../src/posthog.js");
+  const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+  ok(ev?.properties.upstreamUsd === 0.00042 && ev?.properties.tier === "v1-chat-nano", "gateway_usage event carries the exact upstream cost");
+  ok(ev?.properties.priceUsd === TIERS["v1-chat-nano"].price && Math.abs(ev.properties.marginUsd - (0.003 - 0.00042)) < 1e-9, "event pairs price with cost → margin");
+  ok(ev?.properties.upstreamReported === true && ev?.properties.promptTokens === 10, "token volume and reporting flag captured");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
