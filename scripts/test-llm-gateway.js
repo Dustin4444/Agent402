@@ -213,7 +213,10 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 // model, ranking-as-failover-chain, disclosure, and the tier-ordering lock.
 {
   ok(TIERS["v1-chat-auto"].price === 0.01, "auto tier priced at $0.01");
-  ok(Object.values(AUTO_RANKINGS).every((list) => list.includes("openai/gpt-4o-mini")), "every ranking contains the canary-proven terminal model");
+  ok(
+    Object.values(AUTO_RANKINGS).every((byCategory) => Object.values(byCategory).every((list) => list.includes("openai/gpt-4o-mini"))),
+    "every ranking in every quality band contains the canary-proven terminal model"
+  );
 
   // Classification is lexical and deterministic.
   ok(classifyPrompt([{ role: "user", content: "Refactor this function:\n```js\nreturn 1\n```" }]) === "code", "code prompts classify as code");
@@ -225,9 +228,21 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 
   // Model resolution: omitted or "auto" routes; explicit ranked models honored.
   const noModel = validateRequest({ messages: msg1("What is the capital of France?") }, "v1-chat-auto");
-  ok(noModel.model === AUTO_RANKINGS.general[0], `missing model resolves to the general ranking head (got ${noModel.model})`);
+  ok(noModel.model === AUTO_RANKINGS.balanced.general[0], `missing model resolves to the balanced general head (got ${noModel.model})`);
   const autoModel = validateRequest({ model: "auto", messages: msg1("Solve the equation 3x + 5 = 20 step by step") }, "v1-chat-auto");
-  ok(autoModel.model === AUTO_RANKINGS.reasoning[0], "model:'auto' resolves via the classifier");
+  ok(autoModel.model === AUTO_RANKINGS.balanced.reasoning[0], "model:'auto' resolves via the classifier");
+
+  // Quality knob: band selection is deterministic, price-neutral, and only
+  // valid when the gateway is picking the model.
+  ok(validateRequest({ messages: msg1("hello"), quality: "fast" }, "v1-chat-auto").model === AUTO_RANKINGS.fast.general[0], "quality:'fast' resolves from the fast band");
+  ok(validateRequest({ messages: msg1("hello"), quality: "best" }, "v1-chat-auto").model === AUTO_RANKINGS.best.general[0], "quality:'best' resolves from the best band");
+  ok(validateRequest({ messages: msg1("hello"), quality: "balanced" }, "v1-chat-auto").model === AUTO_RANKINGS.balanced.general[0], "explicit quality:'balanced' matches the default");
+  throws(() => validateRequest({ messages: msg1("hello"), quality: "supreme" }, "v1-chat-auto"), "must be one of", "unknown quality rejected with the option list");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), quality: "best" }, "v1-chat-auto"), "applies only", "quality with an explicit model is rejected, not silently ignored");
+  {
+    const v = validateRequest({ messages: msg1("hello"), quality: "best" }, "v1-chat-auto");
+    ok(v.quality === undefined, "quality never rides to the upstream body");
+  }
   ok(validateRequest({ model: "gpt-4o-mini", messages: msg1() }, "v1-chat-auto").model === "openai/gpt-4o-mini", "explicit ranked model honored on the auto tier");
   throws(() => validateRequest({ model: "openai/gpt-4o", messages: msg1() }, "v1-chat-auto"), "/v1/pro/chat/completions", "off-ranking model still self-corrects to its home tier");
   {
@@ -248,14 +263,21 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   globalThis.fetch = async (url, init) => {
     const body = JSON.parse(init.body);
     calls.push(body.model);
-    if (body.model === AUTO_RANKINGS.code[0]) return { ok: false, status: 502, text: async () => "provider down" };
+    if (body.model === AUTO_RANKINGS.balanced.code[0]) return { ok: false, status: 502, text: async () => "provider down" };
     return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-a", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
   };
   const auto = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-auto");
   const routed = await auto.handler({ messages: [{ role: "user", content: "Refactor this function:\n```js\nreturn 1\n```" }], max_tokens: 5 });
   ok(routed.agent402_router?.category === "code", `routed response discloses the category (got ${routed.agent402_router?.category})`);
-  ok(routed.agent402_router?.served === AUTO_RANKINGS.code[1], `provider error walks DOWN the ranking (served ${routed.agent402_router?.served})`);
-  ok(calls.join(",") === AUTO_RANKINGS.code.slice(0, 2).join(","), `chain follows the ranking order (got ${calls.join(",")})`);
+  ok(routed.agent402_router?.quality === "balanced", `routed response discloses the default quality (got ${routed.agent402_router?.quality})`);
+  ok(routed.agent402_router?.served === AUTO_RANKINGS.balanced.code[1], `provider error walks DOWN the ranking (served ${routed.agent402_router?.served})`);
+  ok(calls.join(",") === AUTO_RANKINGS.balanced.code.slice(0, 2).join(","), `chain follows the ranking order (got ${calls.join(",")})`);
+
+  // quality:'fast' code prompt — the chain must come from the fast band.
+  calls.length = 0;
+  const fastRouted = await auto.handler({ messages: [{ role: "user", content: "Refactor this function:\n```js\nreturn 1\n```" }], quality: "fast", max_tokens: 5 });
+  ok(fastRouted.agent402_router?.quality === "fast" && fastRouted.agent402_router?.category === "code", "fast-band routing disclosed");
+  ok(calls.join(",") === AUTO_RANKINGS.fast.code[0], `fast band serves its own ranking head (got ${calls.join(",")})`);
 
   calls.length = 0;
   const explicit = await auto.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 5 });
@@ -270,7 +292,8 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const kAuto1 = promptCacheKey("v1-chat-auto", { messages: msg1("hello there"), cache: true });
   const kAuto2 = promptCacheKey("v1-chat-auto", { cache: true, messages: msg1("hello there") });
   ok(kAuto1 && kAuto1 === kAuto2, "auto-tier cache key is stable without a model field");
-  ok(kAuto1 === promptCacheKey("v1-chat-auto", { model: AUTO_RANKINGS.general[0], messages: msg1("hello there"), cache: true }), "routed and explicit-equivalent requests share one cache entry");
+  ok(kAuto1 === promptCacheKey("v1-chat-auto", { model: AUTO_RANKINGS.balanced.general[0], messages: msg1("hello there"), cache: true }), "routed and explicit-equivalent requests share one cache entry");
+  ok(kAuto1 !== promptCacheKey("v1-chat-auto", { messages: msg1("hello there"), quality: "best", cache: true }), "a quality band that resolves a different model gets its own cache entry");
   ok(GATEWAY_TIER_BY_PATH["/v1/auto/chat/completions"] === "v1-chat-auto", "path -> tier map covers auto");
 }
 

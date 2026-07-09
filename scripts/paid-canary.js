@@ -154,8 +154,9 @@ export const TOOLS = [
     priceUsd: 0.01,
     check: (r) =>
       (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0 &&
-        r.agent402_router?.category === "general" && typeof r.agent402_router?.served === "string") ||
-      `expected routed completion + agent402_router disclosure, got ${JSON.stringify(r).slice(0, 120)}`,
+        r.agent402_router?.category === "general" && r.agent402_router?.quality === "balanced" &&
+        typeof r.agent402_router?.served === "string") ||
+      `expected routed completion + agent402_router {category, quality, served}, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
     // Embeddings tier — OpenAI wire path, loop-priced. Asserts the untouched

@@ -64,10 +64,13 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
 - **Buyer SDK (`agent402-client`):** `find()` + `call()` with auto-payment (PoW free / x402 paid), caching, idempotent retries, non-custodial.
 - **LLM gateway (`src/tools/llm-gateway-kit.js`, OpenAI wire paths):** five tiers —
   nano `$0.003 /v1/nano/…`, **auto `$0.01 /v1/auto/…`** (model optional: deterministic
-  eval-ranked routing via `AUTO_RANKINGS` + `classifyPrompt` — code/reasoning/long/general;
-  ranking doubles as the failover chain; response adds `agent402_router {category, served}`;
-  tier listed LAST in `TIERS` so `tierFor()` ordering is stable), base `$0.02`, pro `$0.10`,
-  premium `$0.50`. Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
+  eval-ranked routing via `AUTO_RANKINGS[quality][category]` + `classifyPrompt` —
+  code/reasoning/long/general × quality bands fast/balanced/best (`quality` knob,
+  price-neutral, 400s alongside an explicit model); ranking doubles as the failover chain;
+  response adds `agent402_router {category, quality, served}`; tier listed LAST in `TIERS`
+  so `tierFor()` ordering is stable), base `$0.02`, pro `$0.10`, premium `$0.50`,
+  plus **`/v1/embeddings` `$0.002`** (OpenAI upstream, batch ≤64/16k chars, cache
+  DEFAULT-ON — deterministic output; `cache:false` opts out; `embeddingsCacheKey`). Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
   the chain on upstream 502/503/504 only — every chain ends in the canary-proven model.
   **Streaming** (`stream:true`): handler returns `{__sse}` sentinel, route binder pipes SSE
   after settlement. **Prompt cache** (`cache:true`, opt-in): byte-identical repeat served

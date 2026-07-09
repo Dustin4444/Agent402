@@ -45,14 +45,39 @@ function bad(message, statusCode = 400) {
 //
 // Each list doubles as the tier's failover chain: a provider error walks down
 // the ranking, and every list contains openai/gpt-4o-mini — the model the
-// daily paid canary proves alive. Worst-case upstream at the auto caps
-// (~4k tokens in / 1024 out) is deepseek-chat at ~$0.0022 — >4x under the
-// $0.01 price, same headroom discipline as the other tiers.
+// daily paid canary proves alive.
+//
+// The `quality` knob picks the BAND (fast / balanced / best); all three stay
+// inside the flat $0.01 price — a per-request price can't exist under x402's
+// fixed per-route quote, so quality trades latency/depth, never what the
+// buyer pays. Worst-case upstream at the auto caps (~4k tokens in / 1024
+// out): fast tops out at gemini-2.0-flash (~$0.0008, 12x headroom), balanced
+// at deepseek-chat (~$0.0022, >4x), best at gemini-2.5-flash (~$0.0038,
+// ~2.6x) — the thinnest band is documented, deliberate, and still >2x.
+export const AUTO_QUALITIES = ["fast", "balanced", "best"];
 export const AUTO_RANKINGS = {
-  code: ["deepseek/deepseek-chat", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
-  reasoning: ["deepseek/deepseek-chat", "google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
-  long: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-  general: ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001", "deepseek/deepseek-chat"],
+  // fast — cheapest/snappiest serving; right for high-frequency loop turns.
+  fast: {
+    code: ["google/gemini-2.0-flash-001", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
+    reasoning: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    long: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    general: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+  },
+  // balanced — the default; identical to the pre-knob rankings so existing
+  // buyers' routing does not change out from under them.
+  balanced: {
+    code: ["deepseek/deepseek-chat", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
+    reasoning: ["deepseek/deepseek-chat", "google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
+    long: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    general: ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001", "deepseek/deepseek-chat"],
+  },
+  // best — strongest models that still clear the price with ≥2.5x headroom.
+  best: {
+    code: ["deepseek/deepseek-chat", "google/gemini-2.5-flash", "openai/gpt-4o-mini"],
+    reasoning: ["google/gemini-2.5-flash", "deepseek/deepseek-chat", "openai/gpt-4o-mini"],
+    long: ["google/gemini-2.5-flash", "google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
+    general: ["google/gemini-2.5-flash", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+  },
 };
 
 // Explicit code/reasoning signals outrank raw length, so a long code review
@@ -161,7 +186,7 @@ export const TIERS = {
     maxTokens: 1024,
     router: true,
     fallbacks: ["openai/gpt-4o-mini"],
-    prefixes: [...new Set(Object.values(AUTO_RANKINGS).flat())],
+    prefixes: [...new Set(Object.values(AUTO_RANKINGS).flatMap((byCategory) => Object.values(byCategory).flat()))],
   },
 };
 
@@ -232,11 +257,19 @@ export function validateRequest(input, tierSlug) {
 
   let model = canonicalModel(input.model);
   if (tier.router === true && (!model || model === "auto")) {
-    // Auto tier, no model (or model:"auto") → deterministic eval-ranked pick.
-    // Resolving HERE (not in the handler) keeps promptCacheKey correct: the
-    // resolved model is part of the normalized body, so cached entries
-    // invalidate cleanly when the ranking table changes.
-    model = AUTO_RANKINGS[classifyPrompt(input.messages)][0];
+    // Auto tier, no model (or model:"auto") → deterministic eval-ranked pick
+    // from the requested quality band (default balanced). Resolving HERE (not
+    // in the handler) keeps promptCacheKey correct: the resolved model is
+    // part of the normalized body, so cached entries invalidate cleanly when
+    // the ranking table changes — and two qualities that resolve to the same
+    // model rightly share one cache entry.
+    const quality = input.quality === undefined ? "balanced" : String(input.quality);
+    if (!AUTO_QUALITIES.includes(quality)) {
+      throw bad(`"quality" must be one of: ${AUTO_QUALITIES.join(", ")} (default balanced)`);
+    }
+    model = AUTO_RANKINGS[quality][classifyPrompt(input.messages)][0];
+  } else if (tier.router === true && input.quality !== undefined) {
+    throw bad('"quality" applies only when the gateway picks the model — omit "model" (or send "auto") to use it');
   }
   if (!model) throw bad('"model" is required (e.g. "openai/gpt-4o-mini" or "gpt-4o-mini")');
   if (!tierAllows(tierSlug, model)) {
@@ -521,16 +554,16 @@ function makeHandler(tierSlug) {
     // 2026-07-08 — two independent paid runs — and buyers were charged $0.003
     // for 502s. No allowlist can guarantee a provider stays alive; a chain
     // ending in a canary-proven model can.)
-    // Auto tier with no explicit model: the routed category's full ranking IS
-    // the failover chain (body.model is already its head). Explicit-model
-    // requests — on any tier — keep the requested model first, then the
-    // tier's static fallbacks.
-    const routedCategory =
-      TIERS[tierSlug].router === true && (!canonicalModel(input.model) || canonicalModel(input.model) === "auto")
-        ? classifyPrompt(input.messages)
-        : null;
+    // Auto tier with no explicit model: the routed band+category's full
+    // ranking IS the failover chain (body.model is already its head).
+    // Explicit-model requests — on any tier — keep the requested model
+    // first, then the tier's static fallbacks.
+    const isRouted =
+      TIERS[tierSlug].router === true && (!canonicalModel(input.model) || canonicalModel(input.model) === "auto");
+    const routedCategory = isRouted ? classifyPrompt(input.messages) : null;
+    const routedQuality = isRouted ? (input.quality === undefined ? "balanced" : String(input.quality)) : null;
     const chain = routedCategory
-      ? [...AUTO_RANKINGS[routedCategory]]
+      ? [...AUTO_RANKINGS[routedQuality][routedCategory]]
       : [body.model, ...(TIERS[tierSlug].fallbacks || []).filter((m) => m !== body.model)];
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
@@ -559,7 +592,7 @@ function makeHandler(tierSlug) {
         // shape otherwise untouched (the standard `model` field already names
         // the server, this adds WHY). Streams pass through unannotated.
         if (routedCategory && data && typeof data === "object") {
-          data.agent402_router = { category: routedCategory, served: data.model || model };
+          data.agent402_router = { category: routedCategory, quality: routedQuality, served: data.model || model };
         }
         if (input.cache === true) {
           try { promptCacheStore(promptCacheKey(tierSlug, input), data); } catch { /* never fail a served response over the cache */ }
@@ -595,6 +628,7 @@ const AUTO_INPUT_SCHEMA = {
   properties: {
     messages: INPUT_SCHEMA.properties.messages,
     model: { type: "string", description: 'Optional — omit (or send "auto") for eval-ranked server-side routing. An explicit model from the auto ranking is honored at the auto caps.' },
+    quality: { type: "string", description: 'Optional routing band when the gateway picks the model: "fast" (cheapest/snappiest), "balanced" (default), "best" (strongest under the flat price). Never changes the price.' },
     max_tokens: INPUT_SCHEMA.properties.max_tokens,
   },
   required: ["messages"],
@@ -620,13 +654,13 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.01",
     description:
-      'OpenAI-compatible chat completions with server-side model choice: omit "model" (or send "auto") and the gateway routes the prompt to the top-ranked budget model for its task type (code / reasoning / long-context / general) from a fixed eval-derived ranking — deterministic, no LLM in the routing path. Provider errors fail over down the ranking automatically; the response adds agent402_router {category, served} alongside the standard model field. $0.01 per call in USDC over x402, caps 16k chars in / 1024 tokens out. Streaming supported (stream: true). No API key, no signup.',
+      'OpenAI-compatible chat completions with server-side model choice: omit "model" (or send "auto") and the gateway routes the prompt to the top-ranked model for its task type (code / reasoning / long-context / general) from a fixed eval-derived ranking — deterministic, no LLM in the routing path. An optional quality knob picks the band: "fast" (cheapest/snappiest), "balanced" (default), or "best" (strongest models the flat price covers) — same $0.01 either way. Provider errors fail over down the ranking automatically; the response adds agent402_router {category, quality, served} alongside the standard model field. Caps 16k chars in / 1024 tokens out. Streaming supported (stream: true). No API key, no signup.',
     tags: [...SHARED_TAGS, "router", "auto"],
     discovery: {
       bodyType: "json",
       input: { messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
       inputSchema: AUTO_INPUT_SCHEMA,
-      output: { example: { ...EXAMPLE_OUT, agent402_router: { category: "general", served: "openai/gpt-4o-mini" } } },
+      output: { example: { ...EXAMPLE_OUT, agent402_router: { category: "general", quality: "balanced", served: "openai/gpt-4o-mini" } } },
     },
     handler: makeHandler("v1-chat-auto"),
   },
