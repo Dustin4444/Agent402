@@ -37,7 +37,11 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
 ## Key machine-readable surfaces (free, unpaywalled)
 `/health`, `/api/pricing`, `/openapi.json`, `/llms.txt`, `/.well-known/x402`,
 `/api/reliability`, `/api/find?q=<task>`, `/api/stats`, `/robots.txt`, `/sitemap.xml`,
-`/.well-known/glama.json` (maintainer email from `GLAMA_MAINTAINER_EMAIL` env).
+`/.well-known/glama.json` (maintainer email from `GLAMA_MAINTAINER_EMAIL` env),
+`/api/gateway-status` (bucketed OpenRouter-balance status — "ok"/"low"/"unknown"/
+"unconfigured", numbers never exposed, 5-min cache; heartbeat opens a "Gateway
+credits LOW" issue on "low" — threshold `OPENROUTER_LOW_CREDITS_USD`, default $5,
+because /v1 settles before the handler and an empty balance = charged-but-failed).
 
 ## Dev / CI / deploy workflow
 - **Develop on branch `claude/sweet-brown-i99jl3`.** `main` is protected (PR required, no force-push).

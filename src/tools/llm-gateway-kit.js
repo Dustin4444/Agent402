@@ -580,6 +580,44 @@ export const GATEWAY_TIER_BY_PATH = Object.fromEntries(
 );
 
 // ---------------------------------------------------------------------------
+// Gateway credits status — the /v1 tiers settle the buyer's USDC BEFORE the
+// handler runs, so an empty OpenRouter balance turns every gateway call into
+// "charged but failed". This probe lets the heartbeat alarm BEFORE that
+// happens. Deliberately bucketed ("ok"/"low"/"unknown") — the exact balance
+// is operator information and never leaves the server. Cached 5 minutes so
+// the public endpoint can't be used to hammer OpenRouter through us.
+const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
+const CREDITS_CACHE_MS = 5 * 60 * 1000;
+const LOW_CREDITS_USD = () => Number(process.env.OPENROUTER_LOW_CREDITS_USD) || 5;
+let creditsCache = null; // { at, result }
+
+export async function gatewayCreditsStatus() {
+  const key = OPENROUTER_KEY();
+  if (!key) return { configured: false, status: "unconfigured" };
+  if (creditsCache && Date.now() - creditsCache.at < CREDITS_CACHE_MS) return creditsCache.result;
+  let result;
+  try {
+    const res = await fetch(OPENROUTER_CREDITS_URL, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body = res.ok ? await res.json() : null;
+    const total = Number(body?.data?.total_credits);
+    const used = Number(body?.data?.total_usage);
+    if (Number.isFinite(total) && Number.isFinite(used)) {
+      result = { configured: true, status: total - used < LOW_CREDITS_USD() ? "low" : "ok" };
+    } else {
+      // Shape surprise or upstream error — "unknown", never a false page.
+      result = { configured: true, status: "unknown" };
+    }
+  } catch {
+    result = { configured: true, status: "unknown" };
+  }
+  creditsCache = { at: Date.now(), result };
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // /v1/embeddings — OpenAI wire-path embeddings, loop-priced with batching.
 // Upstream is OpenAI directly (OpenRouter serves chat only); env-gated on
 // OPENAI_API_KEY like llm-kit/embed-kit. Unlike the sampled chat tiers,
