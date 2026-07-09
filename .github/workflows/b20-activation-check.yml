@@ -47,3 +47,27 @@ jobs:
             esac
           done
           exit $FAILED
+
+  # TEMPORARY piggyback (reverted after one dispatch): OpenRouter TTS model-id
+  # probe — see openrouter-tts-probe.yml, which becomes dispatchable once it
+  # reaches the default branch.
+  openrouter-tts-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: TTS/audio ids in the public models list
+        run: |
+          curl -sS --max-time 30 https://openrouter.ai/api/v1/models -o /tmp/models.json
+          echo "total models: $(jq '.data | length' /tmp/models.json)"
+          echo "--- ids matching tts/speech/voxtral/chirp/audio:"
+          jq -r '.data[].id' /tmp/models.json | grep -iE 'tts|speech|voxtral|chirp|audio' || echo "(none in /api/v1/models)"
+      - name: Authenticated endpoint probe (skips without secret)
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          [ -n "$OPENROUTER_API_KEY" ] || { echo "no OPENROUTER_API_KEY secret — skipping"; exit 0; }
+          for M in "openai/gpt-4o-mini-tts" "openai/gpt-4o-mini-tts-2025-12-15" "mistralai/voxtral-mini-tts-2603" "google/gemini-2.5-flash-tts"; do
+            CODE=$(curl -sS --max-time 30 -o /tmp/p.out -w '%{http_code}'               -X POST https://openrouter.ai/api/v1/audio/speech               -H "Authorization: Bearer $OPENROUTER_API_KEY" -H "Content-Type: application/json"               -d "{\"model\":\"$M\",\"input\":\"ping\",\"voice\":\"alloy\",\"response_format\":\"mp3\"}")
+            if [ "$CODE" = "200" ]; then echo "PROBE $M -> 200 ($(wc -c < /tmp/p.out) bytes) OK"
+            else echo "PROBE $M -> $CODE $(head -c 200 /tmp/p.out)"; fi
+          done
