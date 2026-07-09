@@ -50,7 +50,7 @@ curl https://agent402.tools/api/pricing
 
 Tools accept `GET` (query params) or `POST` (JSON body), depending on the tool. The catalog (`/api/pricing`, `/openapi.json`) specifies the method and schema for each.
 
-**OpenAI wire paths:** chat, embeddings, and image generation are also served OpenAI-compatibly under `/v1` — `POST /v1/{nano,auto,pro,premium}/chat/completions`, `POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, with `GET /v1/models` free. See [[LLM Gateway (OpenAI /v1)|LLM-Gateway]] for tiers, the model-optional auto router, streaming, and caching. `POST /api/route/execute` runs the resolver's top pick in one paid call, and `POST /api/my-usage` returns the paying wallet's own purchase history.
+**OpenAI wire paths:** chat, embeddings, image generation, and text-to-speech are also served OpenAI-compatibly under `/v1` — `POST /v1/{nano,auto,pro,premium}/chat/completions`, `POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, `POST /v1/audio/speech`, with `GET /v1/models` free. See [[LLM Gateway (OpenAI /v1)|LLM-Gateway]] for tiers, the model-optional auto router, streaming, and caching. `POST /api/route/execute` runs the resolver's top pick in one paid call, and `POST /api/my-usage` returns the paying wallet's own purchase history.
 
 ### GET example
 
@@ -157,7 +157,7 @@ Handlers throw errors with `.statusCode` set; the server maps these to the appro
 
 ## See also
 
-- [[Tool Catalog]] -- what the 1,419 tools are and how agents discover them
+- [[Tool Catalog]] -- what the 1,420 tools are and how agents discover them
 - [[Paying with x402]] -- USDC payment flow with code examples
 - [[Paying with Compute]] -- proof-of-work protocol and reference solver
 - [[MCP Connector]] -- hosted connector and the `agent402-mcp` npm server

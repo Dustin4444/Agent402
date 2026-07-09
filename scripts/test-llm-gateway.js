@@ -74,10 +74,10 @@ await gatewayTool.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 
 const list = modelsList();
 ok(list.object === "list" && Array.isArray(list.data) && list.data.length > 10, "models list has OpenAI shape");
 ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402?.endpoint?.startsWith("/v1")), "every model entry carries x402 tier metadata");
-ok(new Set(list.data.map((m) => m.x402.tier)).size === 7, "all five chat tiers + embeddings + images represented");
+ok(new Set(list.data.map((m) => m.x402.tier)).size === 8, "all five chat tiers + embeddings + images + speech represented");
 
 // Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 7, "seven gateway routes");
+ok(LLM_GATEWAY_TOOLS.length === 8, "eight gateway routes");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -592,6 +592,50 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.OPENROUTER_LOW_CREDITS_USD;
+}
+
+// /v1/audio/speech — OpenAI TTS wire over OpenRouter, raw bytes out via the
+// route binder's __binary sentinel. Cost is bounded by the locked model plus
+// the char cap; speed<1 is rejected (same text → more metered audio).
+{
+  const { validateSpeechRequest, SPEECH_PATH, LLM_GATEWAY_TOOLS: tools } = await import("../src/tools/llm-gateway-kit.js");
+  ok(SPEECH_PATH === "/v1/audio/speech", "speech path constant");
+  const speechTool = tools.find((t) => t.slug === "v1-audio-speech");
+  ok(speechTool && speechTool.route === "POST /v1/audio/speech" && speechTool.price === "$0.060", "speech tool registered at the OpenAI wire path");
+
+  const v = validateSpeechRequest({ input: "hello world" });
+  ok(v.body.model === "openai/gpt-4o-mini-tts" && v.body.voice === "alloy" && v.body.response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: locked model, alloy, mp3");
+  ok(validateSpeechRequest({ input: "hi", model: "gpt-4o-mini-tts" }).body.model === "openai/gpt-4o-mini-tts", "bare locked-model id accepted");
+  ok(validateSpeechRequest({ input: "hi", response_format: "pcm" }).contentType === "audio/pcm", "pcm supported");
+  throws(() => validateSpeechRequest({}), '"input" is required', "missing input rejected");
+  throws(() => validateSpeechRequest({ input: "x".repeat(1500), instructions: "y".repeat(600) }), "Input too long", "instructions count against the char cap");
+  throws(() => validateSpeechRequest({ input: "hi", model: "tts-1-hd" }), "fixed to", "other models rejected");
+  throws(() => validateSpeechRequest({ input: "hi", voice: "morgan-freeman" }), '"voice" must be one of', "unknown voice rejected");
+  throws(() => validateSpeechRequest({ input: "hi", response_format: "flac" }), "response_format", "unsupported format rejected");
+  throws(() => validateSpeechRequest({ input: "hi", speed: 0.5 }), "more metered audio", "speed<1 rejected — it multiplies audio output");
+  ok(validateSpeechRequest({ input: "hi", zdr: true }).body.provider?.zdr === true, "zdr folds into provider prefs");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  const FAKE_MP3 = Buffer.from("ID3fake-mp3-bytes".repeat(50));
+  let seen = null, seenUrl = null;
+  globalThis.fetch = async (url, init) => {
+    seenUrl = String(url);
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, arrayBuffer: async () => FAKE_MP3.buffer.slice(FAKE_MP3.byteOffset, FAKE_MP3.byteOffset + FAKE_MP3.byteLength) };
+  };
+  const out = await speechTool.handler({ input: "hello", voice: "nova" });
+  ok(seenUrl.includes("openrouter.ai/api/v1/audio/speech"), "hits OpenRouter's audio speech endpoint");
+  ok(seen.model === "openai/gpt-4o-mini-tts" && seen.voice === "nova", "upstream body carries the locked model and chosen voice");
+  ok(Buffer.isBuffer(out.__binary) && out.__binary.length === FAKE_MP3.length && out.contentType === "audio/mpeg", "raw bytes returned via the __binary sentinel");
+
+  globalThis.fetch = async () => ({ ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) });
+  await speechTool.handler({ input: "hello" }).then(
+    () => ok(false, "empty audio must not serve"),
+    (e) => ok(e.statusCode === 502 && /no audio/i.test(e.message), "empty upstream audio → 502")
+  );
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

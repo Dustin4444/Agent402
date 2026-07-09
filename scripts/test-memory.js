@@ -105,6 +105,34 @@ const firstId = r.results[0].id;
 ok("forget deletes a doc", forget(A, firstId, { actor: A }).deleted === true);
 ok("recall reports its embedder", typeof r.embedder === "string" && r.embedder.length > 0);
 
+// --- namespace byte budget (disk-fill guard) --------------------------------
+// The key-count cap alone allows 10k × 64KB = 640MB per wallet on the shared
+// /data volume. The byte budget bounds total stored value bytes; env-tunable
+// (read at call time), so shrink it here to test without megabytes of writes.
+{
+  const C = rnd();
+  process.env.MEMORY_MAX_NS_BYTES = "150000"; // 150KB budget for the test
+  const big = "x".repeat(60_000);
+  memoryPut(C, "b1", big);
+  memoryPut(C, "b2", big);
+  throws("third 60KB value busts the 150KB byte budget", () => memoryPut(C, "b3", big), 413);
+  memoryPut(C, "b1", big); // same-size overwrite never counts as growth
+  ok("same-size overwrite allowed at the budget line", true);
+  memoryPut(C, "b1", "tiny"); // shrinking frees budget…
+  memoryPut(C, "b3", big); // …so the third big value now fits
+  ok("shrinking a value frees budget for new writes", true);
+  throws("cas write path enforces the budget too", () => memoryCas(C, "b4", null, big, { hasValue: true }), 413);
+  // Expired rows are reclaimed before rejecting.
+  const D = rnd();
+  memoryPut(D, "t1", big, { ttlSeconds: 1 });
+  memoryPut(D, "t2", big);
+  const t0 = Date.now();
+  while (Date.now() - t0 < 1100) { /* let t1 expire (sync test file) */ }
+  memoryPut(D, "t3", big); // t1 expired → reclaim makes room
+  ok("expired rows are reclaimed before a budget rejection", true);
+  delete process.env.MEMORY_MAX_NS_BYTES;
+}
+
 const failed = checks.filter(([, c]) => !c);
 console.log(`\n${pass}/${checks.length} checks passed`);
 if (failed.length) {

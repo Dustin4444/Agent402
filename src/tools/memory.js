@@ -85,6 +85,27 @@ function bad(message, code = 400) {
   return err;
 }
 
+// The key-count cap alone doesn't bound DISK: 10k keys × 64KB values is
+// 640MB per wallet, and a handful of cheap wallets could fill the /data
+// volume — which the stats/PoW/memory databases all share, so a full disk
+// takes down the serving path, not just memory. Budget the namespace's
+// TOTAL stored value bytes too. Env-tunable (read at call time so tests can
+// shrink it); expired rows are reclaimed before rejecting, same as the
+// key-count path. 413 = the request is fine, the store is full.
+const MAX_NS_BYTES = () => Number(process.env.MEMORY_MAX_NS_BYTES) || 32 * 1024 * 1024;
+
+function assertByteBudget(owner, key, incomingBytes) {
+  const existing = kvGet.get(owner, key);
+  const delta = incomingBytes - (existing ? existing.v.length : 0);
+  if (delta <= 0) return; // shrinking or same-size overwrite always allowed
+  if (kvBytes.get(owner).b + delta > MAX_NS_BYTES()) {
+    kvPruneExpired.run(owner, nowSec());
+    if (kvBytes.get(owner).b + delta > MAX_NS_BYTES()) {
+      throw bad(`Namespace byte budget exceeded (${MAX_NS_BYTES()} bytes of stored values) — delete keys, shrink values, or let TTLs expire`, 413);
+    }
+  }
+}
+
 // --- statements -----------------------------------------------------------
 const kvPut = db.prepare(
   "INSERT INTO kv (ns, k, v, updated, exp) VALUES (@ns, @k, @v, @updated, @exp) " +
@@ -94,6 +115,7 @@ const kvGet = db.prepare("SELECT v, updated, exp FROM kv WHERE ns = ? AND k = ?"
 const kvDel = db.prepare("DELETE FROM kv WHERE ns = ? AND k = ?");
 const kvList = db.prepare("SELECT k, updated, exp FROM kv WHERE ns = ? ORDER BY updated DESC LIMIT 1000");
 const kvCount = db.prepare("SELECT COUNT(*) AS n FROM kv WHERE ns = ?");
+const kvBytes = db.prepare("SELECT COALESCE(SUM(LENGTH(v)), 0) AS b FROM kv WHERE ns = ?");
 const kvPruneExpired = db.prepare("DELETE FROM kv WHERE ns = ? AND exp IS NOT NULL AND exp < ?");
 const kvPruneAll = db.prepare("DELETE FROM kv WHERE exp IS NOT NULL AND exp < ?");
 
@@ -208,6 +230,7 @@ export function memoryPut(owner, key, value, { actor = owner, ttlSeconds } = {})
     kvPruneExpired.run(owner, nowSec());
     if (kvCount.get(owner).n >= MAX_KEYS_PER_NS) throw bad(`Namespace is full (${MAX_KEYS_PER_NS} keys)`);
   }
+  assertByteBudget(owner, key, serialized.length);
   let exp = null;
   if (ttlSeconds !== undefined && ttlSeconds !== null) {
     const t = parseInt(ttlSeconds, 10);
@@ -300,6 +323,7 @@ export const memoryCas = db.transaction((owner, key, expected, value, { actor = 
     kvPruneExpired.run(owner, nowSec());
     if (kvCount.get(owner).n >= MAX_KEYS_PER_NS) throw bad(`Namespace is full (${MAX_KEYS_PER_NS} keys)`);
   }
+  assertByteBudget(owner, key, serialized.length);
   let exp = null;
   if (ttlSeconds !== undefined && ttlSeconds !== null) {
     const t = parseInt(ttlSeconds, 10);
