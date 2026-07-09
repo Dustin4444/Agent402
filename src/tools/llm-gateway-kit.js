@@ -807,6 +807,83 @@ async function imagesHandler(input) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// /v1/audio/speech — OpenAI wire-path text-to-speech over OpenRouter's audio
+// API (raw audio bytes out, exactly like OpenAI's endpoint, so any SDK's
+// audio.speech.create() works by changing base_url — served via the route
+// binder's { __binary } sentinel). Cost knobs are server-owned: the model is
+// locked and the input is char-capped, which bounds the audio-output bill
+// deterministically (~2k chars ≈ 2.4 min ≈ $0.036 at OpenAI-direct parity —
+// ≤60% of the price even if OpenRouter bills at parity, and their listed TTS
+// rates are lower). speed < 1 is rejected — it stretches the same text into
+// MORE audio. Binary responses carry no usage accounting and are never
+// cached (sampled output).
+export const SPEECH_PATH = "/v1/audio/speech";
+const OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech";
+const SPEECH_MODEL = "openai/gpt-4o-mini-tts";
+const SPEECH_PRICE = 0.06;
+const SPEECH_MAX_CHARS = 2_000;
+const SPEECH_FORMATS = { mp3: "audio/mpeg", pcm: "audio/pcm" };
+const SPEECH_VOICES = new Set(["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"]);
+
+export function validateSpeechRequest(input) {
+  if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
+  const text = typeof input.input === "string" ? input.input : "";
+  if (!text.trim()) throw bad('"input" is required — the text to speak');
+  const instructions = typeof input.instructions === "string" ? input.instructions : "";
+  // Instructions are model input too — they count against the same cap.
+  if (text.length + instructions.length > SPEECH_MAX_CHARS) {
+    throw bad(`Input too long (${text.length + instructions.length} chars incl. instructions). /v1/audio/speech allows up to ${SPEECH_MAX_CHARS}`);
+  }
+  if (input.model !== undefined) {
+    const m = canonicalModel(input.model);
+    if (m !== SPEECH_MODEL && !m.startsWith(`${SPEECH_MODEL}-`)) {
+      throw bad(`"model" is fixed to ${SPEECH_MODEL} on this endpoint (omit it, or send that id)`);
+    }
+  }
+  const voice = input.voice === undefined ? "alloy" : String(input.voice);
+  if (!SPEECH_VOICES.has(voice)) throw bad(`"voice" must be one of: ${[...SPEECH_VOICES].join(", ")}`);
+  const format = input.response_format === undefined ? "mp3" : String(input.response_format);
+  if (!SPEECH_FORMATS[format]) throw bad(`"response_format" must be one of: ${Object.keys(SPEECH_FORMATS).join(", ")}`);
+  if (input.speed !== undefined) {
+    const s = Number(input.speed);
+    if (!Number.isFinite(s) || s < 1 || s > 4) {
+      throw bad('"speed" must be between 1 and 4 — values below 1 stretch the same text into more metered audio');
+    }
+  }
+  const body = { model: SPEECH_MODEL, input: text, voice, response_format: format };
+  if (instructions) body.instructions = instructions;
+  if (input.speed !== undefined) body.speed = Number(input.speed);
+  if (input.zdr === true || input.provider?.zdr === true) body.provider = { zdr: true };
+  return { body, contentType: SPEECH_FORMATS[format] };
+}
+
+async function speechHandler(input) {
+  const { body, contentType } = validateSpeechRequest(input);
+  const key = OPENROUTER_KEY();
+  if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
+  let res;
+  try {
+    res = await fetch(OPENROUTER_SPEECH_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://agent402.tools",
+        "X-Title": "Agent402.Tools x402 gateway",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (e) {
+    throw bad(`Upstream request failed: ${e.message}`, 504);
+  }
+  if (!res.ok) await throwUpstreamError(res);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  if (buffer.length === 0) throw bad("Upstream returned no audio — retry, or rephrase the input", 502);
+  return { __binary: buffer, contentType };
+}
+
 function makeHandler(tierSlug) {
   return async (input) => {
     const body = validateRequest(input, tierSlug);
@@ -1048,6 +1125,31 @@ export const LLM_GATEWAY_TOOLS = [
     },
     handler: imagesHandler,
   },
+  {
+    route: "POST /v1/audio/speech",
+    name: "Text-to-speech (OpenAI-compatible)",
+    slug: "v1-audio-speech",
+    category: "llm",
+    price: "$0.060",
+    description:
+      "OpenAI-compatible text-to-speech over x402 — point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by gpt-4o-mini-tts via OpenRouter; up to 2,000 chars in (instructions included), raw mp3 (default) or pcm bytes out — the same wire shape as OpenAI's endpoint. 11 voices; optional tone instructions; zdr:true routes only to zero-data-retention providers.",
+    tags: ["tts", "text-to-speech", "speech", "audio", "voice", ...SHARED_TAGS],
+    discovery: {
+      bodyType: "json",
+      input: { input: "Agent402 serves fourteen hundred tools, paid per call.", voice: "alloy" },
+      inputSchema: {
+        properties: {
+          input: { type: "string", description: "Text to speak (up to 2,000 chars, instructions included)" },
+          voice: { type: "string", description: "Voice — alloy (default), ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse" },
+          response_format: { type: "string", description: '"mp3" (default) or "pcm"' },
+          instructions: { type: "string", description: "Optional tone/style directions (counted against the char cap)" },
+        },
+        required: ["input"],
+      },
+      output: { example: "(raw mp3 bytes — Content-Type: audio/mpeg)" },
+    },
+    handler: speechHandler,
+  },
 ];
 
 /** OpenAI-compatible GET /v1/models payload — free discovery surface. */
@@ -1076,6 +1178,12 @@ export function modelsList() {
     object: "model",
     owned_by: "google",
     x402: { tier: "v1-images", endpoint: IMAGES_PATH, priceUsd: IMAGES_PRICE, maxPromptChars: IMAGES_MAX_PROMPT_CHARS, imagesPerCall: 1 },
+  });
+  data.push({
+    id: SPEECH_MODEL,
+    object: "model",
+    owned_by: "openai",
+    x402: { tier: "v1-audio-speech", endpoint: SPEECH_PATH, priceUsd: SPEECH_PRICE, maxInputChars: SPEECH_MAX_CHARS },
   });
   return { object: "list", data, note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) — no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped." };
 }

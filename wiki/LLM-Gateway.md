@@ -25,12 +25,17 @@ Because tiers are flat-priced while upstream bills per token, every request is a
 | `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) | 64k chars | 8,192 tokens |
 | `POST /v1/embeddings` | $0.002 | text-embedding-3-small (default), 3-large, ada-002 — batch up to 64 inputs | 16k chars | — |
 | `POST /v1/images/generations` | $0.08 | Gemini 2.5 Flash Image (nano banana) — one image per call, inline base64 out | 4k-char prompt | 1 image |
+| `POST /v1/audio/speech` | $0.06 | gpt-4o-mini-tts — raw mp3/pcm bytes out, 11 voices | 2k-char input | — |
 
 Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a model on the wrong tier returns a self-correcting 400 naming the right endpoint and price. All tiers are **wallet-only** — every call burns real upstream credit, so there is no proof-of-work free tier (see [[Security Model]]).
 
 ## Image generation
 
 `POST /v1/images/generations` speaks the OpenAI images wire — any OpenAI SDK's `images.generate()` works by changing `base_url`. Send `{"prompt": "..."}` (up to 4,000 chars) and get `{created, model, data: [{b64_json, media_type}]}` back — one image per call at a flat $0.08, `n` locked to 1, `response_format` is always inline `b64_json` (nothing is hosted). `zdr: true` works here too. Upstream is Gemini 2.5 Flash Image via OpenRouter with server-owned price bounds, same margin discipline as the chat tiers.
+
+## Text-to-speech
+
+`POST /v1/audio/speech` speaks the OpenAI TTS wire — any OpenAI SDK's `audio.speech.create()` works by changing `base_url`. Send `{"input": "...", "voice": "alloy"}` (up to 2,000 chars, `instructions` for tone included in the cap) and raw audio bytes come back — `mp3` by default, `pcm` on request — at a flat $0.06 per call. 11 voices; served by gpt-4o-mini-tts via OpenRouter. `speed` below 1 is rejected (it stretches the same text into more metered audio), and `zdr: true` works here too.
 
 ## The auto tier — routing without picking a model
 

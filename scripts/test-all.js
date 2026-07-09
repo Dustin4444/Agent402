@@ -154,6 +154,9 @@ const NETWORK = new Set([
   // Image generation wire path: hits OpenRouter upstream (Gemini image model).
   // 503 without OPENROUTER_API_KEY — same tolerance as the chat tiers.
   "/v1/images/generations",
+  // TTS wire path: hits OpenRouter's audio API upstream (binary out).
+  // 503 without OPENROUTER_API_KEY — same tolerance as the chat tiers.
+  "/v1/audio/speech",
   // Image generation kit: every call hits OpenAI GPT Image API upstream.
   // Returns 503 without OPENAI_API_KEY — same tolerance as LLM proxy.
   "/api/image-gen", "/api/image-gen-hd", "/api/image-gen-premium",
