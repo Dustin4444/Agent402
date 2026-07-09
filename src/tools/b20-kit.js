@@ -206,6 +206,29 @@ function memoText(hex) {
 // Test-only export: offline unit tests exercise the decode layer directly.
 export const B20_INTERNALS = { TOPIC_B20_CREATED, TOPIC_TRANSFER, TOPIC_MEMO, findB20Address, decodeTransfer, memoWord, memoText, logIndexNum, logWords };
 
+async function latestBlock() {
+  return Number(BigInt(await rpc("eth_blockNumber", [])));
+}
+
+// Chunked eth_getLogs, newest chunk first (<=9k blocks per call: inside
+// Alchemy's range cap, small enough for public RPCs). Stops early at maxLogs.
+async function getLogsChunked({ address, topics, fromBlock, toBlock, maxLogs = 2000 }) {
+  const CHUNK = 9000;
+  const out = [];
+  for (let hi = toBlock; hi >= fromBlock && out.length < maxLogs; hi -= CHUNK) {
+    const lo = Math.max(fromBlock, hi - CHUNK + 1);
+    const logs = await rpc("eth_getLogs", [{ address, topics, fromBlock: "0x" + lo.toString(16), toBlock: "0x" + hi.toString(16) }]);
+    if (Array.isArray(logs)) out.push(...logs);
+  }
+  return out;
+}
+
+function windowInput(i, { defBlocks = 50000, maxBlocks = 200000 } = {}) {
+  const blocks = Math.floor(Number(i.blocks ?? defBlocks));
+  if (!Number.isFinite(blocks) || blocks < 1 || blocks > maxBlocks) throw bad(`blocks must be 1..${maxBlocks}`);
+  return blocks;
+}
+
 export const B20_TOOLS = [
   {
     route: "GET /api/b20-activation-check", name: "B20 activation check", slug: "b20-activation-check", category: "payments", price: "$0.002",
@@ -296,6 +319,44 @@ export const B20_TOOLS = [
         knownFeatures: KNOWN_FEATURES,
         note: "eth_call { to: registry, data: calldata } on Base mainnet returns bool",
       };
+    },
+  },
+  {
+    route: "GET /api/b20-new-tokens", name: "New B20 tokens", slug: "b20-new-tokens", category: "payments", price: "$0.005",
+    description:
+      "Recently deployed B20 tokens on Base: scans the factory's B20Created logs over a block window, locates each new token by its 0xB200 address prefix, and enriches it with live name/symbol/decimals eth_calls. ?blocks=50000&limit=25",
+    tags: ["b20", "base", "factory", "logs", "discovery", "token-standard"],
+    discovery: {
+      input: { blocks: 1000 },
+      inputSchema: { properties: {
+        blocks: { type: "number", description: "lookback window in blocks (default 50000 ≈ 28h, max 200000)" },
+        limit: { type: "number", description: "max tokens returned, newest first (default 25, max 100)" },
+      } },
+      output: { example: { fromBlock: 1, toBlock: 2, count: 0, skipped: 0, tokens: [] } },
+    },
+    handler: async (i) => {
+      const blocks = windowInput(i);
+      const limit = Math.min(Math.max(Math.floor(Number(i.limit ?? 25)) || 25, 1), 100);
+      const toBlock = await latestBlock();
+      const fromBlock = Math.max(0, toBlock - blocks + 1);
+      const logs = await getLogsChunked({ address: FACTORY, topics: [TOPIC_B20_CREATED], fromBlock, toBlock });
+      logs.sort((a, b) => logIndexNum(b.blockNumber) - logIndexNum(a.blockNumber));
+      const seen = new Set();
+      let skipped = 0;
+      const found = [];
+      for (const log of logs) {
+        const address = findB20Address(log);
+        if (!address) { skipped++; continue; }
+        if (seen.has(address)) continue;
+        seen.add(address);
+        found.push({ address, txHash: log.transactionHash, blockNumber: logIndexNum(log.blockNumber) });
+        if (found.length >= limit) break;
+      }
+      const tokens = await Promise.all(found.map(async (f) => {
+        const t = await readToken(f.address).catch(() => null);
+        return { ...f, name: t?.name ?? null, symbol: t?.symbol ?? null, decimals: t?.decimals ?? null };
+      }));
+      return { network: "base", factory: FACTORY, fromBlock, toBlock, count: tokens.length, skipped, tokens };
     },
   },
 ];
