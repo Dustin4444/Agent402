@@ -126,8 +126,11 @@ ok("recall reports its embedder", typeof r.embedder === "string" && r.embedder.l
   const D = rnd();
   memoryPut(D, "t1", big, { ttlSeconds: 1 });
   memoryPut(D, "t2", big);
+  // Expiry is strict (exp < now) at whole-second resolution: a row written at
+  // t.9 with ttl 1 stays valid through second t+1, so waiting just past 1s
+  // races the boundary (flaked in CI). 2.2s clears it in every alignment.
   const t0 = Date.now();
-  while (Date.now() - t0 < 1100) { /* let t1 expire (sync test file) */ }
+  while (Date.now() - t0 < 2200) { /* let t1 expire (sync test file) */ }
   memoryPut(D, "t3", big); // t1 expired → reclaim makes room
   ok("expired rows are reclaimed before a budget rejection", true);
   delete process.env.MEMORY_MAX_NS_BYTES;

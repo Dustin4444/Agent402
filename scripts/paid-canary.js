@@ -186,18 +186,9 @@ export const TOOLS = [
         typeof r.created === "number") ||
       `expected OpenAI images shape with a real b64_json payload, got ${JSON.stringify(r).slice(0, 100)}`,
   },
-  {
-    // Text-to-speech tier — OpenAI audio wire over OpenRouter. raw:true because
-    // the response is mp3 BYTES, not JSON — a real audio-sized payload proves
-    // the binary sentinel path, the locked-model upstream call, and settlement.
-    kit: "llm-speech",
-    path: "/v1/audio/speech",
-    method: "POST",
-    raw: true,
-    body: { input: "Agent402 canary: text to speech is live.", voice: "alloy" },
-    priceUsd: 0.06,
-    check: (t) => (typeof t === "string" && t.length > 5_000) || `expected raw audio bytes, got ${String(t).length} chars`,
-  },
+  // llm-speech leg REMOVED while /v1/audio/speech is delisted pending
+  // OpenRouter audio-API verification (see server.js OPENROUTER_TTS_ENABLED).
+  // Re-add when the tier is re-listed.
   {
     // Route-and-execute — the SOR's executing surface. Dispatches internally
     // to /api/hash; a real digest in the receipt-bearing envelope proves the

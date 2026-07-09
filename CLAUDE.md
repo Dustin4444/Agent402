@@ -1,6 +1,6 @@
 # Agent402.Tools — project memory for Claude Code
 
-Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 1,420 deterministic
+Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 1,419 deterministic
 web tools an AI agent can call and pay for per request (USDC on Base via the x402
 protocol, or free via proof-of-work). It's two-sided — it also ships
 `agent402-tollbooth` (pay-per-crawl for site owners) and `agent402-client` (a buyer SDK).
@@ -81,8 +81,13 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
   n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →
   `b64_json`, no cache/stream, imageless upstream → 502),
-  plus **`/v1/audio/speech` `$0.06`** (`v1-audio-speech` — OpenAI TTS wire on OpenRouter's
-  audio API, model locked `openai/gpt-4o-mini-tts`, 2k-char cap incl. `instructions`,
+  plus **`/v1/audio/speech` `$0.06`** (`v1-audio-speech` — DELISTED, code complete:
+  OpenRouter's audio API rejected every documented TTS model id on real buys 2026-07-09
+  ("Model does not exist" — docs stale or account not enabled). Route is filtered from the
+  catalog unless `OPENROUTER_TTS_ENABLED=true` (server.js `GATEWAY_TOOLS_ENABLED`) so buyers
+  can't be charged for 502s; verify with one curl from a keyed machine, then set the flag
+  AND re-add the llm-speech canary leg. OpenAI TTS wire on OpenRouter's
+  audio API, model locked `openai/gpt-4o-mini-tts-2025-12-15`, 2k-char cap incl. `instructions`,
   `speed<1` rejected (more metered audio), raw mp3/pcm bytes via the route binder's
   `{__binary, contentType}` sentinel — no cache/usage accounting on binary). Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
   the chain on upstream 502/503/504 only — every chain ends in the canary-proven model.
@@ -133,11 +138,11 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
-- **Paid canary (`scripts/paid-canary.js`):** 25 legs — tools across chains
+- **Paid canary (`scripts/paid-canary.js`):** 24 legs — tools across chains
   (Base/Solana/Polygon/Arbitrum/Stellar/Robinhood) plus llm-nano (failover), llm-stream
   (`raw:true`, asserts SSE `data:`…`[DONE]`), llm-auto (model-less request must carry the
   `agent402_router` disclosure), llm-embed + embed-cache (default-on free repeat,
-  per-run nonce input), llm-image (real b64_json payload >10k chars), llm-speech (raw mp3 bytes >5k), my-usage
+  per-run nonce input), llm-image (real b64_json payload >10k chars), my-usage
   (self-referential history), route-exec (receipt + digest), prompt-cache (pays once,
   identical unpaid repeat must be 200 + `X-Cache: hit`). Trigger via workflow_dispatch on
   `paid-canary.yml` (ref main) after a deploy; verdict is the job log tail.
