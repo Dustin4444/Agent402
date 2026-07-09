@@ -15,28 +15,6 @@ permissions:
   contents: read
 
 jobs:
-  balance:
-    # TEMPORARY diagnostic (reverted after one dispatch): read the canary
-    # burner's USDC balance on Base — pure eth_call, no keys, no writes.
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: USDC balanceOf(canary burner) on Base
-        run: |
-          USDC="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-          DATA="0x70a08231000000000000000000000000feda7403aabe9a492ed70e810b396d8548a4a022"
-          for RPC in https://mainnet.base.org https://base-rpc.publicnode.com https://base.llamarpc.com; do
-            OUT=$(curl -s --max-time 15 "$RPC" -H 'Content-Type: application/json' \
-              -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_call\",\"params\":[{\"to\":\"$USDC\",\"data\":\"$DATA\"},\"latest\"]}") || true
-            HEX=$(echo "$OUT" | jq -r '.result // empty')
-            if [ -n "$HEX" ]; then
-              WEI=$((16#${HEX#0x}))
-              echo "BURNER USDC BALANCE (Base): $WEI micro-USDC = \$$(awk "BEGIN{printf \"%.6f\", $WEI/1000000}") (via $RPC)"
-              exit 0
-            fi
-          done
-          echo "no RPC reachable"; exit 1
-
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
