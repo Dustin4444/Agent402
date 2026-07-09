@@ -112,6 +112,15 @@ export function classifyPrompt(messages) {
 // Caps chosen so worst-case upstream cost stays well below the x402 price
 // (budget models run ~$0.15-0.60/M tokens; 2048 output + 32k input tops out
 // around $0.003 — a $0.02 price leaves >6x headroom).
+//
+// `maxPrice` (USD per 1M tokens, {prompt, completion}) rides to OpenRouter as
+// provider.max_price — a HARD upstream price filter. These are CATASTROPHE
+// BOUNDS, not tight budgets: each sits ~1.5-2x above the priciest allowlisted
+// model's list price, so they never affect normal serving. What they block is
+// the silent failure mode where one of a model's providers charges multiples
+// of list (or a provider reprices) — OpenRouter then refuses that provider
+// instead of us quietly eating the margin. A model with NO provider under the
+// bound errors upstream, which the failover chain already treats as walkable.
 export const TIERS = {
   // Nano tier — priced for agent LOOPS, not occasional calls. The x402
   // leaderboard's top earner does ~800k inference calls/day at sub-cent
@@ -125,6 +134,7 @@ export const TIERS = {
     price: 0.003,
     maxInputChars: 12_000,
     maxTokens: 768,
+    maxPrice: { prompt: 0.5, completion: 1.5 }, // priciest allowlisted: deepseek-chat ~$0.27/$1.10
     // Server-chosen upstream failover, tried in order when the requested
     // model's provider errors. The terminal entry is deliberately gpt-4o-mini:
     // the daily canary proves it alive every morning, and at the nano caps its
@@ -145,6 +155,7 @@ export const TIERS = {
     price: 0.02,
     maxInputChars: 32_000,
     maxTokens: 2048,
+    maxPrice: { prompt: 2.5, completion: 8 }, // family prefixes reach mistral-large ~$2/$6, qwen-max ~$1.6/$6.4
     prefixes: [
       "openai/gpt-4o-mini", "openai/gpt-4.1-mini", "openai/gpt-4.1-nano",
       "anthropic/claude-haiku", "anthropic/claude-3-haiku", "anthropic/claude-3.5-haiku",
@@ -157,6 +168,7 @@ export const TIERS = {
     price: 0.10,
     maxInputChars: 48_000,
     maxTokens: 4096,
+    maxPrice: { prompt: 6, completion: 20 }, // priciest allowlisted: claude sonnet / grok ~$3/$15
     prefixes: [
       "openai/gpt-4o", "openai/gpt-4.1",
       "anthropic/claude-sonnet", "anthropic/claude-3.5-sonnet", "anthropic/claude-3.7-sonnet",
@@ -169,6 +181,7 @@ export const TIERS = {
     price: 0.50,
     maxInputChars: 64_000,
     maxTokens: 8192,
+    maxPrice: { prompt: 20, completion: 100 }, // priciest allowlisted: claude opus ~$15/$75
     prefixes: [
       "openai/gpt-5", "openai/o3", "openai/o4",
       "anthropic/claude-opus",
@@ -184,6 +197,7 @@ export const TIERS = {
     price: 0.01,
     maxInputChars: 16_000,
     maxTokens: 1024,
+    maxPrice: { prompt: 0.6, completion: 3 }, // priciest ranked: gemini-2.5-flash ~$0.30/$2.50
     router: true,
     fallbacks: ["openai/gpt-4o-mini"],
     prefixes: [...new Set(Object.values(AUTO_RANKINGS).flatMap((byCategory) => Object.values(byCategory).flat()))],
@@ -565,6 +579,11 @@ function makeHandler(tierSlug) {
     const chain = routedCategory
       ? [...AUTO_RANKINGS[routedQuality][routedCategory]]
       : [body.model, ...(TIERS[tierSlug].fallbacks || []).filter((m) => m !== body.model)];
+    // Hard upstream price cap (see the maxPrice note on TIERS): rides on every
+    // call, buyer-invisible, and never part of the cache key (validateRequest
+    // output stays the normalized body). A cap-excluded provider surfaces as
+    // an upstream error, which the chain below already walks.
+    const provider = TIERS[tierSlug].maxPrice ? { max_price: TIERS[tierSlug].maxPrice } : undefined;
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
       // streamOpenRouterTo throws only BEFORE headers are written, so the
@@ -574,7 +593,7 @@ function makeHandler(tierSlug) {
           let lastErr;
           for (const model of chain) {
             try {
-              return await streamOpenRouterTo({ ...body, model }, res);
+              return await streamOpenRouterTo({ ...body, model, ...(provider ? { provider } : {}) }, res);
             } catch (e) {
               if (res.headersSent || ![502, 503, 504].includes(e?.statusCode)) throw e;
               lastErr = e;
@@ -587,7 +606,7 @@ function makeHandler(tierSlug) {
     let lastErr;
     for (const model of chain) {
       try {
-        const data = await callOpenRouter({ ...body, model });
+        const data = await callOpenRouter({ ...body, model, ...(provider ? { provider } : {}) });
         // Routed requests disclose the decision: additive key, OpenAI wire
         // shape otherwise untouched (the standard `model` field already names
         // the server, this adds WHY). Streams pass through unannotated.

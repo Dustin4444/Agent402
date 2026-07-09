@@ -297,6 +297,42 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(GATEWAY_TIER_BY_PATH["/v1/auto/chat/completions"] === "v1-chat-auto", "path -> tier map covers auto");
 }
 
+// Upstream price caps: every chat tier declares a maxPrice catastrophe bound,
+// it rides to OpenRouter as provider.max_price on every call (stream included),
+// and a buyer-supplied provider object can never replace it.
+{
+  const chatTiers = Object.entries(TIERS);
+  ok(chatTiers.every(([, t]) => t.maxPrice && t.maxPrice.prompt > 0 && t.maxPrice.completion > 0), "every chat tier carries a positive maxPrice bound");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-p", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5 });
+  ok(seen.provider?.max_price?.prompt === TIERS["v1-chat-nano"].maxPrice.prompt, "non-stream upstream call carries the tier's provider.max_price");
+
+  // A buyer-sent provider object must not replace the cap.
+  seen = null;
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, provider: { max_price: { prompt: 999999, completion: 999999 } } });
+  ok(seen.provider?.max_price?.completion === TIERS["v1-chat-nano"].maxPrice.completion, "buyer-supplied provider cannot loosen the cap");
+
+  // Stream path carries it too.
+  seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, body: { async *[Symbol.asyncIterator]() { yield Buffer.from("data: [DONE]\n\n"); } } };
+  };
+  const streamRes = { headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} };
+  await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), stream: true })).__sse(streamRes);
+  ok(seen.provider?.max_price?.prompt === TIERS["v1-chat-nano"].maxPrice.prompt, "streamed upstream call carries the tier's provider.max_price");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
 // /v1/embeddings — wire-path validation, default model, batching caps,
 // default-ON cache (deterministic output), and the wire-shape passthrough.
 {
