@@ -18,7 +18,7 @@
 - Discovery examples must answer in CI with no special env (`blocks: 1000`; empty results are valid).
 - Both routes go into test-all's lenient `NETWORK` set.
 - Commit messages: plain text, no CI-marker substrings until the final ship commit; no AI attribution, no session links.
-- After adding tools: run `node scripts/sync-count.js` (1,414 → 1,416).
+- After adding tools: run `node scripts/sync-count.js` (1,416 → 1,416).
 - Addresses: EVM-only here, lowercase normalization is safe (kit convention).
 
 ---
