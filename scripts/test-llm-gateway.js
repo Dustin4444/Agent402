@@ -2,7 +2,7 @@
 // layer that gates what reaches the paid OpenRouter upstream: model → tier
 // routing (incl. bare-name mapping and self-correcting cross-tier errors),
 // input/output caps, stream rejection, and the env-gated 503. No network.
-import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt } from "../src/tools/llm-gateway-kit.js";
+import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -69,10 +69,10 @@ await gatewayTool.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 
 const list = modelsList();
 ok(list.object === "list" && Array.isArray(list.data) && list.data.length > 10, "models list has OpenAI shape");
 ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402?.endpoint?.startsWith("/v1")), "every model entry carries x402 tier metadata");
-ok(new Set(list.data.map((m) => m.x402.tier)).size === 5, "all five tiers represented");
+ok(new Set(list.data.map((m) => m.x402.tier)).size === 6, "all five chat tiers + embeddings represented");
 
 // Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 5, "five gateway routes");
+ok(LLM_GATEWAY_TOOLS.length === 6, "six gateway routes");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -86,7 +86,7 @@ ok(tierAllows("v1-chat-nano", "deepseek/deepseek-chat"), "deepseek-chat on nano 
   const v = validateRequest({ model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], max_tokens: 99999 }, "v1-chat-nano");
   ok(v.max_tokens === TIERS["v1-chat-nano"].maxTokens, "nano output cap clamps");
 }
-ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/") && t.route.endsWith("/chat/completions") || t.route === "POST /v1/chat/completions", ), "routes live at OpenAI wire paths");
+ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live at OpenAI wire paths");
 
 // Upstream failover: a provider error on the requested model must not become
 // the buyer's 502 when the tier has a fallback chain (payment already settled).
@@ -272,6 +272,61 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/") && t.route.end
   ok(kAuto1 && kAuto1 === kAuto2, "auto-tier cache key is stable without a model field");
   ok(kAuto1 === promptCacheKey("v1-chat-auto", { model: AUTO_RANKINGS.general[0], messages: msg1("hello there"), cache: true }), "routed and explicit-equivalent requests share one cache entry");
   ok(GATEWAY_TIER_BY_PATH["/v1/auto/chat/completions"] === "v1-chat-auto", "path -> tier map covers auto");
+}
+
+// /v1/embeddings — wire-path validation, default model, batching caps,
+// default-ON cache (deterministic output), and the wire-shape passthrough.
+{
+  ok(EMBEDDINGS_PATH === "/v1/embeddings", "embeddings path constant");
+  const v = validateEmbeddingsRequest({ input: "hello" });
+  ok(v.model === "text-embedding-3-small", "model defaults to text-embedding-3-small");
+  ok(Array.isArray(v.input) && v.input.length === 1 && v.input[0] === "hello", "string input normalizes to a one-item array");
+  ok(validateEmbeddingsRequest({ input: "x", model: "openai/text-embedding-3-large" }).model === "text-embedding-3-large", "openai/ prefix accepted and stripped");
+  ok(validateEmbeddingsRequest({ input: ["a", "b"], dimensions: 256 }).dimensions === 256, "dimensions passes through");
+  throws(() => validateEmbeddingsRequest({ input: "x", model: "text-embedding-9000" }), "must be one of", "off-allowlist model rejected");
+  throws(() => validateEmbeddingsRequest({ model: "text-embedding-3-small" }), "required", "missing input rejected");
+  throws(() => validateEmbeddingsRequest({ input: [] }), "required", "empty array rejected");
+  throws(() => validateEmbeddingsRequest({ input: ["a", 42] }), "non-empty string", "non-string item rejected");
+  throws(() => validateEmbeddingsRequest({ input: Array.from({ length: 65 }, () => "x") }), "Too many inputs", "item-count cap enforced");
+  throws(() => validateEmbeddingsRequest({ input: "x".repeat(17_000) }), "Input too large", "char cap enforced");
+  throws(() => validateEmbeddingsRequest({ input: "x", model: "text-embedding-ada-002", dimensions: 256 }), "not supported", "dimensions rejected on ada-002");
+  throws(() => validateEmbeddingsRequest({ input: "x", encoding_format: "hex" }), "encoding_format", "bad encoding_format rejected");
+
+  // Cache policy: DEFAULT-ON, cache:false opts out, keys are normalized.
+  const k1 = embeddingsCacheKey({ input: "same text" });
+  const k2 = embeddingsCacheKey({ input: ["same text"], model: "openai/text-embedding-3-small" });
+  ok(k1 && k1 === k2, "string vs [string] vs explicit-default-model collapse to one cache key");
+  ok(embeddingsCacheKey({ input: "same text", cache: false }) === null, "cache:false opts out (returns null)");
+  ok(embeddingsCacheKey({ input: "same text", model: "text-embedding-3-large" }) !== k1, "model changes the key");
+  ok(embeddingsCacheKey({ input: "same text", dimensions: 256 }) !== k1, "dimensions change the key");
+
+  // Handler: 503 without the key; upstream body carries the normalized
+  // request; success is stored under the default-on cache key.
+  const embed = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-embeddings");
+  delete process.env.OPENAI_API_KEY;
+  await embed.handler({ input: "hi" }).then(
+    () => ok(false, "embeddings handler without key must throw"),
+    (e) => ok(e.statusCode === 503, `embeddings handler without key throws 503 (got ${e.statusCode})`)
+  );
+  process.env.OPENAI_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let upstreamBody = null, authHeader = null;
+  globalThis.fetch = async (url, init) => {
+    upstreamBody = JSON.parse(init.body);
+    authHeader = init.headers.Authorization;
+    ok(String(url).includes("api.openai.com/v1/embeddings"), "embeddings go to the OpenAI upstream");
+    return { ok: true, status: 200, text: async () => JSON.stringify({ object: "list", data: [{ object: "embedding", index: 0, embedding: [0.1, 0.2] }], model: upstreamBody.model, usage: { prompt_tokens: 2, total_tokens: 2 } }) };
+  };
+  const out = await embed.handler({ input: "cache me by default" });
+  ok(out.object === "list" && Array.isArray(out.data[0].embedding), "OpenAI wire shape passes through untouched");
+  ok(authHeader === "Bearer test-key", "upstream call carries the OpenAI bearer");
+  ok(upstreamBody.model === "text-embedding-3-small" && Array.isArray(upstreamBody.input), "upstream body is the normalized request");
+  ok(upstreamBody.cache === undefined, "cache flag never rides to the upstream");
+  ok(promptCacheGet(embeddingsCacheKey({ input: "cache me by default" }))?.object === "list", "success stored WITHOUT any opt-in (default-on)");
+  await embed.handler({ input: "do not cache me", cache: false });
+  ok(promptCacheGet(embeddingsCacheKey({ input: "do not cache me" })) === null, "cache:false skips the store");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENAI_API_KEY;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
