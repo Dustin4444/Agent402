@@ -55,19 +55,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: TTS/audio ids in the public models list
+      - name: TTS docs page + audio model pricing
         run: |
+          echo "=== /docs TTS page model ids ==="
+          curl -sSL --max-time 30 "https://openrouter.ai/docs/guides/overview/multimodal/tts" -o /tmp/tts-docs.html || echo "(docs fetch failed)"
+          grep -oE '"[a-z0-9-]+/[a-z0-9.+-]+"' /tmp/tts-docs.html | grep -iE 'tts|audio|voxtral|chirp|gemini|gpt' | sort -u | head -30 || true
+          grep -oE '[a-z0-9-]+/[a-z0-9.+-]*(tts|audio)[a-z0-9.+-]*' /tmp/tts-docs.html | sort -u | head -30 || true
+          echo "=== announcement page ==="
+          curl -sSL --max-time 30 "https://openrouter.ai/blog/announcements/announcing-audio-apis/" -o /tmp/ann.html || true
+          grep -oE '[a-z0-9-]+/[a-z0-9.+-]*(tts|audio|voxtral|chirp)[a-z0-9.+-]*' /tmp/ann.html | sort -u | head -30 || true
+          echo "=== pricing of audio chat models ==="
           curl -sS --max-time 30 https://openrouter.ai/api/v1/models -o /tmp/models.json
-          echo "total models: $(jq '.data | length' /tmp/models.json)"
-          echo "--- ids matching tts/speech/voxtral/chirp/audio:"
-          jq -r '.data[].id' /tmp/models.json | grep -iE 'tts|speech|voxtral|chirp|audio' || echo "(none in /api/v1/models)"
-      - name: Authenticated endpoint probe (skips without secret)
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |
-          [ -n "$OPENROUTER_API_KEY" ] || { echo "no OPENROUTER_API_KEY secret — skipping"; exit 0; }
-          for M in "openai/gpt-4o-mini-tts" "openai/gpt-4o-mini-tts-2025-12-15" "mistralai/voxtral-mini-tts-2603" "google/gemini-2.5-flash-tts"; do
-            CODE=$(curl -sS --max-time 30 -o /tmp/p.out -w '%{http_code}'               -X POST https://openrouter.ai/api/v1/audio/speech               -H "Authorization: Bearer $OPENROUTER_API_KEY" -H "Content-Type: application/json"               -d "{\"model\":\"$M\",\"input\":\"ping\",\"voice\":\"alloy\",\"response_format\":\"mp3\"}")
-            if [ "$CODE" = "200" ]; then echo "PROBE $M -> 200 ($(wc -c < /tmp/p.out) bytes) OK"
-            else echo "PROBE $M -> $CODE $(head -c 200 /tmp/p.out)"; fi
-          done
+          jq -r '.data[] | select(.id | test("audio|tts|voxtral";"i")) | {id, pricing}' /tmp/models.json
