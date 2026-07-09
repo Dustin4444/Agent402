@@ -113,7 +113,7 @@ and [`/llms.txt`](https://agent402.tools/llms.txt). Don't know which tool you ne
 a task description to the right tool — route, price, schema, and a ready example —
 so an agent skips the token-heavy "search around to find a tool" step.
 
-## OpenAI-compatible LLM gateway (`/v1`) — inference & embeddings, pay per call
+## OpenAI-compatible LLM gateway (`/v1`) — chat, embeddings, images & speech, pay per call
 
 Point any OpenAI SDK at `base_url = https://agent402.tools/v1` and pay per call in
 USDC over x402 — no API key, no signup, no account:
@@ -126,6 +126,8 @@ USDC over x402 — no API key, no signup, no account:
 | `POST /v1/pro/chat/completions` | $0.10 | mid-frontier (gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok) |
 | `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) |
 | `POST /v1/embeddings` | $0.002 | OpenAI embeddings, batch up to 64 inputs — identical repeats are **free** (deterministic output, cache default-on) |
+| `POST /v1/images/generations` | $0.08 | image generation (Gemini 2.5 Flash Image) — OpenAI images wire, inline base64 out |
+| `POST /v1/audio/speech` | $0.06 | text-to-speech (gpt-4o-mini-tts) — raw mp3/pcm bytes, 11 voices, up to 2k chars |
 
 Streaming (`stream: true`), full tools/function-calling passthrough, an opt-in
 prompt cache on the chat tiers (`cache: true` → byte-identical repeats free for
