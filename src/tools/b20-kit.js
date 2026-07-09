@@ -363,4 +363,66 @@ export const B20_TOOLS = [
       return { network: "base", factory: FACTORY, fromBlock, toBlock, count: tokens.length, skipped, tokens };
     },
   },
+  {
+    route: "GET /api/b20-memos", name: "B20 payment memos", slug: "b20-memos", category: "payments", price: "$0.005",
+    description:
+      "Payment memos attached to B20 transfers: pairs each Memo(address,bytes32) log with its Transfer at the previous log index (same tx, same token). Give a tx hash for one transaction, or scan a block window. Returns memoHex always and memoText when printable UTF-8. ?token=0xb200…&tx=0x…|&blocks=50000&address=0x…&limit=50",
+    tags: ["b20", "base", "memo", "payments", "logs", "transfer"],
+    discovery: {
+      input: { token: "0xb200000000000000000000000000000000000001", blocks: 1000 },
+      inputSchema: { properties: {
+        token: { type: "string", description: "B20 token address (must carry the 0xb200 prefix)" },
+        tx: { type: "string", description: "optional: decode memos in this transaction only" },
+        address: { type: "string", description: "optional: only transfers where from or to equals this address" },
+        blocks: { type: "number", description: "window-scan lookback (default 50000, max 200000; ignored when tx is given)" },
+        limit: { type: "number", description: "max memo rows (default 50, max 200)" },
+      }, required: ["token"] },
+      output: { example: { token: "0xb200…0001", mode: "window", count: 0, memos: [] } },
+    },
+    handler: async (i) => {
+      const token = String(i.token || "").trim().toLowerCase();
+      if (!/^0xb200[0-9a-f]{36}$/.test(token)) throw bad("token must be a 0xb200-prefixed B20 token address");
+      const rawLimit = i.limit == null ? 50 : Math.floor(Number(i.limit));
+      const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(rawLimit, 1), 200) : 50;
+      const filter = i.address ? normAddress(i.address) : null;
+
+      let logs, mode, window = {};
+      if (i.tx) {
+        mode = "tx";
+        const tx = String(i.tx).trim().toLowerCase();
+        if (!/^0x[0-9a-f]{64}$/.test(tx)) throw bad("tx must be a 0x-prefixed 32-byte transaction hash");
+        const receipt = await rpc("eth_getTransactionReceipt", [tx]);
+        if (!receipt) throw bad("transaction not found on Base", 404);
+        logs = (receipt.logs || []).filter((l) => String(l.address).toLowerCase() === token);
+      } else {
+        mode = "window";
+        const blocks = windowInput(i);
+        const toBlock = await latestBlock();
+        const fromBlock = Math.max(0, toBlock - blocks + 1);
+        window = { fromBlock, toBlock };
+        logs = await getLogsChunked({ address: token, topics: [[TOPIC_TRANSFER, TOPIC_MEMO]], fromBlock, toBlock });
+      }
+
+      // Index Transfer logs by (txHash, logIndex); each Memo pairs with the
+      // Transfer at logIndex - 1 in the same tx (CDP-documented adjacency).
+      const transfers = new Map();
+      for (const l of logs) {
+        if ((l.topics || [])[0] === TOPIC_TRANSFER) transfers.set(`${l.transactionHash}:${logIndexNum(l.logIndex)}`, l);
+      }
+      const memos = [];
+      for (const l of logs) {
+        if ((l.topics || [])[0] !== TOPIC_MEMO) continue;
+        const t = transfers.get(`${l.transactionHash}:${logIndexNum(l.logIndex) - 1}`);
+        if (!t) continue;
+        const d = decodeTransfer(t);
+        if (!d) continue;
+        if (filter && d.from !== filter && d.to !== filter) continue;
+        const hex = memoWord(l);
+        if (!hex) continue;
+        memos.push({ txHash: l.transactionHash, blockNumber: logIndexNum(l.blockNumber), from: d.from, to: d.to, amount: d.value, memoHex: hex, memoText: memoText(hex) });
+      }
+      memos.sort((a, b) => b.blockNumber - a.blockNumber);
+      return { network: "base", token, mode, ...window, count: Math.min(memos.length, limit), memos: memos.slice(0, limit) };
+    },
+  },
 ];
