@@ -428,6 +428,11 @@ export function validateRequest(input, tierSlug) {
     body.stream = true;
     if (input.stream_options !== undefined) body.stream_options = input.stream_options;
   }
+  // Zero-data-retention routing: an OpenRouter provider preference, accepted
+  // top-level or as provider.zdr. This is the ONLY provider field a buyer may
+  // set — everything else (notably max_price) stays server-owned. Part of the
+  // normalized body, so zdr and non-zdr responses never share a cache entry.
+  if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
   clampToMargin(body, tier, totalImages);
   return body;
 }
@@ -688,8 +693,14 @@ function makeHandler(tierSlug) {
     // Hard upstream price cap (see the maxPrice note on TIERS): rides on every
     // call, buyer-invisible, and never part of the cache key (validateRequest
     // output stays the normalized body). A cap-excluded provider surfaces as
-    // an upstream error, which the chain below already walks.
-    const provider = TIERS[tierSlug].maxPrice ? { max_price: TIERS[tierSlug].maxPrice } : undefined;
+    // an upstream error, which the chain below already walks. The buyer's zdr
+    // preference (validated into body.zdr) folds in here — sent upstream as
+    // provider.zdr, stripped from the top-level body (zdr: undefined below).
+    const providerPrefs = {
+      ...(TIERS[tierSlug].maxPrice ? { max_price: TIERS[tierSlug].maxPrice } : {}),
+      ...(body.zdr === true ? { zdr: true } : {}),
+    };
+    const provider = Object.keys(providerPrefs).length ? providerPrefs : undefined;
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
       // streamOpenRouterTo throws only BEFORE headers are written, so the
@@ -699,7 +710,7 @@ function makeHandler(tierSlug) {
           let lastErr;
           for (const model of chain) {
             try {
-              return await streamOpenRouterTo({ ...body, model, ...(provider ? { provider } : {}) }, res);
+              return await streamOpenRouterTo({ ...body, model, zdr: undefined, ...(provider ? { provider } : {}) }, res);
             } catch (e) {
               if (res.headersSent || ![502, 503, 504].includes(e?.statusCode)) throw e;
               lastErr = e;
@@ -716,7 +727,7 @@ function makeHandler(tierSlug) {
         // call — margin telemetry. Injected at call time (like provider), so
         // it is never part of the normalized body or cache keys. Non-stream
         // only: on streams the accounting rides the raw SSE the buyer sees.
-        const data = await callOpenRouter({ ...body, model, ...(provider ? { provider } : {}), usage: { include: true } });
+        const data = await callOpenRouter({ ...body, model, zdr: undefined, ...(provider ? { provider } : {}), usage: { include: true } });
         // The exact upstream cost is operator telemetry, never a buyer-visible
         // field — capture it, then strip it before the response is cached or
         // returned. Standard token counts stay (OpenAI wire shape).
@@ -769,6 +780,7 @@ const INPUT_SCHEMA = {
     model: { type: "string", description: "Model id — OpenRouter form (openai/gpt-4o-mini) or bare OpenAI form (gpt-4o-mini). GET /v1/models lists the allowlist per tier." },
     messages: { type: "array", description: "OpenAI chat messages: [{role, content}] — text and image_url content blocks supported" },
     max_tokens: { type: "number", description: "Output token cap (clamped to the tier maximum)" },
+    zdr: { type: "boolean", description: "Optional — true routes only to zero-data-retention providers (also accepted as provider.zdr). Same price; a model with no ZDR provider errors upstream and walks the failover chain." },
   },
   required: ["model", "messages"],
 };

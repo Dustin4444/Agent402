@@ -339,6 +339,43 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   delete process.env.OPENROUTER_API_KEY;
 }
 
+// zdr — zero-data-retention provider routing: the ONE provider field a buyer
+// may set. Rides upstream as provider.zdr next to the server-owned max_price
+// cap; part of the normalized body so zdr/non-zdr never share a cache entry.
+{
+  const withZdr = validateRequest({ model: "gpt-4o-mini", messages: msg1(), zdr: true }, "v1-chat");
+  ok(withZdr.zdr === true, "top-level zdr:true lands in the normalized body");
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), provider: { zdr: true } }, "v1-chat").zdr === true, "provider.zdr form accepted too");
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), zdr: false }, "v1-chat").zdr === undefined, "zdr:false is a no-op");
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), zdr: "yes" }, "v1-chat").zdr === undefined, "non-boolean zdr never sneaks in");
+  ok(promptCacheKey("v1-chat", { model: "gpt-4o-mini", messages: msg1(), zdr: true }) !== promptCacheKey("v1-chat", { model: "gpt-4o-mini", messages: msg1() }),
+    "zdr and non-zdr requests get distinct cache entries");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-z", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+  };
+  const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, provider: { zdr: true, max_price: { prompt: 999999, completion: 999999 } } });
+  ok(seen.provider?.zdr === true, "zdr rides upstream as provider.zdr");
+  ok(seen.provider?.max_price?.prompt === TIERS["v1-chat-nano"].maxPrice.prompt, "zdr cannot loosen the server-owned price cap");
+  ok(!("zdr" in seen) || seen.zdr === undefined, "top-level zdr is stripped from the outbound body");
+
+  seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, body: { async *[Symbol.asyncIterator]() { yield Buffer.from("data: [DONE]\n\n"); } } };
+  };
+  const streamRes = { headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} };
+  await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), stream: true, zdr: true })).__sse(streamRes);
+  ok(seen.provider?.zdr === true && seen.provider?.max_price, "streamed calls carry zdr AND the price cap");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
 // Margin telemetry: non-stream calls request OpenRouter usage accounting, the
 // exact upstream cost is captured for the operator and STRIPPED before the
 // response reaches the buyer (or the prompt cache).

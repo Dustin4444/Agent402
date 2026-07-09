@@ -87,7 +87,10 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   upstream cost → PostHog `gateway_usage` event (price/upstream/margin/tokens), then
   `cost`/`cost_details`/`is_byok` are STRIPPED before the response is cached or returned
   (never leak the bill to buyers; posthog.js loaded lazily in the handler). Streams skip
-  accounting — cost would ride the buyer's raw SSE. All tiers in `WALLET_ONLY_SLUGS` and
+  accounting — cost would ride the buyer's raw SSE. **zdr knob:** `zdr:true` (or
+  `provider.zdr`) is the ONLY buyer-settable provider field — folds into the server-owned
+  provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),
+  stripped from the top-level outbound body. All tiers in `WALLET_ONLY_SLUGS` and
   test-all's lenient NETWORK set.
 - **Route-and-execute (`POST /api/route/execute`, $0.01, `src/tools/route-execute.js`):**
   resolves a task/slug via `findTools`, dispatches the underlying internal tool (underlying
