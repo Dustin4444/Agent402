@@ -15,6 +15,12 @@ shouldn't cost money, by the same logic as `/api/find`):
 | `POST /api/route` | Smart Order Router / neutral x402 discovery API: `{ query, top, include }` → top-N matching tools across sellers, ranked by match score, then health, then price. `include` = `all` (default) / `external` (exclude Agent402 itself) / `local` |
 | `GET /api/leaderboard` | On-chain ranking of every seller by **Base USDC settled volume** — see [[x402-Leaderboard]] |
 
+And one **paid** executing surface built on the same resolver:
+
+| Surface | What it does |
+|---|---|
+| `POST /api/route/execute` ($0.01) | Resolve a task description (or explicit slug) to the best-matching **local** catalog tool and run it in the same call. Returns `{result, receipt}` — the receipt names the dispatched slug, its catalog price (capped at $0.005 underlying), and how it was resolved. Underlying tool errors pass through with their own status codes. Wallet-only. |
+
 ## How a seller gets into the Index
 
 1. **Local catalog** — the Agent402 server's own tools are always present (no network).

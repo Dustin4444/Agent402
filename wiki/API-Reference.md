@@ -50,6 +50,8 @@ curl https://agent402.tools/api/pricing
 
 Tools accept `GET` (query params) or `POST` (JSON body), depending on the tool. The catalog (`/api/pricing`, `/openapi.json`) specifies the method and schema for each.
 
+**OpenAI wire paths:** chat and embeddings are also served OpenAI-compatibly under `/v1` — `POST /v1/{nano,auto,pro,premium}/chat/completions`, `POST /v1/chat/completions`, `POST /v1/embeddings`, with `GET /v1/models` free. See [[LLM Gateway (OpenAI /v1)|LLM-Gateway]] for tiers, the model-optional auto router, streaming, and caching. `POST /api/route/execute` runs the resolver's top pick in one paid call, and `POST /api/my-usage` returns the paying wallet's own purchase history.
+
 ### GET example
 
 ```bash
