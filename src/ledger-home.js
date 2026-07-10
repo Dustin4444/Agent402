@@ -65,11 +65,34 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   ];
 
   const jsonLd = [
+    // Organization entity with a sameAs graph — the structured signal search
+    // engines use to resolve which entity a brand name refers to. Every
+    // sameAs URL is a profile we control and that links back here.
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "@id": `${baseUrl}/#organization`,
+      name: "Agent402",
+      alternateName: "Agent402.Tools",
+      url: baseUrl,
+      logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` },
+      founder: { "@type": "Person", name: "Mike Petrillo", url: "https://github.com/MikeyPetrillo" },
+      sameAs: [
+        "https://github.com/MikeyPetrillo/Agent402",
+        "https://x.com/Agent402Tools",
+        "https://www.npmjs.com/package/agent402-mcp",
+        "https://www.npmjs.com/package/agent402-client",
+        "https://www.npmjs.com/package/agent402-tollbooth",
+        "https://pypi.org/project/agent402-langchain/",
+        "https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d",
+      ],
+    },
     {
       "@context": "https://schema.org",
       "@type": "WebSite",
       name: "Agent402.Tools",
       url: baseUrl,
+      publisher: { "@id": `${baseUrl}/#organization` },
       description,
       potentialAction: { "@type": "SearchAction", target: `${baseUrl}/api/find?q={search_term_string}`, "query-input": "required name=search_term_string" },
     },
