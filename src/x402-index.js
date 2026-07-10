@@ -498,9 +498,15 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     routable: isRoutable(v),
     history: Array.isArray(v.history) ? v.history.slice() : [],
     source: v.source || (v.manifest && !v.manifest.synthesized ? "manifest" : null),
-    // Union of the chains this seller's crawled 402s advertise (empty when
-    // the crawl source doesn't expose accepts, e.g. bare OpenAPI).
-    networks: [...new Set((v.tools || []).flatMap((t) => t.networks || []))],
+    // Union of the chains this seller's crawled 402s advertise. Manifest-
+    // sourced crawls carry no accepts, so also union the Bazaar's view of the
+    // same origin — a seller with its own manifest AND Stellar accepts on the
+    // Bazaar must not read as network-less (it hid two of the four known
+    // Stellar sellers from /stellar).
+    networks: [...new Set([
+      ...(v.tools || []).flatMap((t) => t.networks || []),
+      ...(bazaarToolsByOrigin.get(origin) || []).flatMap((t) => t.networks || []),
+    ])],
   }));
   const sellers = [local, ...remote];
   const discoverySources = DISCOVERY_SOURCES.map((s) => {

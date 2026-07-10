@@ -58,14 +58,31 @@ export function stellarPage(baseUrl, { snapshot, rail, stellarWallet = "GDNJXCKW
       ${g.more ? `<div style="font-size:12px;color:var(--faint);margin-top:6px;">+ ${g.more} more in <a href="/tools" style="color:var(--muted);">the full catalog</a></div>` : ""}
     </div>`).join("");
 
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
   const sellersHtml = sellers.map((s) => {
     const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
+    const good = s.local || s.routable;
     return `
-    <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--hairline);font-size:14px;">
-      <span><a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);">${esc(s.displayName)}</a>${s.local ? ' <span style="color:var(--faint);font-size:12px;">(this host)</span>' : ""}</span>
-      <span style="display:flex;align-items:center;gap:10px;"><span style="color:var(--muted);font-family:var(--font-mono);">${s.toolCount || 0} tools</span><span style="color:${s.local || s.routable ? "var(--green)" : "var(--accent)"};font-family:var(--font-mono);font-size:12px;">${health}</span></span>
+    <div style="border:${s.local ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+        <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;">${esc(s.displayName)}</a>
+        ${s.local ? '<span style="background:var(--accent);color:var(--cream);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:2px 6px;">THIS HOST</span>' : ""}
+      </div>
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${esc(hostOf(s.homepage))}</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;color:${good ? "var(--green)" : "var(--accent)"};font-family:var(--font-mono);font-size:12px;"><span style="width:7px;height:7px;border-radius:50%;background:${good ? "var(--green)" : "var(--accent)"};"></span>${health}</span>
+      </div>
     </div>`;
   }).join("");
+
+  const statsHtml = `
+  <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS</div><div style="font-size:26px;font-weight:800;">${sellers.length}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${tools.length.toLocaleString("en-US")}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">LATEST SETTLE</div><div style="font-size:26px;font-weight:800;">${latest ? usd(latest.usd) : "—"}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">PRICE FLOOR</div><div style="font-size:26px;font-weight:800;">${usd(low)}</div></div>
+  </div>`;
 
   const honesty = sellers.length === 1 && sellers[0]?.local
     ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live — discovery is open, and external sellers are added automatically when their x402 challenges advertise a Stellar network.</p>`
@@ -86,21 +103,22 @@ export function stellarPage(baseUrl, { snapshot, rail, stellarWallet = "GDNJXCKW
   };
 
   const body = `
-<div style="max-width:960px;margin:0 auto;padding:32px 20px;">
-  <h1 style="font-size:28px;margin:0 0 6px;">The Stellar x402 marketplace</h1>
-  <p style="font-size:16px;color:var(--muted);margin:0;">Pay-per-call tools for AI agents — settled in USDC on Stellar in ~5 seconds, no signup, no API keys. The wallet is the account.</p>
+<div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
+  <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The Stellar x402 marketplace</h1>
+  <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:720px;">Pay-per-call tools for AI agents — settled in USDC on Stellar in ~5 seconds, no signup, no API keys. The wallet is the account.</p>
   ${receiptHtml}
   <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">A paid canary buys tools over the Stellar rail daily (facilitator: OpenZeppelin) — uptime proven with real settlements, not pings.</p>
+  ${statsHtml}
 
-  <h2 style="font-size:20px;margin:32px 0 12px;">Browse Stellar-payable tools</h2>
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on Stellar</h2>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">${sellersHtml}</div>
+  ${honesty}
+
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse Stellar-payable tools</h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">${groupsHtml}</div>
   <p style="font-family:var(--font-mono);font-size:13px;background:#e3dac3;padding:10px 14px;margin:16px 0 0;">agents: GET ${esc(baseUrl)}/api/route?q=&lt;task&gt;&amp;network=stellar</p>
 
-  <h2 style="font-size:20px;margin:32px 0 12px;">Sellers settling on Stellar</h2>
-  ${sellersHtml}
-  ${honesty}
-
-  <h2 style="font-size:20px;margin:32px 0 12px;">Sell on Stellar</h2>
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sell on Stellar</h2>
   <p style="font-size:14.5px;line-height:1.65;">Accept x402 payments with a <code>stellar:pubnet</code> accept in your 402 challenge — the <a href="https://developers.stellar.org/docs/build/agentic-payments/x402/built-on-stellar" rel="noopener">Built on Stellar facilitator</a> (OpenZeppelin) verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/stellar" rel="noopener"><code>@x402/stellar</code></a> for the wire, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> — the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.</p>
 
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=stellar">/api/route?network=stellar</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
