@@ -143,7 +143,8 @@ import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
 import { robinhoodPage } from "./robinhood-page.js";
-import { revenueSnapshot, revenuePage } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail } from "./revenue-live.js";
+import { stellarPage } from "./stellar-page.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot, x402EconomyPage } from "./x402-economy.js";
 import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
@@ -1286,6 +1287,17 @@ function getIndexSnapshot() {
 app.get("/index", (_req, res) =>
   htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL }))
 );
+// The Stellar x402 marketplace — the index snapshot filtered to the Stellar
+// rail, plus live settlement receipts. stellarRail is best-effort (6s Horizon
+// timeouts internally); a flake renders the honest "unavailable" line.
+app.get("/stellar", async (_req, res) => {
+  let rail = null;
+  try {
+    const r = await stellarRail((process.env.STELLAR_WALLET_ADDRESS || "").trim());
+    if (r && !r.error) rail = r;
+  } catch { /* best-effort */ }
+  htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot: getIndexSnapshot(), rail }));
+});
 app.get("/api/index", (_req, res) =>
   res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(getIndexSnapshot())
 );
