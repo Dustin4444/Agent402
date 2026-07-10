@@ -1,6 +1,6 @@
 // Offline unit tests for self-serve listing: origin validation + the
 // registerOrigin flow with an injected fake crawler. No network, no /data.
-import { validateOriginInput, registerOrigin, __testResetSubmitted } from "../src/x402-index.js";
+import { validateOriginInput, registerOrigin, __testResetSubmitted, __testSetSubmittedCap } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -30,6 +30,29 @@ ok(crawled.length === 1, "crawler invoked once for unknown origin");
 
 r = await registerOrigin("https://deadseller.example", { crawl: badCrawl });
 ok(r.listed === false && typeof r.error === "string", "failed probe returns honest error, not listed");
+
+// --- submission cap ---
+__testResetSubmitted();
+__testSetSubmittedCap(1);
+const capCrawl = async (o) => { crawled.push(o); return { manifest: { name: "Cap" }, tools: [{ slug: "a" }], error: null, history: [true] }; };
+
+r = await registerOrigin("https://cap-first.example", { crawl: capCrawl });
+ok(r.listed === true, "cap: first submission fills the cap and still lists");
+
+const crawledBefore = crawled.length;
+r = await registerOrigin("https://cap-second.example", { crawl: capCrawl });
+ok(r.listed === false, "cap: new origin at cap is not listed");
+ok(typeof r.error === "string" && /full/i.test(r.error), "cap: error is an honest capacity message");
+ok(crawled.length === crawledBefore, "cap: rejected origin is never crawled");
+
+r = await registerOrigin("https://cap-second.example", { crawl: capCrawl });
+ok(r.listed === false, "cap: rejected origin stays rejected on retry (not persisted)");
+
+r = await registerOrigin("https://cap-first.example", { crawl: capCrawl });
+ok(r.listed === true, "cap: an already-known origin still returns its state normally at cap");
+
+__testSetSubmittedCap(); // restore default for any tests that run after this file
+__testResetSubmitted();
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

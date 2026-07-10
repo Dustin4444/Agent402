@@ -54,10 +54,26 @@ const discoveredSeeds = new Set();
 export const SUBMITTED_SEEDS_FILE = "/data/submitted-seeds.json";
 const submittedSeeds = new Set();
 
+// Manual-submission ceiling — a fetch-amplifier guard: every successful probe
+// is crawled every 5 minutes forever, so unbounded submissions become
+// unbounded outbound fan-out + unbounded /data growth (independent of
+// MAX_DISCOVERED_SELLERS, which only guards the registry-discovery path).
+// Legitimate growth beyond this goes through DEFAULT_SEEDS or Bazaar discovery.
+const DEFAULT_MAX_SUBMITTED_SEEDS = 500;
+let submittedSeedsCap = DEFAULT_MAX_SUBMITTED_SEEDS;
+
+/** Test hook: set (or, with no arg, reset) the submission cap. */
+export function __testSetSubmittedCap(n) {
+  submittedSeedsCap = typeof n === "number" && n >= 0 ? n : DEFAULT_MAX_SUBMITTED_SEEDS;
+}
+
 export function loadSubmittedSeeds() {
   try {
     const arr = JSON.parse(readFileSync(SUBMITTED_SEEDS_FILE, "utf8"));
+    // Respect the cap even if the file was hand-edited or corrupted into
+    // something oversized — the ceiling has to hold on load, not just on write.
     for (const o of Array.isArray(arr) ? arr : []) {
+      if (submittedSeeds.size >= submittedSeedsCap) break;
       if (typeof o === "string") { submittedSeeds.add(o); discoveredSeeds.add(o); }
     }
   } catch { /* absent file / no volume — in-memory only */ }
@@ -95,6 +111,12 @@ export async function registerOrigin(origin, { crawl } = {}) {
   const existing = cache.get(origin);
   if (existing && !existing.error) {
     return { listed: true, origin, seller: sellerSummary(origin, existing) };
+  }
+  // Cap applies only to origins that would grow the submitted set. An origin
+  // already on the list (retrying after a prior failure) is not new growth,
+  // so it's exempt — it can still probe and update its own entry at cap.
+  if (!submittedSeeds.has(origin) && submittedSeeds.size >= submittedSeedsCap) {
+    return { listed: false, origin, error: "submission list is full — open a GitHub issue to get seeded" };
   }
   const doCrawl = crawl || (async (o) => { await crawlSeller(o); return cache.get(o); });
   let v;

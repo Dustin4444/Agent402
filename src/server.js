@@ -1326,11 +1326,14 @@ app.get("/api/index", (_req, res) =>
 );
 // Self-serve listing: validate + rate-limit here; ALL probing happens inside
 // the crawler behind safeFetch (SSRF guard). 5/IP/hour, 30 new probes/hour
-// globally — a public crawl trigger must not become a fetch amplifier.
+// globally — a public crawl trigger must not become a fetch amplifier. Body
+// size is bounded by the global 100kb express.json() parser above (a
+// per-route parser here would be a no-op — the global one already parsed the
+// body by the time this handler runs).
 const REG_WINDOW_MS = 3600_000;
 const regByIp = new Map();
 let regGlobal = [];
-app.post("/api/index/register", express.json({ limit: "2kb" }), async (req, res) => {
+app.post("/api/index/register", async (req, res) => {
   const now = Date.now();
   const ip = req.ip || "?";
   const mine = (regByIp.get(ip) || []).filter((t) => now - t < REG_WINDOW_MS);
