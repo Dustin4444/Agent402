@@ -45,7 +45,7 @@ import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools } from "./find.js";
-import { indexPage, indexSnapshot, routeQuery, startCrawler } from "./x402-index.js";
+import { indexPage, indexSnapshot, routeQuery, startCrawler, validateOriginInput, registerOrigin } from "./x402-index.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks } from "./payments.js";
 import { KIT } from "./tools/kit.js";
@@ -1324,6 +1324,25 @@ app.get("/stellar", async (_req, res) => {
 app.get("/api/index", (_req, res) =>
   res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(getIndexSnapshot())
 );
+// Self-serve listing: validate + rate-limit here; ALL probing happens inside
+// the crawler behind safeFetch (SSRF guard). 5/IP/hour, 30 new probes/hour
+// globally — a public crawl trigger must not become a fetch amplifier.
+const REG_WINDOW_MS = 3600_000;
+const regByIp = new Map();
+let regGlobal = [];
+app.post("/api/index/register", express.json({ limit: "2kb" }), async (req, res) => {
+  const now = Date.now();
+  const ip = req.ip || "?";
+  const mine = (regByIp.get(ip) || []).filter((t) => now - t < REG_WINDOW_MS);
+  if (mine.length >= 5) return res.status(429).json({ error: "rate limit: 5 submissions per hour per IP" });
+  const v = validateOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
+  if (v.error) return res.status(400).json({ error: v.error });
+  regGlobal = regGlobal.filter((t) => now - t < REG_WINDOW_MS);
+  if (regGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
+  mine.push(now); regByIp.set(ip, mine); regGlobal.push(now);
+  const result = await registerOrigin(v.origin);
+  res.json(result);
+});
 const computeRoute = (q, k, include, net) => routeQuery({ query: q, top: k, include, networkFilter: net, ...indexCtx() });
 const routeCachePath = "/api/route";
 const routeCachePolicy = CACHEABLE_ROUTES[routeCachePath];

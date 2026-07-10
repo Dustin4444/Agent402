@@ -102,6 +102,27 @@ export function stellarPage(baseUrl, { snapshot, rail, stellarWallet = "GDNJXCKW
     },
   };
 
+  const formHtml = `
+  <div id="list-api" style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin-top:16px;max-width:640px;">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px;">List your API</div>
+    <div style="display:flex;gap:10px;">
+      <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
+      <button id="reg-go" style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
+    </div>
+    <div id="reg-out" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account — we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
+  </div>
+  <script>
+  document.getElementById("reg-go").addEventListener("click", async () => {
+    const out = document.getElementById("reg-out");
+    out.textContent = "probing…";
+    try {
+      const r = await fetch("/api/index/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: document.getElementById("reg-origin").value }) });
+      const j = await r.json();
+      out.textContent = j.listed ? ("Listed — " + (j.seller?.displayName || j.origin) + " (" + (j.seller?.toolCount || 0) + " tools). Stellar sellers appear on this page; all sellers appear on /index.") : ("Not listed: " + (j.error || "unknown error"));
+    } catch { out.textContent = "submission failed — try again"; }
+  });
+  </script>`;
+
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The Stellar x402 marketplace</h1>
@@ -120,6 +141,7 @@ export function stellarPage(baseUrl, { snapshot, rail, stellarWallet = "GDNJXCKW
 
   <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sell on Stellar</h2>
   <p style="font-size:14.5px;line-height:1.65;">Accept x402 payments with a <code>stellar:pubnet</code> accept in your 402 challenge — the <a href="https://developers.stellar.org/docs/build/agentic-payments/x402/built-on-stellar" rel="noopener">Built on Stellar facilitator</a> (OpenZeppelin) verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/stellar" rel="noopener"><code>@x402/stellar</code></a> for the wire, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> — the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.</p>
+  ${formHtml}
 
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=stellar">/api/route?network=stellar</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
