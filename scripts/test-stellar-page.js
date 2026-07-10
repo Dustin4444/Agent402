@@ -13,6 +13,7 @@ const localTools = [
 const LOCAL = { origin: "self", displayName: "Agent402.Tools", homepage: "https://agent402.tools", local: true, toolCount: 3, tools: localTools };
 const EXT_STELLAR = { origin: "https://ext1.example", displayName: "Ext One", homepage: "https://ext1.example", local: false, toolCount: 4, routable: true, networks: ["stellar:pubnet", "eip155:8453"] };
 const EXT_EVM = { origin: "https://ext2.example", displayName: "Ext Two", homepage: "https://ext2.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"] };
+const EXT_TESTNET = { origin: "https://ext3.example", displayName: "Ext Test", homepage: "javascript:alert(1)", local: false, toolCount: 1, routable: true, networks: ["stellar:testnet"] };
 
 const snapBoth = { sellers: [LOCAL, EXT_STELLAR, EXT_EVM], totals: { sellers: 3 } };
 const snapOnlyUs = { sellers: [LOCAL, EXT_EVM], totals: { sellers: 2 } };
@@ -22,6 +23,7 @@ let s = stellarSellers(snapBoth);
 ok(s.length === 2 && s[0].local === true && s[1].origin === "https://ext1.example",
   "stellarSellers keeps local + stellar-network sellers, drops EVM-only");
 ok(stellarSellers(snapOnlyUs).length === 1, "stellarSellers is 1 when only local qualifies");
+ok(stellarSellers({ sellers: [LOCAL, EXT_TESTNET] }).length === 1, "testnet-only sellers excluded");
 ok(stellarTools(snapBoth).length === 3 && stellarTools(snapBoth)[0].slug === "hash",
   "stellarTools returns the local catalog's tools");
 
@@ -53,6 +55,17 @@ ok(!html.includes("Ext Two"), "EVM-only seller not rendered");
 const snapExtOnly = { sellers: [EXT_STELLAR], totals: { sellers: 1 } };
 html = stellarPage("https://agent402.tools", { snapshot: snapExtOnly, rail: null });
 ok(!html.includes("1 seller live"), "honesty line requires the sole seller to be local");
+
+// Malicious homepage href is neutralized, never rendered raw
+const EXT_EVIL = { ...EXT_STELLAR, origin: "https://evil.example", displayName: "Evil", homepage: "javascript:alert(1)" };
+html = stellarPage("https://agent402.tools", { snapshot: { sellers: [LOCAL, EXT_EVIL] }, rail: null });
+ok(html.includes('href="#"'), "malicious homepage href replaced with #");
+ok(!html.includes("javascript:alert"), "malicious homepage scheme never rendered raw");
+
+// Seller health markers reflect local/routable state
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail: null });
+ok(html.includes("healthy"), "external routable seller marked healthy");
+ok(html.includes("live"), "local seller marked live");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1287,16 +1287,39 @@ function getIndexSnapshot() {
 app.get("/index", (_req, res) =>
   htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL }))
 );
+// /stellar's receipt strip reuses stellarRail with the same 60s cache
+// discipline the /revenue page applies — a public page must not turn every
+// request into Horizon fetches (rate-limits shared with the revenue ledger).
+const STELLAR_RAIL_TTL_MS = 60_000;
+let stellarRailCache = { at: 0, value: null };
+let stellarRailInFlight = null;
+async function getStellarRailCached() {
+  if (Date.now() - stellarRailCache.at < STELLAR_RAIL_TTL_MS) return stellarRailCache.value;
+  if (!stellarRailInFlight) {
+    stellarRailInFlight = (async () => {
+      try {
+        const r = await stellarRail((process.env.STELLAR_WALLET_ADDRESS || "").trim());
+        stellarRailCache = { at: Date.now(), value: r && !r.error ? r : null };
+      } catch {
+        stellarRailCache = { at: Date.now(), value: null };
+      } finally {
+        stellarRailInFlight = null;
+      }
+    })();
+  }
+  await stellarRailInFlight;
+  return stellarRailCache.value;
+}
 // The Stellar x402 marketplace — the index snapshot filtered to the Stellar
 // rail, plus live settlement receipts. stellarRail is best-effort (6s Horizon
 // timeouts internally); a flake renders the honest "unavailable" line.
 app.get("/stellar", async (_req, res) => {
-  let rail = null;
   try {
-    const r = await stellarRail((process.env.STELLAR_WALLET_ADDRESS || "").trim());
-    if (r && !r.error) rail = r;
-  } catch { /* best-effort */ }
-  htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot: getIndexSnapshot(), rail }));
+    const rail = await getStellarRailCached();
+    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot: getIndexSnapshot(), rail, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || undefined }));
+  } catch (e) {
+    res.status(500).type("text/plain").send("temporarily unavailable");
+  }
 });
 app.get("/api/index", (_req, res) =>
   res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(getIndexSnapshot())
