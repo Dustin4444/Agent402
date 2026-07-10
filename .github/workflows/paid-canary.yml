@@ -33,6 +33,10 @@ jobs:
       # trustline) + a little XLM. Enables the daily Stellar-path purchase;
       # unset = the leg is skipped.
       STELLAR_BURNER_SECRET: ${{ secrets.STELLAR_BURNER_SECRET }}
+      # Optional: 25-word mnemonic of an Algorand account holding USDC (ASA
+      # 31566704, opted in) + a little ALGO. Enables the daily Algorand-path
+      # purchase; unset = the leg is skipped.
+      ALGORAND_BURNER_MNEMONIC: ${{ secrets.ALGORAND_BURNER_MNEMONIC }}
       TARGET_URL: https://agent402.tools
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
