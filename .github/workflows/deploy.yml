@@ -950,6 +950,9 @@ jobs:
       - name: B20 decode unit tests (offline, synthetic logs in both indexed layouts)
         run: node scripts/test-b20-decode.js
 
+      - name: Stellar marketplace page tests (offline, fixture snapshot)
+        run: node scripts/test-stellar-page.js
+
       - name: Html-kit tests (html-select, html-table, html-strip, html-links, html-meta)
         run: node scripts/test-html-kit.js
 
