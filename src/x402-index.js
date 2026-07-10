@@ -321,6 +321,9 @@ function bazaarItemToTool(item, originUrl) {
     // Every chain this resource's 402 advertises — the signal behind the
     // router's ?network= filter ("who else settles on Robinhood Chain?").
     networks: [...new Set(accepts.map((a) => a?.network).filter(Boolean))],
+    // Stellar payTo from the accepts — feeds /stellar's per-seller activity
+    // scan. Kept raw here; the snapshot validates the strkey shape before use.
+    stellarPayTo: accepts.find((a) => typeof a?.network === "string" && a.network.startsWith("stellar") && !a.network.includes("test"))?.payTo || null,
     provenance: "bazaar",
   };
 }
@@ -606,6 +609,12 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
       ...(v.tools || []).flatMap((t) => t.networks || []),
       ...(bazaarToolsByOrigin.get(origin) || []).flatMap((t) => t.networks || []),
     ])],
+    // First valid Stellar payTo advertised across this seller's accepts —
+    // strkey-validated (ed25519 public key: G + 55 base32 chars) so a hostile
+    // accepts value can never reach a Horizon URL.
+    stellarWallet: [...(v.tools || []), ...(bazaarToolsByOrigin.get(origin) || [])]
+      .map((t) => t.stellarPayTo)
+      .find((w) => typeof w === "string" && /^G[A-Z2-7]{55}$/.test(w)) || null,
   }));
   const sellers = [local, ...remote];
   const discoverySources = DISCOVERY_SOURCES.map((s) => {

@@ -91,5 +91,26 @@ html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail });
 ok(html.includes("activity scan temporarily unavailable"), "missing activity renders the honest unavailable line");
 ok(!html.includes("TRANSACTIONS"), "no zero-cards invented when the scan is unavailable");
 
+// Per-seller activity: selection re-scopes the label, caption, and highlight
+const extSel = { local: false, host: "ext1.example", name: "Ext One" };
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail, activity, selectedSeller: extSel });
+ok(html.includes("EXT1.EXAMPLE · PAST 30 DAYS"), "selected external seller scopes the activity label");
+ok(html.includes("may include non-x402 transfers"), "external-wallet caption is honest about scope");
+ok(!html.includes("all inbound USDC settlements to this host"), "this-host caption absent when external selected");
+ok(html.includes('href="/stellar?seller=ext1.example#activity"'), "seller card links to its activity view");
+ok(html.includes("activity shown above"), "selected seller card marked as shown");
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail, activity: null, selectedSeller: extSel });
+ok(html.includes("no Stellar payTo advertised"), "external seller without a scannable wallet gets the honest line");
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail, activity });
+ok(html.includes("THIS HOST · PAST 30 DAYS"), "no selection defaults the activity scope to this host");
+
+// Seller list scales: >12 sellers switches to compact rows
+const many = { sellers: [LOCAL, ...Array.from({ length: 14 }, (_, i) => ({ ...EXT_STELLAR, origin: "https://ext" + i + ".example", homepage: "https://ext" + i + ".example", displayName: "Ext " + i }))], totals: { sellers: 15 } };
+html = stellarPage("https://agent402.tools", { snapshot: many, rail: null });
+ok(!html.includes("view activity →"), "compact mode drops per-card links (row itself is the link)");
+ok(html.includes("Ext 13") && html.includes("flex-direction:column"), "15 sellers render as compact rows");
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail: null });
+ok(html.includes("view activity →"), "4 sellers keep the card layout");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
