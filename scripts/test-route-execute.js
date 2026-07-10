@@ -1,5 +1,6 @@
 // Offline unit tests for the route-and-execute tool (src/tools/route-execute.js).
 // Uses a miniature catalog — no server boot, no network.
+import { createHash } from "node:crypto";
 import { buildRouteExecuteTool } from "../src/tools/route-execute.js";
 
 let pass = 0, fail = 0;
@@ -85,6 +86,27 @@ await expectErr({ slug: "hash", params: { text: "x" }, maxUsd: 0.0005 }, 409, "c
 
 // 5. Underlying tool errors surface with the tool's own status code.
 await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 passes through", "Routed tool");
+
+// 6. Recomputable call identity (issue #282): callRef rides the receipt when
+// the request carried an EIP-3009 payment authorization; absent otherwise.
+{
+  const nonce = "0x" + "ab".repeat(32);
+  const header = Buffer.from(JSON.stringify({ payload: { authorization: { from: "0x1111111111111111111111111111111111111111", nonce } } })).toString("base64");
+  const req = { header: (n) => (String(n).toLowerCase() === "x-payment" ? header : undefined) };
+  const r = await tool.handler({ slug: "hash", params: { text: "x" } }, req);
+  ok(typeof r.receipt.ts === "string" && r.receipt.ts.endsWith("Z"), "receipt carries the dispatch timestamp");
+  const expected = "sha256:" + createHash("sha256").update(JSON.stringify({ nonce, slug: "hash", ts: r.receipt.ts })).digest("hex");
+  ok(r.receipt.callRef === expected, "callRef re-derives from {nonce, slug, ts} exactly");
+}
+{
+  const r = await tool.handler({ slug: "hash", params: { text: "x" } });
+  ok(r.receipt.callRef === undefined && typeof r.receipt.ts === "string", "nonce-less call omits callRef but keeps ts");
+}
+{
+  const req = { header: () => Buffer.from("not json").toString("base64") };
+  const r = await tool.handler({ slug: "hash", params: { text: "x" } }, req);
+  ok(r.receipt.callRef === undefined, "malformed payment header degrades to no callRef, not an error");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

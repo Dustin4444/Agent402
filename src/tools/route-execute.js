@@ -16,10 +16,32 @@
 // spread is the routing fee. Tools above the cap return a self-correcting 409
 // that names the tool and its direct route, so the buyer can call it at list
 // price instead.
+import { createHash } from "node:crypto";
 import { findTools } from "../find.js";
 
 const EXEC_PRICE_USD = 0.01;
 const UNDERLYING_MAX_USD = 0.005;
+
+// Optional recomputable call identity (issue #282): callRef = "sha256:" + hex
+// digest over the canonical preimage JSON.stringify({nonce, slug, ts}) — keys
+// in that (alphabetical) order, all values strings. The EIP-3009 authorization
+// nonce is the high-entropy per-dispatch pseudonym: buyer and seller each hold
+// it already (the buyer signed it, the seller read it from X-PAYMENT), so both
+// re-derive the same reference offline from the receipt's slug + ts — while
+// outsiders cannot brute-force the caller from the hash. Absent (null) when the
+// call carried no EVM payment authorization (free mode, non-EIP-3009 rails).
+export function callRefFrom(req, slug, ts) {
+  try {
+    const header = req?.header?.("x-payment") || req?.header?.("payment-signature");
+    if (!header) return null;
+    const payload = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
+    const nonce = payload?.payload?.authorization?.nonce;
+    if (typeof nonce !== "string" || !nonce) return null;
+    return "sha256:" + createHash("sha256").update(JSON.stringify({ nonce, slug, ts })).digest("hex");
+  } catch {
+    return null;
+  }
+}
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -66,12 +88,12 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "" }) {
       },
       output: {
         example: {
-          receipt: { slug: "hash", route: "POST /api/hash", underlyingPriceUsd: 0.001, paidUsd: EXEC_PRICE_USD, routingFeeUsd: 0.009, seller: "internal", resolvedBy: "slug" },
+          receipt: { slug: "hash", route: "POST /api/hash", underlyingPriceUsd: 0.001, paidUsd: EXEC_PRICE_USD, routingFeeUsd: 0.009, seller: "internal", resolvedBy: "slug", ts: "2026-07-10T00:00:00.000Z", callRef: "sha256:…  (recomputable: sha256 of {\"nonce\":<payment authorization nonce>,\"slug\":…,\"ts\":…} — null on nonce-less calls)" },
           result: { algo: "sha256", hex: "…", base64: "…" },
         },
       },
     },
-    handler: async (input) => {
+    handler: async (input, req) => {
       if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
       const catalog = getCatalog();
       const params = input.params != null ? input.params : {};
@@ -126,6 +148,8 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "" }) {
         const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
         throw bad(`Routed tool "${def.slug}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
       }
+      const ts = new Date().toISOString();
+      const callRef = callRefFrom(req, def.slug, ts);
       return {
         receipt: {
           slug: def.slug,
@@ -135,6 +159,8 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "" }) {
           routingFeeUsd: Number((EXEC_PRICE_USD - underlying).toFixed(6)),
           seller: "internal",
           resolvedBy,
+          ts,
+          ...(callRef ? { callRef } : {}),
         },
         result,
       };

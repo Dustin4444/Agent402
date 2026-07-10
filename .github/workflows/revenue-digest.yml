@@ -52,8 +52,9 @@ jobs:
           CH=$(echo "$HDR" | base64 -d 2>/dev/null || echo '{}')
           EVM_PAYTO=$(echo "$CH" | jq -r '[.accepts // [] | .[] | select((.network // "") | startswith("eip155:"))][0].payTo // empty')
           SOL_PAYTO=$(echo "$CH" | jq -r '[.accepts // [] | .[] | select((.network // "") | startswith("solana:"))][0].payTo // empty')
+          XLM_PAYTO=$(echo "$CH" | jq -r '[.accepts // [] | .[] | select((.network // "") | startswith("stellar:"))][0].payTo // empty')
           echo "$CH" | jq -r '[.accepts[]?.network] | join(",")' > /tmp/digest/networks.txt || true
-          echo "offered: $(cat /tmp/digest/networks.txt) | evm payTo: ${EVM_PAYTO:-none} | solana payTo: ${SOL_PAYTO:-none}"
+          echo "offered: $(cat /tmp/digest/networks.txt) | evm payTo: ${EVM_PAYTO:-none} | solana payTo: ${SOL_PAYTO:-none} | stellar payTo: ${XLM_PAYTO:-none}"
           for NET in base polygon arbitrum robinhood; do
             case "$NET" in
               base)      CAIP2="eip155:8453" ;;
@@ -74,6 +75,12 @@ jobs:
           else
             echo '{"notOffered":true}' > /tmp/digest/solana.json
           fi
+          if [ -n "$XLM_PAYTO" ]; then
+            STELLAR_REVENUE_WALLET="$XLM_PAYTO" node scripts/revenue-scan-stellar.js > /tmp/digest/stellar.json 2>/dev/null \
+              || echo '{"scanSkipped":true}' > /tmp/digest/stellar.json
+          else
+            echo '{"notOffered":true}' > /tmp/digest/stellar.json
+          fi
 
       - name: Build the digest body
         run: |
@@ -82,7 +89,7 @@ jobs:
           const rails = [
             ["Base", "base", "USDC"], ["Solana", "solana", "USDC"],
             ["Polygon", "polygon", "USDC"], ["Arbitrum", "arbitrum", "USDC"],
-            ["Robinhood Chain", "robinhood", "USDG"],
+            ["Stellar", "stellar", "USDC"], ["Robinhood Chain", "robinhood", "USDG"],
           ];
           const read = (f) => { try { return JSON.parse(readFileSync(`/tmp/digest/${f}.json`, "utf8")); } catch { return { scanSkipped: true }; } };
           const rows = [];
@@ -105,7 +112,7 @@ jobs:
             "",
             externals.length ? `### Recent external payments\n${externals.join("\n")}` : "_No external per-call payments in the scan windows._",
             "",
-            `On-chain ground truth: [Basescan](https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns) · [Robinhood Blockscout](https://robinhoodchain.blockscout.com/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0) · [/api/stats](https://agent402.tools/api/stats)`,
+            `On-chain ground truth: [Basescan](https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns) · [Robinhood Blockscout](https://robinhoodchain.blockscout.com/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0) · [Stellar Expert](https://stellar.expert/explorer/public/account/GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL) · [/api/stats](https://agent402.tools/api/stats)`,
           ].join("\n");
           writeFileSync("/tmp/digest/body.md", body);
           console.log(body);
