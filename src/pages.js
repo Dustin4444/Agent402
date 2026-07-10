@@ -547,6 +547,13 @@ export function openapiSpec(baseUrl, catalog) {
       },
       "x-price": tool.price,
       "x-payment-protocol": "x402",
+      // x402scan's OpenAPI-first discovery (docs/DISCOVERY.md in
+      // Merit-Systems/x402scan) reads this exact extension shape per paid
+      // operation; amount is a decimal-dollar string.
+      "x-payment-info": {
+        protocols: ["x402"],
+        price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
+      },
     };
     const props = discovery?.inputSchema?.properties ?? {};
     const required = discovery?.inputSchema?.required ?? [];
