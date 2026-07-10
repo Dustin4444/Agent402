@@ -1,6 +1,10 @@
-// Offline unit tests for the b20-kit log-decoding helpers. Synthetic logs in
-// BOTH plausible indexed layouts (the official B20 ABI's indexed-ness is
-// unpublished) — no network.
+// Offline unit tests for the b20-kit log-decoding helpers, pinned to the
+// CANONICAL B20 ABI from base/base-std src/interfaces/IB20.sol + IB20Factory.sol:
+//   event Transfer(address indexed from, address indexed to, uint256 amount)
+//   event Memo(address indexed caller, bytes32 indexed memo)        // BOTH indexed
+//   event B20Created(address indexed token, B20Variant indexed variant,
+//                    string name, string symbol, uint8 decimals, bytes variantEventParams)
+// Non-canonical layouts must be REJECTED (null), never guessed. No network.
 import { B20_INTERNALS } from "../src/tools/b20-kit.js";
 
 const { TOPIC_TRANSFER, TOPIC_MEMO, TOPIC_B20_CREATED, findB20Address, decodeTransfer, memoWord, memoText, logIndexNum } = B20_INTERNALS;
@@ -19,35 +23,33 @@ ok(/^0x[0-9a-f]{64}$/.test(TOPIC_MEMO), "TOPIC_MEMO is a 32-byte hash");
 ok(/^0x[0-9a-f]{64}$/.test(TOPIC_B20_CREATED), "TOPIC_B20_CREATED is a 32-byte hash");
 ok(TOPIC_TRANSFER === "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef", "TOPIC_TRANSFER matches the canonical ERC-20 Transfer topic");
 
-// findB20Address: layout A — token address indexed (topic 1)
-ok(findB20Address({ topics: [TOPIC_B20_CREATED, pad(B20_ADDR)], data: "0x" }) === B20_ADDR,
-  "findB20Address finds an indexed 0xb200 address");
-// layout B — token address in data, after another word
-ok(findB20Address({ topics: [TOPIC_B20_CREATED], data: "0x" + pad(EOA).slice(2) + pad(B20_ADDR).slice(2) }) === B20_ADDR,
-  "findB20Address finds a data-word 0xb200 address (skipping non-B20 words)");
-// no B20 address anywhere -> null
+// findB20Address: canonical B20Created — token indexed at topics[1]
+ok(findB20Address({ topics: [TOPIC_B20_CREATED, pad(B20_ADDR), pad("0x01")], data: "0x" + pad(EOA).slice(2) }) === B20_ADDR,
+  "findB20Address reads the token from topics[1] (canonical layout)");
+// regression pin: a 0xb200 address hiding in DATA is not the token — reject, don't scan
+ok(findB20Address({ topics: [TOPIC_B20_CREATED], data: "0x" + pad(EOA).slice(2) + pad(B20_ADDR).slice(2) }) === null,
+  "findB20Address rejects non-canonical layouts instead of scanning data words");
+// topics[1] present but not a factory-prefixed address -> null (counted as skipped upstream)
 ok(findB20Address({ topics: [TOPIC_B20_CREATED, pad(EOA)], data: "0x" }) === null,
-  "findB20Address returns null when no 0xb200 word exists");
-// word that merely CONTAINS b200 mid-string but is not address-shaped -> null
-ok(findB20Address({ topics: [TOPIC_B20_CREATED], data: pad("0xffb200000000000000000000000000000000000abc") }) === null,
-  "findB20Address ignores non-address-shaped words");
+  "findB20Address returns null when topics[1] lacks the 0xb200 prefix");
+// topics[1] not address-shaped -> null
+ok(findB20Address({ topics: [TOPIC_B20_CREATED, "0x" + "ff".repeat(32)], data: "0x" }) === null,
+  "findB20Address returns null when topics[1] is not address-shaped");
 
-// decodeTransfer: canonical (from/to indexed, value in data)
+// decodeTransfer: canonical (from/to indexed, amount in data) — the only layout
 let t = decodeTransfer({ topics: [TOPIC_TRANSFER, pad(EOA), pad(EOA2)], data: pad("0x64") });
 ok(t && t.from === EOA && t.to === EOA2 && t.value === "100", "decodeTransfer canonical layout");
-// non-indexed fallback (all three in data)
+// regression pin: non-indexed data-packed transfers are rejected, not guessed
 t = decodeTransfer({ topics: [TOPIC_TRANSFER], data: "0x" + pad(EOA).slice(2) + pad(EOA2).slice(2) + pad("0x64").slice(2) });
-ok(t && t.from === EOA && t.to === EOA2 && t.value === "100", "decodeTransfer non-indexed fallback");
-ok(decodeTransfer({ topics: [TOPIC_TRANSFER], data: "0x" }) === null, "decodeTransfer returns null on undecodable log");
+ok(t === null, "decodeTransfer rejects the non-indexed layout");
+ok(decodeTransfer({ topics: [TOPIC_TRANSFER, pad(EOA), pad(EOA2)], data: "0x" }) === null, "decodeTransfer returns null on missing amount");
 
-// memoWord: layout A — memo in data
+// memoWord: canonical Memo(address indexed caller, bytes32 indexed memo) — memo at topics[2]
 const MEMO_HEX = "0x" + Buffer.from("invoice-42").toString("hex").padEnd(64, "0");
-ok(memoWord({ topics: [TOPIC_MEMO, pad(EOA)], data: MEMO_HEX }) === MEMO_HEX, "memoWord takes the data word when present");
-// layout B — memo indexed (last topic), empty data
-ok(memoWord({ topics: [TOPIC_MEMO, pad(EOA), MEMO_HEX], data: "0x" }) === MEMO_HEX, "memoWord falls back to the last topic");
-ok(memoWord({ topics: [TOPIC_MEMO], data: "0x" }) === null, "memoWord returns null when no candidate word");
-// layout C — memo indexed, sender address in data (disambiguated by shape)
-ok(memoWord({ topics: [TOPIC_MEMO, MEMO_HEX], data: pad(EOA) }) === MEMO_HEX, "memoWord prefers a non-address-shaped topic over an address-shaped data word");
+ok(memoWord({ topics: [TOPIC_MEMO, pad(EOA), MEMO_HEX], data: "0x" }) === MEMO_HEX, "memoWord reads the memo from topics[2] (canonical layout)");
+// regression pin: a memo-looking DATA word is not a memo — reject, don't guess
+ok(memoWord({ topics: [TOPIC_MEMO, pad(EOA)], data: MEMO_HEX }) === null, "memoWord rejects the data-word layout");
+ok(memoWord({ topics: [TOPIC_MEMO], data: "0x" }) === null, "memoWord returns null when topics[2] is absent");
 
 // memoText: printable, binary, all-zero
 ok(memoText(MEMO_HEX) === "invoice-42", "memoText decodes printable UTF-8 and trims NUL padding");

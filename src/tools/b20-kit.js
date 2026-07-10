@@ -137,9 +137,14 @@ async function readToken(addr) {
 }
 
 // --- log-scanning helpers (b20-new-tokens, b20-memos) ------------------------
-// CDP published B20 event SIGNATURES but not indexed layouts, so decoding is
-// defensive: topic0 filters are layout-independent; fields are located by
-// shape (0xb200 prefix; final bytes32 word) rather than assumed position.
+// EXACT decoding per the canonical B20 ABI (base/base-std, src/interfaces/
+// IB20.sol + IB20Factory.sol):
+//   event Transfer(address indexed from, address indexed to, uint256 amount)
+//   event Memo(address indexed caller, bytes32 indexed memo)        // BOTH indexed
+//   event B20Created(address indexed token, B20Variant indexed variant,
+//                    string name, string symbol, uint8 decimals, bytes variantEventParams)
+// Non-canonical layouts return null (counted as skipped upstream) — a log that
+// doesn't match the published interface is rejected, never guessed at.
 const topicOf = (signature) => "0x" + keccak256(signature);
 const TOPIC_B20_CREATED = topicOf("B20Created(address,uint8,string,string,uint8,bytes)");
 const TOPIC_TRANSFER = topicOf("Transfer(address,address,uint256)");
@@ -148,55 +153,36 @@ const TOPIC_MEMO = topicOf("Memo(address,bytes32)");
 // Malformed/missing hex from a flaky public RPC must not 500 a paid request.
 const logIndexNum = (h) => { try { return Number(BigInt(h)); } catch { return -1; } };
 
-// 32-byte words of a log: indexed topics (minus topic0) then data words.
-function logWords(log) {
-  const topicWords = (log.topics || []).slice(1).map(hexBody);
-  const dataWords = hexBody(log.data).match(/.{64}/g) || [];
-  return [...topicWords, ...dataWords];
-}
+const topicAddress = (topic) => {
+  const w = hexBody(topic);
+  if (w.length !== 64 || !w.startsWith("0".repeat(24))) return null;
+  return "0x" + w.slice(24);
+};
 
-// Locate the new token's address in a B20Created log by its 0xb200 prefix.
-// Address-shaped = 12 zero bytes then 20 bytes; the prefix makes it unambiguous.
+// B20Created: the new token is indexed at topics[1]; the factory-issued 0xb200
+// prefix stays as a sanity check against ABI drift.
 function findB20Address(log) {
-  for (const w of logWords(log)) {
-    if (w.length !== 64 || !w.startsWith("0".repeat(24))) continue;
-    const addr = "0x" + w.slice(24);
-    if (addr.startsWith(TOKEN_PREFIX)) return addr;
-  }
-  return null;
+  const addr = topicAddress((log.topics || [])[1]);
+  return addr && addr.startsWith(TOKEN_PREFIX) ? addr : null;
 }
 
-// Canonical ERC-20 Transfer (from/to indexed) with a non-indexed fallback.
+// Canonical ERC-20/B20 Transfer: from/to indexed, amount in data.
 function decodeTransfer(log) {
   const t = log.topics || [];
-  if (t.length >= 3) {
-    const value = decodeUint(log.data);
-    if (value == null) return null;
-    return { from: "0x" + hexBody(t[1]).slice(24), to: "0x" + hexBody(t[2]).slice(24), value };
-  }
-  const words = hexBody(log.data).match(/.{64}/g) || [];
-  if (words.length >= 3) {
-    return { from: "0x" + words[0].slice(24), to: "0x" + words[1].slice(24), value: BigInt("0x" + words[2]).toString() };
-  }
-  return null;
+  if (t.length < 3) return null;
+  const from = topicAddress(t[1]);
+  const to = topicAddress(t[2]);
+  const value = decodeUint(log.data);
+  if (!from || !to || value == null) return null;
+  return { from, to, value };
 }
 
-// The memo is the event's only bytes32 payload: prefer the (last) data word,
-// fall back to the last topic beyond topic0. One exception: if the data word
-// is address-shaped (12 zero bytes + 20) while the last topic is not, this is
-// the memo-INDEXED layout (data = sender address, topic = memo) — take the
-// topic. Printable bytes32 memos are left-aligned, so they never look
-// address-shaped.
+// Memo: both params indexed — the memo is topics[2] (caller is topics[1]).
 function memoWord(log) {
-  const dataWords = hexBody(log.data).match(/.{64}/g) || [];
   const t = log.topics || [];
-  const dataWord = dataWords.length ? dataWords[dataWords.length - 1] : null;
-  const lastTopic = t.length > 1 ? hexBody(t[t.length - 1]) : null;
-  if (dataWord && lastTopic && dataWord.startsWith("0".repeat(24)) && !lastTopic.startsWith("0".repeat(24))) {
-    return "0x" + lastTopic;
-  }
-  if (dataWord) return "0x" + dataWord;
-  return lastTopic ? "0x" + lastTopic : null;
+  if (t.length < 3) return null;
+  const w = hexBody(t[2]);
+  return w.length === 64 ? "0x" + w : null;
 }
 
 // Best-effort UTF-8: trim NUL padding, require printable, reject replacement chars.
@@ -213,7 +199,7 @@ function memoText(hex) {
 }
 
 // Test-only export: offline unit tests exercise the decode layer directly.
-export const B20_INTERNALS = { TOPIC_B20_CREATED, TOPIC_TRANSFER, TOPIC_MEMO, findB20Address, decodeTransfer, memoWord, memoText, logIndexNum, logWords };
+export const B20_INTERNALS = { TOPIC_B20_CREATED, TOPIC_TRANSFER, TOPIC_MEMO, findB20Address, decodeTransfer, memoWord, memoText, logIndexNum };
 
 async function latestBlock() {
   return Number(BigInt(await rpc("eth_blockNumber", [])));
