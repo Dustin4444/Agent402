@@ -174,7 +174,7 @@ export function ledgerFooterFull() {
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">ecosystem</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/stellar" style="color:var(--muted);text-decoration:none;">Stellar</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a><a href="/playground" style="color:var(--muted);text-decoration:none;">Playground</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/stellar" style="color:var(--muted);text-decoration:none;">Stellar</a><a href="/algorand" style="color:var(--muted);text-decoration:none;">Algorand</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a><a href="/playground" style="color:var(--muted);text-decoration:none;">Playground</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">developers</div>

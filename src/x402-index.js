@@ -324,6 +324,12 @@ function bazaarItemToTool(item, originUrl) {
     // Stellar payTo from the accepts — feeds /stellar's per-seller activity
     // scan. Kept raw here; the snapshot validates the strkey shape before use.
     stellarPayTo: accepts.find((a) => typeof a?.network === "string" && a.network.startsWith("stellar") && !a.network.includes("test"))?.payTo || null,
+    // Algorand payTo — same idea, feeds /algorand's per-seller activity scan.
+    // Mainnet-only: the CAIP-2 prefix distinguishes mainnet
+    // (algorand:wGHE2Pwd…) from testnet (algorand:SGO1GKSz…) — an
+    // includes("test") check would miss a testnet id that happens not to
+    // contain the literal substring "test".
+    algorandPayTo: accepts.find((a) => typeof a?.network === "string" && a.network.startsWith("algorand:wGHE2Pwd"))?.payTo || null,
     provenance: "bazaar",
   };
 }
@@ -615,6 +621,12 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     stellarWallet: [...(v.tools || []), ...(bazaarToolsByOrigin.get(origin) || [])]
       .map((t) => t.stellarPayTo)
       .find((w) => typeof w === "string" && /^G[A-Z2-7]{55}$/.test(w)) || null,
+    // First valid Algorand payTo advertised across this seller's accepts —
+    // strkey-validated (58 base32 chars) so a hostile accepts value can never
+    // reach an indexer URL. Feeds /algorand's per-seller activity scan.
+    algorandWallet: [...(v.tools || []), ...(bazaarToolsByOrigin.get(origin) || [])]
+      .map((t) => t.algorandPayTo)
+      .find((w) => typeof w === "string" && /^[A-Z2-7]{58}$/.test(w)) || null,
   }));
   const sellers = [local, ...remote];
   const discoverySources = DISCOVERY_SOURCES.map((s) => {
@@ -873,7 +885,7 @@ export function indexPage(snapshot, { baseUrl }) {
   const pageBody = `<div class="ix-wrap">
 
 <h1>x402 Index</h1>
-<p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them every 5 minutes and shows what's online. Selling on Stellar? See <a href="/stellar">the Stellar x402 marketplace</a> — the same index, filtered to sellers settling USDC on Stellar.</p>
+<p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them every 5 minutes and shows what's online. Selling on Stellar or Algorand? See <a href="/stellar">the Stellar x402 marketplace</a> or the <a href="/algorand">Algorand x402 marketplace</a> — the same index, filtered per rail.</p>
 
 <div class="grid">
   <div class="stat"><div class="k">Sellers</div><div class="v">${esc(snapshot.totals.sellers)}</div><div class="s">listed in the Index</div></div>

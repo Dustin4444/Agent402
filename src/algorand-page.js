@@ -1,8 +1,10 @@
-// /stellar — the Stellar x402 marketplace page. Pure renderer over the
-// existing index snapshot + stellarRail() receipts; no state of its own.
-// Honesty rules (spec): never invent receipts, say plainly when Agent402 is
-// the only listed seller. Listing for external sellers is automatic — the
-// index crawler picks up any origin whose 402s advertise a stellar network.
+// /algorand — the Algorand x402 marketplace page. Pure renderer over the
+// existing index snapshot + algorandRail() receipts; no state of its own.
+// Mirrors src/stellar-page.js exactly (same honesty rules, same XSS posture);
+// adapt copy/links per rail only. Honesty rules (spec): never invent
+// receipts, say plainly when Agent402 is the only listed seller. Listing for
+// external sellers is automatic — the index crawler picks up any origin
+// whose 402s advertise an Algorand mainnet network.
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -10,18 +12,22 @@ const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 const usd = (n) => `$${Number(n).toFixed(Number(n) < 0.01 ? 3 : 2).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m))}`;
 
-const isStellarNet = (n) => typeof n === "string" && n.startsWith("stellar") && !n.includes("test");
+// Algorand mainnet CAIP-2 is `algorand:wGHE2Pwd...`; testnet starts
+// `algorand:SGO1GKSz...`. An exact-prefix match on the mainnet genesis hash
+// (rather than excluding the substring "test") can't be fooled by a testnet
+// id that happens not to contain "test".
+const isAlgorandMainnet = (n) => typeof n === "string" && n.startsWith("algorand:wGHE2Pwd");
 
-/** Sellers with a Stellar rail: the local catalog always qualifies (every
- *  local tool's 402 offers stellar:pubnet); remote sellers qualify when their
- *  crawled 402s advertise a stellar network. */
-export function stellarSellers(snapshot) {
-  return (snapshot?.sellers || []).filter((s) => s.local === true || (s.networks || []).some(isStellarNet));
+/** Sellers with an Algorand rail: the local catalog always qualifies (every
+ *  local tool's 402 offers algorand mainnet); remote sellers qualify when
+ *  their crawled 402s advertise the Algorand mainnet network. */
+export function algorandSellers(snapshot) {
+  return (snapshot?.sellers || []).filter((s) => s.local === true || (s.networks || []).some(isAlgorandMainnet));
 }
 
-/** Tools purchasable over Stellar. Remote snapshot entries carry no per-tool
+/** Tools purchasable over Algorand. Remote snapshot entries carry no per-tool
  *  list, so this is the local catalog; external sellers render seller-level. */
-export function stellarTools(snapshot) {
+export function algorandTools(snapshot) {
   const local = (snapshot?.sellers || []).find((s) => s.local === true);
   return local?.tools || [];
 }
@@ -39,18 +45,18 @@ function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) 
 }
 
 // Activity section — x402scan-style Transactions / Volume / Buyers cards with
-// per-day bars, fed by revenue-live's stellarActivity() scan. Same honesty
+// per-day bars, fed by revenue-live's algorandActivity() scan. Same honesty
 // rules as the receipts: no data → say so plainly, capped scan → "a floor".
-export function stellarActivityHtml(activity, selected) {
+export function algorandActivityHtml(activity, selected) {
   const external = !!(selected && !selected.local && selected.host);
   const scopeLabel = external ? esc(String(selected.host).toUpperCase()) : "THIS HOST";
   if (!activity || activity.error || !Array.isArray(activity.buckets) || !activity.buckets.length) {
     const why = external
-      ? "activity unavailable for this seller — no Stellar payTo advertised in its 402s, or the scan failed"
+      ? "activity unavailable for this seller — no Algorand payTo advertised in its 402s, or the scan failed"
       : "activity scan temporarily unavailable";
     return `
   <h2 id="activity" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Activity</h2>
-  <p style="color:var(--muted);font-size:13.5px;margin:0;">${why} — settlements remain independently verifiable on stellar.expert</p>`;
+  <p style="color:var(--muted);font-size:13.5px;margin:0;">${why} — settlements remain independently verifiable on allo.info</p>`;
   }
   const bars = (key) => {
     const max = Math.max(...activity.buckets.map((b) => Number(b[key]) || 0));
@@ -72,7 +78,7 @@ export function stellarActivityHtml(activity, selected) {
   const note = [
     external
       ? "all inbound USDC to this seller's advertised x402 payTo wallet — may include non-x402 transfers"
-      : "all inbound USDC settlements to this host's Stellar wallet",
+      : "all inbound USDC settlements to this host's Algorand wallet",
     t.internalTx ? `includes ${t.internalTx} internal canary buy${t.internalTx === 1 ? "" : "s"}` : "",
     activity.truncated ? "scan capped — totals are a floor" : "",
   ].filter(Boolean).join(" · ");
@@ -89,9 +95,9 @@ export function stellarActivityHtml(activity, selected) {
   <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin:8px 0 0;">${note}</p>`;
 }
 
-export function stellarPage(baseUrl, { snapshot, rail, activity, selectedSeller, stellarWallet = "GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL" }) {
-  const sellers = stellarSellers(snapshot);
-  const tools = stellarTools(snapshot);
+export function algorandPage(baseUrl, { snapshot, rail, activity, selectedSeller, algorandWallet = "C7IIHG7SPLPZ5H7ZT6HW3UV2OQMQQE6Y2HBNGZXSLRJULE42BEE2OY2XIE" }) {
+  const sellers = algorandSellers(snapshot);
+  const tools = algorandTools(snapshot);
   const prices = tools.map((t) => Number(t.price)).filter((n) => Number.isFinite(n) && n > 0);
   const low = prices.length ? Math.min(...prices) : 0.001;
   const high = prices.length ? Math.max(...prices) : 0.5;
@@ -100,7 +106,7 @@ export function stellarPage(baseUrl, { snapshot, rail, activity, selectedSeller,
 
   const receiptHtml = latest
     ? `<p style="margin:8px 0 0;">Latest settlement: <strong>${usd(latest.usd)} USDC</strong> · <a href="${esc(latest.tx)}" rel="noopener">on-chain receipt</a>${latest.when ? ` · ${esc(latest.when)}` : ""}</p>`
-    : `<p style="margin:8px 0 0;color:var(--muted);">live receipts temporarily unavailable — settlements remain verifiable at <a href="https://stellar.expert/explorer/public/account/${esc(stellarWallet)}" rel="noopener">stellar.expert</a></p>`;
+    : `<p style="margin:8px 0 0;color:var(--muted);">live receipts temporarily unavailable — settlements remain verifiable at <a href="https://allo.info/account/${esc(algorandWallet)}" rel="noopener">allo.info</a></p>`;
 
   const groupsHtml = groups.map((g) => `
     <div style="border:1px solid var(--hairline);padding:14px 16px;">
@@ -114,7 +120,7 @@ export function stellarPage(baseUrl, { snapshot, rail, activity, selectedSeller,
   // pick highlights that seller and re-scopes the Activity section.
   const selHost = selectedSeller && !selectedSeller.local ? String(selectedSeller.host || "").toLowerCase() : null;
   const isSelected = (s) => (selHost ? !s.local && hostOf(s.homepage).toLowerCase() === selHost : !!s.local);
-  const activityHref = (s) => (s.local ? "/stellar#activity" : `/stellar?seller=${encodeURIComponent(hostOf(s.homepage).toLowerCase())}#activity`);
+  const activityHref = (s) => (s.local ? "/algorand#activity" : `/algorand?seller=${encodeURIComponent(hostOf(s.homepage).toLowerCase())}#activity`);
   // Cards read well up to a dozen sellers; past that, compact rows keep the
   // roster scannable at any size.
   const compact = sellers.length > 12;
@@ -156,18 +162,18 @@ export function stellarPage(baseUrl, { snapshot, rail, activity, selectedSeller,
   </div>`;
 
   const honesty = sellers.length === 1 && sellers[0]?.local
-    ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live — discovery is open, and external sellers are added automatically when their x402 challenges advertise a Stellar network.</p>`
+    ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live — discovery is open, and external sellers are added automatically when their x402 challenges advertise the Algorand mainnet network.</p>`
     : "";
 
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "CollectionPage",
-    name: "The Stellar x402 marketplace",
-    url: `${baseUrl}/stellar`,
-    description: `Pay-per-call tools for AI agents, settled in USDC on Stellar via the x402 protocol. ${tools.length} tools live.`,
+    name: "The Algorand x402 marketplace",
+    url: `${baseUrl}/algorand`,
+    description: `Pay-per-call tools for AI agents, settled in USDC on Algorand via the x402 protocol. ${tools.length} tools live.`,
     mainEntity: {
       "@type": "OfferCatalog",
-      name: "Stellar-payable agent tools",
+      name: "Algorand-payable agent tools",
       numberOfItems: tools.length,
       itemListElement: { "@type": "AggregateOffer", priceCurrency: "USD", lowPrice: String(low), highPrice: String(high), offerCount: tools.length },
     },
@@ -189,46 +195,46 @@ export function stellarPage(baseUrl, { snapshot, rail, activity, selectedSeller,
     try {
       const r = await fetch("/api/index/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: document.getElementById("reg-origin").value }) });
       const j = await r.json();
-      out.textContent = j.listed ? ("Listed — " + (j.seller?.displayName || j.origin) + " (" + (j.seller?.toolCount || 0) + " tools). Stellar sellers appear on this page; all sellers appear on /index.") : ("Not listed: " + (j.error || "unknown error"));
+      out.textContent = j.listed ? ("Listed — " + (j.seller?.displayName || j.origin) + " (" + (j.seller?.toolCount || 0) + " tools). Algorand sellers appear on this page; all sellers appear on /index.") : ("Not listed: " + (j.error || "unknown error"));
     } catch { out.textContent = "submission failed — try again"; }
   });
   </script>`;
 
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
-  <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The Stellar x402 marketplace</h1>
-  <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:720px;">Pay-per-call tools for AI agents — settled in USDC on Stellar in ~5 seconds, no signup, no API keys. The wallet is the account.</p>
-  <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">sister market: <a href="/algorand">the Algorand x402 marketplace →</a></p>
+  <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The Algorand x402 marketplace</h1>
+  <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:720px;">Pay-per-call tools for AI agents — settled in USDC on Algorand in a few seconds, no signup, no API keys. The wallet is the account.</p>
+  <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">sister market: <a href="/stellar">the Stellar x402 marketplace →</a></p>
   ${receiptHtml}
-  <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">A paid canary buys tools over the Stellar rail daily (facilitator: OpenZeppelin) — uptime proven with real settlements, not pings.</p>
+  <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">A paid canary buys tools over the Algorand rail daily (facilitator: GoPlausible, fees sponsored) — uptime proven with real settlements, not pings.</p>
   ${statsHtml}
-  ${stellarActivityHtml(activity, selectedSeller)}
+  ${algorandActivityHtml(activity, selectedSeller)}
 
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on Stellar</h2>
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on Algorand</h2>
   <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">pick a seller to scope the activity charts to its on-chain wallet</p>
   ${compact
     ? `<div style="display:flex;flex-direction:column;gap:8px;">${sellersHtml}</div>`
     : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">${sellersHtml}</div>`}
   ${honesty}
 
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse Stellar-payable tools</h2>
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse Algorand-payable tools</h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">${groupsHtml}</div>
-  <p style="font-family:var(--font-mono);font-size:13px;background:#EDEDEB;padding:10px 14px;margin:16px 0 0;">agents: GET ${esc(baseUrl)}/api/route?q=&lt;task&gt;&amp;network=stellar</p>
+  <p style="font-family:var(--font-mono);font-size:13px;background:#EDEDEB;padding:10px 14px;margin:16px 0 0;">agents: GET ${esc(baseUrl)}/api/route?q=&lt;task&gt;&amp;network=algorand</p>
 
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sell on Stellar</h2>
-  <p style="font-size:14.5px;line-height:1.65;">Accept x402 payments with a <code>stellar:pubnet</code> accept in your 402 challenge — the <a href="https://developers.stellar.org/docs/build/agentic-payments/x402/built-on-stellar" rel="noopener">Built on Stellar facilitator</a> (OpenZeppelin) verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/stellar" rel="noopener"><code>@x402/stellar</code></a> for the wire, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> — the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.</p>
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sell on Algorand</h2>
+  <p style="font-size:14.5px;line-height:1.65;">Accept the Algorand mainnet CAIP-2 network in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/avm" rel="noopener"><code>@x402/avm</code></a> server SDK — the GoPlausible facilitator verifies and settles, fees sponsored. Your payTo wallet must be opted in to ASA <code>31566704</code> (USDC) before it can receive payments. Then serve <code>/.well-known/x402</code> — the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.</p>
   ${formHtml}
 
-  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=stellar">/api/route?network=stellar</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
+  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=algorand">/api/route?network=algorand</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: "The Stellar x402 marketplace — pay-per-call tools for AI agents",
-    description: `The Stellar x402 marketplace: ${tools.length} pay-per-call tools for AI agents, settled in USDC on Stellar. No signup, no API keys — the wallet is the account.`,
-    canonical: `${baseUrl}/stellar`,
+    title: "The Algorand x402 marketplace — pay-per-call tools for AI agents",
+    description: `The Algorand x402 marketplace: ${tools.length} pay-per-call tools for AI agents, settled in USDC on Algorand. No signup, no API keys — the wallet is the account.`,
+    canonical: `${baseUrl}/algorand`,
     baseUrl,
-    activePath: "/stellar",
+    activePath: "/algorand",
     jsonLd,
     body,
   });

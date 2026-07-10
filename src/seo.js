@@ -37,6 +37,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/shop`, priority: "0.9" },
     { loc: `${baseUrl}/economy`, priority: "0.8" },
     { loc: `${baseUrl}/stellar`, priority: "0.8" },
+    { loc: `${baseUrl}/algorand`, priority: "0.8" },
     { loc: `${baseUrl}/faq`, priority: "0.8" },
     { loc: `${baseUrl}/llms.txt`, priority: "0.8" },
     { loc: `${baseUrl}/openapi.json`, priority: "0.7" },
