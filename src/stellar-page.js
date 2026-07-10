@@ -62,7 +62,7 @@ export function stellarPage(baseUrl, { snapshot, rail }) {
       <span style="color:var(--muted);font-family:var(--font-mono);">${s.toolCount || 0} tools</span>
     </div>`).join("");
 
-  const honesty = sellers.length === 1
+  const honesty = sellers.length === 1 && sellers[0]?.local
     ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live — discovery is open, and external sellers are added automatically when their x402 challenges advertise a Stellar network.</p>`
     : "";
 

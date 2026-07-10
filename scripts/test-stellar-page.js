@@ -49,5 +49,10 @@ ok(!html.includes("1 seller live"), "honesty line absent with an external stella
 ok(html.includes("Ext One"), "external stellar seller rendered");
 ok(!html.includes("Ext Two"), "EVM-only seller not rendered");
 
+// Sole qualifying seller is external → honesty line must not show
+const snapExtOnly = { sellers: [EXT_STELLAR], totals: { sellers: 1 } };
+html = stellarPage("https://agent402.tools", { snapshot: snapExtOnly, rail: null });
+ok(!html.includes("1 seller live"), "honesty line requires the sole seller to be local");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
