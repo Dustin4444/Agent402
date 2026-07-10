@@ -67,5 +67,11 @@ html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail: null })
 ok(html.includes("healthy"), "external routable seller marked healthy");
 ok(html.includes("live"), "local seller marked live");
 
+// Marketplace UI: stats strip + seller cards
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail });
+ok(html.includes("SELLERS") && html.includes("PRICE FLOOR"), "stats strip renders");
+ok(html.includes("THIS HOST"), "local seller card carries the THIS HOST tag");
+ok(html.includes("ext1.example"), "seller card shows the hostname");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
