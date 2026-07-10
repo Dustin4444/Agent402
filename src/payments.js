@@ -3,6 +3,7 @@ import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
 import { ExactStellarScheme } from "@x402/stellar/exact/server";
+import { ExactAvmScheme } from "@x402/avm/exact/server";
 import { convertToTokenAmount, numberToDecimalString } from "@x402/core/utils";
 import {
   bazaarResourceServerExtension,
@@ -39,9 +40,16 @@ const SVM_NETWORKS = {
 const STELLAR_NETWORKS = {
   stellar: "stellar:pubnet",
 };
+const AVM_NETWORKS = {
+  // Algorand mainnet (genesis-hash CAIP-2). USDC is ASA 31566704 — resolved by
+  // @x402/avm's built-in asset config, so no custom money parser. Settlement
+  // via the GoPlausible-operated facilitator (keyless /supported verified
+  // 2026-07-10); fee-sponsored, so buyers don't need ALGO for gas.
+  algorand: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+};
 // Exported for scripts/test-rails.js: the copy layer (src/rails.js) must
 // advertise every mainnet rail this file can settle — the test cross-checks.
-export const NETWORKS = { ...EVM_NETWORKS, ...SVM_NETWORKS, ...STELLAR_NETWORKS };
+export const NETWORKS = { ...EVM_NETWORKS, ...SVM_NETWORKS, ...STELLAR_NETWORKS, ...AVM_NETWORKS };
 
 // Robinhood Chain settles USDG (Global Dollar), not Circle USDC, and @x402/evm
 // has no default asset for chain 4663 — so we resolve the asset ourselves and
@@ -125,6 +133,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   let evmCaip2 = caip2List.filter((c) => c.startsWith("eip155:"));
   const svmCaip2 = caip2List.filter((c) => c.startsWith("solana:"));
   const stellarCaip2 = caip2List.filter((c) => c.startsWith("stellar:"));
+  const avmCaip2 = caip2List.filter((c) => c.startsWith("algorand:"));
 
   // Facilitator routing. x402ResourceServer accepts a LIST of facilitator
   // clients: at sync it asks each for its /supported kinds and routes every
@@ -232,6 +241,26 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
         "https://channels.openzeppelin.com/gen (GitHub OAuth). Stellar will be OMITTED until set."
     );
   }
+  // Algorand — settlement via the GoPlausible-operated x402 facilitator on
+  // mainnet. ALGORAND_FACILITATOR_URL defaults to the public GoPlausible
+  // endpoint; its /supported is keyless (verified 2026-07-10), so no bearer
+  // token is required here (unlike Stellar). NOTE the reserve quirk: the
+  // payTo wallet must have opted in to ASA 31566704 (USDC) or on-chain
+  // settlement fails even though verify() looks fine.
+  const algorandFacilitatorUrl = (process.env.ALGORAND_FACILITATOR_URL || "https://facilitator.goplausible.xyz").trim();
+  const algorandWallet = (process.env.ALGORAND_WALLET_ADDRESS || "").trim();
+  if (avmCaip2.length && algorandWallet) {
+    facilitatorClients.push(new HTTPFacilitatorClient({ url: algorandFacilitatorUrl }));
+    for (const caip2 of avmCaip2) server = server.register(caip2, new ExactAvmScheme());
+    console.log(`Algorand: settling USDC via facilitator ${algorandFacilitatorUrl} → ${algorandWallet}`);
+  } else if (avmCaip2.length && !algorandWallet) {
+    console.warn(
+      "WARNING: PAYMENT_NETWORKS enables `algorand` but ALGORAND_WALLET_ADDRESS is unset — " +
+        "the Algorand payment option will be OMITTED from every 402. Set ALGORAND_WALLET_ADDRESS " +
+        "(Algorand public key) to accept USDC on Algorand — and make sure that wallet has opted " +
+        "in to ASA 31566704 (USDC), or settlement will fail on-chain even though the payment verifies."
+    );
+  }
   registerFacilitatorFailureHooks(server, payAiClient);
   console.log(
     `Accepting USDC on: ${networks.join(", ")} (${caip2List.join(", ")})` +
@@ -260,6 +289,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     ...evmCaip2.map((caip2) => ({ scheme: "exact", payTo: walletAddress, price: item.price, network: caip2 })),
     ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: item.price, network: caip2 })) : []),
     ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: item.price, network: caip2 })) : []),
+    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: algorandWallet, price: item.price, network: caip2 })) : []),
   ];
 
   // The payment-required header is one base64-encoded JSON blob carrying

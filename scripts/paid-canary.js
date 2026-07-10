@@ -635,6 +635,58 @@ async function main() {
     }
   })();
 
+  // Optional Algorand leg — gated on ALGORAND_BURNER_MNEMONIC (a 25-word
+  // Algorand mnemonic; fund the account with USDC — ASA 31566704 — and make
+  // sure it has OPTED IN to that asset, or every buy 402s even though it's
+  // funded). A dedicated client registers ONLY the Algorand scheme, so the
+  // payment can only settle on an algorand:* accept — a true Algorand-rail
+  // proof with no silent EVM fallback (same isolation trick as the
+  // Solana/Stellar legs). Fees are facilitator-sponsored per the exact-scheme
+  // spec, so the burner spends USDC, not ALGO. Informational: failures WARN,
+  // never page.
+  await (async () => {
+    const mnemonic = (process.env.ALGORAND_BURNER_MNEMONIC || "").trim();
+    if (!mnemonic) { console.log("\nalgorand leg: skipped (no ALGORAND_BURNER_MNEMONIC)"); return; }
+    try {
+      const [{ x402Client: AvmX402Client }, { ExactAvmScheme }, { wrapFetchWithPayment: wrapAvm }, { toClientAvmSigner }, algosdk] = await Promise.all([
+        import("@x402/core/client"), import("@x402/avm/exact/client"), import("@x402/fetch"), import("@x402/avm"), import("algosdk"),
+      ]);
+      const account = algosdk.mnemonicToSecretKey(mnemonic);
+      const address = account.addr.toString();
+      // toClientAvmSigner wants the base64-encoded 64-byte secret key
+      // (32-byte seed + 32-byte public key) — exactly algosdk's `sk` format.
+      const signer = toClientAvmSigner(Buffer.from(account.sk).toString("base64"));
+      // The client-side scheme builds the transaction group itself, so it
+      // needs an algod URL — mainnet AlgoNode is free and keyless.
+      const algodUrl = (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim();
+      const avmClient = new AvmX402Client();
+      avmClient.register("algorand:*", new ExactAvmScheme(signer, { algodUrl }));
+      const avmPay = wrapAvm(synthFetch, avmClient);
+      const res = await avmPay(`${TARGET}/api/hash`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: "algorand-canary" }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 200 && typeof body.hex === "string") {
+        let tx = null;
+        const receiptHdr = res.headers.get("payment-response") || res.headers.get("x-payment-response");
+        if (receiptHdr) {
+          try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"))?.transaction || null; } catch { /* best-effort */ }
+        }
+        console.log(`\nOK    algorand   /api/hash  → settled $0.001 USDC on Algorand (payer ${address})${tx ? `\n      tx: https://allo.info/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+      } else if (res.status === 402) {
+        const h = res.headers.get("payment-required");
+        let reason = null;
+        if (h) { try { reason = JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ } }
+        console.warn(`\nWARN  algorand leg did NOT settle (HTTP 402, payer ${address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded or not-opted-in USDC burner, facilitator outage, or algorand missing from the live accepts)`);
+      } else {
+        console.warn(`\nWARN  algorand leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
+      }
+    } catch (e) {
+      console.warn(`\nWARN  algorand leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
+    }
+  })();
+
   // Prompt-cache leg — pays once with cache:true, then repeats the IDENTICAL
   // request unpaid: the pre-paywall cache must answer 200 + X-Cache: hit with
   // the same response object. Real-money proof that opted-in repeats are

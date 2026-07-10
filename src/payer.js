@@ -11,12 +11,14 @@
  * different wallet, letting a caller act under a victim's memory namespace.
  */
 // EVM 0x+40hex (normalized lowercase), Solana base58 (case-sensitive),
-// Stellar G+55 base32 — anything else is not a wallet we can attribute.
+// Stellar G+55 base32, Algorand base32 (58 chars, case-sensitive) — anything
+// else is not a wallet we can attribute.
 export function normalizePayerAddress(from) {
   if (typeof from !== "string" || !from) return null;
   if (/^0x[0-9a-fA-F]{40}$/.test(from)) return from.toLowerCase();
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(from)) return from; // Solana base58
   if (/^G[A-Z2-7]{55}$/.test(from)) return from; // Stellar ed25519 public key
+  if (/^[A-Z2-7]{58}$/.test(from)) return from; // Algorand ed25519 public key — NEVER lowercase
   return null;
 }
 
@@ -48,7 +50,16 @@ export function payerFromRequest(req) {
   try {
     const payload = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
     const from = payload?.payload?.authorization?.from || null;
-    return typeof from === "string" && /^0x[0-9a-fA-F]{40}$/.test(from) ? from.toLowerCase() : null;
+    if (typeof from !== "string") return null;
+    if (/^0x[0-9a-fA-F]{40}$/.test(from)) return from.toLowerCase();
+    // Non-EVM exact schemes generally don't carry authorization.from (e.g.
+    // AVM's payload is a signed paymentGroup, not an EIP-3009 authorization —
+    // see payerFromPaymentResponse below for the real Algorand/SVM/Stellar
+    // attribution path). This only extends the accepted FORMAT in case a
+    // future scheme ever does sign a base32 `from` here; it never loosens
+    // the EVM check above. Case-significant — NEVER lowercase.
+    if (/^[A-Z2-7]{58}$/.test(from)) return from; // Algorand ed25519 public key
+    return null;
   } catch {
     return null;
   }
