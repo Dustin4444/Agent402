@@ -1351,6 +1351,14 @@ app.get("/api/leaderboard", (req, res) => {
 // as a dashboard so visitors (and the site nav) have something to land on.
 app.get("/leaderboard", (_req, res) => htmlCache(res, 60, 300).send(ledgerLeaderboardPage(BASE_URL, getLeaderboardSnapshot())));
 app.get("/robots.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(robotsTxt(BASE_URL)));
+// IndexNow ownership key file (env-gated no-op like the other integrations).
+// The protocol verifies a submitted key by fetching /{key}.txt from the host;
+// scripts/indexnow-submit.js does the actual URL pings (Bing/Copilot/DDG/Yahoo
+// share the index). Key is an opaque self-generated hex string, not a secret.
+if (process.env.INDEXNOW_KEY) {
+  app.get(`/${process.env.INDEXNOW_KEY}.txt`, (_req, res) =>
+    res.type("text/plain").set("Cache-Control", "public, max-age=86400").send(process.env.INDEXNOW_KEY));
+}
 app.get("/sitemap.xml", (_req, res) => res.type("application/xml").set("Cache-Control", "public, max-age=3600").send(sitemapXml(BASE_URL, CATALOG)));
 app.get("/llms.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(llmsTxt(BASE_URL, CATALOG)));
 // The runnable buyer demo, served from the site itself (the repo is private,
