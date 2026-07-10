@@ -864,7 +864,7 @@ export function indexPage(snapshot, { baseUrl }) {
   const pageBody = `<div class="ix-wrap">
 
 <h1>x402 Index</h1>
-<p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them every 5 minutes and shows what's online.</p>
+<p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them every 5 minutes and shows what's online. Selling on Stellar? See <a href="/stellar">the Stellar x402 marketplace</a> — the same index, filtered to sellers settling USDC on Stellar.</p>
 
 <div class="grid">
   <div class="stat"><div class="k">Sellers</div><div class="v">${esc(snapshot.totals.sellers)}</div><div class="s">listed in the Index</div></div>

@@ -144,7 +144,7 @@ import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
 import { robinhoodPage } from "./robinhood-page.js";
 import { revenueSnapshot, revenuePage, stellarRail } from "./revenue-live.js";
-import { stellarPage } from "./stellar-page.js";
+import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot, x402EconomyPage } from "./x402-economy.js";
 import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
@@ -697,11 +697,15 @@ app.use((_req, res, next) => {
 // gives instant back/forward while a background refresh keeps content fresh.
 const htmlCache = (res, maxAge, swr) =>
   res.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${swr}`).type("html");
-app.get("/", (_req, res) =>
+app.get("/", (_req, res) => {
+  // Stellar marketplace callout: real seller count from the same index
+  // snapshot /stellar renders — never a hardcoded number.
+  let stellarSellerCount;
+  try { stellarSellerCount = stellarSellers(getIndexSnapshot()).length; } catch { /* callout renders without the count */ }
   htmlCache(res, 60, 300).send(
-    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS)
-  )
-);
+    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { stellarSellerCount })
+  );
+});
 // Real health check — fails (503) when a load balancer or heartbeat should
 // route around this instance. Verifies the stats DB is readable and that the
 // payment configuration is intact (wallet present unless we're explicitly in
