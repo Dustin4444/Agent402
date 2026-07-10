@@ -956,6 +956,9 @@ jobs:
       - name: Index self-serve registration tests (offline)
         run: node scripts/test-index-register.js
 
+      - name: Stellar activity scan tests (offline, fixture Horizon records)
+        run: node scripts/test-stellar-activity.js
+
       - name: Html-kit tests (html-select, html-table, html-strip, html-links, html-meta)
         run: node scripts/test-html-kit.js
 

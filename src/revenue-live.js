@@ -253,6 +253,122 @@ async function solanaRail(wallet) {
 
 // Stellar — read USDC balance + recent payments via Horizon API.
 export const USDC_ISSUER = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+
+// Parse one Horizon payment-ish record into { tx, when, usd, from } — or null
+// when it isn't an inbound canonical-issuer USDC transfer to `wallet`.
+// x402 settlements are invoke_host_function (Soroban); wallet funding can be
+// path_payment_strict_send or payment. Issuer check, not just code: anyone can
+// issue an asset named "USDC" and pay the wallet to fake revenue on the card.
+export function parseStellarPayment(r, wallet) {
+  if (r.type === "payment" || r.type === "path_payment_strict_send" || r.type === "path_payment_strict_receive") {
+    if (r.to !== wallet) return null;
+    if (r.asset_code !== "USDC" || r.asset_issuer !== USDC_ISSUER) return null;
+    return {
+      tx: `https://stellar.expert/explorer/public/tx/${r.transaction_hash}`,
+      when: r.created_at || null,
+      usd: Number(r.amount) || 0,
+      from: r.from || null,
+    };
+  }
+  if (r.type === "invoke_host_function") {
+    // Soroban x402 settlement — the operation itself carries no amount/asset,
+    // but Horizon attaches asset_balance_changes with the real SEP-41
+    // transfer. NOTE: r.source_account is the facilitator's fee-sponsoring
+    // channel account, NOT the payer — the balance change's `from` is the
+    // actual buying wallet.
+    const changes = (r.asset_balance_changes || []).filter(
+      (c) => c.type === "transfer" && c.to === wallet && c.asset_code === "USDC" && c.asset_issuer === USDC_ISSUER
+    );
+    if (!changes.length) return null; // touched the wallet but paid it nothing
+    return {
+      tx: `https://stellar.expert/explorer/public/tx/${r.transaction_hash}`,
+      when: r.created_at || null,
+      usd: Number(changes.reduce((s, c) => s + Number(c.amount || 0), 0).toFixed(7)),
+      from: changes[0].from || null,
+    };
+  }
+  return null;
+}
+
+// Fold parsed payment entries into per-UTC-day buckets over a trailing window.
+// Pure — `now` is injectable so tests are deterministic. Buyers are unique
+// `from` wallets (per day in each bucket, across the window in totals).
+export function bucketStellarActivity(entries, { days = 30, now = Date.now() } = {}) {
+  const DAY = 86_400_000;
+  const buckets = [];
+  const byDate = new Map();
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(now - i * DAY).toISOString().slice(0, 10);
+    const b = { date, tx: 0, usd: 0, buyers: new Set() };
+    buckets.push(b);
+    byDate.set(date, b);
+  }
+  const allBuyers = new Set();
+  const totals = { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 };
+  for (const e of entries) {
+    const t = Date.parse(e?.when || "");
+    if (!Number.isFinite(t)) continue;
+    const b = byDate.get(new Date(t).toISOString().slice(0, 10));
+    if (!b) continue; // outside the window
+    b.tx += 1;
+    b.usd += e.usd || 0;
+    if (e.from) { b.buyers.add(e.from); allBuyers.add(e.from); }
+    totals.tx += 1;
+    totals.usd += e.usd || 0;
+    if (e.internal) { totals.internalTx += 1; totals.internalUsd += e.usd || 0; }
+  }
+  totals.usd = Number(totals.usd.toFixed(6));
+  totals.internalUsd = Number(totals.internalUsd.toFixed(6));
+  totals.buyers = allBuyers.size;
+  return {
+    days,
+    buckets: buckets.map((b) => ({ date: b.date, tx: b.tx, usd: Number(b.usd.toFixed(6)), buyers: b.buyers.size })),
+    totals,
+  };
+}
+
+// Trailing-window activity scan: page Horizon's payments feed back `days`
+// days (newest first, `maxPages` × 200 records cap — a busy wallet sets
+// `truncated: true` and the totals are an honest floor, never an estimate).
+export async function stellarActivity(wallet, { days = 30, maxPages = 10 } = {}) {
+  const out = { rail: "Stellar", wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
+  if (!wallet) { out.error = "STELLAR_WALLET_ADDRESS unset"; return out; }
+  const ours = new Set([...OUR_STELLAR_WALLETS, wallet]);
+  const cutoff = Date.now() - days * 86_400_000;
+  const entries = [];
+  try {
+    let url = `https://horizon.stellar.org/accounts/${wallet}/payments?order=desc&limit=200`;
+    for (let page = 0; page < maxPages && url; page++) {
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) { out.error = `Horizon HTTP ${res.status}`; return out; }
+      const data = await res.json();
+      const records = data?._embedded?.records || [];
+      if (!records.length) { url = null; break; }
+      let pastWindow = false;
+      for (const r of records) {
+        const t = Date.parse(r?.created_at || "");
+        if (Number.isFinite(t) && t < cutoff) { pastWindow = true; break; }
+        const entry = parseStellarPayment(r, wallet);
+        if (!entry) continue;
+        entry.internal = entry.from != null && ours.has(entry.from);
+        entries.push(entry);
+      }
+      if (pastWindow) { url = null; break; }
+      // Only follow Horizon's own cursor links — never an arbitrary URL from
+      // a response body.
+      const next = data?._links?.next?.href || "";
+      url = next.startsWith("https://horizon.stellar.org/") ? next : null;
+      if (url && page === maxPages - 1) out.truncated = true;
+    }
+  } catch (e) {
+    out.error = String(e?.message || e).slice(0, 120);
+    return out;
+  }
+  const bucketed = bucketStellarActivity(entries, { days });
+  out.buckets = bucketed.buckets;
+  out.totals = bucketed.totals;
+  return out;
+}
 export async function stellarRail(wallet) {
   const out = { rail: "Stellar", asset: "USDC", wallet: wallet || null, explorer: wallet ? `https://stellar.expert/explorer/public/account/${wallet}` : null, balance: null, recent: [], error: null };
   if (!wallet) { out.error = "STELLAR_WALLET_ADDRESS unset"; return out; }
@@ -276,37 +392,7 @@ export async function stellarRail(wallet) {
         // (self-transfers/funding moves are never external revenue).
         const ours = new Set([...OUR_STELLAR_WALLETS, wallet]);
         for (const r of records) {
-          // x402 settlements are invoke_host_function (Soroban); wallet funding
-          // can be path_payment_strict_send or payment. Accept all that carry USDC.
-          let entry = null;
-          if (r.type === "payment" || r.type === "path_payment_strict_send" || r.type === "path_payment_strict_receive") {
-            if (r.to !== wallet) continue;
-            // Issuer check, not just code: anyone can issue an asset named
-            // "USDC" and pay the wallet to fake revenue on the card.
-            if (r.asset_code !== "USDC" || r.asset_issuer !== USDC_ISSUER) continue;
-            entry = {
-              tx: `https://stellar.expert/explorer/public/tx/${r.transaction_hash}`,
-              when: r.created_at || null,
-              usd: Number(r.amount) || 0,
-              from: r.from || null,
-            };
-          } else if (r.type === "invoke_host_function") {
-            // Soroban x402 settlement — the operation itself carries no
-            // amount/asset, but Horizon attaches asset_balance_changes with
-            // the real SEP-41 transfer. NOTE: r.source_account is the
-            // facilitator's fee-sponsoring channel account, NOT the payer —
-            // the balance change's `from` is the actual buying wallet.
-            const changes = (r.asset_balance_changes || []).filter(
-              (c) => c.type === "transfer" && c.to === wallet && c.asset_code === "USDC" && c.asset_issuer === USDC_ISSUER
-            );
-            if (!changes.length) continue; // touched the wallet but paid it nothing
-            entry = {
-              tx: `https://stellar.expert/explorer/public/tx/${r.transaction_hash}`,
-              when: r.created_at || null,
-              usd: Number(changes.reduce((s, c) => s + Number(c.amount || 0), 0).toFixed(7)),
-              from: changes[0].from || null,
-            };
-          }
+          const entry = parseStellarPayment(r, wallet);
           if (!entry) continue;
           entry.external = isExternalPayment({ payer: entry.from, usd: entry.usd }, { ourWallets: ours, maxUsd: MAX_CALL_USD });
           entry.internal = entry.from != null && ours.has(entry.from);

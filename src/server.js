@@ -143,7 +143,7 @@ import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
 import { robinhoodPage } from "./robinhood-page.js";
-import { revenueSnapshot, revenuePage, stellarRail } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail, stellarActivity } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot, x402EconomyPage } from "./x402-economy.js";
@@ -1314,13 +1314,37 @@ async function getStellarRailCached() {
   await stellarRailInFlight;
   return stellarRailCache.value;
 }
+// 30-day activity scan (Transactions/Volume/Buyers cards) — pages Horizon
+// harder than the receipt strip, so a longer 10-min cache. A failed scan
+// caches null and the section renders its honest "unavailable" line rather
+// than zeros that would read as "no activity".
+const STELLAR_ACTIVITY_TTL_MS = 10 * 60_000;
+let stellarActivityCache = { at: 0, value: null };
+let stellarActivityInFlight = null;
+async function getStellarActivityCached() {
+  if (Date.now() - stellarActivityCache.at < STELLAR_ACTIVITY_TTL_MS) return stellarActivityCache.value;
+  if (!stellarActivityInFlight) {
+    stellarActivityInFlight = (async () => {
+      try {
+        const a = await stellarActivity((process.env.STELLAR_WALLET_ADDRESS || "").trim());
+        stellarActivityCache = { at: Date.now(), value: a && !a.error ? a : null };
+      } catch {
+        stellarActivityCache = { at: Date.now(), value: null };
+      } finally {
+        stellarActivityInFlight = null;
+      }
+    })();
+  }
+  await stellarActivityInFlight;
+  return stellarActivityCache.value;
+}
 // The Stellar x402 marketplace — the index snapshot filtered to the Stellar
 // rail, plus live settlement receipts. stellarRail is best-effort (6s Horizon
 // timeouts internally); a flake renders the honest "unavailable" line.
 app.get("/stellar", async (_req, res) => {
   try {
-    const rail = await getStellarRailCached();
-    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot: getIndexSnapshot(), rail, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || undefined }));
+    const [rail, activity] = await Promise.all([getStellarRailCached(), getStellarActivityCached()]);
+    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot: getIndexSnapshot(), rail, activity, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || undefined }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }

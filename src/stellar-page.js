@@ -38,7 +38,51 @@ function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) 
     .map(([category, list]) => ({ category, shown: list.slice(0, maxPerCategory), more: Math.max(0, list.length - maxPerCategory) }));
 }
 
-export function stellarPage(baseUrl, { snapshot, rail, stellarWallet = "GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL" }) {
+// Activity section — x402scan-style Transactions / Volume / Buyers cards with
+// per-day bars, fed by revenue-live's stellarActivity() scan. Same honesty
+// rules as the receipts: no data → say so plainly, capped scan → "a floor".
+export function stellarActivityHtml(activity) {
+  if (!activity || activity.error || !Array.isArray(activity.buckets) || !activity.buckets.length) {
+    return `
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Activity</h2>
+  <p style="color:var(--muted);font-size:13.5px;margin:0;">activity scan temporarily unavailable — settlements remain independently verifiable on stellar.expert</p>`;
+  }
+  const bars = (key) => {
+    const max = Math.max(...activity.buckets.map((b) => Number(b[key]) || 0));
+    return `<div style="display:flex;align-items:flex-end;gap:2px;height:46px;margin-top:12px;">${activity.buckets
+      .map((b) => {
+        const v = Number(b[key]) || 0;
+        const h = max > 0 && v > 0 ? Math.max(3, Math.round((v / max) * 46)) : 2;
+        const label = key === "usd" ? usd(v) : v;
+        return `<div title="${esc(b.date)}: ${esc(label)}" style="flex:1;height:${h}px;background:${v > 0 ? "var(--accent)" : "#ddd5bd"};"></div>`;
+      })
+      .join("")}</div>`;
+  };
+  const card = (label, value, key) => `
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;">
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">${label}</div>
+      <div style="font-size:26px;font-weight:800;">${value}</div>${bars(key)}
+    </div>`;
+  const t = activity.totals || {};
+  const note = [
+    "all inbound USDC settlements to this host's Stellar wallet",
+    t.internalTx ? `includes ${t.internalTx} internal canary buy${t.internalTx === 1 ? "" : "s"}` : "",
+    activity.truncated ? "scan capped — totals are a floor" : "",
+  ].filter(Boolean).join(" · ");
+  return `
+  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">
+    <h2 style="font-size:21px;font-weight:800;margin:0;">Activity</h2>
+    <span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">THIS HOST · PAST ${esc(activity.days)} DAYS</span>
+  </div>
+  <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
+    ${card("TRANSACTIONS", Number(t.tx || 0).toLocaleString("en-US"), "tx")}
+    ${card("VOLUME", usd(t.usd || 0), "usd")}
+    ${card("BUYERS", Number(t.buyers || 0).toLocaleString("en-US"), "buyers")}
+  </div>
+  <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin:8px 0 0;">${note}</p>`;
+}
+
+export function stellarPage(baseUrl, { snapshot, rail, activity, stellarWallet = "GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL" }) {
   const sellers = stellarSellers(snapshot);
   const tools = stellarTools(snapshot);
   const prices = tools.map((t) => Number(t.price)).filter((n) => Number.isFinite(n) && n > 0);
@@ -130,6 +174,7 @@ export function stellarPage(baseUrl, { snapshot, rail, stellarWallet = "GDNJXCKW
   ${receiptHtml}
   <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">A paid canary buys tools over the Stellar rail daily (facilitator: OpenZeppelin) — uptime proven with real settlements, not pings.</p>
   ${statsHtml}
+  ${stellarActivityHtml(activity)}
 
   <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on Stellar</h2>
   <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">${sellersHtml}</div>

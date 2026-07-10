@@ -76,5 +76,20 @@ ok(html.includes("ext1.example"), "seller card shows the hostname");
 // Self-serve form present
 ok(html.includes('id="list-api"') && html.includes("/api/index/register"), "List your API form renders");
 
+// Activity section: cards + bars + honesty captions
+const buckets = Array.from({ length: 30 }, (_, i) => ({ date: "2026-06-" + String(11 + (i % 20)).padStart(2, "0"), tx: i === 29 ? 5 : 0, usd: i === 29 ? 0.05 : 0, buyers: i === 29 ? 2 : 0 }));
+const activity = { days: 30, truncated: false, buckets, totals: { tx: 42, usd: 1.23, buyers: 7, internalTx: 5, internalUsd: 0.1 } };
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail, activity });
+ok(html.includes("TRANSACTIONS") && html.includes("VOLUME") && html.includes("BUYERS"), "activity cards render");
+ok(html.includes("PAST 30 DAYS"), "activity window labeled");
+ok(html.includes(">42<") && html.includes("$1.23") && html.includes(">7<"), "activity totals rendered as given, never invented");
+ok(html.includes("includes 5 internal canary buys"), "internal canary honesty caption present");
+ok(!html.includes("totals are a floor"), "no truncation caption when scan completed");
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail, activity: { ...activity, truncated: true } });
+ok(html.includes("totals are a floor"), "capped scan renders the floor caption");
+html = stellarPage("https://agent402.tools", { snapshot: snapBoth, rail });
+ok(html.includes("activity scan temporarily unavailable"), "missing activity renders the honest unavailable line");
+ok(!html.includes("TRANSACTIONS"), "no zero-cards invented when the scan is unavailable");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
