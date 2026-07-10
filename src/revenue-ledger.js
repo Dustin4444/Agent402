@@ -22,7 +22,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   EVM, SOLANA_RPCS, rpcCall, pad, TRANSFER_TOPIC, USDC_SOL_MINT,
-  MAX_CALL_USD, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, USDC_ISSUER,
+  MAX_CALL_USD, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS, USDC_ISSUER,
 } from "./revenue-live.js";
 import { usdcDeltaForOwner, payerFromMeta, isExternalPayment } from "../scripts/revenue-scan-solana.js";
 
@@ -254,8 +254,63 @@ export async function syncStellar(wallet, { maxPages = 5 } = {}) {
   return { caughtUp: sawEnd };
 }
 
+/** Algorand: forward-page AlgoNode's indexer for inbound ASA 31566704 (USDC)
+ *  transfers, ascending by round, using next_block as the round cursor (the
+ *  AVM's block number — same role the EVM chains' next_block plays; Algorand
+ *  has no signature/paging_token to reuse the way Solana/Stellar do). One
+ *  indexer page (limit 1000) per chunk; a short page (< limit) means caught
+ *  up. min-round is bumped past the highest confirmed-round actually seen
+ *  each page (not just cursor+limit), so it's correct regardless of the
+ *  indexer's internal sort order. Classification mirrors algorandRail: a
+ *  per-record asset-id re-check even though the URL already filters —
+ *  defense in depth against a filter regression/typo. */
+const ALGORAND_INDEXER = process.env.ALGORAND_INDEXER_URL || "https://mainnet-idx.algonode.cloud";
+const ALGORAND_USDC_ASA = 31566704;
+export async function syncAlgorand(wallet, { maxPages = 5 } = {}) {
+  const chain = "algorand";
+  const cur = getCursor.get(chain, wallet);
+  let minRound = cur?.next_block ?? 0;
+  const ours = new Set([...OUR_ALGORAND_WALLETS, wallet]);
+  let sawEnd = false;
+  for (let pages = 0; pages < maxPages && !sawEnd; pages++) {
+    const url = new URL(`${ALGORAND_INDEXER}/v2/accounts/${wallet}/transactions`);
+    url.searchParams.set("asset-id", String(ALGORAND_USDC_ASA));
+    url.searchParams.set("tx-type", "axfer");
+    url.searchParams.set("min-round", String(minRound));
+    url.searchParams.set("limit", "1000");
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`indexer HTTP ${res.status}`);
+    const txns = (await res.json())?.transactions || [];
+    if (!txns.length) { sawEnd = true; break; }
+    let highestRound = minRound - 1;
+    for (const t of txns) {
+      const xfer = t["asset-transfer-transaction"];
+      if (!xfer || xfer["asset-id"] !== ALGORAND_USDC_ASA || xfer.receiver !== wallet) continue;
+      const usd = Number(xfer.amount) / 1e6;
+      const payer = t.sender || null;
+      recordTransfer({
+        chain, wallet, txid: t.id, tx_hash: t.id,
+        block: t["confirmed-round"] ?? null,
+        when_ts: t["round-time"] ?? null,
+        payer, usd, asset: "USDC",
+        external: isExternalPayment({ payer, usd }, { ourWallets: ours, maxUsd: MAX_CALL_USD }),
+      });
+      if (Number.isFinite(t["confirmed-round"])) highestRound = Math.max(highestRound, t["confirmed-round"]);
+    }
+    if (txns.length < 1000) sawEnd = true;
+    minRound = highestRound + 1;
+    putCursor.run({
+      chain, wallet, next_block: minRound, newest_sig: null,
+      backfilled: sawEnd ? 1 : 0, caught_up: sawEnd ? 1 : 0,
+      updated_ts: Math.floor(Date.now() / 1000),
+    });
+    if (!sawEnd) await sleep(150); // stay polite to AlgoNode
+  }
+  return { caughtUp: sawEnd };
+}
+
 /** All-time totals + sync progress — cheap enough to run per request. */
-export function ledgerSummary({ walletAddress, solanaWallet, stellarWallet }) {
+export function ledgerSummary({ walletAddress, solanaWallet, stellarWallet, algorandWallet }) {
   const per = {};
   let allTimeExternalUsd = 0;
   let allTimeExternalCount = 0;
@@ -264,9 +319,9 @@ export function ledgerSummary({ walletAddress, solanaWallet, stellarWallet }) {
       COALESCE(SUM(CASE WHEN external = 1 THEN usd END), 0) AS extUsd,
       COALESCE(SUM(external), 0) AS extN
     FROM transfers WHERE chain = ? AND wallet = ?`);
-  // EVM rows are stored lowercase (sync normalizes); Solana base58 and
-  // Stellar G… addresses are case-exact.
-  const chains = [...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]), ["solana", solanaWallet], ["stellar", stellarWallet]];
+  // EVM rows are stored lowercase (sync normalizes); Solana base58, Stellar
+  // G… addresses, and Algorand base32 addresses are all case-exact.
+  const chains = [...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]), ["solana", solanaWallet], ["stellar", stellarWallet], ["algorand", algorandWallet]];
   for (const [chain, wallet] of chains) {
     if (!wallet) continue;
     const t = q.get(chain, wallet);
@@ -294,9 +349,9 @@ export function ledgerSummary({ walletAddress, solanaWallet, stellarWallet }) {
 let loopStarted = false;
 /** Boot the background sync loop. Fast ticks while backfilling, then a
  *  5-minute tail. Errors back off to the next tick — never crash the app. */
-export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet }) {
+export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet }) {
   const enabled = HAS_DATA_DIR || process.env.REVENUE_LEDGER === "true";
-  if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet)) return false;
+  if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet && !algorandWallet)) return false;
   loopStarted = true;
   const tick = async () => {
     let allCaughtUp = true;
@@ -327,6 +382,15 @@ export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet 
       } catch (e) {
         allCaughtUp = false;
         console.warn(`revenue-ledger: stellar sync tick failed (will retry): ${String(e?.message || e).slice(0, 100)}`);
+      }
+    }
+    if (algorandWallet) {
+      try {
+        const r = await syncAlgorand(algorandWallet);
+        if (!r.caughtUp) allCaughtUp = false;
+      } catch (e) {
+        allCaughtUp = false;
+        console.warn(`revenue-ledger: algorand sync tick failed (will retry): ${String(e?.message || e).slice(0, 100)}`);
       }
     }
     setTimeout(tick, allCaughtUp ? 300_000 : 20_000).unref?.();

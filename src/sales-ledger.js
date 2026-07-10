@@ -25,19 +25,21 @@
 import Database from "better-sqlite3";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS } from "./revenue-live.js";
+import { OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
 import { normalizePayerAddress } from "./payer.js";
 
 const HAS_DATA_DIR = existsSync("/data");
 const DB_PATH = process.env.SALES_LEDGER_DB || join(HAS_DATA_DIR ? "/data" : "/tmp", "agent402-sales.db");
 export const salesPersistent = HAS_DATA_DIR || Boolean(process.env.SALES_LEDGER_DB);
 
-// EVM burners lowercase; Solana/Stellar burners case-exact (base58 and
-// Stellar G-addresses are case-sensitive — lowercasing them breaks matching).
+// EVM burners lowercase; Solana/Stellar/Algorand burners case-exact (base58
+// and Stellar/Algorand base32 addresses are case-sensitive — lowercasing
+// them breaks matching).
 const BURNERS = new Set([
   ...[...OUR_EVM_WALLETS].map((w) => String(w).toLowerCase()),
   ...OUR_SOLANA_WALLETS,
   ...OUR_STELLAR_WALLETS,
+  ...OUR_ALGORAND_WALLETS,
 ]);
 
 const db = new Database(DB_PATH);

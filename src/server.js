@@ -1,4 +1,4 @@
-import { RAILS_OR } from "./rails.js";
+import { RAILS_OR, RAILS_SHORT } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
 // the time (UND_ERR_SOCKET / "could not connect"). Force IPv4 process-wide for the
@@ -790,7 +790,7 @@ app.get("/robinhood", (_req, res) => htmlCache(res, 300, 900).send(robinhoodPage
 // Live consolidated revenue view — every rail's wallet on one page instead
 // of one explorer tab per chain. Server-side reads with a 60s module cache;
 // individual rail failures degrade to "unavailable" without a 500.
-const revenueWallets = () => ({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null });
+const revenueWallets = () => ({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null, algorandWallet: (process.env.ALGORAND_WALLET_ADDRESS || "").trim() || null });
 app.get("/api/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
@@ -1599,7 +1599,7 @@ const cardSvg = (width = 1200, height = 630) => {
   <text x="84" y="416" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">agents<tspan fill="${BRAND.accent}">.</tspan></text>
   <line x1="84" y1="462" x2="1116" y2="462" stroke="${BRAND.hairline}" stroke-width="2"/>
   <text x="84" y="510" font-size="27" font-family=${mono} fill="${BRAND.muted}">The open x402 index: ${n.toLocaleString("en-US")} tools + ${SKILL_PACKS.length} skill packs.</text>
-  <text x="84" y="554" font-size="23" font-family=${mono} fill="${BRAND.muted}">USDC on Base, Solana, Polygon, Arbitrum, Stellar · USDG on Robinhood</text>
+  <text x="84" y="554" font-size="23" font-family=${mono} fill="${BRAND.muted}">${RAILS_SHORT}</text>
   </g>
 </svg>`;
 };
@@ -2412,7 +2412,7 @@ const httpServer = app.listen(PORT, () =>
 
 // All-time revenue ledger sync loop — self-gates on /data (prod volume) or
 // REVENUE_LEDGER=true, so test/CI boots never touch public RPCs.
-startRevenueLedger({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null });
+startRevenueLedger({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null, algorandWallet: (process.env.ALGORAND_WALLET_ADDRESS || "").trim() || null });
 
 // Tollbooth leads — lazy Postgres init. No-op if DATABASE_URL is unset; in
 // that case /api/tollbooth/waitlist returns 503 and the form falls back to the

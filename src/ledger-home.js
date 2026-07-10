@@ -5,7 +5,7 @@
 import { ledgerShell, ledgerFooterFull, ledgerTape, esc } from "./ledger-chrome.js";
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable } from "./pow.js";
-import { RAILS, RAILS_AMP, RAILS_SHORT } from "./rails.js";
+import { RAILS, RAILS_AMP, RAILS_SHORT, RAILS_PAREN } from "./rails.js";
 import { PACK_PRICES } from "./tools/skill-runner.js";
 
 // The six packs merchandised on the home page — a deliberate mix: two premium
@@ -58,7 +58,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   // workflow's SEO gate greps prod for both surfaces).
   const faqs = [
     { q: "What is Agent402?", a: `A live node in the machine-to-machine economy: ${fmtNum(count)} web tools an autonomous agent can call and pay for per request in USDC via x402 — or with proof-of-work, no wallet. No human, no signup, no API key.` },
-    { q: "How does an agent pay for a tool?", a: "It calls an endpoint and gets an HTTP 402 quote. An x402 client signs a USDC payment from the agent's own wallet on Base (or Solana, Polygon, Arbitrum, Stellar — or USDG on Robinhood Chain) and retries; the call settles on-chain in seconds. The wallet is the identity." },
+    { q: "How does an agent pay for a tool?", a: `It calls an endpoint and gets an HTTP 402 quote. An x402 client signs a payment — ${RAILS_PAREN} — from the agent's own wallet, and retries; the call settles on-chain in seconds. The wallet is the identity.` },
     { q: "Are any tools free?", a: `Yes — ${fmtNum(freeCount)} of the ${fmtNum(count)} pure-CPU tools work with no wallet: solve a short proof-of-work puzzle (a few seconds of CPU) instead of paying USDC.` },
     { q: "Does it spend my model tokens?", a: "No. Every tool is deterministic code — parsers, hashes, math, a real browser — with no LLM in the path. Tools like /api/extract exist to save your tokens: clean markdown out instead of 100k tokens of raw HTML in." },
     { q: "Which frameworks are supported?", a: "Zero-dependency adapters on npm for OpenAI, Anthropic, LangChain, LlamaIndex, Vercel AI SDK, Google ADK and AWS Strands — each returning native tool objects with payment handled underneath." },
