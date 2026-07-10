@@ -632,7 +632,9 @@ export function openapiSpec(baseUrl, catalog) {
       version: "2.0.0",
       description:
         "The open-source, self-hostable x402 server: hundreds of machine-payable web tools for AI agents in one place (browser, search, PDFs, images, live data, payment helpers) — the whole catalog is open and runnable yourself. Every endpoint is paid per call in ${RAILS_OR} — via x402 (no signup, no API keys — the first request returns HTTP 402, an x402 client pays and retries) or free with proof-of-work. Free discovery: GET /api/pricing, GET /llms.txt. Multi-tool workflows: GET /api/skill-packs.json.",
-      contact: { url: baseUrl },
+      // Email doubles as x402scan's ownership-verification signal; it is the
+      // same public maintainer contact the /.well-known/x402 manifest names.
+      contact: { name: "Mike Petrillo", email: "mike@agent402.tools", url: baseUrl },
     },
     servers: [{ url: baseUrl }],
     tags: [
