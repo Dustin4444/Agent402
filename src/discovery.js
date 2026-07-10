@@ -59,6 +59,11 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
   const powEligible = [...powSlugs];
   return {
     spec: "agent402-service-manifest/1",
+    // x402scan compatibility (Merit-Systems/x402scan docs/DISCOVERY.md): its
+    // /.well-known/x402 fan-out wants `version: 1` + a `resources` URL array.
+    // Additive — everything below remains the richer agent-facing manifest.
+    version: 1,
+    resources: Object.keys(catalog).map((route) => `${baseUrl}${route.split(" ")[1] || route}`),
     about: `${REPO}#agent402-in-the-x402-ecosystem`,
     name: "Agent402.Tools",
     summary:
