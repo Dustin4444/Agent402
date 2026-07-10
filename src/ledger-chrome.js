@@ -30,24 +30,24 @@ export const LEDGER_HEAD = `<link rel="preconnect" href="https://fonts.googleapi
 export const LEDGER_CSS = `
 :root {
   --accent: #D63C1A;
-  --paper: #ECE4D2;
-  --card: #F4EEDE;
-  --card-zebra: #efe7d4;
-  --footer-bg: #E5DCC8;
-  --ink: #16150F;
-  --ink-panel: #1d1c15;
-  --ink-tape: #11100b;
-  --muted: #4f4b3f;
-  --faint: #8A8475;
-  --hairline: #d8cfb6;
-  --dark-border: #2a2920;
-  --dark-border2: #34322a;
-  --cream: #ECE4D2;
-  --cream2: #F4EEDE;
-  --dk-muted: #9a9382;
-  --dk-muted2: #b9b1a0;
-  --dk-muted3: #7c7768;
-  --green: #6fae8d;
+  --paper: #FFFFFF;
+  --card: #F7F7F5;
+  --card-zebra: #F1F1EF;
+  --footer-bg: #F2F2F0;
+  --ink: #0B0B0B;
+  --ink-panel: #151515;
+  --ink-tape: #0B0B0B;
+  --muted: #4A4A4A;
+  --faint: #8C8C8C;
+  --hairline: #E0E0DE;
+  --dark-border: #262626;
+  --dark-border2: #343434;
+  --cream: #FFFFFF;
+  --cream2: #F5F5F5;
+  --dk-muted: #9C9C9C;
+  --dk-muted2: #B8B8B8;
+  --dk-muted3: #7C7C7C;
+  --green: #3E9B6E;
   --font-body: 'Archivo', system-ui, sans-serif;
   --font-mono: 'Space Mono', monospace;
 }

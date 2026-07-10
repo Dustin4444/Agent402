@@ -42,7 +42,7 @@ export function robinhoodPage(baseUrl) {
     </p>
 
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:20px 22px;margin:0 0 34px;">
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #b3a98f;padding-bottom:10px;margin-bottom:12px;">·· CHAIN PARAMETERS ··</div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">·· CHAIN PARAMETERS ··</div>
       <div style="display:grid;grid-template-columns:180px 1fr;gap:8px 18px;font-family:var(--font-mono);font-size:13.5px;">
         <span style="color:var(--muted);">chain id</span><span>${RH.chainId} (CAIP-2 <code>${RH.caip2}</code>)</span>
         <span style="color:var(--muted);">rpc</span><span><code>https://rpc.mainnet.chain.robinhood.com</code></span>
