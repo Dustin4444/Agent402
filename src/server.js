@@ -143,8 +143,9 @@ import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
 import { robinhoodPage } from "./robinhood-page.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
+import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot, x402EconomyPage } from "./x402-economy.js";
 import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
@@ -1366,6 +1367,85 @@ app.get("/stellar", async (req, res) => {
       ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
       : null;
     htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot, rail, activity, selectedSeller, stellarWallet: selfWallet || undefined }));
+  } catch (e) {
+    res.status(500).type("text/plain").send("temporarily unavailable");
+  }
+});
+// /algorand's receipt strip reuses algorandRail with the same 60s cache
+// discipline /stellar applies — a public page must not turn every request
+// into indexer/algod fetches.
+const ALGORAND_RAIL_TTL_MS = 60_000;
+let algorandRailCache = { at: 0, value: null };
+let algorandRailInFlight = null;
+async function getAlgorandRailCached() {
+  if (Date.now() - algorandRailCache.at < ALGORAND_RAIL_TTL_MS) return algorandRailCache.value;
+  if (!algorandRailInFlight) {
+    algorandRailInFlight = (async () => {
+      try {
+        const r = await algorandRail((process.env.ALGORAND_WALLET_ADDRESS || "").trim());
+        algorandRailCache = { at: Date.now(), value: r && !r.error ? r : null };
+      } catch {
+        algorandRailCache = { at: Date.now(), value: null };
+      } finally {
+        algorandRailInFlight = null;
+      }
+    })();
+  }
+  await algorandRailInFlight;
+  return algorandRailCache.value;
+}
+// 30-day activity scan (Transactions/Volume/Buyers cards) — pages the
+// indexer harder than the receipt strip, so a longer 10-min cache, keyed per
+// wallet: /algorand?seller=<host> switches the scan to that seller's
+// advertised Algorand payTo. Wallets only ever come from the index snapshot
+// (strkey-validated there AND re-checked here) — never from user input, so
+// the selector can't be used to make the indexer fetch arbitrary paths. The
+// map is bounded by the known-seller count; a failed scan caches null and
+// the section renders its honest "unavailable" line rather than zeros.
+const ALGORAND_ACTIVITY_TTL_MS = 10 * 60_000;
+const ALGORAND_STRKEY_RE = /^[A-Z2-7]{58}$/;
+const algorandActivityByWallet = new Map(); // wallet -> { at, value, inFlight }
+async function getAlgorandActivityFor(wallet) {
+  if (!wallet || !ALGORAND_STRKEY_RE.test(wallet)) return null;
+  if (algorandActivityByWallet.size > 500) algorandActivityByWallet.clear(); // safety sweep
+  let entry = algorandActivityByWallet.get(wallet);
+  if (entry && !entry.inFlight && Date.now() - entry.at < ALGORAND_ACTIVITY_TTL_MS) return entry.value;
+  if (!entry || !entry.inFlight) {
+    entry = entry || { at: 0, value: null, inFlight: null };
+    algorandActivityByWallet.set(wallet, entry);
+    entry.inFlight = (async () => {
+      try {
+        const a = await algorandActivity(wallet);
+        entry.at = Date.now();
+        entry.value = a && !a.error ? a : null;
+      } catch {
+        entry.at = Date.now();
+        entry.value = null;
+      } finally {
+        entry.inFlight = null;
+      }
+    })();
+  }
+  await entry.inFlight;
+  return entry.value;
+}
+// The Algorand x402 marketplace — the index snapshot filtered to the
+// Algorand rail, plus live settlement receipts. algorandRail is best-effort
+// (6s timeouts internally); a flake renders the honest "unavailable" line.
+app.get("/algorand", async (req, res) => {
+  try {
+    const snapshot = getIndexSnapshot();
+    const sellers = algorandSellers(snapshot);
+    const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+    const q = String(req.query.seller || "").toLowerCase().slice(0, 253);
+    const picked = (q && sellers.find((s) => !s.local && hostOf(s.homepage || s.origin) === q)) || sellers.find((s) => s.local) || null;
+    const selfWallet = (process.env.ALGORAND_WALLET_ADDRESS || "").trim();
+    const wallet = picked && !picked.local ? picked.algorandWallet : selfWallet;
+    const [rail, activity] = await Promise.all([getAlgorandRailCached(), getAlgorandActivityFor(wallet)]);
+    const selectedSeller = picked
+      ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
+      : null;
+    htmlCache(res, 120, 600).send(algorandPage(BASE_URL, { snapshot, rail, activity, selectedSeller, algorandWallet: selfWallet || undefined }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }

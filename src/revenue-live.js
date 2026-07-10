@@ -480,6 +480,59 @@ export async function algorandRail(wallet) {
   return out;
 }
 
+// Trailing-window activity scan for Algorand: page AlgoNode's indexer back
+// `days` days (newest first via `after-time`, `maxPages` × 1000 records cap —
+// a busy wallet sets `truncated: true` and the totals are an honest floor,
+// never an estimate). Mirrors stellarActivity's shape and honesty posture.
+export async function algorandActivity(wallet, { days = 30, maxPages = 10 } = {}) {
+  const out = { rail: "Algorand", wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
+  if (!wallet) { out.error = "ALGORAND_WALLET_ADDRESS unset"; return out; }
+  const ours = new Set([...OUR_ALGORAND_WALLETS, wallet]);
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const entries = [];
+  try {
+    let next = null;
+    for (let page = 0; page < maxPages; page++) {
+      const url =
+        `https://mainnet-idx.algonode.cloud/v2/accounts/${wallet}/transactions?asset-id=31566704&tx-type=axfer&limit=1000&after-time=${encodeURIComponent(cutoff)}` +
+        (next ? `&next=${encodeURIComponent(next)}` : "");
+      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) { out.error = `indexer HTTP ${res.status}`; return out; }
+      const data = await res.json();
+      const txs = data?.transactions || [];
+      for (const t of txs) {
+        const xfer = t["asset-transfer-transaction"];
+        // Defense in depth, matching algorandRail's issuer check: re-verify
+        // the ASA id + receiver per record even though the URL already
+        // filters asset-id=31566704 — a filter regression must not let a
+        // fake-ASA airdrop count as revenue.
+        if (!xfer || xfer["asset-id"] !== 31566704 || xfer.receiver !== wallet) continue;
+        const usd = Number(xfer.amount) / 1e6;
+        const entry = {
+          tx: `https://allo.info/tx/${t.id}`,
+          when: t["round-time"] ? new Date(t["round-time"] * 1000).toISOString() : null,
+          usd,
+          from: t.sender || null,
+        };
+        entry.internal = entry.from != null && ours.has(entry.from);
+        entries.push(entry);
+      }
+      next = data["next-token"] || null;
+      if (!next) break;
+      if (page === maxPages - 1) out.truncated = true;
+    }
+  } catch (e) {
+    out.error = String(e?.message || e).slice(0, 120);
+    return out;
+  }
+  // bucketStellarActivity is chain-agnostic (buckets {when, usd, from,
+  // internal} entries by UTC day) — reused here rather than duplicated.
+  const bucketed = bucketStellarActivity(entries, { days });
+  out.buckets = bucketed.buckets;
+  out.totals = bucketed.totals;
+  return out;
+}
+
 // 60s snapshot cache — refresh costs at most one scan per minute regardless
 // of page traffic, and a burst of refreshes can't hammer public RPCs.
 let cached = null;
