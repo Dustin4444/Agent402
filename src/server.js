@@ -1315,36 +1315,57 @@ async function getStellarRailCached() {
   return stellarRailCache.value;
 }
 // 30-day activity scan (Transactions/Volume/Buyers cards) — pages Horizon
-// harder than the receipt strip, so a longer 10-min cache. A failed scan
-// caches null and the section renders its honest "unavailable" line rather
-// than zeros that would read as "no activity".
+// harder than the receipt strip, so a longer 10-min cache, keyed per wallet:
+// /stellar?seller=<host> switches the scan to that seller's advertised
+// Stellar payTo. Wallets only ever come from the index snapshot (strkey-
+// validated there AND re-checked here) — never from user input, so the
+// selector can't be used to make Horizon fetch arbitrary paths. The map is
+// bounded by the known-seller count; a failed scan caches null and the
+// section renders its honest "unavailable" line rather than zeros.
 const STELLAR_ACTIVITY_TTL_MS = 10 * 60_000;
-let stellarActivityCache = { at: 0, value: null };
-let stellarActivityInFlight = null;
-async function getStellarActivityCached() {
-  if (Date.now() - stellarActivityCache.at < STELLAR_ACTIVITY_TTL_MS) return stellarActivityCache.value;
-  if (!stellarActivityInFlight) {
-    stellarActivityInFlight = (async () => {
+const STELLAR_STRKEY_RE = /^G[A-Z2-7]{55}$/;
+const stellarActivityByWallet = new Map(); // wallet -> { at, value, inFlight }
+async function getStellarActivityFor(wallet) {
+  if (!wallet || !STELLAR_STRKEY_RE.test(wallet)) return null;
+  if (stellarActivityByWallet.size > 500) stellarActivityByWallet.clear(); // safety sweep
+  let entry = stellarActivityByWallet.get(wallet);
+  if (entry && !entry.inFlight && Date.now() - entry.at < STELLAR_ACTIVITY_TTL_MS) return entry.value;
+  if (!entry || !entry.inFlight) {
+    entry = entry || { at: 0, value: null, inFlight: null };
+    stellarActivityByWallet.set(wallet, entry);
+    entry.inFlight = (async () => {
       try {
-        const a = await stellarActivity((process.env.STELLAR_WALLET_ADDRESS || "").trim());
-        stellarActivityCache = { at: Date.now(), value: a && !a.error ? a : null };
+        const a = await stellarActivity(wallet);
+        entry.at = Date.now();
+        entry.value = a && !a.error ? a : null;
       } catch {
-        stellarActivityCache = { at: Date.now(), value: null };
+        entry.at = Date.now();
+        entry.value = null;
       } finally {
-        stellarActivityInFlight = null;
+        entry.inFlight = null;
       }
     })();
   }
-  await stellarActivityInFlight;
-  return stellarActivityCache.value;
+  await entry.inFlight;
+  return entry.value;
 }
 // The Stellar x402 marketplace — the index snapshot filtered to the Stellar
 // rail, plus live settlement receipts. stellarRail is best-effort (6s Horizon
 // timeouts internally); a flake renders the honest "unavailable" line.
-app.get("/stellar", async (_req, res) => {
+app.get("/stellar", async (req, res) => {
   try {
-    const [rail, activity] = await Promise.all([getStellarRailCached(), getStellarActivityCached()]);
-    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot: getIndexSnapshot(), rail, activity, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || undefined }));
+    const snapshot = getIndexSnapshot();
+    const sellers = stellarSellers(snapshot);
+    const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+    const q = String(req.query.seller || "").toLowerCase().slice(0, 253);
+    const picked = (q && sellers.find((s) => !s.local && hostOf(s.homepage || s.origin) === q)) || sellers.find((s) => s.local) || null;
+    const selfWallet = (process.env.STELLAR_WALLET_ADDRESS || "").trim();
+    const wallet = picked && !picked.local ? picked.stellarWallet : selfWallet;
+    const [rail, activity] = await Promise.all([getStellarRailCached(), getStellarActivityFor(wallet)]);
+    const selectedSeller = picked
+      ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
+      : null;
+    htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot, rail, activity, selectedSeller, stellarWallet: selfWallet || undefined }));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }

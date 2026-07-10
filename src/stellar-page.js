@@ -41,11 +41,16 @@ function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) 
 // Activity section — x402scan-style Transactions / Volume / Buyers cards with
 // per-day bars, fed by revenue-live's stellarActivity() scan. Same honesty
 // rules as the receipts: no data → say so plainly, capped scan → "a floor".
-export function stellarActivityHtml(activity) {
+export function stellarActivityHtml(activity, selected) {
+  const external = !!(selected && !selected.local && selected.host);
+  const scopeLabel = external ? esc(String(selected.host).toUpperCase()) : "THIS HOST";
   if (!activity || activity.error || !Array.isArray(activity.buckets) || !activity.buckets.length) {
+    const why = external
+      ? "activity unavailable for this seller — no Stellar payTo advertised in its 402s, or the scan failed"
+      : "activity scan temporarily unavailable";
     return `
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Activity</h2>
-  <p style="color:var(--muted);font-size:13.5px;margin:0;">activity scan temporarily unavailable — settlements remain independently verifiable on stellar.expert</p>`;
+  <h2 id="activity" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Activity</h2>
+  <p style="color:var(--muted);font-size:13.5px;margin:0;">${why} — settlements remain independently verifiable on stellar.expert</p>`;
   }
   const bars = (key) => {
     const max = Math.max(...activity.buckets.map((b) => Number(b[key]) || 0));
@@ -65,14 +70,16 @@ export function stellarActivityHtml(activity) {
     </div>`;
   const t = activity.totals || {};
   const note = [
-    "all inbound USDC settlements to this host's Stellar wallet",
+    external
+      ? "all inbound USDC to this seller's advertised x402 payTo wallet — may include non-x402 transfers"
+      : "all inbound USDC settlements to this host's Stellar wallet",
     t.internalTx ? `includes ${t.internalTx} internal canary buy${t.internalTx === 1 ? "" : "s"}` : "",
     activity.truncated ? "scan capped — totals are a floor" : "",
   ].filter(Boolean).join(" · ");
   return `
-  <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">
+  <div id="activity" style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">
     <h2 style="font-size:21px;font-weight:800;margin:0;">Activity</h2>
-    <span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">THIS HOST · PAST ${esc(activity.days)} DAYS</span>
+    <span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">${scopeLabel} · PAST ${esc(activity.days)} DAYS</span>
   </div>
   <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;">
     ${card("TRANSACTIONS", Number(t.tx || 0).toLocaleString("en-US"), "tx")}
@@ -82,7 +89,7 @@ export function stellarActivityHtml(activity) {
   <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin:8px 0 0;">${note}</p>`;
 }
 
-export function stellarPage(baseUrl, { snapshot, rail, activity, stellarWallet = "GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL" }) {
+export function stellarPage(baseUrl, { snapshot, rail, activity, selectedSeller, stellarWallet = "GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL" }) {
   const sellers = stellarSellers(snapshot);
   const tools = stellarTools(snapshot);
   const prices = tools.map((t) => Number(t.price)).filter((n) => Number.isFinite(n) && n > 0);
@@ -103,11 +110,30 @@ export function stellarPage(baseUrl, { snapshot, rail, activity, stellarWallet =
     </div>`).join("");
 
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
-  const sellersHtml = sellers.map((s) => {
-    const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
-    const good = s.local || s.routable;
-    return `
-    <div style="border:${s.local ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
+  // Which seller's activity is on screen: default is this host; an external
+  // pick highlights that seller and re-scopes the Activity section.
+  const selHost = selectedSeller && !selectedSeller.local ? String(selectedSeller.host || "").toLowerCase() : null;
+  const isSelected = (s) => (selHost ? !s.local && hostOf(s.homepage).toLowerCase() === selHost : !!s.local);
+  const activityHref = (s) => (s.local ? "/stellar#activity" : `/stellar?seller=${encodeURIComponent(hostOf(s.homepage).toLowerCase())}#activity`);
+  // Cards read well up to a dozen sellers; past that, compact rows keep the
+  // roster scannable at any size.
+  const compact = sellers.length > 12;
+  const sellersHtml = compact
+    ? sellers.map((s) => {
+        const good = s.local || s.routable;
+        return `
+    <a href="${activityHref(s)}" style="display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:9px 14px;border:${isSelected(s) ? "2px solid var(--accent)" : "1px solid var(--hairline)"};background:var(--card);color:var(--ink);text-decoration:none;">
+      <span style="font-weight:700;font-size:14px;">${esc(s.displayName)}${s.local ? ' <span style="background:var(--accent);color:var(--cream);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px;">THIS HOST</span>' : ""}</span>
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${esc(hostOf(s.homepage))}</span>
+      <span style="color:var(--muted);font-family:var(--font-mono);font-size:12.5px;">${s.toolCount || 0} tools</span>
+      <span style="display:inline-flex;align-items:center;gap:6px;color:${good ? "var(--green)" : "var(--accent)"};font-family:var(--font-mono);font-size:12px;"><span style="width:7px;height:7px;border-radius:50%;background:${good ? "var(--green)" : "var(--accent)"};"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
+    </a>`;
+      }).join("")
+    : sellers.map((s) => {
+        const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
+        const good = s.local || s.routable;
+        return `
+    <div style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;">${esc(s.displayName)}</a>
         ${s.local ? '<span style="background:var(--accent);color:var(--cream);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:2px 6px;">THIS HOST</span>' : ""}
@@ -117,8 +143,9 @@ export function stellarPage(baseUrl, { snapshot, rail, activity, stellarWallet =
         <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools</span>
         <span style="display:inline-flex;align-items:center;gap:6px;color:${good ? "var(--green)" : "var(--accent)"};font-family:var(--font-mono);font-size:12px;"><span style="width:7px;height:7px;border-radius:50%;background:${good ? "var(--green)" : "var(--accent)"};"></span>${health}</span>
       </div>
+      <a href="${activityHref(s)}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;margin-top:2px;">${isSelected(s) ? "activity shown above" : "view activity →"}</a>
     </div>`;
-  }).join("");
+      }).join("");
 
   const statsHtml = `
   <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
@@ -174,10 +201,13 @@ export function stellarPage(baseUrl, { snapshot, rail, activity, stellarWallet =
   ${receiptHtml}
   <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">A paid canary buys tools over the Stellar rail daily (facilitator: OpenZeppelin) — uptime proven with real settlements, not pings.</p>
   ${statsHtml}
-  ${stellarActivityHtml(activity)}
+  ${stellarActivityHtml(activity, selectedSeller)}
 
   <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on Stellar</h2>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">${sellersHtml}</div>
+  <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">pick a seller to scope the activity charts to its on-chain wallet</p>
+  ${compact
+    ? `<div style="display:flex;flex-direction:column;gap:8px;">${sellersHtml}</div>`
+    : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">${sellersHtml}</div>`}
   ${honesty}
 
   <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse Stellar-payable tools</h2>
