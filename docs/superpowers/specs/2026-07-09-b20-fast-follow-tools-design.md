@@ -53,6 +53,14 @@ hashes (`topic0`) are layout-independent, so filtering is always safe — only f
 4. When the official ABI publishes, replace the defensive location logic with exact
    decoding (follow-up, not a blocker).
 
+> **RESOLVED 2026-07-10:** the canonical ABI is published in base/base-std
+> (`src/interfaces/IB20.sol`, `IB20Factory.sol`): `Memo(address indexed caller,
+> bytes32 indexed memo)` — both indexed; `B20Created(address indexed token,
+> B20Variant indexed variant, …)` — token at topics[1]; Transfer is canonical
+> ERC-20. Decoding is now exact; non-canonical layouts are rejected (null →
+> `skipped`), with the old defensive-guess behaviors pinned as rejection
+> regression tests. Verified live: real B20Created logs decode with zero skips.
+
 ## Tool 1: `GET /api/b20-new-tokens` — $0.005
 
 Recently deployed B20 tokens, via factory `B20Created` logs.
