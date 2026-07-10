@@ -2169,3 +2169,10 @@ jobs:
             echo "https://$CUSTOM_DOMAIN/health → HTTP $code"
             [ "$code" = "200" ] && echo "🌐 CUSTOM DOMAIN LIVE: https://$CUSTOM_DOMAIN" || echo "(not resolving yet — Railway-managed DNS usually completes within minutes)"
           fi
+
+      - name: Ping IndexNow (instant Bing/Copilot/DDG re-indexing — best-effort, never fails the deploy)
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+        run: |
+          if [ -z "$INDEXNOW_KEY" ]; then echo "INDEXNOW_KEY secret not set — skipping"; exit 0; fi
+          node scripts/indexnow-submit.js || echo "IndexNow ping failed (non-fatal — the sitemap remains the source of truth)"
