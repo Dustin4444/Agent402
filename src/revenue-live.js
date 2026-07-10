@@ -37,6 +37,13 @@ export const OUR_STELLAR_WALLETS = new Set(
   (process.env.OUR_STELLAR_WALLETS || "GBA2DDJ4KQXQCGNB7RUU5I2BK5SXROJFUNZV7EZ4XUS7RXFOXEPNY6O4")
     .split(",").map((s) => s.trim()).filter(Boolean)
 );
+// Same convention for Algorand: the canary burner's public address is
+// committed; extend via env (comma-separated) if other internal wallets
+// settle here.
+export const OUR_ALGORAND_WALLETS = new Set(
+  (process.env.OUR_ALGORAND_WALLETS || "ZKFACAZATPUUYUXVVVE7QWMMZTSMLGQVA4G4QKW7D2UI7FCIFE3QB2SHRE")
+    .split(",").map((s) => s.trim()).filter(Boolean)
+);
 
 // Chain read-config. Stablecoin contracts mirror scripts/revenue-scan.js;
 // span ≈ a few hours of blocks so "recent inbound" stays a cheap filtered read.
@@ -410,6 +417,65 @@ export async function stellarRail(wallet) {
   return out;
 }
 
+// Algorand — read USDC balance + recent inbound ASA transfers via AlgoNode's
+// free algod (balance) and indexer (transaction history) endpoints, both
+// keyless. USDC is ASA 31566704 (6 decimals); explorer links go to allo.info.
+export async function algorandRail(wallet) {
+  const out = { rail: "Algorand", asset: "USDC", wallet: wallet || null, explorer: wallet ? `https://allo.info/account/${wallet}` : null, balance: null, recent: [], error: null };
+  if (!wallet) { out.error = "ALGORAND_WALLET_ADDRESS unset"; return out; }
+  try {
+    // Balance
+    const res = await fetch(`https://mainnet-api.algonode.cloud/v2/accounts/${wallet}`, { signal: AbortSignal.timeout(6000) });
+    if (res.status === 404) {
+      // A fresh wallet that has never opted in to ASA 31566704 is a valid
+      // state, not an error — it just holds no USDC (and can't be paid until
+      // it opts in).
+      out.balance = 0;
+    } else if (!res.ok) {
+      out.error = `algod HTTP ${res.status}`;
+      return out;
+    } else {
+      const acct = await res.json();
+      const usdcAsset = (acct.assets || []).find((a) => a["asset-id"] === 31566704);
+      out.balance = usdcAsset ? Number(usdcAsset.amount) / 1e6 : 0;
+    }
+    // Recent inbound USDC transfers (indexer)
+    try {
+      const txRes = await fetch(
+        `https://mainnet-idx.algonode.cloud/v2/accounts/${wallet}/transactions?asset-id=31566704&tx-type=axfer&limit=10`,
+        { signal: AbortSignal.timeout(6000) },
+      );
+      if (txRes.ok) {
+        const txData = await txRes.json();
+        // Internal = the committed canary burner set + this wallet itself
+        // (self-transfers/funding moves are never external revenue).
+        const ours = new Set([...OUR_ALGORAND_WALLETS, wallet]);
+        for (const t of txData?.transactions || []) {
+          const xfer = t["asset-transfer-transaction"];
+          if (!xfer || xfer.receiver !== wallet) continue; // inbound only
+          const usd = Number(xfer.amount) / 1e6;
+          const entry = {
+            tx: `https://allo.info/tx/${t.id}`,
+            when: t["round-time"] ? new Date(t["round-time"] * 1000).toISOString() : null,
+            usd,
+            from: t.sender || null,
+          };
+          entry.external = isExternalPayment({ payer: entry.from, usd }, { ourWallets: ours, maxUsd: MAX_CALL_USD });
+          entry.internal = entry.from != null && ours.has(entry.from);
+          out.recent.push(entry);
+        }
+      }
+      // Same aggregation the other rails do: sum the per-call-sized external
+      // inbound so the card's "external in window" line and the site-wide
+      // windowExternalUsd total include Algorand.
+      out.externalUsd = Number(out.recent.filter((t) => t.external && inWindow(t)).reduce((s, t) => s + (t.usd || 0), 0).toFixed(6));
+    } catch { /* transaction scan is best-effort */ }
+  } catch (e) {
+    out.error = String(e?.message || e).slice(0, 120);
+  }
+  return out;
+}
+
 // 60s snapshot cache — refresh costs at most one scan per minute regardless
 // of page traffic, and a burst of refreshes can't hammer public RPCs.
 let cached = null;
@@ -417,15 +483,17 @@ let cachedAt = 0;
 export async function revenueSnapshot({ walletAddress, solanaWallet }) {
   if (cached && Date.now() - cachedAt < 60_000) return cached;
   const stellarWallet = (process.env.STELLAR_WALLET_ADDRESS || "").trim();
-  const [base, polygon, arbitrum, robinhood, solana, stellar] = await Promise.all([
+  const algorandWallet = (process.env.ALGORAND_WALLET_ADDRESS || "").trim();
+  const [base, polygon, arbitrum, robinhood, solana, stellar, algorand] = await Promise.all([
     evmRail("base", walletAddress),
     evmRail("polygon", walletAddress),
     evmRail("arbitrum", walletAddress),
     evmRail("robinhood", walletAddress),
     solanaRail(solanaWallet),
     stellarRail(stellarWallet),
+    algorandRail(algorandWallet),
   ]);
-  const rails = [base, solana, polygon, arbitrum, stellar, robinhood];
+  const rails = [base, solana, polygon, arbitrum, stellar, algorand, robinhood];
   const totalUsd = rails.reduce((s, r) => s + (Number.isFinite(r.balance) ? r.balance : 0), 0);
   const windowExternalUsd = rails.reduce((s, r) => s + (Number.isFinite(r.externalUsd) ? r.externalUsd : 0), 0);
   cached = {
@@ -501,7 +569,7 @@ export function revenuePage(baseUrl, snap) {
   const title = "Live revenue — Agent402";
   const description =
     "Consolidated live view of the Agent402 revenue wallets across every payment rail — USDC on Base, Solana, Polygon & Arbitrum, plus USDG on Robinhood Chain. One page instead of three explorer tabs; every figure links to its on-chain proof.";
-  const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar" };
+  const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar", Algorand: "algorand" };
   const railCard = (r) => {
     const at = snap.allTime?.perChain?.[chainKeyByLabel[r.rail]];
     return `
@@ -558,6 +626,6 @@ export function revenuePage(baseUrl, snap) {
 // RAILS import keeps this module honest if the rail set changes: a rail in
 // rails.js with no read-config here is a wiring bug the test below catches.
 export function railsCoveredByLiveView() {
-  const covered = new Set([...Object.values(EVM).map((c) => c.label), "Solana", "Stellar"]);
+  const covered = new Set([...Object.values(EVM).map((c) => c.label), "Solana", "Stellar", "Algorand"]);
   return RAILS.every((r) => covered.has(r.name));
 }

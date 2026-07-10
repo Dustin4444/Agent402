@@ -11,12 +11,14 @@
  * different wallet, letting a caller act under a victim's memory namespace.
  */
 // EVM 0x+40hex (normalized lowercase), Solana base58 (case-sensitive),
-// Stellar G+55 base32 — anything else is not a wallet we can attribute.
+// Stellar G+55 base32, Algorand base32 (58 chars, case-sensitive) — anything
+// else is not a wallet we can attribute.
 export function normalizePayerAddress(from) {
   if (typeof from !== "string" || !from) return null;
   if (/^0x[0-9a-fA-F]{40}$/.test(from)) return from.toLowerCase();
   if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(from)) return from; // Solana base58
   if (/^G[A-Z2-7]{55}$/.test(from)) return from; // Stellar ed25519 public key
+  if (/^[A-Z2-7]{58}$/.test(from)) return from; // Algorand ed25519 public key — NEVER lowercase
   return null;
 }
 
@@ -48,7 +50,15 @@ export function payerFromRequest(req) {
   try {
     const payload = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
     const from = payload?.payload?.authorization?.from || null;
-    return typeof from === "string" && /^0x[0-9a-fA-F]{40}$/.test(from) ? from.toLowerCase() : null;
+    if (typeof from !== "string") return null;
+    // EVM ONLY, deliberately: this `from` is covered by the EIP-3009 signature
+    // the facilitator verifies before settlement, so it can carry memory
+    // identity. Non-EVM schemes (AVM/SVM/Stellar) don't sign an
+    // authorization.from — accepting one here would let a buyer mint a
+    // signature-free namespace. Their attribution path is
+    // payerFromPaymentResponse (the facilitator-verified settle receipt).
+    if (/^0x[0-9a-fA-F]{40}$/.test(from)) return from.toLowerCase();
+    return null;
   } catch {
     return null;
   }
