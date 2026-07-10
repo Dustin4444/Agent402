@@ -115,6 +115,8 @@ const CAIP2_NAMES = {
   "eip155:4663": "robinhood (USDG)",
   "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp": "solana",
   "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1": "solana-devnet",
+  "stellar:pubnet": "stellar",
+  "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "algorand",
 };
 
 /**

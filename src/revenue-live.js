@@ -452,7 +452,11 @@ export async function algorandRail(wallet) {
         const ours = new Set([...OUR_ALGORAND_WALLETS, wallet]);
         for (const t of txData?.transactions || []) {
           const xfer = t["asset-transfer-transaction"];
-          if (!xfer || xfer.receiver !== wallet) continue; // inbound only
+          // Defense in depth, matching stellarRail's issuer check: re-verify
+          // the ASA id per record even though the URL already filters
+          // asset-id=31566704 — a filter regression/typo must not let a
+          // fake-ASA airdrop count as revenue.
+          if (!xfer || xfer["asset-id"] !== 31566704 || xfer.receiver !== wallet) continue; // inbound only, real USDC only
           const usd = Number(xfer.amount) / 1e6;
           const entry = {
             tx: `https://allo.info/tx/${t.id}`,

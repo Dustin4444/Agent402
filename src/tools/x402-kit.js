@@ -494,6 +494,8 @@ export function gradeX402Response({ href, protocol, status, cacheControl, bodyTe
         const net = String(a.network || "");
         const to = String(a.payTo || "");
         if (net.startsWith("solana:")) return !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(to);
+        if (net.startsWith("stellar:")) return !/^G[A-Z2-7]{55}$/.test(to);
+        if (net.startsWith("algorand:")) return !/^[A-Z2-7]{58}$/.test(to);
         return !isAddress(to);
       });
       add("payto-format", "Pay-to addresses are well-formed", "misdirected payment", "medium",
