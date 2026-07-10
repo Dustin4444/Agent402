@@ -26,7 +26,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
 
   // -- price-by-category receipt rows ----------------------------------------
   const receiptRow = (label, price, isLast) =>
-    `<div style="display:flex;align-items:baseline;gap:8px;padding:12px 18px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><span>${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted #b3a98f;transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">${esc(price)}</span></div>`;
+    `<div style="display:flex;align-items:baseline;gap:8px;padding:12px 18px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><span>${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">${esc(price)}</span></div>`;
 
   const receiptRows = [
     ["Most tools \u2014 text, math, encoding, time, validation, convert", "$0.001"],
@@ -41,7 +41,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
   .ml-pricing-plans { grid-template-columns: 1fr !important; }
   .ml-pricing-plans > div:first-child { border-right: none !important; border-bottom: 1.5px solid var(--ink) !important; }
   .ml-token-math { grid-template-columns: 1fr !important; }
-  .ml-token-math > div:last-child { border-left: none !important; border-top: 1px dashed #b3a98f !important; padding-left: 0 !important; padding-top: 24px !important; }
+  .ml-token-math > div:last-child { border-left: none !important; border-top: 1px dashed #C9C9C7 !important; padding-left: 0 !important; padding-top: 24px !important; }
 }
 `;
 
@@ -117,9 +117,9 @@ export function ledgerPricingPage(baseUrl, catalog) {
         <h3 style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 8px;">Beat the token math.</h3>
         <p style="font-size:14.5px;line-height:1.55;color:var(--muted);margin:0;">Writing, testing and debugging a CSV parser or cron calculator mid-task burns thousands of tokens \u2014 easily 10\u2013100\u00d7 the price of a tested $0.001 call. Reimplementation is the expensive path.</p>
       </div>
-      <div style="border-left:1px dashed #b3a98f;padding-left:30px;display:flex;flex-direction:column;justify-content:center;font-family:var(--font-mono);font-size:14px;">
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;"><span style="color:var(--muted);">build it yourself</span><span style="flex:1;border-bottom:1.5px dotted #b3a98f;transform:translateY(-4px);"></span><span style="font-weight:700;">~5,000 tokens</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">call the tested endpoint</span><span style="flex:1;border-bottom:1.5px dotted #b3a98f;transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">$0.001</span></div>
+      <div style="border-left:1px dashed #C9C9C7;padding-left:30px;display:flex;flex-direction:column;justify-content:center;font-family:var(--font-mono);font-size:14px;">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;"><span style="color:var(--muted);">build it yourself</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">~5,000 tokens</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">call the tested endpoint</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">$0.001</span></div>
       </div>
     </div>
   </section>

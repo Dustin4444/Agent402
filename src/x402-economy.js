@@ -261,7 +261,7 @@ export function x402EconomyPage(baseUrl, snap) {
       <table style="width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:13px;">
         <tr style="text-align:left;color:var(--muted);font-size:11px;letter-spacing:.06em;"><th style="padding:4px 8px;">WALLET</th><th style="padding:4px 8px;">PAYMENTS</th><th style="padding:4px 8px;">PAYERS</th><th style="padding:4px 8px;">VOLUME</th></tr>
         ${snap.topMerchants.map((m) => `
-          <tr style="border-top:1px dashed #b3a98f;">
+          <tr style="border-top:1px dashed #C9C9C7;">
             <td style="padding:6px 8px;"><a href="https://basescan.org/address/${esc(m.merchant)}" rel="noopener">${esc(short(m.merchant))}</a></td>
             <td style="padding:6px 8px;">${fmt(m.payments)}</td>
             <td style="padding:6px 8px;">${fmt(m.payers)}</td>

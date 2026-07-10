@@ -67,19 +67,19 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
       const rowBg = isFirst
         ? " background: linear-gradient(90deg, #d63c1a22, transparent);"
         : "";
-      const rankColor = isFirst ? "var(--accent)" : "#7c7768";
+      const rankColor = isFirst ? "var(--accent)" : "#7C7C7C";
       const borderBottom =
         r === board[board.length - 1]
           ? ""
-          : " border-bottom: 1px solid #2a2920;";
+          : " border-bottom: 1px solid #262626;";
 
-      return `<div style="display: grid; grid-template-columns: 36px 1fr 110px 90px 64px; gap: 12px; padding: 13px 20px; color: #ECE4D2;${borderBottom}${rowBg}"><span style="color: ${rankColor}; font-weight: 700;">${esc(rank)}</span><span>${nameHtml} <span style="color:#7c7768;">\u00b7 ${esc(shortAddr(displayWallet))}</span></span><span style="text-align: right; color: #F4EEDE; font-weight: 700;">${fmtUsd(r.totalUsd)}</span><span style="text-align: right;">${fmtNum(r.callsSettled)}</span><span style="text-align: right; color: #b9b1a0;">${fmtNum(r.uniqueBuyers)}</span></div>`;
+      return `<div style="display: grid; grid-template-columns: 36px 1fr 110px 90px 64px; gap: 12px; padding: 13px 20px; color: #F5F5F5;${borderBottom}${rowBg}"><span style="color: ${rankColor}; font-weight: 700;">${esc(rank)}</span><span>${nameHtml} <span style="color:#7C7C7C;">\u00b7 ${esc(shortAddr(displayWallet))}</span></span><span style="text-align: right; color: #FFFFFF; font-weight: 700;">${fmtUsd(r.totalUsd)}</span><span style="text-align: right;">${fmtNum(r.callsSettled)}</span><span style="text-align: right; color: #B8B8B8;">${fmtNum(r.uniqueBuyers)}</span></div>`;
     })
     .join("\n      ");
 
   // --- Empty / warming state -----------------------------------------------
 
-  const warmingHtml = `<div style="padding: 40px 20px; text-align: center; color: #7c7768; font-family: var(--font-mono); font-size: 13px;">Warming up \u2014 first snapshot in progress. Refresh in a few seconds.</div>`;
+  const warmingHtml = `<div style="padding: 40px 20px; text-align: center; color: #7C7C7C; font-family: var(--font-mono); font-size: 13px;">Warming up \u2014 first snapshot in progress. Refresh in a few seconds.</div>`;
 
   // --- Page body -----------------------------------------------------------
 

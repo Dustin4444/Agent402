@@ -1474,7 +1474,7 @@ app.get("/demo.js", (_req, res) =>
 );
 
 // Brand images (logo + social cards) use the site's ledger design tokens:
-// paper #ECE4D2, ink #16150F, accent #D63C1A, Space Mono / Archivo. The two
+// paper #F5F5F5, ink #0b0b0b, accent #D63C1A, Space Mono / Archivo. The two
 // typefaces are embedded as data-URI @font-face (latin subsets committed in
 // assets/fonts/, OFL-licensed) so rasterization is deterministic and offline —
 // no Google Fonts fetch in the serving path. rasterizeSvg awaits fonts.ready.
@@ -1484,7 +1484,7 @@ const BRAND_FONT_STYLE = `<style>
 @font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}
 @font-face{font-family:'Archivo';font-weight:800;src:url(data:font/woff2;base64,${fontB64("archivo-800.woff2")}) format('woff2')}
 </style>`;
-const BRAND = { paper: "#ECE4D2", card: "#F4EEDE", ink: "#16150F", muted: "#4f4b3f", hairline: "#d8cfb6", accent: "#D63C1A", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
+const BRAND = { paper: "#F5F5F5", card: "#FFFFFF", ink: "#0b0b0b", muted: "#4A4A4A", hairline: "#E0E0DE", accent: "#D63C1A", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
 
 // Brand mark — the ink slab: cream 402 with the accent period on dark ink,
 // matching the ledger chrome (and the X avatar). The PNG is rasterized once

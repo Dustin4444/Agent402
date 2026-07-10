@@ -20,11 +20,11 @@ const fmtDate = (d) => {
 const planBadge = (plan) => {
   const color = {
     solo: "#7cb3e0",
-    team: "#6fae8d",
+    team: "#3E9B6E",
     agency: "#b0a0d0",
     enterprise: "#c4a44e",
     partner: "#c87090",
-  }[plan] || "#8A8475";
+  }[plan] || "#8C8C8C";
   return `<span class="ol-plan" style="color:${color}; border-color:${color}55;">${esc(plan)}</span>`;
 };
 
