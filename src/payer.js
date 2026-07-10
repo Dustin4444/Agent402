@@ -51,14 +51,13 @@ export function payerFromRequest(req) {
     const payload = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
     const from = payload?.payload?.authorization?.from || null;
     if (typeof from !== "string") return null;
+    // EVM ONLY, deliberately: this `from` is covered by the EIP-3009 signature
+    // the facilitator verifies before settlement, so it can carry memory
+    // identity. Non-EVM schemes (AVM/SVM/Stellar) don't sign an
+    // authorization.from — accepting one here would let a buyer mint a
+    // signature-free namespace. Their attribution path is
+    // payerFromPaymentResponse (the facilitator-verified settle receipt).
     if (/^0x[0-9a-fA-F]{40}$/.test(from)) return from.toLowerCase();
-    // Non-EVM exact schemes generally don't carry authorization.from (e.g.
-    // AVM's payload is a signed paymentGroup, not an EIP-3009 authorization —
-    // see payerFromPaymentResponse below for the real Algorand/SVM/Stellar
-    // attribution path). This only extends the accepted FORMAT in case a
-    // future scheme ever does sign a base32 `from` here; it never loosens
-    // the EVM check above. Case-significant — NEVER lowercase.
-    if (/^[A-Z2-7]{58}$/.test(from)) return from; // Algorand ed25519 public key
     return null;
   } catch {
     return null;
