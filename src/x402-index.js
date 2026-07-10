@@ -22,6 +22,7 @@
 //   • Failed crawls log a stale marker; they never crash the process.
 //   • The router uses the same lexical scoring shape as /api/find so rankings
 //     are consistent whether a buyer searches local-only or cross-seller.
+import { readFileSync, writeFileSync } from "node:fs";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { safeFetch } from "./tools/fetch-guard.js";
 import { toolList } from "./pages.js";
@@ -44,6 +45,103 @@ const cache = new Map();
 // Set of origins auto-discovered from public x402 registries (distinct from
 // the env-configured seed list so we can show provenance separately on /index).
 const discoveredSeeds = new Set();
+
+// --- self-serve listing (POST /api/index/register) ---------------------------
+// Origins submitted through the public register endpoint. Persisted to /data
+// so a submission survives redeploys; silent in-memory fallback without the
+// volume (same posture as stats). All probing goes through crawlSeller() —
+// this module never fetches a submitted origin directly.
+export const SUBMITTED_SEEDS_FILE = "/data/submitted-seeds.json";
+const submittedSeeds = new Set();
+
+// Manual-submission ceiling — a fetch-amplifier guard: every successful probe
+// is crawled every 5 minutes forever, so unbounded submissions become
+// unbounded outbound fan-out + unbounded /data growth (independent of
+// MAX_DISCOVERED_SELLERS, which only guards the registry-discovery path).
+// Legitimate growth beyond this goes through DEFAULT_SEEDS or Bazaar discovery.
+const DEFAULT_MAX_SUBMITTED_SEEDS = 500;
+let submittedSeedsCap = DEFAULT_MAX_SUBMITTED_SEEDS;
+
+/** Test hook: set (or, with no arg, reset) the submission cap. */
+export function __testSetSubmittedCap(n) {
+  submittedSeedsCap = typeof n === "number" && n >= 0 ? n : DEFAULT_MAX_SUBMITTED_SEEDS;
+}
+
+export function loadSubmittedSeeds() {
+  try {
+    const arr = JSON.parse(readFileSync(SUBMITTED_SEEDS_FILE, "utf8"));
+    // Respect the cap even if the file was hand-edited or corrupted into
+    // something oversized — the ceiling has to hold on load, not just on write.
+    for (const o of Array.isArray(arr) ? arr : []) {
+      if (submittedSeeds.size >= submittedSeedsCap) break;
+      if (typeof o === "string") { submittedSeeds.add(o); discoveredSeeds.add(o); }
+    }
+  } catch { /* absent file / no volume — in-memory only */ }
+}
+
+function persistSubmittedSeeds() {
+  try {
+    writeFileSync(SUBMITTED_SEEDS_FILE, JSON.stringify([...submittedSeeds], null, 2));
+  } catch { /* best-effort — no volume in local/dev */ }
+}
+
+/** Test hook: clear submitted-seed state between test cases. */
+export function __testResetSubmitted() { submittedSeeds.clear(); }
+
+/** Validate a raw submitted origin. Returns { origin } (normalized) or { error }. */
+export function validateOriginInput(raw, { selfOrigin } = {}) {
+  let u;
+  try { u = new URL(String(raw || "").trim()); } catch { return { error: "origin must be a valid URL" }; }
+  if (u.protocol !== "https:") return { error: "origin must be https" };
+  if (u.username || u.password) return { error: "origin must not contain credentials" };
+  if (u.port && u.port !== "443") return { error: "origin must use the default https port" };
+  if ((u.pathname && u.pathname !== "/") || u.search || u.hash) return { error: "submit the bare origin (no path or query)" };
+  if (!u.hostname.includes(".")) return { error: "origin must be a public hostname" };
+  const origin = `https://${u.hostname.toLowerCase()}`;
+  if (selfOrigin && origin === String(selfOrigin).toLowerCase()) return { error: "this host is already the local catalog" };
+  return { origin };
+}
+
+/**
+ * Probe + list a submitted origin. `crawl` is injectable for tests; defaults
+ * to the real crawlSeller. Known origins return their current state without
+ * a fetch. Successful probes persist the origin as a seed.
+ */
+export async function registerOrigin(origin, { crawl } = {}) {
+  const existing = cache.get(origin);
+  if (existing && !existing.error) {
+    return { listed: true, origin, seller: sellerSummary(origin, existing) };
+  }
+  // Cap applies only to origins that would grow the submitted set. An origin
+  // already on the list (retrying after a prior failure) is not new growth,
+  // so it's exempt — it can still probe and update its own entry at cap.
+  if (!submittedSeeds.has(origin) && submittedSeeds.size >= submittedSeedsCap) {
+    return { listed: false, origin, error: "submission list is full — open a GitHub issue to get seeded" };
+  }
+  const doCrawl = crawl || (async (o) => { await crawlSeller(o); return cache.get(o); });
+  let v;
+  try { v = await doCrawl(origin); } catch (e) { v = { error: String(e?.message || e) }; }
+  // Injected test crawlers return the entry directly; the real path re-reads cache.
+  if (v && !v.error && (v.tools?.length || v.manifest)) {
+    submittedSeeds.add(origin);
+    discoveredSeeds.add(origin);
+    persistSubmittedSeeds();
+    if (!cache.has(origin) && crawl) cache.set(origin, { ...v, fetchedAt: Date.now() });
+    return { listed: true, origin, seller: sellerSummary(origin, cache.get(origin) || v) };
+  }
+  return { listed: false, origin, error: String(v?.error || "no x402 surface found (manifest, OpenAPI, or Bazaar entry)") };
+}
+
+function sellerSummary(origin, v) {
+  return {
+    displayName: v.manifest?.name || origin.replace(/^https?:\/\//, ""),
+    toolCount: v.tools?.length || 0,
+    networks: [...new Set([...(v.tools || []).flatMap((t) => t.networks || []), ...(bazaarToolsByOrigin.get(origin) || []).flatMap((t) => t.networks || [])])],
+    routable: isRoutable(v),
+    health: healthScore(v),
+  };
+}
+
 // Per-source state for the discovery panel on /index.
 const discoveryStatus = new Map(); // name -> { url, fetchedAt, resources, origins, error }
 // Per-origin synthesized tool list assembled directly from Bazaar resource
@@ -432,6 +530,7 @@ async function runCrawl() {
  */
 export function startCrawler(opts = {}) {
   if (crawlerTimer) return;
+  loadSubmittedSeeds();
   const { selfOrigin = null } = opts;
   // Kick off discovery first so the first crawl has registry-sourced seeds in
   // hand (best-effort — if discovery is slow, the first crawl just uses env seeds).

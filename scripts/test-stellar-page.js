@@ -73,5 +73,8 @@ ok(html.includes("SELLERS") && html.includes("PRICE FLOOR"), "stats strip render
 ok(html.includes("THIS HOST"), "local seller card carries the THIS HOST tag");
 ok(html.includes("ext1.example"), "seller card shows the hostname");
 
+// Self-serve form present
+ok(html.includes('id="list-api"') && html.includes("/api/index/register"), "List your API form renders");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
