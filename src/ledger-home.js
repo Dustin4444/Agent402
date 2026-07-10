@@ -16,7 +16,7 @@ const FLAGSHIP_PACKS = ["financial-research", "search-and-cite", "onchain-analys
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 
-export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks) {
+export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks, { stellarSellerCount } = {}) {
   const tools = toolList(catalog);
   const count = tools.length;
   const freeCount = tools.filter(isComputePayable).length;
@@ -284,6 +284,13 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           <div style="padding:10px 18px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">hourly on-chain snapshot · ?include=external</div>
         </div>
       </div>
+      <a href="/stellar" style="margin-top:34px;border:1.5px solid var(--dark-border2);background:var(--ink-panel);display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 20px;flex-wrap:wrap;text-decoration:none;">
+        <span>
+          <span style="display:block;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--accent);margin-bottom:6px;">THE STELLAR X402 MARKETPLACE</span>
+          <span style="display:block;font-size:15px;line-height:1.5;color:var(--dk-muted2);">Every x402 seller settling USDC on Stellar — health-ranked, with live on-chain receipts.${Number.isFinite(stellarSellerCount) && stellarSellerCount > 0 ? ` <strong style="color:var(--cream2);font-weight:700;">${stellarSellerCount} seller${stellarSellerCount === 1 ? "" : "s"} live.</strong>` : ""}</span>
+        </span>
+        <span style="font-family:var(--font-mono);font-size:13px;color:var(--accent);white-space:nowrap;">/stellar →</span>
+      </a>
     </div>
   </section>
 

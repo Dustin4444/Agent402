@@ -120,6 +120,7 @@ const NAV_ITEMS = [
   { href: "/tools", label: "catalog" },
   { href: "/pricing", label: "pricing" },
   { href: "/leaderboard", label: "leaderboard" },
+  { href: "/stellar", label: "stellar market" },
   { href: "/docs", label: "docs" },
 ];
 
