@@ -30,7 +30,7 @@ import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
-import { rankBy } from "./leaderboard.js";
+import { rankBy, canonicalHost } from "./leaderboard.js";
 
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
 // (see ledger-home.js) so /index's own row derives the same way: page
@@ -52,6 +52,12 @@ const NETWORK_MATCHERS = new Map(RAILS.map((r) => {
 }));
 
 const LOCAL_SELLER = "self";
+// /index used to render every crawled seller server-side (~1,477 rows → a
+// 475KB response with no compression). Cap the default render to the top N
+// by whatever metric the page is currently sorted on; ?all=1 opts back into
+// the full table. The local seller is exempt from the cap — it's always the
+// one row a self-hoster actually cares about finding.
+const INDEX_ROW_CAP = 100;
 const CRAWL_INTERVAL_MS = 5 * 60 * 1000; // 5 min — gentle on third-party sellers
 const DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hr — registries don't change fast
 const MAX_MANIFEST_BYTES = 4 * 1024 * 1024;
@@ -923,12 +929,38 @@ export function economySectionHtml(snap, leaderboardSnap) {
 </div>`;
 }
 
+// Join key between an Index seller row and a leaderboard row: canonical host
+// (see leaderboard.js#canonicalHost). Wallet isn't reliable here — the Index
+// crawls manifests (no payTo per row), and a leaderboard row can represent
+// several wallets folded under one operator's site. Host is the one field
+// both sides actually publish. Pure + exported for tests.
+export function leaderboardHostIndex(leaderboardSnap) {
+  const map = new Map();
+  const rows = Array.isArray(leaderboardSnap?.leaderboard) ? leaderboardSnap.leaderboard : [];
+  for (const r of rows) {
+    const hosts = new Set();
+    const h = canonicalHost(r.homepage);
+    if (h) hosts.add(h);
+    for (const o of r.origins || []) {
+      const oh = canonicalHost(o);
+      if (oh) hosts.add(oh);
+    }
+    for (const host of hosts) {
+      // A host should only ever map to one operator row (leaderboard rows are
+      // already grouped by canonical host) — first write wins so a stray
+      // collision doesn't silently reassign an established row.
+      if (!map.has(host)) map.set(host, r);
+    }
+  }
+  return map;
+}
+
 /**
  * Public HTML dashboard. Self-contained: no client-side polling required — a
  * page refresh re-renders from the latest snapshot. Embed snippet at the bottom
  * shows sellers how to drop a "tools live on x402" widget on their landing.
  */
-export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboardSnap } = {}) {
+export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboardSnap, sort, dir, all } = {}) {
   const fmtAge = (ts) => {
     if (!ts) return "-";
     const age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -954,16 +986,93 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
     const dots = (s.history || []).map((x) => (x ? "●" : "○")).join("");
     return dots ? ` <span class="badge ok" title="last ${s.history.length} crawls">${dots}</span>` : "";
   };
-  const rows = filteredSellers
+
+  // Join to the leaderboard's on-chain USDC/calls signal by canonical host.
+  // Unmatched sellers (never seen settling on Base, or not yet scanned) are
+  // "-" — never a fabricated 0. The leaderboard's own window (see
+  // leaderboard.js DEFAULTS.spanBlocks) is 24h today; ?window= is a hook the
+  // pipeline doesn't implement yet, so the column header shows whatever the
+  // snapshot actually scanned, never a hardcoded "7D" claim.
+  const lbByHost = leaderboardHostIndex(leaderboardSnap);
+  const lbWindowLabel = (leaderboardSnap?.windowLabel || "24h").toUpperCase();
+  const withLb = filteredSellers.map((s) => {
+    const host = canonicalHost(s.homepage || s.origin);
+    return { ...s, _lb: (host && lbByHost.get(host)) || null };
+  });
+
+  // Sort: usd|calls|tools, desc|asc. Default usd desc (matches the
+  // leaderboard's own canonical order). Sellers with no leaderboard match
+  // sort to the bottom regardless of direction — they're unranked, not zero.
+  const sortMode = ["usd", "calls", "tools"].includes(sort) ? sort : "usd";
+  const sortDir = dir === "asc" ? "asc" : "desc";
+  const sortValue = (s) => {
+    if (sortMode === "tools") return Number.isFinite(s.toolCount) ? s.toolCount : null;
+    if (!s._lb) return null;
+    return sortMode === "calls" ? (s._lb.callsSettled ?? null) : (s._lb.totalUsd ?? null);
+  };
+  const cmpSellers = (a, b) => {
+    const va = sortValue(a);
+    const vb = sortValue(b);
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1; // unranked always sinks to the bottom
+    if (vb == null) return -1;
+    return sortDir === "asc" ? va - vb : vb - va;
+  };
+  const sortedSellers = [...withLb].sort(cmpSellers);
+
+  // Row cap: top INDEX_ROW_CAP by the active sort, ?all=1 renders every
+  // filtered seller. The local seller is exempt from the cap — reinserted
+  // (then the small slice re-sorted) if the cap would have dropped it.
+  const showAll = all === "1" || all === "true";
+  let visibleSellers = showAll ? sortedSellers : sortedSellers.slice(0, INDEX_ROW_CAP);
+  if (!showAll && !visibleSellers.some((s) => s.local)) {
+    const localSeller = sortedSellers.find((s) => s.local);
+    if (localSeller) visibleSellers = [...visibleSellers, localSeller].sort(cmpSellers);
+  }
+
+  const rows = visibleSellers
     .map((s) => {
+      const usdCell = s._lb ? esc(fmtUsd(s._lb.totalUsd)) : "-";
+      const callsCell = s._lb ? esc(econFmt(s._lb.callsSettled)) : "-";
       return `<tr>
         <td><a href="${esc(s.homepage || s.origin)}" target="_blank" rel="noopener">${esc(s.displayName)}</a>${healthBadge(s)}</td>
         <td class="num">${esc(s.toolCount)}</td>
         <td>${esc(s.network || "-")}</td>
+        <td class="num">${usdCell}</td>
+        <td class="num">${callsCell}</td>
         <td class="muted">${esc(fmtAge(s.fetchedAt))}</td>
       </tr>`;
     })
     .join("");
+
+  // Sortable column-header links — plain GET links (no JS), preserving
+  // ?network and ?all so a sort click never resets an active filter.
+  const sortHref = (key) => {
+    const params = new URLSearchParams();
+    if (activeNet) params.set("network", activeNet);
+    if (showAll) params.set("all", "1");
+    params.set("sort", key);
+    params.set("dir", sortMode === key && sortDir === "desc" ? "asc" : "desc");
+    return `/index?${params.toString()}`;
+  };
+  const sortHeader = (label, key) => {
+    const active = sortMode === key;
+    const style = active
+      ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
+      : "color:inherit;text-decoration:none;";
+    const arrow = active ? (sortDir === "desc" ? " ↓" : " ↑") : "";
+    return `<a href="${esc(sortHref(key))}" style="${style}">${esc(label)}${arrow}</a>`;
+  };
+  const capNote = !showAll && sortedSellers.length > INDEX_ROW_CAP
+    ? `<div class="chips-note">Showing top ${esc(INDEX_ROW_CAP)} of ${esc(sortedSellers.length)} sellers - <a href="${esc(
+        (() => {
+          const params = new URLSearchParams();
+          if (activeNet) params.set("network", activeNet);
+          params.set("all", "1");
+          return `/index?${params.toString()}`;
+        })()
+      )}">show all</a></div>`
+    : "";
   // Filter chips — "all" plus one per mainnet rail, derived from RAILS so a
   // new chain lights one up here with zero edits. Plain links (no JS),
   // preserving no other params; styled like market-page.js's chain switcher
@@ -1107,13 +1216,14 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
 <div class="panel">
   <div class="ph">
     <h2>Sellers</h2>
-    <div class="pn">Local catalog plus every seeded origin we could fetch.</div>
+    <div class="pn">Local catalog plus every seeded origin we could fetch. USDC settled and calls are joined from the <a href="/leaderboard">x402 Leaderboard</a>'s on-chain scan (last ${esc(lbWindowLabel)}) by seller host - a seller not yet matched shows "-", never $0.</div>
     <div class="chips">${chips}</div>
     ${activeNet ? `<div class="chips-note">${esc(filteredSellers.length)} of ${esc(allSellers.length)} sellers</div>` : ""}
+    ${capNote}
   </div>
   <table>
-    <thead><tr><th>Seller</th><th class="num">Tools</th><th>Network</th><th>Last fetch</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="4" class="muted" style="text-align:center;padding:24px">No sellers yet - seed via X402_INDEX_SEEDS.</td></tr>`}</tbody>
+    <thead><tr><th>Seller</th><th class="num">${sortHeader("Tools", "tools")}</th><th>Network</th><th class="num">${sortHeader(lbWindowLabel + " USDC", "usd")}</th><th class="num">${sortHeader(lbWindowLabel + " calls", "calls")}</th><th>Last fetch</th></tr></thead>
+    <tbody>${rows || `<tr><td colspan="6" class="muted" style="text-align:center;padding:24px">No sellers yet - seed via X402_INDEX_SEEDS.</td></tr>`}</tbody>
   </table>
 </div>
 

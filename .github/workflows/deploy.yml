@@ -831,6 +831,9 @@ jobs:
       - name: Static page renders smoke (every HTML surface returns 200 with the right page-specific title)
         run: node scripts/test-static-pages.js
 
+      - name: /index page tests (row cap + show-all link, sortable leaderboard-joined USDC/calls columns)
+        run: node scripts/test-index-page.js
+
       - name: /api/stats envelope (M2M economy counters — rail breakdown, revenue proof, tools floor)
         run: node scripts/test-stats-envelope.js
 
