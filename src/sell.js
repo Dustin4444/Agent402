@@ -22,7 +22,7 @@ const fmtUsd = (n) =>
 // snapshot doesn't retain the raw wallet sets needed to de-duplicate a buyer
 // who bought from two different sellers), so a wallet that bought from two
 // sellers is counted twice — this is a ceiling, not an exact dedupe — the
-// same approximation the homepage/economy pages already make with this data
+// same approximation the homepage already makes with this data
 // shape.
 function leaderboardTotals(snapshot) {
   const board = Array.isArray(snapshot?.leaderboard) ? snapshot.leaderboard : null;

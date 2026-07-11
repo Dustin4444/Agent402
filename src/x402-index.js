@@ -29,6 +29,8 @@ import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
+import { summarize, fmtUsd, fmtPct } from "./economy.js";
+import { rankBy } from "./leaderboard.js";
 
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
 // (see ledger-home.js) so /index's own row derives the same way: page
@@ -841,20 +843,48 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   return { query: q, include: inc, count: results.length, sellers: sellersSeen.size, results, ...(wantNet ? { network: wantNet } : {}) };
 }
 
-// "The economy, over time" — folded in from the old standalone /x402-economy
-// page (now a 301 to /index#economy). Renders the daily settlement history +
-// week-over-week trend from x402EconomySnapshot(); the per-seller "top
-// merchants" table from that page was NOT ported here since /leaderboard
-// already ranks sellers, and this section's job is the time-series /
-// history angle /leaderboard and the Sellers table above don't cover.
-// Pure function of the snapshot so it's unit-testable without a server.
+// "The economy, over time" — folded in from the two old standalone economy
+// pages (/x402-economy and /economy, both now 301s to /index#economy).
+// Renders (a) the daily settlement history + week-over-week trend from
+// x402EconomySnapshot(), and (b) the 24h ecosystem summary (concentration +
+// network split) from the leaderboard snapshot via summarize() — the parts
+// /leaderboard itself doesn't show. The per-seller top lists from both old
+// pages were NOT ported since /leaderboard already ranks sellers.
+// Pure function of its snapshots so it's unit-testable without a server.
 const econFmt = (n) => Number(n || 0).toLocaleString("en-US");
-export function economySectionHtml(snap) {
+
+// 24h ecosystem summary sub-block (from the old /economy page). Renders
+// nothing when the leaderboard snapshot is warming — the section's on-chain
+// history above still carries it, no fabricated zeros.
+function economy24hHtml(leaderboardSnap) {
+  if (leaderboardSnap?.warming || !leaderboardSnap?.leaderboard?.length) return "";
+  const s = summarize(rankBy(leaderboardSnap.leaderboard, "usd"), "usd");
+  const windowLabel = leaderboardSnap.windowLabel || "24h";
+  const networkBars = s.networks
+    .map(
+      (n) => `<div class="econ-net-row"><span>${esc(n.net)}</span><span class="econ-net-val">${fmtUsd(n.usd)} &middot; ${fmtPct(n.share)}</span></div>
+      <div class="econ-net-bar"><div style="width:${Math.max(2, Math.min(100, n.share))}%"></div></div>`
+    )
+    .join("");
+  return `
+    <h3 class="econ-h3">Last ${esc(windowLabel)} across the ecosystem</h3>
+    <p class="pn" style="margin:0 0 14px;">Per-call USDC settled across every public x402 seller our crawler can see, from on-chain Base transfers ($0.50 per-call ceiling filters out funding moves). Refreshes hourly. Full ranking: <a href="/leaderboard">/leaderboard</a>; machine-readable: <a href="/api/leaderboard">/api/leaderboard</a>.</p>
+    <div class="grid" style="margin:0 0 14px;">
+      <div class="stat"><div class="k">Total volume</div><div class="v">${fmtUsd(s.total)}</div><div class="s">across ${econFmt(s.activeSellers)} active sellers</div></div>
+      <div class="stat"><div class="k">Total calls</div><div class="v">${econFmt(s.totalCalls)}</div><div class="s">avg ${fmtUsd(s.avgCallUsd)} per call</div></div>
+      <div class="stat"><div class="k">Top-5 share</div><div class="v">${fmtPct(s.top5Share)}</div><div class="s">top-1 ${fmtPct(s.top1Share)} &middot; top-10 ${fmtPct(s.top10Share)}</div></div>
+      <div class="stat"><div class="k">Networks</div><div class="v">${s.networks.length}</div><div class="s">chains with volume</div></div>
+    </div>
+    <div class="econ-nets">${networkBars}</div>`;
+}
+
+export function economySectionHtml(snap, leaderboardSnap) {
+  const day = economy24hHtml(leaderboardSnap);
   const unavailable = !snap || (snap.errors?.length && !(snap.daily || []).length);
   if (unavailable) {
     return `<div class="panel" id="economy">
   <div class="ph"><h2>The economy, over time</h2><div class="pn">Chain-wide gasless USDC settlement history on Base.</div></div>
-  <div style="padding:14px 18px;"><div class="econ-warm">economy history unavailable right now (detail in <a href="/api/x402-economy">/api/x402-economy</a>)</div></div>
+  <div style="padding:14px 18px;"><div class="econ-warm">economy history unavailable right now (detail in <a href="/api/x402-economy">/api/x402-economy</a>)</div>${day}</div>
 </div>`;
   }
   const t7 = snap.totals?.last7d || { settlements: 0, volumeUsd: 0, payers: 0 };
@@ -888,6 +918,7 @@ export function economySectionHtml(snap) {
     </div>
     ${weeklyLine}
     <div class="econ-bars">${bars || `<div class="pn">no daily history recorded yet</div>`}</div>
+    ${day}
   </div>
 </div>`;
 }
@@ -897,7 +928,7 @@ export function economySectionHtml(snap) {
  * page refresh re-renders from the latest snapshot. Embed snippet at the bottom
  * shows sellers how to drop a "tools live on x402" widget on their landing.
  */
-export function indexPage(snapshot, { baseUrl, network, economySnap } = {}) {
+export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboardSnap } = {}) {
   const fmtAge = (ts) => {
     if (!ts) return "-";
     const age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -1045,6 +1076,12 @@ export function indexPage(snapshot, { baseUrl, network, economySnap } = {}) {
   .econ-bar-day { color:var(--faint); }
   .econ-bar-track { display:block; height:10px; background:var(--accent); opacity:.85; }
   .econ-warm { border:1.5px dashed var(--ink); padding:16px 18px; font-family:var(--font-mono); font-size:13px; color:var(--muted); }
+  .econ-h3 { font-family:var(--font-body); font-weight:800; font-size:17px; letter-spacing:-.01em; margin:22px 0 6px; }
+  .econ-nets { font-size:.9rem; }
+  .econ-net-row { display:flex; justify-content:space-between; gap:12px; padding:7px 0 0; }
+  .econ-net-val { color:var(--accent); font-family:var(--font-mono); }
+  .econ-net-bar { background:var(--ink); height:8px; overflow:hidden; margin-top:4px; }
+  .econ-net-bar > div { background:var(--accent); height:100%; }
   `;
 
   const pageBody = `<div class="ix-wrap">
@@ -1098,7 +1135,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap } = {}) {
   </div>
 </div>
 
-${economySectionHtml(economySnap)}
+${economySectionHtml(economySnap, leaderboardSnap)}
 
 <p class="foot">x402 Index is open-source - part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. To add your seller, publish a manifest at <code>/.well-known/x402</code> and open a PR adding your origin to the seed list (or run your own Index instance).</p>
 

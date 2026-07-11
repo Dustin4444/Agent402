@@ -99,6 +99,26 @@ ok(warming.includes('id="economy"'), "warming state still carries the anchor");
 const missing = economySectionHtml(null);
 ok(missing.includes("unavailable right now"), "a missing snapshot renders the same honest unavailable state");
 
+// --- 24h ecosystem sub-block (moved from the old /economy dashboard) --------
+const lbSnap = {
+  windowLabel: "24h",
+  leaderboard: [
+    { name: "A", totalUsd: 8, callsSettled: 100, network: "base" },
+    { name: "B", totalUsd: 2, callsSettled: 50, network: "solana" },
+  ],
+};
+const withDay = economySectionHtml({ daily: sampleDaily, totals: {}, errors: [] }, lbSnap);
+ok(withDay.includes("Last 24h across the ecosystem"), "24h sub-block renders with a leaderboard snapshot");
+ok(withDay.includes("$10.00"), "24h total volume sums the leaderboard rows");
+ok(withDay.includes("80.0%"), "top-1 concentration computed from the snapshot");
+ok(withDay.includes("base") && withDay.includes("solana"), "network split lists each chain with volume");
+ok(!withDay.includes("—"), "no em dashes in the 24h sub-block");
+
+const noDay = economySectionHtml({ daily: sampleDaily, totals: {}, errors: [] }, { warming: true });
+ok(!noDay.includes("Last 24h across the ecosystem"), "warming leaderboard snapshot renders no 24h block (no invented zeros)");
+const noDay2 = economySectionHtml({ daily: sampleDaily, totals: {}, errors: [] }, null);
+ok(!noDay2.includes("Last 24h across the ecosystem"), "missing leaderboard snapshot renders no 24h block");
+
 // --- /x402-economy now 301s to /index#economy -------------------------------
 {
   const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -113,9 +133,11 @@ ok(missing.includes("unavailable right now"), "a missing snapshot renders the sa
       try { if ((await fetch(`http://localhost:${PORT}/health`)).ok) break; } catch { /* still booting */ }
       await new Promise((r) => setTimeout(r, 500));
     }
-    const res = await fetch(`http://localhost:${PORT}/x402-economy`, { redirect: "manual" });
-    ok(res.status === 301, `/x402-economy → 301 (got ${res.status})`);
-    ok(res.headers.get("location") === "/index#economy", `/x402-economy Location is /index#economy (got ${res.headers.get("location")})`);
+    for (const path of ["/x402-economy", "/economy"]) {
+      const res = await fetch(`http://localhost:${PORT}${path}`, { redirect: "manual" });
+      ok(res.status === 301, `${path} → 301 (got ${res.status})`);
+      ok(res.headers.get("location") === "/index#economy", `${path} Location is /index#economy (got ${res.headers.get("location")})`);
+    }
   } finally {
     proc.kill("SIGKILL");
   }

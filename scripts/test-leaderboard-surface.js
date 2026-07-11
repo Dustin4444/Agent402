@@ -57,7 +57,7 @@ ok(manifest.discovery.leaderboard === `${BASE}/api/leaderboard`, "manifest.disco
 ok(manifest.discovery.leaderboardHtml === `${BASE}/leaderboard`, "manifest.discovery.leaderboardHtml set");
 ok(manifest.discovery.refreshSeconds.leaderboard === 3600, "manifest.discovery.refreshSeconds.leaderboard = 3600");
 // Sort lens must be advertised so machine consumers learn the new param —
-// it mirrors the HTML toggle on /leaderboard and /economy. Default is "usd";
+// it mirrors the HTML toggle on /leaderboard. Default is "usd";
 // "calls" ranks by raw call volume.
 ok(Array.isArray(manifest.discovery.sortOptions), "manifest.discovery.sortOptions is an array");
 ok(manifest.discovery.sortOptions.includes("usd") && manifest.discovery.sortOptions.includes("calls"), "manifest.discovery.sortOptions advertises both 'usd' and 'calls'");

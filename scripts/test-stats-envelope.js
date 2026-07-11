@@ -1,4 +1,4 @@
-// /api/stats is the public M2M-economy counter. The homepage, /economy page,
+// /api/stats is the public M2M-economy counter. The homepage,
 // listing portals (mcp.so, PulseMCP), and the /llms.txt copy all read this
 // JSON. The most-watched fields are:
 //

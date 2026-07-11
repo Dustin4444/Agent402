@@ -194,7 +194,6 @@ function indexPanelHtml(chainInfo) {
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE X402 INDEX - EVERY SELLER, RANKED ON-CHAIN</span>
                 <a href="/index" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">index</span><span style="color:var(--faint);">all sellers · health</span></a>
                 <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">by USDC settled</span></a>
-                <a href="/economy" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">economy</span><span style="color:var(--faint);">live dashboards</span></a>
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-top:1.5px solid var(--ink);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
                 ${rows}
                 <a href="/index" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--ink);color:var(--cream);"><span style="font-weight:700;">all chains →</span><span style="color:var(--dk-muted);">/index</span></a>
@@ -237,10 +236,11 @@ function groupTriggerHtml(item, active, panelHtml) {
 function nav(activePath) {
   const chainInfo = chainRows();
   const groupHrefs = {
-    // /index, /leaderboard, /economy are the panel's static rows; the chain
+    // /index and /leaderboard are the panel's static rows; the chain
     // hrefs are whatever's live right now — so a future chain page lights up
     // the "index" trigger with zero nav.js edits, per the scale rule.
-    index: new Set(["/index", "/leaderboard", "/economy", ...chainInfo.chains.map((c) => c.href)]),
+    // (/economy folded into /index#economy — its row is gone.)
+    index: new Set(["/index", "/leaderboard", ...chainInfo.chains.map((c) => c.href)]),
     sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
   };
 
@@ -297,7 +297,7 @@ export function ledgerFooterFull() {
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">x402 index</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a>${chainLinks}<a href="/index" style="color:var(--muted);text-decoration:none;">Index by chain</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/index#economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a>${chainLinks}<a href="/index" style="color:var(--muted);text-decoration:none;">Index by chain</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for sellers</div>

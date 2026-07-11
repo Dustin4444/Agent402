@@ -1,11 +1,11 @@
-// Static, server-rendered HTML surfaces: /privacy, /terms, /economy, /shop,
+// Static, server-rendered HTML surfaces: /privacy, /terms, /shop,
 // /leaderboard, /index, /tools, /skills, /. These are the human-readable
 // counterparts to the JSON discovery surfaces — listing portals link to them,
 // Google indexes them, and a /privacy or /terms 500 silently breaks the
 // "site is up" perception even when every API is fine.
 //
-// A render-time regression in any one page handler (e.g., a NaN in
-// economyPage, an undefined snapshot field in leaderboardPage) returns 500
+// A render-time regression in any one page handler (e.g., an undefined
+// snapshot field in leaderboardPage) returns 500
 // in a way that the API-only health probe never sees. This smoke test boots
 // FREE_MODE and asserts each page:
 //
@@ -35,7 +35,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const PAGES = [
   { path: "/privacy",     titleSubstr: "Privacy" },
   { path: "/terms",       titleSubstr: "Terms" },
-  { path: "/economy",     titleSubstr: "economy" },
   { path: "/shop",        titleSubstr: "shop" },
   { path: "/leaderboard", titleSubstr: "Leaderboard" },
   { path: "/index",       titleSubstr: "Index" },
@@ -73,21 +72,21 @@ try {
     const title = titleMatch?.[1] ?? "";
     ok(title.toLowerCase().includes(titleSubstr.toLowerCase()), `${path} title contains '${titleSubstr}' (got '${title}')`);
     if (path === "/index") {
-      // The old standalone /x402-economy page folded into this one — assert
-      // the anchor + section landed, not just that /index still renders.
+      // Both old economy pages folded into this one — assert the anchor +
+      // section landed, and that the nav no longer links the retired path.
       ok(body.includes('id="economy"'), "/index contains the folded economy section anchor");
       ok(/The economy, over time/.test(body), "/index contains the economy section heading");
+      ok(!body.includes('href="/economy"'), "/index nav/footer carries no /economy link");
     }
   }
 
-  // /economy stays a distinct, unaffected page (leaderboard-derived summary).
-  // /x402-economy (the on-chain settlement Observatory, unique daily-history +
-  // week-over-week machinery) folded into /index#economy above — assert the
-  // permanent redirect instead of a 200.
-  {
-    const res = await fetch(`${BASE}/x402-economy`, { redirect: "manual" });
-    ok(res.status === 301, `/x402-economy → 301 (got ${res.status})`);
-    ok(res.headers.get("location") === "/index#economy", `/x402-economy Location is /index#economy (got ${res.headers.get("location")})`);
+  // Both old economy pages folded into /index#economy: /x402-economy (the
+  // on-chain settlement Observatory) and /economy (the leaderboard-derived
+  // dashboard). Assert the permanent redirects instead of 200s.
+  for (const path of ["/x402-economy", "/economy"]) {
+    const res = await fetch(`${BASE}${path}`, { redirect: "manual" });
+    ok(res.status === 301, `${path} → 301 (got ${res.status})`);
+    ok(res.headers.get("location") === "/index#economy", `${path} Location is /index#economy (got ${res.headers.get("location")})`);
   }
 
   // The global error handler's HTML branch must itself be renderable. It

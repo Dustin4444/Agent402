@@ -204,7 +204,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
         sdkMethod: "topSellers",
       },
       includeOptions: ["all", "external", "local"],
-      // Same lens as the HTML toggle on /leaderboard and /economy.
+      // Same lens as the HTML toggle on /leaderboard.
       // `usd` = total USDC settled (default); `calls` = raw call count.
       sortOptions: ["usd", "calls"],
       example: {
