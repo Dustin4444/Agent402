@@ -128,9 +128,14 @@ ok(!noDay2.includes("Last 24h across the ecosystem"), "missing leaderboard snaps
   // with zero context). Also: cold CI runners boot the full catalog slower
   // than dev machines, so the wait is 90s, and a dead child ends it early.
   const bootLog = [];
+  // Fresh env for the child: the unit tests above set X402_ECONOMY_DB into a
+  // temp dir they delete afterward — inheriting it made the server open a DB
+  // in a removed directory (the CI-only boot crash of 2026-07-11).
+  const childEnv = { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false" };
+  delete childEnv.X402_ECONOMY_DB;
   const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
     cwd: ROOT,
-    env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false" },
+    env: childEnv,
     stdio: ["ignore", "pipe", "pipe"],
   });
   proc.stdout.on("data", (d) => bootLog.push(String(d)));

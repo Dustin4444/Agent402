@@ -20,29 +20,45 @@
 // module keeps only the history recorder and the snapshot builder; the JSON
 // endpoint (/api/x402-economy) is unchanged and still machine-readable.
 import Database from "better-sqlite3";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { join, dirname } from "node:path";
 import { CDP_TOOLS } from "./tools/cdp-kit.js";
 
 // Persistent daily history — the live query only reaches back 30 days, so
 // every snapshot upserts its daily rows into SQLite (same /data-volume
 // pattern as stats/revenue-ledger). History compounds forever; the weekly
 // report reads trailing complete weeks from here, not from the query window.
+//
+// The open is GUARDED: since the /index fold this module loads at boot, so a
+// missing/deleted DB directory must degrade to "history unavailable" - it
+// must never crash the server (it did exactly that in CI, 2026-07-11, via an
+// inherited X402_ECONOMY_DB pointing into a removed temp dir).
 const HISTORY_DB = process.env.X402_ECONOMY_DB || join(existsSync("/data") ? "/data" : "/tmp", "agent402-economy.db");
-const hdb = new Database(HISTORY_DB);
-hdb.pragma("journal_mode = WAL");
-hdb.exec(`CREATE TABLE IF NOT EXISTS daily (
+let hdb = null;
+try {
+  mkdirSync(dirname(HISTORY_DB), { recursive: true });
+  hdb = new Database(HISTORY_DB);
+  hdb.pragma("journal_mode = WAL");
+} catch (e) {
+  console.warn(`x402-economy: history DB unavailable (${String(e?.message || e).slice(0, 120)}) - daily history disabled`);
+  hdb = null;
+}
+let upsertDay = null;
+if (hdb) {
+  hdb.exec(`CREATE TABLE IF NOT EXISTS daily (
   day TEXT PRIMARY KEY,
   settlements INTEGER NOT NULL,
   payers INTEGER NOT NULL,
   updated_ts INTEGER
 )`);
-const upsertDay = hdb.prepare(`INSERT INTO daily (day, settlements, payers, updated_ts)
+  upsertDay = hdb.prepare(`INSERT INTO daily (day, settlements, payers, updated_ts)
   VALUES (@day, @settlements, @payers, @updated_ts)
   ON CONFLICT (day) DO UPDATE SET settlements = excluded.settlements, payers = excluded.payers, updated_ts = excluded.updated_ts`);
+}
 
 /** Upsert a snapshot's daily rows into the persistent history. Exported for tests. */
 export function recordDailyHistory(daily) {
+  if (!hdb) return; // history disabled - nothing to record
   const now = Math.floor(Date.now() / 1000);
   const tx = hdb.transaction((rows) => {
     for (const d of rows) {
@@ -57,6 +73,7 @@ export function recordDailyHistory(daily) {
 /** Week-over-week from stored history: the trailing 7 COMPLETE days (today
  *  excluded — it's partial) vs the 7 before them. Exported for tests. */
 export function weeklyFromHistory(todayIso = new Date().toISOString().slice(0, 10)) {
+  if (!hdb) return { thisWeek: null, lastWeek: null, growthPct: null, historyDays: 0 };
   const rows = hdb.prepare("SELECT day, settlements, payers FROM daily WHERE day < ? ORDER BY day DESC LIMIT 14").all(todayIso);
   const sum = (slice) => ({
     settlements: slice.reduce((s, r) => s + r.settlements, 0),
