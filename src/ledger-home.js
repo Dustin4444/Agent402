@@ -8,6 +8,7 @@ import { isComputePayable } from "./pow.js";
 import { RAILS, RAILS_AMP, RAILS_SHORT, RAILS_PAREN, truncateCaip2 } from "./rails.js";
 import { PACK_PRICES } from "./tools/skill-runner.js";
 import { CHAIN_PAGES } from "./market-page.js";
+import { chainLogoStrip } from "./chain-logos.js";
 
 // RAILS caip2 -> CHAIN_PAGES key, so the by-chain strip can tell which rails
 // have a live market page (stellar, algorand) vs. rail-only cells (no page
@@ -250,6 +251,13 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       </div>
     </div>
   </header>
+
+  <!-- SETTLEMENT RAILS — chain logo strip -->
+  <div style="border-bottom:1.5px solid var(--ink);background:var(--paper);">
+    <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
+      ${chainLogoStrip({ label: "Settles natively on seven networks - USDC on six chains plus USDG on Robinhood" })}
+    </div>
+  </div>
 
   <!-- THE PRODUCT — SKILL PACKS -->
   <section style="max-width:1180px;margin:0 auto;padding:78px 30px 0;">
