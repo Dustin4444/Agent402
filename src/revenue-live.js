@@ -533,12 +533,28 @@ export async function algorandActivity(wallet, { days = 30, maxPages = 10 } = {}
   return out;
 }
 
-// 60s snapshot cache — refresh costs at most one scan per minute regardless
-// of page traffic, and a burst of refreshes can't hammer public RPCs.
+// 60s snapshot cache, serve-stale-while-revalidate: a fresh snapshot answers
+// directly; a stale one answers IMMEDIATELY while a single deduped background
+// refresh runs (the full seven-rail scan takes 10-30s on slow public RPCs —
+// no pageview should wait for it, and concurrent expiries must not each
+// launch their own scan). Only the very first call after boot has nothing to
+// serve and awaits the scan — server.js warms it at boot to cover that too.
+// `asOf` keeps any staleness honest.
 let cached = null;
 let cachedAt = 0;
-export async function revenueSnapshot({ walletAddress, solanaWallet }) {
+let refreshing = null;
+export async function revenueSnapshot(opts) {
   if (cached && Date.now() - cachedAt < 60_000) return cached;
+  if (!refreshing) {
+    refreshing = refreshSnapshot(opts)
+      .catch(() => cached) // a failed scan keeps serving the last snapshot
+      .finally(() => { refreshing = null; });
+  }
+  if (cached) return cached;
+  return (await refreshing) || cached;
+}
+
+async function refreshSnapshot({ walletAddress, solanaWallet }) {
   const stellarWallet = (process.env.STELLAR_WALLET_ADDRESS || "").trim();
   const algorandWallet = (process.env.ALGORAND_WALLET_ADDRESS || "").trim();
   const [base, polygon, arbitrum, robinhood, solana, stellar, algorand] = await Promise.all([
