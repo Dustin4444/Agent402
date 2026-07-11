@@ -43,7 +43,6 @@ const PAGES = [
   { path: "/skills",      titleSubstr: "skill" },
   { path: "/robinhood",   titleSubstr: "Robinhood" },
   { path: "/revenue",     titleSubstr: "revenue" },
-  { path: "/x402-economy", titleSubstr: "Observatory" },
   { path: "/",            titleSubstr: "Agent402" },
 ];
 
@@ -73,6 +72,22 @@ try {
     ok(titleMatch != null, `${path} has a <title> tag`);
     const title = titleMatch?.[1] ?? "";
     ok(title.toLowerCase().includes(titleSubstr.toLowerCase()), `${path} title contains '${titleSubstr}' (got '${title}')`);
+    if (path === "/index") {
+      // The old standalone /x402-economy page folded into this one — assert
+      // the anchor + section landed, not just that /index still renders.
+      ok(body.includes('id="economy"'), "/index contains the folded economy section anchor");
+      ok(/The economy, over time/.test(body), "/index contains the economy section heading");
+    }
+  }
+
+  // /economy stays a distinct, unaffected page (leaderboard-derived summary).
+  // /x402-economy (the on-chain settlement Observatory, unique daily-history +
+  // week-over-week machinery) folded into /index#economy above — assert the
+  // permanent redirect instead of a 200.
+  {
+    const res = await fetch(`${BASE}/x402-economy`, { redirect: "manual" });
+    ok(res.status === 301, `/x402-economy → 301 (got ${res.status})`);
+    ok(res.headers.get("location") === "/index#economy", `/x402-economy Location is /index#economy (got ${res.headers.get("location")})`);
   }
 
   // The global error handler's HTML branch must itself be renderable. It

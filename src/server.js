@@ -149,7 +149,7 @@ import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
-import { x402EconomySnapshot, x402EconomyPage } from "./x402-economy.js";
+import { x402EconomySnapshot } from "./x402-economy.js";
 import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
@@ -836,12 +836,13 @@ app.get("/api/x402-economy", async (_req, res) => {
     res.status(500).json({ error: "economy snapshot failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
-app.get("/x402-economy", async (_req, res) => {
-  try {
-    res.set("Cache-Control", "public, max-age=300").type("html").send(x402EconomyPage(BASE_URL, await x402EconomySnapshot()));
-  } catch (e) {
-    res.status(500).type("html").send('<p>Observatory temporarily unavailable. <a href="/">Home</a></p>');
-  }
+// The standalone Observatory page folded into /index's "The economy, over
+// time" section (id="economy") - little standalone traffic, and the daily
+// history + week-over-week trend now sit next to the rest of the ecosystem
+// dashboard. Permanent redirect; /api/x402-economy (above) is unchanged for
+// machine consumers.
+app.get("/x402-economy", (_req, res) => {
+  res.redirect(301, "/index#economy");
 });
 app.get("/changelog", (_req, res) => htmlCache(res, 300, 900).send(changelogPage(BASE_URL)));
 app.get("/use-cases", (_req, res) => htmlCache(res, 300, 900).send(useCasesPage(BASE_URL)));
@@ -1318,9 +1319,14 @@ setNavIndexProvider(() => {
     chains: Object.keys(CHAIN_PAGES).map((key) => chain(key, `/${key}`, key)),
   };
 });
-app.get("/index", (req, res) =>
-  htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL, network: req.query.network }))
-);
+// x402EconomySnapshot caches 30 min internally and never rejects (per-query
+// errors settle into snap.errors), so awaiting it here just reads the cache
+// on the hot path; a cold cache only slows the request that warms it.
+app.get("/index", async (req, res) => {
+  let economySnap = null;
+  try { economySnap = await x402EconomySnapshot(); } catch { /* indexPage renders an honest "unavailable" state */ }
+  htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL, network: req.query.network, economySnap }));
+});
 // /stellar's receipt strip reuses stellarRail with the same 60s cache
 // discipline the /revenue page applies — a public page must not turn every
 // request into Horizon fetches (rate-limits shared with the revenue ledger).

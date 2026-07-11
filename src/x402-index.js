@@ -841,12 +841,63 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   return { query: q, include: inc, count: results.length, sellers: sellersSeen.size, results, ...(wantNet ? { network: wantNet } : {}) };
 }
 
+// "The economy, over time" — folded in from the old standalone /x402-economy
+// page (now a 301 to /index#economy). Renders the daily settlement history +
+// week-over-week trend from x402EconomySnapshot(); the per-seller "top
+// merchants" table from that page was NOT ported here since /leaderboard
+// already ranks sellers, and this section's job is the time-series /
+// history angle /leaderboard and the Sellers table above don't cover.
+// Pure function of the snapshot so it's unit-testable without a server.
+const econFmt = (n) => Number(n || 0).toLocaleString("en-US");
+export function economySectionHtml(snap) {
+  const unavailable = !snap || (snap.errors?.length && !(snap.daily || []).length);
+  if (unavailable) {
+    return `<div class="panel" id="economy">
+  <div class="ph"><h2>The economy, over time</h2><div class="pn">Chain-wide gasless USDC settlement history on Base.</div></div>
+  <div style="padding:14px 18px;"><div class="econ-warm">economy history unavailable right now (detail in <a href="/api/x402-economy">/api/x402-economy</a>)</div></div>
+</div>`;
+  }
+  const t7 = snap.totals?.last7d || { settlements: 0, volumeUsd: 0, payers: 0 };
+  const t30 = snap.totals?.last30d || { settlements: 0 };
+  const daily = snap.daily || [];
+  const maxSett = Math.max(1, ...daily.map((d) => d.settlements));
+  const weekly = snap.weekly;
+  const weeklyLine = weekly?.growthPct != null && weekly.lastWeek.days === 7
+    ? `<p class="pn" style="margin:0 0 14px;">week over week: <strong style="color:${weekly.growthPct >= 0 ? "var(--accent)" : "var(--ink)"};">${weekly.growthPct >= 0 ? "+" : ""}${weekly.growthPct}%</strong> settlements (${econFmt(weekly.thisWeek.settlements)} vs ${econFmt(weekly.lastWeek.settlements)} the week before - complete days only)</p>`
+    : `<p class="pn" style="margin:0 0 14px;">week-over-week trend unlocks once two full weeks of history accumulate (${weekly?.historyDays ?? 0} days recorded so far)</p>`;
+  const bars = daily
+    .map(
+      (d) => `<div class="econ-bar-row">
+        <span class="econ-bar-day">${esc(d.day)}</span>
+        <span class="econ-bar-track" style="width:${Math.max(1, Math.round((d.settlements / maxSett) * 100))}%;"></span>
+        <span>${econFmt(d.settlements)} settlements &middot; ${econFmt(d.payers)} payers</span>
+      </div>`
+    )
+    .join("");
+  return `<div class="panel" id="economy">
+  <div class="ph">
+    <h2>The economy, over time</h2>
+    <div class="pn">Every gasless EIP-3009 USDC settlement on Base - the primitive x402 uses - counted chain-wide across every seller, not just Agent402's own catalog. Machine-readable at <a href="/api/x402-economy">/api/x402-economy</a>; same query any agent can buy as <a href="/tools/onchain-sql">onchain-sql</a> for $0.02.</div>
+  </div>
+  <div style="padding:14px 18px;">
+    <div class="grid" style="margin:0 0 14px;">
+      <div class="stat"><div class="k">Settlements 7d</div><div class="v">${econFmt(t7.settlements)}</div></div>
+      <div class="stat"><div class="k">Volume 7d</div><div class="v">$${econFmt(t7.volumeUsd)}</div></div>
+      <div class="stat"><div class="k">Unique payers 7d</div><div class="v">${econFmt(t7.payers)}</div></div>
+      <div class="stat"><div class="k">Settlements 30d</div><div class="v">${econFmt(t30.settlements)}</div></div>
+    </div>
+    ${weeklyLine}
+    <div class="econ-bars">${bars || `<div class="pn">no daily history recorded yet</div>`}</div>
+  </div>
+</div>`;
+}
+
 /**
  * Public HTML dashboard. Self-contained: no client-side polling required — a
  * page refresh re-renders from the latest snapshot. Embed snippet at the bottom
  * shows sellers how to drop a "tools live on x402" widget on their landing.
  */
-export function indexPage(snapshot, { baseUrl, network } = {}) {
+export function indexPage(snapshot, { baseUrl, network, economySnap } = {}) {
   const fmtAge = (ts) => {
     if (!ts) return "-";
     const age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -989,6 +1040,11 @@ export function indexPage(snapshot, { baseUrl, network } = {}) {
   .chains-foot { color:var(--faint); font-family:var(--font-mono); font-size:11px; margin:0 0 22px; }
   .chips { display:flex; align-items:center; gap:16px; flex-wrap:wrap; font-family:var(--font-mono); font-size:12px; margin-top:8px; }
   .chips-note { color:var(--faint); font-family:var(--font-mono); font-size:11.5px; margin-top:6px; }
+  .econ-bars { font-family:var(--font-mono); font-size:12px; }
+  .econ-bar-row { display:grid; grid-template-columns:90px 1fr 200px; gap:12px; align-items:center; padding:3px 0; }
+  .econ-bar-day { color:var(--faint); }
+  .econ-bar-track { display:block; height:10px; background:var(--accent); opacity:.85; }
+  .econ-warm { border:1.5px dashed var(--ink); padding:16px 18px; font-family:var(--font-mono); font-size:13px; color:var(--muted); }
   `;
 
   const pageBody = `<div class="ix-wrap">
@@ -1041,6 +1097,8 @@ export function indexPage(snapshot, { baseUrl, network } = {}) {
     <p class="foot" style="margin:10px 0 0;">Free - same gate as <code>/api/find</code>. <code>include</code> = <code>all</code> (default) · <code>external</code> (exclude self) · <code>local</code> (Agent402 only). Deterministic lexical scoring, health-then-price tiebreak.</p>
   </div>
 </div>
+
+${economySectionHtml(economySnap)}
 
 <p class="foot">x402 Index is open-source - part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. To add your seller, publish a manifest at <code>/.well-known/x402</code> and open a PR adding your origin to the seed list (or run your own Index instance).</p>
 
