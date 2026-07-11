@@ -9,7 +9,7 @@
 // "unavailable" for that rail instead of breaking the page. Balances and
 // transfers are public on-chain data — this page just saves the tab-cycling.
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
-import { RAILS } from "./rails.js";
+import { RAILS, RAILS_AMP } from "./rails.js";
 // Pure, main-guarded helpers shared with the daily scanners — one
 // classification rule everywhere: a transfer is external revenue only if the
 // payer isn't one of OUR wallets (canary/test burners) AND the amount is a
@@ -850,7 +850,7 @@ export function revenuePage(baseUrl, snap) {
   const canonical = baseUrl + "/revenue";
   const title = "Live revenue - Agent402";
   const description =
-    "Consolidated live view of the Agent402 revenue wallets across every payment rail - USDC on Base, Solana, Polygon & Arbitrum, plus USDG on Robinhood Chain. One page instead of three explorer tabs; every figure links to its on-chain proof.";
+    `Consolidated live view of the Agent402 revenue wallets across every payment rail - ${RAILS_AMP}. One page instead of three explorer tabs; every figure links to its on-chain proof.`;
   const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar", Algorand: "algorand" };
   const railCard = (r) => {
     const at = snap.allTime?.perChain?.[chainKeyByLabel[r.rail]];

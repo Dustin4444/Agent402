@@ -866,7 +866,7 @@ app.get("/x402-economy", (_req, res) => {
 });
 app.get("/changelog", (_req, res) => htmlCache(res, 300, 900).send(changelogPage(BASE_URL)));
 app.get("/use-cases", (_req, res) => htmlCache(res, 300, 900).send(useCasesPage(BASE_URL)));
-app.get("/playground", (_req, res) => htmlCache(res, 300, 900).send(playgroundPage(BASE_URL)));
+app.get("/playground", (_req, res) => htmlCache(res, 300, 900).send(playgroundPage(BASE_URL, CATALOG)));
 app.get("/sdk-playground", (_req, res) => htmlCache(res, 300, 900).send(sdkPlaygroundPage(BASE_URL)));
 app.get("/docs/api/explorer", (_req, res) => htmlCache(res, 300, 900).send(apiExplorerPage(BASE_URL)));
 app.get("/blog", (_req, res) => htmlCache(res, 300, 900).send(blogIndex(BASE_URL)));
@@ -1042,7 +1042,7 @@ app.get("/api/skill-packs/:slug/prompt", (req, res) => {
 // syncs to the GitHub wiki via CI). /docs/api is registered *before* the
 // parameterized /docs/:slug so the literal "api" path doesn't get captured
 // as a wiki slug lookup.
-app.get("/docs", (_req, res) => htmlCache(res, 300, 900).send(ledgerDocsPage(BASE_URL)));
+app.get("/docs", (_req, res) => htmlCache(res, 300, 900).send(ledgerDocsPage(BASE_URL, CATALOG)));
 app.get("/docs/api", (_req, res) => htmlCache(res, 300, 900).send(docsApi(BASE_URL, Object.values(CATALOG))));
 app.get("/docs/:slug", (req, res) => {
   const html = docsPage(BASE_URL, req.params.slug);

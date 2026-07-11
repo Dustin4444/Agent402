@@ -136,7 +136,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">Path A - list your API.</h2>
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">already speaking x402? you're 60 seconds from listed</span>
   </div>
-  <p style="font-size:16px;color:var(--muted);max-width:620px;margin:0 0 30px;">Serve 402 challenges and the crawler does the rest: your tools appear on the index, the Smart Order Router quotes them next to ours, and the leaderboard ranks you by what actually settles on-chain.</p>
+  <p style="font-size:16px;color:var(--muted);max-width:620px;margin:0 0 30px;">Serve 402 challenges and the crawler does the rest: your tools enter the Smart Order Router next to ours, and the on-chain leaderboard ranks you by real settled volume - not just a line in a directory.</p>
   <div class="ml-2col" style="display:grid;grid-template-columns:1.05fr .95fr;gap:18px;align-items:start;">
     <div>
       <div class="sl-steps" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px solid var(--ink);background:var(--card);">

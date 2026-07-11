@@ -4,11 +4,18 @@
 
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { RAILS_PAREN } from "./rails.js";
+import { toolList } from "./pages.js";
+import { isComputePayable } from "./pow.js";
 
-export function ledgerDocsPage(baseUrl) {
+const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
+
+export function ledgerDocsPage(baseUrl, catalog) {
+  const tools = toolList(catalog);
+  const totalCount = tools.length;
+  const freeCount = tools.filter(isComputePayable).length;
   const canonical = baseUrl + "/docs";
   const title = "Docs — Agent402";
-  const description = `Add 1,419 deterministic tools to your agent in about a minute. No signup, no API key — start free with proof-of-work, settle ${RAILS_PAREN} when you scale.`;
+  const description = `Add ${fmtNum(totalCount)} deterministic tools plus an OpenAI-compatible /v1 gateway to your agent in about a minute. No signup, no API key — start free with proof-of-work, settle ${RAILS_PAREN} when you scale.`;
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -44,6 +51,7 @@ export function ledgerDocsPage(baseUrl) {
           <a href="#how" style="color:var(--muted);text-decoration:none;">how payment works</a>
           <a href="#add" style="color:var(--muted);text-decoration:none;">three ways in</a>
           <a href="#free" style="color:var(--muted);text-decoration:none;">free tier &middot; PoW</a>
+          <a href="#gateway" style="color:var(--muted);text-decoration:none;">/v1 LLM gateway</a>
           <a href="#endpoints" style="color:var(--muted);text-decoration:none;">endpoints</a>
           <a href="/docs/adapters" style="color:var(--muted);text-decoration:none;">framework adapters &rarr;</a>
         </div>
@@ -53,7 +61,7 @@ export function ledgerDocsPage(baseUrl) {
     <!-- CONTENT -->
     <main>
       <h1 style="font-family:var(--font-body);font-weight:800;font-size:52px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;">Quickstart.</h1>
-      <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:620px;margin:0 0 30px;">Add 1,419 deterministic tools to your agent in about a minute. No signup, no API key &mdash; start free with proof-of-work, settle ${RAILS_PAREN} when you scale.</p>
+      <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:620px;margin:0 0 30px;">Add ${fmtNum(totalCount)} deterministic tools - plus an open cross-seller Index, Smart Order Router, and an OpenAI-compatible /v1 gateway - to your agent in about a minute. No signup, no API key &mdash; start free with proof-of-work, settle ${RAILS_PAREN} when you scale.</p>
 
       <div id="quickstart" style="border:1.5px solid var(--ink);background:var(--ink);margin-bottom:14px;">
         <div style="display:flex;align-items:center;gap:7px;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);">terminal</div>
@@ -100,8 +108,18 @@ const out = await a.call("hash", { text: "hello", algo: "sha256" });</pre></div>
 
       <!-- FREE -->
       <h2 id="free" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 14px;">Free tier &mdash; proof-of-work.</h2>
-      <p style="font-size:15.5px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 18px;">1,156 of the 1,419 pure-CPU tools work with no wallet. Instead of paying USDC, your machine solves a short sha256 puzzle &mdash; a fraction of a second of CPU &mdash; and the call goes through. Nothing here consumes AI tokens.</p>
+      <p style="font-size:15.5px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 18px;">${fmtNum(freeCount)} of the ${fmtNum(totalCount)} pure-CPU tools work with no wallet. Instead of paying USDC, your machine solves a short sha256 puzzle &mdash; a fraction of a second of CPU &mdash; and the call goes through. Nothing here consumes AI tokens.</p>
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:16px 20px;font-family:var(--font-mono);font-size:13px;margin-bottom:44px;"><span style="color:var(--green);font-weight:700;">GET</span> <span style="color:var(--ink);">/api/pow</span>  <span style="color:var(--faint);">&rarr; returns a challenge; solve and resubmit. Free, rate-limited.</span></div>
+
+      <!-- GATEWAY -->
+      <h2 id="gateway" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 14px;">/v1 &mdash; OpenAI-compatible LLM gateway.</h2>
+      <p style="font-size:15.5px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 18px;">Point any OpenAI SDK at <code>base_url https://agent402.tools/v1</code> and pay per call in USDC over x402 - no API key, no signup, same wallet-is-the-identity model as every other tool. Chat has five quality tiers ($0.003 nano to $0.50 premium) plus a $0.01 auto tier that routes on your prompt with no model required; embeddings are $0.002 with a default-on cache; image generation is $0.08 per image.</p>
+      <div style="border:1.5px solid var(--ink);background:var(--card);font-family:var(--font-mono);font-size:13px;margin-bottom:44px;">
+        <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;border-bottom:1px solid var(--hairline);"><span style="color:var(--accent);font-weight:700;">POST</span><span>/v1/chat/completions</span><span style="color:var(--faint);">$0.003&ndash;$0.50 &middot; nano&hellip;premium</span></div>
+        <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;border-bottom:1px solid var(--hairline);"><span style="color:var(--accent);font-weight:700;">POST</span><span>/v1/auto/chat/completions</span><span style="color:var(--faint);">$0.01 &middot; model optional, auto-routed</span></div>
+        <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;border-bottom:1px solid var(--hairline);"><span style="color:var(--accent);font-weight:700;">POST</span><span>/v1/embeddings</span><span style="color:var(--faint);">$0.002 &middot; free repeat within 10 min</span></div>
+        <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;"><span style="color:var(--accent);font-weight:700;">POST</span><span>/v1/images/generations</span><span style="color:var(--faint);">$0.08 per image</span></div>
+      </div>
 
       <!-- ENDPOINTS -->
       <h2 id="endpoints" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 18px;">Reference endpoints.</h2>

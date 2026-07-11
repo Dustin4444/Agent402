@@ -161,9 +161,17 @@ const NAV_ZONES = [
 // Fallback by-chain rows used whenever no live index-snapshot data is wired
 // (offline unit tests, early boot, a throwing/null provider) — the dropdown
 // and footer still get real, crawlable links, just without seller counts.
+// All 7 rails have a live market page (/base, /solana, /polygon, /arbitrum,
+// /stellar, /algorand, /robinhood) — this fallback must list every one, not
+// just the two that got dedicated routes first.
 const STATIC_CHAINS = [
+  { label: "base", href: "/base" },
+  { label: "solana", href: "/solana" },
+  { label: "polygon", href: "/polygon" },
+  { label: "arbitrum", href: "/arbitrum" },
   { label: "stellar", href: "/stellar" },
   { label: "algorand", href: "/algorand" },
+  { label: "robinhood", href: "/robinhood" },
 ];
 
 // Per-chain seller counts/health for the index dropdown + footer are live
@@ -178,9 +186,11 @@ function chainRows() {
   try {
     const data = navDataProvider && navDataProvider();
     if (data && Array.isArray(data.chains) && data.chains.length) {
-      // Scale rule: ≤6 chains show one row each; past that, top 5 + the
-      // ink footer row ("all chains →") always carries the rest.
-      const chains = data.chains.length > 6 ? data.chains.slice(0, 5) : data.chains;
+      // Scale rule: all 7 current rails (RAILS in rails.js) get one row each;
+      // past that, top 7 + the ink footer row ("all chains →") carries the
+      // rest — so adding an 8th rail doesn't silently drop two existing ones
+      // from the dropdown/footer the way a low ceiling here once did.
+      const chains = data.chains.length > 9 ? data.chains.slice(0, 7) : data.chains;
       return { chains, live: true };
     }
   } catch { /* provider threw — fall back to the static list below */ }
@@ -343,7 +353,7 @@ export function ledgerFooterCompact() {
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <span style="display:flex;align-items:center;gap:10px;"><span style="width:24px;height:24px;border:2px solid var(--ink);color:var(--ink);font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center;">402</span><span style="font-weight:700;">Agent402.Tools</span></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">llm gateway</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · built by <a href="https://github.com/MikeyPetrillo" rel="noopener" style="color:var(--muted);text-decoration:none;">Mike Petrillo</a> · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:none;">mike@agent402.tools</a></span>

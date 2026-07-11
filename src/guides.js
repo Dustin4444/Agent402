@@ -73,8 +73,9 @@ purl "https://agent402.tools/api/convert/kilometers-to-miles?value=42"
 
 ## No wallet? Pay with CPU
 
-About 1,156 of the tools also accept **proof-of-work** — a sub-second sha256
-puzzle solved by the caller, no money involved:
+Most of the tools also accept **proof-of-work** — a sub-second sha256
+puzzle solved by the caller, no money involved (the exact free-tier count is
+always current at [/api/pricing](https://agent402.tools/api/pricing)):
 
 \`\`\`js
 import { createHash } from "node:crypto";
