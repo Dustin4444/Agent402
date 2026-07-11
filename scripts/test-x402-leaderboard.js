@@ -257,7 +257,7 @@ eq(noSiteRanked.length, 2, "two wallets with no homepage stay as two rows (no me
 
 // --- rankBy ------------------------------------------------------------------
 
-// The pure re-ranker that powers the /leaderboard and /economy sort toggle.
+// The pure re-ranker that powers the /leaderboard sort toggle.
 // Two lenses on the same snapshot: USDC earned (default, matches the on-chain
 // volume story) and total calls served (matches the agent-traffic story).
 const rankByInput = [

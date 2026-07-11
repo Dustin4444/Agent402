@@ -36,7 +36,6 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/`, priority: "1.0" },
     { loc: `${baseUrl}/tools`, priority: "0.9" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
-    { loc: `${baseUrl}/economy`, priority: "0.8" },
     { loc: `${baseUrl}/stellar`, priority: "0.8" },
     { loc: `${baseUrl}/algorand`, priority: "0.8" },
     { loc: `${baseUrl}/faq`, priority: "0.8" },
@@ -66,7 +65,6 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/quickstart`, priority: "0.9" },
     { loc: `${baseUrl}/robinhood`, priority: "0.8" },
     { loc: `${baseUrl}/revenue`, priority: "0.6" },
-    { loc: `${baseUrl}/x402-economy`, priority: "0.8" },
     { loc: `${baseUrl}/blog`, priority: "0.8" },
     { loc: `${baseUrl}/compare`, priority: "0.8" },
     { loc: `${baseUrl}/community`, priority: "0.7" },
@@ -123,7 +121,6 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/pricing`, priority: "0.8" },
     { loc: `${baseUrl}/integrations`, priority: "0.8" },
     { loc: `${baseUrl}/use-cases`, priority: "0.8" },
-    { loc: `${baseUrl}/economy`, priority: "0.8" },
     { loc: `${baseUrl}/faq`, priority: "0.8" },
     { loc: `${baseUrl}/index`, priority: "0.8" },
     { loc: `${baseUrl}/sell`, priority: "0.8" },
@@ -131,7 +128,6 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/docs`, priority: "0.8" },
     { loc: `${baseUrl}/robinhood`, priority: "0.8" },
     { loc: `${baseUrl}/revenue`, priority: "0.6" },
-    { loc: `${baseUrl}/x402-economy`, priority: "0.8" },
     { loc: `${baseUrl}/changelog`, priority: "0.7" },
     { loc: `${baseUrl}/analytics`, priority: "0.7" },
     { loc: `${baseUrl}/tollbooth`, priority: "0.7" },
@@ -209,7 +205,7 @@ Base URL: ${baseUrl}
 ## Three products, one open ledger
 
 - **For agents (buy)** - ${tools.length} pay-per-call tools, this file, ${baseUrl}/tools, ${baseUrl}/skills.
-- **The x402 index (ecosystem)** - every seller across every chain, ranked on-chain: ${baseUrl}/index (HTML) / ${baseUrl}/api/index (JSON), ${baseUrl}/leaderboard (by USDC settled), ${baseUrl}/economy (live dashboards).
+- **The x402 index (ecosystem)** - every seller across every chain, ranked on-chain: ${baseUrl}/index (HTML) / ${baseUrl}/api/index (JSON), ${baseUrl}/leaderboard (by USDC settled), ${baseUrl}/index#economy (the economy over time).
 - **For API sellers (sell)** - the seller front door: ${baseUrl}/sell . List an x402-speaking API on the index for $0 with a 0% take, or install \`agent402-tollbooth\` to gate AI crawlers on your own site. Non-custodial - settlement lands directly in the seller's wallet.
 
 ### The index, by chain
