@@ -20,6 +20,7 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { findTools } from "./find.js";
+import { recordWish } from "./wish.js";
 import { capturePostHogDiscovery } from "./posthog.js";
 import { rankBy as rankLeaderboard } from "./leaderboard.js";
 import { SKILL_PACKS, buildPromptMessages, rankSkillPacks } from "./skills.js";
@@ -30,6 +31,12 @@ import {
 } from "./rate-limit.js";
 
 const VERSION = "0.3.0";
+
+// Mirrors server.js's FIND_WEAK_SCORE: an empty result set, or a top score
+// below this, reads as "the catalog probably doesn't have this" — the
+// trigger for the request_tool hint + a fire-and-forget find-miss wish.
+const FIND_WEAK_SCORE = 5;
+const WISH_HINT_TEXT = "Nothing matched well? Call request_tool with what you needed.";
 
 // Per-IP sliding-window rate limit for tool executions (search/info are free).
 // Generous enough for real use of $0.001-grade CPU tools, tight enough that
@@ -74,6 +81,8 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     return s ? { type: "object", ...s } : { type: "object" };
   };
 
+  // Returns { rows, topScore } — topScore feeds the "did this actually match
+  // anything useful" check for the request_tool hint (see search_tools below).
   function searchTools(query, limit = 10) {
     const terms = String(query).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
     const scored = [];
@@ -89,13 +98,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       if (score > 0) scored.push([score, def, free]);
     }
     scored.sort((a, b) => b[0] - a[0]);
-    return scored.slice(0, Math.min(Number(limit) || 10, 25)).map(([, def, free]) => ({
+    const rows = scored.slice(0, Math.min(Number(limit) || 10, 25)).map(([, def, free]) => ({
       slug: def.slug,
       price: def.price,
       access: free ? "free here (rate-limited)" : "wallet required (USDC via x402 — use the agent402-mcp npm server)",
       description: def.description.length > 200 ? `${def.description.slice(0, 200)}…` : def.description,
       inputSchema: schemaOf(def),
     }));
+    return { rows, topScore: scored[0]?.[0] ?? 0 };
   }
 
   function walletRequiredText(def) {
@@ -173,6 +183,21 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           },
         },
         {
+          name: "request_tool",
+          title: "Request a tool Agent402 doesn't have yet",
+          annotations: { title: "Request a tool Agent402 doesn't have yet", ...SAFE },
+          description:
+            "Call this when search_tools or find_tool found nothing suitable for your task. Tell us what you needed in plain language — repeated requests get clustered and tracked as real demand, and the ones that keep coming up get built. Free, no wallet required, lightly rate-limited (10/hour per client).",
+          inputSchema: {
+            type: "object",
+            properties: {
+              need: { type: "string", description: "What tool/capability you needed, in plain language (max 500 chars)" },
+              context: { type: "string", description: "Optional: what task you were doing when you hit the gap (max 300 chars)" },
+            },
+            required: ["need"],
+          },
+        },
+        {
           name: "call_tool",
           title: "Run an Agent402 tool",
           annotations: { title: "Run an Agent402 tool", ...SAFE },
@@ -239,11 +264,17 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // surfaces emit in server.js; env-gated no-op without PostHog.
           capturePostHogDiscovery({ surface: "mcp:search_tools" });
           const q = args.query ?? "";
-          const results = searchTools(q, args.limit);
+          const { rows: results, topScore } = searchTools(q, args.limit);
           // Multi-tool workflows that match the same query — surface them so an
           // agent asking "audit a domain" sees the whole security-audit pack
           // (callable via prompts/get on this connector) alongside the tools.
           const workflows = rankSkillPacks(q, { k: 2, baseUrl });
+          // Weak/empty match: nudge toward request_tool instead of a dead
+          // end. No wish recorded here — search_tools is a looser lexical
+          // search than find_tool, not a task-intent signal; the explicit
+          // request_tool call (or find_tool's find-miss capture) is the
+          // actual demand signal.
+          const weak = results.length === 0 || topScore < FIND_WEAK_SCORE;
           return {
             content: [{
               type: "text",
@@ -251,15 +282,17 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 ? JSON.stringify({
                     results,
                     ...(workflows.length ? { workflows, workflowsUsage: "prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } }" } : {}),
+                    ...(weak ? { hint: WISH_HINT_TEXT } : {}),
                     usage: 'call_tool {"slug": …, "params": …}',
                   }, null, 2)
-                : `No tools matched "${q}". Full catalog: ${baseUrl}/tools`,
+                : `No tools matched "${q}". Full catalog: ${baseUrl}/tools. ${WISH_HINT_TEXT}`,
             }],
           };
         }
         if (name === "find_tool") {
           capturePostHogDiscovery({ surface: "mcp:find_tool" });
-          const r = findTools(catalog, args.task ?? args.query ?? "", { k: args.limit, baseUrl, powSlugs: freeSlugs });
+          const taskStr = String(args.task ?? args.query ?? "");
+          const r = findTools(catalog, taskStr, { k: args.limit, baseUrl, powSlugs: freeSlugs });
           const results = r.results.map((t) => ({
             slug: t.slug,
             price: t.price,
@@ -274,6 +307,15 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             inputSchema: t.inputSchema,
             description: t.description.length > 200 ? `${t.description.slice(0, 200)}…` : t.description,
           }));
+          // Weak/empty match: this IS a task-intent signal (unlike
+          // search_tools' looser lexical search), so capture it as a
+          // find-miss wish — fire-and-forget, rate-limit exempt, never
+          // blocks the response.
+          const topScore = r.results[0]?.score ?? 0;
+          const weak = r.count === 0 || topScore < FIND_WEAK_SCORE;
+          if (weak && taskStr.trim()) {
+            try { recordWish({ need: taskStr.trim(), source: "find-miss" }); } catch { /* best-effort */ }
+          }
           return {
             content: [{
               type: "text",
@@ -282,11 +324,24 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                     task: r.query,
                     results,
                     ...(r.packs?.length ? { workflows: r.packs, workflowsUsage: "prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } }" } : {}),
+                    ...(weak ? { hint: WISH_HINT_TEXT } : {}),
                     usage: "Run call_tool with the chosen {slug, params}. Free results execute here; wallet-only need the agent402-mcp npm server.",
                   }, null, 2)
-                : `No tool matched "${args.task ?? args.query ?? ""}". Browse the catalog: ${baseUrl}/tools`,
+                : `No tool matched "${taskStr}". Browse the catalog: ${baseUrl}/tools. ${WISH_HINT_TEXT}`,
             }],
           };
+        }
+        if (name === "request_tool") {
+          // The other half of the wish loop: an explicit "I needed something
+          // you don't have" signal, same recordWish path as POST /api/wish
+          // (source "mcp" instead of "api") — rate-limited per-IP/global,
+          // clustered by normalized text, surfaced at GET /api/wishes.
+          try {
+            const result = recordWish({ need: args.need, context: args.context, source: "mcp", ip });
+            return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+          } catch (err) {
+            return { content: [{ type: "text", text: err.message }], isError: true };
+          }
         }
         if (name === "about_agent402") {
           capturePostHogDiscovery({ surface: "mcp:about" });
@@ -318,6 +373,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
                 paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol — npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; prices $0.001–$0.02/call.`,
                 ...(getLeaderboard ? { ecosystem: "Call top_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h — discovers the live economy beyond this catalog." } : {}),
+                missingATool: "Call request_tool (or POST /api/wish) with what you needed. We cluster and track demand — repeated requests get built.",
                 docs: `${baseUrl}/llms.txt`,
               }, null, 2),
             }],

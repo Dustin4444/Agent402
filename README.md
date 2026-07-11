@@ -250,6 +250,8 @@ const res = await openai.chat.completions.create({ model: "gpt-4o-mini", tools, 
 
 Already a Claude/MCP user? `agent402-mcp` is still the better path — paste `https://agent402.tools/mcp` into your client. The adapters are for direct API integrations where MCP isn't available. Sources: [`adapters/`](adapters).
 
+**OpenClaw agents:** drop in [`skills/openclaw/agent402/SKILL.md`](skills/openclaw/agent402/SKILL.md) — teaches an OpenClaw agent to find, pay (x402 USDC on Base, six other chains accepted, or free proof-of-work), and call any of the 1,419 tools.
+
 ## Add your own tool (~15 lines)
 
 A tool is just an object in a kit array. Drop this into any file in

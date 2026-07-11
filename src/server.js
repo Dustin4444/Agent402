@@ -46,6 +46,7 @@ import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools } from "./find.js";
+import { recordWish, getWishesAggregate } from "./wish.js";
 import { indexPage, indexSnapshot, routeQuery, startCrawler, validateOriginInput, registerOrigin } from "./x402-index.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks } from "./payments.js";
@@ -1174,7 +1175,26 @@ app.get("/acp/manifest", (_req, res) =>
 // These endpoints are the most-hit routes in the whole server — every agent
 // touches them on the first call of a session — so even a 60s window
 // meaningfully cuts CPU on repeat queries.
-const computeFind = (q, k) => findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
+// A "weak" match (empty results, or a top score below this) means the
+// catalog probably doesn't have what the caller wanted. That's the signal
+// the wish loop exists to capture: log it as a find-miss (rate-limit exempt,
+// fire-and-forget) and tell the caller how to say what they actually needed.
+// Threshold sits below a single tag hit (score 3) or slug-substring hit
+// (score 4) — a real single-term match to a relevant tool should NOT be
+// treated as a miss.
+const FIND_WEAK_SCORE = 5;
+const computeFind = (q, k) => {
+  const result = findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
+  const topScore = result.results[0]?.score ?? 0;
+  if (result.count === 0 || topScore < FIND_WEAK_SCORE) {
+    result.hint = "POST /api/wish with what you needed";
+    const qStr = String(q ?? "").trim();
+    if (qStr) {
+      try { recordWish({ need: qStr, source: "find-miss" }); } catch { /* best-effort; never break /api/find */ }
+    }
+  }
+  return result;
+};
 const findCachePath = "/api/find";
 const findCachePolicy = CACHEABLE_ROUTES[findCachePath];
 
@@ -1271,6 +1291,31 @@ app.post("/api/find", (req, res) => {
   const q = req.body?.q ?? req.body?.task ?? req.body?.query;
   const k = req.body?.k;
   return serveCachedDiscovery(findCachePath, findCachePolicy, { q, task: q, query: q, k }, () => computeFind(q, k), "_find", req, res);
+});
+
+// Agent wish loop: free, pre-paywall, like /api/find. When an agent needs a
+// tool we don't have, this captures that demand instead of losing it
+// silently. Explicit wishes (this endpoint + the MCP request_tool tool) are
+// rate-limited
+// (10/IP/hour, 100/day global — see wish.js); implicit find-misses recorded
+// from /api/find and the MCP find_tool path are exempt. Never touches
+// CATALOG/WALLET_ONLY_SLUGS — same free-surface category as /api/index/register.
+app.post("/api/wish", (req, res) => {
+  try {
+    const { need, context } = req.body || {};
+    const result = recordWish({ need, context, source: "api", ip: req.ip || "?" });
+    res.json(result);
+  } catch (err) {
+    const status = err.statusCode || 500;
+    res.status(status).json({ error: err.message });
+  }
+});
+// Aggregate view: normalized clusters only (no raw context, no IPs) — a
+// future scheduled workflow polls this to open an issue once a cluster
+// crosses WISH_THRESHOLD (server never calls the GitHub API itself).
+app.get("/api/wishes", (req, res) => {
+  res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
+  res.json(getWishesAggregate({ limit: req.query?.limit }));
 });
 
 // x402 Index — public dashboard + Smart Order Router. Free, like /api/find: a
