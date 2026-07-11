@@ -94,7 +94,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       "Open-source and self-hostable — read every line, run it yourself (MIT).",
       `One integration covers all ${toolCount} tools — no per-service SDKs or signups.`,
       "Two-sided: also ships agent402-tollbooth, an open pay-per-crawl gate for the demand side of x402.",
-      "Deterministic — no LLM in the serving path; same input, same output, full OpenAPI schemas.",
+      "Deterministic tool catalog — no LLM in that serving path; same input, same output, full OpenAPI schemas. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
       "Free without a wallet via proof-of-work on the pure-CPU tools.",
       `${SKILL_PACKS.length} curated multi-tool workflows (skill packs) callable as MCP prompts — agents fetch the whole task template, not just one tool.`,
     ],
@@ -266,7 +266,7 @@ export function reliabilityReport({ baseUrl, network, wallet, stats }) {
         evidence: wallet ? `${explorer}/address/${wallet}#tokentxns` : null,
       },
       {
-        claim: "Deterministic: no LLM in the serving path — the same input always yields the same output.",
+        claim: "Deterministic: no LLM in the tool-catalog serving path — the same input always yields the same output. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
         verify: `${baseUrl}/openapi.json`,
       },
       {

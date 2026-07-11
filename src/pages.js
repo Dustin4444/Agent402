@@ -4,7 +4,7 @@ import { isComputePayable } from "./pow.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 import { ledgerShell, ledgerFooterCompact, esc as ledgerEsc } from "./ledger-chrome.js";
 import { SKILL_PACKS } from "./skills.js";
-import { RAILS_AMP, RAILS_OR, RAILS_PAREN } from "./rails.js";
+import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
 
 export const CATEGORIES = {
   web: { label: "Web & documents", blurb: "Read the live web: browser rendering, screenshots, article extraction, PDFs, metadata." },
@@ -463,13 +463,15 @@ const FAQ_ITEMS = [
   { q: "What does it cost?", a: 'Flat per-call prices, $0.001–$0.02, published in <a href="/api/pricing">/api/pricing</a> and quoted exactly in every HTTP 402 response. No subscriptions or tiers.' },
   { q: "Can I use it without any money or a wallet?", a: "Yes. Most pure-CPU tools accept proof-of-work — a sub-second sha256 puzzle solved by your own CPU — and the hosted MCP connector runs that same set for free (rate-limited)." },
   { q: "What is x402?", a: "An open HTTP payment standard built on the 402 Payment Required status code, for machine-to-machine pay-per-call payments in stablecoins, with settlement infrastructure from Coinbase." },
-  { q: "Which blockchain and asset does it use?", a: "USDC on Base (primary), Solana, Polygon, or Arbitrum — plus USDG (Global Dollar) on Robinhood Chain. The buyer needs only the stablecoin — gas is sponsored by the facilitator on EVM chains." },
-  { q: "Does using this spend my AI tokens?", a: "No. There is no LLM anywhere in the serving path — every tool is deterministic code. Proof-of-work spends your CPU; x402 spends USDC." },
+  { q: "Which blockchain and asset does it use?", a: `${RAILS_PAREN}. The buyer needs only the stablecoin — gas is sponsored by the facilitator on EVM chains.` },
+  { q: "Does using this spend my AI tokens?", a: "No LLM in the deterministic tool path — those are pure code (parsers, hashes, math, a real browser). Proof-of-work spends your CPU; x402 spends USDC. The optional /v1 gateway is a separate OpenAI-compatible LLM proxy you opt into — it's the only place a model runs." },
+  { q: "Is there an OpenAI-compatible endpoint?", a: 'Yes — <code>/v1</code> is a pay-per-call OpenAI-wire LLM gateway: point any OpenAI SDK at <code>base_url https://agent402.tools/v1</code> for chat (five quality tiers, model-optional auto-routing), embeddings, and image generation. No API key, no signup — settle in USDC over x402, same as every other tool. See <a href="/pricing">/pricing</a> for the tier breakdown.' },
   { q: "Is my data stored?", a: 'Tool inputs are processed in memory and not persisted — except the memory tools, whose purpose is storage (wallet-keyed, owner-deletable, with optional TTL). Full policy: <a href="/privacy">/privacy</a>.' },
   { q: "How do I know the service is honest?", a: "It is fully open source; CI re-tests every endpoint against its own documented example before each deploy; and revenue settles on-chain to agent402.base.eth (the named public receiving wallet), auditable by anyone on Basescan." },
   { q: "What happens if a tool fails after I pay?", a: "x402 settles before the handler runs, so the operating principle is that anything which can't be served reliably is removed from the catalog rather than left to charge-and-fail. Failure rates are watched by CI and a 15-minute production heartbeat." },
   { q: "Is Agent402 self-hostable and open source?", a: 'Yes — it is open source under the MIT license. Clone the repo and run it yourself for free, with or without payments enabled. It also ships agent402-tollbooth, an open-source pay-per-crawl gate for charging AI crawlers on your own site.' },
   { q: "Can I find tools on other x402 sellers from here?", a: 'Yes. Agent402 is also an x402 Index + Smart Order Router: <code>POST /api/route</code> ranks tools across every x402 seller we have crawled — the local catalog plus sellers auto-discovered from public registries like the Coinbase CDP Bazaar, refreshed hourly. It filters out unhealthy sellers and tiebreaks on health then price. Browse the live index at <a href="/index">/index</a> or fetch the JSON snapshot at <a href="/api/index">/api/index</a>. Both surfaces are free.' },
+  { q: "How do I list my own API?", a: 'For free, three ways: your origin is auto-discovered from public x402 registries (Coinbase CDP Bazaar, GoPlausible) once it&rsquo;s live and settling; paste it on <a href="/sell">/sell</a> for an immediate probe; or call <code>POST /api/index/register</code> directly. A listed seller is routable by the Smart Order Router and ranked on <a href="/leaderboard">/leaderboard</a> by real on-chain USDC volume — 0% take, settlement lands straight in your wallet.' },
   { q: "How do I see which x402 sellers are most used?", a: '<code>GET <a href="/api/leaderboard">/api/leaderboard</a></code> returns the live on-chain ranking of every x402 seller by Base USDC settled volume — callsSettled, totalUsd, and uniqueBuyers per seller. The pipeline walks every page of the Coinbase CDP Bazaar discovery endpoint, queries <code>eth_getLogs</code> on Base USDC for each seller&rsquo;s payTo, filters per-call settlements within a $0.50 ceiling (larger inbound is funding/swaps, not buys), and aggregates. The snapshot refreshes hourly server-side. Free, like <code>/api/find</code> and <code>/api/route</code>. Use <code>?include=external</code> to exclude Agent402 itself and rank only the rest of the ecosystem.' },
   { q: "How does the Smart Order Router decide which seller to route to?", a: "It scores tools by lexical match against your query, then ranks by seller health (computed from the last five crawl outcomes), then by price. Sellers whose recent crawls errored are excluded entirely — a buyer routed to a dead seller wastes money. Brand-new sellers with no history yet are still routable: benefit of the doubt for newcomers." },
   { q: "Who runs Agent402?", a: 'Mike Petrillo — a named, public maintainer reachable at <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>, on <a href="https://github.com/MikeyPetrillo">GitHub</a>, and on <a href="https://x.com/Agent402Tools">X</a>.' },
@@ -480,7 +482,7 @@ export function faqPage(baseUrl) {
   const canonical = `${baseUrl}/faq`;
   const title = "Agent402 FAQ — x402 + MCP server for AI agents";
   const description =
-    "Frequently asked questions about Agent402: pricing, proof-of-work, x402 and USDC on Base + 4 more chains, MCP, data handling, and self-hosting the open-source server.";
+    `Frequently asked questions about Agent402: pricing, proof-of-work, x402 and ${RAILS_SHORT}, the OpenAI-compatible /v1 gateway, self-serve listing, MCP, data handling, and self-hosting the open-source server.`;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
@@ -507,7 +509,7 @@ export function faqPage(baseUrl) {
   const body = `<div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:10px;">FAQ</div>
   <h1 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:.96;letter-spacing:-.03em;margin-bottom:14px;">Frequently asked questions</h1>
-  <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:32px;">Agent402 is the open-source, self-hostable x402 + MCP server: pay-per-call web tools for AI agents, free via proof-of-work or paid in ${RAILS_AMP}.</p>
+  <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:32px;">Agent402 is the open-source, self-hostable x402 + MCP server: an open cross-seller Index, Smart Order Router, and on-chain leaderboard, built on pay-per-call web tools for AI agents - free via proof-of-work or paid in ${RAILS_AMP}.</p>
   ${items}
 </div>
 ${ledgerFooterCompact()}`;

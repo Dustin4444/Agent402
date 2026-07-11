@@ -1331,7 +1331,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
 
 ${economySectionHtml(economySnap, leaderboardSnap)}
 
-<p class="foot">x402 Index is open source, part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. Most sellers are listed automatically once their x402 endpoint is live and settling. To list now, paste your origin on <a href="/sell">/sell</a> (free, no account) or <code>POST /api/index/register</code>. You can also open a PR to the seed list or self-host your own Index.</p>
+<p class="foot">x402 Index is open source, part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. Most sellers are listed automatically once their x402 endpoint is live and settling. Zero-friction listing: paste your origin on <a href="/sell">/sell</a> (free, no account) or call <code>POST /api/index/register</code> directly. Prefer git? Open a PR to the seed list, or self-host your own Index.</p>
 
 </div>
 ${ledgerFooterCompact()}`;

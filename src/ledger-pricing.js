@@ -36,6 +36,16 @@ export function ledgerPricingPage(baseUrl, catalog) {
     ["Headless browser \u2014 render & screenshot (real Chromium)", "$0.02"],
   ];
 
+  const gatewayRows = [
+    ["/v1/embeddings - default-on cache, free repeat", "$0.002"],
+    ["/v1/nano/chat/completions - high-frequency agent loops", "$0.003"],
+    ["/v1/auto/chat/completions - model optional, eval-ranked routing", "$0.01"],
+    ["/v1/chat/completions - budget/mid models", "$0.02"],
+    ["/v1/images/generations - one image per call", "$0.08"],
+    ["/v1/pro/chat/completions - gpt-4o, claude sonnet, gemini pro", "$0.10"],
+    ["/v1/premium/chat/completions - gpt-5, o3/o4, claude opus", "$0.50"],
+  ];
+
   const extraCss = `
 @media (max-width: 900px) {
   .ml-pricing-plans { grid-template-columns: 1fr !important; }
@@ -107,6 +117,17 @@ export function ledgerPricingPage(baseUrl, catalog) {
       ${receiptRows.map((r, i) => receiptRow(r[0], r[1], i === receiptRows.length - 1)).join("\n      ")}
     </div>
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:12px;">live machine-readable prices: GET /api/pricing \u00b7 GET /openapi.json</div>
+  </section>
+
+  <!-- LLM GATEWAY -->
+  <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
+    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">// POST /v1/*</div>
+    <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 12px;">The /v1 LLM gateway.</h2>
+    <p style="font-size:15px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 22px;">Point any OpenAI SDK at <code>base_url https://agent402.tools/v1</code> - same wallet-is-the-identity model as every other tool, no API key, no signup. Omit the model on the auto tier and the gateway picks one for the prompt.</p>
+    <div style="border:1.5px solid var(--ink);background:var(--card);font-family:var(--font-mono);font-size:14px;">
+      ${gatewayRows.map((r, i) => receiptRow(r[0], r[1], i === gatewayRows.length - 1)).join("\n      ")}
+    </div>
+    <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:12px;">full wire format: <a href="/docs#gateway" style="color:var(--faint);">/docs</a></div>
   </section>
 
   <!-- TOKEN MATH NOTE -->

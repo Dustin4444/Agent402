@@ -10,10 +10,15 @@
 // carried over from the original pre-migration code.
 
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { toolList } from "./pages.js";
+import { isComputePayable } from "./pow.js";
 
-export function playgroundPage(baseUrl) {
+const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
+
+export function playgroundPage(baseUrl, catalog) {
+  const freeCount = fmtNum(toolList(catalog).filter(isComputePayable).length);
   const title = "Playground — try Agent402 tools for free";
-  const description = "Try any of Agent402's 1,150+ free-tier tools directly in your browser. No signup, no wallet — proof-of-work pays automatically.";
+  const description = `Try any of Agent402's ${freeCount} free-tier tools directly in your browser, or the OpenAI-compatible /v1 gateway. No signup, no wallet — proof-of-work pays automatically.`;
   const canonical = `${baseUrl}/playground`;
 
   const extraCss = `
@@ -72,7 +77,7 @@ export function playgroundPage(baseUrl) {
 <div class="crumb"><a href="/">Agent402</a> / playground</div>
 <div class="pg-title">
   <h1>Playground</h1>
-  <p>Try any of Agent402's 1,150+ free-tier tools directly in your browser. No signup, no wallet — proof-of-work pays automatically.</p>
+  <p>Try any of Agent402's ${freeCount} free-tier tools directly in your browser, or the OpenAI-compatible /v1 gateway. No signup, no wallet — proof-of-work pays automatically.</p>
 </div>
 <div class="pg-wrap">
   <div class="pg-left">
