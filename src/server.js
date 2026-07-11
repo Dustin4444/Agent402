@@ -2307,7 +2307,16 @@ if (FREE_MODE) {
   app.use((req, res, next) => {
     // Marketplace-forwarded calls already settled USDC to our wallet via
     // agent402.app's facilitator — honor the bridge token and skip our paywall.
-    if (marketplaceTokenOk(req.header("x-mkt-bypass"))) {
+    // BUT never for memory-* routes: those are wallet-keyed identity tools and a
+    // marketplace-forwarded call carries no payer to scope the namespace to, so
+    // bypassing here would let bridged traffic read/write memory with no owner.
+    // The per-slug bridge (above) already excludes memory-*; excluding the route
+    // from THIS master-token branch closes the same gap here — a memory route
+    // with a valid bypass token still falls through to the normal x402 paywall
+    // below (defense in depth; the memory handlers also reject a null payer).
+    const bypassDef = CATALOG[`${req.method} ${req.path}`];
+    const bypassMemory = bypassDef?.slug?.startsWith("memory-");
+    if (!bypassMemory && marketplaceTokenOk(req.header("x-mkt-bypass"))) {
       res.setHeader("X-Settled-Via", "marketplace");
       return next();
     }
