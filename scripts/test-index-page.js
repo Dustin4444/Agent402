@@ -94,6 +94,31 @@ if (seller3RowMatch) {
   ok((row.match(/class="num">-</g) || []).length >= 2, "unmatched: seller with no leaderboard match shows '-' for both USDC and calls, not 0");
 }
 
+// --- per-operator revenue attribution (no duplicate $ across shared-wallet aliases) ---
+// One operator (leaderboard row seller1) crawled under three origins: its
+// homepage plus two preview-deploy aliases. Only the primary (homepage) origin
+// must show the $12.50 / 500; the aliases show "-" (revenue counted on the
+// primary), never the operator's total repeated.
+{
+  const primary = { origin: "https://seller1.example", displayName: "Seller 1", homepage: "https://seller1.example", network: "base", toolCount: 40, fetchedAt: Date.now(), local: false };
+  const aliasA = { origin: "https://seller1-preview-abc.vercel.app", displayName: "seller1-preview-abc", homepage: "https://seller1-preview-abc.vercel.app", network: "base", toolCount: 40, fetchedAt: Date.now(), local: false };
+  const aliasB = { origin: "https://alt.seller1.example", displayName: "alt.seller1.example", homepage: "https://alt.seller1.example", network: "base", toolCount: 40, fetchedAt: Date.now(), local: false };
+  // The leaderboard row folds all three origins under one operator (as the real
+  // grouping does): homepage + both alias origins map to the same row.
+  const lbShared = { spec: "x402-leaderboard/1", asOf: new Date().toISOString(), windowLabel: "24h", leaderboard: [
+    { rank: 1, name: "Seller 1", homepage: "https://seller1.example", origins: ["https://seller1.example", "https://seller1-preview-abc.vercel.app", "https://alt.seller1.example"], wallet: "0xaaa", callsSettled: 500, totalUsd: 12.5, uniqueBuyers: 10 },
+  ] };
+  const snap = { spec: "x402-index/1", asOf: new Date().toISOString(), sellers: [local, primary, aliasA, aliasB], discoverySources: [], totals: { sellers: 4, tools: 0, crawled: 3, discovered: 3, routable: 4, unhealthy: 0, bazaarFallback: 0 } };
+  const html = indexPage(snap, { baseUrl: BASE_URL, leaderboardSnap: lbShared });
+  const aliasRowA = html.match(/<tr>\s*<td><a[^>]*>seller1-preview-abc<\/a>[\s\S]*?<\/tr>/);
+  const aliasRowB = html.match(/<tr>\s*<td><a[^>]*>alt\.seller1\.example<\/a>[\s\S]*?<\/tr>/);
+  ok(aliasRowA && !aliasRowA[0].includes("$12.50"), "dedup: alias origin A does NOT repeat the operator's $12.50");
+  ok(aliasRowB && !aliasRowB[0].includes("$12.50"), "dedup: alias origin B does NOT repeat the operator's $12.50");
+  ok(html.includes("shared payTo wallet"), "dedup: alias rows carry the 'revenue counted on ...' marker");
+  const primaryRow = html.match(/<tr>\s*<td><a[^>]*>Seller 1<\/a>[\s\S]*?<\/tr>/);
+  ok(primaryRow && primaryRow[0].includes("$12.50"), "dedup: the primary (homepage) origin is the one that shows the revenue");
+}
+
 // --- sort links preserve ?network and default to usd desc -------------------
 
 const netPage = indexPage(bigSnapshot, { baseUrl: BASE_URL, leaderboardSnap, network: "base" });
