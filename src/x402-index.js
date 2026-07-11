@@ -935,7 +935,7 @@ export function indexPage(snapshot, { baseUrl }) {
   .foot { color:var(--faint); font-size:.82rem; margin-top:24px; }
   .foot a { color:var(--accent); text-decoration:none; }
   .chains-label { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin:0 0 12px; font-family:var(--font-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
-  .chains { display:grid; grid-template-columns:repeat(7,1fr); gap:0; border:1.5px solid var(--ink); background:var(--card); margin:0 0 8px; }
+  .chains { display:grid; grid-template-columns:repeat(${chainCells.length},1fr); gap:0; border:1.5px solid var(--ink); background:var(--card); margin:0 0 8px; }
   .chains a { display:block; padding:14px 16px; border-right:1px solid var(--hairline); text-decoration:none; }
   .chains a:last-child { border-right:none; }
   .chains .cn { display:block; font-family:var(--font-mono); font-weight:700; font-size:13px; margin-bottom:3px; color:var(--faint); }

@@ -76,6 +76,8 @@ a { color: inherit; }
   .ml-slip { grid-template-columns: 1fr !important; }
   .ml-slip-cell { border-right: none !important; border-bottom: 1.5px solid var(--ink); }
   .ml-mkts { grid-template-columns: repeat(2, 1fr) !important; }
+  .sl-hero { grid-template-columns: 1fr !important; }
+  .sl-steps { grid-template-columns: repeat(2, 1fr) !important; }
 }
 @media (max-width: 600px) {
   .ml-nav-in  { padding: 12px 16px !important; gap: 14px !important; }
@@ -84,6 +86,8 @@ a { color: inherit; }
   .ml-h1      { font-size: 40px !important; }
   .ml-hero-h1 { font-size: 42px !important; }
   .ml-spec-cell { border-right: none !important; }
+  .sl-h1      { font-size: 40px !important; }
+  .sl-steps   { grid-template-columns: 1fr !important; }
 }
 
 /* --- home hero (settled-calls proof, spec strip, staggered load) --- */
@@ -306,7 +310,7 @@ export function ledgerFooterFull() {
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">machine</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">OpenAPI</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/mcp" style="color:var(--muted);text-decoration:none;">MCP connector</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">Stats</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">OpenAPI</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/docs#add" style="color:var(--muted);text-decoration:none;">MCP connector</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">Stats</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a></div>
       </div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:36px;padding-top:18px;border-top:1px solid #cdc3ad;font-family:var(--font-mono);font-size:12px;color:var(--faint);">

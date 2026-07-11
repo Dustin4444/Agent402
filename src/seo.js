@@ -4,7 +4,7 @@ import { guideSlugs } from "./guides.js";
 import { skillSlugs, SKILL_PACKS } from "./skills.js";
 import { BLOG_POSTS } from "./blog.js";
 import { ADAPTERS } from "./adapter-docs.js";
-import { RAILS_OR } from "./rails.js";
+import { RAILS, RAILS_OR } from "./rails.js";
 import { CHAIN_PAGES } from "./market-page.js";
 
 export function robotsTxt(baseUrl) {
@@ -216,7 +216,7 @@ Base URL: ${baseUrl}
 
 ${Object.entries(CHAIN_PAGES).map(([key, c]) => `- ${c.chainName} (\`${c.caip2}\`, ${c.asset} via ${c.facilitatorLabel}): ${baseUrl}/${key}`).join("\n")}
 
-Every chain not listed above (Base, Polygon, Arbitrum, Robinhood Chain) is a live settlement rail without its own market page yet - see it in the full cross-chain snapshot at ${baseUrl}/api/index or ${baseUrl}/index.
+Every chain not listed above (${RAILS.filter((r) => !Object.values(CHAIN_PAGES).some((c) => c.caip2 === r.caip2)).map((r) => r.name).join(", ")}) is a live settlement rail without its own market page yet - see it in the full cross-chain snapshot at ${baseUrl}/api/index or ${baseUrl}/index.
 
 ## This is machine-to-machine commerce, and you can verify it
 

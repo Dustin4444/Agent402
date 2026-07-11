@@ -21,9 +21,10 @@ const fmtUsd = (n) =>
 // Ecosystem-wide totals across every seller the leaderboard snapshot ranks —
 // not just Agent402's own revenue. `uniqueBuyers` is summed per-operator (the
 // snapshot doesn't retain the raw wallet sets needed to de-duplicate a buyer
-// who bought from two different sellers), so this is a floor, not an exact
-// dedupe — the same approximation the homepage/economy pages already make
-// with this data shape.
+// who bought from two different sellers), so a wallet that bought from two
+// sellers is counted twice — this is a ceiling, not an exact dedupe — the
+// same approximation the homepage/economy pages already make with this data
+// shape.
 function leaderboardTotals(snapshot) {
   const board = Array.isArray(snapshot?.leaderboard) ? snapshot.leaderboard : null;
   // warming (cache not filled yet) or scanSkipped (upstream failure) both mean
@@ -61,7 +62,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
   const demandRowsHtml = [
     receiptRow("calls settled, all sellers", totals ? fmtNum(totals.calls) : null, "/leaderboard"),
     receiptRow("USDC settled", totals ? fmtUsd(totals.usd) : null, "/leaderboard", { accent: true }),
-    receiptRow("unique buyer wallets", totals ? fmtNum(totals.buyers) : null, "/leaderboard"),
+    receiptRow("buyer wallets (per-seller sum)", totals ? fmtNum(totals.buyers) : null, "/leaderboard"),
     receiptRow("sellers on the index", sellersOnIndex != null ? fmtNum(sellersOnIndex) : null, "/index"),
     // "busiest category over 30 days" is intentionally omitted — stats.js has
     // no per-category call breakdown, and a made-up row would violate the

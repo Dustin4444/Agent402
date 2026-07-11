@@ -146,6 +146,7 @@ import { robinhoodPage } from "./robinhood-page.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
+import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot, x402EconomyPage } from "./x402-economy.js";
@@ -1303,18 +1304,18 @@ function getIndexSnapshot() {
 // reads "unavailable", never a fabricated zero).
 setNavIndexProvider(() => {
   const snapshot = getIndexSnapshot();
-  const chain = (label, href, sellersFn) => {
+  const chain = (label, href, chainKey) => {
     try {
-      return { label, href, sellers: sellersFn(snapshot).length, healthy: true };
+      return { label, href, sellers: marketSellers(chainKey, snapshot).length, healthy: true };
     } catch {
       return { label, href, sellers: null, healthy: false };
     }
   };
+  // Iterates CHAIN_PAGES so a third chain page joins the nav/footer strip
+  // with zero server.js edits — add the entry in market-page.js and it
+  // appears here automatically.
   return {
-    chains: [
-      chain("stellar", "/stellar", stellarSellers),
-      chain("algorand", "/algorand", algorandSellers),
-    ],
+    chains: Object.keys(CHAIN_PAGES).map((key) => chain(key, `/${key}`, key)),
   };
 });
 app.get("/index", (_req, res) =>

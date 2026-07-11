@@ -20,6 +20,7 @@ export const CATEGORIES = {
   identifiers: { label: "Generators & IDs", blurb: "UUIDs, ULIDs, passwords, secure randomness, QR codes." },
   time: { label: "Time & scheduling", blurb: "Timezone-aware clocks, epoch conversion, cron parsing, durations." },
   validation: { label: "Validation & parsing", blurb: "Emails (with MX), URLs, IPs, user agents, colors, semver, IBAN, card numbers." },
+  llm: { label: "LLM gateway", blurb: "OpenAI-compatible pay-per-call inference over x402 — five quality tiers plus embeddings and image generation, model-optional auto-routing, streaming, and a default-on prompt cache. See /v1 in the OpenAPI spec for the full wire format." },
 };
 
 /** Flatten the catalog into renderable tool descriptors. */

@@ -358,7 +358,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);">THE INDEX, BY CHAIN - ADDING A CHAIN ADDS A CELL, NOT A NAV LINK</span>
           <a href="/index" style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted2);text-decoration:none;">/index →</a>
         </div>
-        <div class="ml-mkts" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0;border:1.5px solid var(--dark-border2);background:var(--ink-panel);">
+        <div class="ml-mkts" style="display:grid;grid-template-columns:repeat(${chainCells.length},1fr);gap:0;border:1.5px solid var(--dark-border2);background:var(--ink-panel);">
           ${chainCells.map(chainCellHtml).join("\n          ")}
         </div>
         <div style="margin-top:10px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">seller counts + health derive at render · a failed crawl reads "unavailable", never zero</div>
