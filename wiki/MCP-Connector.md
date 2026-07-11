@@ -35,7 +35,7 @@ It exposes four read-only tools (each carries safety annotations):
 } } }
 ```
 
-- **With `AGENT_KEY`** (a wallet holding USDC on Base, Solana, Polygon, Arbitrum, or Stellar): every tool works; each call settles via x402 invisibly under the MCP call. Spend controls (`AGENT402_BUDGET`, `AGENT402_MAX_PER_CALL`) are enforced *before any payment is signed*.
+- **With `AGENT_KEY`** (an EVM wallet holding USDC on Base, Polygon, or Arbitrum) **and/or `SOLANA_AGENT_KEY`** (a Solana wallet holding USDC on Solana): every tool works; each call settles via x402 invisibly under the MCP call. The underlying service also accepts USDC on Stellar and Algorand, and USDG on Robinhood Chain, but this npm server currently signs only EVM and Solana payments. Spend controls (`AGENT402_BUDGET`, `AGENT402_MAX_PER_CALL`) are enforced *before any payment is signed*.
 - **Without a key:** the pure-CPU tools work free via proof-of-work; wallet-only tools explain what they'd cost and how to enable them.
 
 High-value tools (`search`, `extract`, `render`, `screenshot`, `pdf`, `meta`, `dns`, the `memory-*` family, …) are first-class MCP tools; the long tail is reachable via `search_tools` + `call_tool` to keep your context window small.

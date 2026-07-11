@@ -11,7 +11,7 @@ MCP server — e.g. claude.ai → Settings → Connectors → Add custom connect
 pure-CPU tools run free there (rate-limited); for the full catalog and no rate
 limit, run this package locally with a wallet:
 
-With a funded wallet (USDC on Base, Solana, Polygon, or Arbitrum) — every tool available:
+With a funded wallet (USDC on Base, Solana, Polygon, or Arbitrum — the underlying service also accepts Stellar and Algorand, but this package currently signs only EVM and Solana payments) — every tool available:
 
 ```json
 {
@@ -42,7 +42,7 @@ Claude Code: `claude mcp add agent402 -- npx -y agent402-mcp`
 - On startup the server reads the live catalog from `https://agent402.tools/api/pricing` + `/openapi.json`.
 - The high-value tools (`extract`, `render`, `screenshot`, `pdf`, `meta`, `dns`, `http-check`, `tls-cert`, `whois`, the `memory-*` coordination tools, `hash`) are exposed as first-class MCP tools.
 - The rest of the ~1,419-tool catalog is reachable via `search_tools` (find by description) + `call_tool` (call by slug) — keeping your context window small.
-- When a call hits HTTP 402: with a wallet key set (`AGENT_KEY` for Base/Polygon/Arbitrum, `SOLANA_AGENT_KEY` for Solana), the server signs an x402 USDC payment on a chain the seller accepts and retries; without a key it solves the tool's proof-of-work challenge (~0.2 s of CPU) on the eligible tools.
+- When a call hits HTTP 402: with a wallet key set (`AGENT_KEY` for Base/Polygon/Arbitrum, `SOLANA_AGENT_KEY` for Solana), the server signs an x402 USDC payment on a chain the seller accepts and retries; without a key it solves the tool's proof-of-work challenge (~0.2 s of CPU) on the eligible tools. (The service also settles USDC on Stellar and Algorand, and USDG on Robinhood Chain, for callers using a raw x402 client rather than this package.)
 - `payment_info` tells the model which mode it's in and what a wallet would unlock.
 - `top_x402_sellers` returns the live x402 leaderboard — which sellers are settling the most USDC (primarily on Base) in the last ~24h, derived from on-chain transfers. Free to call (no payment, no proof-of-work). Useful for agents discovering the wider x402 economy beyond this single service's catalog.
 
