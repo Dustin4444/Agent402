@@ -150,7 +150,7 @@ import { CHAIN_PAGES, marketSellers, marketPage } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
-import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
+import { recordSale, salesSummary, topByBuyers, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
@@ -1391,11 +1391,14 @@ app.get("/index", async (req, res) => {
   try { economySnap = await x402EconomySnapshot(); } catch { /* indexPage renders an honest "unavailable" state */ }
   let leaderboardSnap = null;
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* 24h sub-block simply doesn't render */ }
+  let buyRows = [];
+  try { buyRows = topByBuyers({ days: 30, limit: 8 }); } catch { /* demand panel renders its honest empty state */ }
   htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), {
     baseUrl: BASE_URL,
     network: req.query.network,
     economySnap,
     leaderboardSnap,
+    buyRows,
     sort: req.query.sort,
     dir: req.query.dir,
     all: req.query.all,

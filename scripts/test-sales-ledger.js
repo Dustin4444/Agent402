@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "a402-sales-"));
 process.env.SALES_LEDGER_DB = join(dir, "test-sales.db");
-const { recordSale, salesSummary, txFromPaymentResponse } = await import("../src/sales-ledger.js");
+const { recordSale, salesSummary, topByBuyers, txFromPaymentResponse } = await import("../src/sales-ledger.js");
 const { OUR_EVM_WALLETS } = await import("../src/revenue-live.js");
 
 let passed = 0, failed = 0;
@@ -79,6 +79,22 @@ ok(s.totals.external.sales >= 2, "ledger still readable after garbage rows");
   ok(!s.topExternal.some((r) => r.slug === "ancient-tool"), "40-day-old sale is outside the 30d window");
   const wide = salesSummary({ days: 90 });
   ok(wide.topExternal.some((r) => r.slug === "ancient-tool"), "…but inside a 90d window");
+}
+
+// --- topByBuyers: distinct verified wallets per tool (the /index demand widget) -----
+{
+  const P1 = "0x1111111111111111111111111111111111111111";
+  const P2 = "0x2222222222222222222222222222222222222222";
+  recordSale({ slug: "dns-lookup", priceUsd: 0.005, rail: "usdc", network: "base", payer: P1, tx: "0xa1", synthetic: false });
+  recordSale({ slug: "dns-lookup", priceUsd: 0.005, rail: "usdc", network: "base", payer: P1, tx: "0xa2", synthetic: false }); // repeat: same wallet
+  recordSale({ slug: "dns-lookup", priceUsd: 0.005, rail: "usdc", network: "base", payer: P2, tx: "0xa3", synthetic: false });
+  recordSale({ slug: "dns-lookup", priceUsd: 0.005, rail: "usdc", network: "base", payer: BURNER, tx: "0xa4", synthetic: false }); // internal: must not count
+  const buyers = topByBuyers({ days: 30, limit: 8 });
+  const dns = buyers.find((r) => r.slug === "dns-lookup");
+  ok(dns && dns.buyers === 2 && dns.sales === 3, `distinct buyers counts unique wallets, excludes burner (got ${JSON.stringify(dns)})`);
+  ok(buyers[0]?.slug === "dns-lookup", "ranked by distinct buyers desc (dns-lookup leads with 2)");
+  ok(!buyers.some((r) => r.buyers === 0), "no zero-buyer rows");
+  ok(!buyers.some((r) => r.slug === "search" || r.slug === "qr"), "payer-null sales (marketplace/pow) excluded from the buyer ranking");
 }
 
 // --- settle receipt tx parser --------------------------------------------------------

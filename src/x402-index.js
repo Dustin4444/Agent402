@@ -978,6 +978,38 @@ export function economySectionHtml(snap, leaderboardSnap) {
 </div>`;
 }
 
+// "What agents actually buy" — the demand-composition panel. External tools
+// ranked by DISTINCT verified wallets (breadth of demand, not dollars): the
+// primitives the most independent agents reach for. Data from the sales ledger
+// via topByBuyers(); canary/burner traffic is already excluded there. Renders
+// an honest empty state before the first attributable external sale lands.
+export function whatAgentsBuyHtml(buyRows) {
+  const rows = Array.isArray(buyRows) ? buyRows.filter((r) => r && r.buyers > 0) : [];
+  const max = rows.reduce((m, r) => Math.max(m, r.buyers), 0) || 1;
+  const bars = rows.map((r) => {
+    const pct = Math.max(6, Math.round((r.buyers / max) * 100));
+    return `<div style="display:flex;align-items:center;gap:12px;font-family:var(--font-mono);font-size:13px;line-height:1.3;">
+      <a href="/tools/${esc(r.slug)}" style="flex:0 0 160px;color:var(--ink);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(r.slug)}</a>
+      <div style="flex:1;min-width:50px;height:15px;background:var(--hairline);position:relative;">
+        <div style="position:absolute;inset:0 auto 0 0;width:${pct}%;background:var(--accent);opacity:.82;"></div>
+      </div>
+      <span style="flex:0 0 92px;text-align:right;font-weight:700;white-space:nowrap;">${r.buyers} wallet${r.buyers === 1 ? "" : "s"}</span>
+      <span style="flex:0 0 52px;text-align:right;color:var(--muted);white-space:nowrap;">&times;${r.sales}</span>
+    </div>`;
+  }).join("");
+  const body = rows.length
+    ? `<div style="display:flex;flex-direction:column;gap:9px;">${bars}</div>
+       <p class="foot" style="margin:14px 0 0;">The tools the most independent agents reach for are live-data and compute primitives - things an LLM can't do itself. Ranked by distinct verified wallets on the money rails; our own canary and test traffic is excluded. Machine-readable at <a href="/api/sales">/api/sales</a>.</p>`
+    : `<div class="pn">No attributable external sales in the window yet - the first independent wallet purchase populates this.</div>`;
+  return `<div class="panel" id="demand">
+  <div class="ph">
+    <h2>What agents actually buy</h2>
+    <div class="pn">Every external paid call, ranked by how many distinct wallets bought each tool over the last 30 days - breadth of demand, not dollars.</div>
+  </div>
+  <div style="padding:14px 18px;">${body}</div>
+</div>`;
+}
+
 // Join key between an Index seller row and a leaderboard row: canonical host
 // (see leaderboard.js#canonicalHost). Wallet isn't reliable here — the Index
 // crawls manifests (no payTo per row), and a leaderboard row can represent
@@ -1009,7 +1041,7 @@ export function leaderboardHostIndex(leaderboardSnap) {
  * page refresh re-renders from the latest snapshot. Embed snippet at the bottom
  * shows sellers how to drop a "tools live on x402" widget on their landing.
  */
-export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboardSnap, sort, dir, all } = {}) {
+export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboardSnap, buyRows, sort, dir, all } = {}) {
   const fmtAge = (ts) => {
     if (!ts) return "-";
     const age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
@@ -1328,6 +1360,8 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
     <p class="foot" style="margin:10px 0 0;">Free - same gate as <code>/api/find</code>. <code>include</code> = <code>all</code> (default) · <code>external</code> (exclude self) · <code>local</code> (Agent402 only). Deterministic lexical scoring, health-then-price tiebreak.</p>
   </div>
 </div>
+
+${whatAgentsBuyHtml(buyRows)}
 
 ${economySectionHtml(economySnap, leaderboardSnap)}
 
