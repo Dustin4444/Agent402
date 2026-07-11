@@ -195,7 +195,7 @@ const DISCOVERY_SOURCES = [
   // origins but this registry had ~8). Same item shape as Bazaar except
   // `resourceUrl` instead of `resource`; synthesizeTools makes their sellers
   // list with tools even when they serve no /.well-known/x402 manifest.
-  { name: "GoPlausible AVM registry", url: "https://facilitator.goplausible.xyz/discovery/resources?limit=1000", synthesizeTools: true },
+  { name: "GoPlausible AVM registry", url: "https://facilitator.goplausible.xyz/discovery/resources?limit=1000", synthesizeTools: true, seedImmediately: true },
 ];
 
 // Operator-curated seeds committed in-repo — the version-controlled companion
@@ -298,6 +298,31 @@ async function discoverOneSource(source, selfOrigin) {
     if (toolsByOrigin) {
       // Atomic swap-in (per-origin) to avoid stale partial state mid-update.
       for (const [o, arr] of toolsByOrigin) bazaarToolsByOrigin.set(o, arr);
+    }
+    // Small niche-chain registries (GoPlausible's AVM feed) seed a bazaar-
+    // fallback cache entry IMMEDIATELY, so their sellers appear the moment we
+    // discover them instead of waiting for a crawl cycle to reach them. Many
+    // AVM sellers publish no /.well-known/x402 (oyapicks.app 404s), so without
+    // this they only surfaced when a crawl happened to run while their tools
+    // were populated — flickering across restarts. We never do this for the
+    // 1,477-origin CDP Bazaar (crawl-gated by design); only for the handful of
+    // origins on a seedImmediately source. A live manifest crawl still upgrades
+    // the entry later; we never clobber a good manifest with the fallback.
+    if (source.seedImmediately && toolsByOrigin) {
+      for (const [o, arr] of toolsByOrigin) {
+        const existing = cache.get(o);
+        if (!existing || existing.error || existing.source === "bazaar-fallback") {
+          cache.set(o, {
+            ...(existing || {}),
+            manifest: existing?.manifest || synthManifestFromBazaar(o, arr),
+            tools: arr,
+            fetchedAt: Date.now(),
+            error: null,
+            source: "bazaar-fallback",
+            history: rollHistory(existing, true),
+          });
+        }
+      }
     }
     status.origins = found.size;
     for (const o of found) {
