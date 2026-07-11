@@ -61,7 +61,11 @@ try {
   ok(Array.isArray(body.leaderboard), `leaderboard is an array (may be empty during warming)`);
   ok(body.cache && typeof body.cache === "object", "cache is an object");
   ok("cachedAt" in body.cache, `cache.cachedAt key present (value may be null pre-warm; got ${body.cache.cachedAt})`);
-  ok(typeof body.cache.lastTriedAt === "string", `cache.lastTriedAt is string (got ${typeof body.cache.lastTriedAt})`);
+  // null before the first scan attempt (warming), ISO string after — same
+  // pre-warm nullability as cachedAt above. This boots with
+  // X402_SYNC_ON_START=false, which now also skips the boot scan, so the
+  // never-tried null is the correct envelope value here.
+  ok(body.cache.lastTriedAt === null || typeof body.cache.lastTriedAt === "string", `cache.lastTriedAt is string or null pre-warm (got ${typeof body.cache.lastTriedAt})`);
   ok(typeof body.cache.refreshIntervalMs === "number" && body.cache.refreshIntervalMs > 0, `cache.refreshIntervalMs is positive (got ${body.cache.refreshIntervalMs})`);
   ok(typeof body.totalSellers === "number" && body.totalSellers >= 0, `totalSellers is non-negative number (got ${body.totalSellers})`);
   ok(typeof body.warming === "boolean", `warming is boolean (got ${typeof body.warming}) — downstream checks rely on this`);

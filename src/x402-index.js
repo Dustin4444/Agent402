@@ -1216,7 +1216,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
 <div class="panel">
   <div class="ph">
     <h2>Sellers</h2>
-    <div class="pn">Local catalog plus every seeded origin we could fetch. USDC settled and calls are joined from the <a href="/leaderboard">x402 Leaderboard</a>'s on-chain scan (last ${esc(lbWindowLabel)}) by seller host - a seller not yet matched shows "-", never $0.</div>
+    <div class="pn">Local catalog plus every seeded origin we could fetch. USDC settled and calls are joined from the <a href="/leaderboard">x402 Leaderboard</a>'s on-chain scan (last ${esc(lbWindowLabel)}) by seller host - a seller not yet matched shows "-", never $0.${leaderboardSnap?.partial ? ` <strong style="color:var(--accent);">Partial scan — ${esc(leaderboardSnap.windowNote || "some block ranges were unavailable")}; totals are a floor, not the full window.</strong>` : ""}</div>
     <div class="chips">${chips}</div>
     ${activeNet ? `<div class="chips-note">${esc(filteredSellers.length)} of ${esc(allSellers.length)} sellers</div>` : ""}
     ${capNote}

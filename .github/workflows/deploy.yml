@@ -671,7 +671,7 @@ jobs:
           # Raise the MCP rate limit so the full-catalog connector test can sweep
           # every tool (production keeps the default 20/min, 120/hr).
           AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
-            FREE_MODE=true PORT=3000 node src/server.js &
+            X402_SYNC_ON_START=false FREE_MODE=true PORT=3000 node src/server.js &
           for i in $(seq 1 20); do curl -s localhost:3000/health >/dev/null && break; sleep 1; done
       # Deterministic correctness proofs run FIRST — a flaky live upstream
       # (e.g. data.gov downtime) must never mask whether the tools actually work.
@@ -878,7 +878,7 @@ jobs:
 
       - name: Adapter tests (openai-tools + anthropic-tools + ai-sdk + langchain + openai-agents + llamaindex + strands + google-adk + langchain-py)
         run: |
-          FREE_MODE=true PORT=3091 node src/server.js > /tmp/a402-test.log 2>&1 &
+          X402_SYNC_ON_START=false FREE_MODE=true PORT=3091 node src/server.js > /tmp/a402-test.log 2>&1 &
           ADAPTER_PID=$!
           for i in $(seq 1 20); do curl -sf http://localhost:3091/health >/dev/null && break || sleep 0.5; done
           curl -sf http://localhost:3091/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-test.log; kill $ADAPTER_PID; exit 1; }
@@ -973,6 +973,9 @@ jobs:
 
       - name: Stellar activity scan tests (offline, fixture Horizon records)
         run: node scripts/test-stellar-activity.js
+
+      - name: EVM/Solana/Robinhood activity scan tests (offline, fixture Alchemy/RPC/Blockscout records)
+        run: node scripts/test-chain-activity.js
 
       - name: Html-kit tests (html-select, html-table, html-strip, html-links, html-meta)
         run: node scripts/test-html-kit.js
