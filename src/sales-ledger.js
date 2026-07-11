@@ -113,6 +113,16 @@ const qExtByPayer = db.prepare(`
   SELECT payer, COUNT(*) AS sales, SUM(price_usd) AS revenue, MAX(ts) AS last_ts
   FROM sales WHERE internal = 0 AND rail IN ('usdc','marketplace') AND payer IS NOT NULL AND ts >= ?
   GROUP BY payer ORDER BY revenue DESC LIMIT 10`);
+// Demand composition: external tools ranked by how many DISTINCT verified
+// wallets bought each (breadth, not dollars) — the public /index "what agents
+// actually buy" widget. payer IS NOT NULL keeps it to attributable settlements
+// (EVM exposes the payer; SVM rows carry none), and internal=0 excludes our
+// own canary/burner traffic, so this only ever counts independent demand.
+const qExtBuyersBySlug = db.prepare(`
+  SELECT slug, COUNT(DISTINCT payer) AS buyers, COUNT(*) AS sales, SUM(price_usd) AS revenue
+  FROM sales
+  WHERE internal = 0 AND rail IN ('usdc','marketplace') AND payer IS NOT NULL AND ts >= ?
+  GROUP BY slug ORDER BY buyers DESC, sales DESC LIMIT ?`);
 const qTotals = db.prepare(`
   SELECT internal, rail, COUNT(*) AS n, SUM(price_usd) AS usd
   FROM sales WHERE ts >= ? GROUP BY internal, rail`);
@@ -166,6 +176,21 @@ export function payerUsage(payer, { days = 30, limit = 50 } = {}) {
     })),
     note: "Rows are recorded at settle time and every USDC row keeps its settle tx, so this report is independently verifiable on-chain. The call that paid for this report will appear in the next one.",
   };
+}
+
+/**
+ * Public demand widget on /index — external tools ranked by DISTINCT verified
+ * buyers over `days`. Breadth of demand, not revenue: the tools the most
+ * independent wallets reach for. Canary/burner traffic excluded (internal=0).
+ */
+export function topByBuyers({ days = 30, limit = 8 } = {}) {
+  const since = Date.now() - days * 86_400_000;
+  return qExtBuyersBySlug.all(since, limit).map((r) => ({
+    slug: r.slug,
+    buyers: r.buyers,
+    sales: r.sales,
+    revenueUsd: +(r.revenue || 0).toFixed(4),
+  }));
 }
 
 /**
