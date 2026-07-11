@@ -43,7 +43,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
     0,
   );
   const scannedSellers = snapshot?.scannedSellers ?? 0;
-  const windowLabel = snapshot?.windowLabel || "7d";
+  const windowLabel = snapshot?.windowLabel || "24h";
   // Honesty flag from the scan pipeline (src/leaderboard.js#runLeaderboard):
   // a subset of block-range chunks failed, so this snapshot under-covers the
   // window rather than fully covering it. Never hide this — it's the

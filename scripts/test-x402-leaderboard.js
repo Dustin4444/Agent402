@@ -4,6 +4,9 @@ import {
   baseUsdcPayToFromItem,
   extractWalletsFromBazaar,
   aggregateLeaderboard,
+  initWalletAccumulator,
+  foldTransfers,
+  finalizeLeaderboard,
   canonicalHost,
   rankBy,
 } from "../src/leaderboard.js";
@@ -192,6 +195,41 @@ eq(tied[0].name, "Alpha", "tie-break: alphabetical when volume + calls equal");
 eq(aggregateLeaderboard([], []), [], "empty inputs → empty ranking");
 eq(aggregateLeaderboard([], sellers).length, sellers.length, "zero transfers → every seller appears with zero volume");
 
+// --- split accumulator (init/fold/finalize) is byte-identical to the wrapper ---
+// This is the memory-fix refactor's behavior lock: aggregateLeaderboard is now
+// a thin wrapper around initWalletAccumulator + foldTransfers + finalizeLeaderboard.
+// runLeaderboard calls the split pieces directly, folding one block-chunk's
+// transfers at a time instead of collecting every transfer into one array —
+// so the split MUST produce the exact same ranked output as the all-at-once
+// wrapper for the same inputs, whether folded in one batch or many.
+const split1 = (() => {
+  const acc = initWalletAccumulator(sellers);
+  foldTransfers(acc, transfers);
+  return finalizeLeaderboard(acc);
+})();
+eq(split1, aggregateLeaderboard(transfers, sellers), "init+fold(all)+finalize === aggregateLeaderboard (single batch)");
+
+const split2 = (() => {
+  const acc = initWalletAccumulator(sellers);
+  const mid = Math.ceil(transfers.length / 2);
+  foldTransfers(acc, transfers.slice(0, mid));
+  foldTransfers(acc, transfers.slice(mid));
+  return finalizeLeaderboard(acc);
+})();
+eq(split2, aggregateLeaderboard(transfers, sellers), "init+fold(batch1)+fold(batch2)+finalize === aggregateLeaderboard(concat)");
+
+// explicit maxCallUsd threading through the split path
+const capTransfers = [
+  { wallet: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", payer: "0x1", usd: 0.2 },
+  { wallet: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", payer: "0x2", usd: 0.4 },
+];
+const split4 = (() => {
+  const acc = initWalletAccumulator(sellers);
+  foldTransfers(acc, capTransfers, 0.3);
+  return finalizeLeaderboard(acc, { maxCallUsd: 0.3 });
+})();
+eq(split4, aggregateLeaderboard(capTransfers, sellers, { maxCallUsd: 0.3 }), "custom maxCallUsd threads through split path identically");
+
 // --- canonicalHost ----------------------------------------------------------
 
 eq(canonicalHost("https://example.com/x"), "example.com", "host lowercased");
@@ -232,6 +270,16 @@ eq(merged[0].walletCount, 2, "Foo: two wallets reported in one row");
 eq(merged[0].wallets.length, 2, "Foo: wallets[] has both addresses");
 eq(merged[0].wallet, merged[0].wallets[0], "Foo: primary wallet = highest-volume member");
 eq(merged[0].endpoints, 5, "Foo: endpoint counts sum across wallets (3 + 2 = 5)");
+
+// Same proof against the operator-merge fixture (multi-wallet grouping), but
+// folded one transfer at a time — the closest analogue to how runLeaderboard
+// folds one block-chunk's decoded transfers at a time during the scan.
+const splitMerged = (() => {
+  const acc = initWalletAccumulator(sharedSiteSellers);
+  for (const t of sharedSiteTransfers) foldTransfers(acc, [t]);
+  return finalizeLeaderboard(acc);
+})();
+eq(splitMerged, aggregateLeaderboard(sharedSiteTransfers, sharedSiteSellers), "per-transfer fold === aggregateLeaderboard (operator-merge fixture)");
 
 // www. equivalence: two listings under the same root with one explicitly on
 // www. and one bare should merge into a single row.
