@@ -956,6 +956,9 @@ jobs:
       - name: Algorand marketplace page tests (offline, fixture snapshot)
         run: node scripts/test-algorand-page.js
 
+      - name: Sell hub page tests (offline, fixture snapshot)
+        run: node scripts/test-sell-page.js
+
       - name: Index self-serve registration tests (offline)
         run: node scripts/test-index-register.js
 

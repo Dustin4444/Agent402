@@ -138,7 +138,7 @@ import { uptimePage } from "./uptime.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
-import { setOgImageVersion } from "./ledger-chrome.js";
+import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
@@ -146,6 +146,8 @@ import { robinhoodPage } from "./robinhood-page.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
+import { CHAIN_PAGES, marketSellers } from "./market-page.js";
+import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot, x402EconomyPage } from "./x402-economy.js";
 import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
@@ -699,12 +701,18 @@ app.use((_req, res, next) => {
 const htmlCache = (res, maxAge, swr) =>
   res.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${swr}`).type("html");
 app.get("/", (_req, res) => {
-  // Stellar marketplace callout: real seller count from the same index
-  // snapshot /stellar renders — never a hardcoded number.
-  let stellarSellerCount;
-  try { stellarSellerCount = stellarSellers(getIndexSnapshot()).length; } catch { /* callout renders without the count */ }
+  // By-chain strip cell counts: real seller counts from the same index
+  // snapshot /stellar and /algorand render — never hardcoded, and a missing
+  // count (crawl failure) just leaves that key out — the strip renders its
+  // dimmed "unavailable" state, never a zero.
+  const chainSellerCounts = {};
+  try {
+    const snapshot = getIndexSnapshot();
+    try { chainSellerCounts.stellar = stellarSellers(snapshot).length; } catch { /* strip cell renders without the count */ }
+    try { chainSellerCounts.algorand = algorandSellers(snapshot).length; } catch { /* strip cell renders without the count */ }
+  } catch { /* snapshot unavailable — strip renders rail-only cells */ }
   htmlCache(res, 60, 300).send(
-    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { stellarSellerCount })
+    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { chainSellerCounts })
   );
 });
 // Real health check — fails (503) when a load balancer or heartbeat should
@@ -1289,6 +1297,27 @@ function getIndexSnapshot() {
   }
   return indexSnapshotCache.value;
 }
+// Wire the nav/footer "by chain" dropdown + column to live data — cheap (the
+// memoized snapshot above, no network at render) and defensive: nav() itself
+// try/catches the provider, but each chain gets its own guard here too so one
+// chain's failure never blanks the row next to it (honesty rule: that row
+// reads "unavailable", never a fabricated zero).
+setNavIndexProvider(() => {
+  const snapshot = getIndexSnapshot();
+  const chain = (label, href, chainKey) => {
+    try {
+      return { label, href, sellers: marketSellers(chainKey, snapshot).length, healthy: true };
+    } catch {
+      return { label, href, sellers: null, healthy: false };
+    }
+  };
+  // Iterates CHAIN_PAGES so a third chain page joins the nav/footer strip
+  // with zero server.js edits — add the entry in market-page.js and it
+  // appears here automatically.
+  return {
+    chains: Object.keys(CHAIN_PAGES).map((key) => chain(key, `/${key}`, key)),
+  };
+});
 app.get("/index", (_req, res) =>
   htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL }))
 );
@@ -1446,6 +1475,18 @@ app.get("/algorand", async (req, res) => {
       ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
       : null;
     htmlCache(res, 120, 600).send(algorandPage(BASE_URL, { snapshot, rail, activity, selectedSeller, algorandWallet: selfWallet || undefined }));
+  } catch (e) {
+    res.status(500).type("text/plain").send("temporarily unavailable");
+  }
+});
+// The seller front door — list an API on the index or tollbooth a site.
+// Whole-body try/catch like /stellar and /algorand: any snapshot failure
+// degrades to "temporarily unavailable" text rather than a half-rendered page.
+app.get("/sell", (_req, res) => {
+  try {
+    htmlCache(res, 120, 600).send(
+      sellPage(BASE_URL, { leaderboardSnapshot: getLeaderboardSnapshot(), indexSnapshot: getIndexSnapshot() })
+    );
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }

@@ -27,6 +27,14 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { safeFetch } from "./tools/fetch-guard.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
+import { RAILS } from "./rails.js";
+import { CHAIN_PAGES, marketSellers } from "./market-page.js";
+
+// RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
+// (see ledger-home.js) so /index's own row derives the same way: page
+// availability from CHAIN_PAGES, live seller counts from marketSellers() run
+// against the snapshot this page already renders from — no new plumbing.
+const CHAIN_PAGE_BY_CAIP2 = new Map(Object.entries(CHAIN_PAGES).map(([key, cfg]) => [cfg.caip2, key]));
 
 const LOCAL_SELLER = "self";
 const CRAWL_INTERVAL_MS = 5 * 60 * 1000; // 5 min — gentle on third-party sellers
@@ -867,6 +875,36 @@ export function indexPage(snapshot, { baseUrl }) {
   const description = "Live map of the agent payments economy: every x402 seller, their tool count, network, and last-crawled time.";
   const canonical = `${baseUrl}/index`;
 
+  // By-chain cell row — one cell per rail from rails.js, joined with
+  // page-availability (CHAIN_PAGES) and live seller counts derived straight
+  // from this page's own snapshot (marketSellers filters snapshot.sellers by
+  // network prefix, same as stellarSellers/algorandSellers). Missing counts
+  // (crawl failure or no page yet) render the dimmed rail-only state, never
+  // an invented number.
+  const chainCells = RAILS.map((r) => {
+    const pageKey = CHAIN_PAGE_BY_CAIP2.get(r.caip2);
+    const hasPage = !!pageKey;
+    let sellerCount;
+    if (hasPage) {
+      try { sellerCount = marketSellers(pageKey, snapshot).length; } catch { /* cell renders without the count */ }
+    }
+    const known = Number.isFinite(sellerCount);
+    const live = hasPage && known;
+    return {
+      name: r.name.replace(/ Chain$/, "").toUpperCase(),
+      asset: `${r.asset} · ${r.caip2}`,
+      href: hasPage ? `/${pageKey}` : "/index",
+      hasPage,
+      live,
+      status: hasPage ? (known ? `${sellerCount} seller${sellerCount === 1 ? "" : "s"} indexed` : "unavailable") : "rail live",
+    };
+  });
+  const chainCellHtml = (c) => `<a href="${esc(c.href)}">
+      <span class="cn${c.hasPage ? " haspage" : ""}">${esc(c.name)}</span>
+      <span class="ca">${esc(c.asset)}</span>
+      <span class="cs${c.live ? " live" : ""}"><span class="dot${c.live ? " live" : ""}"></span>${esc(c.status)}</span>
+    </a>`;
+
   const extraCss = `
   .ix-wrap { max-width:1180px; margin:0 auto; padding:56px 30px; }
   .ix-wrap h1 { font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 8px; }
@@ -896,12 +934,30 @@ export function indexPage(snapshot, { baseUrl }) {
   pre { background:var(--ink); color:var(--cream); border:1.5px solid var(--dark-border); padding:14px 16px; overflow:auto; font-family:var(--font-mono); font-size:.84rem; }
   .foot { color:var(--faint); font-size:.82rem; margin-top:24px; }
   .foot a { color:var(--accent); text-decoration:none; }
+  .chains-label { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin:0 0 12px; font-family:var(--font-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
+  .chains { display:grid; grid-template-columns:repeat(${chainCells.length},1fr); gap:0; border:1.5px solid var(--ink); background:var(--card); margin:0 0 8px; }
+  .chains a { display:block; padding:14px 16px; border-right:1px solid var(--hairline); text-decoration:none; }
+  .chains a:last-child { border-right:none; }
+  .chains .cn { display:block; font-family:var(--font-mono); font-weight:700; font-size:13px; margin-bottom:3px; color:var(--faint); }
+  .chains .cn.haspage { color:var(--ink); }
+  .chains .ca { display:block; font-family:var(--font-mono); font-size:10.5px; color:var(--faint); margin-bottom:9px; }
+  .chains .cs { display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--faint); }
+  .chains .cs.live { color:var(--green); }
+  .chains .cs .dot { width:6px; height:6px; border-radius:50%; background:var(--faint); display:inline-block; }
+  .chains .cs.live .dot { background:var(--green); }
+  .chains-foot { color:var(--faint); font-family:var(--font-mono); font-size:11px; margin:0 0 22px; }
   `;
 
   const pageBody = `<div class="ix-wrap">
 
 <h1>x402 Index</h1>
 <p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them every 5 minutes and shows what's online. Selling on Stellar or Algorand? See <a href="/stellar">the Stellar x402 marketplace</a> or the <a href="/algorand">Algorand x402 marketplace</a> — the same index, filtered per rail.</p>
+
+<div class="chains-label"><span>The index, by chain</span><span>adding a chain adds a cell, not a nav link</span></div>
+<div class="chains ml-mkts">
+  ${chainCells.map(chainCellHtml).join("\n  ")}
+</div>
+<div class="chains-foot">seller counts derive from this snapshot at render, a failed crawl reads "unavailable", never zero</div>
 
 <div class="grid">
   <div class="stat"><div class="k">Sellers</div><div class="v">${esc(snapshot.totals.sellers)}</div><div class="s">listed in the Index</div></div>
