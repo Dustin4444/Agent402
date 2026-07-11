@@ -974,6 +974,9 @@ jobs:
       - name: Stellar activity scan tests (offline, fixture Horizon records)
         run: node scripts/test-stellar-activity.js
 
+      - name: EVM/Solana/Robinhood activity scan tests (offline, fixture Alchemy/RPC/Blockscout records)
+        run: node scripts/test-chain-activity.js
+
       - name: Html-kit tests (html-select, html-table, html-strip, html-links, html-meta)
         run: node scripts/test-html-kit.js
 

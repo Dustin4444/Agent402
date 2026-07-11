@@ -143,7 +143,7 @@ import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketPage } from "./market-page.js";
@@ -1559,26 +1559,84 @@ app.get("/algorand", async (req, res) => {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
 });
+// 30-day activity scan (Transactions/Volume/Buyers cards) for the five
+// snapshot-backed market pages — mirrors getStellarActivityFor/
+// getAlgorandActivityFor EXACTLY in shape (10-min TTL, in-flight dedup,
+// address-shape validated, 500-entry size-capped sweep), one deviation: on a
+// failed refresh this keeps serving the LAST GOOD value instead of nulling
+// it out (these scanners lean on third-party APIs — Alchemy/Blockscout —
+// that are flakier than Horizon/AlgoNode, so a single bad refresh shouldn't
+// blank out charts that were fine 10 minutes ago). A wallet that has never
+// scanned successfully still reads null → the template's honest
+// "unavailable" line. No `?seller=` switching for these five chains yet —
+// the index snapshot carries no per-seller EVM/Solana payTo extraction (only
+// Stellar/Algorand do), so scope stays THIS HOST only; do not invent
+// external-seller wallets here.
+const CHAIN_ACTIVITY_TTL_MS = 10 * 60_000;
+const EVM_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+const SOLANA_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const chainActivityByWallet = new Map(); // "chainKey:wallet" -> { at, value, inFlight }
+function walletShapeOkForChain(chainKey, wallet) {
+  if (!wallet) return false;
+  return chainKey === "solana" ? SOLANA_ADDR_RE.test(wallet) : EVM_ADDR_RE.test(wallet);
+}
+async function getActivityForChain(chainKey, wallet) {
+  if (!walletShapeOkForChain(chainKey, wallet)) return null;
+  const key = `${chainKey}:${wallet}`;
+  if (chainActivityByWallet.size > 500) chainActivityByWallet.clear(); // safety sweep
+  let entry = chainActivityByWallet.get(key);
+  if (entry && !entry.inFlight && Date.now() - entry.at < CHAIN_ACTIVITY_TTL_MS) return entry.value;
+  if (!entry || !entry.inFlight) {
+    entry = entry || { at: 0, value: null, inFlight: null };
+    chainActivityByWallet.set(key, entry);
+    entry.inFlight = (async () => {
+      try {
+        const a = chainKey === "solana" ? await solanaActivity(wallet)
+          : chainKey === "robinhood" ? await robinhoodActivity(wallet)
+          : await evmActivity(chainKey, wallet);
+        entry.at = Date.now();
+        if (a && !a.error) entry.value = a; // success — refresh the cached value
+        // else: leave entry.value as-is (stale-serving a prior good scan, or
+        // still null if this wallet has never scanned successfully)
+      } catch {
+        entry.at = Date.now(); // still respect the TTL before retrying
+      } finally {
+        entry.inFlight = null;
+      }
+    })();
+  }
+  await entry.inFlight;
+  return entry.value;
+}
 // /base, /solana, /polygon, /arbitrum, /robinhood — five more x402
 // marketplace pages over the same chain-agnostic renderer as /stellar and
 // /algorand (mirrors its shape: 120/600 htmlCache, whole-body try/catch).
-// These five reuse the revenueSnapshot cache instead of standing up a
-// dedicated per-chain rail fetcher — it already runs an SWR-cached scan of
-// every EVM + Solana rail every 60s for /revenue, so the receipt strip here
-// is a lookup, not a new network call. Per-chain activity (Transactions/
-// Volume/Buyers) is a follow-up; these pass activity: null and the template
-// renders its honest "unavailable" line pointing at the right explorer.
+// These five reuse the revenueSnapshot cache for the receipt strip instead of
+// standing up a dedicated per-chain rail fetcher — it already runs an
+// SWR-cached scan of every EVM + Solana rail every 60s for /revenue, so the
+// receipt strip here is a lookup, not a new network call. The 30-day
+// activity charts (Transactions/Volume/Buyers) come from getActivityForChain
+// above; a scanner with no data source (no ALCHEMY_API_KEY, RPC down) or a
+// wallet that hasn't scanned yet renders the honest "unavailable" line, same
+// as before this wiring existed.
 // /robinhood replaces the old dedicated robinhood-page.js landing (folded
 // its unique chain-parameter and tollbooth-config copy into this chain's
 // sellParagraphHtml in market-page.js) — same URL, now the shared template.
 const SNAPSHOT_RAIL_LABEL = { base: "Base", solana: "Solana", polygon: "Polygon", arbitrum: "Arbitrum", robinhood: "Robinhood Chain" };
+// Per-chain wallet source: EVM rails (including Robinhood, chain 4663) all
+// settle to the same WALLET_ADDRESS; Solana has its own env.
+const chainWallet = (chainKey) => (chainKey === "solana" ? (process.env.SOLANA_WALLET_ADDRESS || "").trim() : WALLET_ADDRESS);
 for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
   app.get(`/${chainKey}`, async (_req, res) => {
     try {
       const snapshot = getIndexSnapshot();
-      const revSnap = await revenueSnapshot(revenueWallets());
+      const wallet = chainWallet(chainKey);
+      const [revSnap, activity] = await Promise.all([
+        revenueSnapshot(revenueWallets()),
+        getActivityForChain(chainKey, wallet),
+      ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
-      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity: null, wallet: rail?.wallet || undefined }));
+      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, wallet: rail?.wallet || undefined }));
     } catch (e) {
       res.status(500).type("text/plain").send("temporarily unavailable");
     }

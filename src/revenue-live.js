@@ -533,6 +533,215 @@ export async function algorandActivity(wallet, { days = 30, maxPages = 10 } = {}
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// 30-day activity scanners for the /base /polygon /arbitrum /solana
+// /robinhood market pages — same contract as stellarActivity/algorandActivity
+// above: best-effort, never throws, identical output shape, reuses
+// bucketStellarActivity (chain-agnostic bucketer) and isExternalPayment/
+// OUR_*_WALLETS for the internal-canary flag. Missing data is ALWAYS
+// acceptable (the caller renders "unavailable"); inventing data is NEVER
+// acceptable.
+
+// Parse one Alchemy `alchemy_getAssetTransfers` transfer record into
+// { when, usd, from } — or null when it can't be trusted (no positive USD
+// value). `value` arrives already decimal-normalized (Alchemy resolves the
+// ERC-20 decimals server-side); `metadata.blockTimestamp` is ISO.
+export function parseEvmTransfer(t) {
+  if (!t) return null;
+  const usd = Number(t.value);
+  if (!Number.isFinite(usd) || usd <= 0) return null;
+  const when = typeof t.metadata?.blockTimestamp === "string" ? t.metadata.blockTimestamp : null;
+  const from = typeof t.from === "string" ? t.from.toLowerCase() : null;
+  return { when, usd: Number(usd.toFixed(6)), from };
+}
+
+// Trailing-window activity scan for an EVM rail (base/polygon/arbitrum/
+// robinhood) via Alchemy's alchemy_getAssetTransfers — newest first, paged
+// via the response's `pageKey`, STOP once a transfer is older than the `days`
+// cutoff, `maxPages` cap (sets truncated). Public RPCs don't implement this
+// method, so no ALCHEMY_API_KEY → immediate honest "unavailable" rather than
+// a failed call per page.
+export async function evmActivity(chainKey, wallet, { days = 30, maxPages = 10 } = {}) {
+  const c = EVM[chainKey];
+  const out = { rail: c?.label || chainKey, wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
+  if (!c) { out.error = "unsupported chain"; return out; }
+  if (!wallet) { out.error = "WALLET_ADDRESS unset"; return out; }
+  if (!process.env.ALCHEMY_API_KEY) { out.error = "activity source unavailable (no ALCHEMY_API_KEY)"; return out; }
+  const alchemyUrl = c.rpcs[0]; // prepended first in EVM config above when the key is set
+  const cutoff = Date.now() - days * 86_400_000;
+  const entries = [];
+  try {
+    let pageKey;
+    for (let page = 0; page < maxPages; page++) {
+      const params = {
+        fromBlock: "0x0", toBlock: "latest", toAddress: wallet, contractAddresses: [c.token],
+        category: ["erc20"], withMetadata: true, excludeZeroValue: true, maxCount: "0x3e8", order: "desc",
+        ...(pageKey ? { pageKey } : {}),
+      };
+      const res = await rpcCall([alchemyUrl], "alchemy_getAssetTransfers", [params], 8000);
+      const transfers = res?.transfers || [];
+      if (!transfers.length) { pageKey = null; break; }
+      let pastWindow = false;
+      for (const t of transfers) {
+        const entry = parseEvmTransfer(t);
+        if (!entry) continue;
+        const ts = Date.parse(entry.when || "");
+        if (Number.isFinite(ts) && ts < cutoff) { pastWindow = true; break; }
+        entry.internal = entry.from != null && OUR_EVM_WALLETS.has(entry.from);
+        entries.push(entry);
+      }
+      if (pastWindow) { pageKey = null; break; }
+      pageKey = res?.pageKey || null;
+      if (!pageKey) break;
+      if (page === maxPages - 1) out.truncated = true;
+    }
+  } catch (e) {
+    out.error = String(e?.message || e).slice(0, 120);
+    return out;
+  }
+  const bucketed = bucketStellarActivity(entries, { days });
+  out.buckets = bucketed.buckets;
+  out.totals = bucketed.totals;
+  return out;
+}
+
+// Parse one Solana getTransaction result into { when, usd, from } — `owner`'s
+// inbound USDC for that tx, or null when nothing came in (outgoing/failed/
+// non-USDC). Thin wrapper over the usdcDeltaForOwner/payerFromMeta helpers
+// solanaRail already uses, generalized so the scan below doesn't duplicate
+// the parse.
+export function parseSolanaTransfer(txn, owner) {
+  const usd = Number(usdcDeltaForOwner(txn?.meta, owner).toFixed(6));
+  if (!(usd > 0)) return null;
+  const from = payerFromMeta(txn?.meta, owner);
+  const when = txn?.blockTime ? new Date(txn.blockTime * 1000).toISOString() : null;
+  return { when, usd, from };
+}
+
+// Trailing-window activity scan: page getSignaturesForAddress on the wallet's
+// USDC token account (limit 1000, `before` cursor, newest first, `maxPages`
+// cap), decoding each signature with getTransaction up to a hard `maxTx`
+// budget — getTransaction is one RPC call each, so a busy page must not fire
+// hundreds of them. An RPC failure mid-scan keeps whatever was collected so
+// far (`truncated:true`); only a failure with nothing collected is an error.
+export async function solanaActivity(wallet, { days = 30, maxPages = 10, maxTx = 60 } = {}) {
+  const out = { rail: "Solana", wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
+  if (!wallet) { out.error = "SOLANA_WALLET_ADDRESS unset"; return out; }
+  const cutoff = Date.now() - days * 86_400_000;
+  const entries = [];
+  let tokenAccount;
+  try {
+    const res = await rpcCall(SOLANA_RPCS, "getTokenAccountsByOwner", [wallet, { mint: USDC_SOL_MINT }, { encoding: "jsonParsed" }], 6000);
+    tokenAccount = res?.value?.[0]?.pubkey || wallet;
+  } catch (e) {
+    out.error = String(e?.message || e).slice(0, 120);
+    return out;
+  }
+  let txBudget = maxTx;
+  let capped = false;
+  try {
+    let before;
+    scan: for (let page = 0; page < maxPages; page++) {
+      const params = before ? [tokenAccount, { limit: 1000, before }] : [tokenAccount, { limit: 1000 }];
+      const sigs = await rpcCall(SOLANA_RPCS, "getSignaturesForAddress", params, 8000);
+      if (!Array.isArray(sigs) || !sigs.length) break;
+      for (const s of sigs) {
+        const tms = s.blockTime ? s.blockTime * 1000 : null;
+        if (tms != null && tms < cutoff) break scan;
+        if (s.err) continue;
+        if (txBudget <= 0) { capped = true; break scan; }
+        txBudget--;
+        try {
+          const txn = await rpcCall(SOLANA_RPCS, "getTransaction", [s.signature, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }], 6000);
+          const entry = parseSolanaTransfer(txn, wallet);
+          if (entry) {
+            entry.internal = entry.from != null && OUR_SOLANA_WALLETS.has(entry.from);
+            entries.push(entry);
+          }
+        } catch { /* one bad tx fetch must not kill the scan */ }
+      }
+      before = sigs[sigs.length - 1]?.signature;
+      if (!before) break;
+      if (page === maxPages - 1) capped = true;
+    }
+  } catch (e) {
+    if (!entries.length) { out.error = String(e?.message || e).slice(0, 120); return out; }
+    capped = true; // partial results survive an RPC failure mid-scan
+  }
+  out.truncated = capped;
+  const bucketed = bucketStellarActivity(entries, { days });
+  out.buckets = bucketed.buckets;
+  out.totals = bucketed.totals;
+  return out;
+}
+
+// Parse one Blockscout (Etherscan-compatible) tokentx record into
+// { when, usd, from } for inbound USDG to `wallet` — or null when it's
+// outbound/to someone else. `value` is atomic units (6 decimals, verified
+// live against the real USDG contract 2026-07-11); `timeStamp` is unix
+// seconds.
+export function parseRobinhoodTransfer(t, wallet) {
+  if (!t || !wallet) return null;
+  const to = typeof t.to === "string" ? t.to.toLowerCase() : null;
+  if (to !== wallet.toLowerCase()) return null;
+  const raw = Number(t.value);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  const ts = Number(t.timeStamp);
+  return {
+    when: Number.isFinite(ts) ? new Date(ts * 1000).toISOString() : null,
+    usd: Number((raw / 1e6).toFixed(6)),
+    from: typeof t.from === "string" ? t.from.toLowerCase() : null,
+  };
+}
+
+// Trailing-window activity scan for Robinhood Chain (USDG) via Blockscout's
+// Etherscan-compatible tokentx API — there is no Alchemy/RPC path for this
+// chain's activity (see evmActivity). One retry on failure: verified live
+// 2026-07-11 that this endpoint occasionally answers "Something went wrong"
+// for a perfectly valid wallet/contract pair and succeeds seconds later
+// (transient, not a real error). The honesty signal this function keys on is
+// `result` being an array vs. `null` — NOT the `status` field: "no transfers
+// found" is ALSO status "0" but carries a valid empty `result: []`, so
+// keying on `status` would misreport an empty wallet as a scan failure.
+export async function robinhoodActivity(wallet, { days = 30 } = {}) {
+  const c = EVM.robinhood;
+  const out = { rail: c.label, wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null };
+  if (!wallet) { out.error = "WALLET_ADDRESS unset"; return out; }
+  const cutoff = Date.now() - days * 86_400_000;
+  const url = `https://robinhoodchain.blockscout.com/api?module=account&action=tokentx&address=${encodeURIComponent(wallet)}&contractaddress=${encodeURIComponent(c.token)}`;
+  const fetchOnce = async () => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`Blockscout HTTP ${res.status}`);
+    const data = await res.json();
+    if (!Array.isArray(data?.result)) throw new Error(String(data?.message || "unexpected response shape").slice(0, 80));
+    return data.result;
+  };
+  let rows;
+  try {
+    try {
+      rows = await fetchOnce();
+    } catch {
+      rows = await fetchOnce(); // one retry — this endpoint flaps transiently
+    }
+  } catch (e) {
+    out.error = String(e?.message || e).slice(0, 120);
+    return out;
+  }
+  const entries = [];
+  for (const t of rows) {
+    const entry = parseRobinhoodTransfer(t, wallet);
+    if (!entry) continue;
+    const ts = Date.parse(entry.when || "");
+    if (Number.isFinite(ts) && ts < cutoff) continue; // Blockscout order isn't guaranteed — filter, don't break
+    entry.internal = entry.from != null && OUR_EVM_WALLETS.has(entry.from);
+    entries.push(entry);
+  }
+  const bucketed = bucketStellarActivity(entries, { days });
+  out.buckets = bucketed.buckets;
+  out.totals = bucketed.totals;
+  return out;
+}
+
 // 60s snapshot cache, serve-stale-while-revalidate: a fresh snapshot answers
 // directly; a stale one answers IMMEDIATELY while a single deduped background
 // refresh runs (the full seven-rail scan takes 10-30s on slow public RPCs —
