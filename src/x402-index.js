@@ -1000,6 +1000,35 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
     return { ...s, _lb: (host && lbByHost.get(host)) || null };
   });
 
+  // A leaderboard row's on-chain revenue is PER-OPERATOR: one payTo wallet,
+  // often many crawled origins (preview deploys, alias hosts, api subdomains).
+  // Every one of those origins maps to the same leaderboard row, so without
+  // this the operator's total renders on EACH alias row — the "duplicate
+  // values" bug (30 StableEnrich previews and BlockRun's two origins all
+  // showing the same $). Attribute the revenue to ONE primary origin per
+  // operator; the aliases show "-" (their revenue is the shared wallet's,
+  // already counted on the primary). Primary = the origin whose host IS the
+  // leaderboard row's own canonical homepage; else the most tools; else
+  // deterministic by origin so the choice is stable across renders.
+  const primaryFor = new Map(); // lb row -> chosen primary seller
+  for (const s of withLb) {
+    if (!s._lb) continue;
+    const sHost = canonicalHost(s.homepage || s.origin);
+    const isHomepage = !!(sHost && sHost === canonicalHost(s._lb.homepage));
+    const cur = primaryFor.get(s._lb);
+    const better = !cur
+      || (isHomepage && !cur.isHomepage)
+      || (isHomepage === cur.isHomepage && (s.toolCount || 0) > (cur.seller.toolCount || 0))
+      || (isHomepage === cur.isHomepage && (s.toolCount || 0) === (cur.seller.toolCount || 0) && String(s.origin || "") < String(cur.seller.origin || ""));
+    if (better) primaryFor.set(s._lb, { seller: s, isHomepage });
+  }
+  for (const s of withLb) {
+    if (s._lb && primaryFor.get(s._lb)?.seller !== s) {
+      s._lbAliasHost = canonicalHost(s._lb.homepage) || null; // for the "-" tooltip
+      s._lb = null; // alias: revenue lives on the primary, not here
+    }
+  }
+
   // Sort: usd|calls|tools, desc|asc. Default usd desc (matches the
   // leaderboard's own canonical order). Sellers with no leaderboard match
   // sort to the bottom regardless of direction — they're unranked, not zero.
@@ -1032,8 +1061,14 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
 
   const rows = visibleSellers
     .map((s) => {
-      const usdCell = s._lb ? esc(fmtUsd(s._lb.totalUsd)) : "-";
-      const callsCell = s._lb ? esc(econFmt(s._lb.callsSettled)) : "-";
+      // Aliases (same operator/wallet as a primary row) show a marked "-" so
+      // the dash reads as "counted elsewhere", not "never settled". A truly
+      // unmatched seller (never seen settling) keeps a plain "-".
+      const dash = s._lbAliasHost
+        ? `<span class="muted" title="revenue counted on ${esc(s._lbAliasHost)} (shared payTo wallet)">-</span>`
+        : "-";
+      const usdCell = s._lb ? esc(fmtUsd(s._lb.totalUsd)) : dash;
+      const callsCell = s._lb ? esc(econFmt(s._lb.callsSettled)) : dash;
       return `<tr>
         <td><a href="${esc(s.homepage || s.origin)}" target="_blank" rel="noopener">${esc(s.displayName)}</a>${healthBadge(s)}</td>
         <td class="num">${esc(s.toolCount)}</td>

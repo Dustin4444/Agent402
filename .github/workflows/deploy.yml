@@ -858,6 +858,9 @@ jobs:
       - name: x402 Leaderboard pure helpers (offline; Bazaar parsing + ranking)
         run: node scripts/test-x402-leaderboard.js
 
+      - name: Leaderboard scan memory bound (300k synthetic transfers folded in batches; proves the 7d-OOM fix)
+        run: node scripts/test-leaderboard-memory.js
+
       - name: Leaderboard SEO/discovery surfaces (robots, sitemap, llms.txt, manifest, landing JSON-LD)
         run: node scripts/test-leaderboard-surface.js
 

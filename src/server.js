@@ -1706,11 +1706,12 @@ app.post("/api/route", (req, res) => {
 //   top      max rows to return (default 25, max 500)
 //   include  "all" (default) | "external" (exclude Agent402 — neutral view)
 //   self     override the wallet treated as "self" for include=external
-//   window   requested window hint: "7d" (default, currently the only one
-//            served), "24h" / "30d" / "all" are documented but currently fall
-//            back to the active snapshot — other windows require a separate
-//            deep-cache pipeline (roadmap). The response always reports the
-//            window actually served in `windowLabel` + `windowRequested`.
+//   window   requested window hint: "24h" (default — the scan's SPAN_BLOCKS
+//            default; see src/leaderboard.js), "7d" / "30d" / "all" are
+//            documented but currently fall back to the active snapshot —
+//            other windows require a separate deep-cache pipeline (roadmap).
+//            The response always reports the window actually served in
+//            `windowLabel` + `windowRequested`.
 const SUPPORTED_WINDOWS = new Set(["24h", "7d", "30d", "all"]);
 app.get("/api/leaderboard", (req, res) => {
   const snap = getLeaderboardSnapshot();
@@ -1718,7 +1719,7 @@ app.get("/api/leaderboard", (req, res) => {
   const include = req.query.include === "external" ? "external" : "all";
   const self = (req.query.self || WALLET_ADDRESS || "").toLowerCase();
   const requested = String(req.query.window || "").toLowerCase();
-  const windowRequested = SUPPORTED_WINDOWS.has(requested) ? requested : "7d";
+  const windowRequested = SUPPORTED_WINDOWS.has(requested) ? requested : "24h";
   // Mirror the HTML toggle on /leaderboard. Re-rank *after* the include filter
   // so ranks are consecutive in the caller's view (no gaps from dropped rows).
   // sortServed echoes what we actually applied, parallelling windowServed —
@@ -1732,7 +1733,7 @@ app.get("/api/leaderboard", (req, res) => {
     include,
     sortServed,
     windowRequested,
-    windowServed: snap.windowLabel || "7d",
+    windowServed: snap.windowLabel || "24h",
     leaderboard: board.slice(0, top),
     totalSellers: (snap.leaderboard || []).length,
   });

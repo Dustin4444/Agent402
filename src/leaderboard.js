@@ -28,11 +28,14 @@ import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 
 // Base block time is ~2s, so 24h ≈ 43200 blocks and 7d ≈ 302400 blocks. A
-// wider window than the old 5h/24h defaults surfaces sellers with bursty
-// (vs. constant) traffic — without it, any seller below ~9 calls/sec averaged
-// over a day shows $0 even when their lifetime revenue is real. 7d is the
-// default now; ?window= remains the hook for a future deep-cache rollout
-// (30d/all-time) that doesn't require widening this live scan further.
+// wider window surfaces sellers with bursty (vs. constant) traffic — without
+// it, any seller below ~9 calls/sec averaged over a day shows $0 even when
+// their lifetime revenue is real. The scan folds transfers incrementally
+// (see initWalletAccumulator/foldTransfers/finalizeLeaderboard below) so any
+// window is memory-bounded, but the default stays 24h — 7d re-enable is a
+// deliberate staged env flip (SPAN_BLOCKS=302400) after prod verification,
+// not a silent default. ?window= remains the hook for a future deep-cache
+// rollout (30d/all-time) that doesn't require widening this live scan further.
 const SECONDS_PER_BASE_BLOCK = 2;
 const DEFAULT_BASE_RPCS = [
   "https://mainnet.base.org",
@@ -42,7 +45,7 @@ const DEFAULT_BASE_RPCS = [
 ];
 const DEFAULTS = {
   bazaarUrl: process.env.BAZAAR_URL || "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources",
-  spanBlocks: parseInt(process.env.SPAN_BLOCKS || "302400", 10), // ~7d of Base blocks
+  spanBlocks: parseInt(process.env.SPAN_BLOCKS || "43200", 10), // ~24h of Base blocks
   // Free-tier Base RPCs cap eth_getLogs at 10,000 blocks per call; chunk a wide
   // window into ranges no larger than this so it still scans cleanly.
   chunkBlocks: parseInt(process.env.CHUNK_BLOCKS || "9000", 10),
@@ -218,8 +221,21 @@ export function canonicalHost(rawUrl) {
  * wins), then alphabetical (purely deterministic — no informational signal).
  */
 export function aggregateLeaderboard(transfers, sellers, { maxCallUsd = DEFAULTS.maxCallUsd } = {}) {
-  // 1. Per-wallet credit (the join key we have to use because eth_getLogs is
-  //    wallet-addressed).
+  const byWallet = initWalletAccumulator(sellers);
+  foldTransfers(byWallet, transfers, maxCallUsd);
+  return finalizeLeaderboard(byWallet, { maxCallUsd });
+}
+
+/**
+ * Phase A, step 1: seed the `byWallet` accumulator — one row per seller
+ * wallet, ready to be folded into by one or many `foldTransfers` calls. Split
+ * out of `aggregateLeaderboard` so `runLeaderboard` can build this once up
+ * front and fold each block-chunk's transfers into it as the scan runs,
+ * instead of collecting every transfer into one array first (see
+ * `foldTransfers` / `finalizeLeaderboard` and `runLeaderboard` below — that's
+ * the memory-bounded scan path this split exists for).
+ */
+export function initWalletAccumulator(sellers) {
   const byWallet = new Map();
   for (const s of sellers) {
     byWallet.set(s.wallet, {
@@ -229,6 +245,19 @@ export function aggregateLeaderboard(transfers, sellers, { maxCallUsd = DEFAULTS
       buyers: new Set(),
     });
   }
+  return byWallet;
+}
+
+/**
+ * Phase A, step 2: fold a batch of transfers into an existing `byWallet`
+ * accumulator (mutates it in place; also returns it for chaining). Safe to
+ * call repeatedly with successive batches — that's what makes the scan
+ * memory-bounded: each batch (a block-chunk's worth of decoded logs) can be
+ * discarded right after this call instead of being retained in a master list.
+ *
+ * `transfers`: [{ wallet, payer, usd }] — `wallet` is the recipient (lowercase)
+ */
+export function foldTransfers(byWallet, transfers, maxCallUsd = DEFAULTS.maxCallUsd) {
   for (const t of transfers) {
     const row = byWallet.get(t.wallet);
     if (!row) continue;
@@ -237,11 +266,19 @@ export function aggregateLeaderboard(transfers, sellers, { maxCallUsd = DEFAULTS
     row.totalUsd += t.usd;
     if (t.payer) row.buyers.add(t.payer);
   }
+  return byWallet;
+}
 
-  // 2. Fold per-wallet rows into per-operator groups. Group key = canonical
-  //    host when we can derive one; otherwise the wallet itself (so listings
-  //    without a homepage stay as standalone rows rather than collapsing into
-  //    a single "no-website" mega-group).
+/**
+ * Phase B: fold the (fully-folded) per-wallet rows into per-operator groups
+ * and rank. Pure function of `byWallet` — everything transfer-shaped has
+ * already been absorbed into it by `foldTransfers`, so this only ever touches
+ * O(sellers) rows regardless of how many transfers were scanned. Group key =
+ * canonical host when we can derive one; otherwise the wallet itself (so
+ * listings without a homepage stay as standalone rows rather than collapsing
+ * into a single "no-website" mega-group).
+ */
+export function finalizeLeaderboard(byWallet, { maxCallUsd = DEFAULTS.maxCallUsd } = {}) {
   const groups = new Map();
   for (const w of byWallet.values()) {
     const host = canonicalHost(w.homepage) || canonicalHost(w.origins?.[0]);
@@ -454,7 +491,14 @@ export async function runLeaderboard(overrides = {}) {
   // only abort (throw) if EVERY chunk failed, which really is a total RPC
   // outage — in that case the caller (refreshOnce) keeps serving the last
   // good snapshot, same as before this change.
-  const logs = [];
+  //
+  // Memory: fold each chunk's decoded transfers into the accumulator right
+  // away and let the chunk's logs go out of scope — never collect every log
+  // across the whole window into one array. A 7d scan over ~1500 wallets is
+  // hundreds of thousands of raw log objects; holding them all at once (the
+  // old `logs.push` here + a final `logs.map`) is what OOM-crash-looped prod.
+  const byWallet = initWalletAccumulator(sellers);
+  let transferCount = 0;
   let failedChunks = 0;
   for (const [from, to] of blockChunks) {
     for (const chunk of walletChunks) {
@@ -465,7 +509,15 @@ export async function runLeaderboard(overrides = {}) {
           address: USDC,
           topics: [TRANSFER, null, chunk],
         }]);
-        if (Array.isArray(part)) for (const l of part) logs.push(l);
+        if (Array.isArray(part) && part.length) {
+          const chunkTransfers = part.map((l) => ({
+            wallet: ("0x" + l.topics[2].slice(-40)).toLowerCase(),
+            payer: payerFromLog(l),
+            usd: Number(BigInt(l.data)) / 1e6,
+          }));
+          foldTransfers(byWallet, chunkTransfers, opts.maxCallUsd);
+          transferCount += chunkTransfers.length;
+        }
       } catch (e) {
         failedChunks += 1;
         onProgress(`      chunk failed (blocks ${from}-${to}): ${e.message}`);
@@ -476,16 +528,13 @@ export async function runLeaderboard(overrides = {}) {
     throw new Error(`All ${callCount} eth_getLogs chunk(s) failed — RPC outage, aborting scan`);
   }
   const partial = failedChunks > 0;
-  onProgress(`      ${logs.length} transfer log(s) total${partial ? ` (partial: ${failedChunks} of ${callCount} ranges unavailable)` : ""}`);
+  onProgress(`      ${transferCount} transfer log(s) total${partial ? ` (partial: ${failedChunks} of ${callCount} ranges unavailable)` : ""}`);
 
-  // 3. Aggregate.
+  // 3. Aggregate. byWallet has already absorbed every successfully-scanned
+  // chunk's transfers — finalize only does the bounded (O(sellers)) grouping
+  // + ranking pass, no transfer-sized array involved.
   onProgress(`[3/3] Aggregating leaderboard…`);
-  const transfers = logs.map((l) => ({
-    wallet: ("0x" + l.topics[2].slice(-40)).toLowerCase(),
-    payer: payerFromLog(l),
-    usd: Number(BigInt(l.data)) / 1e6,
-  }));
-  const ranked = aggregateLeaderboard(transfers, sellers, { maxCallUsd: opts.maxCallUsd });
+  const ranked = finalizeLeaderboard(byWallet, { maxCallUsd: opts.maxCallUsd });
   const windowLabel = windowLabelFromBlocks(opts.spanBlocks);
 
   return {
