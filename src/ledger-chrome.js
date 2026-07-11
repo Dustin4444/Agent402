@@ -18,9 +18,9 @@ export const esc = (s) =>
 export const LEDGER_HEAD = `<link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
-<link rel="icon" type="image/png" sizes="512x512" href="/logo.png?v=2">
-<link rel="shortcut icon" href="/favicon.ico?v=2">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">
+<link rel="icon" type="image/png" sizes="512x512" href="/favicon.ico?v=3">
+<link rel="shortcut icon" href="/favicon.ico?v=3">
 <link rel="apple-touch-icon" href="/logo.png?v=2">`;
 
 // ---------------------------------------------------------------------------

@@ -1621,6 +1621,12 @@ const BRAND = { paper: "#F5F5F5", card: "#FFFFFF", ink: "#0b0b0b", muted: "#4A4A
 const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}<rect width="512" height="512" fill="${BRAND.ink}"/><text x="256" y="308" font-size="150" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-4" fill="${BRAND.paper}">402<tspan fill="${BRAND.accent}">.</tspan></text></svg>`;
 app.get("/logo.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(LOGO_SVG));
 
+// Favicon-scale mark: the logo's 150px glyphs cover ~40% of the canvas, which
+// reads as a plain black square in a 16px browser tab. This variant fills the
+// frame ("402" at 82% width, the brand period as a corner dot) so the mark
+// survives tab scale. Marketplaces/link previews keep the roomier LOGO_SVG.
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}<rect width="512" height="512" fill="${BRAND.ink}"/><text x="246" y="342" font-size="252" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-14" fill="${BRAND.paper}">402</text><rect x="408" y="408" width="68" height="68" fill="${BRAND.accent}"/></svg>`;
+
 // Marketplace bridge endpoint. agent402.app POSTs the caller's JSON body here
 // after collecting payment; we authenticate via the PER-SLUG token in the path
 // (HMAC(master, slug) — the master secret is never in any URL), adapt the body
@@ -1692,12 +1698,13 @@ app.get("/logo.png", async (_req, res) => {
 // is always available; the .ico serves the rasterized PNG (favicon clients
 // accept PNG bytes) and falls back to the SVG if Chromium is unavailable.
 app.get("/favicon.svg", (_req, res) =>
-  res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(LOGO_SVG)
+  res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(FAVICON_SVG)
 );
+let faviconPngCache = null;
 app.get("/favicon.ico", async (_req, res) => {
   try {
-    logoPngCache ??= await rasterizeSvg(LOGO_SVG, 512);
-    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(logoPngCache);
+    faviconPngCache ??= await rasterizeSvg(FAVICON_SVG, 512);
+    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(faviconPngCache);
   } catch {
     res.redirect(302, "/favicon.svg");
   }
