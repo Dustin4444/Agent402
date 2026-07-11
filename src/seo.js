@@ -5,6 +5,7 @@ import { skillSlugs, SKILL_PACKS } from "./skills.js";
 import { BLOG_POSTS } from "./blog.js";
 import { ADAPTERS } from "./adapter-docs.js";
 import { RAILS_OR } from "./rails.js";
+import { CHAIN_PAGES } from "./market-page.js";
 
 export function robotsTxt(baseUrl) {
   // Explicitly welcome AI/agent crawlers and search engines; point them at the
@@ -48,6 +49,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/api/stats`, priority: "0.6" },
     { loc: `${baseUrl}/index`, priority: "0.8" },
     { loc: `${baseUrl}/api/index`, priority: "0.6" },
+    { loc: `${baseUrl}/sell`, priority: "0.8" },
     { loc: `${baseUrl}/api/route`, priority: "0.7" },
     { loc: `${baseUrl}/leaderboard`, priority: "0.8" },
     { loc: `${baseUrl}/api/leaderboard`, priority: "0.7" },
@@ -124,6 +126,7 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/economy`, priority: "0.8" },
     { loc: `${baseUrl}/faq`, priority: "0.8" },
     { loc: `${baseUrl}/index`, priority: "0.8" },
+    { loc: `${baseUrl}/sell`, priority: "0.8" },
     { loc: `${baseUrl}/leaderboard`, priority: "0.8" },
     { loc: `${baseUrl}/docs`, priority: "0.8" },
     { loc: `${baseUrl}/robinhood`, priority: "0.8" },
@@ -202,6 +205,18 @@ Base URL: ${baseUrl}
 > Public on-chain ranking of every x402 seller: \`GET ${baseUrl}/api/leaderboard?top=N&include=all|external&sort=usd|calls\` returns the live leaderboard by Base USDC settled volume (callsSettled, totalUsd, uniqueBuyers per seller). Pipeline: Bazaar discovery → \`eth_getLogs\` on Base USDC → per-call ceiling filter → aggregate by payTo. Cached snapshot, refreshed hourly server-side. Free. Use \`include:"external"\` to rank only the rest of the ecosystem (excludes Agent402). Use \`sort=calls\` to rank by raw call volume instead of USDC earned — useful for finding the most-used tools regardless of price.
 
 > Open source, and two-sided: Agent402 is also the home of \`agent402-tollbooth\` — an open-source, self-hostable x402 pay-per-crawl gate that lets any site charge AI crawlers per request (USDC via x402, or free proof-of-work) while humans browse free. Install page: ${baseUrl}/tollbooth . Hosted multi-site dashboard, alerts, and white-label for SEO agencies in early access: ${baseUrl}/tollbooth/cloud (Solo $19/mo, Team $99/mo, Agency $299/mo, Enterprise on request; 20% lifetime partner referral). https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth
+
+## Three products, one open ledger
+
+- **For agents (buy)** - ${tools.length} pay-per-call tools, this file, ${baseUrl}/tools, ${baseUrl}/skills.
+- **The x402 index (ecosystem)** - every seller across every chain, ranked on-chain: ${baseUrl}/index (HTML) / ${baseUrl}/api/index (JSON), ${baseUrl}/leaderboard (by USDC settled), ${baseUrl}/economy (live dashboards).
+- **For API sellers (sell)** - the seller front door: ${baseUrl}/sell . List an x402-speaking API on the index for $0 with a 0% take, or install \`agent402-tollbooth\` to gate AI crawlers on your own site. Non-custodial - settlement lands directly in the seller's wallet.
+
+### The index, by chain
+
+${Object.entries(CHAIN_PAGES).map(([key, c]) => `- ${c.chainName} (\`${c.caip2}\`, ${c.asset} via ${c.facilitatorLabel}): ${baseUrl}/${key}`).join("\n")}
+
+Every chain not listed above (Base, Polygon, Arbitrum, Robinhood Chain) is a live settlement rail without its own market page yet - see it in the full cross-chain snapshot at ${baseUrl}/api/index or ${baseUrl}/index.
 
 ## This is machine-to-machine commerce, and you can verify it
 

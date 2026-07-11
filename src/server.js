@@ -146,6 +146,7 @@ import { robinhoodPage } from "./robinhood-page.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
+import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot, x402EconomyPage } from "./x402-economy.js";
 import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
@@ -1473,6 +1474,18 @@ app.get("/algorand", async (req, res) => {
       ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
       : null;
     htmlCache(res, 120, 600).send(algorandPage(BASE_URL, { snapshot, rail, activity, selectedSeller, algorandWallet: selfWallet || undefined }));
+  } catch (e) {
+    res.status(500).type("text/plain").send("temporarily unavailable");
+  }
+});
+// The seller front door — list an API on the index or tollbooth a site.
+// Whole-body try/catch like /stellar and /algorand: any snapshot failure
+// degrades to "temporarily unavailable" text rather than a half-rendered page.
+app.get("/sell", (_req, res) => {
+  try {
+    htmlCache(res, 120, 600).send(
+      sellPage(BASE_URL, { leaderboardSnapshot: getLeaderboardSnapshot(), indexSnapshot: getIndexSnapshot() })
+    );
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
