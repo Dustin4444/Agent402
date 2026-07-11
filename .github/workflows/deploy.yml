@@ -968,6 +968,9 @@ jobs:
       - name: Index self-serve registration tests (offline)
         run: node scripts/test-index-register.js
 
+      - name: Agent wish loop tests (caps, dedup clustering, rate limits, file cap, aggregate shape — offline)
+        run: node scripts/test-wish.js
+
       - name: Stellar activity scan tests (offline, fixture Horizon records)
         run: node scripts/test-stellar-activity.js
 
