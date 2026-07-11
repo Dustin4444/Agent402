@@ -97,10 +97,55 @@ export const EVM = {
 // that contention — without a second lane the card loses its amount/external
 // tags whenever the ledger is paging. Same list + env override as
 // scripts/revenue-scan-solana.js.
+// Alchemy first when the key is set (same key as the EVM rails) — it serves
+// Solana JSON-RPC from a datacenter-reachable endpoint, so the balance read
+// stops timing out against the rate-limited public RPCs. The publics stay as
+// fallbacks (rpcCall walks the list on error/timeout).
 export const SOLANA_RPCS = (process.env.SOLANA_RPCS || [
+  ...(process.env.ALCHEMY_API_KEY ? [`https://solana-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []),
   "https://api.mainnet-beta.solana.com",
   "https://solana-rpc.publicnode.com",
 ].join(",")).split(",").map((s) => s.trim()).filter(Boolean);
+
+// Stellar/Algorand REST endpoints. Alchemy doesn't serve these chains, so each
+// keeps a public primary plus a second independent provider (both verified
+// live), walked on error/timeout. Comma-separated env overrides let ops drop in
+// a keyed/dedicated RPC with no code change - "plenty of RPCs" on tap.
+export const STELLAR_HORIZON_URLS = (process.env.STELLAR_HORIZON_URLS ||
+  "https://horizon.stellar.org,https://horizon.stellar.lobstr.co"
+).split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
+export const ALGORAND_ALGOD_URLS = (process.env.ALGORAND_ALGOD_URLS ||
+  "https://mainnet-api.algonode.cloud,https://mainnet-api.4160.nodely.dev"
+).split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
+export const ALGORAND_INDEXER_URLS = (process.env.ALGORAND_INDEXER_URLS ||
+  "https://mainnet-idx.algonode.cloud,https://mainnet-idx.4160.nodely.dev"
+).split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
+
+// GET JSON across a list of base URLs, walking to the next on any failure
+// (network / timeout / non-2xx). Returns the first success (or the last
+// failure) as { ok, status, json, base }. The 10s default deadline (up from
+// 6s) is deliberate: these public endpoints are slow-but-working from Railway's
+// datacenter IP, not dead, and the short timeout was the main cause of the
+// "unreachable" flapping. okStatuses lets a caller treat e.g. 404 (Algorand
+// fresh-wallet, no ASA opt-in) as a valid non-error response.
+export async function getJsonAcross(bases, path, { timeoutMs = 10000, okStatuses = [] } = {}) {
+  let last = { ok: false, status: 0, json: null, base: null, error: "no endpoints" };
+  for (const base of bases) {
+    if (!base) continue;
+    try {
+      const res = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+      if (res.ok || okStatuses.includes(res.status)) {
+        let json = null;
+        try { json = await res.json(); } catch { /* an ok-status body may be empty (404) */ }
+        return { ok: true, status: res.status, json, base };
+      }
+      last = { ok: false, status: res.status, json: null, base, error: `HTTP ${res.status}` };
+    } catch (e) {
+      last = { ok: false, status: 0, json: null, base, error: String(e?.message || e).slice(0, 120) };
+    }
+  }
+  return last;
+}
 
 export const pad = (a) => "0x" + "0".repeat(24) + a.toLowerCase().replace(/^0x/, "");
 
@@ -380,21 +425,18 @@ export async function stellarRail(wallet) {
   const out = { rail: "Stellar", asset: "USDC", wallet: wallet || null, explorer: wallet ? `https://stellar.expert/explorer/public/account/${wallet}` : null, balance: null, recent: [], error: null };
   if (!wallet) { out.error = "STELLAR_WALLET_ADDRESS unset"; return out; }
   try {
-    // Balance
-    const res = await fetch(`https://horizon.stellar.org/accounts/${wallet}`, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) { out.error = `Horizon HTTP ${res.status}`; return out; }
-    const acct = await res.json();
+    // Balance - walk Horizon providers (primary + fallback) on timeout/error.
+    const bal = await getJsonAcross(STELLAR_HORIZON_URLS, `/accounts/${wallet}`);
+    if (!bal.ok) { out.error = bal.error || `Horizon HTTP ${bal.status}`; return out; }
+    const acct = bal.json;
     const usdcBalance = acct.balances?.find((b) => b.asset_code === "USDC" && b.asset_issuer === USDC_ISSUER);
     out.balance = usdcBalance ? Number(usdcBalance.balance) : 0;
-    // Recent payments (incoming USDC)
+    // Recent payments (incoming USDC) - prefer the provider the balance read
+    // succeeded on, then the rest of the list.
     try {
-      const payRes = await fetch(
-        `https://horizon.stellar.org/accounts/${wallet}/payments?order=desc&limit=10`,
-        { signal: AbortSignal.timeout(6000) },
-      );
-      if (payRes.ok) {
-        const payData = await payRes.json();
-        const records = payData?._embedded?.records || [];
+      const pay = await getJsonAcross([bal.base, ...STELLAR_HORIZON_URLS], `/accounts/${wallet}/payments?order=desc&limit=10`);
+      if (pay.ok) {
+        const records = pay.json?._embedded?.records || [];
         // Internal = the committed canary burner set + this wallet itself
         // (self-transfers/funding moves are never external revenue).
         const ours = new Set([...OUR_STELLAR_WALLETS, wallet]);
@@ -424,29 +466,26 @@ export async function algorandRail(wallet) {
   const out = { rail: "Algorand", asset: "USDC", wallet: wallet || null, explorer: wallet ? `https://allo.info/account/${wallet}` : null, balance: null, recent: [], error: null };
   if (!wallet) { out.error = "ALGORAND_WALLET_ADDRESS unset"; return out; }
   try {
-    // Balance
-    const res = await fetch(`https://mainnet-api.algonode.cloud/v2/accounts/${wallet}`, { signal: AbortSignal.timeout(6000) });
-    if (res.status === 404) {
+    // Balance - walk algod providers (primary + fallback) on timeout/error.
+    const bal = await getJsonAcross(ALGORAND_ALGOD_URLS, `/v2/accounts/${wallet}`, { okStatuses: [404] });
+    if (bal.status === 404) {
       // A fresh wallet that has never opted in to ASA 31566704 is a valid
       // state, not an error — it just holds no USDC (and can't be paid until
       // it opts in).
       out.balance = 0;
-    } else if (!res.ok) {
-      out.error = `algod HTTP ${res.status}`;
+    } else if (!bal.ok) {
+      out.error = bal.error || `algod HTTP ${bal.status}`;
       return out;
     } else {
-      const acct = await res.json();
+      const acct = bal.json;
       const usdcAsset = (acct.assets || []).find((a) => a["asset-id"] === 31566704);
       out.balance = usdcAsset ? Number(usdcAsset.amount) / 1e6 : 0;
     }
-    // Recent inbound USDC transfers (indexer)
+    // Recent inbound USDC transfers (indexer) - walk indexer providers too.
     try {
-      const txRes = await fetch(
-        `https://mainnet-idx.algonode.cloud/v2/accounts/${wallet}/transactions?asset-id=31566704&tx-type=axfer&limit=10`,
-        { signal: AbortSignal.timeout(6000) },
-      );
-      if (txRes.ok) {
-        const txData = await txRes.json();
+      const tx = await getJsonAcross(ALGORAND_INDEXER_URLS, `/v2/accounts/${wallet}/transactions?asset-id=31566704&tx-type=axfer&limit=10`);
+      if (tx.ok) {
+        const txData = tx.json;
         // Internal = the committed canary burner set + this wallet itself
         // (self-transfers/funding moves are never external revenue).
         const ours = new Set([...OUR_ALGORAND_WALLETS, wallet]);
@@ -776,6 +815,29 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
     algorandRail(algorandWallet),
   ]);
   const rails = [base, solana, polygon, arbitrum, stellar, algorand, robinhood];
+  // Per-rail last-good balance carry-forward. The non-EVM reads (Solana,
+  // Stellar, Algorand) hit public endpoints that throttle Railway's datacenter
+  // IP and intermittently time out; a wallet balance barely moves between
+  // reads, so a transient timeout must NOT wipe a known balance to
+  // "unreachable". If this read failed but the previous snapshot had a good
+  // balance for the same rail, keep it and flag it stale (honest: it's the last
+  // verified reading, timestamped). The next clean refresh replaces it. A rail
+  // we've never read successfully stays null -> genuinely unreachable.
+  const prevRails = cached?.rails || [];
+  const now = new Date().toISOString();
+  for (const r of rails) {
+    if (r.balance == null || r.error) {
+      const prev = prevRails.find((p) => p.rail === r.rail);
+      if (prev && Number.isFinite(prev.balance)) {
+        r.balance = prev.balance;
+        r.staleBalance = true;
+        r.balanceAsOf = prev.balanceAsOf || cached?.asOf || null;
+        if (!(r.recent && r.recent.length) && prev.recent) r.recent = prev.recent;
+      }
+    } else {
+      r.balanceAsOf = now;
+    }
+  }
   const totalUsd = rails.reduce((s, r) => s + (Number.isFinite(r.balance) ? r.balance : 0), 0);
   const windowExternalUsd = rails.reduce((s, r) => s + (Number.isFinite(r.externalUsd) ? r.externalUsd : 0), 0);
   cached = {
@@ -859,17 +921,23 @@ export function revenuePage(baseUrl, snap) {
     // this explicit stops a low-activity rail (or a partial transfer scan) from
     // reading as "the chain is broken" when only the recent-activity list is
     // empty. Green = live, red = the balance read itself failed.
-    const live = !r.error && r.balance != null;
-    const statusDot = live
-      ? `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>live</span>`
-      : `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--accent);"><span style="width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;"></span>unreachable</span>`;
+    // A balance present (fresh OR carried-forward from the last good read) means
+    // the chain is live and settling - a wallet balance barely moves between
+    // reads, so a carried-forward figure is still accurate to within minutes.
+    // Only a rail we've NEVER read (no balance at all) is genuinely unreachable.
+    // Carried-forward reads show "live · cached" so the freshness is honest.
+    const hasBalance = r.balance != null;
+    const stale = hasBalance && r.staleBalance;
+    const dotColor = hasBalance ? "var(--green)" : "var(--accent)";
+    const dotLabel = !hasBalance ? "unreachable" : stale ? "live · cached" : "live";
+    const statusDot = `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:${dotColor};"><span style="width:7px;height:7px;border-radius:50%;background:${dotColor};display:inline-block;"></span>${dotLabel}</span>`;
     return `
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
       <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">
         <span style="font-weight:800;font-size:17px;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· ${esc(r.asset)}</span> ${statusDot}</span>
         <span style="font-family:var(--font-mono);text-align:right;"><span style="font-size:20px;font-weight:700;">${r.balance == null ? "-" : "$" + r.balance.toFixed(4)}</span><span style="display:block;font-size:11px;color:var(--muted);">balance${Number.isFinite(r.externalUsd) ? ` · external in window $${r.externalUsd}` : ""}${at ? ` · all-time $${at.externalUsd}${at.caughtUp ? "" : "↺"}` : ""}</span></span>
       </div>
-      ${r.error
+      ${!hasBalance
         ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable - public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
         : r.recent.length
           ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">${r.recent
