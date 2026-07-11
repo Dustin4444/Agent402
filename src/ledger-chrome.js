@@ -40,6 +40,7 @@ export const LEDGER_CSS = `
   --muted: #4A4A4A;
   --faint: #8C8C8C;
   --hairline: #E0E0DE;
+  --dash: #C9C9C7;
   --dark-border: #262626;
   --dark-border2: #343434;
   --cream: #FFFFFF;
@@ -51,6 +52,36 @@ export const LEDGER_CSS = `
   --font-body: 'Archivo', system-ui, sans-serif;
   --font-mono: 'Space Mono', monospace;
 }
+/* Dark theme. Light-surface tokens flip together: because a solid chip is
+   background:var(--ink) with color:var(--cream), flipping --ink light AND
+   --cream dark turns all ~100 of them into clean inverted (light-on-dark)
+   buttons automatically. The always-dark surfaces (tape, code panels via
+   --ink-tape / --ink-panel / --dk-muted*) intentionally stay dark. Set from
+   localStorage (or prefers-color-scheme) before first paint - see ledgerShell. */
+:root[data-theme="dark"] {
+  --accent: #F0522E;
+  --paper: #0E0E10;
+  --card: #171719;
+  --card-zebra: #1E1E21;
+  --footer-bg: #131315;
+  --ink: #ECECEA;
+  --muted: #9E9E98;
+  --faint: #6C6C68;
+  --hairline: #2A2A30;
+  --dash: #35353B;
+  --cream: #0E0E10;
+  --cream2: #171719;
+  --ink-tape: #050506;
+  --ink-panel: #171719;
+}
+:root { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+body { transition: background-color .18s ease, color .18s ease; }
+.ml-theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; padding:0; border:1.5px solid var(--ink); background:transparent; color:var(--ink); cursor:pointer; }
+.ml-theme-toggle:hover { background: var(--card-zebra); }
+.ml-theme-toggle .ml-sun { display:none; }
+:root[data-theme="dark"] .ml-theme-toggle .ml-moon { display:none; }
+:root[data-theme="dark"] .ml-theme-toggle .ml-sun { display:inline-flex; }
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { background: var(--paper); font-family: var(--font-body); color: var(--ink); -webkit-font-smoothing: antialiased; }
@@ -290,6 +321,10 @@ function nav(activePath) {
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:14px;">
       <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="font-family:var(--font-mono);font-size:13px;color:var(--muted);text-decoration:none;">github</a>
+      <button type="button" onclick="a402ToggleTheme()" class="ml-theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+        <svg class="ml-moon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        <svg class="ml-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
       <a href="/docs" style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>
     </div>
   </div>
@@ -379,7 +414,7 @@ export function ledgerTape(recentCalls) {
   if (!recentCalls || !recentCalls.length) return "";
   const items = recentCalls.slice(0, 12);
   const chip = (r) =>
-    `<span>${esc(r.slug)} · <span style="color:var(--cream);">${r.paidWith === "proof-of-work" ? "PoW" : "$USDC"}</span> · ${agoStr(r.at)}</span>`;
+    `<span>${esc(r.slug)} · <span style="color:#EDEDEB;">${r.paidWith === "proof-of-work" ? "PoW" : "$USDC"}</span> · ${agoStr(r.at)}</span>`;
   const track = items.map(chip).join("");
   return `<div style="background:var(--ink-tape);border-bottom:1.5px solid var(--ink);overflow:hidden;display:flex;align-items:center;">
   <div style="flex:none;padding:11px 18px;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);border-right:1px solid var(--dark-border);">●●● TAPE</div>
@@ -437,6 +472,8 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<script>(function(){try{var t=localStorage.getItem('a402-theme')||(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();
+function a402ToggleTheme(){try{var r=document.documentElement,d=r.getAttribute('data-theme')==='dark';if(d){r.removeAttribute('data-theme');localStorage.setItem('a402-theme','light');}else{r.setAttribute('data-theme','dark');localStorage.setItem('a402-theme','dark');}}catch(e){}}</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">

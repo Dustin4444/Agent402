@@ -882,13 +882,13 @@ function salesSection(sales) {
       ? `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);">no paid calls recorded yet - the ledger names each one as it lands</p>`
       : `<div class="ml-2col" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed #C9C9C7;padding-bottom:8px;margin-bottom:10px;">top bought (30d) - $${(sales.totals?.external?.revenueUsd ?? 0).toFixed(4)} external</div>
+        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed var(--dash);padding-bottom:8px;margin-bottom:10px;">top bought (30d) - $${(sales.totals?.external?.revenueUsd ?? 0).toFixed(4)} external</div>
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
           ${rows.map((r) => `<div><a href="/tools/${esc(r.slug)}">${esc(r.slug)}</a> × ${r.sales} · $${r.revenueUsd.toFixed(4)}</div>`).join("") || '<div style="color:var(--muted);">-</div>'}
         </div>
       </div>
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed #C9C9C7;padding-bottom:8px;margin-bottom:10px;">recent external sales</div>
+        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed var(--dash);padding-bottom:8px;margin-bottom:10px;">recent external sales</div>
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
           ${recent.slice(0, 10).map((s) => {
             const link = s.tx && SALE_TX_URL[s.network] ? ` · <a href="${esc(SALE_TX_URL[s.network](s.tx))}" rel="noopener">tx</a>` : "";
@@ -897,7 +897,7 @@ function salesSection(sales) {
         </div>
       </div>
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed #C9C9C7;padding-bottom:8px;margin-bottom:10px;">recent internal (canary/test) - $${(sales.totals?.internal?.revenueUsd ?? 0).toFixed(4)}</div>
+        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed var(--dash);padding-bottom:8px;margin-bottom:10px;">recent internal (canary/test) - $${(sales.totals?.internal?.revenueUsd ?? 0).toFixed(4)}</div>
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
           ${internal.slice(0, 10).map((s) => {
             const link = s.tx && SALE_TX_URL[s.network] ? ` · <a href="${esc(SALE_TX_URL[s.network](s.tx))}" rel="noopener">tx</a>` : "";
@@ -933,7 +933,7 @@ export function revenuePage(baseUrl, snap) {
     const statusDot = `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:${dotColor};"><span style="width:7px;height:7px;border-radius:50%;background:${dotColor};display:inline-block;"></span>${dotLabel}</span>`;
     return `
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
         <span style="font-weight:800;font-size:17px;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· ${esc(r.asset)}</span> ${statusDot}</span>
         <span style="font-family:var(--font-mono);text-align:right;"><span style="font-size:20px;font-weight:700;">${r.balance == null ? "-" : "$" + r.balance.toFixed(4)}</span><span style="display:block;font-size:11px;color:var(--muted);">balance${Number.isFinite(r.externalUsd) ? ` · external in window $${r.externalUsd}` : ""}${at ? ` · all-time $${at.externalUsd}${at.caughtUp ? "" : "↺"}` : ""}</span></span>
       </div>

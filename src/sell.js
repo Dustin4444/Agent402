@@ -45,7 +45,7 @@ function receiptRow(label, value, href, { accent = false } = {}) {
       : href
         ? `<a href="${esc(href)}" style="font-weight:700;color:${accent ? "var(--accent)" : "var(--ink)"};text-decoration:none;">${esc(value)}</a>`
         : `<span style="font-weight:700;${accent ? "color:var(--accent);" : ""}">${esc(value)}</span>`;
-  return `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span>${valueHtml}</div>`;
+  return `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span>${valueHtml}</div>`;
 }
 
 export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
@@ -120,11 +120,11 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
       </div>
       <!-- DEMAND RECEIPT -->
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;box-shadow:8px 8px 0 #0b0b0b1f;">
-        <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;"><span>·· DEMAND${windowLabel ? ` · LAST ${esc(windowLabel).toUpperCase()}` : ""} ··</span><span style="display:flex;align-items:center;gap:6px;color:var(--accent);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;"></span>LIVE</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· DEMAND${windowLabel ? ` · LAST ${esc(windowLabel).toUpperCase()}` : ""} ··</span><span style="display:flex;align-items:center;gap:6px;color:var(--accent);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;"></span>LIVE</span></div>
         <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:14px;">
           ${demandRowsHtml}
         </div>
-        <div style="margin-top:14px;padding-top:10px;border-top:1px dashed #C9C9C7;font-family:var(--font-mono);font-size:11px;color:var(--faint);line-height:1.6;">every figure derives from the hourly on-chain snapshot · <a href="/leaderboard" style="color:var(--muted);">verify on /leaderboard →</a></div>
+        <div style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--dash);font-family:var(--font-mono);font-size:11px;color:var(--faint);line-height:1.6;">every figure derives from the hourly on-chain snapshot · <a href="/leaderboard" style="color:var(--muted);">verify on /leaderboard →</a></div>
       </div>
     </div>
   </div>
@@ -197,7 +197,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
   <p style="font-size:16px;color:var(--muted);max-width:580px;margin:0 0 30px;">Short enough to read. Nothing is hidden in a PDF.</p>
   <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">·· WHAT YOU GET ··</div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">·· WHAT YOU GET ··</div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13.5px;">
         <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Listed on /index + your chain's market pages</div>
         <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Routed by the Smart Order Router when healthy</div>
@@ -206,12 +206,12 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
       </div>
     </div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">·· WHAT WE TAKE ··</div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">·· WHAT WE TAKE ··</div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13.5px;">
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">listing fee</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">$0</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">take rate on your settlements</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">0%</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">custody of your funds</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">never</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">ranking favors</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">health, not us</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">listing fee</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">$0</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">take rate on your settlements</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">0%</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">custody of your funds</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">never</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">ranking favors</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">health, not us</span></div>
       </div>
     </div>
   </div>
