@@ -2577,6 +2577,12 @@ else console.log(`[posthog] disabled (${posthogInit.reason || "unknown"})`);
 // forget so a slow upstream can't delay boot or /health.
 startCrawler({ selfOrigin: BASE_URL });
 
+// Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot serves
+// stale-while-revalidating, so the only request that could ever block on the
+// full seven-rail RPC scan is the very first one after a deploy — this warm
+// takes even that hit off buyers' pageviews.
+revenueSnapshot(revenueWallets()).catch(() => { /* first pageview warms instead */ });
+
 // x402 Leaderboard cache: warms once at boot, refreshes hourly. Failures keep
 // the previous good snapshot rather than wiping it — a transient RPC outage
 // shouldn't make /api/leaderboard return nothing. Fire-and-forget so a slow
