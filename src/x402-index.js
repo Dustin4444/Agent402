@@ -27,7 +27,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { safeFetch } from "./tools/fetch-guard.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
-import { RAILS } from "./rails.js";
+import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
@@ -35,6 +35,19 @@ import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 // availability from CHAIN_PAGES, live seller counts from marketSellers() run
 // against the snapshot this page already renders from — no new plumbing.
 const CHAIN_PAGE_BY_CAIP2 = new Map(Object.entries(CHAIN_PAGES).map(([key, cfg]) => [cfg.caip2, key]));
+
+// ?network=<key> matchers for the Sellers table filter chips — one per
+// mainnet rail in rails.js, same "EVM = exact CAIP-2, else = namespace
+// prefix excluding testnets" rule market-page.js's CHAIN_PAGES.isNetwork
+// uses for stellar/algorand (solana gets the same treatment for consistency
+// even though it has no market page yet). Keyed by railKey() so a future
+// rail lights up a chip here with zero new code.
+const NETWORK_MATCHERS = new Map(RAILS.map((r) => {
+  const matches = r.chainId
+    ? (n) => n === r.caip2
+    : (n) => typeof n === "string" && n.startsWith(r.caip2.split(":")[0]) && !n.includes("test");
+  return [railKey(r), { label: r.name.replace(/ Chain$/, ""), matches }];
+}));
 
 const LOCAL_SELLER = "self";
 const CRAWL_INTERVAL_MS = 5 * 60 * 1000; // 5 min — gentle on third-party sellers
@@ -124,7 +137,7 @@ export async function registerOrigin(origin, { crawl } = {}) {
   // already on the list (retrying after a prior failure) is not new growth,
   // so it's exempt — it can still probe and update its own entry at cap.
   if (!submittedSeeds.has(origin) && submittedSeeds.size >= submittedSeedsCap) {
-    return { listed: false, origin, error: "submission list is full — open a GitHub issue to get seeded" };
+    return { listed: false, origin, error: "submission list is full - open a GitHub issue to get seeded" };
   }
   const doCrawl = crawl || (async (o) => { await crawlSeller(o); return cache.get(o); });
   let v;
@@ -833,27 +846,54 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
  * page refresh re-renders from the latest snapshot. Embed snippet at the bottom
  * shows sellers how to drop a "tools live on x402" widget on their landing.
  */
-export function indexPage(snapshot, { baseUrl }) {
+export function indexPage(snapshot, { baseUrl, network } = {}) {
   const fmtAge = (ts) => {
-    if (!ts) return "—";
+    if (!ts) return "-";
     const age = Math.max(0, Math.floor((Date.now() - ts) / 1000));
     return age < 60 ? `${age}s ago` : age < 3600 ? `${Math.floor(age / 60)}m ago` : `${Math.floor(age / 3600)}h ago`;
   };
+  // ?network=<railkey> filter — validated against the known rail set (any
+  // unrecognized value is silently ignored, never a 400: this is a plain-link
+  // GET filter, not an API contract). The local catalog always passes: it's
+  // one seller settling on every rail Agent402 accepts, so it has no
+  // per-rail `networks` list to test against — filtering it out on any rail
+  // would be a false negative, not an honest "doesn't settle here".
+  const activeNet = network && NETWORK_MATCHERS.has(network) ? network : null;
+  const matcher = activeNet ? NETWORK_MATCHERS.get(activeNet).matches : null;
+  const allSellers = snapshot.sellers;
+  const filteredSellers = matcher ? allSellers.filter((s) => s.local || (s.networks || []).some(matcher)) : allSellers;
   const healthBadge = (s) => {
-    if (s.local) return ' <span class="badge local">SELF</span>';
+    if (s.local) {
+      const note = activeNet ? ' <span class="badge local" title="the local catalog settles on every rail">ALL RAILS</span>' : "";
+      return ' <span class="badge local">SELF</span>' + note;
+    }
     if (s.error) return ' <span class="badge err" title="' + esc(s.error) + '">STALE</span>';
     // Healthy seller: show rolling history as a tiny sparkline
     const dots = (s.history || []).map((x) => (x ? "●" : "○")).join("");
     return dots ? ` <span class="badge ok" title="last ${s.history.length} crawls">${dots}</span>` : "";
   };
-  const rows = snapshot.sellers
+  const rows = filteredSellers
     .map((s) => {
       return `<tr>
         <td><a href="${esc(s.homepage || s.origin)}" target="_blank" rel="noopener">${esc(s.displayName)}</a>${healthBadge(s)}</td>
         <td class="num">${esc(s.toolCount)}</td>
-        <td>${esc(s.network || "—")}</td>
+        <td>${esc(s.network || "-")}</td>
         <td class="muted">${esc(fmtAge(s.fetchedAt))}</td>
       </tr>`;
+    })
+    .join("");
+  // Filter chips — "all" plus one per mainnet rail, derived from RAILS so a
+  // new chain lights one up here with zero edits. Plain links (no JS),
+  // preserving no other params; styled like market-page.js's chain switcher
+  // (ink 700 + accent underline when active).
+  const chips = [{ key: "", label: "all" }, ...[...NETWORK_MATCHERS.entries()].map(([key, v]) => ({ key, label: v.label }))]
+    .map((c) => {
+      const active = c.key === (activeNet || "");
+      const href = c.key ? `/index?network=${encodeURIComponent(c.key)}` : "/index";
+      const style = active
+        ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
+        : "color:var(--muted);text-decoration:none;";
+      return `<a href="${esc(href)}" style="${style}">${esc(c.label.toLowerCase())}</a>`;
     })
     .join("");
   const discoveryRows = (snapshot.discoverySources || [])
@@ -871,7 +911,7 @@ export function indexPage(snapshot, { baseUrl }) {
     })
     .join("");
 
-  const title = "x402 Index — Agent402";
+  const title = "x402 Index - Agent402";
   const description = "Live map of the agent payments economy: every x402 seller, their tool count, network, and last-crawled time.";
   const canonical = `${baseUrl}/index`;
 
@@ -892,7 +932,8 @@ export function indexPage(snapshot, { baseUrl }) {
     const live = hasPage && known;
     return {
       name: r.name.replace(/ Chain$/, "").toUpperCase(),
-      asset: `${r.asset} · ${r.caip2}`,
+      asset: `${r.asset} · ${truncateCaip2(r.caip2)}`,
+      assetFull: `${r.asset} · ${r.caip2}`,
       href: hasPage ? `/${pageKey}` : "/index",
       hasPage,
       live,
@@ -901,7 +942,7 @@ export function indexPage(snapshot, { baseUrl }) {
   });
   const chainCellHtml = (c) => `<a href="${esc(c.href)}">
       <span class="cn${c.hasPage ? " haspage" : ""}">${esc(c.name)}</span>
-      <span class="ca">${esc(c.asset)}</span>
+      <span class="ca" title="${esc(c.assetFull)}">${esc(c.asset)}</span>
       <span class="cs${c.live ? " live" : ""}"><span class="dot${c.live ? " live" : ""}"></span>${esc(c.status)}</span>
     </a>`;
 
@@ -935,23 +976,25 @@ export function indexPage(snapshot, { baseUrl }) {
   .foot { color:var(--faint); font-size:.82rem; margin-top:24px; }
   .foot a { color:var(--accent); text-decoration:none; }
   .chains-label { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin:0 0 12px; font-family:var(--font-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
-  .chains { display:grid; grid-template-columns:repeat(${chainCells.length},1fr); gap:0; border:1.5px solid var(--ink); background:var(--card); margin:0 0 8px; }
-  .chains a { display:block; padding:14px 16px; border-right:1px solid var(--hairline); text-decoration:none; }
+  .chains { display:grid; grid-template-columns:repeat(${chainCells.length},minmax(0,1fr)); gap:0; border:1.5px solid var(--ink); background:var(--card); margin:0 0 8px; }
+  .chains a { display:block; min-width:0; overflow:hidden; padding:14px 16px; border-right:1px solid var(--hairline); text-decoration:none; }
   .chains a:last-child { border-right:none; }
-  .chains .cn { display:block; font-family:var(--font-mono); font-weight:700; font-size:13px; margin-bottom:3px; color:var(--faint); }
+  .chains .cn { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono); font-weight:700; font-size:13px; margin-bottom:3px; color:var(--faint); }
   .chains .cn.haspage { color:var(--ink); }
-  .chains .ca { display:block; font-family:var(--font-mono); font-size:10.5px; color:var(--faint); margin-bottom:9px; }
-  .chains .cs { display:inline-flex; align-items:center; gap:6px; font-family:var(--font-mono); font-size:11px; color:var(--faint); }
+  .chains .ca { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono); font-size:10.5px; color:var(--faint); margin-bottom:9px; }
+  .chains .cs { display:flex; align-items:center; gap:6px; overflow:hidden; font-family:var(--font-mono); font-size:11px; color:var(--faint); }
   .chains .cs.live { color:var(--green); }
-  .chains .cs .dot { width:6px; height:6px; border-radius:50%; background:var(--faint); display:inline-block; }
+  .chains .cs .dot { width:6px; height:6px; border-radius:50%; background:var(--faint); display:inline-block; flex:none; }
   .chains .cs.live .dot { background:var(--green); }
   .chains-foot { color:var(--faint); font-family:var(--font-mono); font-size:11px; margin:0 0 22px; }
+  .chips { display:flex; align-items:center; gap:16px; flex-wrap:wrap; font-family:var(--font-mono); font-size:12px; margin-top:8px; }
+  .chips-note { color:var(--faint); font-family:var(--font-mono); font-size:11.5px; margin-top:6px; }
   `;
 
   const pageBody = `<div class="ix-wrap">
 
 <h1>x402 Index</h1>
-<p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them every 5 minutes and shows what's online. Selling on Stellar or Algorand? See <a href="/stellar">the Stellar x402 marketplace</a> or the <a href="/algorand">Algorand x402 marketplace</a> — the same index, filtered per rail.</p>
+<p class="sub">Live map of the agent payments economy. Every seller below publishes an x402 service manifest at <code>/.well-known/x402</code>; this page crawls them every 5 minutes and shows what's online. Selling on Stellar or Algorand? See <a href="/stellar">the Stellar x402 marketplace</a> or the <a href="/algorand">Algorand x402 marketplace</a> - the same index, filtered per rail.</p>
 
 <div class="chains-label"><span>The index, by chain</span><span>adding a chain adds a cell, not a nav link</span></div>
 <div class="chains ml-mkts">
@@ -969,10 +1012,15 @@ export function indexPage(snapshot, { baseUrl }) {
 </div>
 
 <div class="panel">
-  <div class="ph"><h2>Sellers</h2><div class="pn">Local catalog plus every seeded origin we could fetch.</div></div>
+  <div class="ph">
+    <h2>Sellers</h2>
+    <div class="pn">Local catalog plus every seeded origin we could fetch.</div>
+    <div class="chips">${chips}</div>
+    ${activeNet ? `<div class="chips-note">${esc(filteredSellers.length)} of ${esc(allSellers.length)} sellers</div>` : ""}
+  </div>
   <table>
     <thead><tr><th>Seller</th><th class="num">Tools</th><th>Network</th><th>Last fetch</th></tr></thead>
-    <tbody>${rows || `<tr><td colspan="4" class="muted" style="text-align:center;padding:24px">No sellers yet — seed via X402_INDEX_SEEDS.</td></tr>`}</tbody>
+    <tbody>${rows || `<tr><td colspan="4" class="muted" style="text-align:center;padding:24px">No sellers yet - seed via X402_INDEX_SEEDS.</td></tr>`}</tbody>
   </table>
 </div>
 
@@ -985,16 +1033,16 @@ export function indexPage(snapshot, { baseUrl }) {
 </div>
 
 <div class="panel">
-  <div class="ph"><h2>Smart Order Router — neutral x402 discovery</h2><div class="pn">Resolve a task to the cheapest healthy tool across every seller in one call. Use <code>include:"external"</code> to exclude Agent402 itself — we list because we trust the ranking, not because we'd rig it for ourselves.</div></div>
+  <div class="ph"><h2>Smart Order Router - neutral x402 discovery</h2><div class="pn">Resolve a task to the cheapest healthy tool across every seller in one call. Use <code>include:"external"</code> to exclude Agent402 itself - we list because we trust the ranking, not because we'd rig it for ourselves.</div></div>
   <div style="padding:14px 18px;">
     <pre>curl -s -X POST ${esc(baseUrl)}/api/route \\
   -H 'Content-Type: application/json' \\
   -d '{"query":"ocr image","top":3,"include":"external"}'</pre>
-    <p class="foot" style="margin:10px 0 0;">Free — same gate as <code>/api/find</code>. <code>include</code> = <code>all</code> (default) · <code>external</code> (exclude self) · <code>local</code> (Agent402 only). Deterministic lexical scoring, health-then-price tiebreak.</p>
+    <p class="foot" style="margin:10px 0 0;">Free - same gate as <code>/api/find</code>. <code>include</code> = <code>all</code> (default) · <code>external</code> (exclude self) · <code>local</code> (Agent402 only). Deterministic lexical scoring, health-then-price tiebreak.</p>
   </div>
 </div>
 
-<p class="foot">x402 Index is open-source — part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. To add your seller, publish a manifest at <code>/.well-known/x402</code> and open a PR adding your origin to the seed list (or run your own Index instance).</p>
+<p class="foot">x402 Index is open-source - part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. To add your seller, publish a manifest at <code>/.well-known/x402</code> and open a PR adding your origin to the seed list (or run your own Index instance).</p>
 
 </div>
 ${ledgerFooterCompact()}`;

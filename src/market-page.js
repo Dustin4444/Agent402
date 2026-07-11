@@ -38,8 +38,8 @@ export const CHAIN_PAGES = {
     // Stellar mainnet CAIP-2 is "stellar:pubnet"; testnet ids contain "test".
     isNetwork: (n) => typeof n === "string" && n.startsWith("stellar") && !n.includes("test"),
     honestyNetworkPhrase: "a Stellar network",
-    canaryLine: "A paid canary buys tools over the Stellar rail daily (facilitator: OpenZeppelin) — uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept x402 payments with a <code>stellar:pubnet</code> accept in your 402 challenge — the <a href="https://developers.stellar.org/docs/build/agentic-payments/x402/built-on-stellar" rel="noopener">Built on Stellar facilitator</a> (OpenZeppelin) verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/stellar" rel="noopener"><code>@x402/stellar</code></a> for the wire, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> — the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    canaryLine: "A paid canary buys tools over the Stellar rail daily (facilitator: OpenZeppelin) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept x402 payments with a <code>stellar:pubnet</code> accept in your 402 challenge - the <a href="https://developers.stellar.org/docs/build/agentic-payments/x402/built-on-stellar" rel="noopener">Built on Stellar facilitator</a> (OpenZeppelin) verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/stellar" rel="noopener"><code>@x402/stellar</code></a> for the wire, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
   },
   algorand: {
     chainName: "Algorand",
@@ -61,8 +61,8 @@ export const CHAIN_PAGES = {
     // a testnet id that happens not to contain "test".
     isNetwork: (n) => typeof n === "string" && n.startsWith("algorand:wGHE2Pwd"),
     honestyNetworkPhrase: "the Algorand mainnet network",
-    canaryLine: "A paid canary buys tools over the Algorand rail daily (facilitator: GoPlausible, fees sponsored) — uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Algorand mainnet CAIP-2 network in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/avm" rel="noopener"><code>@x402/avm</code></a> server SDK — the GoPlausible facilitator verifies and settles, fees sponsored. Your payTo wallet must be opted in to ASA <code>31566704</code> (USDC) before it can receive payments. Then serve <code>/.well-known/x402</code> — the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    canaryLine: "A paid canary buys tools over the Algorand rail daily (facilitator: GoPlausible, fees sponsored) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Algorand mainnet CAIP-2 network in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/avm" rel="noopener"><code>@x402/avm</code></a> server SDK - the GoPlausible facilitator verifies and settles, fees sponsored. Your payTo wallet must be opted in to ASA <code>31566704</code> (USDC) before it can receive payments. Then serve <code>/.well-known/x402</code> - the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
   },
 };
 
@@ -129,11 +129,11 @@ export function marketActivityHtml(chainKey, activity, selected) {
   const scopeLabel = external ? esc(String(selected.host).toUpperCase()) : "THIS HOST";
   if (!activity || activity.error || !Array.isArray(activity.buckets) || !activity.buckets.length) {
     const why = external
-      ? `activity unavailable for this seller — no ${C.chainName} payTo advertised in its 402s, or the scan failed`
+      ? `activity unavailable for this seller - no ${C.chainName} payTo advertised in its 402s, or the scan failed`
       : "activity scan temporarily unavailable";
     return `
   <h2 id="activity" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Activity</h2>
-  <p style="color:var(--muted);font-size:13.5px;margin:0;">${why} — settlements remain independently verifiable on ${esc(C.explorerUrl)}</p>`;
+  <p style="color:var(--muted);font-size:13.5px;margin:0;">${why} - settlements remain independently verifiable on ${esc(C.explorerUrl)}</p>`;
   }
   const bars = (key) => {
     const max = Math.max(...activity.buckets.map((b) => Number(b[key]) || 0));
@@ -154,10 +154,10 @@ export function marketActivityHtml(chainKey, activity, selected) {
   const t = activity.totals || {};
   const note = [
     external
-      ? "all inbound USDC to this seller's advertised x402 payTo wallet — may include non-x402 transfers"
+      ? "all inbound USDC to this seller's advertised x402 payTo wallet - may include non-x402 transfers"
       : `all inbound USDC settlements to this host's ${C.chainName} wallet`,
     t.internalTx ? `includes ${t.internalTx} internal canary buy${t.internalTx === 1 ? "" : "s"}` : "",
-    activity.truncated ? "scan capped — totals are a floor" : "",
+    activity.truncated ? "scan capped - totals are a floor" : "",
   ].filter(Boolean).join(" · ");
   return `
   <div id="activity" style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">
@@ -185,7 +185,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
 
   const receiptHtml = latest
     ? `<p style="margin:8px 0 0;">Latest settlement: <strong>${usd(latest.usd)} ${esc(C.asset)}</strong> · <a href="${esc(latest.tx)}" rel="noopener">on-chain receipt</a>${latest.when ? ` · ${esc(latest.when)}` : ""}</p>`
-    : `<p style="margin:8px 0 0;color:var(--muted);">live receipts temporarily unavailable — settlements remain verifiable at <a href="${esc(C.explorerWalletUrl(effectiveWallet))}" rel="noopener">${esc(C.explorerUrl)}</a></p>`;
+    : `<p style="margin:8px 0 0;color:var(--muted);">live receipts temporarily unavailable - settlements remain verifiable at <a href="${esc(C.explorerWalletUrl(effectiveWallet))}" rel="noopener">${esc(C.explorerUrl)}</a></p>`;
 
   const groupsHtml = groups.map((g) => `
     <div style="border:1px solid var(--hairline);padding:14px 16px;">
@@ -236,12 +236,12 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS</div><div style="font-size:26px;font-weight:800;">${sellers.length}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${tools.length.toLocaleString("en-US")}</div></div>
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">LATEST SETTLE</div><div style="font-size:26px;font-weight:800;">${latest ? usd(latest.usd) : "—"}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">LATEST SETTLE</div><div style="font-size:26px;font-weight:800;">${latest ? usd(latest.usd) : "-"}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">PRICE FLOOR</div><div style="font-size:26px;font-weight:800;">${usd(low)}</div></div>
   </div>`;
 
   const honesty = sellers.length === 1 && sellers[0]?.local
-    ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live — discovery is open, and external sellers are added automatically when their x402 challenges advertise ${C.honestyNetworkPhrase}.</p>`
+    ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live - discovery is open, and external sellers are added automatically when their x402 challenges advertise ${C.honestyNetworkPhrase}.</p>`
     : "";
 
   const jsonLd = [
@@ -276,7 +276,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
       <button id="reg-go" style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
-    <div id="reg-out" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account — we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
+    <div id="reg-out" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
   </div>
   <script>
   document.getElementById("reg-go").addEventListener("click", async () => {
@@ -285,8 +285,8 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     try {
       const r = await fetch("/api/index/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: document.getElementById("reg-origin").value }) });
       const j = await r.json();
-      out.textContent = j.listed ? ("Listed — " + (j.seller?.displayName || j.origin) + " (" + (j.seller?.toolCount || 0) + " tools). ${C.chainName} sellers appear on this page; all sellers appear on /index.") : ("Not listed: " + (j.error || "unknown error"));
-    } catch { out.textContent = "submission failed — try again"; }
+      out.textContent = j.listed ? ("Listed - " + (j.seller?.displayName || j.origin) + " (" + (j.seller?.toolCount || 0) + " tools). ${C.chainName} sellers appear on this page; all sellers appear on /index.") : ("Not listed: " + (j.error || "unknown error"));
+    } catch { out.textContent = "submission failed - try again"; }
   });
   </script>`;
 
@@ -323,7 +323,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   </div>
 </div>`;
 
-  const subheadHtml = `Pay-per-call tools for AI agents — settled in ${esc(C.asset)} on ${esc(C.chainName)} in ${esc(C.settleLatency)}, no signup, no API keys. The wallet is the account.`;
+  const subheadHtml = `Pay-per-call tools for AI agents - settled in ${esc(C.asset)} on ${esc(C.chainName)} in ${esc(C.settleLatency)}, no signup, no API keys. The wallet is the account.`;
 
   const headerHtml = `
   <div class="ml-2col" style="display:grid;grid-template-columns:1.15fr .85fr;gap:34px;align-items:start;">
@@ -386,8 +386,8 @@ ${switcherHtml}
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: `The ${C.chainName} x402 marketplace — pay-per-call tools for AI agents`,
-    description: `The ${C.chainName} x402 marketplace: ${tools.length} pay-per-call tools for AI agents, settled in USDC on ${C.chainName}. No signup, no API keys — the wallet is the account.`,
+    title: `The ${C.chainName} x402 marketplace - pay-per-call tools for AI agents`,
+    description: `The ${C.chainName} x402 marketplace: ${tools.length} pay-per-call tools for AI agents, settled in USDC on ${C.chainName}. No signup, no API keys - the wallet is the account.`,
     canonical: `${baseUrl}/${chainKey}`,
     baseUrl,
     activePath: `/${chainKey}`,

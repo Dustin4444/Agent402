@@ -584,7 +584,7 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
 }
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const short = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "—");
+const short = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "-");
 
 // "What's selling" — the sales ledger's merchant view (src/sales-ledger.js):
 // external paid calls BY NAME. The on-chain cards above prove the money;
@@ -606,14 +606,14 @@ function salesSection(sales) {
   const empty = !rows.length && !recent.length && !internal.length;
   return `
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:26px;margin:44px 0 6px;">What's selling</h2>
-    <p style="font-size:14px;color:var(--muted);margin:0 0 16px;">Every paid call recorded by name at settle time${since ? ` (recording since ${esc(since)})` : ""} — external demand plus internal canary/test activity. Machine-readable: <a href="/api/sales">/api/sales</a>.</p>
+    <p style="font-size:14px;color:var(--muted);margin:0 0 16px;">Every paid call recorded by name at settle time${since ? ` (recording since ${esc(since)})` : ""} - external demand plus internal canary/test activity. Machine-readable: <a href="/api/sales">/api/sales</a>.</p>
     ${empty
-      ? `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);">no paid calls recorded yet — the ledger names each one as it lands</p>`
+      ? `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);">no paid calls recorded yet - the ledger names each one as it lands</p>`
       : `<div class="ml-2col" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed #C9C9C7;padding-bottom:8px;margin-bottom:10px;">top bought (30d) — $${(sales.totals?.external?.revenueUsd ?? 0).toFixed(4)} external</div>
+        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed #C9C9C7;padding-bottom:8px;margin-bottom:10px;">top bought (30d) - $${(sales.totals?.external?.revenueUsd ?? 0).toFixed(4)} external</div>
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
-          ${rows.map((r) => `<div><a href="/tools/${esc(r.slug)}">${esc(r.slug)}</a> × ${r.sales} · $${r.revenueUsd.toFixed(4)}</div>`).join("") || '<div style="color:var(--muted);">—</div>'}
+          ${rows.map((r) => `<div><a href="/tools/${esc(r.slug)}">${esc(r.slug)}</a> × ${r.sales} · $${r.revenueUsd.toFixed(4)}</div>`).join("") || '<div style="color:var(--muted);">-</div>'}
         </div>
       </div>
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
@@ -622,16 +622,16 @@ function salesSection(sales) {
           ${recent.slice(0, 10).map((s) => {
             const link = s.tx && SALE_TX_URL[s.network] ? ` · <a href="${esc(SALE_TX_URL[s.network](s.tx))}" rel="noopener">tx</a>` : "";
             return `<div><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc((s.network || s.rail))}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
-          }).join("") || '<div style="color:var(--muted);">—</div>'}
+          }).join("") || '<div style="color:var(--muted);">-</div>'}
         </div>
       </div>
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed #C9C9C7;padding-bottom:8px;margin-bottom:10px;">recent internal (canary/test) — $${(sales.totals?.internal?.revenueUsd ?? 0).toFixed(4)}</div>
+        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed #C9C9C7;padding-bottom:8px;margin-bottom:10px;">recent internal (canary/test) - $${(sales.totals?.internal?.revenueUsd ?? 0).toFixed(4)}</div>
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
           ${internal.slice(0, 10).map((s) => {
             const link = s.tx && SALE_TX_URL[s.network] ? ` · <a href="${esc(SALE_TX_URL[s.network](s.tx))}" rel="noopener">tx</a>` : "";
             return `<div style="opacity:.62;"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc((s.network || s.rail))}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
-          }).join("") || '<div style="color:var(--muted);">—</div>'}
+          }).join("") || '<div style="color:var(--muted);">-</div>'}
         </div>
       </div>
     </div>`}`;
@@ -639,9 +639,9 @@ function salesSection(sales) {
 
 export function revenuePage(baseUrl, snap) {
   const canonical = baseUrl + "/revenue";
-  const title = "Live revenue — Agent402";
+  const title = "Live revenue - Agent402";
   const description =
-    "Consolidated live view of the Agent402 revenue wallets across every payment rail — USDC on Base, Solana, Polygon & Arbitrum, plus USDG on Robinhood Chain. One page instead of three explorer tabs; every figure links to its on-chain proof.";
+    "Consolidated live view of the Agent402 revenue wallets across every payment rail - USDC on Base, Solana, Polygon & Arbitrum, plus USDG on Robinhood Chain. One page instead of three explorer tabs; every figure links to its on-chain proof.";
   const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar", Algorand: "algorand" };
   const railCard = (r) => {
     const at = snap.allTime?.perChain?.[chainKeyByLabel[r.rail]];
@@ -649,10 +649,10 @@ export function revenuePage(baseUrl, snap) {
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
       <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">
         <span style="font-weight:800;font-size:17px;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· ${esc(r.asset)}</span></span>
-        <span style="font-family:var(--font-mono);text-align:right;"><span style="font-size:20px;font-weight:700;">${r.balance == null ? "—" : "$" + r.balance.toFixed(4)}</span><span style="display:block;font-size:11px;color:var(--muted);">balance${Number.isFinite(r.externalUsd) ? ` · external in window $${r.externalUsd}` : ""}${at ? ` · all-time $${at.externalUsd}${at.caughtUp ? "" : "↺"}` : ""}</span></span>
+        <span style="font-family:var(--font-mono);text-align:right;"><span style="font-size:20px;font-weight:700;">${r.balance == null ? "-" : "$" + r.balance.toFixed(4)}</span><span style="display:block;font-size:11px;color:var(--muted);">balance${Number.isFinite(r.externalUsd) ? ` · external in window $${r.externalUsd}` : ""}${at ? ` · all-time $${at.externalUsd}${at.caughtUp ? "" : "↺"}` : ""}</span></span>
       </div>
       ${r.error
-        ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable — public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
+        ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable - public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
         : r.recent.length
           ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">${r.recent
               .map((t) => {
@@ -677,16 +677,16 @@ export function revenuePage(baseUrl, snap) {
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/revenue</div>
     <h1 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink);">Live revenue.</h1>
     <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:640px;margin:0 0 8px;">
-      Every rail's wallet, one page — refreshed from public RPCs (60s cache), every figure verifiable at its explorer link.
+      Every rail's wallet, one page - refreshed from public RPCs (60s cache), every figure verifiable at its explorer link.
       Machine-readable: <a href="/api/revenue">/api/revenue</a>.
     </p>
-    ${snap.allTime ? `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:22px;">${snap.allTime.allTimeExternalCount.toLocaleString()}</strong> verifiable external payment${snap.allTime.allTimeExternalCount === 1 ? "" : "s"} all-time <span style="color:var(--muted);">— $${snap.allTime.allTimeExternalUsd.toFixed(4)} settled on-chain, each linked to its explorer proof${snap.allTime.syncing ? " · ledger backfilling — total still rising" : ""}</span></p>` : ""}
-    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · combined balance <strong style="color:var(--ink);">$${snap.totalUsd.toFixed(4)}</strong> · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>balances include our own canary/test money — only transfers classified <strong style="color:var(--accent);">external</strong> count as revenue</p>
+    ${snap.allTime ? `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:22px;">${snap.allTime.allTimeExternalCount.toLocaleString()}</strong> verifiable external payment${snap.allTime.allTimeExternalCount === 1 ? "" : "s"} all-time <span style="color:var(--muted);">- $${snap.allTime.allTimeExternalUsd.toFixed(4)} settled on-chain, each linked to its explorer proof${snap.allTime.syncing ? " · ledger backfilling - total still rising" : ""}</span></p>` : ""}
+    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · combined balance <strong style="color:var(--ink);">$${snap.totalUsd.toFixed(4)}</strong> · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>balances include our own canary/test money - only transfers classified <strong style="color:var(--accent);">external</strong> count as revenue</p>
     <div class="ml-2col" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
       ${snap.rails.map(railCard).join("\n")}
     </div>
     <p style="font-size:13.5px;color:var(--muted);margin-top:26px;">Recent-window transfers are the last few hours of inbound stablecoin on each rail, classified with the same rule as the daily revenue digest: a payment is <strong>external</strong> only if it comes from a wallet that isn't ours (canary/test burners are excluded) and is per-call-sized (≤ $${MAX_CALL_USD}); bigger inbound is funding or tests, not a buy. Rails read best-effort: a flaky public RPC marks that rail unavailable without hiding the others.</p>
-    <p style="font-size:13.5px;color:var(--muted);margin-top:10px;">Don't take our word for it: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our on-chain settlements independently →</a> Their totals count <em>all</em> traffic to our wallets — including our own canary and test buys — so they read higher than the external-only figures above. Both are correct; they measure different things.</p>
+    <p style="font-size:13.5px;color:var(--muted);margin-top:10px;">Don't take our word for it: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our on-chain settlements independently →</a> Their totals count <em>all</em> traffic to our wallets - including our own canary and test buys - so they read higher than the external-only figures above. Both are correct; they measure different things.</p>
     ${salesSection(snap.sales)}
   </main>
   ${ledgerFooterCompact(baseUrl)}`;
