@@ -226,11 +226,10 @@ direct route, so the agent can call it there at list price instead.
 ## Nothing matches: `POST /api/wish`
 
 If `GET /api/find?q=<task>` returns no strong match, `POST /api/wish` with
-`{ "task": "<what the agent needs>", "note": "<why, optional>" }` logs the gap
-for a tool to be built against. This endpoint is rolling out; if it 404s on
-the host you're calling, that host hasn't picked up the deploy yet, fall back
-to `/api/find` with a broader query or open an issue at
-https://github.com/MikeyPetrillo/Agent402/issues.
+`{ "need": "<what the agent needs>", "context": "<why, optional>" }` logs the
+gap for a tool to be built against (free, rate-limited; the MCP connector
+exposes the same thing as the `request_tool` tool). Demand is public at
+`GET /api/wishes`.
 
 ## Error handling
 
