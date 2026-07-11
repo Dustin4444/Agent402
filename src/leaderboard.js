@@ -551,7 +551,14 @@ export function startLeaderboardRefresh(opts = {}) {
   if (refreshTimer) return;
   const intervalMs = opts.intervalMs ?? REFRESH_INTERVAL_MS;
   cached.refreshIntervalMs = intervalMs;
-  refreshOnce(opts).catch(() => {});
+  // Skip the immediate boot scan when X402_SYNC_ON_START=false — the same flag
+  // the facilitator handshake honors ("no upstream network sync at boot"). The
+  // 7d scan is ~170 RPC calls plus a large aggregation; running it at boot made
+  // a resource-constrained CI runner drop concurrent test requests as "fetch
+  // failed" while the full-catalog example test hammered every endpoint. The
+  // interval timer still schedules refreshes, and getLeaderboardSnapshot serves
+  // the "warming" placeholder (with the correct window label) until one lands.
+  if (process.env.X402_SYNC_ON_START !== "false") refreshOnce(opts).catch(() => {});
   refreshTimer = setInterval(() => refreshOnce(opts).catch(() => {}), intervalMs);
   // Don't keep the event loop alive on shutdown.
   if (typeof refreshTimer.unref === "function") refreshTimer.unref();
