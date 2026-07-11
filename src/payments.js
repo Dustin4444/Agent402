@@ -319,7 +319,12 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
           accepts: acceptsFor(item),
           description: capDesc(item.description),
           serviceName: "Agent402.tools",
-          tags: ["web", "tools", "agents", ...(item.tags ?? [])],
+          // Discovery tags feed marketplace categorizers (x402scan, the Bazaar).
+          // Include the resource's own category alongside its specific tags so
+          // an indexer sees the real category signal (unit conversion, data,
+          // crypto, llm, ...) - every entry is honestly tagged with what it is,
+          // never a blanket label. Deduped, ≤10 to keep the 402 header lean.
+          tags: [...new Set(["web", "tools", "agents", "x402", item.category, ...(item.tags ?? [])].filter(Boolean))].slice(0, 10),
           mimeType: "application/json",
           resource: `${baseUrl}${route.split(" ")[1]}`,
           extensions: Object.keys(ext).length ? ext : undefined,
