@@ -1318,8 +1318,8 @@ setNavIndexProvider(() => {
     chains: Object.keys(CHAIN_PAGES).map((key) => chain(key, `/${key}`, key)),
   };
 });
-app.get("/index", (_req, res) =>
-  htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL }))
+app.get("/index", (req, res) =>
+  htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL, network: req.query.network }))
 );
 // /stellar's receipt strip reuses stellarRail with the same 60s cache
 // discipline the /revenue page applies — a public page must not turn every

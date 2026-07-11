@@ -10,7 +10,6 @@
 // exact id="list-api" markup + inline-script XSS posture from market-page.js
 // (fetch → JSON → textContent only, never innerHTML).
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
-import { RAILS } from "./rails.js";
 
 const REPO = "https://github.com/MikeyPetrillo/Agent402";
 
@@ -52,12 +51,6 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
   const totals = leaderboardTotals(leaderboardSnapshot);
   const windowLabel = leaderboardSnapshot?.windowLabel || null;
   const sellersOnIndex = Number.isFinite(indexSnapshot?.totals?.sellers) ? indexSnapshot.totals.sellers : null;
-
-  // "The index, by chain" rails line for Path B — derived from rails.js, not
-  // hand-copied, so a new chain shows up here with zero edits to this file.
-  const usdcChains = RAILS.filter((r) => r.asset === "USDC").length;
-  const otherAssets = [...new Set(RAILS.filter((r) => r.asset !== "USDC").map((r) => r.asset))];
-  const railsLine = `USDC · ${usdcChains} chains${otherAssets.length ? ` + ${otherAssets.join(" + ")}` : ""}`;
 
   const demandRowsHtml = [
     receiptRow("calls settled, all sellers", totals ? fmtNum(totals.calls) : null, "/leaderboard"),
@@ -177,23 +170,14 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">MIT · no CDN lock-in · no Stripe · no merchant-of-record</span>
   </div>
   <p style="font-size:16px;color:var(--muted);max-width:620px;margin:0 0 30px;">Humans browse free. Known AI crawlers get <span style="font-family:var(--font-mono);font-size:14px;">402 Payment Required</span> and pay in USDC over x402 - or solve a free proof-of-work. The open, crypto-native answer to closed pay-per-crawl.</p>
-  <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
-    <div style="padding:22px;border-right:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column;">
+  <div style="border:1.5px solid var(--ink);">
+    <div style="padding:22px;background:var(--card);display:flex;flex-direction:column;">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">SELF-HOST · FREE FOREVER</div>
-      <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">One Web-Crypto core, five deploy shapes: Express middleware, Next.js / Vercel Edge, Cloudflare Worker, reverse proxy, WordPress plugin (beta).</p>
-      <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);">// humans pass, bots pay
+      <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;max-width:640px;">One Web-Crypto core, five deploy shapes: Express middleware, Next.js / Vercel Edge, Cloudflare Worker, reverse proxy, WordPress plugin (beta).</p>
+      <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-width:640px;"><span style="color:var(--dk-muted3);">// humans pass, bots pay
 </span>app.use(tollbooth({
   payTo: "0xYourWallet" }))</pre>
       <a href="/tollbooth" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">tollbooth docs →</a>
-    </div>
-    <div style="padding:22px;background:var(--card);display:flex;flex-direction:column;">
-      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">TOLLBOOTH CLOUD · MANAGED</div>
-      <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Same gate, zero ops: managed keys, crawler intelligence, settlement dashboard. Solo / Team / Agency / Enterprise.</p>
-      <div style="display:flex;flex-direction:column;gap:8px;font-family:var(--font-mono);font-size:13px;margin-bottom:14px;">
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">status</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">waitlist open</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">your rails</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">${esc(railsLine)}</span></div>
-      </div>
-      <a href="/tollbooth/waitlist?plan=team" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">join the waitlist →</a>
     </div>
   </div>
 </section>
