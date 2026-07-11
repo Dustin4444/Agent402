@@ -123,20 +123,38 @@ ok(!noDay2.includes("Last 24h across the ecosystem"), "missing leaderboard snaps
 {
   const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
   const PORT = 3103;
+  // Capture the server's output: with stdio ignored, a CI-only boot crash is
+  // indistinguishable from a slow boot (learned 2026-07-11 — ECONNREFUSED
+  // with zero context). Also: cold CI runners boot the full catalog slower
+  // than dev machines, so the wait is 90s, and a dead child ends it early.
+  const bootLog = [];
   const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
     cwd: ROOT,
     env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false" },
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
   });
+  proc.stdout.on("data", (d) => bootLog.push(String(d)));
+  proc.stderr.on("data", (d) => bootLog.push(String(d)));
+  let exited = false;
+  proc.on("exit", () => { exited = true; });
   try {
-    for (let i = 0; i < 40; i++) {
-      try { if ((await fetch(`http://localhost:${PORT}/health`)).ok) break; } catch { /* still booting */ }
+    let up = false;
+    for (let i = 0; i < 180 && !exited; i++) {
+      try { if ((await fetch(`http://localhost:${PORT}/health`)).ok) { up = true; break; } } catch { /* still booting */ }
       await new Promise((r) => setTimeout(r, 500));
     }
-    for (const path of ["/x402-economy", "/economy"]) {
-      const res = await fetch(`http://localhost:${PORT}${path}`, { redirect: "manual" });
-      ok(res.status === 301, `${path} → 301 (got ${res.status})`);
-      ok(res.headers.get("location") === "/index#economy", `${path} Location is /index#economy (got ${res.headers.get("location")})`);
+    if (!up) {
+      ok(false, `server never became healthy on :${PORT} (exited=${exited}) — boot log tail:\n${bootLog.join("").slice(-2000)}`);
+    } else {
+      for (const path of ["/x402-economy", "/economy"]) {
+        try {
+          const res = await fetch(`http://localhost:${PORT}${path}`, { redirect: "manual" });
+          ok(res.status === 301, `${path} → 301 (got ${res.status})`);
+          ok(res.headers.get("location") === "/index#economy", `${path} Location is /index#economy (got ${res.headers.get("location")})`);
+        } catch (e) {
+          ok(false, `${path} fetch failed: ${e?.cause?.code || e.message}`);
+        }
+      }
     }
   } finally {
     proc.kill("SIGKILL");
