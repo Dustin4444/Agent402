@@ -27,15 +27,22 @@
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 
-// Base block time is ~2s, so 24h ≈ 43200 blocks. A wider window than the old
-// 5h default surfaces sellers with bursty (vs. constant) traffic — without it,
-// any seller below ~9 calls/sec averaged over 5h shows $0 even when their
-// lifetime revenue is real. 24h is the right default for "is this seller
-// actually used"; ?window= is the hook for the deep-cache rollout (7d/30d).
+// Base block time is ~2s, so 24h ≈ 43200 blocks and 7d ≈ 302400 blocks. A
+// wider window than the old 5h/24h defaults surfaces sellers with bursty
+// (vs. constant) traffic — without it, any seller below ~9 calls/sec averaged
+// over a day shows $0 even when their lifetime revenue is real. 7d is the
+// default now; ?window= remains the hook for a future deep-cache rollout
+// (30d/all-time) that doesn't require widening this live scan further.
 const SECONDS_PER_BASE_BLOCK = 2;
+const DEFAULT_BASE_RPCS = [
+  "https://mainnet.base.org",
+  "https://base-rpc.publicnode.com",
+  "https://base.llamarpc.com",
+  "https://base.drpc.org",
+];
 const DEFAULTS = {
   bazaarUrl: process.env.BAZAAR_URL || "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources",
-  spanBlocks: parseInt(process.env.SPAN_BLOCKS || "43200", 10), // ~24h of Base blocks
+  spanBlocks: parseInt(process.env.SPAN_BLOCKS || "302400", 10), // ~7d of Base blocks
   // Free-tier Base RPCs cap eth_getLogs at 10,000 blocks per call; chunk a wide
   // window into ranges no larger than this so it still scans cleanly.
   chunkBlocks: parseInt(process.env.CHUNK_BLOCKS || "9000", 10),
@@ -47,12 +54,16 @@ const DEFAULTS = {
   bazaarMaxPages: parseInt(process.env.BAZAAR_MAX_PAGES || "200", 10),
   // 0 = no cap. Useful for keeping the on-chain scan tight when the Bazaar grows.
   maxWalletsScan: parseInt(process.env.MAX_WALLETS_SCAN || "0", 10),
-  rpcs: (process.env.BASE_RPCS || [
-    "https://mainnet.base.org",
-    "https://base-rpc.publicnode.com",
-    "https://base.llamarpc.com",
-    "https://base.drpc.org",
-  ].join(",")).split(",").map((s) => s.trim()).filter(Boolean),
+  // BASE_RPCS (if set) fully replaces the list, same as before. Otherwise,
+  // Alchemy goes first when ALCHEMY_API_KEY is configured — it handles wide
+  // getLogs ranges far more reliably than public nodes (mirrors the EVM rpcs
+  // pattern in src/revenue-live.js) — with the public list as fallback.
+  rpcs: (process.env.BASE_RPCS ||
+    [
+      ...(process.env.ALCHEMY_API_KEY ? [`https://base-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []),
+      ...DEFAULT_BASE_RPCS,
+    ].join(",")
+  ).split(",").map((s) => s.trim()).filter(Boolean),
 };
 
 // CAIP-2 chain id for Base mainnet. The Bazaar tags every payment option with
@@ -436,19 +447,36 @@ export async function runLeaderboard(overrides = {}) {
   }
   const callCount = walletChunks.length * blockChunks.length;
   onProgress(`      ${blockChunks.length} block chunk(s) × ${walletChunks.length} wallet chunk(s) = ${callCount} eth_getLogs call(s)`);
+  // A wide (7d) window means many more chunks than the old 24h scan — any
+  // single chunk's rpcCall throwing (after exhausting every RPC + retry pass)
+  // must NOT take down the whole refresh, or a wide scan becomes strictly
+  // less reliable than the old narrow one. Catch per-chunk and keep going;
+  // only abort (throw) if EVERY chunk failed, which really is a total RPC
+  // outage — in that case the caller (refreshOnce) keeps serving the last
+  // good snapshot, same as before this change.
   const logs = [];
+  let failedChunks = 0;
   for (const [from, to] of blockChunks) {
     for (const chunk of walletChunks) {
-      const part = await rpcCall(opts.rpcs, "eth_getLogs", [{
-        fromBlock: "0x" + from.toString(16),
-        toBlock: "0x" + to.toString(16),
-        address: USDC,
-        topics: [TRANSFER, null, chunk],
-      }]);
-      if (Array.isArray(part)) for (const l of part) logs.push(l);
+      try {
+        const part = await rpcCall(opts.rpcs, "eth_getLogs", [{
+          fromBlock: "0x" + from.toString(16),
+          toBlock: "0x" + to.toString(16),
+          address: USDC,
+          topics: [TRANSFER, null, chunk],
+        }]);
+        if (Array.isArray(part)) for (const l of part) logs.push(l);
+      } catch (e) {
+        failedChunks += 1;
+        onProgress(`      chunk failed (blocks ${from}-${to}): ${e.message}`);
+      }
     }
   }
-  onProgress(`      ${logs.length} transfer log(s) total`);
+  if (callCount > 0 && failedChunks === callCount) {
+    throw new Error(`All ${callCount} eth_getLogs chunk(s) failed — RPC outage, aborting scan`);
+  }
+  const partial = failedChunks > 0;
+  onProgress(`      ${logs.length} transfer log(s) total${partial ? ` (partial: ${failedChunks} of ${callCount} ranges unavailable)` : ""}`);
 
   // 3. Aggregate.
   onProgress(`[3/3] Aggregating leaderboard…`);
@@ -458,17 +486,26 @@ export async function runLeaderboard(overrides = {}) {
     usd: Number(BigInt(l.data)) / 1e6,
   }));
   const ranked = aggregateLeaderboard(transfers, sellers, { maxCallUsd: opts.maxCallUsd });
+  const windowLabel = windowLabelFromBlocks(opts.spanBlocks);
 
   return {
     spec: "x402-leaderboard/1",
     asOf: new Date().toISOString(),
     scannedBlocks: opts.spanBlocks,
-    windowLabel: windowLabelFromBlocks(opts.spanBlocks),
+    windowLabel,
     maxCallUsd: opts.maxCallUsd,
     scannedSellers: sellers.length,
     walletsQueried: wallets.length,
     bazaarTotal: total,
     leaderboard: ranked,
+    // Honesty flags: a partial scan under-covers the window (missed ranges
+    // mean some settlements aren't counted) — never render it as if it were
+    // a complete scan. See ledger-leaderboard.js / x402-index.js for where
+    // this surfaces to humans.
+    ...(partial ? {
+      partial: true,
+      windowNote: `${windowLabel} scan, partial: ${failedChunks} of ${callCount} ranges unavailable`,
+    } : {}),
   };
 }
 
@@ -547,7 +584,7 @@ export function getLeaderboardSnapshot() {
     };
   }
   // Pre-warm placeholder: still surface the configured window so the HTML page
-  // and JSON consumers see "Last 24h" instead of an em-dash while the cache
+  // and JSON consumers see "Last 7d" instead of an em-dash while the cache
   // fills. Once a real snapshot lands these get overwritten from the scan.
   return {
     spec: "x402-leaderboard/1",
@@ -730,7 +767,7 @@ ${sortToggle}
     </ol>
     <pre>curl -s ${esc(baseUrl)}/api/leaderboard?top=10
 curl -s ${esc(baseUrl)}/api/leaderboard?include=external   # exclude Agent402 itself
-curl -s ${esc(baseUrl)}/api/leaderboard?window=24h         # window hint (default; 7d/30d coming)</pre>
+curl -s ${esc(baseUrl)}/api/leaderboard?window=7d           # window hint (default; 24h/30d/all documented, roadmap)</pre>
     <p class="foot" style="margin:10px 0 0;">Free — same gate as <code>/api/find</code> and <code>/api/route</code>. JSON snapshot at <code>${esc(baseUrl)}/api/leaderboard</code>.</p>
   </div>
 </div>

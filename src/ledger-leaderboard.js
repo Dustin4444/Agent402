@@ -43,6 +43,14 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
     0,
   );
   const scannedSellers = snapshot?.scannedSellers ?? 0;
+  const windowLabel = snapshot?.windowLabel || "7d";
+  // Honesty flag from the scan pipeline (src/leaderboard.js#runLeaderboard):
+  // a subset of block-range chunks failed, so this snapshot under-covers the
+  // window rather than fully covering it. Never hide this — it's the
+  // difference between "no revenue" and "revenue we couldn't see".
+  const partialNote = snapshot?.partial
+    ? `Partial scan — ${snapshot.windowNote || "some block ranges were unavailable"}; totals are a floor, not the full window.`
+    : "";
 
   // --- Ranked table rows ---------------------------------------------------
 
@@ -88,7 +96,8 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
   <section style="max-width: 1180px; margin: 0 auto; padding: 56px 30px 30px;">
     <div style="display: flex; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 13px; color: var(--accent); margin-bottom: 14px;"><span>$ GET /api/leaderboard</span><span style="display: flex; align-items: center; gap: 6px; color: var(--ink);"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; animation: ml-pulse 1.8s ease-in-out infinite;"></span>LIVE</span></div>
     <h1 class="lb-h1" style="font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 58px; line-height: .96; letter-spacing: -.03em; margin: 0 0 14px;">Ranked by real<br>on-chain USDC.</h1>
-    <p style="font-size: 17px; line-height: 1.55; color: var(--muted); max-width: 620px; margin: 0;">Not vanity metrics \u2014 settled Base USDC volume, read straight off the chain. The pipeline walks every page of the Coinbase CDP Bazaar and aggregates per-call settlements for each seller\u2019s payTo. Hourly snapshot, free to query.</p>
+    <p style="font-size: 17px; line-height: 1.55; color: var(--muted); max-width: 620px; margin: 0;">Not vanity metrics \u2014 settled Base USDC volume, read straight off the chain. The pipeline walks every page of the Coinbase CDP Bazaar and aggregates per-call settlements for each seller\u2019s payTo over the last <strong>${esc(windowLabel)}</strong>. Hourly snapshot, free to query.</p>
+    ${partialNote ? `<p style="font-size: 13px; font-family: var(--font-mono); color: var(--accent); max-width: 620px; margin: 10px 0 0;">${esc(partialNote)}</p>` : ""}
   </section>
 
   <!-- TOTALS (light receipt strip) -->
