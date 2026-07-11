@@ -25,8 +25,8 @@ const usdc = RAILS.filter((r) => r.asset === "USDC").map((r) => r.name);
 const others = RAILS.filter((r) => r.asset !== "USDC");
 const usdcAmp = `${usdc.slice(0, -1).join(", ")} & ${usdc.at(-1)}`;
 const usdcOr = `${usdc.slice(0, -1).join(", ")}, or ${usdc.at(-1)}`;
-const othersDash = others.map((o) => ` — or ${o.asset} on ${o.name}`).join("");
-const othersPlus = others.map((o) => ` — plus ${o.asset} on ${o.name}`).join("");
+const othersDash = others.map((o) => ` - or ${o.asset} on ${o.name}`).join("");
+const othersPlus = others.map((o) => ` - plus ${o.asset} on ${o.name}`).join("");
 
 /** "USDC on Base, Solana, Polygon, Arbitrum & Stellar — plus USDG on Robinhood Chain" */
 export const RAILS_AMP = `USDC on ${usdcAmp}${othersPlus}`;
@@ -58,8 +58,8 @@ export const RAILS_TICKER = [...RAILS.map((r) => r.name.replace(/ Chain$/, "")),
 /** Manifest note — settlement summary for discovery agents. */
 export const RAILS_NOTE =
   `x402 settlements use USDC on ${usdcOr}` +
-  others.map((o) => ` — plus ${o.asset} (${o.asset === "USDG" ? "Global Dollar" : o.asset}) on ${o.name}`).join("") +
-  ". Gas is sponsored by the facilitator on EVM chains — callers need only the stablecoin.";
+  others.map((o) => ` - plus ${o.asset} (${o.asset === "USDG" ? "Global Dollar" : o.asset}) on ${o.name}`).join("") +
+  ". Gas is sponsored by the facilitator on EVM chains - callers need only the stablecoin.";
 
 /** Short display key for a rail: "Robinhood Chain" -> "robinhood". Used for
  *  ?network= query params and CSS-class-safe identifiers. */

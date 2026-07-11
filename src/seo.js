@@ -36,8 +36,9 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/`, priority: "1.0" },
     { loc: `${baseUrl}/tools`, priority: "0.9" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
-    { loc: `${baseUrl}/stellar`, priority: "0.8" },
-    { loc: `${baseUrl}/algorand`, priority: "0.8" },
+    // Every x402 marketplace page (one per CHAIN_PAGES entry) — new chain
+    // page = new sitemap entry, zero edits here.
+    ...Object.keys(CHAIN_PAGES).map((key) => ({ loc: `${baseUrl}/${key}`, priority: "0.8" })),
     { loc: `${baseUrl}/faq`, priority: "0.8" },
     { loc: `${baseUrl}/llms.txt`, priority: "0.8" },
     { loc: `${baseUrl}/openapi.json`, priority: "0.7" },
@@ -63,7 +64,6 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/changelog`, priority: "0.7" },
     { loc: `${baseUrl}/use-cases`, priority: "0.8" },
     { loc: `${baseUrl}/quickstart`, priority: "0.9" },
-    { loc: `${baseUrl}/robinhood`, priority: "0.8" },
     { loc: `${baseUrl}/revenue`, priority: "0.6" },
     { loc: `${baseUrl}/blog`, priority: "0.8" },
     { loc: `${baseUrl}/compare`, priority: "0.8" },
@@ -126,7 +126,8 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/sell`, priority: "0.8" },
     { loc: `${baseUrl}/leaderboard`, priority: "0.8" },
     { loc: `${baseUrl}/docs`, priority: "0.8" },
-    { loc: `${baseUrl}/robinhood`, priority: "0.8" },
+    // Every x402 marketplace page (one per CHAIN_PAGES entry).
+    ...Object.keys(CHAIN_PAGES).map((key) => ({ loc: `${baseUrl}/${key}`, priority: "0.8" })),
     { loc: `${baseUrl}/revenue`, priority: "0.6" },
     { loc: `${baseUrl}/changelog`, priority: "0.7" },
     { loc: `${baseUrl}/analytics`, priority: "0.7" },

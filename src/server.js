@@ -141,11 +141,10 @@ import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { robinhoodPage } from "./robinhood-page.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
-import { CHAIN_PAGES, marketSellers } from "./market-page.js";
+import { CHAIN_PAGES, marketSellers, marketPage } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
@@ -701,14 +700,16 @@ const htmlCache = (res, maxAge, swr) =>
   res.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${swr}`).type("html");
 app.get("/", (_req, res) => {
   // By-chain strip cell counts: real seller counts from the same index
-  // snapshot /stellar and /algorand render — never hardcoded, and a missing
-  // count (crawl failure) just leaves that key out — the strip renders its
-  // dimmed "unavailable" state, never a zero.
+  // snapshot every /<chain> market page renders — never hardcoded. Iterates
+  // CHAIN_PAGES so a new chain page lights up the strip with zero edits
+  // here; a missing count (crawl failure) just leaves that key out — the
+  // strip renders its dimmed "unavailable" state, never a zero.
   const chainSellerCounts = {};
   try {
     const snapshot = getIndexSnapshot();
-    try { chainSellerCounts.stellar = stellarSellers(snapshot).length; } catch { /* strip cell renders without the count */ }
-    try { chainSellerCounts.algorand = algorandSellers(snapshot).length; } catch { /* strip cell renders without the count */ }
+    for (const key of Object.keys(CHAIN_PAGES)) {
+      try { chainSellerCounts[key] = marketSellers(key, snapshot).length; } catch { /* strip cell renders without the count */ }
+    }
   } catch { /* snapshot unavailable — strip renders rail-only cells */ }
   htmlCache(res, 60, 300).send(
     ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { chainSellerCounts })
@@ -794,7 +795,6 @@ app.get("/quickstart", (_req, res) => htmlCache(res, 300, 900).send(quickstartPa
 app.get("/faq", (_req, res) => htmlCache(res, 300, 900).send(faqPage(BASE_URL)));
 app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerIntegrationsPage(BASE_URL)));
 app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPage(BASE_URL, CATALOG)));
-app.get("/robinhood", (_req, res) => htmlCache(res, 300, 900).send(robinhoodPage(BASE_URL)));
 // Live consolidated revenue view — every rail's wallet on one page instead
 // of one explorer tab per chain. Server-side reads with a 60s module cache;
 // individual rail failures degrade to "unavailable" without a 500.
@@ -1486,6 +1486,31 @@ app.get("/algorand", async (req, res) => {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
 });
+// /base, /solana, /polygon, /arbitrum, /robinhood — five more x402
+// marketplace pages over the same chain-agnostic renderer as /stellar and
+// /algorand (mirrors its shape: 120/600 htmlCache, whole-body try/catch).
+// These five reuse the revenueSnapshot cache instead of standing up a
+// dedicated per-chain rail fetcher — it already runs an SWR-cached scan of
+// every EVM + Solana rail every 60s for /revenue, so the receipt strip here
+// is a lookup, not a new network call. Per-chain activity (Transactions/
+// Volume/Buyers) is a follow-up; these pass activity: null and the template
+// renders its honest "unavailable" line pointing at the right explorer.
+// /robinhood replaces the old dedicated robinhood-page.js landing (folded
+// its unique chain-parameter and tollbooth-config copy into this chain's
+// sellParagraphHtml in market-page.js) — same URL, now the shared template.
+const SNAPSHOT_RAIL_LABEL = { base: "Base", solana: "Solana", polygon: "Polygon", arbitrum: "Arbitrum", robinhood: "Robinhood Chain" };
+for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
+  app.get(`/${chainKey}`, async (_req, res) => {
+    try {
+      const snapshot = getIndexSnapshot();
+      const revSnap = await revenueSnapshot(revenueWallets());
+      const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
+      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity: null, wallet: rail?.wallet || undefined }));
+    } catch (e) {
+      res.status(500).type("text/plain").send("temporarily unavailable");
+    }
+  });
+}
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure
 // degrades to "temporarily unavailable" text rather than a half-rendered page.
@@ -1621,6 +1646,12 @@ const BRAND = { paper: "#F5F5F5", card: "#FFFFFF", ink: "#0b0b0b", muted: "#4A4A
 const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}<rect width="512" height="512" fill="${BRAND.ink}"/><text x="256" y="308" font-size="150" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-4" fill="${BRAND.paper}">402<tspan fill="${BRAND.accent}">.</tspan></text></svg>`;
 app.get("/logo.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(LOGO_SVG));
 
+// Favicon-scale mark: the logo's 150px glyphs cover ~40% of the canvas, which
+// reads as a plain black square in a 16px browser tab. This variant fills the
+// frame ("402" at 82% width, the brand period as a corner dot) so the mark
+// survives tab scale. Marketplaces/link previews keep the roomier LOGO_SVG.
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}<rect width="512" height="512" fill="${BRAND.ink}"/><text x="246" y="342" font-size="252" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-14" fill="${BRAND.paper}">402</text><rect x="408" y="408" width="68" height="68" fill="${BRAND.accent}"/></svg>`;
+
 // Marketplace bridge endpoint. agent402.app POSTs the caller's JSON body here
 // after collecting payment; we authenticate via the PER-SLUG token in the path
 // (HMAC(master, slug) — the master secret is never in any URL), adapt the body
@@ -1692,12 +1723,13 @@ app.get("/logo.png", async (_req, res) => {
 // is always available; the .ico serves the rasterized PNG (favicon clients
 // accept PNG bytes) and falls back to the SVG if Chromium is unavailable.
 app.get("/favicon.svg", (_req, res) =>
-  res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(LOGO_SVG)
+  res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(FAVICON_SVG)
 );
+let faviconPngCache = null;
 app.get("/favicon.ico", async (_req, res) => {
   try {
-    logoPngCache ??= await rasterizeSvg(LOGO_SVG, 512);
-    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(logoPngCache);
+    faviconPngCache ??= await rasterizeSvg(FAVICON_SVG, 512);
+    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(faviconPngCache);
   } catch {
     res.redirect(302, "/favicon.svg");
   }

@@ -131,7 +131,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
       </div>
       <div style="display: flex; gap: 11px;">
         <a href="/api/route" style="background: var(--accent); color: #fff; font-family: var(--font-mono); font-weight: 700; font-size: 14px; text-decoration: none; padding: 13px 20px;">/api/route \u2192</a>
-        <a href="/docs" style="background: transparent; border: 1.5px solid #4a4738; color: var(--cream); font-family: var(--font-mono); font-weight: 700; font-size: 14px; text-decoration: none; padding: 12px 20px;">READ THE DOCS</a>
+        <a href="/docs" style="background: transparent; border: 1.5px solid var(--dark-border2); color: var(--cream); font-family: var(--font-mono); font-weight: 700; font-size: 14px; text-decoration: none; padding: 12px 20px;">READ THE DOCS</a>
       </div>
     </div>
   </section>

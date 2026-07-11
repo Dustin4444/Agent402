@@ -956,6 +956,9 @@ jobs:
       - name: Algorand marketplace page tests (offline, fixture snapshot)
         run: node scripts/test-algorand-page.js
 
+      - name: Base/Solana/Polygon/Arbitrum/Robinhood marketplace page tests (offline, fixture snapshot)
+        run: node scripts/test-market-pages.js
+
       - name: Sell hub page tests (offline, fixture snapshot)
         run: node scripts/test-sell-page.js
 

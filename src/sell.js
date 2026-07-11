@@ -149,7 +149,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     </div>
     <div style="background:var(--ink);border:1.5px solid var(--ink);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>how buyers find you</span><span>SH</span></div>
-      <pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:12px;line-height:1.85;color:#E7DFCD;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># a buyer routes a task across every seller
+      <pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:12px;line-height:1.85;color:var(--cream);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># a buyer routes a task across every seller
 </span><span style="color:var(--accent);">$</span> curl -X POST …/api/route \\
     -d '{"query":"ocr image to text"}'
 
@@ -219,7 +219,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
       <p style="font-size:16px;color:var(--dk-muted2);margin:0 0 26px;max-width:480px;">${esc(ctaBuyerLine)} List free, or gate your crawlers - settlement is yours either way.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
         <a href="#list" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">LIST YOUR API →</a>
-        <a href="#tollbooth" style="background:transparent;border:1.5px solid #4a4738;color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">INSTALL TOLLBOOTH</a>
+        <a href="#tollbooth" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">INSTALL TOLLBOOTH</a>
       </div>
     </div>
   </div>

@@ -38,10 +38,10 @@ client, and add your own tools in a few lines. Every tool is deterministic —
 every release.
 
 > Optionally, the same server can charge per call over the [x402
-> protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum & Stellar, plus
-> USDG on Robinhood Chain — 6 chains) — so the instance you self-host for
-> free can also be a hosted, monetized one. That part is opt-in; **by default
-> everything runs free.**
+> protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Stellar &
+> Algorand, plus USDG on Robinhood Chain — 7 chains) — so the instance you
+> self-host for free can also be a hosted, monetized one. That part is opt-in;
+> **by default everything runs free.**
 
 🟢 **Hosted demo: [agent402.tools](https://agent402.tools)** · 📖 **[Wiki](https://github.com/MikeyPetrillo/Agent402/wiki)** · 📦 **[npm](https://www.npmjs.com/package/agent402-mcp)** · 🔌 **[MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402)**
 
@@ -113,7 +113,7 @@ and [`/llms.txt`](https://agent402.tools/llms.txt). Don't know which tool you ne
 a task description to the right tool — route, price, schema, and a ready example —
 so an agent skips the token-heavy "search around to find a tool" step.
 
-## OpenAI-compatible LLM gateway (`/v1`) — chat, embeddings, images & speech, pay per call
+## OpenAI-compatible LLM gateway (`/v1`) — chat, embeddings & images, pay per call
 
 Point any OpenAI SDK at `base_url = https://agent402.tools/v1` and pay per call in
 USDC over x402 — no API key, no signup, no account:
@@ -127,7 +127,6 @@ USDC over x402 — no API key, no signup, no account:
 | `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) |
 | `POST /v1/embeddings` | $0.002 | OpenAI embeddings, batch up to 64 inputs — identical repeats are **free** (deterministic output, cache default-on) |
 | `POST /v1/images/generations` | $0.08 | image generation (Gemini 2.5 Flash Image) — OpenAI images wire, inline base64 out |
-| `POST /v1/audio/speech` | $0.06 | text-to-speech (gpt-4o-mini-tts) — raw mp3/pcm bytes, 11 voices, up to 2k chars |
 
 Streaming (`stream: true`), full tools/function-calling passthrough, an opt-in
 prompt cache on the chat tiers (`cache: true` → byte-identical repeats free for
@@ -180,6 +179,7 @@ refreshed hourly) and exposes them through three free surfaces — same logic as
 | [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) | **On-chain ranking** of every x402 seller by Base USDC settled volume (callsSettled, totalUsd, uniqueBuyers per seller). Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate. Hourly snapshot |
 | [`/index`](https://agent402.tools/index) | Public HTML dashboard: every seller, tool count, network, last-fetched, rolling health |
 | [`GET /api/index`](https://agent402.tools/api/index) | JSON snapshot of the same data (totals, per-seller health/routable flags) |
+| [`/stellar`](https://agent402.tools/stellar) · [`/algorand`](https://agent402.tools/algorand) | Per-chain marketplace pages: sellers and tools settling on that rail specifically |
 
 ```bash
 # "I need an OCR tool — find me the cheapest healthy one anywhere on x402"
@@ -201,6 +201,12 @@ Operators get **3-rail attribution** on the dashboard ([`/api/stats`](https://ag
 heartbeat-probe traffic are counted separately — and the heartbeat rail is gated
 on a `POW_SECRET`-signed token (not a spoofable User-Agent), so the operator
 view reflects real external demand.
+
+**For API sellers:** [`/sell`](https://agent402.tools/sell) is the front door —
+list an existing x402-speaking API on the index for free with
+[`POST /api/index/register`](https://agent402.tools/sell) (health-routed, 0%
+take, self-serve, no signup), or install [`agent402-tollbooth`](tollbooth) to
+put a pay-per-crawl gate in front of a site that isn't x402-native yet.
 
 **From code**, the [`agent402-client`](client) npm package wraps all of this —
 `find()` a tool, then `call()` it, paying automatically (a built-in proof-of-work
@@ -280,9 +286,9 @@ wallet-only. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full walkthrough.
 The same server can require payment per call — useful if you host a public
 instance. It's off by default (`FREE_MODE=true`); to enable, set `WALLET_ADDRESS`
 + CDP facilitator keys (free at [portal.cdp.coinbase.com](https://portal.cdp.coinbase.com))
-and agents pay in USDC on Base (or Solana, Polygon, Arbitrum, Stellar — or USDG on
-Robinhood Chain via `PAYMENT_NETWORKS=…,robinhood` + `ROBINHOOD_FACILITATOR_URL`)
-via standard x402 clients:
+and agents pay in USDC on Base (or Solana, Polygon, Arbitrum, Stellar, Algorand —
+or USDG on Robinhood Chain via `PAYMENT_NETWORKS=…,robinhood` +
+`ROBINHOOD_FACILITATOR_URL`) via standard x402 clients:
 
 ```js
 import { wrapFetchWithPayment } from "@x402/fetch";
@@ -363,8 +369,9 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 | `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, ~1,000 pure-CPU utilities) — **add tools here** |
 | `src/mcp-http.js` | Hosted MCP connector (streamable HTTP, authless free tier) |
 | `src/pow.js` | Proof-of-work tier (signed, single-use, slug-scoped challenges) |
-| `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Stellar + USDG on Robinhood Chain (6 chains), CDP facilitator, Bazaar discovery |
-| `src/x402-index.js` | x402 Index + Smart Order Router: cross-seller crawl, auto-discovery, health-aware routing |
+| `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Stellar/Algorand + USDG on Robinhood Chain (7 chains), CDP facilitator, Bazaar discovery |
+| `src/x402-index.js` | x402 Index + Smart Order Router: cross-seller crawl, auto-discovery, health-aware routing, per-chain marketplace pages (`/stellar`, `/algorand`) |
+| `src/sell.js` | `/sell` — the seller front door: free self-serve listing (`POST /api/index/register`) or `agent402-tollbooth` for pay-per-crawl |
 | `mcp/` | The `agent402-mcp` npm package (stdio MCP server) |
 | `client/` | The `agent402-client` buyer SDK (`find()` + `call()` with auto-payment) |
 | `tollbooth/` | The `agent402-tollbooth` pay-per-crawl gate (Express / edge / proxy) |

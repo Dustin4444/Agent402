@@ -130,7 +130,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--card);">Start on the free tier. No wallet.</h2>
       <div style="display:flex;gap:11px;">
         <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART \u2192</a>
-        <a href="/tools" style="background:transparent;border:1.5px solid #4a4738;color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
+        <a href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
       </div>
     </div>
   </section>
