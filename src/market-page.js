@@ -19,8 +19,91 @@ const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 const usd = (n) => `$${Number(n).toFixed(Number(n) < 0.01 ? 3 : 2).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m))}`;
 
 /** Per-chain identity + copy. Add a chain here (not a new route) once it has
- *  a live page — base/solana are index-snapshot rails today, not pages. */
+ *  a live page. Ordered to match src/rails.js (primary rail first). */
 export const CHAIN_PAGES = {
+  base: {
+    chainName: "Base",
+    ticker: "ETH",
+    tickerLabel: "BASE · MAINNET",
+    caip2: "eip155:8453",
+    asset: "USDC",
+    settleLatency: "~2 seconds",
+    facilitatorLabel: "Coinbase CDP",
+    gasNote: "sponsored",
+    explorerUrl: "basescan.org",
+    explorerWalletUrl: (wallet) => `https://basescan.org/address/${wallet}#tokentxns`,
+    networkParam: "base",
+    acceptNetwork: "eip155:8453",
+    // Base mainnet CAIP-2 is "eip155:8453"; Base Sepolia testnet is a
+    // different chain id ("eip155:84532") entirely, so an exact match
+    // can't be fooled by a testnet accept.
+    isNetwork: (n) => n === "eip155:8453",
+    honestyNetworkPhrase: "the Base network",
+    canaryLine: "A paid canary buys tools over the Base rail daily (facilitator: Coinbase CDP) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Base CAIP-2 network (<code>eip155:8453</code>) in your 402 challenge - the Coinbase CDP facilitator verifies and settles, gas sponsored, and a listed origin is picked up by the CDP Bazaar too. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+  },
+  solana: {
+    chainName: "Solana",
+    ticker: "SOL",
+    tickerLabel: "SOLANA · MAINNET",
+    caip2: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    asset: "USDC",
+    settleLatency: "~1 second",
+    facilitatorLabel: "PayAI",
+    gasNote: "fee-sponsored",
+    explorerUrl: "solscan.io",
+    explorerWalletUrl: (wallet) => `https://solscan.io/account/${wallet}`,
+    networkParam: "solana",
+    acceptNetwork: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    // Solana mainnet CAIP-2 is the mainnet genesis hash; devnet is a wholly
+    // different genesis hash ("solana:EtWTRABZ…"), so an exact match can't
+    // be fooled by a devnet accept.
+    isNetwork: (n) => n === "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+    honestyNetworkPhrase: "the Solana network",
+    canaryLine: "A paid canary buys tools over the Solana rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Solana CAIP-2 network (<code>solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp</code>) in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/svm" rel="noopener"><code>@x402/svm</code></a> server scheme - the PayAI facilitator verifies and settles, fees sponsored. Your payTo wallet needs an existing USDC associated token account before it can receive payments (send it any amount of USDC once to create one). Then serve <code>/.well-known/x402</code> - the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+  },
+  polygon: {
+    chainName: "Polygon",
+    ticker: "POL",
+    tickerLabel: "POLYGON · MAINNET",
+    caip2: "eip155:137",
+    asset: "USDC",
+    settleLatency: "~2 seconds",
+    facilitatorLabel: "PayAI",
+    gasNote: "sponsored",
+    explorerUrl: "polygonscan.com",
+    explorerWalletUrl: (wallet) => `https://polygonscan.com/address/${wallet}#tokentxns`,
+    networkParam: "polygon",
+    acceptNetwork: "eip155:137",
+    // Polygon mainnet CAIP-2 is "eip155:137"; Amoy testnet is a different
+    // chain id ("eip155:80002"), so an exact match can't be fooled.
+    isNetwork: (n) => n === "eip155:137",
+    honestyNetworkPhrase: "the Polygon network",
+    canaryLine: "A paid canary buys tools over the Polygon rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Polygon CAIP-2 network (<code>eip155:137</code>) in your 402 challenge - the PayAI facilitator verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+  },
+  arbitrum: {
+    chainName: "Arbitrum",
+    ticker: "ETH",
+    tickerLabel: "ARBITRUM · MAINNET",
+    caip2: "eip155:42161",
+    asset: "USDC",
+    settleLatency: "~2 seconds",
+    facilitatorLabel: "PayAI",
+    gasNote: "sponsored",
+    explorerUrl: "arbiscan.io",
+    explorerWalletUrl: (wallet) => `https://arbiscan.io/address/${wallet}#tokentxns`,
+    networkParam: "arbitrum",
+    acceptNetwork: "eip155:42161",
+    // Arbitrum One CAIP-2 is "eip155:42161"; Arbitrum Sepolia is a
+    // different chain id ("eip155:421614"), so an exact match can't be
+    // fooled by a testnet accept.
+    isNetwork: (n) => n === "eip155:42161",
+    honestyNetworkPhrase: "the Arbitrum network",
+    canaryLine: "A paid canary buys tools over the Arbitrum rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Arbitrum CAIP-2 network (<code>eip155:42161</code>) in your 402 challenge - the PayAI facilitator verifies and settles, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+  },
   stellar: {
     chainName: "Stellar",
     ticker: "XLM",
@@ -63,6 +146,27 @@ export const CHAIN_PAGES = {
     honestyNetworkPhrase: "the Algorand mainnet network",
     canaryLine: "A paid canary buys tools over the Algorand rail daily (facilitator: GoPlausible, fees sponsored) - uptime proven with real settlements, not pings.",
     sellParagraphHtml: `Accept the Algorand mainnet CAIP-2 network in your 402 challenge using the <a href="https://www.npmjs.com/package/@x402/avm" rel="noopener"><code>@x402/avm</code></a> server SDK - the GoPlausible facilitator verifies and settles, fees sponsored. Your payTo wallet must be opted in to ASA <code>31566704</code> (USDC) before it can receive payments. Then serve <code>/.well-known/x402</code> - the index crawler lists you automatically; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+  },
+  robinhood: {
+    chainName: "Robinhood Chain",
+    ticker: "USDG",
+    tickerLabel: "ROBINHOOD CHAIN · MAINNET",
+    caip2: "eip155:4663",
+    asset: "USDG",
+    settleLatency: "~2 seconds",
+    facilitatorLabel: "operator-configured",
+    gasNote: "sponsored",
+    explorerUrl: "robinhoodchain.blockscout.com",
+    explorerWalletUrl: (wallet) => `https://robinhoodchain.blockscout.com/address/${wallet}`,
+    networkParam: "robinhood",
+    acceptNetwork: "eip155:4663",
+    // Robinhood Chain mainnet CAIP-2 is "eip155:4663" - an Arbitrum Orbit
+    // L2 with no public testnet accept in the wild today, but the exact
+    // match keeps the same guarantee as every other EVM rail here.
+    isNetwork: (n) => n === "eip155:4663",
+    honestyNetworkPhrase: "the Robinhood Chain network",
+    canaryLine: "A paid canary buys tools over the Robinhood Chain rail daily (facilitator: operator-configured) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Robinhood Chain CAIP-2 network (<code>eip155:4663</code>) in your 402 challenge, asset USDG (Global Dollar) - set <code>PAYMENT_NETWORKS=…,robinhood</code> plus your own <code>ROBINHOOD_FACILITATOR_URL</code> (the rail settles through an operator-supplied facilitator, not CDP or PayAI). Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme (EIP-712 domain <code>"Global Dollar"</code>, version <code>"1"</code>), or <a href="/tollbooth"><code>agent402-tollbooth</code></a> (<code>TOLLBOOTH_NETWORK=eip155:4663 TOLLBOOTH_ASSET=USDG</code>). The <a href="/guides/usdg-payments-robinhood-chain">full integration guide</a> covers chain parameters and how to recognize a settlement on Blockscout. Then serve <code>/.well-known/x402</code> - the index crawler lists you automatically; ranking is health-based, listing is free.`,
   },
 };
 
@@ -154,8 +258,8 @@ export function marketActivityHtml(chainKey, activity, selected) {
   const t = activity.totals || {};
   const note = [
     external
-      ? "all inbound USDC to this seller's advertised x402 payTo wallet - may include non-x402 transfers"
-      : `all inbound USDC settlements to this host's ${C.chainName} wallet`,
+      ? `all inbound ${C.asset} to this seller's advertised x402 payTo wallet - may include non-x402 transfers`
+      : `all inbound ${C.asset} settlements to this host's ${C.chainName} wallet`,
     t.internalTx ? `includes ${t.internalTx} internal canary buy${t.internalTx === 1 ? "" : "s"}` : "",
     activity.truncated ? "scan capped - totals are a floor" : "",
   ].filter(Boolean).join(" · ");
@@ -175,6 +279,12 @@ export function marketActivityHtml(chainKey, activity, selected) {
 export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, selectedSeller, wallet } = {}) {
   const C = CHAIN_PAGES[chainKey];
   const effectiveWallet = wallet || C.wallet;
+  // Stellar/Algorand ship a committed public default wallet in CHAIN_PAGES;
+  // the EVM + Solana rails don't (WALLET_ADDRESS/SOLANA_WALLET_ADDRESS are
+  // Railway-only secrets, never hardcoded here) - falling back to the bare
+  // explorer domain keeps the link honest instead of pointing at
+  // "/address/undefined" when no wallet was passed at the route level.
+  const walletExplorerUrl = effectiveWallet ? C.explorerWalletUrl(effectiveWallet) : `https://${C.explorerUrl}`;
   const sellers = marketSellers(chainKey, snapshot);
   const tools = marketTools(chainKey, snapshot);
   const prices = tools.map((t) => Number(t.price)).filter((n) => Number.isFinite(n) && n > 0);
@@ -185,7 +295,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
 
   const receiptHtml = latest
     ? `<p style="margin:8px 0 0;">Latest settlement: <strong>${usd(latest.usd)} ${esc(C.asset)}</strong> · <a href="${esc(latest.tx)}" rel="noopener">on-chain receipt</a>${latest.when ? ` · ${esc(latest.when)}` : ""}</p>`
-    : `<p style="margin:8px 0 0;color:var(--muted);">live receipts temporarily unavailable - settlements remain verifiable at <a href="${esc(C.explorerWalletUrl(effectiveWallet))}" rel="noopener">${esc(C.explorerUrl)}</a></p>`;
+    : `<p style="margin:8px 0 0;color:var(--muted);">live receipts temporarily unavailable - settlements remain verifiable at <a href="${esc(walletExplorerUrl)}" rel="noopener">${esc(C.explorerUrl)}</a></p>`;
 
   const groupsHtml = groups.map((g) => `
     <div style="border:1px solid var(--hairline);padding:14px 16px;">
@@ -250,7 +360,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       "@type": "CollectionPage",
       name: `The ${C.chainName} x402 marketplace`,
       url: `${baseUrl}/${chainKey}`,
-      description: `Pay-per-call tools for AI agents, settled in USDC on ${C.chainName} via the x402 protocol. ${tools.length} tools live.`,
+      description: `Pay-per-call tools for AI agents, settled in ${C.asset} on ${C.chainName} via the x402 protocol. ${tools.length} tools live.`,
       mainEntity: {
         "@type": "OfferCatalog",
         name: `${C.chainName}-payable agent tools`,
@@ -301,7 +411,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
         ${manifestRow("settle latency", esc(C.settleLatency))}
         ${manifestRow("facilitator", esc(C.facilitatorLabel))}
         ${manifestRow("gas", esc(C.gasNote))}
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">explorer</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><a href="${esc(C.explorerWalletUrl(effectiveWallet))}" rel="noopener" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(C.explorerUrl)} →</a></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">explorer</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><a href="${esc(walletExplorerUrl)}" rel="noopener" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(C.explorerUrl)} →</a></div>
         <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">daily canary</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;color:${canary.color};">${esc(canary.text)}</span></div>
       </div>
       <div style="margin-top:14px;padding-top:10px;border-top:1px dashed #C9C9C7;font-family:var(--font-mono);font-size:11px;color:var(--faint);line-height:1.6;">agents: GET /api/route?q=&lt;task&gt;&amp;network=${esc(C.networkParam)}</div>
@@ -387,7 +497,7 @@ ${ledgerFooterCompact()}`;
 
   return ledgerShell({
     title: `The ${C.chainName} x402 marketplace - pay-per-call tools for AI agents`,
-    description: `The ${C.chainName} x402 marketplace: ${tools.length} pay-per-call tools for AI agents, settled in USDC on ${C.chainName}. No signup, no API keys - the wallet is the account.`,
+    description: `The ${C.chainName} x402 marketplace: ${tools.length} pay-per-call tools for AI agents, settled in ${C.asset} on ${C.chainName}. No signup, no API keys - the wallet is the account.`,
     canonical: `${baseUrl}/${chainKey}`,
     baseUrl,
     activePath: `/${chainKey}`,
