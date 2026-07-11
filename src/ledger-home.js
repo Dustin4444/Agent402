@@ -7,6 +7,13 @@ import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable } from "./pow.js";
 import { RAILS, RAILS_AMP, RAILS_SHORT, RAILS_PAREN } from "./rails.js";
 import { PACK_PRICES } from "./tools/skill-runner.js";
+import { CHAIN_PAGES } from "./market-page.js";
+
+// RAILS caip2 -> CHAIN_PAGES key, so the by-chain strip can tell which rails
+// have a live market page (stellar, algorand) vs. rail-only cells (no page
+// yet). Adding a chain page later is a CHAIN_PAGES entry — this map, and the
+// strip below, pick it up with zero edits here.
+const CHAIN_PAGE_BY_CAIP2 = new Map(Object.entries(CHAIN_PAGES).map(([key, cfg]) => [cfg.caip2, key]));
 
 // The six packs merchandised on the home page — a deliberate mix: two premium
 // research jobs, two of the newest agent-ops jobs, one security classic, one
@@ -16,7 +23,7 @@ const FLAGSHIP_PACKS = ["financial-research", "search-and-cite", "onchain-analys
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 
-export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks, { stellarSellerCount } = {}) {
+export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks, { chainSellerCounts } = {}) {
   const tools = toolList(catalog);
   const count = tools.length;
   const freeCount = tools.filter(isComputePayable).length;
@@ -24,6 +31,33 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const recent = Array.isArray(stats?.recentCalls) ? stats.recentCalls : [];
   const board = Array.isArray(leaderboardSnapshot?.leaderboard) ? leaderboardSnapshot.leaderboard : [];
   const packCount = Array.isArray(skillPacks) ? skillPacks.length : 42;
+
+  // By-chain strip data — one cell per rail from rails.js, joined with
+  // page-availability (CHAIN_PAGES) and live seller counts (chainSellerCounts,
+  // built by server.js from the same index snapshot /stellar and /algorand
+  // render). No opts at all (offline smoke tests) still renders 7 cells —
+  // every rail just falls back to its rail-only or "unavailable" state.
+  const chainCells = RAILS.map((r) => {
+    const pageKey = CHAIN_PAGE_BY_CAIP2.get(r.caip2);
+    const hasPage = !!pageKey;
+    const sellerCount = hasPage ? chainSellerCounts?.[pageKey] : undefined;
+    const known = Number.isFinite(sellerCount);
+    const live = hasPage && known;
+    return {
+      name: r.name.replace(/ Chain$/, "").toUpperCase(),
+      asset: `${r.asset} · ${r.caip2}`,
+      href: hasPage ? `/${pageKey}` : "/index",
+      nameColor: hasPage ? "var(--cream2)" : "var(--dk-muted2)",
+      statusColor: live ? "var(--green)" : "var(--dk-muted3)",
+      status: hasPage ? (known ? `${fmtNum(sellerCount)} seller${sellerCount === 1 ? "" : "s"} indexed` : "unavailable") : "rail live",
+    };
+  });
+  const chainCellHtml = (c) =>
+    `<a href="${esc(c.href)}" style="display:block;padding:14px 16px;border-right:1px solid var(--dark-border);text-decoration:none;">
+        <span style="display:block;font-family:var(--font-mono);font-weight:700;font-size:13px;color:${c.nameColor};margin-bottom:3px;">${esc(c.name)}</span>
+        <span style="display:block;font-family:var(--font-mono);font-size:10.5px;color:var(--dk-muted3);margin-bottom:9px;">${esc(c.asset)}</span>
+        <span style="display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:${c.statusColor};"><span style="width:6px;height:6px;border-radius:50%;background:${c.statusColor};display:inline-block;"></span>${esc(c.status)}</span>
+      </a>`;
 
   // Category data for the index
   const catEntries = Object.entries(CATEGORIES);
@@ -61,7 +95,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     { q: "How does an agent pay for a tool?", a: `It calls an endpoint and gets an HTTP 402 quote. An x402 client signs a payment — ${RAILS_PAREN} — from the agent's own wallet, and retries; the call settles on-chain in seconds. The wallet is the identity.` },
     { q: "Are any tools free?", a: `Yes — ${fmtNum(freeCount)} of the ${fmtNum(count)} pure-CPU tools work with no wallet: solve a short proof-of-work puzzle (a few seconds of CPU) instead of paying USDC.` },
     { q: "Does it spend my model tokens?", a: "No. Every tool is deterministic code — parsers, hashes, math, a real browser — with no LLM in the path. Tools like /api/extract exist to save your tokens: clean markdown out instead of 100k tokens of raw HTML in." },
-    { q: "Which frameworks are supported?", a: "Zero-dependency adapters on npm for OpenAI, Anthropic, LangChain, LlamaIndex, Vercel AI SDK, Google ADK and AWS Strands — each returning native tool objects with payment handled underneath." },
+    { q: "How do I get paid as a seller?", a: "Serve x402 challenges from your API (or install agent402-tollbooth on your site) and buyers settle USDC straight to your wallet - non-custodial, no merchant account. The index crawler lists any origin whose 402s answer; ranking is health-based and listing is free." },
   ];
 
   const jsonLd = [
@@ -180,6 +214,40 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         </div>
       </div>
     </div>
+
+    <!-- ROUTING SLIP -->
+    <div style="border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);background:var(--paper);">
+      <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
+        <div class="ml-slip" style="display:grid;grid-template-columns:1fr 1fr 1fr;">
+          <div class="ml-slip-cell" style="padding:20px 24px 20px 0;border-right:1.5px solid var(--ink);">
+            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:8px;">01 / BUILDING AN AGENT?</div>
+            <div style="font-size:14.5px;line-height:1.5;color:var(--muted);margin-bottom:10px;">${fmtNum(count)} tools, ${packCount} packs, an LLM gateway. Free tier, two-minute integration.</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12.5px;">
+              <a href="/quickstart" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">quickstart →</a>
+              <a href="/skills" style="color:var(--muted);text-decoration:none;">skill packs</a>
+              <a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a>
+            </div>
+          </div>
+          <div class="ml-slip-cell" style="padding:20px 24px;border-right:1.5px solid var(--ink);">
+            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:8px;">02 / HERE FROM A CHAIN?</div>
+            <div style="font-size:14.5px;line-height:1.5;color:var(--muted);margin-bottom:10px;">Your chain's x402 economy - sellers, receipts, rankings. All on-chain, all checkable.</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12.5px;">
+              <a href="/index" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">the index →</a>
+              <a href="/stellar" style="color:var(--muted);text-decoration:none;">stellar</a>
+              <a href="/algorand" style="color:var(--muted);text-decoration:none;">algorand</a>
+            </div>
+          </div>
+          <div class="ml-slip-cell" style="padding:20px 0 20px 24px;">
+            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:8px;">03 / RUN AN API?</div>
+            <div style="font-size:14.5px;line-height:1.5;color:var(--muted);margin-bottom:10px;">Get paid per call. List on the index free, or tollbooth the crawlers already hitting you.</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12.5px;">
+              <a href="/sell" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">start selling →</a>
+              <a href="/tollbooth" style="color:var(--muted);text-decoration:none;">tollbooth</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </header>
 
   <!-- THE PRODUCT — SKILL PACKS -->
@@ -284,18 +352,50 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           <div style="padding:10px 18px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">hourly on-chain snapshot · ?include=external</div>
         </div>
       </div>
-      <a href="/stellar" style="margin-top:34px;border:1.5px solid var(--dark-border2);background:var(--ink-panel);display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 20px;flex-wrap:wrap;text-decoration:none;">
-        <span>
-          <span style="display:block;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--accent);margin-bottom:6px;">THE STELLAR X402 MARKETPLACE</span>
-          <span style="display:block;font-size:15px;line-height:1.5;color:var(--dk-muted2);">Every x402 seller settling USDC on Stellar — health-ranked, with live on-chain receipts.${Number.isFinite(stellarSellerCount) && stellarSellerCount > 0 ? ` <strong style="color:var(--cream2);font-weight:700;">${stellarSellerCount} seller${stellarSellerCount === 1 ? "" : "s"} live.</strong>` : ""}</span>
-        </span>
-        <span style="font-family:var(--font-mono);font-size:13px;color:var(--accent);white-space:nowrap;">/stellar →</span>
-      </a>
+      <!-- BY-CHAIN STRIP -->
+      <div style="margin-top:40px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px;">
+          <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);">THE INDEX, BY CHAIN - ADDING A CHAIN ADDS A CELL, NOT A NAV LINK</span>
+          <a href="/index" style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted2);text-decoration:none;">/index →</a>
+        </div>
+        <div class="ml-mkts" style="display:grid;grid-template-columns:repeat(7,1fr);gap:0;border:1.5px solid var(--dark-border2);background:var(--ink-panel);">
+          ${chainCells.map(chainCellHtml).join("\n          ")}
+        </div>
+        <div style="margin-top:10px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">seller counts + health derive at render · a failed crawl reads "unavailable", never zero</div>
+      </div>
     </div>
   </section>
 
   <!-- SETTLEMENT TAPE -->
   ${ledgerTape(recent)}
+
+  <!-- SELL BAND -->
+  <section id="sell" style="max-width:1180px;margin:0 auto;padding:78px 30px 0;">
+    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /sell</div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">The other side of the ledger.</h2>
+      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">no signup · non-custodial · your wallet, your funds</span>
+    </div>
+    <p style="font-size:16px;color:var(--muted);max-width:620px;margin:0 0 30px;">Agents are buying. If you run an API - or a site AI crawlers keep hitting - the same rails pay you.</p>
+    <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
+      <div style="padding:22px;border-right:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column;">
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">01 / LIST YOUR API</div>
+        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Serve x402 challenges and the index crawler lists you automatically - free, health-ranked, routed by the Smart Order Router next to ${fmtNum(count)} of our own tools.</p>
+        <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># we probe, you appear
+</span>POST /api/index/register
+  { "origin": "https://api.you.com" }</pre>
+        <a href="/sell" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">list your API →</a>
+      </div>
+      <div style="padding:22px;background:var(--card);display:flex;flex-direction:column;">
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">02 / TOLLBOOTH YOUR SITE</div>
+        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Humans browse free; known AI crawlers get 402 and pay in USDC - or solve proof-of-work. Express, edge, proxy, or WordPress. MIT, no CDN lock-in.</p>
+        <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># one middleware
+</span>npm i agent402-tollbooth</pre>
+        <a href="/tollbooth" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">gate your crawlers →</a>
+      </div>
+    </div>
+    <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;"><a href="/sell" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">everything for sellers → /sell</a></div>
+  </section>
 
   <!-- PROOF -->
   <section style="max-width:1180px;margin:0 auto;padding:78px 30px 20px;">

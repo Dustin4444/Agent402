@@ -699,12 +699,18 @@ app.use((_req, res, next) => {
 const htmlCache = (res, maxAge, swr) =>
   res.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${swr}`).type("html");
 app.get("/", (_req, res) => {
-  // Stellar marketplace callout: real seller count from the same index
-  // snapshot /stellar renders — never a hardcoded number.
-  let stellarSellerCount;
-  try { stellarSellerCount = stellarSellers(getIndexSnapshot()).length; } catch { /* callout renders without the count */ }
+  // By-chain strip cell counts: real seller counts from the same index
+  // snapshot /stellar and /algorand render — never hardcoded, and a missing
+  // count (crawl failure) just leaves that key out — the strip renders its
+  // dimmed "unavailable" state, never a zero.
+  const chainSellerCounts = {};
+  try {
+    const snapshot = getIndexSnapshot();
+    try { chainSellerCounts.stellar = stellarSellers(snapshot).length; } catch { /* strip cell renders without the count */ }
+    try { chainSellerCounts.algorand = algorandSellers(snapshot).length; } catch { /* strip cell renders without the count */ }
+  } catch { /* snapshot unavailable — strip renders rail-only cells */ }
   htmlCache(res, 60, 300).send(
-    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { stellarSellerCount })
+    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { chainSellerCounts })
   );
 });
 // Real health check — fails (503) when a load balancer or heartbeat should
