@@ -160,6 +160,13 @@ const bazaarToolsByOrigin = new Map();
 // Bazaar is the canonical source.
 const DISCOVERY_SOURCES = [
   { name: "Coinbase CDP Bazaar", url: "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources" },
+  // GoPlausible's AVM facilitator registry — where Algorand-native x402
+  // sellers live (they register by settling through the facilitator, not on
+  // the CDP Bazaar; found 2026-07-10 when the Bazaar showed 2 Algorand
+  // origins but this registry had ~8). Same item shape as Bazaar except
+  // `resourceUrl` instead of `resource`; synthesizeTools makes their sellers
+  // list with tools even when they serve no /.well-known/x402 manifest.
+  { name: "GoPlausible AVM registry", url: "https://facilitator.goplausible.xyz/discovery/resources?limit=1000", synthesizeTools: true },
 ];
 
 // Operator-curated seeds committed in-repo — the version-controlled companion
@@ -189,6 +196,10 @@ function extractOrigin(rawUrl) {
   try {
     const u = new URL(rawUrl);
     if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    // Registries carry dev entries (localhost:3000, 127.0.0.1:*) — skip
+    // dotless/loopback hosts up front. safeFetch's SSRF guard would block the
+    // crawl anyway; this keeps them out of the seed set and off /index.
+    if (!u.hostname.includes(".") || u.hostname === "127.0.0.1" || u.hostname === "0.0.0.0") return null;
     return `${u.protocol}//${u.host}`;
   } catch {
     return null;
@@ -197,8 +208,10 @@ function extractOrigin(rawUrl) {
 
 // safeFetch-backed JSON fetcher injected into the Bazaar pager. Each page is
 // independently SSRF-guarded and byte-capped — the pager just chains them.
+// Accept must say JSON: safeFetch's default Accept prefers text/html, and
+// content-negotiating registries (GoPlausible's) serve their docs page for it.
 async function safeFetchJson(url) {
-  const { html } = await safeFetch(url, { maxBytes: MAX_DISCOVERY_BYTES });
+  const { html } = await safeFetch(url, { maxBytes: MAX_DISCOVERY_BYTES, headers: { Accept: "application/json" } });
   return JSON.parse(html);
 }
 
@@ -233,12 +246,14 @@ async function discoverOneSource(source, selfOrigin) {
     }
     status.resources = list.length;
     const found = new Set();
-    // Rebuild the Bazaar→origin tool map from this discovery pass so renamed /
-    // removed resources don't linger. Bazaar is authoritative for itself.
-    const isBazaar = isBazaarDiscoveryUrl(source.url);
-    const toolsByOrigin = isBazaar ? new Map() : null;
+    // Rebuild the registry→origin tool map from this discovery pass so renamed /
+    // removed resources don't linger. Each registry is authoritative for the
+    // origins it lists (per-origin swap below, so two registries listing
+    // disjoint origins don't clobber each other).
+    const synthesize = isBazaarDiscoveryUrl(source.url) || source.synthesizeTools === true;
+    const toolsByOrigin = synthesize ? new Map() : null;
     for (const item of list) {
-      const url = item.resource || item.url || item.endpoint || item.homepage;
+      const url = item.resource || item.resourceUrl || item.url || item.endpoint || item.homepage;
       const origin = extractOrigin(url);
       if (!origin || origin === selfOrigin) continue;
       found.add(origin);
@@ -284,7 +299,8 @@ function parsePrice(p) {
 // We deliberately keep the price in atomic USDC units → USD here so the router
 // can compare across sellers without a per-network price lookup.
 function bazaarItemToTool(item, originUrl) {
-  const resource = item.resource || item.url;
+  // `resource` = CDP Bazaar; `resourceUrl` = GoPlausible's AVM registry.
+  const resource = item.resource || item.resourceUrl || item.url;
   if (typeof resource !== "string" || !resource.startsWith(originUrl)) return null;
   const accepts = Array.isArray(item.accepts) ? item.accepts : [];
   // Prefer the first Base USDC accept; fall back to any USDC; fall back to first.
@@ -306,11 +322,11 @@ function bazaarItemToTool(item, originUrl) {
     /* keep "/" */
   }
   const tags = Array.isArray(item.tags) ? item.tags : [];
-  // Bazaar entries don't always carry a method; assume POST if we can't tell.
-  // The Smart Order Router treats this as a hint and will respect a 405 retry.
+  // Bazaar entries don't always carry a method (GoPlausible's do); assume POST
+  // if we can't tell. The router treats this as a hint and respects a 405 retry.
   return {
     seller: originUrl,
-    method: "POST",
+    method: typeof item.method === "string" && item.method ? item.method.toUpperCase() : "POST",
     route: pathStr,
     slug: pathStr.replace(/^\//, "").replace(/\//g, "-") || originUrl.replace(/^https?:\/\//, ""),
     name: item.serviceName || pathStr,
