@@ -9,6 +9,7 @@ import { setGlobalDispatcher, Agent as UndiciAgent } from "undici";
 dns.setDefaultResultOrder("ipv4first");
 setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
 import express from "express";
+import compression from "compression";
 import { readFileSync } from "node:fs";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 import { extractArticle, fetchPageMeta } from "./tools/extract.js";
@@ -621,6 +622,25 @@ const app = express();
 // attacker-supplied XFF value. This is what the per-IP rate limiters key on,
 // so spoofing it must not mint a fresh bucket. Tune for other topologies.
 app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+// gzip/deflate every response EXCEPT: (1) /v1/* and /mcp — the LLM gateway's
+// streaming tiers pipe SSE straight to the socket after settlement
+// (`{__sse}` sentinel in the route binder), and buffering those chunks to
+// compress them would break streaming and could stall a paid response. This
+// is a hard safety rule, not a perf tweak. (2) responses already served as
+// raw binary via the route binder's `{__binary, contentType}` sentinel
+// (images, audio) — those bytes are already compressed formats, so gzipping
+// them again just burns CPU for no size win; the default `compression`
+// filter already skips non-text content-types, this is belt-and-braces.
+// Everything else — HTML pages (the 475KB-and-growing /index chief among
+// them) and JSON APIs — compresses.
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path.startsWith("/v1") || req.path.startsWith("/mcp")) return false;
+    const contentType = res.getHeader("Content-Type");
+    if (typeof contentType === "string" && /^(image|audio|video)\//.test(contentType)) return false;
+    return compression.filter(req, res);
+  },
+}));
 app.use(express.json({ limit: "100kb" }));
 
 // Funnel stage 1 — discovery. An agent fetching any of these machine-readable
@@ -1326,7 +1346,15 @@ app.get("/index", async (req, res) => {
   try { economySnap = await x402EconomySnapshot(); } catch { /* indexPage renders an honest "unavailable" state */ }
   let leaderboardSnap = null;
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* 24h sub-block simply doesn't render */ }
-  htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL, network: req.query.network, economySnap, leaderboardSnap }));
+  htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), {
+    baseUrl: BASE_URL,
+    network: req.query.network,
+    economySnap,
+    leaderboardSnap,
+    sort: req.query.sort,
+    dir: req.query.dir,
+    all: req.query.all,
+  }));
 });
 // /stellar's receipt strip reuses stellarRail with the same 60s cache
 // discipline the /revenue page applies — a public page must not turn every
