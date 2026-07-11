@@ -854,10 +854,19 @@ export function revenuePage(baseUrl, snap) {
   const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar", Algorand: "algorand" };
   const railCard = (r) => {
     const at = snap.allTime?.perChain?.[chainKeyByLabel[r.rail]];
+    // Per-rail health: a successful balance read means the chain is up and we
+    // are settling on it, even when the recent-transfer window is quiet. Making
+    // this explicit stops a low-activity rail (or a partial transfer scan) from
+    // reading as "the chain is broken" when only the recent-activity list is
+    // empty. Green = live, red = the balance read itself failed.
+    const live = !r.error && r.balance != null;
+    const statusDot = live
+      ? `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>live</span>`
+      : `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--accent);"><span style="width:7px;height:7px;border-radius:50%;background:var(--accent);display:inline-block;"></span>unreachable</span>`;
     return `
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
       <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">
-        <span style="font-weight:800;font-size:17px;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· ${esc(r.asset)}</span></span>
+        <span style="font-weight:800;font-size:17px;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· ${esc(r.asset)}</span> ${statusDot}</span>
         <span style="font-family:var(--font-mono);text-align:right;"><span style="font-size:20px;font-weight:700;">${r.balance == null ? "-" : "$" + r.balance.toFixed(4)}</span><span style="display:block;font-size:11px;color:var(--muted);">balance${Number.isFinite(r.externalUsd) ? ` · external in window $${r.externalUsd}` : ""}${at ? ` · all-time $${at.externalUsd}${at.caughtUp ? "" : "↺"}` : ""}</span></span>
       </div>
       ${r.error
@@ -876,7 +885,7 @@ export function revenuePage(baseUrl, snap) {
                   : `<div><a href="${esc(t.tx)}" rel="noopener">tx</a>${when}${t.err ? " · failed" : ""}</div>`;
               })
               .join("")}</div>`
-          : `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">no inbound transfers in the recent window</div>`}
+          : `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">chain live, balance settling - no per-call activity in the recent scan window</div>`}
       ${r.scanNote ? `<div style="margin-top:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">${esc(r.scanNote)}</div>` : ""}
       ${r.explorer ? `<div style="margin-top:12px;font-family:var(--font-mono);font-size:12px;"><a href="${esc(r.explorer)}" rel="noopener">open in explorer →</a></div>` : ""}
     </div>`;
