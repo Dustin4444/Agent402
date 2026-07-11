@@ -673,7 +673,31 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
       .map((t) => t.algorandPayTo)
       .find((w) => typeof w === "string" && /^[A-Z2-7]{58}$/.test(w)) || null,
   }));
-  const sellers = [local, ...remote];
+  // Collapse http/https duplicates of the same host into one seller. A registry
+  // can list the same origin under both schemes (algo.netintel.dev appeared as
+  // both http:// and https://), which crawled as two cache entries and rendered
+  // as two identical rows. Keep one per host: prefer https, then the routable /
+  // higher-tool-count entry, and union networks + wallets so nothing is lost.
+  const hostKey = (o) => { try { return new URL(o).host.toLowerCase(); } catch { return String(o); } };
+  const isHttps = (o) => String(o).startsWith("https://");
+  const byHost = new Map();
+  for (const s of remote) {
+    const k = hostKey(s.origin);
+    const cur = byHost.get(k);
+    if (!cur) { byHost.set(k, s); continue; }
+    const sBetter =
+      (isHttps(s.origin) && !isHttps(cur.origin)) ||
+      (isHttps(s.origin) === isHttps(cur.origin) && s.routable && !cur.routable) ||
+      (isHttps(s.origin) === isHttps(cur.origin) && !!s.routable === !!cur.routable && (s.toolCount || 0) > (cur.toolCount || 0));
+    const keep = sBetter ? s : cur;
+    const drop = sBetter ? cur : s;
+    keep.networks = [...new Set([...(keep.networks || []), ...(drop.networks || [])])];
+    keep.stellarWallet = keep.stellarWallet || drop.stellarWallet;
+    keep.algorandWallet = keep.algorandWallet || drop.algorandWallet;
+    keep.toolCount = Math.max(keep.toolCount || 0, drop.toolCount || 0);
+    byHost.set(k, keep);
+  }
+  const sellers = [local, ...byHost.values()];
   const discoverySources = DISCOVERY_SOURCES.map((s) => {
     const st = discoveryStatus.get(s.name);
     return {
