@@ -138,7 +138,7 @@ import { uptimePage } from "./uptime.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
-import { setOgImageVersion } from "./ledger-chrome.js";
+import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
@@ -1289,6 +1289,27 @@ function getIndexSnapshot() {
   }
   return indexSnapshotCache.value;
 }
+// Wire the nav/footer "by chain" dropdown + column to live data — cheap (the
+// memoized snapshot above, no network at render) and defensive: nav() itself
+// try/catches the provider, but each chain gets its own guard here too so one
+// chain's failure never blanks the row next to it (honesty rule: that row
+// reads "unavailable", never a fabricated zero).
+setNavIndexProvider(() => {
+  const snapshot = getIndexSnapshot();
+  const chain = (label, href, sellersFn) => {
+    try {
+      return { label, href, sellers: sellersFn(snapshot).length, healthy: true };
+    } catch {
+      return { label, href, sellers: null, healthy: false };
+    }
+  };
+  return {
+    chains: [
+      chain("stellar", "/stellar", stellarSellers),
+      chain("algorand", "/algorand", algorandSellers),
+    ],
+  };
+});
 app.get("/index", (_req, res) =>
   htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), { baseUrl: BASE_URL }))
 );

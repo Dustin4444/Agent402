@@ -57,6 +57,13 @@ body { background: var(--paper); font-family: var(--font-body); color: var(--ink
 ::selection { background: #d63c1a33; }
 a { color: inherit; }
 
+/* --- nav dropdowns (CSS-only, zero-JS safe) --- */
+.mlnav-g { position: relative; }
+.mlnav-g > .mlnav-dd { display: none; position: absolute; top: 100%; left: -18px; padding-top: 13px; z-index: 60; }
+.mlnav-g:hover > .mlnav-dd, .mlnav-g:focus-within > .mlnav-dd { display: block; }
+.mlnav-row:hover { background: var(--card-zebra); }
+@media (max-width: 600px) { .mlnav-g > .mlnav-dd { display: none !important; } }
+
 /* --- keyframes --- */
 @keyframes ml-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
 @keyframes ml-tape  { from { transform: translateX(0); } to { transform: translateX(-50%); } }
@@ -113,25 +120,130 @@ function statusLine() {
 // Nav (sticky, every page)
 // ---------------------------------------------------------------------------
 
-// Skill packs lead — they're the product (a whole agent job, one payment);
-// the tool catalog is the supporting long tail.
-const NAV_ITEMS = [
-  { href: "/skills", label: "skill packs" },
-  { href: "/tools", label: "catalog" },
-  { href: "/pricing", label: "pricing" },
-  { href: "/leaderboard", label: "leaderboard" },
-  { href: "/stellar", label: "stellar market" },
-  { href: "/docs", label: "docs" },
+// Three zones: buy's direct links (highest-traffic destinations, no hover
+// required) | the two grouped doors (index / sell, each a real link plus a
+// CSS-only dropdown) | docs. See design_handoff_x402_ia_redesign/README.md §1.
+const NAV_ZONES = [
+  [
+    { href: "/skills", label: "skill packs" },
+    { href: "/tools", label: "catalog" },
+    { href: "/pricing", label: "pricing" },
+  ],
+  [
+    { href: "/index", label: "index", panel: "index" },
+    { href: "/sell", label: "sell", panel: "sell" },
+  ],
+  [{ href: "/docs", label: "docs" }],
 ];
 
+// Fallback by-chain rows used whenever no live index-snapshot data is wired
+// (offline unit tests, early boot, a throwing/null provider) — the dropdown
+// and footer still get real, crawlable links, just without seller counts.
+const STATIC_CHAINS = [
+  { label: "stellar", href: "/stellar" },
+  { label: "algorand", href: "/algorand" },
+];
+
+// Per-chain seller counts/health for the index dropdown + footer are live
+// data (crawler + index snapshot), but nav() renders on every page — including
+// offline unit tests with no crawler running. server.js wires a provider once
+// real data exists; until then (or if it throws) nav() falls back to
+// STATIC_CHAINS so it never crashes and never blocks a page render.
+let navDataProvider = null;
+export function setNavIndexProvider(fn) { navDataProvider = fn; }
+
+function chainRows() {
+  try {
+    const data = navDataProvider && navDataProvider();
+    if (data && Array.isArray(data.chains) && data.chains.length) {
+      // Scale rule: ≤6 chains show one row each; past that, top 5 + the
+      // ink footer row ("all chains →") always carries the rest.
+      const chains = data.chains.length > 6 ? data.chains.slice(0, 5) : data.chains;
+      return { chains, live: true };
+    }
+  } catch { /* provider threw — fall back to the static list below */ }
+  return { chains: STATIC_CHAINS, live: false };
+}
+
+function chainRowHtml(c, live) {
+  if (!live) {
+    // No provider data at all — a plain link, never a fabricated count.
+    return `<a href="${esc(c.href)}" class="mlnav-row" style="display:block;padding:9px 16px;text-decoration:none;color:var(--ink);font-weight:700;">${esc(c.label)}</a>`;
+  }
+  const known = typeof c.sellers === "number" && c.healthy !== false;
+  if (known) {
+    return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:6px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${c.sellers} sellers</span></a>`;
+  }
+  // Provider returned this chain but its data failed — honesty rule:
+  // "unavailable", never zero.
+  return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:6px;color:var(--faint);"><span style="width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;"></span>unavailable</span></a>`;
+}
+
+function indexPanelHtml(chainInfo) {
+  const rows = chainInfo.chains.map((c) => chainRowHtml(c, chainInfo.live)).join("\n                ");
+  return `<span class="mlnav-dd">
+              <span style="display:block;width:340px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE X402 INDEX - EVERY SELLER, RANKED ON-CHAIN</span>
+                <a href="/index" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">index</span><span style="color:var(--faint);">all sellers · health</span></a>
+                <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">by USDC settled</span></a>
+                <a href="/economy" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">economy</span><span style="color:var(--faint);">live dashboards</span></a>
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-top:1.5px solid var(--ink);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
+                ${rows}
+                <a href="/index" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--ink);color:var(--cream);"><span style="font-weight:700;">all chains →</span><span style="color:var(--dk-muted);">/index</span></a>
+              </span>
+            </span>`;
+}
+
+function sellPanelHtml() {
+  return `<span class="mlnav-dd">
+              <span style="display:block;width:330px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">FOR API SELLERS - GET PAID PER CALL</span>
+                <a href="/sell" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">list your API</span><span style="color:var(--faint);">free · health-ranked</span></a>
+                <a href="/tollbooth" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">tollbooth</span><span style="color:var(--faint);">pay-per-crawl</span></a>
+                <a href="/tollbooth/cloud" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">tollbooth cloud</span><span style="color:var(--faint);">managed · waitlist</span></a>
+                <a href="/contribute" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">contribute a tool</span><span style="color:var(--faint);">MIT · ~15 lines</span></a>
+                <a href="/sell" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--ink);color:var(--cream);"><span style="font-weight:700;">start selling →</span><span style="color:var(--dk-muted);">/sell</span></a>
+              </span>
+            </span>`;
+}
+
+const PANEL_HTML = { index: indexPanelHtml, sell: sellPanelHtml };
+
+function directLinkHtml(l, activePath) {
+  const active = l.href === activePath;
+  const style = active
+    ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
+    : "color:var(--muted);text-decoration:none;";
+  return `<a href="${l.href}" style="${style}">${l.label}</a>`;
+}
+
+function groupTriggerHtml(item, active, panelHtml) {
+  const style = active
+    ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
+    : "color:var(--muted);text-decoration:none;";
+  return `<span class="mlnav-g" style="display:inline-flex;">
+        <a href="${item.href}" style="${style}">${item.label} <span style="font-size:10px;">▾</span></a>
+        ${panelHtml}
+      </span>`;
+}
+
 function nav(activePath) {
-  const links = NAV_ITEMS.map((l) => {
-    const active = l.href === activePath;
-    const style = active
-      ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
-      : "color:var(--muted);text-decoration:none;";
-    return `<a href="${l.href}" style="${style}">${l.label}</a>`;
-  }).join("\n      ");
+  const chainInfo = chainRows();
+  const groupHrefs = {
+    // /index, /leaderboard, /economy are the panel's static rows; the chain
+    // hrefs are whatever's live right now — so a future chain page lights up
+    // the "index" trigger with zero nav.js edits, per the scale rule.
+    index: new Set(["/index", "/leaderboard", "/economy", ...chainInfo.chains.map((c) => c.href)]),
+    sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
+  };
+
+  const zone1 = NAV_ZONES[0].map((l) => directLinkHtml(l, activePath)).join("\n      ");
+  const zone2 = NAV_ZONES[1]
+    .map((item) => groupTriggerHtml(item, groupHrefs[item.panel].has(activePath), PANEL_HTML[item.panel](chainInfo)))
+    .join("\n      ");
+  const zone3 = NAV_ZONES[2].map((l) => directLinkHtml(l, activePath)).join("\n      ");
+  const divider = `<span style="width:1px;height:15px;background:var(--hairline);flex:none;"></span>`;
+
   return `<nav style="border-bottom:1.5px solid var(--ink);background:var(--paper);position:sticky;top:0;z-index:50;">
   <div class="ml-nav-in" style="max-width:1180px;margin:0 auto;padding:14px 30px;display:flex;align-items:center;gap:26px;">
     <a href="/" style="display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--ink);">
@@ -139,7 +251,11 @@ function nav(activePath) {
       <span style="font-weight:800;font-size:18px;letter-spacing:-.02em;text-transform:uppercase;">Agent402<span style="color:var(--accent);">.</span>Tools</span>
     </a>
     <div class="ml-nav-links" style="display:flex;align-items:center;gap:20px;margin-left:6px;font-family:var(--font-mono);font-size:13px;">
-      ${links}
+      ${zone1}
+      ${divider}
+      ${zone2}
+      ${divider}
+      ${zone3}
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:14px;">
       <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="font-family:var(--font-mono);font-size:13px;color:var(--muted);text-decoration:none;">github</a>
@@ -154,31 +270,39 @@ function nav(activePath) {
 // ---------------------------------------------------------------------------
 
 export function ledgerFooterFull() {
+  const chainInfo = chainRows();
+  const chainLinks = chainInfo.chains
+    .map((c) => `<a href="${esc(c.href)}" style="color:var(--muted);text-decoration:none;">${esc(c.label.charAt(0).toUpperCase() + c.label.slice(1))} market</a>`)
+    .join("");
   return `<footer style="border-top:1.5px solid var(--ink);background:var(--footer-bg);">
   <div style="max-width:1180px;margin:0 auto;padding:48px 30px 32px;">
-    <div class="ml-ft-grid" style="display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr 1fr;gap:26px;">
+    <div class="ml-ft-grid" style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr 1fr;gap:24px;">
       <div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
           <span style="width:30px;height:30px;border:2px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;">402</span>
           <span style="font-weight:800;font-size:16px;text-transform:uppercase;letter-spacing:-.02em;">Agent402<span style="color:var(--accent);">.</span>Tools</span>
         </div>
-        <p style="font-family:var(--font-mono);font-size:12px;line-height:1.6;color:#6b6757;margin:0;max-width:240px;">The open x402 index — discovery, routing, and on-chain ranking for the agent payments economy.</p>
+        <p style="font-family:var(--font-mono);font-size:12px;line-height:1.6;color:#6b6757;margin:0;max-width:240px;">The open x402 index - discovery, routing, and on-chain ranking for the agent payments economy.</p>
       </div>
       <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">product</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/tools" style="color:var(--muted);text-decoration:none;">Tools</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">Pricing</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">Integrations</a><a href="/tollbooth" style="color:var(--muted);text-decoration:none;">Tollbooth</a></div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for agents</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/skills" style="color:var(--muted);text-decoration:none;">Skill packs</a><a href="/tools" style="color:var(--muted);text-decoration:none;">Tool catalog</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">LLM gateway</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">Pricing</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">Integrations</a><a href="/playground" style="color:var(--muted);text-decoration:none;">Playground</a></div>
+      </div>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">x402 index</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a>${chainLinks}<a href="/index" style="color:var(--muted);text-decoration:none;">Index by chain</a></div>
+      </div>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for sellers</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/sell" style="color:var(--muted);text-decoration:none;">Start selling</a><a href="/tollbooth" style="color:var(--muted);text-decoration:none;">Tollbooth</a><a href="/tollbooth/cloud" style="color:var(--muted);text-decoration:none;">Tollbooth Cloud</a><a href="/contribute" style="color:var(--muted);text-decoration:none;">Contribute a tool</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">learn</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/docs" style="color:var(--muted);text-decoration:none;">Docs</a><a href="/quickstart" style="color:var(--muted);text-decoration:none;">Quickstart</a><a href="/skills" style="color:var(--muted);text-decoration:none;">Skills</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/docs" style="color:var(--muted);text-decoration:none;">Docs</a><a href="/quickstart" style="color:var(--muted);text-decoration:none;">Quickstart</a><a href="/guides" style="color:var(--muted);text-decoration:none;">Guides</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a><a href="/blog" style="color:var(--muted);text-decoration:none;">Blog</a><a href="/changelog" style="color:var(--muted);text-decoration:none;">Changelog</a></div>
       </div>
       <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">ecosystem</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/stellar" style="color:var(--muted);text-decoration:none;">Stellar</a><a href="/algorand" style="color:var(--muted);text-decoration:none;">Algorand</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a><a href="/playground" style="color:var(--muted);text-decoration:none;">Playground</a></div>
-      </div>
-      <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">developers</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">OpenAPI</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">Stats</a><a href="/changelog" style="color:var(--muted);text-decoration:none;">Changelog</a></div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">machine</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">OpenAPI</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/mcp" style="color:var(--muted);text-decoration:none;">MCP connector</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">Stats</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a></div>
       </div>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:36px;padding-top:18px;border-top:1px solid #cdc3ad;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
