@@ -80,12 +80,26 @@ a { color: inherit; }
   .sl-steps { grid-template-columns: repeat(2, 1fr) !important; }
 }
 @media (max-width: 600px) {
-  .ml-nav-in  { padding: 12px 16px !important; gap: 14px !important; }
-  .ml-nav-links { gap: 12px !important; }
+  .ml-status-in { padding: 8px 16px !important; }
+  .ml-status-ticker { display: none !important; }
+  .ml-status-left { flex: 1 1 auto; min-width: 0; }
+  .ml-nav-in  { padding: 12px 16px !important; gap: 10px !important; }
+  .ml-nav-links {
+    gap: 12px !important;
+    overflow-x: auto !important;
+    flex-wrap: nowrap !important;
+    min-width: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .ml-nav-links > * { flex: none !important; }
   .ml-nav-gh  { display: none !important; }
   .ml-h1      { font-size: 40px !important; }
   .ml-hero-h1 { font-size: 42px !important; }
   .ml-spec-cell { border-right: none !important; }
+  .ml-proof-row { grid-template-columns: 1fr !important; row-gap: 6px !important; }
+  .ml-proof-row code { justify-self: start !important; }
+  .ml-roster-compact { grid-template-columns: 1fr !important; row-gap: 4px !important; }
   .sl-h1      { font-size: 40px !important; }
   .sl-steps   { grid-template-columns: 1fr !important; }
 }
@@ -117,9 +131,9 @@ a { color: inherit; }
 
 function statusLine() {
   return `<div style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:12px;letter-spacing:.02em;">
-  <div style="max-width:1180px;margin:0 auto;padding:8px 30px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
-    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">HTTP/1.1 <span style="color:var(--accent);font-weight:700;">402</span> PAYMENT REQUIRED</span>
-    <span style="color:var(--dk-muted);white-space:nowrap;">agent402.base.eth · ${RAILS_TICKER}</span>
+  <div class="ml-status-in" style="max-width:1180px;margin:0 auto;padding:8px 30px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+    <span class="ml-status-left" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">HTTP/1.1 <span style="color:var(--accent);font-weight:700;">402</span> PAYMENT REQUIRED</span>
+    <span class="ml-status-ticker" style="color:var(--dk-muted);white-space:nowrap;">agent402.base.eth · ${RAILS_TICKER}</span>
   </div>
 </div>`;
 }
@@ -289,7 +303,7 @@ export function ledgerFooterFull() {
           <span style="width:30px;height:30px;border:2px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;">402</span>
           <span style="font-weight:800;font-size:16px;text-transform:uppercase;letter-spacing:-.02em;">Agent402<span style="color:var(--accent);">.</span>Tools</span>
         </div>
-        <p style="font-family:var(--font-mono);font-size:12px;line-height:1.6;color:#6b6757;margin:0;max-width:240px;">The open x402 index - discovery, routing, and on-chain ranking for the agent payments economy.</p>
+        <p style="font-family:var(--font-mono);font-size:12px;line-height:1.6;color:var(--muted);margin:0;max-width:240px;">The open x402 index - discovery, routing, and on-chain ranking for the agent payments economy.</p>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for agents</div>
@@ -312,7 +326,7 @@ export function ledgerFooterFull() {
         <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">OpenAPI</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/docs#add" style="color:var(--muted);text-decoration:none;">MCP connector</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">Stats</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a></div>
       </div>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:36px;padding-top:18px;border-top:1px solid #cdc3ad;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:36px;padding-top:18px;border-top:1px solid var(--hairline);font-family:var(--font-mono);font-size:12px;color:var(--faint);">
       <span>© 2026 Havok Holdings LLC · open-source x402 + MCP server · built by <a href="https://github.com/MikeyPetrillo" rel="noopener" style="color:var(--muted);text-decoration:none;">Mike Petrillo</a> · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:none;">mike@agent402.tools</a></span>
       <span style="display:flex;gap:16px;"><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
     </div>
@@ -331,7 +345,7 @@ export function ledgerFooterCompact() {
       <span style="display:flex;align-items:center;gap:10px;"><span style="width:24px;height:24px;border:2px solid var(--ink);color:var(--ink);font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center;">402</span><span style="font-weight:700;">Agent402.Tools</span></span>
       <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #cdc3ad;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · built by <a href="https://github.com/MikeyPetrillo" rel="noopener" style="color:var(--muted);text-decoration:none;">Mike Petrillo</a> · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:none;">mike@agent402.tools</a></span>
       <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
     </div>
@@ -360,7 +374,7 @@ export function ledgerTape(recentCalls) {
   return `<div style="background:var(--ink-tape);border-bottom:1.5px solid var(--ink);overflow:hidden;display:flex;align-items:center;">
   <div style="flex:none;padding:11px 18px;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);border-right:1px solid var(--dark-border);">●●● TAPE</div>
   <div style="overflow:hidden;flex:1;">
-    <div style="display:flex;gap:30px;width:max-content;animation:ml-tape 40s linear infinite;font-family:var(--font-mono);font-size:12px;color:#8b8676;padding:11px 18px;white-space:nowrap;">${track}${track}</div>
+    <div style="display:flex;gap:30px;width:max-content;animation:ml-tape 40s linear infinite;font-family:var(--font-mono);font-size:12px;color:var(--dk-muted);padding:11px 18px;white-space:nowrap;">${track}${track}</div>
   </div>
 </div>`;
 }

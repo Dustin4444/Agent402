@@ -317,7 +317,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     ? sellers.map((s) => {
         const good = s.local || s.routable;
         return `
-    <a href="${activityHref(s)}" style="display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:9px 14px;border:${isSelected(s) ? "2px solid var(--accent)" : "1px solid var(--hairline)"};background:var(--card);color:var(--ink);text-decoration:none;">
+    <a href="${activityHref(s)}" class="ml-roster-compact" style="display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:9px 14px;border:${isSelected(s) ? "2px solid var(--accent)" : "1px solid var(--hairline)"};background:var(--card);color:var(--ink);text-decoration:none;">
       <span style="font-weight:700;font-size:14px;">${esc(s.displayName)}${s.local ? ' <span style="background:var(--accent);color:var(--cream);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px;">THIS HOST</span>' : ""}</span>
       <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${esc(hostOf(s.homepage))}</span>
       <span style="color:var(--muted);font-family:var(--font-mono);font-size:12.5px;">${s.toolCount || 0} tools</span>
@@ -468,7 +468,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     </div>
     <div style="background:var(--ink);border:1.5px solid var(--ink);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>402 challenge · accepts[]</span><span>JSON</span></div>
-      <pre style="margin:0;padding:16px 18px;font-family:var(--font-mono);font-size:12px;line-height:1.8;color:#E7DFCD;white-space:pre-wrap;word-break:break-word;">{
+      <pre style="margin:0;padding:16px 18px;font-family:var(--font-mono);font-size:12px;line-height:1.8;color:var(--cream);white-space:pre-wrap;word-break:break-word;">{
   <span style="color:var(--dk-muted3);">"scheme"</span>: "exact",
   <span style="color:var(--dk-muted3);">"network"</span>: <span style="color:var(--accent);">"${esc(C.acceptNetwork)}"</span>,
   <span style="color:var(--dk-muted3);">"asset"</span>: "${esc(C.asset)}",
