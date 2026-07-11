@@ -10,6 +10,7 @@
 // exact id="list-api" markup + inline-script XSS posture from market-page.js
 // (fetch → JSON → textContent only, never innerHTML).
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { chainLogoStrip } from "./chain-logos.js";
 
 const REPO = "https://github.com/MikeyPetrillo/Agent402";
 
@@ -128,6 +129,13 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     </div>
   </div>
 </header>
+
+<!-- SETTLEMENT RAILS — chain logo strip -->
+<div style="border-bottom:1.5px solid var(--ink);background:var(--paper);">
+  <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
+    ${chainLogoStrip({ label: "List once - settle in your wallet on any of these seven networks" })}
+  </div>
+</div>
 
 <!-- PATH A / LIST -->
 <section id="list" style="max-width:1180px;margin:0 auto;padding:74px 30px 0;">
