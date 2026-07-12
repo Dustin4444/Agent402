@@ -11,6 +11,9 @@
 //   device-recalls      FDA medical-device recall/enforcement (openFDA)
 //   college-lookup      US colleges via the Dept of Ed College Scorecard
 //   fec-candidates      US federal election candidates (FEC)
+//   federal-awards      US federal contract awards (USAspending, POST search)
+//   geo-lookup          lat/lon -> county/state/census block (FCC Area API)
+//   fema-disasters      FEMA disaster declarations by state (openFEMA)
 // All documented public APIs serving public-domain data; no scraping. College
 // Scorecard + FEC use the api.data.gov key (DATA_GOV_API_KEY, DEMO_KEY fallback);
 // the rest are keyless. (Treasury debt/rates live in macro-kit; don't dup here.)
@@ -567,6 +570,153 @@ export const GOV_TOOLS = [
         })),
         source: "api.open.fec.gov (public domain)",
       };
+    },
+  },
+
+  // ---- USAspending.gov — federal awards (keyless, POST search) -------------
+  {
+    route: "GET /api/federal-awards", name: "US federal awards search (USAspending)", slug: "federal-awards", category: "data", price: "$0.005",
+    description:
+      "Search US federal contract awards via USAspending.gov by keyword: recipient, award amount, awarding agency, and description — largest awards first. Live gov data, no key. ?q=Lockheed&limit=5",
+    tags: ["usaspending", "federal-spending", "contracts", "procurement", "government", "awards"],
+    discovery: {
+      input: { q: "Lockheed", limit: 5 },
+      inputSchema: {
+        properties: {
+          q: { type: "string", description: "Keyword to search awards (recipient, program, or description text)" },
+          limit: { type: "number", description: "Max results 1-20 (default 5)" },
+        },
+        required: ["q"],
+      },
+      output: {
+        example: {
+          query: "Lockheed", count: 2,
+          awards: [{ recipient: "LOCKHEED MARTIN CORP", amountUsd: 48063737196.35, agency: "Department of Energy", awardId: "…", description: "…" }],
+          source: "api.usaspending.gov (public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const q = String(i.q ?? "").trim();
+      if (!q) throw bad('"q" (keyword) is required');
+      const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
+      const body = JSON.stringify({
+        filters: { award_type_codes: ["A", "B", "C", "D"], keywords: [q] }, // A-D = contract award types
+        fields: ["Award ID", "Recipient Name", "Award Amount", "Awarding Agency", "Description"],
+        limit, sort: "Award Amount", order: "desc",
+      });
+      const data = await getJson("https://api.usaspending.gov/api/v2/search/spending_by_award/", {
+        method: "POST", body, headers: { "Content-Type": "application/json", Accept: "application/json" },
+      });
+      const results = Array.isArray(data.results) ? data.results : [];
+      return {
+        query: q,
+        count: results.length,
+        awards: results.map((r) => ({
+          recipient: r["Recipient Name"] ?? null,
+          amountUsd: r["Award Amount"] != null ? Number(r["Award Amount"]) : null,
+          agency: r["Awarding Agency"] ?? null,
+          awardId: r["Award ID"] ?? null,
+          description: (r["Description"] ?? "").replace(/\s+/g, " ").slice(0, 160),
+        })),
+        source: "api.usaspending.gov (public domain)",
+      };
+    },
+  },
+
+  // ---- Location intelligence — reliable documented gov geo APIs -----------
+  // (Deliberately NOT random ArcGIS FeatureServers: several EPA/USGS ArcGIS
+  // mirrors 400/503 intermittently, which fails the "must work when an agent
+  // wants it" bar. These two are stable, documented, keyless endpoints.)
+  {
+    route: "GET /api/geo-lookup", name: "US location lookup (lat/lon)", slug: "geo-lookup", category: "data", price: "$0.003",
+    description:
+      "Resolve a US latitude/longitude to its county, state, and census block FIPS via the FCC Area API — the geographic context agents need for any coordinate. Live gov data, no key. ?lat=34.0522&lon=-118.2437",
+    tags: ["geo", "location", "county", "census", "fips", "fcc", "government"],
+    discovery: {
+      input: { lat: 34.0522, lon: -118.2437 },
+      inputSchema: {
+        properties: {
+          lat: { type: "number", description: "Latitude (-90..90)" },
+          lon: { type: "number", description: "Longitude (-180..180)" },
+        },
+        required: ["lat", "lon"],
+      },
+      output: {
+        example: { lat: 34.0522, lon: -118.2437, county: "Los Angeles County", state: "CA", stateName: "California", blockFips: "060372074001024", source: "geo.fcc.gov (public domain)" },
+      },
+    },
+    handler: async (i) => {
+      const lat = Number(i.lat), lon = Number(i.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        throw bad('"lat" and "lon" must be valid coordinates (lat -90..90, lon -180..180)');
+      }
+      const data = await getJson(`https://geo.fcc.gov/api/census/block/find?latitude=${lat}&longitude=${lon}&format=json`, { headers: { Accept: "application/json" } });
+      const state = data?.State?.code ?? null;
+      if (!state) throw bad("no US location found for those coordinates (is the point inside the United States?)", 422);
+      return {
+        lat, lon,
+        county: data?.County?.name ?? null,
+        state,
+        stateName: data?.State?.name ?? null,
+        blockFips: data?.Block?.FIPS ?? null,
+        source: "geo.fcc.gov (public domain)",
+      };
+    },
+  },
+  {
+    route: "GET /api/fema-disasters", name: "FEMA disaster declarations", slug: "fema-disasters", category: "data", price: "$0.004",
+    description:
+      "Recent FEMA disaster declarations for a US state (openFEMA): title, incident type, declaration type, and date — the federal emergency picture by state, de-duplicated by disaster. Live gov data, no key. ?state=CA&limit=5",
+    tags: ["fema", "disaster", "emergency", "declarations", "openfema", "government"],
+    discovery: {
+      input: { state: "CA", limit: 5 },
+      inputSchema: {
+        properties: {
+          state: { type: "string", description: "Two-letter US state/territory code (or full state name), e.g. CA" },
+          limit: { type: "number", description: "Max distinct disasters 1-20 (default 5)" },
+        },
+        required: ["state"],
+      },
+      output: {
+        example: {
+          state: "CA", count: 1,
+          disasters: [{ title: "WILDFIRES", incidentType: "Fire", declarationType: "Major Disaster", declared: "2026-01-08", disasterNumber: 4812 }],
+          source: "fema.gov openFEMA (public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const raw = String(i.state ?? "").trim();
+      let st = raw.toUpperCase();
+      if (!/^[A-Z]{2}$/.test(st)) {
+        const code = STATE_NAME_TO_CODE[raw.toLowerCase()];
+        if (code) st = code;
+        else throw bad(`"state" must be a two-letter US state code (e.g. CA) or full state name. Got "${raw}".`);
+      }
+      const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
+      // openFEMA returns one row PER COUNTY per disaster, so over-fetch the recent
+      // window and de-duplicate by disasterNumber to get N distinct disasters.
+      const window = Math.min(limit * 25, 300);
+      const url = `https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries?$filter=state eq '${st}'&$top=${window}&$orderby=declarationDate desc&$select=declarationTitle,incidentType,declarationType,declarationDate,disasterNumber`;
+      const data = await getJson(encodeURI(url), { headers: { Accept: "application/json" } });
+      const items = Array.isArray(data?.DisasterDeclarationsSummaries) ? data.DisasterDeclarationsSummaries : [];
+      const seen = new Set();
+      const disasters = [];
+      for (const r of items) {
+        const n = r.disasterNumber;
+        if (n == null || seen.has(n)) continue;
+        seen.add(n);
+        disasters.push({
+          title: r.declarationTitle ?? null,
+          incidentType: r.incidentType ?? null,
+          declarationType: r.declarationType ?? null,
+          declared: (r.declarationDate || "").slice(0, 10) || null,
+          disasterNumber: n,
+        });
+        if (disasters.length >= limit) break;
+      }
+      return { state: st, count: disasters.length, disasters, source: "fema.gov openFEMA (public domain)" };
     },
   },
 ];

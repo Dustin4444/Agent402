@@ -114,6 +114,30 @@ await withMockedFetch(fakeResponse({ status: 200, contentType: "audio/mpeg", bod
 });
 ok("binary response surfaces contentType");
 
+// POST support (added for the USAspending tool): method + body must reach the
+// underlying fetch, and the SSRF guard must apply to POST exactly as to GET.
+let captured = null;
+{
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => { captured = opts; return fakeResponse({ status: 200, contentType: "application/json", body: "{}" }); };
+  try {
+    await safeFetch(PUBLIC, { method: "POST", body: '{"q":1}', headers: { "Content-Type": "application/json" } });
+  } finally { globalThis.fetch = real; }
+}
+if (captured?.method !== "POST") fail(`POST method not passed to fetch; got ${captured?.method}`);
+if (captured?.body !== '{"q":1}') fail(`POST body not passed to fetch; got ${JSON.stringify(captured?.body)}`);
+ok("POST method + body reach the underlying fetch");
+
+// SSRF is method-agnostic: assertPublicUrl runs before fetch, so a POST to a
+// private address must be blocked just like a GET.
+try {
+  await safeFetch("http://127.0.0.1/x", { method: "POST", body: "x" });
+  fail("expected SSRF block on POST to 127.0.0.1");
+} catch (e) {
+  if (!/private address/i.test(e.message)) fail(`POST to a private address must be SSRF-blocked; got: ${e.message}`);
+}
+ok("POST to a private address is still SSRF-blocked");
+
 console.log("\nfetch-guard: all attribution assertions passed");
 
 // ---------------------------------------------------------------------------
