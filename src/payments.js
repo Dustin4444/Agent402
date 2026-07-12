@@ -76,6 +76,20 @@ const ROBINHOOD_FACILITATOR_URL = (process.env.ROBINHOOD_FACILITATOR_URL || "").
 // Monad (143 + testnet 10143), so it wins that route without touching other rails.
 const MONAD_CAIP2 = "eip155:143";
 const MONAD_FACILITATOR_URL = (process.env.MONAD_FACILITATOR_URL || "https://x402-facilitator.molandak.org").trim();
+// Monad's native Circle USDC reports name() = "USDC" on-chain (NOT the usual
+// "USD Coin"), and the EIP-3009 transferWithAuthorization domain separator is
+// built from that name. @x402/evm's built-in registry hardcodes "USD Coin" for
+// eip155:143, so a buyer signs against the wrong domain and settlement fails
+// ("unexpected_error"). We override the EIP-712 name to the real on-chain value
+// via a money parser (same mechanism as Robinhood's USDG domain), so the accept
+// advertises the correct { name, version } and the buyer signs a valid auth.
+// Verified on-chain 2026-07-12: name()="USDC", version()="2", decimals=6.
+const MONAD_USDC = {
+  asset: (process.env.MONAD_USDC_ADDRESS || "0x754704Bc059F8C67012fEd69BC8A327a5aafb603").trim(),
+  decimals: 6,
+  name: (process.env.MONAD_USDC_EIP712_NAME || "USDC").trim(),
+  version: (process.env.MONAD_USDC_EIP712_VERSION || "2").trim(),
+};
 const USDG = {
   asset: (process.env.ROBINHOOD_USDG_ADDRESS || "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168").trim(),
   decimals: 6,
@@ -96,6 +110,20 @@ function makeUsdgScheme() {
       amount: convertToTokenAmount(numberToDecimalString(amount), USDG.decimals),
       asset: USDG.asset,
       extra: { name: USDG.name, version: USDG.version },
+    };
+  });
+}
+
+// Monad USDC with the CORRECT on-chain EIP-712 name ("USDC", not @x402/evm's
+// registry default "USD Coin"). Same override mechanism as makeUsdgScheme — the
+// asset address is unchanged (Circle USDC), only the signing domain is fixed.
+function makeMonadUsdcScheme() {
+  return new ExactEvmScheme().registerMoneyParser((amount, network) => {
+    if (String(network) !== MONAD_CAIP2) return null;
+    return {
+      amount: convertToTokenAmount(numberToDecimalString(amount), MONAD_USDC.decimals),
+      asset: MONAD_USDC.asset,
+      extra: { name: MONAD_USDC.name, version: MONAD_USDC.version },
     };
   });
 }
@@ -242,7 +270,10 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     .registerExtension(bazaarResourceServerExtension)
     .registerExtension(builderCodeResourceServerExtension);
   for (const caip2 of evmCaip2) {
-    server = server.register(caip2, caip2 === ROBINHOOD_CAIP2 ? makeUsdgScheme() : new ExactEvmScheme());
+    const scheme = caip2 === ROBINHOOD_CAIP2 ? makeUsdgScheme()
+      : caip2 === MONAD_CAIP2 ? makeMonadUsdcScheme()
+      : new ExactEvmScheme();
+    server = server.register(caip2, scheme);
   }
   for (const caip2 of svmCaip2) server = server.register(caip2, new ExactSvmScheme());
   // Stellar — settlement via the OpenZeppelin-operated x402 facilitator on pubnet.
