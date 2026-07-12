@@ -131,7 +131,7 @@ export const CHAIN_PAGES = {
     caip2: "eip155:143",
     asset: "USDC",
     settleLatency: "~1 second",
-    facilitatorLabel: "PayAI",
+    facilitatorLabel: "molandak",
     gasNote: "sponsored",
     explorerUrl: "monadscan.com",
     explorerWalletUrl: (wallet) => `https://monadscan.com/address/${wallet}#tokentxns`,
@@ -141,8 +141,8 @@ export const CHAIN_PAGES = {
     // id ("eip155:10143"), so an exact match can't be fooled by a testnet accept.
     isNetwork: (n) => n === "eip155:143",
     honestyNetworkPhrase: "the Monad network",
-    canaryLine: "A paid canary buys tools over the Monad rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Monad CAIP-2 network (<code>eip155:143</code>) in your 402 challenge - the PayAI facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+    canaryLine: "A paid canary buys tools over the Monad rail daily (facilitator: molandak) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Monad CAIP-2 network (<code>eip155:143</code>) in your 402 challenge - the molandak facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
   },
   stellar: {
     chainName: "Stellar",
