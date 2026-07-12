@@ -726,6 +726,18 @@ jobs:
       - name: Tool resolver (/api/find ranking, guards)
         run: node scripts/test-find.js
 
+      - name: Self-check semantic invariants are meaningful (good passes, broken fails)
+        run: node scripts/test-invariants.js
+
+      - name: x402-market-pulse category classifier (path-aware, closed taxonomy)
+        run: node scripts/test-ecosystem-category.js
+
+      - name: x402-market-pulse supply-mix per-seller tool cap
+        run: node scripts/test-ecosystem-supply.js
+
+      - name: Discovery strict-source filters (testnet + junk origins)
+        run: node scripts/test-discovery-filter.js
+
       - name: Find ranker — live-catalog smoke test (boots free-mode, locks top-1 for agent queries)
         run: node scripts/test-find-ranking.js
 

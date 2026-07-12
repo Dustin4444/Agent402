@@ -39,7 +39,37 @@ export const SELFCHECK_SLUGS = [
   "defi-tvl",              // DeFiLlama
   "gas-estimate",          // on-chain gas (public RPC)
   "crypto-global",         // crypto market globals
+  // FDA + NHTSA federal-data pack — monitored with semantic invariants (a fixed
+  // VIN, a permanent recall) so a break in an openFDA/NHTSA mapping pages us.
+  "vin-decode",            // NHTSA vPIC
+  "vehicle-recalls",       // NHTSA recalls
+  "drug-recalls",          // openFDA drug enforcement
+  "food-recalls",          // openFDA food enforcement
+  "drug-adverse-events",   // openFDA FAERS
 ];
+// Semantic invariants — the teeth on the self-check. Running a tool's example
+// and seeing it "not throw" catches a dead upstream, but NOT a tool that returns
+// the wrong thing (an upstream that changed shape, a mapping we broke). Each
+// invariant gets the handler's result for the tool's documented example input
+// and returns true iff the KNOWN-CORRECT answer still holds. Facts must be
+// permanent so this can never flake on live values: a fixed VIN decodes to the
+// same car forever, a historical recall never un-happens, the national debt only
+// grows, a stock has a positive price. A tool with an invariant is only "ok" when
+// it ran AND the invariant held. (Applied in checkOne; retried like any failure.)
+export const INVARIANTS = {
+  // FDA + NHTSA pack (this batch)
+  "vin-decode": (r) => r?.vehicle?.make === "HONDA" && r?.vehicle?.year === "2003",
+  "vehicle-recalls": (r) => Number(r?.count) >= 1 && !!r?.recalls?.[0]?.campaign,
+  "drug-recalls": (r) => Number(r?.count) >= 1 && !!r?.recalls?.[0]?.classification,
+  "food-recalls": (r) => Number(r?.count) >= 1,
+  "drug-adverse-events": (r) => Array.isArray(r?.topReactions) && r.topReactions.length >= 1 && typeof r.topReactions[0]?.reports === "number",
+  // revenue-critical existing tools (stable facts, not live values)
+  "stock-quote": (r) => typeof r?.price === "number" && r.price > 0 && !!r?.symbol,
+  "treasury-debt": (r) => Number(r?.totalPublicDebtOutstanding) > 30e12, // debt only grows; already >$30T
+  "crypto-global": (r) => Number(r?.totalMarketCap) > 0 && Number(r?.btcDominancePct) > 0 && Number(r?.btcDominancePct) < 100,
+  "whois": (r) => !!r?.domain && Array.isArray(r?.nameservers), // registered domain resolves with a nameserver list
+};
+
 // Key-gated tools: checked ONLY when their key env var is actually set. This is
 // how we monitor key EXPIRY without false-paging on an intentional unset — a
 // set-but-invalid key makes the tool fail and we page; an unset key is simply
@@ -68,12 +98,20 @@ async function checkOne(def, timeoutMs) {
   const t0 = Date.now();
   let timer;
   try {
-    await Promise.race([
+    const result = await Promise.race([
       Promise.resolve().then(() => def.handler(input)),
       new Promise((_, rej) => {
         timer = setTimeout(() => rej(Object.assign(new Error("selfcheck timeout"), { statusCode: 504 })), timeoutMs);
       }),
     ]);
+    // Semantic invariant (if defined): the tool ran, but did it return the
+    // known-correct answer? A false invariant is a real regression, not a blip.
+    const invariant = INVARIANTS[def.slug];
+    if (invariant) {
+      let held = false;
+      try { held = !!invariant(result); } catch { held = false; }
+      if (!held) return { slug: def.slug, ok: false, ms: Date.now() - t0, status: 0, error: "invariant failed: ran but returned an unexpected answer (upstream shape change?)" };
+    }
     return { slug: def.slug, ok: true, ms: Date.now() - t0 };
   } catch (e) {
     return { slug: def.slug, ok: false, ms: Date.now() - t0, status: e?.statusCode || 0, error: String(e?.message || e).slice(0, 160) };
