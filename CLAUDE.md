@@ -1,6 +1,6 @@
 # Agent402.Tools — project memory for Claude Code
 
-Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 1,419 deterministic
+Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 1,420 deterministic
 web tools an AI agent can call and pay for per request (USDC on Base via the x402
 protocol, or free via proof-of-work). It's two-sided — it also ships
 `agent402-tollbooth` (pay-per-crawl for site owners) and `agent402-client` (a buyer SDK).
@@ -153,7 +153,7 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   (`.github/workflows/openrouter-tts-probe.yml` is dispatchable from main and probes
   candidate model ids); on a 200, set `OPENROUTER_TTS_ENABLED=true` on Railway, re-add the
   llm-speech canary leg in `scripts/paid-canary.js`, run `node scripts/sync-count.js`
-  (count goes 1,419 → 1,420), and re-run `[bazaar-register]`.
+  (count goes 1,420 → 1,420), and re-run `[bazaar-register]`.
 - OpenRouter account top-up is manual (their programmatic top-up API is deprecated). If a
   "Gateway credits LOW" issue opens, top up the account; the alarm auto-closes the issue
   once `/api/gateway-status` reports `ok` again.
