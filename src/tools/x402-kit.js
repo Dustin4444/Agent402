@@ -146,7 +146,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/x402-market-pulse", name: "x402 market pulse", slug: "x402-market-pulse", category: "payments", price: "$0.01",
     description:
-      "Live cross-provider x402 market sentiment. topProviders: the top-earning x402 sellers ecosystem-wide by REAL on-chain USDC settled - who agents are actually paying, across every provider (not just Agent402). topToolCategories: the tool-category supply mix the whole market offers (from every indexed seller's manifest). Demand is provider-level (settlements are on-chain; per-tool purchase counts are not), so this is the honest whole-market read. ?top=10",
+      "Live cross-provider x402 market sentiment. topProviders: the top-earning x402 sellers ecosystem-wide by REAL on-chain USDC settled - who agents are actually paying, across every provider (Agent402 included and flagged isSelf:true). topToolCategories: the tool-category supply mix the whole market offers (from every indexed seller's manifest). Demand is provider-level (settlements are on-chain; per-tool purchase counts are not), so this is the honest whole-market read. ?top=10",
     tags: ["x402", "market", "sentiment", "leaderboard", "ecosystem", "providers", "intelligence", "discovery"],
     discovery: {
       input: { top: 10 },
@@ -169,15 +169,17 @@ export const X402_TOOLS = [
       const top = Math.min(Math.max(parseInt(i?.top, 10) || 10, 1), 25);
       const lb = (typeof getLeaderboardSnapshot === "function" && getLeaderboardSnapshot()) || null;
       const board = Array.isArray(lb?.leaderboard) ? lb.leaderboard : [];
-      // Exclude Agent402 itself so this is the REST of the market (BlockRun et al.).
+      // Agent402 is a market participant too - include it, but label our own row
+      // so the ranking is honest (a market pulse that deletes a top seller is wrong).
       const isSelf = (r) => /agent402\.tools/i.test(String(r?.homepage || "")) || (r?.origins || []).some((o) => /agent402\.tools/i.test(String(o)));
-      const topProviders = board.filter((r) => !isSelf(r)).slice(0, top).map((r, idx) => ({
+      const topProviders = board.slice(0, top).map((r, idx) => ({
         rank: idx + 1,
         provider: r.name || String(r.homepage || "").replace(/^https?:\/\//, ""),
         usdSettled: +(Number(r.totalUsd) || 0).toFixed(2),
         calls: Number(r.callsSettled) || 0,
         buyers: Number(r.uniqueBuyers) || 0,
         homepage: r.homepage || null,
+        ...(isSelf(r) ? { isSelf: true } : {}),
       }));
       const market = ecosystemMarket({ limit: 12 });
       return {
@@ -186,7 +188,7 @@ export const X402_TOOLS = [
         ecosystem: { sellersIndexed: market.sellers, toolsIndexed: market.tools },
         topProviders,
         topToolCategories: market.categories,
-        note: "Cross-provider x402 market pulse. topProviders = real on-chain DEMAND (USDC settled per seller, ecosystem-wide, primarily Base) with Agent402 excluded so you see the rest of the market. topToolCategories = SUPPLY mix (categories offered across every indexed seller's manifest) - per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
+        note: "Cross-provider x402 market pulse. topProviders = real on-chain DEMAND (USDC settled per seller, ecosystem-wide, primarily Base); Agent402 is ranked alongside everyone else and flagged isSelf:true for transparency. topToolCategories = SUPPLY mix (categories offered across every indexed seller's manifest) - per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
       };
     },
   },
