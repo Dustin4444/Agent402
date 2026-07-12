@@ -144,6 +144,53 @@ const NETWORK_PARAM = { type: "string", description: `chain: ${NETWORK_NAMES.joi
 
 export const X402_TOOLS = [
   {
+    route: "GET /api/x402-market-pulse", name: "x402 market pulse", slug: "x402-market-pulse", category: "payments", price: "$0.01",
+    description:
+      "Live cross-provider x402 market sentiment. topProviders: the top-earning x402 sellers ecosystem-wide by REAL on-chain USDC settled - who agents are actually paying, across every provider (not just Agent402). topToolCategories: the tool-category supply mix the whole market offers (from every indexed seller's manifest). Demand is provider-level (settlements are on-chain; per-tool purchase counts are not), so this is the honest whole-market read. ?top=10",
+    tags: ["x402", "market", "sentiment", "leaderboard", "ecosystem", "providers", "intelligence", "discovery"],
+    discovery: {
+      input: { top: 10 },
+      inputSchema: {
+        properties: { top: { type: "integer", description: "How many top providers to return (1-25, default 10)" } },
+      },
+      output: {
+        example: {
+          asOf: "2026-07-12T00:00:00.000Z", window: "last 24h",
+          ecosystem: { sellersIndexed: 1479, toolsIndexed: 5200 },
+          topProviders: [{ rank: 1, provider: "blockrun.ai", usdSettled: 294.55, calls: 353970, buyers: 163, homepage: "https://blockrun.ai" }],
+          topToolCategories: [{ category: "search", sellersOffering: 12, tools: 40 }],
+        },
+      },
+    },
+    handler: async (i) => {
+      const [{ getLeaderboardSnapshot }, { ecosystemMarket }] = await Promise.all([
+        import("../leaderboard.js"), import("../x402-index.js"),
+      ]);
+      const top = Math.min(Math.max(parseInt(i?.top, 10) || 10, 1), 25);
+      const lb = (typeof getLeaderboardSnapshot === "function" && getLeaderboardSnapshot()) || null;
+      const board = Array.isArray(lb?.leaderboard) ? lb.leaderboard : [];
+      // Exclude Agent402 itself so this is the REST of the market (BlockRun et al.).
+      const isSelf = (r) => /agent402\.tools/i.test(String(r?.homepage || "")) || (r?.origins || []).some((o) => /agent402\.tools/i.test(String(o)));
+      const topProviders = board.filter((r) => !isSelf(r)).slice(0, top).map((r, idx) => ({
+        rank: idx + 1,
+        provider: r.name || String(r.homepage || "").replace(/^https?:\/\//, ""),
+        usdSettled: +(Number(r.totalUsd) || 0).toFixed(2),
+        calls: Number(r.callsSettled) || 0,
+        buyers: Number(r.uniqueBuyers) || 0,
+        homepage: r.homepage || null,
+      }));
+      const market = ecosystemMarket({ limit: 12 });
+      return {
+        asOf: lb?.asOf || null,
+        window: lb?.windowLabel || "last 24h",
+        ecosystem: { sellersIndexed: market.sellers, toolsIndexed: market.tools },
+        topProviders,
+        topToolCategories: market.categories,
+        note: "Cross-provider x402 market pulse. topProviders = real on-chain DEMAND (USDC settled per seller, ecosystem-wide, primarily Base) with Agent402 excluded so you see the rest of the market. topToolCategories = SUPPLY mix (categories offered across every indexed seller's manifest) - per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
+      };
+    },
+  },
+  {
     route: "GET /api/x402-quote", name: "x402 quote", slug: "x402-quote", category: "payments", price: "$0.003",
     description:
       "Probe any URL and decode its HTTP 402 payment requirements (price, asset, network, pay-to) into clean JSON — what an agent needs to decide whether/how to pay. Read-only; does not pay. ?url=https://api.example.com/paid&method=GET",

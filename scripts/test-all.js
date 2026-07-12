@@ -200,6 +200,7 @@ const SHAPE_HAPPY_PATH_ONLY = new Set([
   "/api/tx-status",    // example shows success; 0x0…0 hash returns {status:"not_found"}
   "/api/x402-verify",  // example shows verified settlement; 0x0…0 hash returns {status:"not_found"}
   "/api/mev-block-payment", // example shows found=true; placeholder block 22000000 returns {found:false}
+  "/api/x402-market-pulse", // example shows populated providers/categories; a cold test boot (crawler + leaderboard not warm) returns empty arrays
 ]);
 function checkShape(path, method, op, body) {
   if (SHAPE_HAPPY_PATH_ONLY.has(path)) return;

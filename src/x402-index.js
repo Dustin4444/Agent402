@@ -658,6 +658,38 @@ function buildLocalEntry({ baseUrl, catalog, prices, network, toolCount, walletN
 }
 
 /**
+ * Cross-provider market supply mix: how the whole x402 ecosystem's tool
+ * catalogue breaks down by category, aggregated over every crawled seller's
+ * manifest (NOT Agent402's own catalogue — the crawler cache is remote sellers
+ * only). Counts DISTINCT SELLERS per category (not raw tool counts) so one big
+ * catalogue can't dominate the "what the market offers" picture. Reads the
+ * in-memory crawl cache — no network. Powers the x402-market-pulse tool's
+ * supply side (demand comes from the on-chain leaderboard).
+ */
+export function ecosystemMarket({ limit = 12 } = {}) {
+  let sellers = 0, tools = 0;
+  const catSellers = new Map();
+  const catTools = new Map();
+  for (const [, v] of cache.entries()) {
+    if (v.error || !Array.isArray(v.tools) || !v.tools.length) continue;
+    sellers++;
+    tools += v.tools.length;
+    const cats = new Set();
+    for (const t of v.tools) {
+      const c = t.category || "other";
+      catTools.set(c, (catTools.get(c) || 0) + 1);
+      cats.add(c);
+    }
+    for (const c of cats) catSellers.set(c, (catSellers.get(c) || 0) + 1);
+  }
+  const categories = [...catSellers.keys()]
+    .map((category) => ({ category, sellersOffering: catSellers.get(category), tools: catTools.get(category) || 0 }))
+    .sort((a, b) => b.sellersOffering - a.sellersOffering || b.tools - a.tools)
+    .slice(0, limit);
+  return { sellers, tools, categories };
+}
+
+/**
  * Snapshot for the /index page. Always includes the local catalog (instant,
  * zero-network) plus whatever the crawler has accumulated.
  */
