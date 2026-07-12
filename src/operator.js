@@ -29,36 +29,36 @@ export function operatorPage(baseUrl, data) {
 .op-sub{color:var(--muted);margin:0 0 22px;font-size:14px;line-height:1.55}
 .op-sub a{color:var(--accent);text-decoration:none}
 .op-sub a:hover{text-decoration:underline}
-.op-sub code{font-family:var(--font-mono);font-size:12px;background:var(--ink);color:var(--cream);padding:2px 7px;border:1.5px solid var(--ink)}
+.op-sub code{font-family:var(--font-mono);font-size:12px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1.5px solid var(--ink)}
 .op-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:0 0 22px}
-.op-stat{background:var(--ink);border:1.5px solid var(--ink);padding:16px}
+.op-stat{background:var(--surface);border:1.5px solid var(--ink);padding:16px}
 .op-stat .op-k{color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-.op-stat .op-v{font-family:var(--font-mono);font-size:1.45rem;color:var(--cream);margin-top:4px}
+.op-stat .op-v{font-family:var(--font-mono);font-size:1.45rem;color:var(--on-dark);margin-top:4px}
 .op-stat .op-s{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px;margin-top:3px}
 .op-layout{display:grid;gap:18px;grid-template-columns:1fr 320px}
 @media(max-width:880px){.op-layout{grid-template-columns:1fr}}
-.op-panel{background:var(--ink);border:1.5px solid var(--ink);overflow:hidden}
+.op-panel{background:var(--surface);border:1.5px solid var(--ink);overflow:hidden}
 .op-ph{padding:12px 16px;border-bottom:1px solid var(--dark-border);display:flex;justify-content:space-between;align-items:center}
 .op-ph h2{margin:0;font-size:.95rem;color:var(--accent);font-family:var(--font-body);font-weight:700}
-.op-ph input{background:var(--ink-panel);color:var(--cream);border:1px solid var(--dark-border);padding:5px 8px;font-family:var(--font-mono);font-size:12px}
+.op-ph input{background:var(--ink-panel);color:var(--on-dark);border:1px solid var(--dark-border);padding:5px 8px;font-family:var(--font-mono);font-size:12px}
 .op-ph input:focus{outline:none;border-color:var(--accent)}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;color:var(--dk-muted);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:9px 14px;border-bottom:1px solid var(--dark-border);position:sticky;top:0;background:var(--ink);cursor:pointer;user-select:none}
+th{text-align:left;color:var(--dk-muted);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:9px 14px;border-bottom:1px solid var(--dark-border);position:sticky;top:0;background:var(--surface);cursor:pointer;user-select:none}
 th.num{text-align:right}
-td{padding:8px 14px;border-bottom:1px solid var(--dark-border);color:var(--cream);font-family:var(--font-mono);font-size:13px}
+td{padding:8px 14px;border-bottom:1px solid var(--dark-border);color:var(--on-dark);font-family:var(--font-mono);font-size:13px}
 td.num{text-align:right}
 td.op-paid{color:var(--green)}
 td.op-pow{color:#7cb3e0}
 td.op-hb{color:#b0a0d0}
 td.op-rev{color:var(--accent);font-weight:600}
 td.op-muted{color:var(--dk-muted)}
-td a{color:var(--cream);text-decoration:none}
+td a{color:var(--on-dark);text-decoration:none}
 td a:hover{color:var(--accent)}
 .op-tbody-scroll{max-height:560px;overflow:auto}
 .op-feed{max-height:560px;overflow:auto}
 .op-feed ul{list-style:none;margin:0;padding:0}
 .op-feed li{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:10px 16px;border-bottom:1px solid var(--dark-border);font-size:12px}
-.op-rs{font-family:var(--font-mono);color:var(--cream)}
+.op-rs{font-family:var(--font-mono);color:var(--on-dark)}
 .op-rm{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px}
 .op-ra{grid-column:1/-1;color:var(--dk-muted);font-family:var(--font-mono);font-size:11px}
 .op-badge{display:inline-block;font-family:var(--font-mono);font-size:10px;font-weight:600;padding:1px 6px;margin-left:6px;letter-spacing:.04em;vertical-align:middle}

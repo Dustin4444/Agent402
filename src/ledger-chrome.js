@@ -45,6 +45,9 @@ export const LEDGER_CSS = `
   --dark-border2: #343434;
   --cream: #FFFFFF;
   --cream2: #F5F5F5;
+  --surface: #0B0B0B;
+  --on-dark: #FFFFFF;
+  --on-dark2: #F5F5F5;
   --dk-muted: #9C9C9C;
   --dk-muted2: #B8B8B8;
   --dk-muted3: #7C7C7C;
@@ -52,12 +55,13 @@ export const LEDGER_CSS = `
   --font-body: 'Archivo', system-ui, sans-serif;
   --font-mono: 'Space Mono', monospace;
 }
-/* Dark theme. Light-surface tokens flip together: because a solid chip is
-   background:var(--ink) with color:var(--cream), flipping --ink light AND
-   --cream dark turns all ~100 of them into clean inverted (light-on-dark)
-   buttons automatically. The always-dark surfaces (tape, code panels via
-   --ink-tape / --ink-panel / --dk-muted*) intentionally stay dark. Set from
-   localStorage (or prefers-color-scheme) before first paint - see ledgerShell. */
+/* Dark theme. Only the true foreground/page tokens flip: --ink (text + borders)
+   goes light, --paper/--card/--muted/--faint/--hairline/--dash flip to their
+   dark values. Dark SURFACES do NOT invert - every card, terminal, and CTA that
+   was background:var(--surface) with color:var(--on-dark) stays dark with light
+   text in both themes (that split is exactly why --surface / --on-dark exist,
+   separate from the dual-use --ink). Applied from localStorage (or
+   prefers-color-scheme) before first paint - see ledgerShell. */
 :root[data-theme="dark"] {
   --accent: #F0522E;
   --paper: #0E0E10;
@@ -71,6 +75,12 @@ export const LEDGER_CSS = `
   --dash: #35353B;
   --cream: #0E0E10;
   --cream2: #171719;
+  /* Dark surfaces (was background:var(--surface)) STAY dark - a card/terminal must
+     not invert to light. Their text (--on-dark*) STAYS light. Only foreground
+     --ink/--muted and page --paper actually flip. */
+  --surface: #17171A;
+  --on-dark: #F4F4F2;
+  --on-dark2: #CFCFCB;
   --ink-tape: #050506;
   --ink-panel: #171719;
 }
@@ -161,7 +171,7 @@ a { color: inherit; }
 // ---------------------------------------------------------------------------
 
 function statusLine() {
-  return `<div style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:12px;letter-spacing:.02em;">
+  return `<div style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:12px;letter-spacing:.02em;">
   <div class="ml-status-in" style="max-width:1180px;margin:0 auto;padding:8px 30px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
     <span class="ml-status-left" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">HTTP/1.1 <span style="color:var(--accent);font-weight:700;">402</span> PAYMENT REQUIRED</span>
     <span class="ml-status-ticker" style="color:var(--dk-muted);white-space:nowrap;">agent402.base.eth · ${RAILS_TICKER}</span>
@@ -251,7 +261,7 @@ function indexPanelHtml(chainInfo) {
                 <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">by USDC settled</span></a>
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-top:1.5px solid var(--ink);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
                 ${rows}
-                <a href="/index" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--ink);color:var(--cream);"><span style="font-weight:700;">all chains →</span><span style="color:var(--dk-muted);">/index</span></a>
+                <a href="/index" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">all chains →</span><span style="color:var(--dk-muted);">/index</span></a>
               </span>
             </span>`;
 }
@@ -263,7 +273,7 @@ function sellPanelHtml() {
                 <a href="/sell" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">list your API</span><span style="color:var(--faint);">free · health-ranked</span></a>
                 <a href="/tollbooth" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">tollbooth</span><span style="color:var(--faint);">pay-per-crawl</span></a>
                 <a href="/contribute" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">contribute a tool</span><span style="color:var(--faint);">MIT · ~15 lines</span></a>
-                <a href="/sell" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--ink);color:var(--cream);"><span style="font-weight:700;">start selling →</span><span style="color:var(--dk-muted);">/sell</span></a>
+                <a href="/sell" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">start selling →</span><span style="color:var(--dk-muted);">/sell</span></a>
               </span>
             </span>`;
 }
@@ -325,7 +335,7 @@ function nav(activePath) {
         <svg class="ml-moon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <svg class="ml-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       </button>
-      <a href="/docs" style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>
+      <a href="/docs" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>
     </div>
   </div>
 </nav>`;

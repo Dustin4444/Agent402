@@ -60,7 +60,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
       const isFirst = rank === "01";
       const href = safeHref(r.homepage);
       const nameHtml = href
-        ? `<a href="${esc(href)}" target="_blank" rel="noopener nofollow" style="color:var(--cream);text-decoration:none;border-bottom:1px solid transparent;">${esc(r.name)}</a>`
+        ? `<a href="${esc(href)}" target="_blank" rel="noopener nofollow" style="color:var(--on-dark);text-decoration:none;border-bottom:1px solid transparent;">${esc(r.name)}</a>`
         : esc(r.name);
 
       // Pick the primary wallet for display
@@ -112,7 +112,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
 
   <!-- FULL TABLE (dark printout) -->
   <section style="max-width: 1180px; margin: 0 auto; padding: 0 30px;">
-    <div style="border: 1.5px solid var(--ink); background: var(--ink); font-family: var(--font-mono); font-size: 13px;">
+    <div style="border: 1.5px solid var(--ink); background: var(--surface); font-family: var(--font-mono); font-size: 13px;">
       <div style="display: grid; grid-template-columns: 36px 1fr 110px 90px 64px; gap: 12px; padding: 12px 20px; color: var(--dk-muted3); border-bottom: 1px solid var(--dark-border);"><span>#</span><span>seller \u00b7 payTo</span><span style="text-align: right;">usdc settled</span><span style="text-align: right;">calls</span><span style="text-align: right;">buyers</span></div>
       ${hasData ? tableRows : warmingHtml}
     </div>
@@ -133,14 +133,14 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
 
   <!-- CTA -->
   <section style="max-width: 1180px; margin: 0 auto; padding: 56px 30px 64px;">
-    <div class="lb-cta-wrap" style="border: 1.5px solid var(--ink); background: var(--ink); padding: 32px 30px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
+    <div class="lb-cta-wrap" style="border: 1.5px solid var(--ink); background: var(--surface); padding: 32px 30px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
       <div>
-        <h2 style="font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 28px; line-height: 1; letter-spacing: -.02em; margin: 0 0 6px; color: var(--cream2);">Route across every x402 seller.</h2>
+        <h2 style="font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 28px; line-height: 1; letter-spacing: -.02em; margin: 0 0 6px; color: var(--on-dark2);">Route across every x402 seller.</h2>
         <p style="font-family: var(--font-mono); font-size: 13px; color: var(--dk-muted); margin: 0;">the neutral Smart Order Router \u2014 not just ours</p>
       </div>
       <div style="display: flex; gap: 11px;">
         <a href="/api/route" style="background: var(--accent); color: #fff; font-family: var(--font-mono); font-weight: 700; font-size: 14px; text-decoration: none; padding: 13px 20px;">/api/route \u2192</a>
-        <a href="/docs" style="background: transparent; border: 1.5px solid var(--dark-border2); color: var(--cream); font-family: var(--font-mono); font-weight: 700; font-size: 14px; text-decoration: none; padding: 12px 20px;">READ THE DOCS</a>
+        <a href="/docs" style="background: transparent; border: 1.5px solid var(--dark-border2); color: var(--on-dark); font-family: var(--font-mono); font-weight: 700; font-size: 14px; text-decoration: none; padding: 12px 20px;">READ THE DOCS</a>
       </div>
     </div>
   </section>

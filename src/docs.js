@@ -176,7 +176,7 @@ function shell(baseUrl, title, description, path, body, currentSlug) {
   .ml-docs-main h3 { font-size:1.02rem;margin-top:26px;font-weight:700; }
   .ml-docs-main p, .ml-docs-main li { color:var(--ink);line-height:1.7; }
   .ml-docs-main .muted { color:var(--muted); }
-  .ml-docs-main pre { background:var(--ink);color:var(--cream);font-family:var(--font-mono);border:0;padding:14px 16px;overflow-x:auto;font-size:.85rem;line-height:1.55; }
+  .ml-docs-main pre { background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);border:0;padding:14px 16px;overflow-x:auto;font-size:.85rem;line-height:1.55; }
   .ml-docs-main code { font-family:var(--font-mono); }
   .ml-docs-main p > code, .ml-docs-main li > code, .ml-docs-main td > code, .ml-docs-main h3 > code { background:var(--card);border:1px solid var(--hairline);padding:1px 6px;font-size:.85em; }
   .ml-docs-main table { border-collapse:collapse;width:100%;margin:18px 0;font-size:.92rem; }

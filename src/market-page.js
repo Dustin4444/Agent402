@@ -385,7 +385,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     <div style="font-weight:800;font-size:15px;margin-bottom:8px;">List your API</div>
     <div style="display:flex;gap:10px;">
       <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
-      <button id="reg-go" style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
+      <button id="reg-go" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
     <div id="reg-out" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
   </div>
@@ -467,9 +467,9 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       <p style="font-size:14.5px;line-height:1.65;">${C.sellParagraphHtml}</p>
       ${formHtml}
     </div>
-    <div style="background:var(--ink);border:1.5px solid var(--ink);">
+    <div style="background:var(--surface);border:1.5px solid var(--ink);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>402 challenge · accepts[]</span><span>JSON</span></div>
-      <pre style="margin:0;padding:16px 18px;font-family:var(--font-mono);font-size:12px;line-height:1.8;color:var(--cream);white-space:pre-wrap;word-break:break-word;">{
+      <pre style="margin:0;padding:16px 18px;font-family:var(--font-mono);font-size:12px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;">{
   <span style="color:var(--dk-muted3);">"scheme"</span>: "exact",
   <span style="color:var(--dk-muted3);">"network"</span>: <span style="color:var(--accent);">"${esc(C.acceptNetwork)}"</span>,
   <span style="color:var(--dk-muted3);">"asset"</span>: "${esc(C.asset)}",

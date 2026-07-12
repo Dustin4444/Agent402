@@ -1278,8 +1278,8 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
   .badge.local { background:rgba(214,60,26,.08); color:var(--accent); border:1px solid rgba(214,60,26,.3); }
   .badge.err { background:rgba(249,115,22,.1); color:#f97316; border:1px solid rgba(249,115,22,.3); }
   .badge.ok { background:rgba(214,60,26,.06); color:var(--accent); border:1px solid rgba(214,60,26,.2); letter-spacing:.1em; }
-  code { background:var(--ink); color:var(--cream); padding:1px 5px; font-family:var(--font-mono); font-size:.85em; }
-  pre { background:var(--ink); color:var(--cream); border:1.5px solid var(--dark-border); padding:14px 16px; overflow:auto; font-family:var(--font-mono); font-size:.84rem; }
+  code { background:var(--surface); color:var(--on-dark); padding:1px 5px; font-family:var(--font-mono); font-size:.85em; }
+  pre { background:var(--surface); color:var(--on-dark); border:1.5px solid var(--dark-border); padding:14px 16px; overflow:auto; font-family:var(--font-mono); font-size:.84rem; }
   .foot { color:var(--faint); font-size:.82rem; margin-top:24px; }
   .foot a { color:var(--accent); text-decoration:none; }
   .chains-label { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin:0 0 12px; font-family:var(--font-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
@@ -1305,7 +1305,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
   .econ-nets { font-size:.9rem; }
   .econ-net-row { display:flex; justify-content:space-between; gap:12px; padding:7px 0 0; }
   .econ-net-val { color:var(--accent); font-family:var(--font-mono); }
-  .econ-net-bar { background:var(--ink); height:8px; overflow:hidden; margin-top:4px; }
+  .econ-net-bar { background:var(--surface); height:8px; overflow:hidden; margin-top:4px; }
   .econ-net-bar > div { background:var(--accent); height:100%; }
   `;
 

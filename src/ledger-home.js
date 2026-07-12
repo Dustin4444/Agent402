@@ -49,7 +49,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       asset: `${r.asset} · ${truncateCaip2(r.caip2)}`,
       assetFull: `${r.asset} · ${r.caip2}`,
       href: hasPage ? `/${pageKey}` : "/index",
-      nameColor: hasPage ? "var(--cream2)" : "var(--dk-muted2)",
+      nameColor: hasPage ? "var(--on-dark2)" : "var(--dk-muted2)",
       statusColor: live ? "var(--green)" : "var(--dk-muted3)",
       status: hasPage ? (known ? `${fmtNum(sellerCount)} seller${sellerCount === 1 ? "" : "s"} indexed` : "unavailable") : "rail live",
     };
@@ -81,7 +81,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const lbRow = (r, i) => {
     const rank = String(i + 1).padStart(2, "0");
     const isFirst = i === 0;
-    return `<div style="display:grid;grid-template-columns:26px 1fr 86px 56px;gap:10px;padding:11px 18px;color:var(--cream);${i < top5.length - 1 ? "border-bottom:1px solid var(--dark-border);" : ""}${isFirst ? "background:linear-gradient(90deg,#d63c1a1f,transparent);" : ""}"><span style="color:${isFirst ? "var(--accent)" : "var(--dk-muted3)"};">${rank}</span><span>${esc(r.name)}</span><span style="text-align:right;color:var(--cream2);">$${Number(r.totalUsd || 0).toFixed(2)}</span><span style="text-align:right;color:var(--dk-muted2);">${fmtNum(r.uniqueBuyers || 0)}</span></div>`;
+    return `<div style="display:grid;grid-template-columns:26px 1fr 86px 56px;gap:10px;padding:11px 18px;color:var(--on-dark);${i < top5.length - 1 ? "border-bottom:1px solid var(--dark-border);" : ""}${isFirst ? "background:linear-gradient(90deg,#d63c1a1f,transparent);" : ""}"><span style="color:${isFirst ? "var(--accent)" : "var(--dk-muted3)"};">${rank}</span><span>${esc(r.name)}</span><span style="text-align:right;color:var(--on-dark2);">$${Number(r.totalUsd || 0).toFixed(2)}</span><span style="text-align:right;color:var(--dk-muted2);">${fmtNum(r.uniqueBuyers || 0)}</span></div>`;
   };
 
   const canonical = baseUrl + "/";
@@ -172,11 +172,11 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           </div>
         </div>
         <div class="ml-stagger" style="position:relative;">
-          <div style="background:var(--ink);border:1.5px solid var(--ink);box-shadow:8px 8px 0 #0b0b0b1f;">
+          <div style="background:var(--surface);border:1.5px solid var(--ink);box-shadow:8px 8px 0 #0b0b0b1f;">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>~ / agent402</span><span>SH</span></div>
-            <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:var(--cream);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># ${fmtNum(count)} x402 tools in Claude Code.
+            <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># ${fmtNum(count)} x402 tools in Claude Code.
 # no signup, no API key.
-</span><span style="color:var(--accent);">$</span> <span style="color:var(--cream);">claude mcp add agent402 -s user \\
+</span><span style="color:var(--accent);">$</span> <span style="color:var(--on-dark);">claude mcp add agent402 -s user \\
     -- npx -y agent402-mcp@latest
 
 </span><span style="color:var(--dk-muted3);"># then ask Claude:
@@ -292,7 +292,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div style="padding:22px;border-right:1.5px solid var(--ink);display:flex;flex-direction:column;background:var(--card);">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">01 / YOUR AGENT</div>
         <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Pay in code with any x402 client - <span style="font-family:var(--font-mono);font-size:12.5px;">@x402/fetch</span>, axios, or your framework.</p>
-        <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);">// signs USDC, retries on 402
+        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);">// signs USDC, retries on 402
 </span>await payFetch(
   "…/api/extract", { url })</pre>
         <a href="/docs" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">read the docs →</a>
@@ -300,14 +300,14 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div style="padding:22px;border-right:1.5px solid var(--ink);display:flex;flex-direction:column;background:var(--card);">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">02 / CLAUDE · MCP</div>
         <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Paste the hosted connector URL - zero install. Pure-CPU tools run free, rate-limited.</p>
-        <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Settings → Connectors
+        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Settings → Connectors
 </span>https://agent402.tools/mcp</pre>
         <a href="/docs" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">add connector →</a>
       </div>
       <div style="padding:22px;display:flex;flex-direction:column;background:var(--card);">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">03 / YOUR CODE</div>
         <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">The <span style="font-family:var(--font-mono);font-size:12.5px;">agent402-client</span> SDK resolves a task to a tool and pays automatically.</p>
-        <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);">// free tier, zero deps
+        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);">// free tier, zero deps
 </span>await a.call("hash",
   { text, algo:"sha256" })</pre>
         <a href="/docs" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">install the SDK →</a>
@@ -330,20 +330,20 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         </div>
         <div>
           ${rightCats.map((c, i) => catRow(c, false)).join("\n          ")}
-          <a href="/tools" style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:14px 18px;text-decoration:none;color:var(--ink);background:var(--ink);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--cream);">Browse all ${fmtNum(count)} tools →</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);">+${packCount} skill packs</span></a>
+          <a href="/tools" style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:14px 18px;text-decoration:none;color:var(--ink);background:var(--surface);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--on-dark);">Browse all ${fmtNum(count)} tools →</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);">+${packCount} skill packs</span></a>
         </div>
       </div>
     </div>
   </section>
 
   <!-- NEUTRAL LAYER / LEADERBOARD -->
-  <section style="background:var(--ink);margin-top:70px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
+  <section style="background:var(--surface);margin-top:70px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
     <div style="max-width:1180px;margin:0 auto;padding:76px 30px;">
       <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/leaderboard</div>
       <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1.1fr;gap:50px;align-items:center;">
         <div>
-          <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 16px;color:var(--cream2);">Not just a seller -<br>the neutral index.</h2>
-          <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;">Index + Smart Order Router + Leaderboard, auto-crawled from the Coinbase CDP Bazaar and ranked by <strong style="color:var(--cream2);font-weight:700;">real on-chain USDC volume</strong>. Route a task across every x402 seller - not just ours.</p>
+          <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 16px;color:var(--on-dark2);">Not just a seller -<br>the neutral index.</h2>
+          <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;">Index + Smart Order Router + Leaderboard, auto-crawled from the Coinbase CDP Bazaar and ranked by <strong style="color:var(--on-dark2);font-weight:700;">real on-chain USDC volume</strong>. Route a task across every x402 seller - not just ours.</p>
           <div style="display:flex;gap:20px;flex-wrap:wrap;font-family:var(--font-mono);font-size:13px;">
             <a href="/api/route" style="color:var(--accent);text-decoration:none;">/api/route →</a>
             <a href="/index" style="color:var(--accent);text-decoration:none;">/index →</a>
@@ -390,7 +390,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div style="padding:22px;border-right:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column;">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">01 / LIST YOUR API</div>
         <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Serve x402 challenges and the index crawler lists you automatically - free, health-ranked, routed by the Smart Order Router next to ${fmtNum(count)} of our own tools.</p>
-        <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># we probe, you appear
+        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># we probe, you appear
 </span>POST /api/index/register
   { "origin": "https://api.you.com" }</pre>
         <a href="/sell" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">list your API →</a>
@@ -398,7 +398,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div style="padding:22px;background:var(--card);display:flex;flex-direction:column;">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">02 / TOLLBOOTH YOUR SITE</div>
         <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Humans browse free; known AI crawlers get 402 and pay in USDC - or solve proof-of-work. Express, edge, proxy, or WordPress. MIT, no CDN lock-in.</p>
-        <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># one middleware
+        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># one middleware
 </span>npm i agent402-tollbooth</pre>
         <a href="/tollbooth" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">gate your crawlers →</a>
       </div>
@@ -431,14 +431,14 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 
   <!-- CTA -->
   <section style="max-width:1180px;margin:0 auto;padding:20px 30px 64px;">
-    <div style="background:var(--ink);padding:52px 44px;position:relative;overflow:hidden;">
+    <div style="background:var(--surface);padding:52px 44px;position:relative;overflow:hidden;">
       <div style="position:absolute;right:24px;top:-30px;font-family:var(--font-body);font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff12;pointer-events:none;">402</div>
       <div style="position:relative;">
-        <h2 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 14px;color:var(--cream2);">No signup. No API keys.<br>Just pay-per-call.</h2>
+        <h2 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 14px;color:var(--on-dark2);">No signup. No API keys.<br>Just pay-per-call.</h2>
         <p style="font-size:16px;color:var(--dk-muted2);margin:0 0 26px;max-width:460px;">Add ${fmtNum(count)} tools to your agent in 60 seconds. Free tier, no wallet - settle in USDC when you scale.</p>
         <div style="display:flex;gap:11px;flex-wrap:wrap;">
           <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">ADD TO CLAUDE →</a>
-          <a href="/docs" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">READ THE DOCS</a>
+          <a href="/docs" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">READ THE DOCS</a>
         </div>
       </div>
     </div>

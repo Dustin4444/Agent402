@@ -15,7 +15,7 @@ const ADAPTERS = [
 ];
 
 function adapterRow(a, isLast) {
-  return `<div style="display:grid;grid-template-columns:220px 1fr auto;gap:18px;align-items:center;padding:16px 20px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><div style="font-weight:700;font-size:16px;">${a.name}</div><div style="font-size:13.5px;color:var(--muted);">${a.desc}</div><code style="font-family:var(--font-mono);font-size:11.5px;background:var(--ink);color:var(--cream);padding:6px 10px;white-space:nowrap;">${a.pkg}</code></div>`;
+  return `<div style="display:grid;grid-template-columns:220px 1fr auto;gap:18px;align-items:center;padding:16px 20px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><div style="font-weight:700;font-size:16px;">${a.name}</div><div style="font-size:13.5px;color:var(--muted);">${a.desc}</div><code style="font-family:var(--font-mono);font-size:11.5px;background:var(--surface);color:var(--on-dark);padding:6px 10px;white-space:nowrap;">${a.pkg}</code></div>`;
 }
 
 export function ledgerIntegrationsPage(baseUrl) {
@@ -56,7 +56,7 @@ export function ledgerIntegrationsPage(baseUrl) {
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">// same shape everywhere</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 22px;">Install, get tools, pass them in.</h2>
-    <div style="border:1.5px solid var(--ink);background:var(--ink);"><pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:13px;line-height:1.85;color:var(--cream);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># pick your stack
+    <div style="border:1.5px solid var(--ink);background:var(--surface);"><pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:13px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># pick your stack
 </span>npm install agent402-openai-tools
 
 import { agent402Tools } from "agent402-openai-tools";

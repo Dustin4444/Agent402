@@ -91,15 +91,15 @@ export function ledgerPricingPage(baseUrl, catalog) {
         </div>
       </div>
       <!-- USDC -->
-      <div style="padding:30px;background:var(--ink);position:relative;">
+      <div style="padding:30px;background:var(--surface);position:relative;">
         <div style="position:absolute;top:14px;right:18px;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--accent);border:1.5px solid var(--accent);padding:3px 8px;">x402</div>
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted);letter-spacing:.08em;margin-bottom:12px;">PAID \u00b7 USDC ON BASE</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
-          <span style="font-family:var(--font-body);font-weight:900;font-size:56px;letter-spacing:-.03em;color:var(--card);">$0.001</span>
+          <span style="font-family:var(--font-body);font-weight:900;font-size:56px;letter-spacing:-.03em;color:var(--on-dark);">$0.001</span>
           <span style="font-family:var(--font-mono);font-size:13px;color:var(--dk-muted);">/ call &amp; up</span>
         </div>
         <p style="font-size:14.5px;line-height:1.5;color:var(--dk-muted2);margin:0 0 20px;">An x402 client signs USDC from the agent's own wallet and retries. Settles on Base in seconds.</p>
-        <div style="display:flex;flex-direction:column;gap:10px;font-size:14px;color:var(--cream);border-top:1px solid var(--dark-border2);padding-top:18px;">
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:14px;color:var(--on-dark);border-top:1px solid var(--dark-border2);padding-top:18px;">
           ${check(`All ${fmtNum(totalCount)} tools, including browser & memory`)}
           ${check("Flat per-call price \u2014 pay exactly what you use")}
           ${check("Non-custodial \u2014 Agent402 never holds funds")}
@@ -147,11 +147,11 @@ export function ledgerPricingPage(baseUrl, catalog) {
 
   <!-- CTA -->
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 64px;">
-    <div style="border:1.5px solid var(--ink);background:var(--ink);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--card);">Start on the free tier. No wallet.</h2>
+    <div style="border:1.5px solid var(--ink);background:var(--surface);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--on-dark);">Start on the free tier. No wallet.</h2>
       <div style="display:flex;gap:11px;">
         <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART \u2192</a>
-        <a href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
+        <a href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
       </div>
     </div>
   </section>

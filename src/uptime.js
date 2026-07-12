@@ -55,13 +55,13 @@ export function uptimePage(baseUrl) {
 
 /* Endpoints table */
 .endpoints-table{width:100%;border-collapse:collapse;margin-bottom:40px;font-size:14px}
-.endpoints-table th{text-align:left;color:var(--cream);font-family:var(--font-mono);font-weight:700;padding:10px 14px;background:var(--ink);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.endpoints-table th{text-align:left;color:var(--on-dark);font-family:var(--font-mono);font-weight:700;padding:10px 14px;background:var(--surface);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
 .endpoints-table td{padding:12px 14px;border-bottom:1px solid var(--hairline);color:var(--muted)}
 .endpoints-table tr:hover td{background:var(--card)}
 .endpoints-table .ep-path{font-family:var(--font-mono);font-size:13px;color:var(--accent)}
 .endpoints-table .ep-path a{color:var(--accent);text-decoration:none}
 .endpoints-table .ep-path a:hover{text-decoration:underline}
-.endpoints-table .ep-badge{display:inline-block;font-family:var(--font-mono);font-size:11px;padding:2px 8px;background:var(--ink);color:var(--cream);margin-left:8px;vertical-align:middle;font-weight:700}
+.endpoints-table .ep-badge{display:inline-block;font-family:var(--font-mono);font-size:11px;padding:2px 8px;background:var(--surface);color:var(--on-dark);margin-left:8px;vertical-align:middle;font-weight:700}
 
 /* Incident response */
 .incident-box{background:var(--card);border:1.5px solid var(--ink);padding:24px 26px;margin-bottom:40px;color:var(--muted);font-size:14px;line-height:1.55}

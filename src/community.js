@@ -146,7 +146,7 @@ export function communityPage(baseUrl) {
 
 /* showcase badge */
 .cm-showcase{position:relative}
-.cm-badge{display:inline-block;background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:11px;font-weight:700;padding:3px 10px;margin-bottom:10px;letter-spacing:.04em;text-transform:uppercase}
+.cm-badge{display:inline-block;background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:11px;font-weight:700;padding:3px 10px;margin-bottom:10px;letter-spacing:.04em;text-transform:uppercase}
 
 /* cta */
 .cm-cta{text-align:center;margin:40px 0 48px}

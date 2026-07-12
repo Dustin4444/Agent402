@@ -67,7 +67,7 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
   textarea { min-height:88px; resize:vertical; }
   .grid2 { display:grid; gap:12px; grid-template-columns:1fr 1fr; }
   @media (max-width:560px){ .grid2 { grid-template-columns:1fr; } }
-  .cta { background:var(--ink); color:var(--cream); border:none; padding:12px 18px; font:inherit; font-family:var(--font-mono); font-weight:700; cursor:pointer; }
+  .cta { background:var(--surface); color:var(--on-dark); border:none; padding:12px 18px; font:inherit; font-family:var(--font-mono); font-weight:700; cursor:pointer; }
   .cta:hover { opacity:.9; }
   .alt { color:var(--faint); font-size:.85rem; text-align:center; margin-top:6px; }
   .alt a { color:var(--accent); }

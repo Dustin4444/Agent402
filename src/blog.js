@@ -268,7 +268,7 @@ export function blogPost(baseUrl, slug) {
 .post-body li{margin-bottom:6px;}
 .post-body strong{color:var(--ink);}
 .post-body code{font-family:var(--font-mono);font-size:13px;background:var(--card);border:1px solid var(--hairline);padding:2px 6px;}
-.post-body pre{background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:13px;line-height:1.55;padding:16px 20px;overflow-x:auto;margin:0 0 16px;border:1.5px solid var(--ink);}
+.post-body pre{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:13px;line-height:1.55;padding:16px 20px;overflow-x:auto;margin:0 0 16px;border:1.5px solid var(--ink);}
 .post-body pre code{background:none;border:none;padding:0;color:inherit;font-size:13px;}
 .post-body a{color:var(--accent);text-decoration:none;}
 .post-body a:hover{text-decoration:underline;}

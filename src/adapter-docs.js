@@ -352,7 +352,7 @@ export function adapterDocPage(baseUrl, slug) {
       <div id="install" style="margin-bottom:36px;">
         <h2 style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 12px;">Install</h2>
         <div style="position:relative;">
-          <pre style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0;overflow-x:auto;"><code>${esc(adapter.install)}</code></pre>
+          <pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0;overflow-x:auto;"><code>${esc(adapter.install)}</code></pre>
           <button class="ml-adp-copy" aria-label="Copy" style="position:absolute;top:8px;right:8px;background:var(--dark-border);border:1px solid var(--dark-border2);color:var(--dk-muted);font-size:.72rem;padding:4px 10px;cursor:pointer;font-family:var(--font-mono);">Copy</button>
         </div>
       </div>
@@ -361,7 +361,7 @@ export function adapterDocPage(baseUrl, slug) {
       <div id="quickstart" style="margin-bottom:36px;">
         <h2 style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 12px;">Quick start</h2>
         <div style="position:relative;">
-          <pre style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0;overflow-x:auto;"><code>${esc(adapter.quickstart)}</code></pre>
+          <pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0;overflow-x:auto;"><code>${esc(adapter.quickstart)}</code></pre>
           <button class="ml-adp-copy" aria-label="Copy" style="position:absolute;top:8px;right:8px;background:var(--dark-border);border:1px solid var(--dark-border2);color:var(--dk-muted);font-size:.72rem;padding:4px 10px;cursor:pointer;font-family:var(--font-mono);">Copy</button>
         </div>
       </div>
@@ -378,7 +378,7 @@ ${configRows}
           </tbody>
         </table>
         <div style="position:relative;">
-          <pre style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0;overflow-x:auto;"><code>${configExamples}</code></pre>
+          <pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0;overflow-x:auto;"><code>${configExamples}</code></pre>
           <button class="ml-adp-copy" aria-label="Copy" style="position:absolute;top:8px;right:8px;background:var(--dark-border);border:1px solid var(--dark-border2);color:var(--dk-muted);font-size:.72rem;padding:4px 10px;cursor:pointer;font-family:var(--font-mono);">Copy</button>
         </div>
       </div>` : ""}

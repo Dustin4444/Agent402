@@ -41,15 +41,15 @@ export function webhooksPage(baseUrl) {
 
       <div class="ml-wh-cards">
         <div style="background:var(--card);border:1.5px solid var(--ink);padding:20px 22px;">
-          <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Idempotent retries <span style="display:inline-block;background:var(--ink);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
+          <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Idempotent retries <span style="display:inline-block;background:var(--surface);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
           <p style="color:var(--muted);font-size:.9rem;line-height:1.6;margin:0;">Add an <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">Idempotency-Key</code> header to any request. If a network error occurs mid-flight, retry safely &mdash; the server returns the cached result without re-charging.</p>
         </div>
         <div style="background:var(--card);border:1.5px solid var(--ink);padding:20px 22px;">
-          <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Sequential chaining <span style="display:inline-block;background:var(--ink);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
+          <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Sequential chaining <span style="display:inline-block;background:var(--surface);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
           <p style="color:var(--muted);font-size:.9rem;line-height:1.6;margin:0;">Chain tools by calling them in sequence: <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">render</code> &rarr; <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">extract</code> &rarr; <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">memory-write</code>. Each call is independent and stateless. Use <a href="/workflows" style="color:var(--accent);">workflow examples</a> for patterns.</p>
         </div>
         <div style="background:var(--card);border:1.5px solid var(--ink);padding:20px 22px;">
-          <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Wallet-keyed state <span style="display:inline-block;background:var(--ink);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
+          <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Wallet-keyed state <span style="display:inline-block;background:var(--surface);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
           <p style="color:var(--muted);font-size:.9rem;line-height:1.6;margin:0;">Use the memory tools (<code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">memory-write</code>, <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">memory-read</code>) to persist intermediate results across tool calls. Your wallet address is your identity &mdash; no accounts needed.</p>
         </div>
       </div>
@@ -57,7 +57,7 @@ export function webhooksPage(baseUrl) {
       <h2 id="idempotent" style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 12px;">Idempotent retries in practice</h2>
       <p style="color:var(--muted);line-height:1.7;margin:0 0 14px;">Pass an <code style="font-family:var(--font-mono);background:var(--card);border:1px solid var(--hairline);padding:1px 5px;font-size:.85em;">Idempotency-Key</code> header with any unique string. The server caches the result keyed to your request + credential combination:</p>
 
-      <pre style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0 0 14px;overflow-x:auto;">curl -X POST https://agent402.tools/api/hash \\
+      <pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0 0 14px;overflow-x:auto;">curl -X POST https://agent402.tools/api/hash \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: my-unique-key-123" \\
   -d '{"text":"hello","algo":"sha256"}'
@@ -71,7 +71,7 @@ curl -X POST https://agent402.tools/api/hash \\
       <p style="color:var(--muted);line-height:1.7;margin:0 0 36px;">The cache key is <code style="font-family:var(--font-mono);background:var(--card);border:1px solid var(--hairline);padding:1px 5px;font-size:.85em;">sha256(METHOD /path + key + credential)</code>, so different callers with the same idempotency key don't collide.</p>
 
       <h2 id="chaining" style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 12px;">Chaining with agent402-client</h2>
-      <pre style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0 0 36px;overflow-x:auto;">import { Agent402 } from "agent402-client";
+      <pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;padding:16px;margin:0 0 36px;overflow-x:auto;">import { Agent402 } from "agent402-client";
 
 const a = new Agent402();
 

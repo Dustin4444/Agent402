@@ -2865,9 +2865,9 @@ const SKILLS_CSS = `
 .sk-tl .missing { color:var(--accent); font-style:italic; }
 .sk-wf { counter-reset:step; margin:18px 0; padding:0; list-style:none; }
 .sk-wf li { position:relative; padding:16px 18px 16px 56px; border-left:2px solid var(--hairline); margin-bottom:8px; color:var(--muted); font-size:15px; line-height:1.65; counter-increment:step; }
-.sk-wf li::before { content:counter(step); position:absolute; left:14px; top:16px; width:26px; height:26px; background:var(--ink); color:var(--accent); font-family:var(--font-mono); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; }
+.sk-wf li::before { content:counter(step); position:absolute; left:14px; top:16px; width:26px; height:26px; background:var(--surface); color:var(--accent); font-family:var(--font-mono); font-weight:700; font-size:13px; display:flex; align-items:center; justify-content:center; }
 .sk-prompt { position:relative; margin:14px 0; }
-.sk-prompt pre { background:var(--ink); color:var(--cream); font-family:var(--font-mono); padding:18px 20px; overflow-x:auto; font-size:13px; line-height:1.6; white-space:pre-wrap; border:none; }
+.sk-prompt pre { background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); padding:18px 20px; overflow-x:auto; font-size:13px; line-height:1.6; white-space:pre-wrap; border:none; }
 `;
 
 export function skillsIndex(baseUrl) {
@@ -2886,7 +2886,7 @@ export function skillsIndex(baseUrl) {
 <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:8px;">Multi-tool workflows for specific jobs — pay per call (${RAILS_SHORT}) or run free with proof-of-work. Each pack is one paste of context for your agent.</p>
 <div class="sk-grid">${cards}</div>
 <h2 style="font-weight:800;font-size:22px;margin-top:48px;letter-spacing:-.01em;">Install once, use any pack</h2>
-<pre style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);padding:18px 20px;font-size:13px;line-height:1.6;border:none;margin-top:12px;">claude mcp add agent402 -s user -- npx -y agent402-mcp@latest</pre>
+<pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:18px 20px;font-size:13px;line-height:1.6;border:none;margin-top:12px;">claude mcp add agent402 -s user -- npx -y agent402-mcp@latest</pre>
 <p style="color:var(--muted);font-size:15px;margin-top:12px;">Then ask Claude to run the pack's example prompt — it discovers the tools automatically via the hosted MCP connector.</p>
 </div>
 ${ledgerFooterCompact()}`;
@@ -2957,7 +2957,7 @@ export function skillPackPage(baseUrl, slug, catalog) {
 <ol class="sk-wf">${steps}</ol>
 
 <h2 style="font-weight:800;font-size:22px;margin-top:40px;letter-spacing:-.01em;">Run it in Claude</h2>
-<pre style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);padding:18px 20px;font-size:13px;line-height:1.6;border:none;margin-top:12px;">claude mcp add agent402 -s user -- npx -y agent402-mcp@latest</pre>
+<pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:18px 20px;font-size:13px;line-height:1.6;border:none;margin-top:12px;">claude mcp add agent402 -s user -- npx -y agent402-mcp@latest</pre>
 <p style="color:var(--muted);font-size:15px;margin-top:12px;">Then paste this prompt into Claude:</p>
 <div class="sk-prompt"><pre>${e(pack.claudePrompt)}</pre></div>
 
