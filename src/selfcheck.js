@@ -13,7 +13,7 @@
 // (tool-alert.yml) polls /api/selfcheck and opens an issue when any curated tool
 // fails — the same open/close pattern as the 15-minute heartbeat.
 //
-// Deliberately NOT all 1,420 tools: many legitimately return 503 without a key
+// Deliberately NOT all 1,425 tools: many legitimately return 503 without a key
 // or 4xx on placeholder example inputs, which would be pure noise. This list is
 // the tools whose outage actually costs us — the finance/market-data wedge that
 // real buyers pay for — plus a pure-CPU canary that isolates "the server itself

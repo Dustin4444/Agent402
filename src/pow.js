@@ -57,6 +57,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "pdf-to-markdown",
   "media-info", "audio-convert", "audio-normalize",
   "gov-data", "weather-alerts", "earthquakes",
+  "drug-recalls", "food-recalls", "drug-adverse-events", "vin-decode", "vehicle-recalls",
   "barcode-lookup", "fx-rate", "weather-forecast",
   "treasury-yield-curve", "treasury-yield-history", "yield-curve-spread",
   "treasury-debt", "treasury-avg-rates",
