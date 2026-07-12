@@ -92,6 +92,26 @@ body { transition: background-color .18s ease, color .18s ease; }
 .ml-theme-toggle .ml-sun { display:none; }
 :root[data-theme="dark"] .ml-theme-toggle .ml-moon { display:none; }
 :root[data-theme="dark"] .ml-theme-toggle .ml-sun { display:inline-flex; }
+/* --- mobile hamburger menu (the hover nav dropdowns don't work on touch, and
+   the inline links get squeezed to zero on a phone - so ≤880px collapses the
+   whole nav into a tap menu) --- */
+.ml-burger { display:none; align-items:center; justify-content:center; width:38px; height:34px; padding:0; border:1.5px solid var(--ink); background:transparent; color:var(--ink); cursor:pointer; }
+.ml-burger .ml-burger-close { display:none; }
+.ml-mobile-menu { display:none; border-top:1.5px solid var(--ink); background:var(--paper); max-height:calc(100vh - 62px); overflow-y:auto; -webkit-overflow-scrolling:touch; }
+.ml-mm-h { padding:14px 20px 6px; font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
+.ml-mm-group { display:flex; flex-direction:column; }
+.ml-mm-link { padding:13px 20px; font-family:var(--font-mono); font-size:15px; color:var(--ink); text-decoration:none; border-bottom:1px solid var(--hairline); }
+.ml-mm-link:hover, .ml-mm-link:active { background:var(--card-zebra); }
+.ml-mm-active { color:var(--accent); font-weight:700; }
+.ml-mm-cta { background:var(--surface); color:var(--on-dark); font-weight:700; border-bottom:none; }
+@media (max-width:880px){
+  .ml-nav-links, .ml-nav-gh, .ml-nav-cta { display:none !important; }
+  .ml-burger { display:inline-flex; }
+  html.ml-menu-open .ml-mobile-menu { display:block; }
+  html.ml-menu-open .ml-burger-open { display:none; }
+  html.ml-menu-open .ml-burger-close { display:inline; }
+}
+@media (min-width:881px){ .ml-mobile-menu { display:none !important; } }
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { background: var(--paper); font-family: var(--font-body); color: var(--ink); -webkit-font-smoothing: antialiased; }
@@ -311,6 +331,41 @@ function groupTriggerHtml(item, active, panelHtml) {
       </span>`;
 }
 
+const mmLink = (href, label, active, extra = "") =>
+  `<a href="${esc(href)}" class="ml-mm-link${active ? " ml-mm-active" : ""}${extra}">${esc(label)}</a>`;
+
+// Mobile menu — every destination flattened into a tap list (the hover
+// dropdowns don't work on touch, so the chains, sell, and index sub-items all
+// live here directly). Shown ≤880px via the hamburger; hidden on desktop.
+function mobileMenuHtml(chainInfo, activePath) {
+  const chains = chainInfo.chains.map((c) => mmLink(c.href, c.label, c.href === activePath)).join("");
+  return `<div id="ml-mobile-menu" class="ml-mobile-menu">
+    <div class="ml-mm-group">
+      ${mmLink("/skills", "skill packs", activePath === "/skills")}
+      ${mmLink("/tools", "catalog", activePath === "/tools")}
+      ${mmLink("/pricing", "pricing", activePath === "/pricing")}
+    </div>
+    <div class="ml-mm-h">Marketplaces · by chain</div>
+    <div class="ml-mm-group">
+      ${mmLink("/marketplaces", "all marketplaces", activePath === "/marketplaces")}
+      ${chains}
+    </div>
+    <div class="ml-mm-h">The index</div>
+    <div class="ml-mm-group">
+      ${mmLink("/index", "index · all sellers", activePath === "/index")}
+      ${mmLink("/leaderboard", "leaderboard", activePath === "/leaderboard")}
+    </div>
+    <div class="ml-mm-h">Sell</div>
+    <div class="ml-mm-group">
+      ${mmLink("/sell", "list your API", activePath === "/sell")}
+      ${mmLink("/tollbooth", "tollbooth", activePath === "/tollbooth")}
+      ${mmLink("/docs", "docs", activePath === "/docs")}
+      <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
+      ${mmLink("/docs", "ADD TO CLAUDE →", false, " ml-mm-cta")}
+    </div>
+  </div>`;
+}
+
 function nav(activePath) {
   const chainInfo = chainRows();
   const groupHrefs = {
@@ -348,9 +403,14 @@ function nav(activePath) {
         <svg class="ml-moon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <svg class="ml-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       </button>
-      <a href="/docs" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>
+      <a class="ml-nav-cta" href="/docs" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>
+      <button type="button" onclick="a402ToggleMenu()" class="ml-burger" aria-label="Open menu" aria-expanded="false">
+        <svg class="ml-burger-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+        <svg class="ml-burger-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
     </div>
   </div>
+  ${mobileMenuHtml(chainInfo, activePath)}
 </nav>`;
 }
 
@@ -496,7 +556,8 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <head>
 <meta charset="utf-8">
 <script>(function(){try{var t=localStorage.getItem('a402-theme')||(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();
-function a402ToggleTheme(){try{var r=document.documentElement,d=r.getAttribute('data-theme')==='dark';if(d){r.removeAttribute('data-theme');localStorage.setItem('a402-theme','light');}else{r.setAttribute('data-theme','dark');localStorage.setItem('a402-theme','dark');}}catch(e){}}</script>
+function a402ToggleTheme(){try{var r=document.documentElement,d=r.getAttribute('data-theme')==='dark';if(d){r.removeAttribute('data-theme');localStorage.setItem('a402-theme','light');}else{r.setAttribute('data-theme','dark');localStorage.setItem('a402-theme','dark');}}catch(e){}}
+function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
