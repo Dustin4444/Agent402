@@ -659,49 +659,77 @@ function buildLocalEntry({ baseUrl, catalog, prices, network, toolCount, walletN
 
 // Canonical functional taxonomy for the ecosystem supply mix. Crawled sellers
 // set `category = tags[0]` verbatim (see buildManifestTools), which fragments
-// into hundreds of raw tags and dumps every untagged tool into "other" (~20%+
-// of the market). This classifier maps each tool to ONE closed-set functional
-// bucket by keyword, over name+description+tags, so the market-pulse supply
-// mix is meaningful. Deterministic (no LLM). Ordered MOST-SPECIFIC first —
-// first match wins (defi before crypto so "swap on Base" is defi; research
-// before ai so arXiv is research). Deliberately NOT keyed on
-// base/mainnet/agent/x402/usdc — those appear in nearly every listing and
-// would swallow everything. Only used for the market-pulse view; the raw
-// `category` field is left untouched for find/search/category pages.
+// into hundreds of raw tags and dumps every untagged tool into "other". This
+// classifier maps each tool to ONE closed-set functional bucket by keyword, so
+// the market-pulse supply mix is meaningful. Deterministic (no LLM). Ordered
+// MOST-SPECIFIC first — first match wins (defi before crypto so "swap on Base"
+// is defi; research before ai so arXiv is research; health before utility so a
+// BMI calc is health). Deliberately NOT keyed on base/mainnet/agent/x402/usdc —
+// those appear in nearly every listing and would swallow everything.
+//
+// The haystack is name + description + tags + route + slug, TOKENIZED: most
+// crawled tools come from a seller's openapi.json where description/tags are
+// empty and the only signal is a terse summary and a token-rich path
+// (/v1/bulk/dns, /v1/amazon/products/price). tokenize() splits camelCase,
+// snake_case, kebab, and path separators into words so those path tokens match
+// (verified against real seller specs — cuts "other" ~30%->~19% on that
+// corpus). Patterns must match the TOKENIZED form: no hyphens/underscores,
+// "on-chain" -> "on chain". Only the market-pulse view uses this; the raw
+// `category` field is untouched for find/search/category pages.
 const ECOSYSTEM_CATEGORY_RULES = [
   ["defi",       /\b(defi|swap|dex|liquidity|perp(etual|s)?|hyperliquid|lending|yield|amm|slippage|aggregator route|best route)\b/],
-  ["crypto",     /\b(btc|bitcoin|eth\b|ethereum|solana|\bsol\b|xrp|token|erc-?20|onchain|on-chain|wallet|\bens\b|\btx\b|transaction hash|eth_|chain id|market cap|gainers|losers|coin(gecko|base)?|crypto|blockchain|staking|nft)\b/],
-  ["finance",    /\b(forex|exchange rate|currenc(y|ies)|\bfx\b|stock|equit(y|ies)|\bsec\b|financ(e|ial|ials)|earnings|treasury|bond|macro|gdp|inflation|ticker|dividend|options?|volatility)\b/],
-  ["social",     /\b(twitter|tweet|x\.com|reddit|subreddit|linkedin|farcaster|telegram|instagram|tiktok|youtube|social)\b/],
-  ["research",   /\b(arxiv|scientif|literature|preprint|academ|papers?|citation|longevity|research)\b/],
-  ["ai",         /\b(llm|gpt|openai|grok|claude|gemini|text-to-speech|\btts\b|speech|image generation|generate image|image gen|embedding|inference|transcri|summari|rerank|prompt)\b/],
+  ["crypto",     /\b(btc|bitcoin|eth|ethereum|solana|\bsol\b|xrp|erc ?20|onchain|on chain|wallet|\bens\b|\btx\b|transaction hash|chain id|market cap|gainers|losers|coingecko|coinbase|crypto|blockchain|staking|\bnft\b|token price|gas price|gwei)\b/],
+  ["finance",    /\b(forex|exchange rate|currenc(y|ies)|\bfx\b|stock|equit(y|ies)|\bsec\b|financ(e|ial|ials)|earnings|treasury|bond|macro|\bgdp\b|inflation|ticker|dividend|options?|volatility|invoice)\b/],
+  ["commerce",   /\b(amazon|\basin\b|product|shopping|ecommerce|walmart|\bebay\b|price check|retail|catalog|\bsku\b|merchant)\b/],
+  ["social",     /\b(twitter|tweet|x com|reddit|subreddit|linkedin|farcaster|telegram|instagram|tiktok|youtube|social)\b/],
+  ["research",   /\b(arxiv|scientif|literature|preprint|academ|papers?|citation|longevity|research|grant)\b/],
+  ["ai",         /\b(\bllm\b|\bgpt\b|openai|grok|claude|gemini|text to speech|\btts\b|speech|image generation|generate image|image gen|embedding|inference|transcri|summari|rerank|prompt|completion)\b/],
   ["jobs",       /\b(jobs?|indeed|glassdoor|ziprecruiter|hiring|recruit|vacanc|career)\b/],
-  ["people",     /\b(people search|person research|enrichment|dossier|public records|whois|kyc|background check|contact info|email lookup|phone lookup|reverse)\b/],
-  ["security",   /\b(ransomware|0day|zero-day|exploit|vulnerab|threat intel|darkweb|dark web|malware|phishing|breach|\bcve\b)\b/],
+  ["people",     /\b(people search|person research|enrichment|dossier|public records|whois|\bkyc\b|\bkyb\b|background check|contact info|email lookup|email validate|email verif|phone lookup|reverse)\b/],
+  ["security",   /\b(ransomware|0day|zero day|exploit|vulnerab|threat intel|darkweb|dark web|malware|phishing|breach|\bcve\b|sanction)\b/],
   ["news",       /\b(news|headlines|press release|breaking|journalis)\b/],
   ["weather",    /\b(weather|forecast|temperature|climate|precipitation|humidity)\b/],
   ["maps",       /\b(maps?|geocod|geolocat|places|directions|routing|distance matrix)\b/],
-  ["search",     /\b(search|retrieval|scrape|scraping|crawl|serper|\bexa\b|firecrawl|web data|extract)\b/],
-  ["email",      /\b(email|smtp|imap|inbox|mailbox|send mail|sms|messaging)\b/],
-  ["seo",        /\b(seo|keyword|backlink|serp rank|domain authority)\b/],
-  ["sports",     /\b(sports?|nba|nfl|soccer|odds|betting|fixtures)\b/],
-  ["media",      /\b(image|photo|video|audio|music|face detection|object detection|celebrity|render|design|logo|favicon|screenshot|vision|stem|media)\b/],
-  ["documents",  /\b(pdf|docx?|office|spreadsheet|html-to-pdf|office-to-pdf|searchable-pdf|markdown|document)\b/],
-  ["dev",        /\b(code|python|javascript|sandbox|e2b|browser session|browserbase|repo|git\b|compile|execution|runtime|regex|api spec|openapi|webhook)\b/],
-  ["travel",     /\b(flight|aviation|airline|hotel|maritime|marine|trucking|shipping|logistics|supply-chain|freight|vessel|voyage)\b/],
-  ["realestate", /\b(real estate|real-estate|property|housing|mortgage|zillow|rent(al)?|listing agent)\b/],
+  ["search",     /\b(search|retrieval|scrape|scraping|crawl|serper|\bexa\b|firecrawl|web data|extract|\bserp\b)\b/],
+  ["email",      /\b(email|smtp|imap|inbox|mailbox|send mail|\bsms\b|messaging)\b/],
+  ["seo",        /\b(\bseo\b|keyword|backlink|serp rank|domain authority)\b/],
+  ["sports",     /\b(sports?|\bnba\b|\bnfl\b|soccer|odds|betting|fixtures)\b/],
+  ["media",      /\b(image|photo|video|audio|music|face detection|object detection|celebrity|render|design|logo|favicon|screenshot|vision|\bstem\b|media|thumbnail)\b/],
+  ["documents",  /\b(\bpdf\b|docx?|office|spreadsheet|markdown|document)\b/],
+  ["dev",        /\b(code|python|javascript|sandbox|\be2b\b|browser|browserbase|repo|github|gitlab|\bgit\b|compile|execution|runtime|regex|api spec|openapi|webhook|deploy)\b/],
+  ["travel",     /\b(flight|aviation|airline|hotel|maritime|marine|trucking|shipping|logistics|supply chain|freight|vessel|voyage)\b/],
+  ["realestate", /\b(real estate|property|housing|mortgage|zillow|rent(al)?|listing agent)\b/],
   ["insurance",  /\b(insurance|claims|policy|underwrit|actuar)\b/],
-  ["utility",    /\b(json|csv|hash|base64|encode|decode|timezone|datetime|uuid|\bdiff\b|color|isbn|convert|calculator|qr code|barcode)\b/],
-  ["infra",      /\b(\bdns\b|\bip\b|ip-intelligence|network lookup|uptime|monitoring|status page|ssl|certificate)\b/],
+  ["health",     /\b(\bbmi\b|\bbmr\b|\bbac\b|\bbsa\b|medical|clinical|drug|\bfda\b|dose|dosage|pregnan|gestational|due date|health|disease|symptom|\bicd\b|calorie|body mass|metabolic)\b/],
+  ["utility",    /\b(json|csv|hash|base64|encode|decode|timezone|datetime|uuid|\bdiff\b|color|isbn|calc|calculator|conversion|convert|\bqr\b|barcode|combinatoric|dilution)\b/],
+  ["infra",      /\b(\bdns\b|\bip\b|geoip|network lookup|uptime|monitoring|status page|\bssl\b|certificate|ping|traceroute)\b/],
 ];
+
+// Split camelCase / snake_case / kebab / path separators into space-delimited
+// words and lowercase, so terse openapi tokens in a route or operationId become
+// matchable words ("get_v1_bulk_dns" -> "get v1 bulk dns", "getTokenPrice" ->
+// "get token price"). Patterns above assume this normalized form.
+function tokenizeForCategory(s) {
+  return String(s || "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_\-/{}.]+/g, " ")
+    .toLowerCase();
+}
 
 /**
  * Map one crawled tool to a canonical functional category (closed set). No
  * raw-tag passthrough — an unmatched tool is "other", not its own singleton
- * bucket (which would just relocate the fragmentation).
+ * bucket (which would just relocate the fragmentation). Reads name +
+ * description + tags + route + slug so terse openapi tools classify on their
+ * path when summary/description are empty.
  */
 export function classifyEcosystemCategory(t) {
-  const hay = `${t?.name || ""} ${t?.description || ""} ${(t?.tags || []).join(" ")}`.toLowerCase();
+  const raw = `${t?.name || ""} ${t?.description || ""} ${(t?.tags || []).join(" ")} ${t?.route || ""} ${t?.slug || ""}`;
+  // Include BOTH the raw lowercased text AND the tokenized form: tokenizing
+  // splits path tokens into matchable words but also splits compound brand
+  // names (LinkedIn -> "linked in", GitHub -> "git hub"), so keep the raw text
+  // too or those keywords stop matching.
+  const hay = `${raw.toLowerCase()} ${tokenizeForCategory(raw)}`;
   for (const [cat, re] of ECOSYSTEM_CATEGORY_RULES) if (re.test(hay)) return cat;
   return "other";
 }

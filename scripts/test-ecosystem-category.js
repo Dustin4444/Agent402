@@ -33,6 +33,19 @@ const cases = [
   ["other",    { description: "GPU compute spot prices across Vast.ai, RunPod, AWS", tags: ["gpu"] }],
   // never key on ubiquitous payment words
   ["other",    { description: "Pay with x402 (Base USDC mainnet)", tags: ["x402"] }],
+
+  // --- terse openapi tools: signal lives in route/slug, description empty ---
+  ["crypto",   { name: "BULK: live USD prices", description: "", route: "/v1/bulk/crypto/{arg}", slug: "get_v1_bulk_crypto_arg" }],
+  ["infra",    { name: "BULK: resolves A/AAAA/MX/TXT", description: "", route: "/v1/bulk/dns/{arg}", slug: "get_v1_bulk_dns_arg" }],
+  ["infra",    { name: "BULK: geolocation", description: "", route: "/v1/bulk/ip/{arg}", slug: "get_v1_bulk_ip_arg" }],
+  ["people",   { name: "BULK: WHOIS for up to 20 domains", description: "", route: "/v1/bulk/whois/{arg}" }],
+  ["dev",      { name: "Audits a GitHub repo", description: "", route: "/v1/audit/github/{arg}" }],
+  ["commerce", { name: "Amazon Product Detail API", description: "", route: "/v1/amazon/products/asin/{arg}" }],
+  // camelCase operationId with no summary/description
+  ["ai",       { name: "generateImageFromPrompt", description: "", route: "/generateImageFromPrompt" }],
+  // health before utility: a BMI calc is health, not utility
+  ["health",   { name: "Body Mass Index", description: "", route: "/v1/calc/bmi/{arg}" }],
+  ["utility",  { name: "Number base conversion", description: "", route: "/v1/calc/base/{arg}" }],
 ];
 
 let pass = 0;
