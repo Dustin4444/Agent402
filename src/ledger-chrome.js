@@ -191,9 +191,9 @@ const NAV_ZONES = [
     { href: "/skills", label: "skill packs" },
     { href: "/tools", label: "catalog" },
     { href: "/pricing", label: "pricing" },
-    { href: "/marketplaces", label: "marketplaces" },
   ],
   [
+    { href: "/marketplaces", label: "marketplaces", panel: "marketplaces" },
     { href: "/index", label: "index", panel: "index" },
     { href: "/sell", label: "sell", panel: "sell" },
   ],
@@ -253,16 +253,28 @@ function chainRowHtml(c, live) {
   return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:6px;color:var(--faint);"><span style="width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;"></span>unavailable</span></a>`;
 }
 
-function indexPanelHtml(chainInfo) {
-  const rows = chainInfo.chains.map((c) => chainRowHtml(c, chainInfo.live)).join("\n                ");
+function indexPanelHtml() {
   return `<span class="mlnav-dd">
-              <span style="display:block;width:340px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+              <span style="display:block;width:330px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE X402 INDEX - EVERY SELLER, RANKED ON-CHAIN</span>
                 <a href="/index" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">index</span><span style="color:var(--faint);">all sellers · health</span></a>
                 <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">by USDC settled</span></a>
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-top:1.5px solid var(--ink);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
+                <a href="/index" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/index</span></a>
+              </span>
+            </span>`;
+}
+
+// Marketplaces dropdown — the by-chain door: one row per rail (reuses the same
+// live chainRows/health as the old index "BY CHAIN" section, moved here so the
+// index dropdown is sellers-only and this one owns chain navigation) plus a
+// link to the /marketplaces hub.
+function marketplacesPanelHtml(chainInfo) {
+  const rows = chainInfo.chains.map((c) => chainRowHtml(c, chainInfo.live)).join("\n                ");
+  return `<span class="mlnav-dd">
+              <span style="display:block;width:340px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">MARKETPLACES - PICK A CHAIN</span>
                 ${rows}
-                <a href="/index" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">all chains →</span><span style="color:var(--dk-muted);">/index</span></a>
+                <a href="/marketplaces" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">all marketplaces →</span><span style="color:var(--dk-muted);">/marketplaces</span></a>
               </span>
             </span>`;
 }
@@ -279,7 +291,7 @@ function sellPanelHtml() {
             </span>`;
 }
 
-const PANEL_HTML = { index: indexPanelHtml, sell: sellPanelHtml };
+const PANEL_HTML = { marketplaces: marketplacesPanelHtml, index: indexPanelHtml, sell: sellPanelHtml };
 
 function directLinkHtml(l, activePath) {
   const active = l.href === activePath;
@@ -302,11 +314,11 @@ function groupTriggerHtml(item, active, panelHtml) {
 function nav(activePath) {
   const chainInfo = chainRows();
   const groupHrefs = {
-    // /index and /leaderboard are the panel's static rows; the chain
-    // hrefs are whatever's live right now — so a future chain page lights up
-    // the "index" trigger with zero nav.js edits, per the scale rule.
-    // (/economy folded into /index#economy — its row is gone.)
-    index: new Set(["/index", "/leaderboard", ...chainInfo.chains.map((c) => c.href)]),
+    // The chain hrefs live under "marketplaces" now (moved out of "index"), so a
+    // future chain page lights up the marketplaces trigger with zero nav edits.
+    // "index" is sellers/directory only; "marketplaces" owns by-chain nav.
+    marketplaces: new Set(["/marketplaces", ...chainInfo.chains.map((c) => c.href)]),
+    index: new Set(["/index", "/leaderboard"]),
     sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
   };
 

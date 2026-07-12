@@ -59,14 +59,7 @@ export function marketplacesPage(baseUrl, { chainSellerCounts = {}, indexSnapsho
     <div style="max-width:1180px;margin:0 auto;padding:60px 30px 44px;">
       <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin-bottom:18px;">Agent402 · marketplace infrastructure</div>
       <h1 style="font-family:var(--font-body);font-weight:800;font-size:62px;line-height:.96;letter-spacing:-.035em;margin:0 0 18px;color:var(--ink);max-width:900px;">The marketplace layer<br>for <span style="color:var(--accent);">x402</span>.</h1>
-      <p style="font-size:18px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 22px;">Not one more seller - the infrastructure the whole economy plugs into. Discover and route across <strong style="color:var(--ink);">every x402 seller, on every chain</strong>. ${chainCount} rails, one open index, one router, one on-chain leaderboard.</p>
-      <div style="display:inline-flex;align-items:center;gap:10px;border:1.5px solid var(--ink);background:var(--card);padding:8px 8px 8px 16px;margin:0 0 28px;">
-        <span style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--ink);">Go to a marketplace</span>
-        <select onchange="if(this.value)location.href=this.value" aria-label="Go to a chain marketplace" style="font-family:var(--font-mono);font-size:14px;font-weight:700;padding:9px 12px;border:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);cursor:pointer;">
-          <option value="">pick a chain…</option>
-          ${CHAIN_ORDER.map(([slug, name]) => `<option value="/${slug}">${esc(name)}</option>`).join("")}
-        </select>
-      </div>
+      <p style="font-size:18px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 26px;">Not one more seller - the infrastructure the whole economy plugs into. Discover and route across <strong style="color:var(--ink);">every x402 seller, on every chain</strong>. ${chainCount} rails, one open index, one router, one on-chain leaderboard.</p>
       <div class="ml-stats" style="display:flex;flex-wrap:wrap;align-items:flex-end;max-width:760px;">
         ${stat(chainCount, "chains")}
         ${stat(sellerCount != null ? fmtNum(sellerCount) : "live", "sellers indexed")}
