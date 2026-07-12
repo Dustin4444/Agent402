@@ -24,6 +24,12 @@ const EVM_NETWORKS = {
   base: "eip155:8453",
   polygon: "eip155:137",
   arbitrum: "eip155:42161",
+  // Monad (EVM L1, chain 143). Native Circle USDC is in @x402/evm's built-in
+  // asset registry (eip155:143 → 0x754704Bc059F8C67012fEd69BC8A327a5aafb603),
+  // so the standard exact/USDC path settles it — no custom money parser. PayAI
+  // settles Monad, so it rides the existing PayAI facilitator client. OPT-IN:
+  // offered only when `monad` is listed in PAYMENT_NETWORKS.
+  monad: "eip155:143",
   "base-sepolia": "eip155:84532",
   // Robinhood Chain (Arbitrum Orbit L2, EVM-equivalent, AI-native RWA chain).
   // NOT in @x402/evm's built-in USDC registry, and settles a non-Circle

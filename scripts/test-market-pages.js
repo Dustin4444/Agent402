@@ -28,7 +28,7 @@ const NEW_CHAINS = [
 ];
 
 // 1. All 7 chain pages exist in CHAIN_PAGES (stellar/algorand plus the 5 new).
-ok(Object.keys(CHAIN_PAGES).length === 7, `CHAIN_PAGES has 7 entries (got ${Object.keys(CHAIN_PAGES).length})`);
+ok(Object.keys(CHAIN_PAGES).length === 8, `CHAIN_PAGES has 8 entries (got ${Object.keys(CHAIN_PAGES).length})`);
 for (const c of NEW_CHAINS) ok(!!CHAIN_PAGES[c.key], `CHAIN_PAGES has a "${c.key}" entry`);
 
 for (const c of NEW_CHAINS) {
