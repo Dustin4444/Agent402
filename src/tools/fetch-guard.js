@@ -193,7 +193,7 @@ export async function assertPublicUrl(rawUrl) {
  * Fetch a public http(s) URL with SSRF protection, size cap, and timeout.
  * Returns { finalUrl, html } — or { finalUrl, buffer } with `binary: true`.
  */
-export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, headers = {} } = {}) {
+export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, headers = {}, method = "GET", body } = {}) {
   const url = await assertPublicUrl(rawUrl);
 
   const controller = new AbortController();
@@ -201,6 +201,12 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
   let response;
   try {
     response = await fetch(url, {
+      method,
+      // Optional request body (e.g. a JSON POST to a search API). The method and
+      // body never change the connection TARGET — assertPublicUrl already pinned
+      // the host and ssrfDispatcher re-validates every redirect hop — so SSRF
+      // safety is identical to a GET.
+      ...(body !== undefined ? { body } : {}),
       signal: controller.signal,
       redirect: "follow",
       dispatcher: ssrfDispatcher,

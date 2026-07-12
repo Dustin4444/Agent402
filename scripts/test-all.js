@@ -31,6 +31,7 @@ const NETWORK = new Set([
   "/api/gov-data", "/api/weather-alerts", "/api/earthquakes",
   "/api/drug-recalls", "/api/food-recalls", "/api/drug-adverse-events", "/api/vin-decode", "/api/vehicle-recalls",
   "/api/device-recalls", "/api/college-lookup", "/api/fec-candidates",
+  "/api/federal-awards", "/api/geo-lookup", "/api/fema-disasters",
   "/api/geocode", "/api/reverse-geocode", "/api/place-search",
   "/api/image-ocr",
   "/api/barcode-lookup", "/api/fx-rate", "/api/weather-forecast",
