@@ -146,18 +146,21 @@ export const X402_TOOLS = [
   {
     route: "GET /api/x402-market-pulse", name: "x402 market pulse", slug: "x402-market-pulse", category: "payments", price: "$0.01",
     description:
-      "Live cross-provider x402 market sentiment. topProviders: the top-earning x402 sellers ecosystem-wide by REAL on-chain USDC settled - who agents are actually paying, across every provider (Agent402 included and flagged isSelf:true). topToolCategories: the tool-category supply mix the whole market offers (from every indexed seller's manifest). Demand is provider-level (settlements are on-chain; per-tool purchase counts are not), so this is the honest whole-market read. ?top=10",
+      "Live cross-provider x402 market sentiment. topProviders: the top x402 sellers ecosystem-wide, ranked by REAL on-chain activity (Agent402 included and flagged isSelf:true). Pick the lens with sort: 'usd' (revenue, default - whale-skewable), 'buyers' (distinct paying wallets - broadest adoption/reach), or 'calls' (raw volume). Every row carries all metrics plus callsPerBuyer (intensity), so revenue and actual ecosystem usage are both visible. topToolCategories: the tool-category supply mix the whole market offers (from every indexed seller's manifest). Per-tool purchase counts are not on-chain, so demand is provider-level - the honest whole-market read. ?top=10&sort=buyers",
     tags: ["x402", "market", "sentiment", "leaderboard", "ecosystem", "providers", "intelligence", "discovery"],
     discovery: {
-      input: { top: 10 },
+      input: { top: 10, sort: "usd" },
       inputSchema: {
-        properties: { top: { type: "integer", description: "How many top providers to return (1-25, default 10)" } },
+        properties: {
+          top: { type: "integer", description: "How many top providers to return (1-25, default 10)" },
+          sort: { type: "string", enum: ["usd", "buyers", "calls"], description: "Ranking lens: usd=revenue (default), buyers=distinct paying wallets (reach), calls=raw volume" },
+        },
       },
       output: {
         example: {
-          asOf: "2026-07-12T00:00:00.000Z", window: "last 24h",
+          asOf: "2026-07-12T00:00:00.000Z", window: "last 24h", sortedBy: "usd",
           ecosystem: { sellersIndexed: 1479, toolsIndexed: 5200 },
-          topProviders: [{ rank: 1, provider: "blockrun.ai", usdSettled: 294.55, calls: 353970, buyers: 163, homepage: "https://blockrun.ai" }],
+          topProviders: [{ rank: 1, provider: "blockrun.ai", usdSettled: 294.55, calls: 353970, buyers: 163, callsPerBuyer: 2171, homepage: "https://blockrun.ai" }],
           topToolCategories: [{ category: "crypto", sellersOffering: 246, tools: 812 }],
         },
       },
@@ -167,28 +170,41 @@ export const X402_TOOLS = [
         import("../leaderboard.js"), import("../x402-index.js"),
       ]);
       const top = Math.min(Math.max(parseInt(i?.top, 10) || 10, 1), 25);
+      // "Top" is multi-dimensional: revenue is whale-skewable, distinct buyers
+      // is the broadest-adoption lens, calls is raw volume. Let the caller pick
+      // which question they're asking; every row carries all metrics regardless.
+      const SORTS = { usd: (r) => r.usdSettled, buyers: (r) => r.buyers, calls: (r) => r.calls };
+      const sort = SORTS[String(i?.sort || "").toLowerCase()] ? String(i.sort).toLowerCase() : "usd";
       const lb = (typeof getLeaderboardSnapshot === "function" && getLeaderboardSnapshot()) || null;
       const board = Array.isArray(lb?.leaderboard) ? lb.leaderboard : [];
       // Agent402 is a market participant too - include it, but label our own row
       // so the ranking is honest (a market pulse that deletes a top seller is wrong).
       const isSelf = (r) => /agent402\.tools/i.test(String(r?.homepage || "")) || (r?.origins || []).some((o) => /agent402\.tools/i.test(String(o)));
-      const topProviders = board.slice(0, top).map((r, idx) => ({
-        rank: idx + 1,
-        provider: r.name || String(r.homepage || "").replace(/^https?:\/\//, ""),
-        usdSettled: +(Number(r.totalUsd) || 0).toFixed(2),
-        calls: Number(r.callsSettled) || 0,
-        buyers: Number(r.uniqueBuyers) || 0,
-        homepage: r.homepage || null,
-        ...(isSelf(r) ? { isSelf: true } : {}),
-      }));
+      const rows = board.map((r) => {
+        const usdSettled = +(Number(r.totalUsd) || 0).toFixed(2);
+        const calls = Number(r.callsSettled) || 0;
+        const buyers = Number(r.uniqueBuyers) || 0;
+        return {
+          provider: r.name || String(r.homepage || "").replace(/^https?:\/\//, ""),
+          usdSettled, calls, buyers,
+          callsPerBuyer: buyers ? Math.round(calls / buyers) : calls, // intensity; noisy when buyers is tiny
+          homepage: r.homepage || null,
+          ...(isSelf(r) ? { isSelf: true } : {}),
+        };
+      });
+      const topProviders = rows
+        .sort((a, b) => SORTS[sort](b) - SORTS[sort](a) || b.usdSettled - a.usdSettled)
+        .slice(0, top)
+        .map((r, idx) => ({ rank: idx + 1, ...r }));
       const market = ecosystemMarket({ limit: 12 });
       return {
         asOf: lb?.asOf || null,
         window: lb?.windowLabel || "last 24h",
+        sortedBy: sort,
         ecosystem: { sellersIndexed: market.sellers, toolsIndexed: market.tools },
         topProviders,
         topToolCategories: market.categories,
-        note: "Cross-provider x402 market pulse. topProviders = real on-chain DEMAND (USDC settled per seller, ecosystem-wide, primarily Base); Agent402 is ranked alongside everyone else and flagged isSelf:true for transparency. topToolCategories = SUPPLY mix (each seller's tools classified into a closed functional taxonomy - crypto, defi, finance, social, ai, search, etc. - counting distinct sellers per category) - per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
+        note: "Cross-provider x402 market pulse. topProviders = real on-chain activity per seller (ecosystem-wide, primarily Base), ranked by sortedBy; Agent402 is ranked alongside everyone else and flagged isSelf:true for transparency. Revenue (usd) is whale-skewable, buyers is the broadest-adoption lens, calls is raw volume, callsPerBuyer is intensity (noisy when buyers is tiny) - all four ride every row so revenue and real usage are both visible. topToolCategories = SUPPLY mix (each seller's tools classified into a closed functional taxonomy - crypto, defi, finance, social, ai, search, etc. - counting distinct sellers per category); per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
       };
     },
   },
