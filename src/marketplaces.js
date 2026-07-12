@@ -71,9 +71,14 @@ export function marketplacesPage(baseUrl, { chainSellerCounts = {}, indexSnapsho
 
   <!-- BY CHAIN -->
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:16px;">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px 20px;flex-wrap:wrap;margin-bottom:16px;">
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;letter-spacing:-.02em;margin:0;">A marketplace on every chain.</h2>
-      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">${chainCount} rails · same index, filtered per chain</span>
+      <label style="display:inline-flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12.5px;color:var(--muted);">jump to
+        <select onchange="if(this.value)location.href=this.value" aria-label="Jump to a chain marketplace" style="font-family:var(--font-mono);font-size:13px;padding:7px 10px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);cursor:pointer;">
+          <option value="">a chain…</option>
+          ${CHAIN_ORDER.map(([slug, name]) => `<option value="/${slug}">${esc(name)}</option>`).join("")}
+        </select>
+      </label>
     </div>
     <div class="mkts-grid" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;">
       ${CHAIN_ORDER.map(chainCard).join("")}
@@ -84,7 +89,7 @@ export function marketplacesPage(baseUrl, { chainSellerCounts = {}, indexSnapsho
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;letter-spacing:-.02em;margin:0 0 16px;">One index. One router. One ledger.</h2>
     <div class="mkts-pillars" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;">
-      ${pillar({ tag: "the index", title: "Every seller, indexed", body: "An open, cross-seller directory of the whole x402 economy. Every origin that serves a <code style=\"color:var(--on-dark);\">/.well-known/x402</code> manifest is crawled and health-ranked - not just Agent402's catalog.", href: "/index", cta: "Browse the index", stat: sellerCount != null ? `${fmtNum(sellerCount)} seller${sellerCount === 1 ? "" : "s"}` : null })}
+      ${pillar({ tag: "the index", title: "The live directory", body: "The full, sortable directory behind this hub: every x402 seller across every chain, ranked by health and on-chain revenue - crawled from <code style=\"color:var(--on-dark);\">/.well-known/x402</code>, not just Agent402's catalog. This is the data; the hub is the map.", href: "/index", cta: "Open the directory", stat: sellerCount != null ? `${fmtNum(sellerCount)} seller${sellerCount === 1 ? "" : "s"}` : null })}
       ${pillar({ tag: "the router", title: "Route to the best tool", body: "The Smart Order Router resolves a task to the best-priced, healthiest tool across every seller and chain, then pays and returns the result. One call, best execution.", href: "/index#router", cta: "How routing works", stat: "GET /api/route" })}
       ${pillar({ tag: "the leaderboard", title: "Ranked by real volume", body: "Every seller ranked by on-chain USDC settled - read straight off the chain, not vanity metrics. Listing is free; ranking is earned.", href: "/leaderboard", cta: "See the leaderboard", stat: board.length ? `top: ${esc(board[0].name)}` : null })}
     </div>
