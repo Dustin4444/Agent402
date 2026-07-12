@@ -13,7 +13,7 @@
 // (tool-alert.yml) polls /api/selfcheck and opens an issue when any curated tool
 // fails — the same open/close pattern as the 15-minute heartbeat.
 //
-// Deliberately NOT all 1,425 tools: many legitimately return 503 without a key
+// Deliberately NOT all 1,428 tools: many legitimately return 503 without a key
 // or 4xx on placeholder example inputs, which would be pure noise. This list is
 // the tools whose outage actually costs us — the finance/market-data wedge that
 // real buyers pay for — plus a pure-CPU canary that isolates "the server itself
@@ -46,6 +46,9 @@ export const SELFCHECK_SLUGS = [
   "drug-recalls",          // openFDA drug enforcement
   "food-recalls",          // openFDA food enforcement
   "drug-adverse-events",   // openFDA FAERS
+  "device-recalls",        // openFDA device enforcement
+  "college-lookup",        // College Scorecard (api.data.gov key, DEMO fallback)
+  "fec-candidates",        // FEC (api.data.gov key, DEMO fallback)
 ];
 // Semantic invariants — the teeth on the self-check. Running a tool's example
 // and seeing it "not throw" catches a dead upstream, but NOT a tool that returns
@@ -63,6 +66,9 @@ export const INVARIANTS = {
   "drug-recalls": (r) => Number(r?.count) >= 1 && !!r?.recalls?.[0]?.classification,
   "food-recalls": (r) => Number(r?.count) >= 1,
   "drug-adverse-events": (r) => Array.isArray(r?.topReactions) && r.topReactions.length >= 1 && typeof r.topReactions[0]?.reports === "number",
+  "device-recalls": (r) => Number(r?.count) >= 1 && !!r?.recalls?.[0]?.classification,
+  "college-lookup": (r) => Number(r?.count) >= 1 && /stanford/i.test(r?.colleges?.[0]?.name || "") && r.colleges[0].state === "CA",
+  "fec-candidates": (r) => Number(r?.count) >= 1 && !!r?.candidates?.[0]?.candidateId,
   // revenue-critical existing tools (stable facts, not live values)
   "stock-quote": (r) => typeof r?.price === "number" && r.price > 0 && !!r?.symbol,
   "treasury-debt": (r) => Number(r?.totalPublicDebtOutstanding) > 30e12, // debt only grows; already >$30T

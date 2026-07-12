@@ -30,6 +30,7 @@ const NETWORK = new Set([
   "/api/media-info", "/api/audio-convert", "/api/audio-normalize",
   "/api/gov-data", "/api/weather-alerts", "/api/earthquakes",
   "/api/drug-recalls", "/api/food-recalls", "/api/drug-adverse-events", "/api/vin-decode", "/api/vehicle-recalls",
+  "/api/device-recalls", "/api/college-lookup", "/api/fec-candidates",
   "/api/geocode", "/api/reverse-geocode", "/api/place-search",
   "/api/image-ocr",
   "/api/barcode-lookup", "/api/fx-rate", "/api/weather-forecast",

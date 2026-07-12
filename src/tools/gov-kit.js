@@ -8,8 +8,12 @@
 //   drug-adverse-events top FAERS adverse reactions for a drug (openFDA)
 //   vin-decode          decode a VIN (NHTSA vPIC)
 //   vehicle-recalls     NHTSA safety recalls by make/model/year
-// All documented public APIs serving public-domain data; no keys, no scraping.
-// (Treasury debt/rates live in macro-kit; don't duplicate them here.)
+//   device-recalls      FDA medical-device recall/enforcement (openFDA)
+//   college-lookup      US colleges via the Dept of Ed College Scorecard
+//   fec-candidates      US federal election candidates (FEC)
+// All documented public APIs serving public-domain data; no scraping. College
+// Scorecard + FEC use the api.data.gov key (DATA_GOV_API_KEY, DEMO_KEY fallback);
+// the rest are keyless. (Treasury debt/rates live in macro-kit; don't dup here.)
 import { safeFetch } from "./fetch-guard.js";
 
 function bad(message, statusCode = 400) {
@@ -418,6 +422,150 @@ export const GOV_TOOLS = [
           parkOutside: r.parkOutSide === "True",
         })),
         source: "api.nhtsa.gov (public domain)",
+      };
+    },
+  },
+
+  // ---- openFDA device recalls (api.fda.gov) — keyless ---------------------
+  {
+    route: "GET /api/device-recalls", name: "FDA medical device recalls", slug: "device-recalls", category: "data", price: "$0.004",
+    description:
+      "Search FDA medical-device recall / enforcement records (openFDA): recalling firm, classification (Class I/II/III), reason, distribution, and dates. Live FDA data, no key. ?q=insulin+pump&limit=5",
+    tags: ["fda", "device", "recall", "openfda", "medical", "safety", "government"],
+    discovery: {
+      input: { q: "insulin pump", limit: 5 },
+      inputSchema: {
+        properties: {
+          q: { type: "string", description: "Device name or product term to search recalls for" },
+          limit: { type: "number", description: "Max results 1-20 (default 5)" },
+        },
+        required: ["q"],
+      },
+      output: {
+        example: {
+          query: "insulin pump", count: 1,
+          recalls: [{ firm: "Example Medical Inc", classification: "Class II", status: "Ongoing", reason: "Software error", product: "Insulin infusion pump", distribution: "Nationwide", recallInitiated: "2025-03-14", recallNumber: "Z-1234-2025" }],
+          source: "api.fda.gov (openFDA, public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const q = String(i.q ?? "").trim();
+      if (!q) throw bad('"q" (device name or product term) is required');
+      const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
+      const search = encodeURIComponent(`product_description:"${q}"`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/device/enforcement.json?search=${search}&limit=${limit}`);
+      const results = data?.results ?? [];
+      return {
+        query: q,
+        count: results.length,
+        recalls: results.map((r) => ({
+          firm: r.recalling_firm ?? null,
+          classification: r.classification ?? null,
+          status: r.status ?? null,
+          reason: (r.reason_for_recall ?? "").replace(/\s+/g, " ").slice(0, 220),
+          product: (r.product_description ?? "").replace(/\s+/g, " ").slice(0, 180),
+          distribution: (r.distribution_pattern ?? "").replace(/\s+/g, " ").slice(0, 120),
+          recallInitiated: fdaDate(r.recall_initiation_date),
+          recallNumber: r.recall_number ?? null,
+        })),
+        source: "api.fda.gov (openFDA, public domain)",
+      };
+    },
+  },
+
+  // ---- College Scorecard (api.data.gov) — our DATA_GOV_API_KEY -------------
+  {
+    route: "GET /api/college-lookup", name: "US college lookup (Scorecard)", slug: "college-lookup", category: "data", price: "$0.004",
+    description:
+      "Look up US colleges by name via the Dept. of Education College Scorecard: state, out-of-state tuition, overall admission rate, and undergraduate size. Live gov data. ?name=Stanford&limit=5",
+    tags: ["education", "college", "scorecard", "tuition", "admissions", "government"],
+    discovery: {
+      input: { name: "Stanford", limit: 5 },
+      inputSchema: {
+        properties: {
+          name: { type: "string", description: "College name (or part of it) to search" },
+          limit: { type: "number", description: "Max results 1-20 (default 5)" },
+        },
+        required: ["name"],
+      },
+      output: {
+        example: {
+          query: "Stanford", count: 1,
+          colleges: [{ name: "Stanford University", state: "CA", tuitionOutOfStateUsd: 65910, admissionRate: 0.0361, undergraduateSize: 7554 }],
+          source: "api.data.gov / collegescorecard (public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const name = String(i.name ?? i.q ?? "").trim();
+      if (!name) throw bad('"name" is required');
+      const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
+      const key = process.env.DATA_GOV_API_KEY || "DEMO_KEY";
+      const fields = "school.name,school.state,latest.cost.tuition.out_of_state,latest.admissions.admission_rate.overall,latest.student.size";
+      const data = await getJson(
+        `https://api.data.gov/ed/collegescorecard/v1/schools?api_key=${encodeURIComponent(key)}&school.name=${encodeURIComponent(name)}&fields=${encodeURIComponent(fields)}&per_page=${limit}`,
+      );
+      const results = Array.isArray(data.results) ? data.results : [];
+      return {
+        query: name,
+        count: results.length,
+        colleges: results.map((r) => ({
+          name: r["school.name"] ?? null,
+          state: r["school.state"] ?? null,
+          tuitionOutOfStateUsd: r["latest.cost.tuition.out_of_state"] ?? null,
+          admissionRate: r["latest.admissions.admission_rate.overall"] ?? null,
+          undergraduateSize: r["latest.student.size"] ?? null,
+        })),
+        source: "api.data.gov / collegescorecard (public domain)",
+      };
+    },
+  },
+
+  // ---- FEC campaign finance (api.open.fec.gov) — our DATA_GOV_API_KEY ------
+  {
+    route: "GET /api/fec-candidates", name: "US federal candidates (FEC)", slug: "fec-candidates", category: "data", price: "$0.004",
+    description:
+      "Search US federal election candidates via the FEC: name, party, office (House/Senate/President), state, incumbent/challenger status, and FEC candidate ID. Live gov data. ?q=warren&limit=5",
+    tags: ["fec", "elections", "candidates", "campaign-finance", "politics", "government"],
+    discovery: {
+      input: { q: "warren", limit: 5 },
+      inputSchema: {
+        properties: {
+          q: { type: "string", description: "Candidate name to search" },
+          limit: { type: "number", description: "Max results 1-20 (default 5)" },
+        },
+        required: ["q"],
+      },
+      output: {
+        example: {
+          query: "warren", count: 1,
+          candidates: [{ name: "WARREN, ELIZABETH", party: "DEMOCRATIC PARTY", office: "Senate", state: "MA", status: "Incumbent", candidateId: "S2MA00170" }],
+          source: "api.open.fec.gov (public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const q = String(i.q ?? i.name ?? "").trim();
+      if (!q) throw bad('"q" (candidate name) is required');
+      const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
+      const key = process.env.DATA_GOV_API_KEY || "DEMO_KEY";
+      const data = await getJson(
+        `https://api.open.fec.gov/v1/candidates/search/?api_key=${encodeURIComponent(key)}&q=${encodeURIComponent(q)}&per_page=${limit}&sort=name`,
+      );
+      const results = Array.isArray(data.results) ? data.results : [];
+      return {
+        query: q,
+        count: results.length,
+        candidates: results.map((r) => ({
+          name: r.name ?? null,
+          party: r.party_full ?? null,
+          office: r.office_full ?? null,
+          state: r.state ?? null,
+          status: r.incumbent_challenge_full ?? null,
+          candidateId: r.candidate_id ?? null,
+        })),
+        source: "api.open.fec.gov (public domain)",
       };
     },
   },
