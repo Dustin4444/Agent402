@@ -16,6 +16,7 @@ export const RAILS = [
   { name: "Solana", asset: "USDC", caip2: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" },
   { name: "Polygon", asset: "USDC", caip2: "eip155:137", chainId: 137 },
   { name: "Arbitrum", asset: "USDC", caip2: "eip155:42161", chainId: 42161 },
+  { name: "Monad", asset: "USDC", caip2: "eip155:143", chainId: 143 },
   { name: "Stellar", asset: "USDC", caip2: "stellar:pubnet" },
   { name: "Algorand", asset: "USDC", caip2: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=" },
   { name: "Robinhood Chain", asset: "USDG", caip2: "eip155:4663", chainId: 4663 },

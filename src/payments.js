@@ -24,6 +24,13 @@ const EVM_NETWORKS = {
   base: "eip155:8453",
   polygon: "eip155:137",
   arbitrum: "eip155:42161",
+  // Monad (EVM L1, chain 143). Native Circle USDC is in @x402/evm's built-in
+  // asset registry (eip155:143 → 0x754704Bc059F8C67012fEd69BC8A327a5aafb603),
+  // so the standard exact/USDC path settles it — no custom money parser.
+  // Settlement routes to Monad's DEDICATED facilitator (MONAD_FACILITATOR_URL,
+  // wired below) — PayAI/CDP do not advertise eip155:143. OPT-IN: offered only
+  // when `monad` is listed in PAYMENT_NETWORKS.
+  monad: "eip155:143",
   "base-sepolia": "eip155:84532",
   // Robinhood Chain (Arbitrum Orbit L2, EVM-equivalent, AI-native RWA chain).
   // NOT in @x402/evm's built-in USDC registry, and settles a non-Circle
@@ -60,6 +67,15 @@ export const NETWORKS = { ...EVM_NETWORKS, ...SVM_NETWORKS, ...STELLAR_NETWORKS,
 // verified on-chain via scripts/rh-chain-probe.js before enabling.
 const ROBINHOOD_CAIP2 = "eip155:4663";
 const ROBINHOOD_FACILITATOR_URL = (process.env.ROBINHOOD_FACILITATOR_URL || "").trim();
+// Monad (chain 143) settles native Circle USDC (in @x402/evm's registry, so the
+// standard ExactEvmScheme handles it — no custom parser). But PayAI and CDP do
+// NOT advertise eip155:143 at their /supported, so Monad must route to its own
+// dedicated facilitator, which advertises exact/eip155:143. It's public + keyless
+// (the molandak-operated facilitator from docs.monad.xyz/guides/x402), so a sane
+// default is baked in; override with MONAD_FACILITATOR_URL. Advertises only
+// Monad (143 + testnet 10143), so it wins that route without touching other rails.
+const MONAD_CAIP2 = "eip155:143";
+const MONAD_FACILITATOR_URL = (process.env.MONAD_FACILITATOR_URL || "https://x402-facilitator.molandak.org").trim();
 const USDG = {
   asset: (process.env.ROBINHOOD_USDG_ADDRESS || "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168").trim(),
   decimals: 6,
@@ -203,6 +219,24 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   if (robinhoodEnabled) {
     facilitatorClients.push(new HTTPFacilitatorClient({ url: ROBINHOOD_FACILITATOR_URL }));
     console.log(`Robinhood Chain: settling USDG (${USDG.asset}) via facilitator ${ROBINHOOD_FACILITATOR_URL}`);
+  }
+  // Monad (chain 143 / USDC) settles through its dedicated facilitator, added
+  // only when `monad` is enabled — PayAI/CDP can't settle eip155:143, so without
+  // this client an offered Monad accept would make EVERY 402 throw. It advertises
+  // only Monad, so it wins that route without disturbing the other rails. Same
+  // safety as Robinhood: if the URL is emptied, drop Monad from the offered
+  // networks rather than break all payments.
+  const monadEnabled = evmCaip2.includes(MONAD_CAIP2) && !!MONAD_FACILITATOR_URL;
+  if (evmCaip2.includes(MONAD_CAIP2) && !MONAD_FACILITATOR_URL) {
+    console.warn(
+      "WARNING: PAYMENT_NETWORKS enables `monad` but MONAD_FACILITATOR_URL is empty — " +
+        "dropping Monad from the offered networks (other chains unaffected)."
+    );
+    evmCaip2 = evmCaip2.filter((c) => c !== MONAD_CAIP2);
+  }
+  if (monadEnabled) {
+    facilitatorClients.push(new HTTPFacilitatorClient({ url: MONAD_FACILITATOR_URL }));
+    console.log(`Monad: settling USDC via facilitator ${MONAD_FACILITATOR_URL}`);
   }
   let server = new x402ResourceServer(facilitatorClients)
     .registerExtension(bazaarResourceServerExtension)

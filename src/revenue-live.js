@@ -79,6 +79,20 @@ export const EVM = {
     explorer: (a) => `https://arbiscan.io/address/${a}#tokentxns`,
     tx: (h) => `https://arbiscan.io/tx/${h}`,
   },
+  monad: {
+    // Monad L1, chain 143. Native Circle USDC. Fast blocks (~0.5s), so a wide
+    // span keeps the daily canary settle inside the "recent inbound" window;
+    // Alchemy natively serves Monad (monad-mainnet.g.alchemy.com) for the
+    // balance read + getAssetTransfers, with the public RPC as fallback.
+    label: "Monad", asset: "USDC", span: 200000,
+    token: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
+    rpcs: [
+      ...(process.env.ALCHEMY_API_KEY ? [`https://monad-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []),
+      "https://rpc.monad.xyz", "https://rpc2.monad.xyz",
+    ],
+    explorer: (a) => `https://monadscan.com/address/${a}#tokentxns`,
+    tx: (h) => `https://monadscan.com/tx/${h}`,
+  },
   robinhood: {
     // Measured ~0.15s blocks (not the 2s Orbit default) — 30k blocks was only
     // ~76 real minutes; 600k ≈ 25h so the daily canary settle stays visible.
@@ -805,16 +819,17 @@ export async function revenueSnapshot(opts) {
 async function refreshSnapshot({ walletAddress, solanaWallet }) {
   const stellarWallet = (process.env.STELLAR_WALLET_ADDRESS || "").trim();
   const algorandWallet = (process.env.ALGORAND_WALLET_ADDRESS || "").trim();
-  const [base, polygon, arbitrum, robinhood, solana, stellar, algorand] = await Promise.all([
+  const [base, polygon, arbitrum, monad, robinhood, solana, stellar, algorand] = await Promise.all([
     evmRail("base", walletAddress),
     evmRail("polygon", walletAddress),
     evmRail("arbitrum", walletAddress),
+    evmRail("monad", walletAddress),
     evmRail("robinhood", walletAddress),
     solanaRail(solanaWallet),
     stellarRail(stellarWallet),
     algorandRail(algorandWallet),
   ]);
-  const rails = [base, solana, polygon, arbitrum, stellar, algorand, robinhood];
+  const rails = [base, solana, polygon, arbitrum, monad, stellar, algorand, robinhood];
   // Per-rail last-good balance carry-forward. The non-EVM reads (Solana,
   // Stellar, Algorand) hit public endpoints that throttle Railway's datacenter
   // IP and intermittently time out; a wallet balance barely moves between
