@@ -191,6 +191,7 @@ const NAV_ZONES = [
     { href: "/skills", label: "skill packs" },
     { href: "/tools", label: "catalog" },
     { href: "/pricing", label: "pricing" },
+    { href: "/marketplaces", label: "marketplaces" },
   ],
   [
     { href: "/index", label: "index", panel: "index" },

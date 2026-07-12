@@ -141,6 +141,7 @@ import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
 import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
+import { marketplacesPage } from "./marketplaces.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity } from "./revenue-live.js";
@@ -735,6 +736,28 @@ app.get("/", (_req, res) => {
   htmlCache(res, 60, 300).send(
     ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { chainSellerCounts })
   );
+});
+// /marketplaces — the infrastructure hub (per-chain marketplaces + index +
+// router + leaderboard). Same live seller counts the homepage strip uses.
+app.get("/marketplaces", (_req, res) => {
+  const chainSellerCounts = {};
+  let indexSnapshot = null;
+  try {
+    indexSnapshot = getIndexSnapshot();
+    for (const key of Object.keys(CHAIN_PAGES)) {
+      try { chainSellerCounts[key] = marketSellers(key, indexSnapshot).length; } catch { /* cell renders without the count */ }
+    }
+  } catch { /* snapshot unavailable — cards render "indexed live" */ }
+  let leaderboardSnap = null;
+  try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* top-sellers block just doesn't render */ }
+  const stats = getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES });
+  htmlCache(res, 60, 300).send(marketplacesPage(BASE_URL, {
+    chainSellerCounts,
+    indexSnapshot,
+    leaderboardSnap,
+    toolCount: Object.keys(CATALOG).length,
+    settlements: stats?.toolCallsServed?.total || 0,
+  }));
 });
 // Real health check — fails (503) when a load balancer or heartbeat should
 // route around this instance. Verifies the stats DB is readable and that the
