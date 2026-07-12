@@ -158,7 +158,7 @@ export const X402_TOOLS = [
           asOf: "2026-07-12T00:00:00.000Z", window: "last 24h",
           ecosystem: { sellersIndexed: 1479, toolsIndexed: 5200 },
           topProviders: [{ rank: 1, provider: "blockrun.ai", usdSettled: 294.55, calls: 353970, buyers: 163, homepage: "https://blockrun.ai" }],
-          topToolCategories: [{ category: "search", sellersOffering: 12, tools: 40 }],
+          topToolCategories: [{ category: "crypto", sellersOffering: 246, tools: 812 }],
         },
       },
     },
@@ -188,7 +188,7 @@ export const X402_TOOLS = [
         ecosystem: { sellersIndexed: market.sellers, toolsIndexed: market.tools },
         topProviders,
         topToolCategories: market.categories,
-        note: "Cross-provider x402 market pulse. topProviders = real on-chain DEMAND (USDC settled per seller, ecosystem-wide, primarily Base); Agent402 is ranked alongside everyone else and flagged isSelf:true for transparency. topToolCategories = SUPPLY mix (categories offered across every indexed seller's manifest) - per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
+        note: "Cross-provider x402 market pulse. topProviders = real on-chain DEMAND (USDC settled per seller, ecosystem-wide, primarily Base); Agent402 is ranked alongside everyone else and flagged isSelf:true for transparency. topToolCategories = SUPPLY mix (each seller's tools classified into a closed functional taxonomy - crypto, defi, finance, social, ai, search, etc. - counting distinct sellers per category) - per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
       };
     },
   },
