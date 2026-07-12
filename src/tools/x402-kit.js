@@ -152,7 +152,7 @@ export const X402_TOOLS = [
       input: { top: 10, sort: "usd" },
       inputSchema: {
         properties: {
-          top: { type: "integer", description: "How many top providers to return (1-25, default 10)" },
+          top: { type: "integer", description: "How many top providers to return (1-50, default 10). Agent402's own row is always included at its true rank even if it falls outside this many." },
           sort: { type: "string", enum: ["usd", "buyers", "calls"], description: "Ranking lens: usd=revenue (default), buyers=distinct paying wallets (reach), calls=raw volume" },
         },
       },
@@ -169,7 +169,7 @@ export const X402_TOOLS = [
       const [{ getLeaderboardSnapshot }, { ecosystemMarket }] = await Promise.all([
         import("../leaderboard.js"), import("../x402-index.js"),
       ]);
-      const top = Math.min(Math.max(parseInt(i?.top, 10) || 10, 1), 25);
+      const top = Math.min(Math.max(parseInt(i?.top, 10) || 10, 1), 50);
       // "Top" is multi-dimensional: revenue is whale-skewable, distinct buyers
       // is the broadest-adoption lens, calls is raw volume. Let the caller pick
       // which question they're asking; every row carries all metrics regardless.
@@ -192,10 +192,15 @@ export const X402_TOOLS = [
           ...(isSelf(r) ? { isSelf: true } : {}),
         };
       });
-      const topProviders = rows
-        .sort((a, b) => SORTS[sort](b) - SORTS[sort](a) || b.usdSettled - a.usdSettled)
-        .slice(0, top)
-        .map((r, idx) => ({ rank: idx + 1, ...r }));
+      const ranked = rows.sort((a, b) => SORTS[sort](b) - SORTS[sort](a) || b.usdSettled - a.usdSettled);
+      const topProviders = ranked.slice(0, top).map((r, idx) => ({ rank: idx + 1, ...r }));
+      // Always surface Agent402: if our row ranks outside the top-N on this lens,
+      // append it at its TRUE rank (not a faked position) so the caller can always
+      // see where we stand, whatever the sort or top value.
+      if (!topProviders.some((r) => r.isSelf)) {
+        const selfIdx = ranked.findIndex((r) => r.isSelf);
+        if (selfIdx >= 0) topProviders.push({ rank: selfIdx + 1, outsideTop: true, ...ranked[selfIdx] });
+      }
       const market = ecosystemMarket({ limit: 12 });
       return {
         asOf: lb?.asOf || null,
@@ -204,7 +209,7 @@ export const X402_TOOLS = [
         ecosystem: { sellersIndexed: market.sellers, toolsIndexed: market.tools },
         topProviders,
         topToolCategories: market.categories,
-        note: "Cross-provider x402 market pulse. topProviders = real on-chain activity per seller (ecosystem-wide, primarily Base), ranked by sortedBy; Agent402 is ranked alongside everyone else and flagged isSelf:true for transparency. Revenue (usd) is whale-skewable, buyers is the broadest-adoption lens, calls is raw volume, callsPerBuyer is intensity (noisy when buyers is tiny) - all four ride every row so revenue and real usage are both visible. topToolCategories = SUPPLY mix (each seller's tools classified into a closed functional taxonomy - crypto, defi, finance, social, ai, search, etc. - counting distinct sellers per category); per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
+        note: "Cross-provider x402 market pulse. topProviders = real on-chain activity per seller (ecosystem-wide, primarily Base), ranked by sortedBy; Agent402 is ranked alongside everyone else and flagged isSelf:true, and is always included at its true rank (with outsideTop:true) even when it falls outside the top-N on the chosen lens. Revenue (usd) is whale-skewable, buyers is the broadest-adoption lens, calls is raw volume, callsPerBuyer is intensity (noisy when buyers is tiny) - all four ride every row so revenue and real usage are both visible. topToolCategories = SUPPLY mix (each seller's tools classified into a closed functional taxonomy - crypto, defi, finance, social, ai, search, etc. - counting distinct sellers per category); per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
       };
     },
   },
