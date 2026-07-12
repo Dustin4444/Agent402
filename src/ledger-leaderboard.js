@@ -60,7 +60,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
       const isFirst = rank === "01";
       const href = safeHref(r.homepage);
       const nameHtml = href
-        ? `<a href="${esc(href)}" target="_blank" rel="noopener nofollow" style="color:var(--on-dark);text-decoration:none;border-bottom:1px solid transparent;">${esc(r.name)}</a>`
+        ? `<a href="${esc(href)}" target="_blank" rel="noopener nofollow" class="lb-name">${esc(r.name)}</a>`
         : esc(r.name);
 
       // Pick the primary wallet for display
@@ -72,16 +72,10 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
             : [];
       const displayWallet = allWallets[0] || "";
 
-      const rowBg = isFirst
-        ? " background: linear-gradient(90deg, #d63c1a22, transparent);"
-        : "";
-      const rankColor = isFirst ? "var(--accent)" : "#7C7C7C";
-      const borderBottom =
-        r === board[board.length - 1]
-          ? ""
-          : " border-bottom: 1px solid #262626;";
-
-      return `<div style="display: grid; grid-template-columns: 36px 1fr 110px 90px 64px; gap: 12px; padding: 13px 20px; color: #F5F5F5;${borderBottom}${rowBg}"><span style="color: ${rankColor}; font-weight: 700;">${esc(rank)}</span><span>${nameHtml} <span style="color:#7C7C7C;">\u00b7 ${esc(shortAddr(displayWallet))}</span></span><span style="text-align: right; color: #FFFFFF; font-weight: 700;">${fmtUsd(r.totalUsd)}</span><span style="text-align: right;">${fmtNum(r.callsSettled)}</span><span style="text-align: right; color: #B8B8B8;">${fmtNum(r.uniqueBuyers)}</span></div>`;
+      // Row/rank/last-row styling is handled by the .lb-row classes (see
+      // LB_ROW_CSS) so this markup carries no per-row inline styles - a busy
+      // leaderboard renders 500+ rows and inline styles ballooned the page.
+      return `<div class="lb-row${isFirst ? " first" : ""}"><span class="lb-rank">${esc(rank)}</span><span>${nameHtml} <span class="lb-addr">\u00b7 ${esc(shortAddr(displayWallet))}</span></span><span class="lb-usd">${fmtUsd(r.totalUsd)}</span><span class="lb-num">${fmtNum(r.callsSettled)}</span><span class="lb-buyers">${fmtNum(r.uniqueBuyers)}</span></div>`;
     })
     .join("\n      ");
 
@@ -162,6 +156,16 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
   };
 
   const extraCss = `
+.lb-row{display:grid;grid-template-columns:36px 1fr 110px 90px 64px;gap:12px;padding:13px 20px;color:#F5F5F5;border-bottom:1px solid #262626}
+.lb-row:last-child{border-bottom:none}
+.lb-row.first{background:linear-gradient(90deg,#d63c1a22,transparent)}
+.lb-rank{color:#7C7C7C;font-weight:700}
+.lb-row.first .lb-rank{color:var(--accent)}
+.lb-name{color:var(--on-dark);text-decoration:none;border-bottom:1px solid transparent}
+.lb-addr{color:#7C7C7C}
+.lb-usd{text-align:right;color:#FFFFFF;font-weight:700}
+.lb-num{text-align:right}
+.lb-buyers{text-align:right;color:#B8B8B8}
 @media (max-width: 900px) {
   .lb-totals { grid-template-columns: repeat(2, 1fr) !important; }
   .lb-method { grid-template-columns: repeat(2, 1fr) !important; }

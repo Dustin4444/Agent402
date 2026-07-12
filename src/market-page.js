@@ -14,6 +14,25 @@ import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { CATEGORIES } from "./pages.js";
 import { chainMark } from "./chain-logos.js";
 
+// Seller-roster row styles hoisted to classes. A busy chain (e.g. Base) renders
+// 1000+ roster rows; when each row carried its 6 styles inline the page ballooned
+// to ~1 MB of HTML / ~8k inline style attrs, which is slow for the browser to
+// parse and style. As classes the same markup is ~5x smaller and the style
+// engine reuses one computed rule per class. Output is visually identical (same
+// CSS vars, same light/dark theme). The `.ml-roster-compact` hook is kept on the
+// row so the existing mobile media query still collapses the grid.
+const ROSTER_CSS = `
+.mlr-row{display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:9px 14px;border:1px solid var(--hairline);background:var(--card);color:var(--ink);text-decoration:none}
+.mlr-row.sel{border:2px solid var(--accent)}
+.mlr-name{font-weight:700;font-size:14px}
+.mlr-host{font-family:var(--font-mono);font-size:12px;color:var(--faint)}
+.mlr-tools{color:var(--muted);font-family:var(--font-mono);font-size:12.5px}
+.mlr-stat{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:12px;color:var(--green)}
+.mlr-stat.bad{color:var(--accent)}
+.mlr-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.mlr-stat.bad .mlr-dot{background:var(--accent)}
+.mlr-badge{background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px}`;
+
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 // Crawled manifests are third-party input: only http(s) may become an href.
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
@@ -338,11 +357,11 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     ? sellers.map((s) => {
         const good = s.local || s.routable;
         return `
-    <a href="${activityHref(s)}" class="ml-roster-compact" style="display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:9px 14px;border:${isSelected(s) ? "2px solid var(--accent)" : "1px solid var(--hairline)"};background:var(--card);color:var(--ink);text-decoration:none;">
-      <span style="font-weight:700;font-size:14px;">${esc(s.displayName)}${s.local ? ' <span style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px;">THIS HOST</span>' : ""}</span>
-      <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${esc(hostOf(s.homepage))}</span>
-      <span style="color:var(--muted);font-family:var(--font-mono);font-size:12.5px;">${s.toolCount || 0} tools</span>
-      <span style="display:inline-flex;align-items:center;gap:6px;color:${good ? "var(--green)" : "var(--accent)"};font-family:var(--font-mono);font-size:12px;"><span style="width:7px;height:7px;border-radius:50%;background:${good ? "var(--green)" : "var(--accent)"};"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
+    <a href="${activityHref(s)}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
+      <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}</span>
+      <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
+      <span class="mlr-tools">${s.toolCount || 0} tools</span>
+      <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
     </a>`;
       }).join("")
     : sellers.map((s) => {
@@ -352,12 +371,12 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     <div style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;">${esc(s.displayName)}</a>
-        ${s.local ? '<span style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:2px 6px;">THIS HOST</span>' : ""}
+        ${s.local ? '<span class="mlr-badge">THIS HOST</span>' : ""}
       </div>
-      <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${esc(hostOf(s.homepage))}</div>
+      <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
         <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools</span>
-        <span style="display:inline-flex;align-items:center;gap:6px;color:${good ? "var(--green)" : "var(--accent)"};font-family:var(--font-mono);font-size:12px;"><span style="width:7px;height:7px;border-radius:50%;background:${good ? "var(--green)" : "var(--accent)"};"></span>${health}</span>
+        <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>
       </div>
       <a href="${activityHref(s)}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;margin-top:2px;">${isSelected(s) ? "activity shown above" : "view activity →"}</a>
     </div>`;
@@ -523,6 +542,7 @@ ${ledgerFooterCompact()}`;
     baseUrl,
     activePath: `/${chainKey}`,
     jsonLd,
+    extraCss: ROSTER_CSS,
     body,
   });
 }
