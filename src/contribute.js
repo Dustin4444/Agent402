@@ -18,11 +18,11 @@ export function contributePage(baseUrl) {
 .ct-section p{color:var(--muted);margin:0 0 12px;font-size:15px;line-height:1.55}
 .ct-section ul,.ct-section ol{margin:0 0 16px;padding:0 0 0 22px;font-size:15px;line-height:1.55;color:var(--muted)}
 .ct-section li{margin-bottom:6px}
-.ct-section li code{font-family:var(--font-mono);background:var(--ink);color:var(--cream);padding:2px 7px;font-size:13px;border:1.5px solid var(--ink)}
+.ct-section li code{font-family:var(--font-mono);background:var(--surface);color:var(--on-dark);padding:2px 7px;font-size:13px;border:1.5px solid var(--ink)}
 
 .ct-code-wrap{position:relative;margin-bottom:24px}
-.ct-code-wrap pre{background:var(--ink);border:1.5px solid var(--ink);padding:20px;overflow-x:auto;margin:0;font-family:var(--font-mono);font-size:13px;line-height:1.55;color:var(--cream)}
-.ct-code-wrap .ct-copy{position:absolute;top:8px;right:8px;background:var(--ink);border:1.5px solid var(--cream);color:var(--cream);font-family:var(--font-mono);font-size:11px;padding:4px 10px;cursor:pointer;transition:all .15s}
+.ct-code-wrap pre{background:var(--surface);border:1.5px solid var(--ink);padding:20px;overflow-x:auto;margin:0;font-family:var(--font-mono);font-size:13px;line-height:1.55;color:var(--on-dark)}
+.ct-code-wrap .ct-copy{position:absolute;top:8px;right:8px;background:var(--surface);border:1.5px solid var(--cream);color:var(--on-dark);font-family:var(--font-mono);font-size:11px;padding:4px 10px;cursor:pointer;transition:all .15s}
 .ct-code-wrap .ct-copy:hover{background:var(--cream);color:var(--ink)}
 .ct-code-wrap .ct-copy.copied{color:var(--accent);border-color:var(--accent)}
 

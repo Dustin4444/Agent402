@@ -62,7 +62,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   // ---- sample endpoint row ----
   const endpointRow = (ep, last) => {
     const methodColor = ep.method === "GET" ? "var(--green)" : "var(--accent)";
-    return `<div style="display:grid;grid-template-columns:64px 1fr auto;gap:14px;align-items:center;padding:12px 18px;${last ? "" : "border-bottom:1px solid var(--dark-border);"}"><span style="color:${methodColor};font-weight:700;">${ep.method}</span><span style="color:var(--cream);">${esc(ep.route)}</span><span style="color:var(--dk-muted);">${esc(ep.note)}</span></div>`;
+    return `<div style="display:grid;grid-template-columns:64px 1fr auto;gap:14px;align-items:center;padding:12px 18px;${last ? "" : "border-bottom:1px solid var(--dark-border);"}"><span style="color:${methodColor};font-weight:700;">${ep.method}</span><span style="color:var(--on-dark);">${esc(ep.route)}</span><span style="color:var(--dk-muted);">${esc(ep.note)}</span></div>`;
   };
 
   // ---- skill packs grid cells ----
@@ -81,7 +81,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
     packCells.push(packCell(p, isLastInRow));
   });
   // 6th cell: dark "Browse all" CTA
-  packCells.push(`<a href="/skills" style="padding:20px;background:var(--ink);text-decoration:none;display:flex;flex-direction:column;justify-content:center;border-bottom:1.5px solid var(--ink);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--cream);">Browse all ${packCount} packs \u2192</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);margin-top:6px;">prompts/list \u2192 prompts/get</span></a>`);
+  packCells.push(`<a href="/skills" style="padding:20px;background:var(--surface);text-decoration:none;display:flex;flex-direction:column;justify-content:center;border-bottom:1.5px solid var(--ink);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--on-dark);">Browse all ${packCount} packs \u2192</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);margin-top:6px;">prompts/list \u2192 prompts/get</span></a>`);
 
   // ---- filter chip data (all + each category with tools) ----
   const chipData = [{ key: "all", label: "all", count }];
@@ -133,7 +133,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
     <!-- category chips -->
     <div id="ml-chips" style="display:flex;flex-wrap:wrap;gap:7px;">
       ${chipData.map((c, i) =>
-        `<button data-filter="${c.key}" class="ml-chip${i === 0 ? " ml-chip-active" : ""}" style="font-family:var(--font-mono);font-size:11.5px;border:1.5px solid var(--ink);padding:5px 10px;cursor:pointer;background:${i === 0 ? "var(--ink)" : "transparent"};color:${i === 0 ? "var(--cream)" : "var(--ink)"};">${esc(c.label)}${c.count ? " \u00b7 " + fmtNum(c.count) : ""}</button>`
+        `<button data-filter="${c.key}" class="ml-chip${i === 0 ? " ml-chip-active" : ""}" style="font-family:var(--font-mono);font-size:11.5px;border:1.5px solid var(--ink);padding:5px 10px;cursor:pointer;background:${i === 0 ? "var(--surface)" : "transparent"};color:${i === 0 ? "var(--on-dark)" : "var(--ink)"};">${esc(c.label)}${c.count ? " \u00b7 " + fmtNum(c.count) : ""}</button>`
       ).join("\n      ")}
     </div>
   </section>
@@ -147,7 +147,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
         </div>
         <div>
           ${rightCats.map((c, i) => catRow(c, false)).join("\n          ")}
-          <div id="ml-total-row" style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:14px 18px;background:var(--ink);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--cream);">total \u00b7 <span id="ml-total-count">${fmtNum(count)}</span> tools</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);">+${packCount} skill packs</span></div>
+          <div id="ml-total-row" style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:14px 18px;background:var(--surface);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--on-dark);">total \u00b7 <span id="ml-total-count">${fmtNum(count)}</span> tools</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);">+${packCount} skill packs</span></div>
         </div>
       </div>
     </div>
@@ -157,7 +157,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">// sample endpoints</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 22px;">Call any of them in one round trip.</h2>
-    <div style="border:1.5px solid var(--ink);background:var(--ink);font-family:var(--font-mono);font-size:13px;">
+    <div style="border:1.5px solid var(--ink);background:var(--surface);font-family:var(--font-mono);font-size:13px;">
       ${SAMPLE_ENDPOINTS.map((ep, i) => endpointRow(ep, i === SAMPLE_ENDPOINTS.length - 1)).join("\n      ")}
     </div>
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:12px;">full machine-readable catalog: GET /api/pricing \u00b7 GET /openapi.json</div>
@@ -234,8 +234,8 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
         chips.forEach(function(c) {
           var isActive = c === chip;
           c.classList.toggle('ml-chip-active', isActive);
-          c.style.background = isActive ? 'var(--ink)' : 'transparent';
-          c.style.color = isActive ? 'var(--cream)' : 'var(--ink)';
+          c.style.background = isActive ? 'var(--surface)' : 'transparent';
+          c.style.color = isActive ? 'var(--on-dark)' : 'var(--ink)';
         });
         applyFilters();
       });

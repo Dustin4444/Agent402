@@ -26,7 +26,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
 
   // -- price-by-category receipt rows ----------------------------------------
   const receiptRow = (label, price, isLast) =>
-    `<div style="display:flex;align-items:baseline;gap:8px;padding:12px 18px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><span>${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">${esc(price)}</span></div>`;
+    `<div style="display:flex;align-items:baseline;gap:8px;padding:12px 18px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><span>${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">${esc(price)}</span></div>`;
 
   const receiptRows = [
     ["Most tools \u2014 text, math, encoding, time, validation, convert", "$0.001"],
@@ -51,7 +51,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
   .ml-pricing-plans { grid-template-columns: 1fr !important; }
   .ml-pricing-plans > div:first-child { border-right: none !important; border-bottom: 1.5px solid var(--ink) !important; }
   .ml-token-math { grid-template-columns: 1fr !important; }
-  .ml-token-math > div:last-child { border-left: none !important; border-top: 1px dashed #C9C9C7 !important; padding-left: 0 !important; padding-top: 24px !important; }
+  .ml-token-math > div:last-child { border-left: none !important; border-top: 1px dashed var(--dash) !important; padding-left: 0 !important; padding-top: 24px !important; }
 }
 `;
 
@@ -91,15 +91,15 @@ export function ledgerPricingPage(baseUrl, catalog) {
         </div>
       </div>
       <!-- USDC -->
-      <div style="padding:30px;background:var(--ink);position:relative;">
+      <div style="padding:30px;background:var(--surface);position:relative;">
         <div style="position:absolute;top:14px;right:18px;font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;color:var(--accent);border:1.5px solid var(--accent);padding:3px 8px;">x402</div>
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted);letter-spacing:.08em;margin-bottom:12px;">PAID \u00b7 USDC ON BASE</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
-          <span style="font-family:var(--font-body);font-weight:900;font-size:56px;letter-spacing:-.03em;color:var(--card);">$0.001</span>
+          <span style="font-family:var(--font-body);font-weight:900;font-size:56px;letter-spacing:-.03em;color:var(--on-dark);">$0.001</span>
           <span style="font-family:var(--font-mono);font-size:13px;color:var(--dk-muted);">/ call &amp; up</span>
         </div>
         <p style="font-size:14.5px;line-height:1.5;color:var(--dk-muted2);margin:0 0 20px;">An x402 client signs USDC from the agent's own wallet and retries. Settles on Base in seconds.</p>
-        <div style="display:flex;flex-direction:column;gap:10px;font-size:14px;color:var(--cream);border-top:1px solid var(--dark-border2);padding-top:18px;">
+        <div style="display:flex;flex-direction:column;gap:10px;font-size:14px;color:var(--on-dark);border-top:1px solid var(--dark-border2);padding-top:18px;">
           ${check(`All ${fmtNum(totalCount)} tools, including browser & memory`)}
           ${check("Flat per-call price \u2014 pay exactly what you use")}
           ${check("Non-custodial \u2014 Agent402 never holds funds")}
@@ -138,20 +138,20 @@ export function ledgerPricingPage(baseUrl, catalog) {
         <h3 style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 8px;">Beat the token math.</h3>
         <p style="font-size:14.5px;line-height:1.55;color:var(--muted);margin:0;">Writing, testing and debugging a CSV parser or cron calculator mid-task burns thousands of tokens \u2014 easily 10\u2013100\u00d7 the price of a tested $0.001 call. Reimplementation is the expensive path.</p>
       </div>
-      <div style="border-left:1px dashed #C9C9C7;padding-left:30px;display:flex;flex-direction:column;justify-content:center;font-family:var(--font-mono);font-size:14px;">
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;"><span style="color:var(--muted);">build it yourself</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">~5,000 tokens</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">call the tested endpoint</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">$0.001</span></div>
+      <div style="border-left:1px dashed var(--dash);padding-left:30px;display:flex;flex-direction:column;justify-content:center;font-family:var(--font-mono);font-size:14px;">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;"><span style="color:var(--muted);">build it yourself</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">~5,000 tokens</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">call the tested endpoint</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">$0.001</span></div>
       </div>
     </div>
   </section>
 
   <!-- CTA -->
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 64px;">
-    <div style="border:1.5px solid var(--ink);background:var(--ink);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--card);">Start on the free tier. No wallet.</h2>
+    <div style="border:1.5px solid var(--ink);background:var(--surface);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--on-dark);">Start on the free tier. No wallet.</h2>
       <div style="display:flex;gap:11px;">
         <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART \u2192</a>
-        <a href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
+        <a href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
       </div>
     </div>
   </section>

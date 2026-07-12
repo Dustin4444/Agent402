@@ -319,7 +319,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
         const good = s.local || s.routable;
         return `
     <a href="${activityHref(s)}" class="ml-roster-compact" style="display:grid;grid-template-columns:1fr auto auto auto;gap:14px;align-items:center;padding:9px 14px;border:${isSelected(s) ? "2px solid var(--accent)" : "1px solid var(--hairline)"};background:var(--card);color:var(--ink);text-decoration:none;">
-      <span style="font-weight:700;font-size:14px;">${esc(s.displayName)}${s.local ? ' <span style="background:var(--accent);color:var(--cream);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px;">THIS HOST</span>' : ""}</span>
+      <span style="font-weight:700;font-size:14px;">${esc(s.displayName)}${s.local ? ' <span style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px;">THIS HOST</span>' : ""}</span>
       <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${esc(hostOf(s.homepage))}</span>
       <span style="color:var(--muted);font-family:var(--font-mono);font-size:12.5px;">${s.toolCount || 0} tools</span>
       <span style="display:inline-flex;align-items:center;gap:6px;color:${good ? "var(--green)" : "var(--accent)"};font-family:var(--font-mono);font-size:12px;"><span style="width:7px;height:7px;border-radius:50%;background:${good ? "var(--green)" : "var(--accent)"};"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
@@ -332,7 +332,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     <div style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;">${esc(s.displayName)}</a>
-        ${s.local ? '<span style="background:var(--accent);color:var(--cream);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:2px 6px;">THIS HOST</span>' : ""}
+        ${s.local ? '<span style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:2px 6px;">THIS HOST</span>' : ""}
       </div>
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${esc(hostOf(s.homepage))}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
@@ -385,7 +385,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     <div style="font-weight:800;font-size:15px;margin-bottom:8px;">List your API</div>
     <div style="display:flex;gap:10px;">
       <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
-      <button id="reg-go" style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
+      <button id="reg-go" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
     <div id="reg-out" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
   </div>
@@ -402,20 +402,20 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   </script>`;
 
   const canary = canaryManifestStatus(rail);
-  const manifestRow = (label, value) => `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">${label}</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">${value}</span></div>`;
+  const manifestRow = (label, value) => `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">${label}</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">${value}</span></div>`;
   const railManifestHtml = `
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;"><span>·· RAIL MANIFEST ··</span><span>${esc(C.tickerLabel)}</span></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· RAIL MANIFEST ··</span><span>${esc(C.tickerLabel)}</span></div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13px;">
         ${manifestRow("network", esc(C.caip2))}
         ${manifestRow("asset", esc(C.asset))}
         ${manifestRow("settle latency", esc(C.settleLatency))}
         ${manifestRow("facilitator", esc(C.facilitatorLabel))}
         ${manifestRow("gas", esc(C.gasNote))}
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">explorer</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><a href="${esc(walletExplorerUrl)}" rel="noopener" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(C.explorerUrl)} →</a></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">daily canary</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;color:${canary.color};">${esc(canary.text)}</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">explorer</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><a href="${esc(walletExplorerUrl)}" rel="noopener" style="font-weight:700;color:var(--accent);text-decoration:none;">${esc(C.explorerUrl)} →</a></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">daily canary</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;color:${canary.color};">${esc(canary.text)}</span></div>
       </div>
-      <div style="margin-top:14px;padding-top:10px;border-top:1px dashed #C9C9C7;font-family:var(--font-mono);font-size:11px;color:var(--faint);line-height:1.6;">agents: GET /api/route?q=&lt;task&gt;&amp;network=${esc(C.networkParam)}</div>
+      <div style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--dash);font-family:var(--font-mono);font-size:11px;color:var(--faint);line-height:1.6;">agents: GET /api/route?q=&lt;task&gt;&amp;network=${esc(C.networkParam)}</div>
     </div>`;
 
   // Switcher strip — one row per chain page that actually exists today
@@ -467,9 +467,9 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       <p style="font-size:14.5px;line-height:1.65;">${C.sellParagraphHtml}</p>
       ${formHtml}
     </div>
-    <div style="background:var(--ink);border:1.5px solid var(--ink);">
+    <div style="background:var(--surface);border:1.5px solid var(--ink);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>402 challenge · accepts[]</span><span>JSON</span></div>
-      <pre style="margin:0;padding:16px 18px;font-family:var(--font-mono);font-size:12px;line-height:1.8;color:var(--cream);white-space:pre-wrap;word-break:break-word;">{
+      <pre style="margin:0;padding:16px 18px;font-family:var(--font-mono);font-size:12px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;">{
   <span style="color:var(--dk-muted3);">"scheme"</span>: "exact",
   <span style="color:var(--dk-muted3);">"network"</span>: <span style="color:var(--accent);">"${esc(C.acceptNetwork)}"</span>,
   <span style="color:var(--dk-muted3);">"asset"</span>: "${esc(C.asset)}",

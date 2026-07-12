@@ -41,9 +41,9 @@ export function statusPage(baseUrl, stats) {
 .st-pill{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;background:var(--card);border:1.5px solid var(--ink);font-family:var(--font-mono);font-size:13px;font-weight:600;color:var(--green)}
 .st-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 6px rgba(111,174,141,.18);animation:ml-pulse 2s ease-in-out infinite}
 .st-grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));margin:24px 0}
-.st-stat{background:var(--ink);border:1.5px solid var(--ink);padding:20px}
+.st-stat{background:var(--surface);border:1.5px solid var(--ink);padding:20px}
 .st-stat .st-k{color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase}
-.st-stat .st-v{font-family:var(--font-mono);font-size:1.6rem;color:var(--cream);margin-top:6px}
+.st-stat .st-v{font-family:var(--font-mono);font-size:1.6rem;color:var(--on-dark);margin-top:6px}
 .st-stat .st-sv{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px;margin-top:4px}
 .st-stat .st-sv a{color:var(--accent);text-decoration:none}
 .st-stat .st-sv a:hover{text-decoration:underline}

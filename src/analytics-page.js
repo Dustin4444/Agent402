@@ -51,18 +51,18 @@ const AN_EXTRA_CSS = `
 .an-sub{color:var(--muted);margin:0 0 22px;font-size:15px;max-width:680px;line-height:1.55}
 .an-sub b{color:var(--ink);font-weight:600}
 .an-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin:0 0 22px}
-.an-stat{background:var(--ink);border:1.5px solid var(--ink);padding:18px}
+.an-stat{background:var(--surface);border:1.5px solid var(--ink);padding:18px}
 .an-stat .an-k{color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-.an-stat .an-v{font-family:var(--font-mono);font-size:1.65rem;color:var(--cream);margin-top:4px;word-break:break-word}
+.an-stat .an-v{font-family:var(--font-mono);font-size:1.65rem;color:var(--on-dark);margin-top:4px;word-break:break-word}
 .an-stat .an-s{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px;margin-top:3px}
-.an-panel{background:var(--ink);border:1.5px solid var(--ink);overflow:hidden;margin-bottom:18px}
+.an-panel{background:var(--surface);border:1.5px solid var(--ink);overflow:hidden;margin-bottom:18px}
 .an-ph{padding:14px 18px;border-bottom:1px solid var(--dark-border)}
 .an-ph h2{margin:0;font-size:1rem;color:var(--accent);font-family:var(--font-body);font-weight:700}
 .an-ph .an-pn{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px;margin-top:2px}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;color:var(--dk-muted);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:10px 18px;border-bottom:1px solid var(--dark-border)}
 th.num{text-align:right}
-td{padding:10px 18px;border-bottom:1px solid var(--dark-border);color:var(--cream);font-family:var(--font-mono);font-size:13px}
+td{padding:10px 18px;border-bottom:1px solid var(--dark-border);color:var(--on-dark);font-family:var(--font-mono);font-size:13px}
 td.num{text-align:right}
 td.an-muted{color:var(--dk-muted)}
 td.an-warn{color:#c4a44e}
@@ -71,10 +71,10 @@ td.an-danger{color:#c0453a}
 .an-stat.an-warn .an-v{color:#c4a44e}
 .an-stat.an-danger{border-color:#7a1f1f}
 .an-stat.an-danger .an-v{color:#c0453a}
-td a{color:var(--cream);text-decoration:none;border-bottom:1px solid transparent}
+td a{color:var(--on-dark);text-decoration:none;border-bottom:1px solid transparent}
 td a:hover{border-color:var(--accent)}
-code{font-family:var(--font-mono);font-size:12px;background:var(--ink);color:var(--cream);padding:2px 7px;border:1.5px solid var(--dark-border)}
-pre{background:var(--ink-panel);border:1px solid var(--dark-border);padding:14px 16px;overflow:auto;font-family:var(--font-mono);font-size:12px;color:var(--cream)}
+code{font-family:var(--font-mono);font-size:12px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1.5px solid var(--dark-border)}
+pre{background:var(--ink-panel);border:1px solid var(--dark-border);padding:14px 16px;overflow:auto;font-family:var(--font-mono);font-size:12px;color:var(--on-dark)}
 .an-foot{color:var(--faint);font-size:13px}
 .an-foot a{color:var(--accent);text-decoration:none}
 .an-foot a:hover{text-decoration:underline}

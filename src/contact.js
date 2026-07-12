@@ -48,7 +48,7 @@ export function contactPage(baseUrl) {
 .ct-field input,.ct-field textarea{width:100%;padding:11px 14px;background:var(--paper);border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-body);font-size:14px;outline:none}
 .ct-field input:focus,.ct-field textarea:focus{border-color:var(--accent)}
 .ct-field textarea{min-height:120px;resize:vertical}
-.ct-submit{background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;border:none;padding:12px 24px;cursor:pointer}
+.ct-submit{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;border:none;padding:12px 24px;cursor:pointer}
 .ct-submit:hover{opacity:.85}
 .ct-sent{display:none;background:var(--card);border:1.5px solid var(--green);padding:18px 22px;margin-bottom:44px;color:var(--ink);font-size:15px}
 `;

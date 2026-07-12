@@ -30,9 +30,9 @@ export function tollboothLandingPage(baseUrl) {
   .config input, .config select { width:100%; box-sizing:border-box; background:var(--paper); color:var(--ink); border:1.5px solid var(--ink); padding:9px 11px; font:inherit; font-family:var(--font-mono); font-size:.95rem; }
   .config input:focus, .config select:focus { outline:none; border-color:var(--accent); }
   @media (max-width:720px){ .config { grid-template-columns:1fr; } }
-  .install { background:var(--ink); border:1.5px solid var(--dark-border); padding:16px 18px; position:relative; overflow:auto; }
-  .install pre { margin:0; font-family:var(--font-mono); font-size:.9rem; color:var(--cream); white-space:pre; }
-  .install .copy { position:absolute; top:10px; right:10px; background:var(--ink-panel); color:var(--cream); border:1px solid var(--dark-border); padding:4px 9px; cursor:pointer; font-family:var(--font-mono); font-size:.78rem; }
+  .install { background:var(--surface); border:1.5px solid var(--dark-border); padding:16px 18px; position:relative; overflow:auto; }
+  .install pre { margin:0; font-family:var(--font-mono); font-size:.9rem; color:var(--on-dark); white-space:pre; }
+  .install .copy { position:absolute; top:10px; right:10px; background:var(--ink-panel); color:var(--on-dark); border:1px solid var(--dark-border); padding:4px 9px; cursor:pointer; font-family:var(--font-mono); font-size:.78rem; }
   .install .copy:hover { border-color:var(--accent); color:var(--accent); }
   .install + .install { margin-top:10px; }
   .kw { color:#c084fc; } .str { color:#86efac; } .com { color:#64748b; } .num { color:#fbbf24; }

@@ -69,19 +69,19 @@ export function sdkPlaygroundPage(baseUrl) {
   .sp-examples{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem}
   .sp-example{background:transparent;border:1.5px solid var(--ink);color:var(--faint);padding:.4rem .85rem;font-family:var(--font-mono);font-size:.82rem;cursor:pointer;transition:.15s}
   .sp-example:hover{border-color:var(--accent);color:var(--ink)}
-  .sp-example.active{background:var(--ink);color:var(--cream);border-color:var(--ink);font-weight:700}
+  .sp-example.active{background:var(--surface);color:var(--on-dark);border-color:var(--ink);font-weight:700}
   .sp-editor-wrap{display:flex;gap:1rem;margin-bottom:1rem}
   @media(max-width:760px){.sp-editor-wrap{flex-direction:column}}
   .sp-editor{flex:1;min-width:0}
   .sp-output{flex:1;min-width:0}
   .sp-label{font-family:var(--font-mono);font-size:.82rem;color:var(--faint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:.4rem}
-  textarea.sp-code{width:100%;min-height:240px;background:var(--ink);border:1.5px solid var(--dark-border);padding:1rem;color:var(--cream);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;resize:vertical;outline:none}
+  textarea.sp-code{width:100%;min-height:240px;background:var(--surface);border:1.5px solid var(--dark-border);padding:1rem;color:var(--on-dark);font-family:var(--font-mono);font-size:.82rem;line-height:1.55;resize:vertical;outline:none}
   textarea.sp-code:focus{border-color:var(--accent)}
-  .sp-result{width:100%;min-height:240px;background:var(--ink);border:1.5px solid var(--dark-border);padding:1rem;font-family:var(--font-mono);font-size:.82rem;line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow:auto;color:var(--dk-muted)}
-  .sp-result .log{color:var(--cream)}
+  .sp-result{width:100%;min-height:240px;background:var(--surface);border:1.5px solid var(--dark-border);padding:1rem;font-family:var(--font-mono);font-size:.82rem;line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow:auto;color:var(--dk-muted)}
+  .sp-result .log{color:var(--on-dark)}
   .sp-result .err{color:#c0392b}
   .sp-actions{display:flex;gap:.75rem;align-items:center;margin-bottom:1.5rem}
-  .sp-run{padding:.5rem 1.5rem;background:var(--ink);color:var(--cream);font-weight:700;font-size:.9rem;border:none;font-family:var(--font-mono);cursor:pointer}
+  .sp-run{padding:.5rem 1.5rem;background:var(--surface);color:var(--on-dark);font-weight:700;font-size:.9rem;border:none;font-family:var(--font-mono);cursor:pointer}
   .sp-run:hover{opacity:.85}
   .sp-run:disabled{opacity:.5;cursor:not-allowed}
   .sp-status{color:var(--faint);font-size:.85rem;font-family:var(--font-mono)}
@@ -89,7 +89,7 @@ export function sdkPlaygroundPage(baseUrl) {
   @keyframes spin{to{transform:rotate(360deg)}}
   .sp-note{background:var(--card);border:1.5px solid var(--ink);padding:1rem 1.25rem;color:var(--muted);font-size:.88rem;margin-top:1.5rem}
   .sp-note a{color:var(--accent)}
-  .sp-note code{font-family:var(--font-mono);background:var(--ink);color:var(--cream);padding:.15rem .4rem;font-size:.82rem}
+  .sp-note code{font-family:var(--font-mono);background:var(--surface);color:var(--on-dark);padding:.15rem .4rem;font-size:.82rem}
   `;
 
   const pageBody = `

@@ -39,15 +39,15 @@ export function tollboothCloudPage(baseUrl) {
   .who .c p { margin:6px 0 0; color:var(--muted); font-size:.92rem; }
   .hero-cta { display:flex; flex-wrap:wrap; gap:10px; margin:0 0 28px; }
   .hero-cta a { display:inline-block; padding:10px 18px; font-family:var(--font-mono); font-size:.92rem; border:1.5px solid var(--ink); color:var(--ink); }
-  .hero-cta a.primary { background:var(--ink); color:var(--cream); font-weight:700; }
+  .hero-cta a.primary { background:var(--surface); color:var(--on-dark); font-weight:700; }
   .hero-cta a.primary:hover { text-decoration:none; opacity:.9; }
   .hero-cta a:hover { border-color:var(--accent); text-decoration:none; }
   .hero-cta .note { color:var(--faint); font-size:.82rem; align-self:center; margin-left:4px; }
-  .preview { background:var(--ink); border:1.5px solid var(--dark-border); padding:18px 20px; margin:0 0 8px; }
+  .preview { background:var(--surface); border:1.5px solid var(--dark-border); padding:18px 20px; margin:0 0 8px; }
   .preview .ph { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; }
   .preview .ph .t { color:var(--dk-muted); font-family:var(--font-mono); font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; }
   .preview .ph .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--green); margin-right:6px; vertical-align:middle; }
-  .preview .row { display:grid; grid-template-columns:1.4fr .9fr .9fr .9fr; gap:10px; padding:9px 0; border-bottom:1px solid var(--dark-border); font-size:.9rem; font-family:var(--font-mono); color:var(--cream); }
+  .preview .row { display:grid; grid-template-columns:1.4fr .9fr .9fr .9fr; gap:10px; padding:9px 0; border-bottom:1px solid var(--dark-border); font-size:.9rem; font-family:var(--font-mono); color:var(--on-dark); }
   .preview .row.head { color:var(--dk-muted); font-size:.74rem; letter-spacing:.06em; text-transform:uppercase; border-bottom-style:solid; padding-bottom:6px; }
   .preview .row:last-child { border-bottom:0; }
   .preview .row .up { color:var(--green); }
@@ -58,14 +58,14 @@ export function tollboothCloudPage(baseUrl) {
   .outcomes .o { background:var(--card); border:1.5px solid var(--ink); padding:16px 18px; }
   .outcomes .o .when { color:var(--accent); font-family:var(--font-mono); font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
   .outcomes .o p { margin:4px 0 0; color:var(--muted); font-size:.92rem; }
-  .badge-pop { position:absolute; top:-10px; right:14px; background:var(--accent); color:var(--paper); font-family:var(--font-mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; font-weight:700; padding:3px 8px; }
+  .badge-pop { position:absolute; top:-10px; right:14px; background:var(--accent); color:#fff; font-family:var(--font-mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; font-weight:700; padding:3px 8px; }
   .plan.featured { position:relative; }
   .cta-strip { background:var(--card); border:1.5px solid var(--ink); padding:22px; margin:24px 0 8px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; }
   .cta-strip .copy h3 { margin:0 0 4px; color:var(--ink); font-size:1.1rem; }
   .cta-strip .copy p { margin:0; color:var(--muted); font-size:.92rem; max-width:560px; }
   .cta-strip .actions { display:flex; gap:8px; flex-wrap:wrap; }
   .cta-strip .actions a { display:inline-block; padding:9px 16px; font-family:var(--font-mono); font-size:.9rem; border:1.5px solid var(--ink); color:var(--ink); }
-  .cta-strip .actions a.primary { background:var(--ink); color:var(--cream); font-weight:700; }
+  .cta-strip .actions a.primary { background:var(--surface); color:var(--on-dark); font-weight:700; }
   .cta-strip .actions a:hover { border-color:var(--accent); text-decoration:none; }
   .grid { display:grid; gap:14px; grid-template-columns:repeat(4,1fr); margin:0 0 18px; }
   @media (max-width:980px){ .grid { grid-template-columns:repeat(2,1fr); } }
@@ -82,7 +82,7 @@ export function tollboothCloudPage(baseUrl) {
   .plan ul li b { color:var(--accent); font-weight:600; }
   .plan .cta { margin-top:auto; padding-top:14px; }
   .plan .cta a { display:inline-block; padding:8px 14px; border:1.5px solid var(--ink); font-family:var(--font-mono); color:var(--ink); font-size:.88rem; }
-  .plan.featured .cta a { background:var(--ink); color:var(--cream); font-weight:700; }
+  .plan.featured .cta a { background:var(--surface); color:var(--on-dark); font-weight:700; }
   .plan .cta a:hover { border-color:var(--accent); text-decoration:none; }
   .annual { color:var(--muted); font-size:.88rem; margin:0 0 14px; }
   .annual b { color:var(--ink); }
@@ -90,9 +90,9 @@ export function tollboothCloudPage(baseUrl) {
   @media (max-width:780px){ .tcols { grid-template-columns:1fr; } }
   .tcols .b { background:var(--card); border:1.5px solid var(--ink); padding:18px; }
   .tcols .b p { margin:8px 0 0; color:var(--muted); font-size:.92rem; }
-  .flywheel { background:var(--ink); border:1.5px solid var(--dark-border); padding:18px 20px; color:var(--cream); }
+  .flywheel { background:var(--surface); border:1.5px solid var(--dark-border); padding:18px 20px; color:var(--on-dark); }
   .flywheel .h { color:var(--accent); font-family:var(--font-mono); font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
-  .flywheel p { margin:6px 0 0; color:var(--cream); font-size:.95rem; }
+  .flywheel p { margin:6px 0 0; color:var(--on-dark); font-size:.95rem; }
   .flywheel p a { color:var(--accent); }
   .flywheel p code { background:var(--ink-panel); border:1px solid var(--dark-border); padding:1px 6px; font-family:var(--font-mono); font-size:.86rem; }
   .faq dt { color:var(--ink); font-weight:600; margin:18px 0 4px; }

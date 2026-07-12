@@ -154,7 +154,7 @@ const SHOP_CSS = `
   .sh-task-alts a { color:var(--muted); text-decoration:none; }
   .sh-task-alts a:hover { color:var(--accent); }
   .sh-task-example { margin-top:8px; }
-  .sh-task-example code { background:var(--ink); color:var(--cream); padding:4px 10px; font-family:var(--font-mono); font-size:12px; }
+  .sh-task-example code { background:var(--surface); color:var(--on-dark); padding:4px 10px; font-family:var(--font-mono); font-size:12px; }
   .sh-missing { background:var(--card); border:1.5px solid var(--accent); padding:10px 14px; margin:12px 0; font-size:14px; color:var(--accent); }
   .sh-free { display:inline-block; background:var(--green); color:#08130b; font-weight:700; font-size:11px; letter-spacing:.02em; padding:1px 7px; font-family:var(--font-mono); }
 `;
@@ -170,7 +170,7 @@ export function shopPage(baseUrl, catalog) {
     t.slugs.filter((s) => !Object.values(catalog).find((c) => c.slug === s))
   );
   const missingNotice = missingSlugs.length
-    ? `<div class="sh-missing">Note: ${missingSlugs.length} tool slug(s) listed here are no longer in the catalog: <code style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">${e(missingSlugs.join(", "))}</code>. Rest of the page is still accurate.</div>`
+    ? `<div class="sh-missing">Note: ${missingSlugs.length} tool slug(s) listed here are no longer in the catalog: <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">${e(missingSlugs.join(", "))}</code>. Rest of the page is still accurate.</div>`
     : "";
 
   const tasks = TASKS.map((t) => renderTaskLedger(t, catalog)).join("\n");
@@ -189,7 +189,7 @@ export function shopPage(baseUrl, catalog) {
   const body = `<div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:10px;">SHOP</div>
   <h1 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:.96;letter-spacing:-.03em;margin-bottom:14px;">What does your agent want to do?</h1>
-  <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:8px;">A task-indexed buyer's guide to the ${Object.keys(catalog).length.toLocaleString()} APIs at Agent402 — written from the agent's side of the call. Each row maps a real goal to the cheapest tool that solves it. Browse the full category-organized catalogue at <a href="/tools" style="color:var(--accent);">/tools</a>, walk the multi-tool workflows at <a href="/skills" style="color:var(--accent);">/skills</a>, or ask the discovery endpoint directly: <code style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">/api/find?q=&lt;your task&gt;</code>.</p>
+  <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:8px;">A task-indexed buyer's guide to the ${Object.keys(catalog).length.toLocaleString()} APIs at Agent402 — written from the agent's side of the call. Each row maps a real goal to the cheapest tool that solves it. Browse the full category-organized catalogue at <a href="/tools" style="color:var(--accent);">/tools</a>, walk the multi-tool workflows at <a href="/skills" style="color:var(--accent);">/skills</a>, or ask the discovery endpoint directly: <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">/api/find?q=&lt;your task&gt;</code>.</p>
   ${missingNotice}
   ${tasks}
 </div>

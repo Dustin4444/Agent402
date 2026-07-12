@@ -63,9 +63,9 @@ export function ledgerDocsPage(baseUrl, catalog) {
       <h1 style="font-family:var(--font-body);font-weight:800;font-size:52px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;">Quickstart.</h1>
       <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:620px;margin:0 0 30px;">Add ${fmtNum(totalCount)} deterministic tools - plus an open cross-seller Index, Smart Order Router, and an OpenAI-compatible /v1 gateway - to your agent in about a minute. No signup, no API key &mdash; start free with proof-of-work, settle ${RAILS_PAREN} when you scale.</p>
 
-      <div id="quickstart" style="border:1.5px solid var(--ink);background:var(--ink);margin-bottom:14px;">
+      <div id="quickstart" style="border:1.5px solid var(--ink);background:var(--surface);margin-bottom:14px;">
         <div style="display:flex;align-items:center;gap:7px;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);">terminal</div>
-        <pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:13px;line-height:1.85;color:var(--cream);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># one file, zero deps &mdash; pays with COMPUTE (no wallet)
+        <pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:13px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># one file, zero deps &mdash; pays with COMPUTE (no wallet)
 </span>curl -s https://agent402.tools/demo.js -o demo.js
 node demo.js
 
@@ -87,21 +87,21 @@ AGENT_KEY=0xYOUR_FUNDED_KEY node demo.js</pre>
       <h2 id="add" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 18px;">Three ways in.</h2>
 
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:8px;">A / MCP &mdash; Claude &amp; any MCP client</div>
-      <div style="border:1.5px solid var(--ink);background:var(--ink);margin-bottom:22px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.8;color:var(--cream);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Claude Code &mdash; no signup, no API key
+      <div style="border:1.5px solid var(--ink);background:var(--surface);margin-bottom:22px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Claude Code &mdash; no signup, no API key
 </span>claude mcp add agent402 -s user -- npx -y agent402-mcp@latest
 
 <span style="color:var(--dk-muted3);"># or paste the hosted connector (Settings &rarr; Connectors)
 </span>https://agent402.tools/mcp</pre></div>
 
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:8px;">B / x402 client &mdash; pay in code</div>
-      <div style="border:1.5px solid var(--ink);background:var(--ink);margin-bottom:22px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.8;color:var(--cream);white-space:pre-wrap;word-break:break-word;">import { wrapFetchWithPayment } from "@x402/fetch";
+      <div style="border:1.5px solid var(--ink);background:var(--surface);margin-bottom:22px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;">import { wrapFetchWithPayment } from "@x402/fetch";
 const payFetch = wrapFetchWithPayment(fetch, client);
 const res = await payFetch("https://agent402.tools/api/extract", {
   method: "POST", body: JSON.stringify({ url })
 });</pre></div>
 
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:8px;">C / SDK &mdash; resolves a task &amp; pays automatically</div>
-      <div style="border:1.5px solid var(--ink);background:var(--ink);margin-bottom:44px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.8;color:var(--cream);white-space:pre-wrap;word-break:break-word;">npm install agent402-client
+      <div style="border:1.5px solid var(--ink);background:var(--surface);margin-bottom:44px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;">npm install agent402-client
 import { Agent402 } from "agent402-client";
 const a = new Agent402();           <span style="color:var(--dk-muted3);">// free tier (proof-of-work)</span>
 const out = await a.call("hash", { text: "hello", algo: "sha256" });</pre></div>

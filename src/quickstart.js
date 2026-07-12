@@ -17,7 +17,7 @@ export function quickstartPage(baseUrl) {
 .qs-tab-bar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:0;border-bottom:1.5px solid var(--ink);padding-bottom:10px}
 .qs-tab{background:transparent;border:1.5px solid var(--ink);color:var(--muted);font-family:var(--font-mono);font-size:13px;padding:8px 16px;cursor:pointer;transition:all .15s}
 .qs-tab:hover{color:var(--ink);border-color:var(--ink)}
-.qs-tab.active{background:var(--ink);color:var(--cream);border-color:var(--ink);font-weight:700}
+.qs-tab.active{background:var(--surface);color:var(--on-dark);border-color:var(--ink);font-weight:700}
 
 .qs-panel{display:none;padding:28px 0 0}
 .qs-panel.active{display:block}
@@ -25,14 +25,14 @@ export function quickstartPage(baseUrl) {
 .qs-panel .qs-oneliner{color:var(--muted);margin:0 0 20px;font-size:15px;line-height:1.55}
 
 .qs-code-wrap{position:relative;margin-bottom:20px}
-.qs-code-wrap pre{background:var(--ink);border:1.5px solid var(--ink);padding:20px;overflow-x:auto;margin:0;font-family:var(--font-mono);font-size:13px;line-height:1.55;color:var(--cream)}
-.qs-code-wrap .qs-copy{position:absolute;top:8px;right:8px;background:var(--ink);border:1.5px solid var(--cream);color:var(--cream);font-family:var(--font-mono);font-size:11px;padding:4px 10px;cursor:pointer;transition:all .15s}
+.qs-code-wrap pre{background:var(--surface);border:1.5px solid var(--ink);padding:20px;overflow-x:auto;margin:0;font-family:var(--font-mono);font-size:13px;line-height:1.55;color:var(--on-dark)}
+.qs-code-wrap .qs-copy{position:absolute;top:8px;right:8px;background:var(--surface);border:1.5px solid var(--cream);color:var(--on-dark);font-family:var(--font-mono);font-size:11px;padding:4px 10px;cursor:pointer;transition:all .15s}
 .qs-code-wrap .qs-copy:hover{background:var(--cream);color:var(--ink)}
 .qs-code-wrap .qs-copy.copied{color:var(--accent);border-color:var(--accent)}
 
 .qs-label{display:inline-block;font-family:var(--font-mono);font-size:13px;color:var(--faint);margin-bottom:8px}
 .qs-alt{color:var(--muted);font-size:15px;line-height:1.55;margin-top:18px}
-.qs-alt code{font-family:var(--font-mono);background:var(--ink);color:var(--cream);padding:2px 7px;font-size:13px;border:1.5px solid var(--ink)}
+.qs-alt code{font-family:var(--font-mono);background:var(--surface);color:var(--on-dark);padding:2px 7px;font-size:13px;border:1.5px solid var(--ink)}
 
 .qs-next{margin-top:18px}
 .qs-next-title{font-family:var(--font-mono);font-size:13px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}

@@ -552,7 +552,7 @@ const GUIDE_PAGE_CSS = `
 .gp-body a{color:var(--accent);text-decoration:none;}
 .gp-body a:hover{text-decoration:underline;}
 .gp-body code{font-family:var(--font-mono);font-size:13px;background:var(--card);border:1px solid var(--hairline);padding:2px 6px;}
-.gp-body pre{background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-size:13px;line-height:1.55;padding:16px 20px;overflow-x:auto;margin:0 0 16px;border:1.5px solid var(--ink);}
+.gp-body pre{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:13px;line-height:1.55;padding:16px 20px;overflow-x:auto;margin:0 0 16px;border:1.5px solid var(--ink);}
 .gp-body pre code{background:none;border:none;padding:0;color:inherit;font-size:13px;}
 .gp-back{display:inline-block;margin-top:28px;font-family:var(--font-mono);font-size:13px;color:var(--accent);text-decoration:none;font-weight:700;}
 .gp-back:hover{text-decoration:underline;}

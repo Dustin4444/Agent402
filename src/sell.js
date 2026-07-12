@@ -45,7 +45,7 @@ function receiptRow(label, value, href, { accent = false } = {}) {
       : href
         ? `<a href="${esc(href)}" style="font-weight:700;color:${accent ? "var(--accent)" : "var(--ink)"};text-decoration:none;">${esc(value)}</a>`
         : `<span style="font-weight:700;${accent ? "color:var(--accent);" : ""}">${esc(value)}</span>`;
-  return `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span>${valueHtml}</div>`;
+  return `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span>${valueHtml}</div>`;
 }
 
 export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
@@ -73,7 +73,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     <div style="font-weight:800;font-size:15px;margin-bottom:8px;">List your API</div>
     <div style="display:flex;gap:10px;">
       <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
-      <button id="reg-go" style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
+      <button id="reg-go" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
     <div id="reg-out" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Unreachable sellers drop out of routing (never off the roster) until they recover.</div>
   </div>
@@ -120,11 +120,11 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
       </div>
       <!-- DEMAND RECEIPT -->
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;box-shadow:8px 8px 0 #0b0b0b1f;">
-        <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;"><span>·· DEMAND${windowLabel ? ` · LAST ${esc(windowLabel).toUpperCase()}` : ""} ··</span><span style="display:flex;align-items:center;gap:6px;color:var(--accent);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;"></span>LIVE</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· DEMAND${windowLabel ? ` · LAST ${esc(windowLabel).toUpperCase()}` : ""} ··</span><span style="display:flex;align-items:center;gap:6px;color:var(--accent);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;"></span>LIVE</span></div>
         <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:14px;">
           ${demandRowsHtml}
         </div>
-        <div style="margin-top:14px;padding-top:10px;border-top:1px dashed #C9C9C7;font-family:var(--font-mono);font-size:11px;color:var(--faint);line-height:1.6;">every figure derives from the hourly on-chain snapshot · <a href="/leaderboard" style="color:var(--muted);">verify on /leaderboard →</a></div>
+        <div style="margin-top:14px;padding-top:10px;border-top:1px dashed var(--dash);font-family:var(--font-mono);font-size:11px;color:var(--faint);line-height:1.6;">every figure derives from the hourly on-chain snapshot · <a href="/leaderboard" style="color:var(--muted);">verify on /leaderboard →</a></div>
       </div>
     </div>
   </div>
@@ -155,14 +155,14 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
       </div>
       ${formHtml}
     </div>
-    <div style="background:var(--ink);border:1.5px solid var(--ink);">
+    <div style="background:var(--surface);border:1.5px solid var(--ink);">
       <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>how buyers find you</span><span>SH</span></div>
-      <pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:12px;line-height:1.85;color:var(--cream);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># a buyer routes a task across every seller
+      <pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:12px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># a buyer routes a task across every seller
 </span><span style="color:var(--accent);">$</span> curl -X POST …/api/route \\
     -d '{"query":"ocr image to text"}'
 
 <span style="color:var(--dk-muted3);"># ranked: match · health · price
-</span>{ "seller": <span style="color:var(--cream);">"api.yourdomain.com"</span>,
+</span>{ "seller": <span style="color:var(--on-dark);">"api.yourdomain.com"</span>,
   "tool": "ocr", "price": "$0.004",
   "health": <span style="color:#7dbd97;">"ok"</span>, "rank": 1 }</pre>
       <div style="padding:10px 15px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">the router is free for buyers - discovery shouldn't cost money</div>
@@ -182,7 +182,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     <div style="padding:22px;background:var(--card);display:flex;flex-direction:column;">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">SELF-HOST · FREE FOREVER</div>
       <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;max-width:640px;">One Web-Crypto core, five deploy shapes: Express middleware, Next.js / Vercel Edge, Cloudflare Worker, reverse proxy, WordPress plugin (beta).</p>
-      <pre style="margin:0 0 14px;background:var(--ink);color:var(--cream);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-width:640px;"><span style="color:var(--dk-muted3);">// humans pass, bots pay
+      <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-width:640px;"><span style="color:var(--dk-muted3);">// humans pass, bots pay
 </span>app.use(tollbooth({
   payTo: "0xYourWallet" }))</pre>
       <a href="/tollbooth" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">tollbooth docs →</a>
@@ -197,7 +197,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
   <p style="font-size:16px;color:var(--muted);max-width:580px;margin:0 0 30px;">Short enough to read. Nothing is hidden in a PDF.</p>
   <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">·· WHAT YOU GET ··</div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">·· WHAT YOU GET ··</div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13.5px;">
         <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Listed on /index + your chain's market pages</div>
         <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Routed by the Smart Order Router when healthy</div>
@@ -206,12 +206,12 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
       </div>
     </div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed #C9C9C7;padding-bottom:10px;margin-bottom:12px;">·· WHAT WE TAKE ··</div>
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">·· WHAT WE TAKE ··</div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13.5px;">
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">listing fee</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">$0</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">take rate on your settlements</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">0%</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">custody of your funds</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">never</span></div>
-        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">ranking favors</span><span style="flex:1;border-bottom:1.5px dotted #C9C9C7;transform:translateY(-4px);"></span><span style="font-weight:700;">health, not us</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">listing fee</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">$0</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">take rate on your settlements</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">0%</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">custody of your funds</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">never</span></div>
+        <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">ranking favors</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">health, not us</span></div>
       </div>
     </div>
   </div>
@@ -220,14 +220,14 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
 
 <!-- CTA -->
 <section style="max-width:1180px;margin:0 auto;padding:64px 30px 64px;">
-  <div style="background:var(--ink);padding:52px 44px;position:relative;overflow:hidden;">
+  <div style="background:var(--surface);padding:52px 44px;position:relative;overflow:hidden;">
     <div style="position:absolute;right:24px;top:-30px;font-family:var(--font-body);font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff12;pointer-events:none;">402</div>
     <div style="position:relative;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 14px;color:var(--cream2);">The buyers are already here.<br>Take the other side.</h2>
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 14px;color:var(--on-dark2);">The buyers are already here.<br>Take the other side.</h2>
       <p style="font-size:16px;color:var(--dk-muted2);margin:0 0 26px;max-width:480px;">${esc(ctaBuyerLine)} List free, or gate your crawlers - settlement is yours either way.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
         <a href="#list" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">LIST YOUR API →</a>
-        <a href="#tollbooth" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--cream);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">INSTALL TOLLBOOTH</a>
+        <a href="#tollbooth" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">INSTALL TOLLBOOTH</a>
       </div>
     </div>
   </div>

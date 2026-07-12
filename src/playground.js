@@ -52,7 +52,7 @@ export function playgroundPage(baseUrl, catalog) {
   .pg-field .chk-wrap{display:flex;align-items:center;gap:8px}
   .pg-field input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
   .pg-btn{margin-top:14px;padding:10px 22px;border:none;font-size:.95rem;font-family:var(--font-mono);font-weight:700;cursor:pointer;transition:opacity .15s}
-  .pg-btn.run{background:var(--ink);color:var(--cream)}
+  .pg-btn.run{background:var(--surface);color:var(--on-dark)}
   .pg-btn.run:hover{opacity:.85}
   .pg-btn.run:disabled{opacity:.5;cursor:not-allowed}
   .pg-btn.disabled-info{background:var(--card);border:1.5px solid var(--ink);color:var(--faint);cursor:default}

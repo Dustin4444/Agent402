@@ -231,7 +231,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
   const inPacks = SKILL_PACKS.filter((p) => (p.toolSlugs || []).includes(tool.slug));
   const packsHtml = inPacks.length
     ? `<h2 style="font-weight:800;font-size:22px;margin:40px 0 10px;">Part of these workflows</h2>
-  <p style="color:var(--muted);font-size:15px;margin-bottom:12px;">This tool is one step in ${inPacks.length === 1 ? "a curated multi-tool workflow" : `${inPacks.length} curated multi-tool workflows`} — agents can fetch the whole sequence as an MCP prompt or call <code style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">${e(baseUrl)}/api/skill-packs/{slug}/prompt</code>.</p>
+  <p style="color:var(--muted);font-size:15px;margin-bottom:12px;">This tool is one step in ${inPacks.length === 1 ? "a curated multi-tool workflow" : `${inPacks.length} curated multi-tool workflows`} — agents can fetch the whole sequence as an MCP prompt or call <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">${e(baseUrl)}/api/skill-packs/{slug}/prompt</code>.</p>
   <ul style="padding-left:20px;">${inPacks.map((p) => `<li style="margin-bottom:6px;"><a href="/skills/${e(p.slug)}" style="color:var(--accent);font-weight:700;">${e(p.title)}</a> — <span style="color:var(--muted);">${e(p.tagline)}</span></li>`).join("")}</ul>`
     : "";
 
@@ -242,13 +242,13 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
   .tp-crumb { font-family:var(--font-mono); font-size:13px; color:var(--faint); margin-bottom:18px; }
   .tp-crumb a { color:var(--accent); text-decoration:none; }
   .tp-h1 { font-family:var(--font-body); font-weight:800; font-size:38px; line-height:1; letter-spacing:-.02em; margin-bottom:10px; }
-  .tp-badge { display:inline-block; background:var(--ink); color:var(--cream); font-family:var(--font-mono); font-size:13px; padding:8px 16px; margin:8px 0 6px; }
+  .tp-badge { display:inline-block; background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); font-size:13px; padding:8px 16px; margin:8px 0 6px; }
   .tp-sub { color:var(--muted); font-size:16px; line-height:1.6; max-width:720px; }
   .tp-h2 { font-weight:800; font-size:22px; margin:40px 0 10px; letter-spacing:-.01em; }
   .tp-table { border-collapse:collapse; width:100%; font-size:14px; }
   .tp-table td, .tp-table th { border:1px solid var(--hairline); padding:10px 12px; text-align:left; vertical-align:top; }
   .tp-table th { background:var(--card); font-weight:700; }
-  .tp-pre { background:var(--ink); color:var(--cream); font-family:var(--font-mono); font-size:13px; line-height:1.6; padding:18px 20px; overflow-x:auto; border:none; }
+  .tp-pre { background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); font-size:13px; line-height:1.6; padding:18px 20px; overflow-x:auto; border:none; }
   .tp-grid { display:grid; gap:14px; margin:20px 0; }
   @media (min-width:640px){ .tp-grid { grid-template-columns:repeat(3,1fr); } }
   .tp-free { display:inline-block; background:var(--green); color:#08130b; font-weight:700; font-size:11px; letter-spacing:.02em; padding:2px 8px; font-family:var(--font-mono); vertical-align:middle; }
@@ -262,7 +262,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
   <div class="tp-badge">${
     computePayable
       ? `<span class="tp-free">FREE</span> <span style="color:var(--dk-muted);">with proof-of-work</span> · <span style="color:var(--dk-muted2);">or ${tool.price} in USDC</span>`
-      : `<span style="color:var(--cream);">${tool.price} per call</span> · <span style="color:var(--dk-muted);">USDC via x402</span>`
+      : `<span style="color:var(--on-dark);">${tool.price} per call</span> · <span style="color:var(--dk-muted);">USDC via x402</span>`
   } · <code style="color:${methodColor};background:transparent;font-size:13px;">${tool.method}</code> <code style="color:var(--dk-muted2);background:transparent;font-size:13px;">${e(tool.path)}</code>${
     cacheTtl ? ` · <span style="color:var(--dk-muted);" title="Server caches identical responses for ${e(fmtTtl(cacheTtl))}. Repeated calls return X-Cache: hit and don't re-hit the upstream.">Cached ${e(fmtTtl(cacheTtl))}</span>` : ""
   }</div>
@@ -277,7 +277,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
 
   <h2 class="tp-h2">Try it — see the 402 challenge (free)</h2>
   <pre class="tp-pre">${e(exampleCall(baseUrl, tool))}</pre>
-  <p class="tp-sub">The response is <code style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">HTTP 402 Payment Required</code> with exact payment requirements. Any x402 v2 client pays automatically and retries:</p>
+  <p class="tp-sub">The response is <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">HTTP 402 Payment Required</code> with exact payment requirements. Any x402 v2 client pays automatically and retries:</p>
 
   <h2 class="tp-h2">Paid call (JavaScript agent)</h2>
   <pre class="tp-pre">import { wrapFetchWithPayment } from "@x402/fetch";
@@ -294,7 +294,7 @@ ${e(payExample(baseUrl, tool))}</pre>
   ${
     computePayable
       ? `<h2 class="tp-h2">No wallet? Pay with compute</h2>
-  <p class="tp-sub">This is a pure-CPU tool, so an agent without a wallet can pay with <a href="/api/pow" style="color:var(--accent);">proof-of-work</a> instead of USDC: fetch a challenge, solve the sha256 puzzle (${powDifficulty} leading zero bits — a fraction of a second of CPU, no money, no AI tokens), and resend with the <code style="background:var(--ink);color:var(--cream);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">X-Pow-Solution</code> header.</p>
+  <p class="tp-sub">This is a pure-CPU tool, so an agent without a wallet can pay with <a href="/api/pow" style="color:var(--accent);">proof-of-work</a> instead of USDC: fetch a challenge, solve the sha256 puzzle (${powDifficulty} leading zero bits — a fraction of a second of CPU, no money, no AI tokens), and resend with the <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">X-Pow-Solution</code> header.</p>
   <pre class="tp-pre">import { createHash } from "node:crypto";
 const lz = (b) =&gt; { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
 const c = await (await fetch("${baseUrl}/api/pow/challenge?slug=${e(tool.slug)}")).json();
@@ -499,7 +499,7 @@ export function faqPage(baseUrl) {
   .fq-item h2 { font-family:var(--font-body); font-weight:800; font-size:18px; line-height:1.3; margin:0 0 8px; }
   .fq-item p { color:var(--muted); font-size:15px; line-height:1.7; margin:0; }
   .fq-item a { color:var(--accent); }
-  .fq-item code { background:var(--ink); color:var(--cream); font-family:var(--font-mono); padding:2px 6px; font-size:13px; }
+  .fq-item code { background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); padding:2px 6px; font-size:13px; }
   `;
 
   const items = FAQ_ITEMS.map(
