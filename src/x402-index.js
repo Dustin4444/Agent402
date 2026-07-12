@@ -734,36 +734,59 @@ export function classifyEcosystemCategory(t) {
   return "other";
 }
 
+// Per-category tool counts are dominated by a handful of giant auto-generated
+// catalogues (one seller alone lists 10k tools, ~30% of the whole crawl, almost
+// all in one bucket). Counting DISTINCT SELLERS is the primary dominance guard,
+// but the secondary `tools` figure still let one catalogue skew a category. Cap
+// each seller's contribution to any one category's tool count so `tools`
+// measures breadth of supply, not one operator's catalogue size. The true,
+// uncapped total is still reported as `toolsIndexed` — nothing is hidden.
+const MAX_TOOLS_PER_SELLER_PER_CATEGORY = 50;
+
 /**
- * Cross-provider market supply mix: how the whole x402 ecosystem's tool
- * catalogue breaks down by canonical category, aggregated over every crawled
- * seller's manifest (NOT Agent402's own catalogue — the crawler cache is remote
- * sellers only). Counts DISTINCT SELLERS per category (not raw tool counts) so
- * one big catalogue can't dominate the "what the market offers" picture. Reads
- * the in-memory crawl cache — no network. Powers the x402-market-pulse tool's
- * supply side (demand comes from the on-chain leaderboard).
+ * Pure aggregation of the supply mix from a list of crawl-cache entries. Kept
+ * separate from `ecosystemMarket` (which reads the module-private cache) so it
+ * can be unit-tested with synthetic entries, including a single giant seller.
+ * `tools` is the TRUE uncapped tool total; per-category `tools` is capped at
+ * `capPerSeller` per seller so no one catalogue dominates.
  */
-export function ecosystemMarket({ limit = 12 } = {}) {
+export function aggregateEcosystemSupply(entries, { limit = 12, capPerSeller = MAX_TOOLS_PER_SELLER_PER_CATEGORY } = {}) {
   let sellers = 0, tools = 0;
   const catSellers = new Map();
   const catTools = new Map();
-  for (const [, v] of cache.entries()) {
+  for (const v of entries) {
     if (v.error || !Array.isArray(v.tools) || !v.tools.length) continue;
     sellers++;
-    tools += v.tools.length;
-    const cats = new Set();
+    tools += v.tools.length; // true, uncapped
+    const perCat = new Map();
     for (const t of v.tools) {
       const c = classifyEcosystemCategory(t);
-      catTools.set(c, (catTools.get(c) || 0) + 1);
-      cats.add(c);
+      perCat.set(c, (perCat.get(c) || 0) + 1);
     }
-    for (const c of cats) catSellers.set(c, (catSellers.get(c) || 0) + 1);
+    for (const [c, n] of perCat) {
+      catTools.set(c, (catTools.get(c) || 0) + Math.min(n, capPerSeller));
+      catSellers.set(c, (catSellers.get(c) || 0) + 1);
+    }
   }
   const categories = [...catSellers.keys()]
     .map((category) => ({ category, sellersOffering: catSellers.get(category), tools: catTools.get(category) || 0 }))
     .sort((a, b) => b.sellersOffering - a.sellersOffering || b.tools - a.tools)
     .slice(0, limit);
-  return { sellers, tools, categories };
+  return { sellers, tools, categories, toolsCapPerSeller: capPerSeller };
+}
+
+/**
+ * Cross-provider market supply mix: how the whole x402 ecosystem's tool
+ * catalogue breaks down by canonical category, aggregated over every crawled
+ * seller's manifest (NOT Agent402's own catalogue — the crawler cache is remote
+ * sellers only). Counts DISTINCT SELLERS per category, and caps each seller's
+ * per-category tool contribution (see MAX_TOOLS_PER_SELLER_PER_CATEGORY) so one
+ * big catalogue can't dominate. Reads the in-memory crawl cache — no network.
+ * Powers the x402-market-pulse tool's supply side (demand comes from the
+ * on-chain leaderboard).
+ */
+export function ecosystemMarket({ limit = 12 } = {}) {
+  return aggregateEcosystemSupply([...cache.values()], { limit });
 }
 
 /**

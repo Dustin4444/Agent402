@@ -159,9 +159,9 @@ export const X402_TOOLS = [
       output: {
         example: {
           asOf: "2026-07-12T00:00:00.000Z", window: "last 24h", sortedBy: "usd",
-          ecosystem: { sellersIndexed: 1479, toolsIndexed: 5200 },
+          ecosystem: { sellersIndexed: 1479, toolsIndexed: 33779, toolsCapPerSeller: 50 },
           topProviders: [{ rank: 1, provider: "blockrun.ai", usdSettled: 294.55, calls: 353970, buyers: 163, callsPerBuyer: 2171, homepage: "https://blockrun.ai" }],
-          topToolCategories: [{ category: "crypto", sellersOffering: 246, tools: 812 }],
+          topToolCategories: [{ category: "crypto", sellersOffering: 446, tools: 3353 }],
         },
       },
     },
@@ -206,10 +206,10 @@ export const X402_TOOLS = [
         asOf: lb?.asOf || null,
         window: lb?.windowLabel || "last 24h",
         sortedBy: sort,
-        ecosystem: { sellersIndexed: market.sellers, toolsIndexed: market.tools },
+        ecosystem: { sellersIndexed: market.sellers, toolsIndexed: market.tools, toolsCapPerSeller: market.toolsCapPerSeller },
         topProviders,
         topToolCategories: market.categories,
-        note: "Cross-provider x402 market pulse. topProviders = real on-chain activity per seller (ecosystem-wide, primarily Base), ranked by sortedBy; Agent402 is ranked alongside everyone else and flagged isSelf:true, and is always included at its true rank (with outsideTop:true) even when it falls outside the top-N on the chosen lens. Revenue (usd) is whale-skewable, buyers is the broadest-adoption lens, calls is raw volume, callsPerBuyer is intensity (noisy when buyers is tiny) - all four ride every row so revenue and real usage are both visible. topToolCategories = SUPPLY mix (each seller's tools classified into a closed functional taxonomy - crypto, defi, finance, social, ai, search, etc. - counting distinct sellers per category); per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
+        note: "Cross-provider x402 market pulse. topProviders = real on-chain activity per seller (ecosystem-wide, primarily Base), ranked by sortedBy; Agent402 is ranked alongside everyone else and flagged isSelf:true, and is always included at its true rank (with outsideTop:true) even when it falls outside the top-N on the chosen lens. Revenue (usd) is whale-skewable, buyers is the broadest-adoption lens, calls is raw volume, callsPerBuyer is intensity (noisy when buyers is tiny) - all four ride every row so revenue and real usage are both visible. topToolCategories = SUPPLY mix, ranked by DISTINCT SELLERS per category (the dominance-resistant metric); each category's tools count is capped at toolsCapPerSeller per seller so one giant auto-generated catalogue can't skew it - ecosystem.toolsIndexed is the true, uncapped total. Categories come from a closed functional taxonomy (crypto, defi, finance, social, ai, search, etc.); per-tool purchase counts are not published on-chain, so tool-level demand cannot be measured directly. Sources: the hourly cross-seller index crawl + the on-chain leaderboard.",
       };
     },
   },
