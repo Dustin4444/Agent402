@@ -389,7 +389,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
       <div style="padding:22px;border-right:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column;">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">01 / LIST YOUR API</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Serve x402 challenges and the index crawler lists you automatically - free, health-ranked, routed by the Smart Order Router next to ${fmtNum(count)} of our own tools.</p>
+        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Serve x402 challenges and list it on /sell (free) and the index crawler picks it up - free, health-ranked, routed by the Smart Order Router next to ${fmtNum(count)} of our own tools.</p>
         <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># we probe, you appear
 </span>POST /api/index/register
   { "origin": "https://api.you.com" }</pre>
