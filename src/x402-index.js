@@ -196,6 +196,16 @@ const DISCOVERY_SOURCES = [
   // `resourceUrl` instead of `resource`; synthesizeTools makes their sellers
   // list with tools even when they serve no /.well-known/x402 manifest.
   { name: "GoPlausible AVM registry", url: "https://facilitator.goplausible.xyz/discovery/resources?limit=1000", synthesizeTools: true, seedImmediately: true },
+  // PayAI's facilitator registry — where non-Base-native sellers (Solana
+  // especially) that settle through PayAI register instead of the Base-centric
+  // CDP Bazaar (added 2026-07-12; the Bazaar showed ~378 Solana sellers, PayAI
+  // adds ~dozens more net-new). Same {resource, accepts, pagination:{total}}
+  // contract as the Bazaar, so `paginate` walks all ~24 pages. `strict` drops
+  // testnet-only listings and placeholder origins (the open registry carries
+  // base-sepolia entries, example.com, and staging URLs); health routing then
+  // self-heals anything dead. synthesizeTools so PayAI sellers with no manifest
+  // still list with tools.
+  { name: "PayAI facilitator registry", url: "https://facilitator.payai.network/discovery/resources", paginate: true, synthesizeTools: true, strict: true },
 ];
 
 // Operator-curated seeds committed in-repo — the version-controlled companion
@@ -235,6 +245,38 @@ function extractOrigin(rawUrl) {
   }
 }
 
+// --- strict-source hygiene (testnet + placeholder filtering) ----------------
+// Open facilitator registries (PayAI) carry testnet listings and placeholder
+// origins the CDP Bazaar doesn't. A `strict` source drops both before they hit
+// the index. Testnet networks by CAIP-2/name; a listing offered ONLY on testnets
+// is skipped, but a mainnet+testnet listing still counts (via its mainnet leg).
+const TESTNET_NET_RE = /sepolia|testnet|devnet/i;
+const TESTNET_CAIP2 = new Set([
+  "eip155:84532", // base sepolia
+  "eip155:11155111", // ethereum sepolia
+  "eip155:80002", // polygon amoy
+  "eip155:421614", // arbitrum sepolia
+  "eip155:11155420", // optimism sepolia
+]);
+export function itemHasMainnetAccept(item) {
+  const accepts = Array.isArray(item?.accepts) ? item.accepts : [];
+  if (!accepts.length) return true; // no accepts info → don't over-filter it out
+  return accepts.some((a) => {
+    const n = String(a?.network || "");
+    return n && !TESTNET_NET_RE.test(n) && !TESTNET_CAIP2.has(n);
+  });
+}
+// Placeholder / non-real hosts that show up in open registries. extractOrigin
+// already rejects dotless/loopback hosts; this catches documentation stand-ins.
+const JUNK_HOST_RE = /(^|\.)(example|test|invalid|localhost)\.(com|org|net|dev|io)$/i;
+export function isJunkOrigin(origin) {
+  try {
+    return JUNK_HOST_RE.test(new URL(origin).hostname);
+  } catch {
+    return true;
+  }
+}
+
 // safeFetch-backed JSON fetcher injected into the Bazaar pager. Each page is
 // independently SSRF-guarded and byte-capped — the pager just chains them.
 // Accept must say JSON: safeFetch's default Accept prefers text/html, and
@@ -252,7 +294,7 @@ async function discoverOneSource(source, selfOrigin) {
     // sources walk every page; for other registries keep the single-fetch path
     // (their shapes vary and most have no pagination contract).
     let list;
-    if (isBazaarDiscoveryUrl(source.url)) {
+    if (isBazaarDiscoveryUrl(source.url) || source.paginate) {
       const { items } = await fetchAllBazaarItems(
         source.url,
         {
@@ -281,10 +323,17 @@ async function discoverOneSource(source, selfOrigin) {
     // disjoint origins don't clobber each other).
     const synthesize = isBazaarDiscoveryUrl(source.url) || source.synthesizeTools === true;
     const toolsByOrigin = synthesize ? new Map() : null;
+    let droppedTestnet = 0, droppedJunk = 0;
     for (const item of list) {
       const url = item.resource || item.resourceUrl || item.url || item.endpoint || item.homepage;
       const origin = extractOrigin(url);
       if (!origin || origin === selfOrigin) continue;
+      // strict sources (open registries): drop testnet-only listings and
+      // placeholder origins before they reach the index.
+      if (source.strict) {
+        if (!itemHasMainnetAccept(item)) { droppedTestnet++; continue; }
+        if (isJunkOrigin(origin)) { droppedJunk++; continue; }
+      }
       found.add(origin);
       if (toolsByOrigin) {
         const t = bazaarItemToTool(item, origin);
@@ -325,6 +374,7 @@ async function discoverOneSource(source, selfOrigin) {
       }
     }
     status.origins = found.size;
+    if (source.strict) { status.droppedTestnet = droppedTestnet; status.droppedJunk = droppedJunk; }
     for (const o of found) {
       if (discoveredSeeds.size >= MAX_DISCOVERED_SELLERS) break;
       discoveredSeeds.add(o);
@@ -864,6 +914,9 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
       resources: st?.resources ?? null,
       origins: st?.origins ?? null,
       error: st?.error || null,
+      // strict sources report what filtering dropped, so the crawl's hygiene is
+      // visible rather than silent (testnet-only listings + placeholder origins).
+      ...(st?.droppedTestnet != null ? { droppedTestnet: st.droppedTestnet, droppedJunk: st.droppedJunk } : {}),
     };
   });
   return {
