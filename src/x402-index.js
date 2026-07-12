@@ -657,13 +657,62 @@ function buildLocalEntry({ baseUrl, catalog, prices, network, toolCount, walletN
   };
 }
 
+// Canonical functional taxonomy for the ecosystem supply mix. Crawled sellers
+// set `category = tags[0]` verbatim (see buildManifestTools), which fragments
+// into hundreds of raw tags and dumps every untagged tool into "other" (~20%+
+// of the market). This classifier maps each tool to ONE closed-set functional
+// bucket by keyword, over name+description+tags, so the market-pulse supply
+// mix is meaningful. Deterministic (no LLM). Ordered MOST-SPECIFIC first —
+// first match wins (defi before crypto so "swap on Base" is defi; research
+// before ai so arXiv is research). Deliberately NOT keyed on
+// base/mainnet/agent/x402/usdc — those appear in nearly every listing and
+// would swallow everything. Only used for the market-pulse view; the raw
+// `category` field is left untouched for find/search/category pages.
+const ECOSYSTEM_CATEGORY_RULES = [
+  ["defi",       /\b(defi|swap|dex|liquidity|perp(etual|s)?|hyperliquid|lending|yield|amm|slippage|aggregator route|best route)\b/],
+  ["crypto",     /\b(btc|bitcoin|eth\b|ethereum|solana|\bsol\b|xrp|token|erc-?20|onchain|on-chain|wallet|\bens\b|\btx\b|transaction hash|eth_|chain id|market cap|gainers|losers|coin(gecko|base)?|crypto|blockchain|staking|nft)\b/],
+  ["finance",    /\b(forex|exchange rate|currenc(y|ies)|\bfx\b|stock|equit(y|ies)|\bsec\b|financ(e|ial|ials)|earnings|treasury|bond|macro|gdp|inflation|ticker|dividend|options?|volatility)\b/],
+  ["social",     /\b(twitter|tweet|x\.com|reddit|subreddit|linkedin|farcaster|telegram|instagram|tiktok|youtube|social)\b/],
+  ["research",   /\b(arxiv|scientif|literature|preprint|academ|papers?|citation|longevity|research)\b/],
+  ["ai",         /\b(llm|gpt|openai|grok|claude|gemini|text-to-speech|\btts\b|speech|image generation|generate image|image gen|embedding|inference|transcri|summari|rerank|prompt)\b/],
+  ["jobs",       /\b(jobs?|indeed|glassdoor|ziprecruiter|hiring|recruit|vacanc|career)\b/],
+  ["people",     /\b(people search|person research|enrichment|dossier|public records|whois|kyc|background check|contact info|email lookup|phone lookup|reverse)\b/],
+  ["security",   /\b(ransomware|0day|zero-day|exploit|vulnerab|threat intel|darkweb|dark web|malware|phishing|breach|\bcve\b)\b/],
+  ["news",       /\b(news|headlines|press release|breaking|journalis)\b/],
+  ["weather",    /\b(weather|forecast|temperature|climate|precipitation|humidity)\b/],
+  ["maps",       /\b(maps?|geocod|geolocat|places|directions|routing|distance matrix)\b/],
+  ["search",     /\b(search|retrieval|scrape|scraping|crawl|serper|\bexa\b|firecrawl|web data|extract)\b/],
+  ["email",      /\b(email|smtp|imap|inbox|mailbox|send mail|sms|messaging)\b/],
+  ["seo",        /\b(seo|keyword|backlink|serp rank|domain authority)\b/],
+  ["sports",     /\b(sports?|nba|nfl|soccer|odds|betting|fixtures)\b/],
+  ["media",      /\b(image|photo|video|audio|music|face detection|object detection|celebrity|render|design|logo|favicon|screenshot|vision|stem|media)\b/],
+  ["documents",  /\b(pdf|docx?|office|spreadsheet|html-to-pdf|office-to-pdf|searchable-pdf|markdown|document)\b/],
+  ["dev",        /\b(code|python|javascript|sandbox|e2b|browser session|browserbase|repo|git\b|compile|execution|runtime|regex|api spec|openapi|webhook)\b/],
+  ["travel",     /\b(flight|aviation|airline|hotel|maritime|marine|trucking|shipping|logistics|supply-chain|freight|vessel|voyage)\b/],
+  ["realestate", /\b(real estate|real-estate|property|housing|mortgage|zillow|rent(al)?|listing agent)\b/],
+  ["insurance",  /\b(insurance|claims|policy|underwrit|actuar)\b/],
+  ["utility",    /\b(json|csv|hash|base64|encode|decode|timezone|datetime|uuid|\bdiff\b|color|isbn|convert|calculator|qr code|barcode)\b/],
+  ["infra",      /\b(\bdns\b|\bip\b|ip-intelligence|network lookup|uptime|monitoring|status page|ssl|certificate)\b/],
+];
+
+/**
+ * Map one crawled tool to a canonical functional category (closed set). No
+ * raw-tag passthrough — an unmatched tool is "other", not its own singleton
+ * bucket (which would just relocate the fragmentation).
+ */
+export function classifyEcosystemCategory(t) {
+  const hay = `${t?.name || ""} ${t?.description || ""} ${(t?.tags || []).join(" ")}`.toLowerCase();
+  for (const [cat, re] of ECOSYSTEM_CATEGORY_RULES) if (re.test(hay)) return cat;
+  return "other";
+}
+
 /**
  * Cross-provider market supply mix: how the whole x402 ecosystem's tool
- * catalogue breaks down by category, aggregated over every crawled seller's
- * manifest (NOT Agent402's own catalogue — the crawler cache is remote sellers
- * only). Counts DISTINCT SELLERS per category (not raw tool counts) so one big
- * catalogue can't dominate the "what the market offers" picture. Reads the
- * in-memory crawl cache — no network. Powers the x402-market-pulse tool's
+ * catalogue breaks down by canonical category, aggregated over every crawled
+ * seller's manifest (NOT Agent402's own catalogue — the crawler cache is remote
+ * sellers only). Counts DISTINCT SELLERS per category (not raw tool counts) so
+ * one big catalogue can't dominate the "what the market offers" picture. Reads
+ * the in-memory crawl cache — no network. Powers the x402-market-pulse tool's
  * supply side (demand comes from the on-chain leaderboard).
  */
 export function ecosystemMarket({ limit = 12 } = {}) {
@@ -676,7 +725,7 @@ export function ecosystemMarket({ limit = 12 } = {}) {
     tools += v.tools.length;
     const cats = new Set();
     for (const t of v.tools) {
-      const c = t.category || "other";
+      const c = classifyEcosystemCategory(t);
       catTools.set(c, (catTools.get(c) || 0) + 1);
       cats.add(c);
     }
