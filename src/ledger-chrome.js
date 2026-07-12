@@ -419,10 +419,6 @@ function nav(activePath) {
 // ---------------------------------------------------------------------------
 
 export function ledgerFooterFull() {
-  const chainInfo = chainRows();
-  const chainLinks = chainInfo.chains
-    .map((c) => `<a href="${esc(c.href)}" style="color:var(--muted);text-decoration:none;">${esc(c.label.charAt(0).toUpperCase() + c.label.slice(1))} market</a>`)
-    .join("");
   return `<footer style="border-top:1.5px solid var(--ink);background:var(--footer-bg);">
   <div style="max-width:1180px;margin:0 auto;padding:48px 30px 32px;">
     <div class="ml-ft-grid" style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr 1fr;gap:24px;">
@@ -439,7 +435,7 @@ export function ledgerFooterFull() {
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">x402 index</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/index#economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a>${chainLinks}<a href="/index" style="color:var(--muted);text-decoration:none;">Index by chain</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/marketplaces" style="color:var(--muted);text-decoration:none;">Marketplaces</a><a href="/index#economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for sellers</div>
