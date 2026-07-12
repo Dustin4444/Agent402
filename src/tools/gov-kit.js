@@ -1,9 +1,15 @@
 // Gov-data kit — live US public-domain data, keyless and deterministic. These
 // are the data.gov-ecosystem sources agents actually want at runtime:
-//   gov-data-search  search 300k+ datasets on catalog.data.gov (CKAN API)
-//   weather-alerts   active NWS alerts by state (api.weather.gov)
-//   earthquakes      USGS real-time earthquake feed
+//   gov-data            search 300k+ datasets on catalog.data.gov (CKAN API)
+//   weather-alerts      active NWS alerts by state (api.weather.gov)
+//   earthquakes         USGS real-time earthquake feed
+//   drug-recalls        FDA drug recall/enforcement (openFDA)
+//   food-recalls        FDA food recall/enforcement (openFDA)
+//   drug-adverse-events top FAERS adverse reactions for a drug (openFDA)
+//   vin-decode          decode a VIN (NHTSA vPIC)
+//   vehicle-recalls     NHTSA safety recalls by make/model/year
 // All documented public APIs serving public-domain data; no keys, no scraping.
+// (Treasury debt/rates live in macro-kit; don't duplicate them here.)
 import { safeFetch } from "./fetch-guard.js";
 
 function bad(message, statusCode = 400) {
@@ -31,6 +37,21 @@ async function getJson(url, opts = {}) {
     throw bad("Upstream returned non-JSON", 502);
   }
 }
+
+// openFDA returns HTTP 404 with {error:{code:"NOT_FOUND"}} when a query simply
+// has no matches — that's an empty result, not an outage. Swallow 404 to null so
+// the tool returns count:0 instead of erroring; real 5xx/timeouts still throw.
+async function getJsonAllowEmpty(url, opts = {}) {
+  try {
+    return await getJson(url, opts);
+  } catch (e) {
+    if (e.statusCode === 404) return null;
+    throw e;
+  }
+}
+
+// FDA dates are YYYYMMDD strings; render as ISO YYYY-MM-DD (null if unparseable).
+const fdaDate = (s) => (/^\d{8}$/.test(s || "") ? `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}` : s || null);
 
 // Full-name → USPS 2-letter code lookup. Lets weather-alerts accept "California"
 // instead of forcing the agent to know "CA". Includes the 50 states plus DC and
@@ -168,6 +189,236 @@ export const GOV_TOOLS = [
         url: f.properties?.url ?? null,
       }));
       return { minMag: mag, period, count: quakes.length, quakes, source: "earthquake.usgs.gov (public domain)" };
+    },
+  },
+
+  // ---- openFDA (api.fda.gov) — drug/food safety, keyless -------------------
+  {
+    route: "GET /api/drug-recalls", name: "FDA drug recalls", slug: "drug-recalls", category: "data", price: "$0.004",
+    description:
+      "Search FDA drug recall / enforcement records (openFDA): recalling firm, classification (Class I/II/III), reason, distribution, and dates. Live FDA data, no key. ?q=losartan&limit=5",
+    tags: ["fda", "drug", "recall", "openfda", "health", "safety", "government"],
+    discovery: {
+      input: { q: "losartan", limit: 5 },
+      inputSchema: {
+        properties: {
+          q: { type: "string", description: "Drug name or product term to search recalls for" },
+          limit: { type: "number", description: "Max results 1-20 (default 5)" },
+        },
+        required: ["q"],
+      },
+      output: {
+        example: {
+          query: "losartan", count: 1,
+          recalls: [{ firm: "Torrent Pharmaceuticals", classification: "Class II", status: "Ongoing", reason: "Presence of an impurity", product: "Losartan Potassium Tablets", distribution: "Nationwide", recallInitiated: "2019-11-08", recallNumber: "D-123-2020" }],
+          source: "api.fda.gov (openFDA, public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const q = String(i.q ?? i.drug ?? "").trim();
+      if (!q) throw bad('"q" (drug name or product term) is required');
+      const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
+      const search = encodeURIComponent(`product_description:"${q}"`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/drug/enforcement.json?search=${search}&limit=${limit}`);
+      const results = data?.results ?? [];
+      return {
+        query: q,
+        count: results.length,
+        recalls: results.map((r) => ({
+          firm: r.recalling_firm ?? null,
+          classification: r.classification ?? null,
+          status: r.status ?? null,
+          reason: (r.reason_for_recall ?? "").replace(/\s+/g, " ").slice(0, 220),
+          product: (r.product_description ?? "").replace(/\s+/g, " ").slice(0, 180),
+          distribution: r.distribution_pattern ?? null,
+          recallInitiated: fdaDate(r.recall_initiation_date),
+          recallNumber: r.recall_number ?? null,
+        })),
+        source: "api.fda.gov (openFDA, public domain)",
+      };
+    },
+  },
+  {
+    route: "GET /api/food-recalls", name: "FDA food recalls", slug: "food-recalls", category: "data", price: "$0.004",
+    description:
+      "Search FDA food recall / enforcement records (openFDA): recalling firm, classification, reason (allergen, contamination, etc.), distribution, and dates. Live FDA data, no key. ?q=peanut&limit=5",
+    tags: ["fda", "food", "recall", "openfda", "allergen", "safety", "government"],
+    discovery: {
+      input: { q: "undeclared peanut", limit: 5 },
+      inputSchema: {
+        properties: {
+          q: { type: "string", description: "Product or reason term to search food recalls for" },
+          limit: { type: "number", description: "Max results 1-20 (default 5)" },
+        },
+        required: ["q"],
+      },
+      output: {
+        example: {
+          query: "undeclared peanut", count: 1,
+          recalls: [{ firm: "Example Foods Inc", classification: "Class I", status: "Ongoing", reason: "Undeclared peanut", product: "Chocolate chip cookies", distribution: "CA, NV, OR", recallInitiated: "2026-05-01", recallNumber: "F-1234-2026" }],
+          source: "api.fda.gov (openFDA, public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const q = String(i.q ?? "").trim();
+      if (!q) throw bad('"q" (product or reason term) is required');
+      const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
+      // Search both the product description and the reason so "peanut" matches an
+      // undeclared-allergen recall even when the product name doesn't say peanut.
+      const search = encodeURIComponent(`product_description:"${q}"+reason_for_recall:"${q}"`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/food/enforcement.json?search=${search}&limit=${limit}`);
+      const results = data?.results ?? [];
+      return {
+        query: q,
+        count: results.length,
+        recalls: results.map((r) => ({
+          firm: r.recalling_firm ?? null,
+          classification: r.classification ?? null,
+          status: r.status ?? null,
+          reason: (r.reason_for_recall ?? "").replace(/\s+/g, " ").slice(0, 220),
+          product: (r.product_description ?? "").replace(/\s+/g, " ").slice(0, 180),
+          distribution: (r.distribution_pattern ?? "").replace(/\s+/g, " ").slice(0, 120),
+          recallInitiated: fdaDate(r.recall_initiation_date),
+          recallNumber: r.recall_number ?? null,
+        })),
+        source: "api.fda.gov (openFDA, public domain)",
+      };
+    },
+  },
+  {
+    route: "GET /api/drug-adverse-events", name: "FDA drug adverse events", slug: "drug-adverse-events", category: "data", price: "$0.004",
+    description:
+      "Top reported adverse reactions for a drug from the FDA FAERS database (openFDA), ranked by report count — a fast read on a drug's real-world safety signal. Live FDA data, no key. ?drug=aspirin&limit=10",
+    tags: ["fda", "drug", "adverse-events", "faers", "openfda", "health", "government"],
+    discovery: {
+      input: { drug: "aspirin", limit: 10 },
+      inputSchema: {
+        properties: {
+          drug: { type: "string", description: "Drug/medicinal product name" },
+          limit: { type: "number", description: "How many top reactions, 1-25 (default 10)" },
+        },
+        required: ["drug"],
+      },
+      output: {
+        example: {
+          drug: "aspirin", count: 2,
+          topReactions: [{ reaction: "NAUSEA", reports: 4211 }, { reaction: "DYSPNOEA", reports: 3987 }],
+          source: "api.fda.gov (openFDA FAERS, public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const drug = String(i.drug ?? i.q ?? "").trim();
+      if (!drug) throw bad('"drug" is required');
+      const limit = Math.min(Math.max(parseInt(i.limit, 10) || 10, 1), 25);
+      const search = encodeURIComponent(`patient.drug.medicinalproduct:"${drug}"`);
+      const data = await getJsonAllowEmpty(
+        `https://api.fda.gov/drug/event.json?search=${search}&count=patient.reaction.reactionmeddrapt.exact&limit=${limit}`,
+      );
+      const results = data?.results ?? [];
+      return {
+        drug,
+        count: results.length,
+        topReactions: results.map((r) => ({ reaction: r.term ?? null, reports: r.count ?? null })),
+        source: "api.fda.gov (openFDA FAERS, public domain)",
+      };
+    },
+  },
+
+  // ---- NHTSA (vpic + api.nhtsa.gov) — vehicles, keyless --------------------
+  {
+    route: "GET /api/vin-decode", name: "VIN decoder (NHTSA)", slug: "vin-decode", category: "data", price: "$0.004",
+    description:
+      "Decode a vehicle VIN via NHTSA vPIC: make, model, year, trim, body class, engine, fuel, plant, and vehicle type. Accepts full or partial VINs (partial needs modelYear). Live gov data, no key. ?vin=1HGCM82633A004352",
+    tags: ["nhtsa", "vin", "vehicle", "car", "decoder", "government"],
+    discovery: {
+      input: { vin: "1HGCM82633A004352" },
+      inputSchema: {
+        properties: {
+          vin: { type: "string", description: "17-char VIN (or a partial VIN with * wildcards)" },
+          modelYear: { type: "number", description: "Model year — helps decode a partial VIN" },
+        },
+        required: ["vin"],
+      },
+      output: {
+        example: {
+          vin: "1HGCM82633A004352",
+          vehicle: { make: "HONDA", model: "Accord", year: "2003", trim: null, bodyClass: "Coupe", vehicleType: "PASSENGER CAR", engineCylinders: "6", fuelType: "Gasoline", plantCity: "MARYSVILLE", manufacturer: "AMERICAN HONDA MOTOR CO., INC." },
+          source: "vpic.nhtsa.dot.gov (public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const vin = String(i.vin ?? "").trim();
+      if (!vin || !/^[A-Za-z0-9*]{6,17}$/.test(vin)) throw bad('"vin" must be a 6-17 character VIN (letters, digits, * wildcards)');
+      const my = parseInt(i.modelYear, 10);
+      const yr = Number.isFinite(my) ? `&modelyear=${my}` : "";
+      const data = await getJson(`https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/${encodeURIComponent(vin)}?format=json${yr}`);
+      const v = {};
+      for (const row of data.Results ?? []) {
+        if (row?.Value && row.Value !== "Not Applicable") v[row.Variable] = row.Value;
+      }
+      if (!v.Make && !v.Model) throw bad("NHTSA could not decode that VIN (check the VIN, or supply modelYear for a partial VIN)", 422);
+      return {
+        vin,
+        vehicle: {
+          make: v.Make ?? null, model: v.Model ?? null, year: v["Model Year"] ?? null, trim: v.Trim ?? null,
+          bodyClass: v["Body Class"] ?? null, vehicleType: v["Vehicle Type"] ?? null,
+          engineCylinders: v["Engine Number of Cylinders"] ?? null, fuelType: v["Fuel Type - Primary"] ?? null,
+          plantCity: v["Plant City"] ?? null, manufacturer: v["Manufacturer Name"] ?? null,
+        },
+        source: "vpic.nhtsa.dot.gov (public domain)",
+      };
+    },
+  },
+  {
+    route: "GET /api/vehicle-recalls", name: "Vehicle recalls (NHTSA)", slug: "vehicle-recalls", category: "data", price: "$0.004",
+    description:
+      "NHTSA safety recalls for a vehicle by make/model/year: campaign number, affected component, summary, consequence, and remedy. Live gov data, no key. ?make=honda&model=accord&year=2019",
+    tags: ["nhtsa", "recall", "vehicle", "car", "safety", "government"],
+    discovery: {
+      input: { make: "honda", model: "accord", year: 2019 },
+      inputSchema: {
+        properties: {
+          make: { type: "string", description: "Vehicle make, e.g. honda" },
+          model: { type: "string", description: "Vehicle model, e.g. accord" },
+          year: { type: "number", description: "Model year, e.g. 2019" },
+        },
+        required: ["make", "model", "year"],
+      },
+      output: {
+        example: {
+          make: "honda", model: "accord", year: 2019, count: 1,
+          recalls: [{ campaign: "20V314000", component: "FUEL SYSTEM, GASOLINE:DELIVERY:FUEL PUMP", summary: "…", consequence: "…", remedy: "…", reportReceived: "28/05/2020", parkOutside: false }],
+          source: "api.nhtsa.gov (public domain)",
+        },
+      },
+    },
+    handler: async (i) => {
+      const make = String(i.make ?? "").trim();
+      const model = String(i.model ?? "").trim();
+      const year = parseInt(i.year, 10);
+      if (!make || !model || !Number.isFinite(year)) throw bad('"make", "model", and "year" are all required');
+      const data = await getJson(
+        `https://api.nhtsa.gov/recalls/recallsByVehicle?make=${encodeURIComponent(make)}&model=${encodeURIComponent(model)}&modelYear=${year}`,
+      );
+      const results = Array.isArray(data.results) ? data.results : [];
+      return {
+        make, model, year,
+        count: results.length,
+        recalls: results.slice(0, 25).map((r) => ({
+          campaign: r.NHTSACampaignNumber ?? null,
+          component: r.Component ?? null,
+          summary: (r.Summary ?? "").replace(/\s+/g, " ").slice(0, 220),
+          consequence: (r.Consequence ?? "").replace(/\s+/g, " ").slice(0, 200),
+          remedy: (r.Remedy ?? "").replace(/\s+/g, " ").slice(0, 200),
+          reportReceived: r.ReportReceivedDate ?? null,
+          parkOutside: r.parkOutSide === "True",
+        })),
+        source: "api.nhtsa.gov (public domain)",
+      };
     },
   },
 ];
