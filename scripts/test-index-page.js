@@ -2,6 +2,7 @@
 // revenue columns. No network, no server boot — indexPage() is a pure
 // function of its snapshot + leaderboard snapshot + query params.
 import { indexPage, leaderboardHostIndex } from "../src/x402-index.js";
+import { ledgerHomePage } from "../src/ledger-home.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -135,6 +136,24 @@ ok(i1 > -1 && i2 > -1 && i1 < i2, "default sort is usd desc: higher-revenue sell
 // Explicit ?sort=calls&dir=asc reorders vs. the usd-desc default.
 const callsAscPage = indexPage(bigSnapshot, { baseUrl: BASE_URL, leaderboardSnap, sort: "calls", dir: "asc" });
 ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction arrow");
+
+// --- homepage: one marketplace story (index/marketplaces merge) --------------
+// The homepage merged its separate "index" and "marketplaces" pitches into a
+// single marketplace story: every CTA lands on /marketplace (or a chain page),
+// never the old /index or /marketplaces URLs. The neutral positioning survives
+// as prose, not as a nav-style "/index" destination.
+{
+  const homeCatalog = {
+    "POST /api/hash": { name: "Hash", slug: "hash", category: "encoding", price: "$0.001", description: "Hash text", tags: [] },
+    "POST /api/search": { name: "Web search", slug: "search", category: "search", price: "$0.01", description: "Search the web", tags: [] },
+  };
+  const html = ledgerHomePage(BASE_URL, homeCatalog, {}, {}, [], { chainSellerCounts: {} });
+  ok(/href="\/marketplace"/.test(html), "homepage: CTA points to /marketplace");
+  ok(/Explore the marketplace/.test(html), "homepage: single merged marketplace CTA copy renders");
+  ok((html.match(/\/marketplaces\b/g) || []).length === 0, "homepage: no /marketplaces links remain");
+  ok(!/href="\/index"/.test(html), "homepage: no href=\"/index\" links remain");
+  ok(/the neutral index/.test(html), "homepage: neutral-index positioning survives as prose");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

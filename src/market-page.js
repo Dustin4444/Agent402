@@ -637,12 +637,12 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const switcherHtml = `
 <div style="border-bottom:1.5px solid var(--ink);background:var(--card);">
   <div style="max-width:1080px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;">
-    <span style="color:var(--faint);letter-spacing:.08em;">INDEX /</span>
+    <span style="color:var(--faint);letter-spacing:.08em;">MARKETPLACE /</span>
     ${chainKeys.map((k) => {
       const active = k === chainKey;
       return `<a href="/${k}" style="text-decoration:none;color:${active ? "var(--ink)" : "var(--muted)"};font-weight:${active ? 700 : 400};border-bottom:2px solid ${active ? "var(--accent)" : "transparent"};padding-bottom:2px;">${esc(k)}</a>`;
     }).join("")}
-    <a href="/index" style="text-decoration:none;color:var(--muted);margin-left:auto;">all chains →</a>
+    <a href="/marketplace" style="text-decoration:none;color:var(--muted);margin-left:auto;">all chains →</a>
   </div>
 </div>`;
 
