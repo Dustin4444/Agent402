@@ -316,7 +316,72 @@ export function marketActivityHtml(chainKey, activity, selected) {
   <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin:8px 0 0;">${note}</p>`;
 }
 
-export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, selectedSeller, wallet } = {}) {
+// Seller card — shown when an external seller is selected from the roster. The
+// chain-level top cards (SELLERS / TOOLS / LATEST SETTLE / PRICE FLOOR) stay
+// chain-wide; this card gives the SELECTED seller's own numbers: settled calls,
+// volume and buyers (from the scoped on-chain activity scan, so it works on
+// every chain), tools + health (from the crawl), its payTo, and first settlement
+// seen in the window. Returns "" when nothing is selected (host view).
+export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo) {
+  const C = CHAIN_PAGES[chainKey];
+  if (!sel || sel.local || !seller) return "";
+  const t = (activity && activity.totals) || {};
+  const calls = Number(t.tx ?? stat?.calls ?? 0);
+  const vol = Number(t.usd ?? stat?.usd ?? 0);
+  const buyers = Number(t.buyers ?? stat?.buyers ?? 0);
+  const toolN = seller.toolCount || 0;
+  const health = seller.routable ? "healthy" : "unreachable";
+  const firstSeen = (Array.isArray(activity?.buckets) ? activity.buckets.find((b) => Number(b.tx) > 0) : null)?.date || null;
+  const host = String(sel.host || "");
+  const name = sel.name || seller.displayName || host;
+  const cell = (label, value) => `<div style="padding:12px 14px;">
+      <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--dk-muted);">${label}</div>
+      <div style="font-size:22px;font-weight:800;color:var(--on-dark2);margin-top:2px;font-variant-numeric:tabular-nums;">${value}</div></div>`;
+  return `
+  <div id="seller-card" style="background:var(--surface);--accent:var(--accent-lit);border:1.5px solid var(--ink);margin:28px 0 0;">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--dark-border2);">
+      <div style="min-width:0;">
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.08em;">SELLER &middot; ${esc(C.chainName.toUpperCase())}</div>
+        <a href="${safeHref(seller.homepage)}" rel="noopener" style="font-weight:800;font-size:18px;color:var(--on-dark2);text-decoration:none;overflow-wrap:anywhere;">${esc(name)}</a>
+        <div style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted);overflow-wrap:anywhere;">${esc(host)}</div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:center;font-family:var(--font-mono);font-size:12px;white-space:nowrap;">
+        <span style="color:${seller.routable ? "var(--accent-lit)" : "var(--dk-muted)"};">&#9679; ${health}</span>
+        <a href="/${chainKey}" data-seller-link data-seller-host="" data-seller-local="1" style="color:var(--dk-muted);text-decoration:none;">clear &#10005;</a>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));border-bottom:1px solid var(--dark-border2);">
+      ${cell("SETTLED CALLS", calls.toLocaleString("en-US"))}
+      ${cell("VOLUME", usd(vol))}
+      ${cell("BUYERS", buyers.toLocaleString("en-US"))}
+      ${cell("TOOLS", toolN.toLocaleString("en-US"))}
+    </div>
+    <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
+  </div>`;
+}
+
+// The swappable panel = seller card (if a seller is picked) + Activity charts.
+// Rendered both server-side inside the page and by the /api/market/:chain/panel
+// endpoint the client fetches for in-place seller switching, so both stay
+// identical. Self-contained: resolves the picked seller + its leaderboard stat.
+export function marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap } = {}) {
+  const C = CHAIN_PAGES[chainKey];
+  const sellers = marketSellers(chainKey, snapshot);
+  const hostL = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+  const picked = selectedSeller && !selectedSeller.local
+    ? sellers.find((s) => !s.local && hostL(s.homepage || s.origin) === String(selectedSeller.host || "").toLowerCase()) || null
+    : null;
+  const payTo = picked ? (Object.entries(picked.payToByNetwork || {}).find(([net]) => C.isNetwork(net))?.[1] || null) : null;
+  let stat = null;
+  if (payTo) {
+    const rows = Array.isArray(leaderboardSnap?.leaderboard) ? leaderboardSnap.leaderboard : [];
+    const hit = rows.find((r) => (r.wallets && r.wallets.length ? r.wallets : [r.wallet]).some((w) => String(w).toLowerCase() === String(payTo).toLowerCase()));
+    if (hit) stat = { calls: hit.callsSettled || 0, usd: hit.totalUsd || 0, buyers: hit.uniqueBuyers || 0 };
+  }
+  return sellerCardHtml(chainKey, picked, selectedSeller, activity, stat, payTo) + marketActivityHtml(chainKey, activity, selectedSeller);
+}
+
+export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap } = {}) {
   const C = CHAIN_PAGES[chainKey];
   const effectiveWallet = wallet || C.wallet;
   // Stellar/Algorand ship a committed public default wallet in CHAIN_PAGES;
@@ -327,6 +392,33 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   const walletExplorerUrl = effectiveWallet ? C.explorerWalletUrl(effectiveWallet) : `https://${C.explorerUrl}`;
   const sellers = marketSellers(chainKey, snapshot);
   const tools = marketTools(chainKey, snapshot);
+
+  // Per-seller settlement stats for the roster (#tx column) and the seller card,
+  // joined from the leaderboard snapshot by the seller's payTo on THIS chain.
+  // The leaderboard scans Base USDC, so counts only populate for Base sellers;
+  // other chains fall back to the scoped activity scan (which the seller card
+  // uses directly). Match against every wallet the leaderboard grouped together.
+  const statByWallet = new Map();
+  for (const r of (Array.isArray(leaderboardSnap?.leaderboard) ? leaderboardSnap.leaderboard : [])) {
+    const stat = { calls: r.callsSettled || 0, usd: r.totalUsd || 0, buyers: r.uniqueBuyers || 0 };
+    for (const w of (r.wallets && r.wallets.length ? r.wallets : [r.wallet])) if (w) statByWallet.set(String(w).toLowerCase(), stat);
+  }
+  const sellerPayTo = (s) => (s && !s.local ? (Object.entries(s.payToByNetwork || {}).find(([net]) => C.isNetwork(net))?.[1] || null) : null);
+  const sellerStat = (s) => { const p = sellerPayTo(s); return p ? statByWallet.get(String(p).toLowerCase()) || null : null; };
+
+  // Surface the sellers worth clicking: this host first, then most on-chain
+  // settled calls, then healthy, then tool-rich. So the roster leads with active
+  // sellers instead of crawl order.
+  sellers.sort((a, b) => {
+    if (!!a.local !== !!b.local) return a.local ? -1 : 1;
+    const ca = sellerStat(a)?.calls || 0, cb = sellerStat(b)?.calls || 0;
+    if (ca !== cb) return cb - ca;
+    if (!!a.routable !== !!b.routable) return a.routable ? -1 : 1;
+    return (b.toolCount || 0) - (a.toolCount || 0);
+  });
+  // Roster "· N tx" suffix — only when the leaderboard has settlements for this
+  // seller's payTo on this chain (Base today); silent otherwise.
+  const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
   const prices = tools.map((t) => Number(t.price)).filter((n) => Number.isFinite(n) && n > 0);
   const low = prices.length ? Math.min(...prices) : 0.001;
   const high = prices.length ? Math.max(...prices) : 0.5;
@@ -357,10 +449,10 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     ? sellers.map((s) => {
         const good = s.local || s.routable;
         return `
-    <a href="${activityHref(s)}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
+    <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
       <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}</span>
       <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
-      <span class="mlr-tools">${s.toolCount || 0} tools</span>
+      <span class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}</span>
       <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
     </a>`;
       }).join("")
@@ -375,10 +467,10 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       </div>
       <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools</span>
+        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools${txSuffix(s)}</span>
         <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>
       </div>
-      <a href="${activityHref(s)}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;margin-top:2px;">${isSelected(s) ? "activity shown above" : "view activity →"}</a>
+      <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;margin-top:2px;">${isSelected(s) ? "activity shown above" : "view activity →"}</a>
     </div>`;
       }).join("");
 
@@ -521,7 +613,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
 ${switcherHtml}
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   ${headerHtml}
-  ${marketActivityHtml(chainKey, activity, selectedSeller)}
+  <div id="market-panel">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
 
   ${rosterHtml}
 
@@ -533,6 +625,33 @@ ${switcherHtml}
 
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=${esc(C.networkParam)}">/api/route?network=${esc(C.networkParam)}</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
+<script>(function(){
+  // In-place seller switching: fetch the same-origin, server-rendered (and fully
+  // escaped) market panel and swap it without a full reload. Progressive
+  // enhancement — the roster links are real hrefs, so this whole block is a
+  // no-op fallback to normal navigation when JS/fetch/history are unavailable
+  // or a request fails. Content is parsed with createContextualFragment +
+  // replaceChildren (not innerHTML); it is our own output, never user input.
+  var CHAIN=${JSON.stringify(chainKey)}, panel=document.getElementById('market-panel');
+  if(!panel||!window.fetch||!window.history||!history.pushState||!document.createRange().createContextualFragment)return;
+  function loading(on){panel.style.transition='opacity .15s';panel.style.opacity=on?'.5':'';}
+  function mark(host){document.querySelectorAll('[data-seller-link]').forEach(function(a){var h=a.getAttribute('data-seller-host')||'';a.classList.toggle('sel',host?(h===host):(a.getAttribute('data-seller-local')==='1'));});}
+  function swap(html){panel.replaceChildren(document.createRange().createContextualFragment(html));}
+  function load(host,push){
+    loading(true);
+    return fetch('/api/market/'+CHAIN+'/panel'+(host?('?seller='+encodeURIComponent(host)):''),{headers:{accept:'application/json'}})
+      .then(function(r){if(!r.ok)throw 0;return r.json();})
+      .then(function(j){swap(j.html);mark(host);loading(false);
+        if(push){var u=host?(location.pathname.split('?')[0]+'?seller='+encodeURIComponent(host)):location.pathname.split('?')[0];history.pushState({s:host},'',u+'#activity');var el=document.getElementById('activity');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}
+        return true;});
+  }
+  document.addEventListener('click',function(e){
+    var a=e.target.closest&&e.target.closest('[data-seller-link]');if(!a)return;
+    e.preventDefault();var host=a.getAttribute('data-seller-host')||'';
+    load(host,true).catch(function(){window.location.href=a.getAttribute('href');});
+  });
+  window.addEventListener('popstate',function(){var m=location.search.match(/[?&]seller=([^&#]+)/);load(m?decodeURIComponent(m[1]):'',false).catch(function(){location.reload();});});
+})();</script>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({

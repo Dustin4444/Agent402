@@ -147,7 +147,7 @@ import { ledgerPricingPage } from "./ledger-pricing.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
-import { CHAIN_PAGES, marketSellers, marketPage } from "./market-page.js";
+import { CHAIN_PAGES, marketSellers, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
@@ -1679,43 +1679,60 @@ const SNAPSHOT_RAIL_LABEL = { base: "Base", solana: "Solana", polygon: "Polygon"
 // Per-chain wallet source: EVM rails (including Robinhood, chain 4663) all
 // settle to the same WALLET_ADDRESS; Solana has its own env.
 const chainWallet = (chainKey) => (chainKey === "solana" ? (process.env.SOLANA_WALLET_ADDRESS || "").trim() : WALLET_ADDRESS);
+// Shared seller resolution for the chain market pages AND the /panel endpoint:
+// read ?seller=<host>, find the picked seller, and decide which wallet the
+// Activity charts scan — the seller's advertised payTo on THIS chain (network
+// matched by C.isNetwork; getActivityForChain validates the address shape and
+// returns null for an absent one → the honest per-seller "unavailable" line),
+// else this host's wallet. Unknown/empty seller falls back to the host.
+function resolveMarketSeller(chainKey, snapshot, sellerQuery) {
+  const C = CHAIN_PAGES[chainKey];
+  const sellers = marketSellers(chainKey, snapshot);
+  const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+  const q = String(sellerQuery || "").toLowerCase().slice(0, 253);
+  const picked = (q && sellers.find((s) => !s.local && hostOf(s.homepage || s.origin) === q)) || sellers.find((s) => s.local) || null;
+  const sellerWallet = picked && !picked.local
+    ? (Object.entries(picked.payToByNetwork || {}).find(([net]) => C.isNetwork(net))?.[1] || null)
+    : null;
+  const scanWallet = picked && !picked.local ? sellerWallet : chainWallet(chainKey);
+  const selectedSeller = picked
+    ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
+    : null;
+  return { selectedSeller, scanWallet };
+}
 for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
   app.get(`/${chainKey}`, async (req, res) => {
     try {
       const snapshot = getIndexSnapshot();
-      const hostWallet = chainWallet(chainKey);
-      // ?seller=<host> scopes the Activity charts to that seller (mirrors
-      // /stellar + /algorand, which read the same param). Without it — or for an
-      // unknown seller — the scope stays on this host. The generic route used to
-      // ignore the query entirely (`_req`), so clicking a seller in the roster
-      // changed the URL but never re-scoped the charts.
-      const C = CHAIN_PAGES[chainKey];
-      const sellers = marketSellers(chainKey, snapshot);
-      const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
-      const q = String(req.query.seller || "").toLowerCase().slice(0, 253);
-      const picked = (q && sellers.find((s) => !s.local && hostOf(s.homepage || s.origin) === q)) || sellers.find((s) => s.local) || null;
-      // External pick → scan its advertised payTo on THIS chain (network matched
-      // by C.isNetwork). getActivityForChain validates the address shape and
-      // returns null for an absent/unscannable one, so the page renders the
-      // honest "activity unavailable for this seller" line rather than the host's.
-      const sellerWallet = picked && !picked.local
-        ? (Object.entries(picked.payToByNetwork || {}).find(([net]) => C.isNetwork(net))?.[1] || null)
-        : null;
-      const scanWallet = picked && !picked.local ? sellerWallet : hostWallet;
+      const { selectedSeller, scanWallet } = resolveMarketSeller(chainKey, snapshot, req.query.seller);
       const [revSnap, activity] = await Promise.all([
         revenueSnapshot(revenueWallets()),
         scanWallet ? getActivityForChain(chainKey, scanWallet) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
-      const selectedSeller = picked
-        ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
-        : null;
-      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined }));
+      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot() }));
     } catch (e) {
       res.status(500).type("text/plain").send("temporarily unavailable");
     }
   });
 }
+// In-place seller switching: returns just the market panel (seller card +
+// Activity charts) as JSON so the market page can swap it without a full reload
+// (progressive enhancement — the roster links still navigate without JS). Same
+// resolution + renderer as the page, so the swapped panel is byte-identical.
+app.get("/api/market/:chain/panel", async (req, res) => {
+  try {
+    const chainKey = String(req.params.chain || "");
+    if (!SNAPSHOT_RAIL_LABEL[chainKey]) return res.status(404).json({ error: "unknown chain" });
+    const snapshot = getIndexSnapshot();
+    const { selectedSeller, scanWallet } = resolveMarketSeller(chainKey, snapshot, req.query.seller);
+    const activity = scanWallet ? await getActivityForChain(chainKey, scanWallet) : null;
+    const html = marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap: getLeaderboardSnapshot() });
+    res.set("Cache-Control", "public, max-age=60").json({ html, seller: selectedSeller });
+  } catch (e) {
+    res.status(500).json({ error: "temporarily unavailable" });
+  }
+});
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure
 // degrades to "temporarily unavailable" text rather than a half-rendered page.
