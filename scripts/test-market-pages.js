@@ -3,7 +3,7 @@
 // src/market-page.js already covers /stellar and /algorand (see
 // scripts/test-stellar-page.js / test-algorand-page.js); this file locks
 // down the CHAIN_PAGES entries added alongside them. No server, no network.
-import { marketSellers, marketPage, CHAIN_PAGES } from "../src/market-page.js";
+import { marketSellers, marketPage, marketPanelHtml, CHAIN_PAGES } from "../src/market-page.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -124,6 +124,38 @@ for (const c of NEW_CHAINS) {
   const robinhoodHtml = marketPage("robinhood", "https://agent402.tools", { snapshot: { sellers: [LOCAL] }, rail: null, activity: null });
   ok(robinhoodHtml.includes("ROBINHOOD_FACILITATOR_URL"), "robinhood: sell copy names the operator-supplied facilitator env");
   ok(baseHtml !== solanaHtml && solanaHtml !== robinhoodHtml, "provenance/sell copy differs page to page, not templated identically");
+}
+
+// Seller card + roster transaction counts + panel endpoint parity (the market
+// seller-detail feature). A leaderboard snapshot supplies per-seller settled
+// counts joined by payTo; the card surfaces the SELECTED seller's own numbers
+// (from the scoped activity), distinct from the chain-wide top cards.
+{
+  const EXT = { origin: "https://ext1.example", displayName: "Ext One", homepage: "https://ext1.example", local: false, toolCount: 3, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xabc0000000000000000000000000000000000abc" } };
+  const snapshot = { sellers: [LOCAL, EXT] };
+  const leaderboardSnap = { leaderboard: [{ name: "Ext One", homepage: "https://ext1.example", wallet: "0xabc0000000000000000000000000000000000abc", wallets: ["0xabc0000000000000000000000000000000000abc"], callsSettled: 42, totalUsd: 3.5, uniqueBuyers: 7 }] };
+  const activity = { days: 30, buckets: [{ date: "2026-07-08", tx: 5, usd: 0.5, buyers: 2 }], totals: { tx: 40, usd: 3.2, buyers: 6 } };
+  const sel = { local: false, host: "ext1.example", name: "Ext One" };
+
+  // Roster shows the settled-call count for a seller the leaderboard covers.
+  const hostView = marketPage("base", "https://agent402.tools", { snapshot, rail: null, activity: null, leaderboardSnap, wallet: "0x1" });
+  ok(/42\s*tx/.test(hostView.replace(/&middot;|·/g, " ")), "base: roster shows the seller's settled-call count (42 tx) from the leaderboard join");
+
+  // Seller card renders the SELECTED seller's own numbers (from scoped activity).
+  const cardView = marketPage("base", "https://agent402.tools", { snapshot, rail: null, activity, selectedSeller: sel, leaderboardSnap, wallet: "0x1" });
+  ok(cardView.includes('id="seller-card"'), "base: seller card renders when a seller is selected");
+  ok(cardView.includes("SETTLED CALLS") && cardView.includes("VOLUME") && cardView.includes("BUYERS") && cardView.includes("TOOLS"), "base: seller card has calls/volume/buyers/tools fields");
+  ok(cardView.includes("0xabc0000000000000000000000000000000000abc"), "base: seller card shows the payTo");
+  ok(cardView.includes(">40<") || /SETTLED CALLS[\s\S]{0,120}>40</.test(cardView), "base: seller card uses the scoped activity totals (40 calls)");
+
+  // Panel endpoint output matches the in-page panel (same renderer).
+  const panel = marketPanelHtml("base", { snapshot, activity, selectedSeller: sel, leaderboardSnap });
+  ok(panel.includes('id="seller-card"') && panel.includes('id="activity"'), "base: marketPanelHtml returns the seller card + activity for the /panel endpoint");
+  ok(cardView.includes(panel.trim().slice(0, 200)), "base: page panel and endpoint panel render identically");
+
+  // Host view (no selection) → no card, just activity.
+  const hostPanel = marketPanelHtml("base", { snapshot, activity: null, selectedSeller: { local: true }, leaderboardSnap });
+  ok(!hostPanel.includes('id="seller-card"'), "base: host view renders no seller card");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
