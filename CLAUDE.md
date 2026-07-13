@@ -138,8 +138,10 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
-- **Paid canary (`scripts/paid-canary.js`):** 24 legs — tools across chains
-  (Base/Solana/Polygon/Arbitrum/Stellar/Robinhood) plus llm-nano (failover), llm-stream
+- **Paid canary (`scripts/paid-canary.js`):** 26 legs — tools across chains
+  (Base/Solana/Polygon/Arbitrum/Stellar/Robinhood), incl. two federal-data legs
+  (vin-decode / geo-lookup) whose Base settlements also seed the gov tools into
+  settlement-driven indexes like x402scan, plus llm-nano (failover), llm-stream
   (`raw:true`, asserts SSE `data:`…`[DONE]`), llm-auto (model-less request must carry the
   `agent402_router` disclosure), llm-embed + embed-cache (default-on free repeat,
   per-run nonce input), llm-image (real b64_json payload >10k chars), my-usage
