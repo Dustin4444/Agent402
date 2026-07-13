@@ -1968,7 +1968,7 @@ let logoPngCache = null;
 app.get("/logo.png", async (_req, res) => {
   try {
     logoPngCache ??= await rasterizeSvg(LOGO_SVG, 512);
-    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(logoPngCache);
+    res.type("image/png").set("Cache-Control", "public, max-age=31536000, immutable").send(logoPngCache);
   } catch {
     // No Chromium on this instance — the SVG is always available.
     res.redirect(302, "/logo.svg");
@@ -1979,13 +1979,13 @@ app.get("/logo.png", async (_req, res) => {
 // is always available; the .ico serves the rasterized PNG (favicon clients
 // accept PNG bytes) and falls back to the SVG if Chromium is unavailable.
 app.get("/favicon.svg", (_req, res) =>
-  res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(FAVICON_SVG)
+  res.type("image/svg+xml").set("Cache-Control", "public, max-age=31536000, immutable").send(FAVICON_SVG)
 );
 let faviconPngCache = null;
 app.get("/favicon.ico", async (_req, res) => {
   try {
     faviconPngCache ??= await rasterizeSvg(FAVICON_SVG, 512);
-    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(faviconPngCache);
+    res.type("image/png").set("Cache-Control", "public, max-age=31536000, immutable").send(faviconPngCache);
   } catch {
     res.redirect(302, "/favicon.svg");
   }

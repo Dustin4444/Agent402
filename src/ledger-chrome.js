@@ -26,6 +26,14 @@ export const LEDGER_HEAD = `<link rel="preload" href="/fonts/archivo-800.woff2" 
 @font-face{font-family:'Archivo';font-style:normal;font-weight:900;font-display:swap;src:url(/fonts/archivo-900.woff2) format('woff2')}
 @font-face{font-family:'Space Mono';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/spacemono-400.woff2) format('woff2')}
 @font-face{font-family:'Space Mono';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/spacemono-700.woff2) format('woff2')}
+/* Metric-matched fallback faces (fontaine/capsize method, computed from the real
+   woff2 files vs Arial/Courier New): the fallback is sized to occupy the SAME box
+   as the web font, so when the self-hosted font swaps in nothing reflows — CLS ~0
+   AND the brand font always shows the moment it loads (no font-display:optional
+   fallback-flash). Overrides apply to whichever local() resolves, so vertical
+   metrics stay matched even on Arial-less systems (Android → Roboto). */
+@font-face{font-family:'Archivo Fallback';src:local('Arial'),local('Roboto'),local('Helvetica Neue');size-adjust:115.7664%;ascent-override:75.8424%;descent-override:18.14%;line-gap-override:0%}
+@font-face{font-family:'Space Mono Fallback';src:local('Courier New'),local('Courier'),local('Roboto Mono');size-adjust:101.9834%;ascent-override:109.8218%;descent-override:35.3979%;line-gap-override:0%}
 </style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">
 <link rel="icon" type="image/png" sizes="512x512" href="/favicon.ico?v=3">
@@ -74,8 +82,8 @@ html { overflow-x: clip; }
   --dk-muted2: #B8B8B8;
   --dk-muted3: #888888;
   --green: #3E9B6E;
-  --font-body: 'Archivo', system-ui, sans-serif;
-  --font-mono: 'Space Mono', monospace;
+  --font-body: 'Archivo', 'Archivo Fallback', system-ui, sans-serif;
+  --font-mono: 'Space Mono', 'Space Mono Fallback', monospace;
 }
 /* Dark theme. Only the true foreground/page tokens flip: --ink (text + borders)
    goes light, --paper/--card/--muted/--faint/--hairline/--dash flip to their
