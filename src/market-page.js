@@ -318,17 +318,28 @@ export function marketActivityHtml(chainKey, activity, selected) {
 
 // Seller card — shown when an external seller is selected from the roster. The
 // chain-level top cards (SELLERS / TOOLS / LATEST SETTLE / PRICE FLOOR) stay
-// chain-wide; this card gives the SELECTED seller's own numbers: settled calls,
-// volume and buyers (from the scoped on-chain activity scan, so it works on
-// every chain), tools + health (from the crawl), its payTo, and first settlement
-// seen in the window. Returns "" when nothing is selected (host view).
-export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo) {
+// chain-wide; this card gives the SELECTED seller's own numbers.
+//
+// Headline SETTLED CALLS / VOLUME / BUYERS come from the leaderboard `stat`
+// (the same rolling-window aggregate the roster's "· N tx" suffix uses) so the
+// list and the card always agree — it also folds in ALL of a seller's grouped
+// payTo wallets, not just the one advertised on this chain, so a router whose
+// real volume lives on a second wallet isn't undercounted. When a seller has no
+// leaderboard row (too small / off-chain-window), we fall back to the scoped
+// on-chain scan's totals; that scan caps at 10k transfers, so a capped total is
+// rendered as a floor ("N+"). The on-chain scan still powers the 30-day Activity
+// charts below regardless — that's where its per-address precision belongs.
+export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, windowLabel) {
   const C = CHAIN_PAGES[chainKey];
   if (!sel || sel.local || !seller) return "";
   const t = (activity && activity.totals) || {};
-  const calls = Number(t.tx ?? stat?.calls ?? 0);
-  const vol = Number(t.usd ?? stat?.usd ?? 0);
-  const buyers = Number(t.buyers ?? stat?.buyers ?? 0);
+  const fromLb = !!stat; // leaderboard row matched this seller's payTo
+  const capped = !fromLb && !!activity?.truncated; // on-chain fallback hit the scan ceiling
+  const plus = capped ? "+" : "";
+  const calls = Number(fromLb ? stat.calls : t.tx ?? 0);
+  const vol = Number(fromLb ? stat.usd : t.usd ?? 0);
+  const buyers = Number(fromLb ? stat.buyers : t.buyers ?? 0);
+  const winLabel = fromLb ? (windowLabel || "7d") : `${activity?.days || 30}d`;
   const toolN = seller.toolCount || 0;
   const health = seller.routable ? "healthy" : "unreachable";
   const firstSeen = (Array.isArray(activity?.buckets) ? activity.buckets.find((b) => Number(b.tx) > 0) : null)?.date || null;
@@ -351,12 +362,12 @@ export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo) {
       </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));border-bottom:1px solid var(--dark-border2);">
-      ${cell("SETTLED CALLS", calls.toLocaleString("en-US"))}
-      ${cell("VOLUME", usd(vol))}
-      ${cell("BUYERS", buyers.toLocaleString("en-US"))}
+      ${cell("SETTLED CALLS", calls.toLocaleString("en-US") + plus)}
+      ${cell("VOLUME", usd(vol) + plus)}
+      ${cell("BUYERS", buyers.toLocaleString("en-US") + plus)}
       ${cell("TOOLS", toolN.toLocaleString("en-US"))}
     </div>
-    <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
+    <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">rolling ${esc(winLabel)} totals${capped ? " (scan capped &mdash; a floor)" : ""} &middot; payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
   </div>`;
 }
 
@@ -378,7 +389,7 @@ export function marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, 
     const hit = rows.find((r) => (r.wallets && r.wallets.length ? r.wallets : [r.wallet]).some((w) => String(w).toLowerCase() === String(payTo).toLowerCase()));
     if (hit) stat = { calls: hit.callsSettled || 0, usd: hit.totalUsd || 0, buyers: hit.uniqueBuyers || 0 };
   }
-  return sellerCardHtml(chainKey, picked, selectedSeller, activity, stat, payTo) + marketActivityHtml(chainKey, activity, selectedSeller);
+  return sellerCardHtml(chainKey, picked, selectedSeller, activity, stat, payTo, leaderboardSnap?.windowLabel) + marketActivityHtml(chainKey, activity, selectedSeller);
 }
 
 export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap } = {}) {

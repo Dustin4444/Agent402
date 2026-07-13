@@ -146,12 +146,26 @@ for (const c of NEW_CHAINS) {
   ok(cardView.includes('id="seller-card"'), "base: seller card renders when a seller is selected");
   ok(cardView.includes("SETTLED CALLS") && cardView.includes("VOLUME") && cardView.includes("BUYERS") && cardView.includes("TOOLS"), "base: seller card has calls/volume/buyers/tools fields");
   ok(cardView.includes("0xabc0000000000000000000000000000000000abc"), "base: seller card shows the payTo");
-  ok(cardView.includes(">40<") || /SETTLED CALLS[\s\S]{0,120}>40</.test(cardView), "base: seller card uses the scoped activity totals (40 calls)");
+  // Card headline uses the leaderboard stat (42), NOT the narrower on-chain scan
+  // (40) — so the list and the card always show the same number for a seller.
+  ok(/SETTLED CALLS[\s\S]{0,140}>42</.test(cardView), "base: seller card headline uses the leaderboard stat (42 calls), matching the roster");
+  ok(!/SETTLED CALLS[\s\S]{0,140}>40</.test(cardView), "base: seller card headline does NOT fall back to the scoped on-chain total (40) when a leaderboard row exists");
+  ok(/rolling\s+7d\s+totals/i.test(cardView), "base: seller card labels its window (rolling 7d) so leaderboard-scoped totals read honestly");
 
   // Panel endpoint output matches the in-page panel (same renderer).
   const panel = marketPanelHtml("base", { snapshot, activity, selectedSeller: sel, leaderboardSnap });
   ok(panel.includes('id="seller-card"') && panel.includes('id="activity"'), "base: marketPanelHtml returns the seller card + activity for the /panel endpoint");
   ok(cardView.includes(panel.trim().slice(0, 200)), "base: page panel and endpoint panel render identically");
+
+  // Fallback: a seller with NO leaderboard row falls back to the scoped on-chain
+  // scan, and a capped scan is rendered as a floor ("40+") rather than a hard total.
+  const EXT2 = { origin: "https://ext2.example", displayName: "Ext Two", homepage: "https://ext2.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xdef0000000000000000000000000000000000def" } };
+  const snapshot2 = { sellers: [LOCAL, EXT2] };
+  const cappedActivity = { days: 30, truncated: true, buckets: [], totals: { tx: 40, usd: 3.2, buyers: 6 } };
+  const sel2 = { local: false, host: "ext2.example", name: "Ext Two" };
+  const fallbackCard = marketPanelHtml("base", { snapshot: snapshot2, activity: cappedActivity, selectedSeller: sel2, leaderboardSnap });
+  ok(/SETTLED CALLS[\s\S]{0,140}>40\+</.test(fallbackCard), "base: no-leaderboard seller falls back to the on-chain total, marked a floor (40+) when the scan is capped");
+  ok(/scan capped/i.test(fallbackCard), "base: capped on-chain fallback surfaces the 'scan capped' floor caveat on the card");
 
   // Host view (no selection) → no card, just activity.
   const hostPanel = marketPanelHtml("base", { snapshot, activity: null, selectedSeller: { local: true }, leaderboardSnap });
