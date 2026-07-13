@@ -282,6 +282,19 @@ for (const c of NEW_CHAINS) {
   ok(/data-chain-tab="all"/.test(html), "all view: renders the filter bar");
   ok(/Chain<\/th>|>Chain</.test(html), "all view: seller list has a Chain column");
   ok(!/first settlement|verify on/.test(html), "all view: no per-chain receipt/verify extras");
+
+  // THIS HOST presents itself like any other seller: its 8 rails fill the
+  // Chain column (never a dash) and its own leaderboard row supplies the tx
+  // count when the route passes our wallet.
+  const LOCAL8 = { ...LOCAL, networks: ["eip155:8453", "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", "eip155:137", "eip155:42161", "eip155:143", "stellar:pubnet", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=", "eip155:4663"] };
+  const OUR_WALLET = "0xfeda7403aabe9a492ed70e810b396d8548a4a022";
+  const selfLb = { leaderboard: [{ name: "Agent402.Tools", homepage: "https://agent402.tools", wallet: OUR_WALLET, wallets: [OUR_WALLET], callsSettled: 9876, totalUsd: 42.5, uniqueBuyers: 55 }] };
+  const selfHtml = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [LOCAL8, EXT] }, leaderboardSnap: selfLb, wallet: OUR_WALLET });
+  ok(/Base\s*<[^>]*>\s*\+7|Base<\/[^>]+>[^<]*\+7|Base[^<]*\+7/.test(selfHtml.replace(/\s+/g, " ")), "all view: THIS HOST's Chain cell shows its rails (Base +7), not a dash");
+  ok(/9,876\s*tx/.test(selfHtml.replace(/&middot;|·/g, " ")), "all view: THIS HOST's row carries its own leaderboard tx count");
+  // No wallet passed → honest silence (no invented number), never a crash.
+  const noWallet = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [LOCAL8, EXT] }, leaderboardSnap: selfLb });
+  ok(!/9,876\s*tx/.test(noWallet), "all view: without a route wallet the local row shows no tx (honest omission)");
 }
 
 // All-view roster dedup — marketPageAll resolves a seller's payTo by walking
