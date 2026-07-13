@@ -259,5 +259,18 @@ for (const c of NEW_CHAINS) {
   ok(/href="\/marketplace"/.test(baseView), "chain view: filter bar links back to /marketplace");
 }
 
+// Nav collapse (Task 5) — the site chrome carries ONE "Marketplace" entry
+// pointing at /marketplace (chains as its dropdown); the old separate "index"
+// trigger/panel and its /index links are gone from nav + footer. The word
+// "index" may only survive in body positioning copy ("the neutral x402 index").
+{
+  const html = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [] }, leaderboardSnap: { leaderboard: [] } });
+  ok(/href="\/marketplace"[^>]*>\s*[Mm]arketplace/.test(html) || />Marketplace<\/a>/.test(html), "nav: single Marketplace entry → /marketplace");
+  ok(!/>index<\/a>/i.test(html.replace(/neutral x402 index/gi, "")), "nav/footer: no user-facing 'index' link");
+  ok(/href="\/base"/.test(html), "nav: chain links still reachable (dropdown)");
+  ok(/href="\/leaderboard"/.test(html), "nav/footer: leaderboard link survives the index-panel merge");
+  ok(!/href="\/index"/.test(html) && !/href="\/marketplaces"/.test(html), "nav/footer: no links to the old /index or /marketplaces URLs");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
