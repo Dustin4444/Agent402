@@ -450,6 +450,17 @@ function bazaarItemToTool(item, originUrl) {
     // includes("test") check would miss a testnet id that happens not to
     // contain the literal substring "test".
     algorandPayTo: accepts.find((a) => typeof a?.network === "string" && a.network.startsWith("algorand:wGHE2Pwd"))?.payTo || null,
+    // payTo keyed by advertised CAIP-2 network — feeds every market page's
+    // per-seller activity scan (the page looks up the payTo whose network
+    // matches the chain being viewed). Stellar/Algorand keep their dedicated
+    // strkey-validated fields above; this covers the EVM chains + Solana, whose
+    // /base, /polygon, /arbitrum, /solana pages had no per-seller address to
+    // scope to. Shape is validated by getActivityForChain before any RPC call.
+    payToByNetwork: Object.fromEntries(
+      accepts
+        .filter((a) => typeof a?.network === "string" && typeof a?.payTo === "string" && a.payTo)
+        .map((a) => [a.network, a.payTo])
+    ),
     provenance: "bazaar",
   };
 }
@@ -879,6 +890,15 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     algorandWallet: [...(v.tools || []), ...(bazaarToolsByOrigin.get(origin) || [])]
       .map((t) => t.algorandPayTo)
       .find((w) => typeof w === "string" && /^[A-Z2-7]{58}$/.test(w)) || null,
+    // Union of payTo-by-network across this seller's crawled + Bazaar tools
+    // (first payTo seen per network wins) — the EVM/Solana counterpart to the
+    // stellar/algorand wallets above, so the market pages can scope activity to
+    // an external seller's advertised address on the chain being viewed.
+    payToByNetwork: [...(bazaarToolsByOrigin.get(origin) || []), ...(v.tools || [])]
+      .reduce((acc, t) => {
+        for (const [net, addr] of Object.entries(t.payToByNetwork || {})) if (!acc[net]) acc[net] = addr;
+        return acc;
+      }, {}),
   }));
   // Collapse http/https duplicates of the same host into one seller. A registry
   // can list the same origin under both schemes (algo.netintel.dev appeared as
@@ -901,6 +921,7 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     keep.networks = [...new Set([...(keep.networks || []), ...(drop.networks || [])])];
     keep.stellarWallet = keep.stellarWallet || drop.stellarWallet;
     keep.algorandWallet = keep.algorandWallet || drop.algorandWallet;
+    keep.payToByNetwork = { ...(drop.payToByNetwork || {}), ...(keep.payToByNetwork || {}) };
     keep.toolCount = Math.max(keep.toolCount || 0, drop.toolCount || 0);
     byHost.set(k, keep);
   }

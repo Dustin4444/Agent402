@@ -54,6 +54,29 @@ for (const c of NEW_CHAINS) {
   ok(!html.includes("stellar.expert") && !html.includes("allo.info"), `${c.key}: no leaked reference to another chain's explorer`);
 }
 
+// Per-seller activity scoping — the roster's "pick a seller to scope the charts"
+// feature. Regression guard for the /base…/arbitrum/solana route that used to
+// ignore ?seller= entirely (rendered THIS HOST no matter which seller you
+// clicked). marketPage must honor selectedSeller: an external pick re-scopes the
+// Activity label to the seller's host and its note names the seller's payTo; a
+// local pick stays on THIS HOST; and an external pick with no scannable activity
+// shows the honest per-seller "unavailable" line instead of the host's charts.
+{
+  const EXT = { origin: "https://ext1.example", displayName: "Ext One", homepage: "https://ext1.example", local: false, toolCount: 3, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xabc0000000000000000000000000000000000abc" } };
+  const snapshot = { sellers: [LOCAL, EXT] };
+  const activity = { days: 30, buckets: [{ date: "2026-07-10", tx: 2, usd: 0.5, buyers: 1 }], totals: { tx: 2, usd: 0.5, buyers: 1 } };
+  const base = (sel, act) => marketPage("base", "https://agent402.tools", { snapshot, rail: null, activity: act, selectedSeller: sel, wallet: "0x1111111111111111111111111111111111111111" });
+
+  ok(/EXT1\.EXAMPLE · PAST 30 DAYS/.test(base({ local: false, host: "ext1.example", name: "Ext One" }, activity)), "base: external selectedSeller re-scopes the Activity label to the seller host");
+  ok(base({ local: false, host: "ext1.example", name: "Ext One" }, activity).includes("this seller's advertised x402 payTo wallet"), "base: external scope note names the seller's payTo, not the host wallet");
+  ok(/THIS HOST · PAST 30 DAYS/.test(base({ local: true }, activity)), "base: local selection keeps the Activity label on THIS HOST");
+  ok(base({ local: false, host: "ext1.example", name: "Ext One" }, null).includes("activity unavailable for this seller"), "base: external pick with no scannable activity shows the honest per-seller unavailable line");
+  // marketSellers passes payToByNetwork through so the route can resolve a
+  // seller's on-chain address for the scan.
+  const sellers = marketSellers("base", snapshot);
+  ok(sellers.find((s) => !s.local)?.payToByNetwork?.["eip155:8453"] === "0xabc0000000000000000000000000000000000abc", "base: marketSellers exposes payToByNetwork for the route's activity scan");
+}
+
 // Robinhood is the one non-USDC rail — asset must read USDG everywhere, and
 // USDC must never leak onto its page.
 {
