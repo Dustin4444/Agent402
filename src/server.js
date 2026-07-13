@@ -34,7 +34,7 @@ import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCa
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePageview, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -625,22 +625,31 @@ const app = express();
 // so spoofing it must not mint a fresh bucket. Tune for other topologies.
 app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
 
-// Server-side $pageview: count human page views without any client-side script,
-// cookie, or CSP change (see capturePageview's pseudonymous, daily-rotating key).
-// Fires on the response's `finish` — only for GET requests that actually returned
-// an HTML page (200 + text/html), skipping APIs, machine surfaces, static assets,
-// and obvious crawlers. Fire-and-forget; wrapped so it can never affect a request.
-const PAGEVIEW_SKIP = /^\/(api|mcp|v1|health|selfcheck|\.well-known|assets|static|favicon)|\.(js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|xml|txt|json)$/i;
-const PAGEVIEW_BOT = /bot|crawler|spider|crawl|slurp|GPTBot|ClaudeBot|PerplexityBot|python-requests|scrapy|curl|wget|httpie|headless|facebookexternalhit|slackbot|discordbot|bingpreview|monitor|uptime|probe/i;
-app.use((req, res, next) => {
-  if (req.method === "GET" && !PAGEVIEW_SKIP.test(req.path) && !PAGEVIEW_BOT.test(req.headers["user-agent"] || "")) {
-    res.on("finish", () => {
-      try {
-        if (res.statusCode === 200 && /text\/html/i.test(String(res.getHeader("content-type") || ""))) capturePageview(req);
-      } catch { /* telemetry must never break a request */ }
-    });
+// PostHog reverse proxy: serve posthog-js AND ingest its events first-party
+// through agent402.tools/e, so the browser never talks to a third-party host.
+// This is what lets the cookieless client snippet (see ledger-chrome's head)
+// dodge ad-blockers and keep CSP at 'self' — no third-party script/connect hosts.
+// Two fixed upstreams (posthog only, so no SSRF): /e/static/* is the JS lib
+// (assets host), everything else is the ingestion host. Raw body is piped
+// through untouched; mounted before compression/json so it owns its response.
+const PH_ASSETS_HOST = "https://us-assets.i.posthog.com";
+const PH_INGEST_HOST = "https://us.i.posthog.com";
+app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (req, res) => {
+  try {
+    const sub = req.params[0] || "";
+    const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
+    const upstream = `${sub.startsWith("static/") ? PH_ASSETS_HOST : PH_INGEST_HOST}/${sub}${qs}`;
+    const headers = {};
+    for (const h of ["content-type", "accept"]) if (req.headers[h]) headers[h] = req.headers[h];
+    const init = { method: req.method, headers };
+    if (req.method !== "GET" && req.method !== "HEAD" && req.body?.length) init.body = req.body;
+    const up = await fetch(upstream, init);
+    res.status(up.status);
+    for (const h of ["content-type", "cache-control"]) { const v = up.headers.get(h); if (v) res.setHeader(h, v); }
+    res.end(Buffer.from(await up.arrayBuffer())); // undici already decompressed; forward as-is
+  } catch {
+    res.status(502).end();
   }
-  next();
 });
 // gzip/deflate every response EXCEPT: (1) /v1/* and /mcp — the LLM gateway's
 // streaming tiers pipe SSE straight to the socket after settlement
