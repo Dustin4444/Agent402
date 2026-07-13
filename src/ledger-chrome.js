@@ -66,7 +66,7 @@ export const LEDGER_CSS = `
   --on-dark2: #F5F5F5;
   --dk-muted: #9C9C9C;
   --dk-muted2: #B8B8B8;
-  --dk-muted3: #7C7C7C;
+  --dk-muted3: #888888;
   --green: #3E9B6E;
   --font-body: 'Archivo', system-ui, sans-serif;
   --font-mono: 'Space Mono', monospace;
