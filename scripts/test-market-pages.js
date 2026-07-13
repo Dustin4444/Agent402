@@ -227,5 +227,27 @@ for (const c of NEW_CHAINS) {
   ok(!/first settlement|verify on/.test(html), "all view: no per-chain receipt/verify extras");
 }
 
+// All-view roster dedup — marketPageAll resolves a seller's payTo by walking
+// EVERY network in payToByNetwork (Object.values), unlike the per-chain
+// roster which is scoped to one network via C.isNetwork. Exercise that with
+// two sellers that share a settlement payTo but advertise it under DIFFERENT
+// networks, so the collapse can only work if the all-view actually checks
+// every network rather than just the first/matching one.
+{
+  const payTo = "0xdupmulti0000000000000000000000000dupm";
+  const A = { origin: "https://amulti.example", displayName: "Multi A", homepage: "https://amulti.example", local: false, toolCount: 50, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": payTo } };
+  const B = { origin: "https://svc-b-multi.up.railway.app", displayName: "Multi B", homepage: "https://svc-b-multi.up.railway.app", local: false, toolCount: 4, routable: true, networks: ["eip155:137"], payToByNetwork: { "eip155:137": payTo } };
+  const snapshot = { sellers: [LOCAL, A, B] };
+  const leaderboardSnap = { leaderboard: [{ name: "Grouped Multi", homepage: "https://amulti.example", wallet: payTo, wallets: [payTo], callsSettled: 777, totalUsd: 8, uniqueBuyers: 5 }] };
+  const html = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap });
+  const stripped = html.replace(/&middot;|·/g, " ");
+
+  ok((stripped.match(/777\s*tx/g) || []).length === 1, "all view: shared-payTo group (advertised on two different networks) renders its tx total once, not per host");
+  ok(stripped.includes("amulti.example"), "all view: canonical host (real domain) survives the multi-network collapse");
+  ok(!/svc-b-multi\.up\.railway\.app/.test(stripped), "all view: the platform-subdomain sibling on the OTHER network is collapsed away, not a second row");
+  ok(/\+1 more endpoint\b/.test(stripped), "all view: collapsed sibling is disclosed as '+1 more endpoint', not hidden");
+  ok(/SELLERS<\/div><div[^>]*>2</.test(html), "all view: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
