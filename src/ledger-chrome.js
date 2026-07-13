@@ -54,7 +54,7 @@ export const LEDGER_CSS = `
   --ink-panel: #151515;
   --ink-tape: #0B0B0B;
   --muted: #4A4A4A;
-  --faint: #8C8C8C;
+  --faint: #6A6A6A;
   --hairline: #E0E0DE;
   --dash: #C9C9C7;
   --dark-border: #262626;
