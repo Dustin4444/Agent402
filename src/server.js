@@ -1241,13 +1241,21 @@ const findCachePolicy = CACHEABLE_ROUTES[findCachePath];
 // 4xx = caller sent bad input; 5xx = our tool or its upstream broke.
 function logToolError(slug, status, message, shape, synthetic, probe) {
   const klass = status >= 500 ? "5xx" : status >= 400 ? "4xx" : "err";
+  // Probe 4xx = an empty-input scanner sweeping the catalog and every tool
+  // correctly rejecting it — expected behavior, not an error. An indexer sweep
+  // of all 1,431 tools emitted 1,431 [err] lines in ~10s (2026-07-13), tripping
+  // Railway's 500 logs/sec cap and DROPPING real log lines. Skip the console
+  // line for those (PostHog still captures the probe-tagged event for
+  // dashboards); probe 5xx still logs — a server bug is our bug no matter who
+  // triggered it.
+  const skipConsole = probe && status < 500;
   // Log the request's TOP-LEVEL KEYS (no values, no IPs, no payment info) on
   // 4xx so we can spot shape-mismatch patterns the schema didn't anticipate.
   // Keys are bounded — privacy-safe and small.
   const shapeStr = shape && Array.isArray(shape) && shape.length ? ` shape=[${shape.slice(0, 12).join(",")}]` : "";
   const synthStr = synthetic ? " synthetic=true" : "";
   const probeStr = probe ? " probe=true" : "";
-  console.error(`[tool-error] ${klass} slug=${slug} status=${status}${shapeStr}${synthStr}${probeStr} msg=${String(message || "").slice(0, 200)}`);
+  if (!skipConsole) console.error(`[tool-error] ${klass} slug=${slug} status=${status}${shapeStr}${synthStr}${probeStr} msg=${String(message || "").slice(0, 200)}`);
   // Sentry mirrors the same data as searchable tags so we can query/trend
   // rejected shapes from the Sentry UI. No-op when SENTRY_DSN is unset.
   captureToolError({ slug, status, message, shape, synthetic });
@@ -1732,7 +1740,7 @@ app.get("/marketplace", async (req, res) => {
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
   let economySnap = null;
   try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
-  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1" }));
+  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS }));
 });
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure

@@ -159,8 +159,10 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
 - OpenRouter account top-up is manual (their programmatic top-up API is deprecated). If a
   "Gateway credits LOW" issue opens, top up the account; the alarm auto-closes the issue
   once `/api/gateway-status` reports `ok` again.
-- Contributor PR **#258** (agentservices.to integration) — merge decision pending;
-  sanity-check its `/.well-known/x402` first. Issue **#282** — awaiting the contributor's
+- Contributor PR **#258** (agentservices.to seed) — MERGED 2026-07-13. Their listing
+  stays STALE until their Railway edge cert stops serving `*.up.railway.app` (verified
+  3/3 wrong at merge; manifest itself is valid). They'll ping when fixed — then confirm
+  the seller appears on /marketplace. Issue **#282** — awaiting the contributor's
   follow-up PR.
 - CI nicety (non-blocking): add an Actions concurrency group to the deploy job so rapid
   pushes stop surfacing benign Railway "superseded build" failures.

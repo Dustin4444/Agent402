@@ -711,6 +711,10 @@ function buildLocalEntry({ baseUrl, catalog, prices, network, toolCount, walletN
     displayName: walletName ? `Agent402.Tools (${walletName})` : "Agent402.Tools",
     homepage: baseUrl,
     network,
+    // Every rail this host settles on (CAIP-2) — same shape crawled sellers get
+    // from their 402 accepts, so the marketplace roster's Chain column renders
+    // us like any other seller instead of an empty dash.
+    networks: RAILS.map((r) => r.caip2),
     toolCount,
     tools,
     fetchedAt: Date.now(),

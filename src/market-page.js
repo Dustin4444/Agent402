@@ -36,7 +36,15 @@ const ROSTER_CSS = `
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 // Crawled manifests are third-party input: only http(s) may become an href.
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
-const usd = (n) => `$${Number(n).toFixed(Number(n) < 0.01 ? 3 : 2).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m))}`;
+// Dollar formatter that never lies about a nonzero settle: normal amounts get
+// 2-3 decimals, but a tiny real payment (e.g. a $0.0004 canary buy) must not
+// round down to "$0" — widen to up to 6 decimals until a nonzero digit shows.
+const usd = (n) => {
+  const v = Number(n);
+  let s = v.toFixed(v < 0.01 ? 3 : 2);
+  if (v > 0 && Number(s) === 0) s = v.toFixed(6);
+  return `$${s.replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m))}`;
+};
 
 /** Per-chain identity + copy. Add a chain here (not a new route) once it has
  *  a live page. Ordered to match src/rails.js (primary rail first). */
@@ -491,7 +499,10 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
     for (const w of (r.wallets && r.wallets.length ? r.wallets : [r.wallet])) if (w) statByWallet.set(String(w).toLowerCase(), stat);
   });
   const sellerPayTo = (s) => (s && !s.local ? (Object.entries(s.payToByNetwork || {}).find(([net]) => C.isNetwork(net))?.[1] || null) : null);
-  const sellerStat = (s) => { const p = sellerPayTo(s); return p ? statByWallet.get(String(p).toLowerCase()) || null : null; };
+  // THIS HOST joins by the page's own wallet (the leaderboard's default view
+  // includes our row) — we present ourselves with the same on-chain numbers as
+  // every other seller, not a blank cell.
+  const sellerStat = (s) => { const p = s?.local ? effectiveWallet : sellerPayTo(s); return p ? statByWallet.get(String(p).toLowerCase()) || null : null; };
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
 
   // Surface the sellers worth clicking: this host first, then most on-chain
@@ -845,7 +856,7 @@ function economyStripHtml(economySnap) {
 // rationale + honest-disclosure pattern as x402-index.js's INDEX_ROW_CAP.
 const ALL_ROW_CAP = 100;
 
-function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = false } = {}) {
+function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = false, wallet } = {}) {
   const sellers = marketSellersAll(snapshot);
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
 
@@ -858,8 +869,12 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   });
   // Unlike the per-chain view (one network via C.isNetwork), an all-chains
   // seller may have a payTo on any of several networks - check them all.
+  // THIS HOST joins by the route-supplied wallet (the leaderboard's default
+  // view includes our own row) — we present ourselves with the same on-chain
+  // numbers as every other seller, not a blank cell.
   const sellerStat = (s) => {
-    if (!s || s.local) return null;
+    if (!s) return null;
+    if (s.local) return wallet ? statByWallet.get(String(wallet).toLowerCase()) || null : null;
     for (const addr of Object.values(s.payToByNetwork || {})) {
       const st = addr ? statByWallet.get(String(addr).toLowerCase()) : null;
       if (st) return st;
