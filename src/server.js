@@ -1680,16 +1680,37 @@ const SNAPSHOT_RAIL_LABEL = { base: "Base", solana: "Solana", polygon: "Polygon"
 // settle to the same WALLET_ADDRESS; Solana has its own env.
 const chainWallet = (chainKey) => (chainKey === "solana" ? (process.env.SOLANA_WALLET_ADDRESS || "").trim() : WALLET_ADDRESS);
 for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
-  app.get(`/${chainKey}`, async (_req, res) => {
+  app.get(`/${chainKey}`, async (req, res) => {
     try {
       const snapshot = getIndexSnapshot();
-      const wallet = chainWallet(chainKey);
+      const hostWallet = chainWallet(chainKey);
+      // ?seller=<host> scopes the Activity charts to that seller (mirrors
+      // /stellar + /algorand, which read the same param). Without it — or for an
+      // unknown seller — the scope stays on this host. The generic route used to
+      // ignore the query entirely (`_req`), so clicking a seller in the roster
+      // changed the URL but never re-scoped the charts.
+      const C = CHAIN_PAGES[chainKey];
+      const sellers = marketSellers(chainKey, snapshot);
+      const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+      const q = String(req.query.seller || "").toLowerCase().slice(0, 253);
+      const picked = (q && sellers.find((s) => !s.local && hostOf(s.homepage || s.origin) === q)) || sellers.find((s) => s.local) || null;
+      // External pick → scan its advertised payTo on THIS chain (network matched
+      // by C.isNetwork). getActivityForChain validates the address shape and
+      // returns null for an absent/unscannable one, so the page renders the
+      // honest "activity unavailable for this seller" line rather than the host's.
+      const sellerWallet = picked && !picked.local
+        ? (Object.entries(picked.payToByNetwork || {}).find(([net]) => C.isNetwork(net))?.[1] || null)
+        : null;
+      const scanWallet = picked && !picked.local ? sellerWallet : hostWallet;
       const [revSnap, activity] = await Promise.all([
         revenueSnapshot(revenueWallets()),
-        getActivityForChain(chainKey, wallet),
+        scanWallet ? getActivityForChain(chainKey, scanWallet) : Promise.resolve(null),
       ]);
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
-      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, wallet: rail?.wallet || undefined }));
+      const selectedSeller = picked
+        ? { local: !!picked.local, host: picked.local ? null : hostOf(picked.homepage || picked.origin), name: picked.displayName || null }
+        : null;
+      htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined }));
     } catch (e) {
       res.status(500).type("text/plain").send("temporarily unavailable");
     }
