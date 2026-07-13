@@ -63,6 +63,25 @@ export const TOOLS = [
     check: (r) => (typeof r.yr10 === "number" && r.yr10 > 0 && r.yr10 < 25) || `expected yr10 in (0, 25), got ${JSON.stringify(r).slice(0, 80)}`,
   },
   {
+    // Federal-data pack (NHTSA vPIC). Deterministic VIN -> fixed vehicle, the
+    // same assertion src/selfcheck.js enforces. A real Base settlement also
+    // seeds the new gov tools into settlement-driven indexes (x402scan surfaces
+    // a tool once it has an on-chain paid buy, not from a catalog crawl).
+    kit: "gov",
+    path: "/api/vin-decode?vin=1HGCM82633A004352",
+    method: "GET",
+    priceUsd: 0.004,
+    check: (r) => (r.vehicle?.make === "HONDA" && r.vehicle?.year === "2003") || `expected vehicle.make HONDA + year 2003, got ${JSON.stringify(r).slice(0, 100)}`,
+  },
+  {
+    // Federal-data pack (FCC Area API). Fixed coordinates -> fixed county/state.
+    kit: "gov",
+    path: "/api/geo-lookup?lat=34.0522&lon=-118.2437",
+    method: "GET",
+    priceUsd: 0.003,
+    check: (r) => (r.county === "Los Angeles County" && r.state === "CA") || `expected Los Angeles County/CA, got ${JSON.stringify(r).slice(0, 100)}`,
+  },
+  {
     kit: "finance",
     path: "/api/stock-quote?symbol=AAPL",
     method: "GET",
