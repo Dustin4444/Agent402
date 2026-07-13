@@ -172,5 +172,30 @@ for (const c of NEW_CHAINS) {
   ok(!hostPanel.includes('id="seller-card"'), "base: host view renders no seller card");
 }
 
+// Roster dedup — multiple crawled hosts that settle to the SAME leaderboard
+// group (shared payTo, or distinct wallets the leaderboard grouped) collapse
+// into ONE roster row, so the group's tx total isn't repeated per host.
+{
+  const payTo = "0xdup00000000000000000000000000000000dup0";
+  const A = { origin: "https://a.example", displayName: "Svc A", homepage: "https://a.example", local: false, toolCount: 50, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": payTo } };
+  const B = { origin: "https://svc-b.up.railway.app", displayName: "Svc B", homepage: "https://svc-b.up.railway.app", local: false, toolCount: 4, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": payTo } };
+  const snapshot = { sellers: [LOCAL, A, B] };
+  const leaderboardSnap = { leaderboard: [{ name: "Grouped", homepage: "https://a.example", wallet: payTo, wallets: [payTo], callsSettled: 999, totalUsd: 5, uniqueBuyers: 3 }] };
+  const html = marketPage("base", "https://agent402.tools", { snapshot, rail: null, activity: null, leaderboardSnap, wallet: "0x1" });
+  const stripped = html.replace(/&middot;|·/g, " ");
+  ok((stripped.match(/999\s*tx/g) || []).length === 1, "base: shared-wallet group's tx total renders once, not per host");
+  ok(stripped.includes("a.example"), "base: canonical host (real domain) survives the collapse");
+  ok(!/svc-b\.up\.railway\.app/.test(stripped), "base: the platform-subdomain sibling is collapsed away, not a second row");
+  ok(/\+1 more endpoint\b/.test(stripped), "base: collapsed sibling is disclosed as '+1 more endpoint', not hidden");
+  ok(/SELLERS<\/div><div[^>]*>2</.test(html), "base: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
+
+  // Sellers with NO leaderboard row are the discovery long-tail — never grouped.
+  const C1 = { origin: "https://c1.example", displayName: "C1", homepage: "https://c1.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xc1000000000000000000000000000000000000c1" } };
+  const C2 = { origin: "https://c2.example", displayName: "C2", homepage: "https://c2.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xc2000000000000000000000000000000000000c2" } };
+  const tailHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, C1, C2] }, rail: null, activity: null, leaderboardSnap: { leaderboard: [] }, wallet: "0x1" });
+  ok(tailHtml.includes("c1.example") && tailHtml.includes("c2.example"), "base: no-leaderboard sellers stay individually listed (long-tail not collapsed)");
+  ok(/SELLERS<\/div><div[^>]*>3</.test(tailHtml), "base: SELLERS count keeps ungrouped long-tail sellers distinct (3)");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
