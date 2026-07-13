@@ -659,10 +659,11 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">An open index of the whole ${esc(C.chainName)} x402 economy - this host plus every independent seller the hourly crawl finds (CDP Bazaar included). Not a walled market: other venues' listings appear here too.</p>
       ${receiptHtml}
       <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">${C.canaryLine}</p>
-      ${statsHtml}
     </div>
     ${railManifestHtml}
-  </div>`;
+  </div>
+  ${marketFilterBar(chainKey, baseUrl)}
+  ${statsHtml}`;
 
   const rosterHtml = `
   <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on ${esc(C.chainName)}</h2>

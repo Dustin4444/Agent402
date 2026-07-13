@@ -1750,6 +1750,16 @@ app.get("/api/market/:chain/panel", async (req, res) => {
     res.status(500).json({ error: "temporarily unavailable" });
   }
 });
+// The canonical all-chains marketplace directory — marketPage(null, …), the
+// unified "The x402 marketplace" view (Task 2). Thin wrapper: getIndexSnapshot
+// is the seller roster, getLeaderboardSnapshot is optional (a failed fetch
+// still renders the directory, just without the per-seller settled-call join).
+app.get("/marketplace", (_req, res) => {
+  const snapshot = getIndexSnapshot();
+  let leaderboardSnap = null;
+  try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
+  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap }));
+});
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure
 // degrades to "temporarily unavailable" text rather than a half-rendered page.

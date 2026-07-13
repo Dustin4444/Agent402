@@ -249,5 +249,15 @@ for (const c of NEW_CHAINS) {
   ok(/SELLERS<\/div><div[^>]*>2</.test(html), "all view: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
 }
 
+// /marketplace + per-chain filter bar — the chain views must now carry the
+// shared filter bar (Task 3) so a visitor can jump straight to /marketplace
+// or another chain without going back through the switcher strip.
+{
+  const snapshot = { sellers: [{ local: true, displayName: "Agent402.Tools", homepage: "https://agent402.tools", toolCount: 1431, routable: true, networks: ["eip155:8453"] }] };
+  const baseView = marketPage("base", "https://agent402.tools", { snapshot, rail: null, activity: null });
+  ok(/data-chain-tab="base"[^>]*\bon\b|\bon\b[^>]*data-chain-tab="base"/.test(baseView), "chain view: filter bar present with Base active");
+  ok(/href="\/marketplace"/.test(baseView), "chain view: filter bar links back to /marketplace");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
