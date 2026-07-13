@@ -36,7 +36,15 @@ const ROSTER_CSS = `
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 // Crawled manifests are third-party input: only http(s) may become an href.
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
-const usd = (n) => `$${Number(n).toFixed(Number(n) < 0.01 ? 3 : 2).replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m))}`;
+// Dollar formatter that never lies about a nonzero settle: normal amounts get
+// 2-3 decimals, but a tiny real payment (e.g. a $0.0004 canary buy) must not
+// round down to "$0" — widen to up to 6 decimals until a nonzero digit shows.
+const usd = (n) => {
+  const v = Number(n);
+  let s = v.toFixed(v < 0.01 ? 3 : 2);
+  if (v > 0 && Number(s) === 0) s = v.toFixed(6);
+  return `$${s.replace(/\.?0+$/, (m) => (m.includes(".") ? "" : m))}`;
+};
 
 /** Per-chain identity + copy. Add a chain here (not a new route) once it has
  *  a live page. Ordered to match src/rails.js (primary rail first). */
