@@ -236,7 +236,10 @@ a { color: inherit; }
 }
 .mfb-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;}
 .mfb-tab{font-family:var(--font-mono);font-size:12px;padding:5px 11px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);text-decoration:none;white-space:nowrap;}
-.mfb-tab.on{background:var(--ink);color:var(--on-dark);}
+/* Active tab: accent-as-background — the one pattern that stays legible in BOTH
+   themes (white on #BF360C is 5.8:1; --ink/--on-dark flip light in dark mode and
+   made the active tab a white blob with invisible text). */
+.mfb-tab.on{background:var(--accent);color:#fff;border-color:var(--accent);}
 .mfb-sel,.mfb-search{font-family:var(--font-mono);font-size:12px;padding:6px 10px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);}
 .mfb-search{flex:1;min-width:120px;}
 `;

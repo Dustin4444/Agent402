@@ -290,7 +290,6 @@ export function marketFilterBar(chainKey, _baseUrl) {
   if(sortSel)sortSel.addEventListener('change',function(){
     var k=sortSel.value;
     rows.slice().sort(function(a,b){
-      if(num(a,'local')!==num(b,'local'))return num(b,'local')-num(a,'local');
       if(k==='health'&&num(a,'health')!==num(b,'health'))return num(b,'health')-num(a,'health');
       var m=k==='health'?'calls':k;
       return num(b,m)-num(a,m);
@@ -505,11 +504,10 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const sellerStat = (s) => { const p = s?.local ? effectiveWallet : sellerPayTo(s); return p ? statByWallet.get(String(p).toLowerCase()) || null : null; };
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
 
-  // Surface the sellers worth clicking: this host first, then most on-chain
-  // settled calls, then healthy, then tool-rich. So the roster leads with active
-  // sellers instead of crawl order.
+  // Surface the sellers worth clicking: most on-chain settled calls, then
+  // healthy, then tool-rich. THIS HOST is NOT pinned — the neutral-index claim
+  // means we rank by the same numbers as everyone else (the badge marks us).
   sellers.sort((a, b) => {
-    if (!!a.local !== !!b.local) return a.local ? -1 : 1;
     const ca = sellerStat(a)?.calls || 0, cb = sellerStat(b)?.calls || 0;
     if (ca !== cb) return cb - ca;
     if (!!a.routable !== !!b.routable) return a.routable ? -1 : 1;
@@ -609,7 +607,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   const statsHtml = `
   <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">reachable in the open index right now</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${tools.length.toLocaleString("en-US")}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">LATEST SETTLE</div><div style="font-size:26px;font-weight:800;">${latest ? usd(latest.usd) : "-"}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">PRICE FLOOR</div><div style="font-size:26px;font-weight:800;">${usd(low)}</div></div>
@@ -719,7 +717,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   const rosterHtml = `
   <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on ${esc(C.chainName)}</h2>
-  <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">pick a seller to scope the activity charts · THIS HOST = run by agent402 · every other seller is independent, found by the open crawl</p>
+  <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">pick a seller to scope the activity charts · THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · tx = settled calls, last 7 days on-chain</p>
   ${compact
     ? `<div style="display:flex;flex-direction:column;gap:8px;">${sellersHtml}</div>`
     : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;">${sellersHtml}</div>`}
@@ -836,7 +834,10 @@ function economyStripHtml(economySnap) {
   const p7 = num(t7.payers);
   if (p7 != null) cells.push(cell("PAYERS · 7D", fmt(p7)));
   const m7 = num(t7.merchants);
-  if (m7 != null) cells.push(cell("SELLERS SETTLING · 7D", fmt(m7)));
+  // "Wallets", not "sellers": this counts EVERY receiving wallet observed
+  // on-chain in the window — most never list in any index — so it must not
+  // read as the same population as the directory's "SELLERS LISTED" card.
+  if (m7 != null) cells.push(cell("WALLETS SETTLING · 7D", fmt(m7)));
   const s30 = num(t30.settlements);
   if (s30 != null) cells.push(cell("SETTLEMENTS · 30D", fmt(s30)));
   const inner = cells.length
@@ -883,10 +884,10 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   };
   const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
 
-  // This host first, then most settled calls, then healthy, then tool-rich -
-  // same ordering rationale as the per-chain roster.
+  // Most settled calls, then healthy, then tool-rich - same ordering rationale
+  // as the per-chain roster. THIS HOST is NOT pinned: the neutral-index claim
+  // means we rank by the same on-chain numbers as everyone else.
   sellers.sort((a, b) => {
-    if (!!a.local !== !!b.local) return a.local ? -1 : 1;
     const ca = sellerStat(a)?.calls || 0, cb = sellerStat(b)?.calls || 0;
     if (ca !== cb) return cb - ca;
     if (!!a.routable !== !!b.routable) return a.routable ? -1 : 1;
@@ -941,11 +942,17 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 
   // Row cap (speed): the deduped roster runs 700+ sellers in prod; render the
   // top ALL_ROW_CAP by the default sort unless ?all=1 asked for everything.
-  // The local seller sorts first, so the cap can never drop it. Totals (the
-  // SELLERS card, JSON-LD numberOfItems) stay on the FULL roster — the cap
-  // truncates the table, never the honest count.
+  // THIS HOST is ranked, not pinned — if its honest rank falls below the cap,
+  // append it after the top-N (visible, at no flattering position) rather than
+  // silently dropping the host page's own row. Totals (the SELLERS LISTED card,
+  // JSON-LD numberOfItems) stay on the FULL roster — the cap truncates the
+  // table, never the honest count.
   const truncated = !all && rosterSellers.length > ALL_ROW_CAP;
-  const visibleSellers = truncated ? rosterSellers.slice(0, ALL_ROW_CAP) : rosterSellers;
+  let visibleSellers = truncated ? rosterSellers.slice(0, ALL_ROW_CAP) : rosterSellers;
+  if (truncated && !visibleSellers.some((s) => s.local)) {
+    const loc = rosterSellers.find((s) => s.local);
+    if (loc) visibleSellers = [...visibleSellers, loc];
+  }
   const capNote = truncated
     ? `<p class="chips-note" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:10px 0 0;">showing the top ${ALL_ROW_CAP} of ${rosterSellers.length} sellers &middot; <a href="/marketplace?all=1" style="color:var(--muted);">show all &rarr;</a></p>`
     : "";
@@ -971,7 +978,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 
   const rosterHtml = `
   <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Every seller, every chain</h2>
-  <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · Chain shows where each seller settles</p>
+  <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · Chain shows where each seller settles · tx = settled calls, last 7 days on-chain</p>
   <div style="overflow-x:auto;">
   <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
     <thead><tr style="text-align:left;">
@@ -988,7 +995,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 
   const statsHtml = `
   <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:26px 0 0;">
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">reachable in the open index right now</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">CHAINS SUPPORTED</div><div style="font-size:26px;font-weight:800;">${Object.keys(CHAIN_PAGES).length}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${(sellers.find((s) => s.local)?.toolCount || 0).toLocaleString("en-US")}</div></div>
   </div>`;
