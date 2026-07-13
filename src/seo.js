@@ -47,7 +47,9 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/.well-known/x402`, priority: "0.7" },
     { loc: `${baseUrl}/api/reliability`, priority: "0.6" },
     { loc: `${baseUrl}/api/stats`, priority: "0.6" },
-    { loc: `${baseUrl}/index`, priority: "0.8" },
+    // Unified marketplace surface (the old /index and /marketplaces 301 here —
+    // a sitemap must never list URLs that redirect).
+    { loc: `${baseUrl}/marketplace`, priority: "0.9" },
     { loc: `${baseUrl}/api/index`, priority: "0.6" },
     { loc: `${baseUrl}/sell`, priority: "0.8" },
     { loc: `${baseUrl}/api/route`, priority: "0.7" },
@@ -122,7 +124,8 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/integrations`, priority: "0.8" },
     { loc: `${baseUrl}/use-cases`, priority: "0.8" },
     { loc: `${baseUrl}/faq`, priority: "0.8" },
-    { loc: `${baseUrl}/index`, priority: "0.8" },
+    // Unified marketplace surface (the old /index and /marketplaces 301 here).
+    { loc: `${baseUrl}/marketplace`, priority: "0.9" },
     { loc: `${baseUrl}/sell`, priority: "0.8" },
     { loc: `${baseUrl}/leaderboard`, priority: "0.8" },
     { loc: `${baseUrl}/docs`, priority: "0.8" },

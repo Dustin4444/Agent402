@@ -4,6 +4,8 @@
 // scripts/test-stellar-page.js / test-algorand-page.js); this file locks
 // down the CHAIN_PAGES entries added alongside them. No server, no network.
 import { marketSellers, marketSellersAll, marketPage, marketPanelHtml, CHAIN_PAGES, marketFilterBar } from "../src/market-page.js";
+import { sitemapPages, sitemapXml, llmsTxt } from "../src/seo.js";
+import { serviceManifest } from "../src/discovery.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -270,6 +272,37 @@ for (const c of NEW_CHAINS) {
   ok(/href="\/base"/.test(html), "nav: chain links still reachable (dropdown)");
   ok(/href="\/leaderboard"/.test(html), "nav/footer: leaderboard link survives the index-panel merge");
   ok(!/href="\/index"/.test(html) && !/href="\/marketplaces"/.test(html), "nav/footer: no links to the old /index or /marketplaces URLs");
+}
+
+// Sitemap + canonical (Task 7) — the sitemaps must list the unified
+// /marketplace surface and must NOT list the legacy /index or /marketplaces
+// URLs (both 301 to /marketplace now; a sitemap must never list URLs that
+// redirect). Exact-string checks so the legit /api/index JSON endpoint in the
+// monolith sitemap doesn't false-positive the /index assertion.
+{
+  const BASE = "https://agent402.tools";
+  for (const [label, xml] of [["sitemap-pages", sitemapPages(BASE, {})], ["sitemap.xml", sitemapXml(BASE, {})]]) {
+    ok(xml.includes(`${BASE}/marketplace</loc>`), `${label}: /marketplace listed`);
+    ok(!xml.includes(`${BASE}/index</loc>`), `${label}: legacy /index dropped (it 301s)`);
+    ok(!xml.includes(`${BASE}/marketplaces</loc>`), `${label}: legacy /marketplaces dropped (it 301s)`);
+  }
+  // llms.txt is a machine surface too — it must not point agents at the 301s.
+  const llms = llmsTxt(BASE, {});
+  ok(!llms.includes(`${BASE}/index)`) && !llms.includes(`${BASE}/marketplaces)`), "llms.txt: no links to the legacy /index or /marketplaces URLs");
+
+  // The all-chains view is self-canonical to /marketplace; per-chain pages
+  // stay self-canonical (spot-check /base).
+  const allHtml = marketPage(null, BASE, { snapshot: { sellers: [] }, leaderboardSnap: { leaderboard: [] } });
+  ok(allHtml.includes(`<link rel="canonical" href="${BASE}/marketplace">`), "all view: canonical is /marketplace");
+  const baseHtml = marketPage("base", BASE, { snapshot: { sellers: [] }, rail: null, activity: null });
+  ok(baseHtml.includes(`<link rel="canonical" href="${BASE}/base">`), "chain view: /base stays self-canonical");
+
+  // The chain pages' breadcrumb JSON-LD and the /.well-known/x402 manifest are
+  // machine surfaces too — they must point at /marketplace, not the 301s.
+  ok(baseHtml.includes(`"item":"${BASE}/marketplace"`), "chain view: breadcrumb JSON-LD points at /marketplace, not /index");
+  ok(!baseHtml.includes(`"item":"${BASE}/index"`), "chain view: breadcrumb JSON-LD has no /index item");
+  const manifest = serviceManifest({ baseUrl: BASE, network: "base", networks: ["base"], wallet: "0x1", walletName: "t", catalog: {}, toolCount: 0, powSlugs: [], powDifficulty: 20, prices: [] });
+  ok(manifest.discovery.sellerIndexHtml === `${BASE}/marketplace`, ".well-known/x402: sellerIndexHtml points at /marketplace, not the /index 301");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

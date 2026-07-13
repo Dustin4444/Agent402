@@ -187,7 +187,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       spec: "x402-discovery/1",
       neutralRouter: `${baseUrl}/api/route`,
       sellerIndex: `${baseUrl}/api/index`,
-      sellerIndexHtml: `${baseUrl}/index`,
+      sellerIndexHtml: `${baseUrl}/marketplace`,
       // On-chain ranking of every seller in the Bazaar by Base USDC settled
       // volume. Same router, different sort key — closes the loop on
       // discovery: find a tool, route to a seller, see who's most used.

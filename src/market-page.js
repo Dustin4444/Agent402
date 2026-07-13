@@ -586,7 +586,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       "@type": "BreadcrumbList",
       itemListElement: [
         { "@type": "ListItem", position: 1, name: "Agent402.Tools", item: baseUrl },
-        { "@type": "ListItem", position: 2, name: "Index", item: `${baseUrl}/index` },
+        { "@type": "ListItem", position: 2, name: "Marketplace", item: `${baseUrl}/marketplace` },
         { "@type": "ListItem", position: 3, name: C.chainName, item: `${baseUrl}/${chainKey}` },
       ],
     },

@@ -885,13 +885,14 @@ app.get("/api/x402-economy", async (_req, res) => {
     res.status(500).json({ error: "economy snapshot failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
-// The standalone Observatory page folded into /index's "The economy, over
-// time" section (id="economy") - little standalone traffic, and the daily
+// The standalone Observatory page folded into the marketplace's "The economy,
+// over time" section (id="economy") - little standalone traffic, and the daily
 // history + week-over-week trend now sit next to the rest of the ecosystem
-// dashboard. Permanent redirect; /api/x402-economy (above) is unchanged for
-// machine consumers.
+// dashboard. Permanent redirect straight to /marketplace (never chain through
+// the /index 301 - a redirect Location must not point at another redirect);
+// /api/x402-economy (above) is unchanged for machine consumers.
 app.get("/x402-economy", (_req, res) => {
-  res.redirect(301, "/index#economy");
+  res.redirect(301, "/marketplace#economy");
 });
 app.get("/changelog", (_req, res) => htmlCache(res, 300, 900).send(changelogPage(BASE_URL)));
 app.get("/use-cases", (_req, res) => htmlCache(res, 300, 900).send(useCasesPage(BASE_URL)));
@@ -2012,10 +2013,11 @@ app.get("/card-1280.png", async (_req, res) => {
 app.get("/openapi.json", (_req, res) => res.set("Cache-Control", "public, max-age=3600").json(openapiSpec(BASE_URL, CATALOG)));
 app.get("/tools", (_req, res) => htmlCache(res, 300, 900).send(ledgerCatalogPage(BASE_URL, CATALOG, SKILL_PACKS)));
 app.get("/shop", (_req, res) => htmlCache(res, 300, 900).send(shopPage(BASE_URL, CATALOG)));
-// The standalone economy dashboard folded into /index's "The economy, over
-// time" section (its 24h totals/concentration/network-split summary moved
-// there; the top-10 list duplicated /leaderboard and was dropped).
-app.get("/economy", (_req, res) => res.redirect(301, "/index#economy"));
+// The standalone economy dashboard folded into the marketplace's "The economy,
+// over time" section (its 24h totals/concentration/network-split summary moved
+// there; the top-10 list duplicated /leaderboard and was dropped). Redirect
+// straight to /marketplace - never chain through the /index 301.
+app.get("/economy", (_req, res) => res.redirect(301, "/marketplace#economy"));
 app.get("/tools/category/:cat", (req, res) => {
   const html = categoryPage(BASE_URL, CATALOG, req.params.cat);
   if (!html) return res.status(404).type("html").send('<p>Category not found. <a href="/tools">All tools</a></p>');
