@@ -3,7 +3,9 @@
 // src/market-page.js already covers /stellar and /algorand (see
 // scripts/test-stellar-page.js / test-algorand-page.js); this file locks
 // down the CHAIN_PAGES entries added alongside them. No server, no network.
-import { marketSellers, marketPage, marketPanelHtml, CHAIN_PAGES } from "../src/market-page.js";
+import { marketSellers, marketSellersAll, marketPage, marketPanelHtml, CHAIN_PAGES, marketFilterBar } from "../src/market-page.js";
+import { sitemapPages, sitemapXml, llmsTxt } from "../src/seo.js";
+import { serviceManifest } from "../src/discovery.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -195,6 +197,205 @@ for (const c of NEW_CHAINS) {
   const tailHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, C1, C2] }, rail: null, activity: null, leaderboardSnap: { leaderboard: [] }, wallet: "0x1" });
   ok(tailHtml.includes("c1.example") && tailHtml.includes("c2.example"), "base: no-leaderboard sellers stay individually listed (long-tail not collapsed)");
   ok(/SELLERS<\/div><div[^>]*>3</.test(tailHtml), "base: SELLERS count keeps ungrouped long-tail sellers distinct (3)");
+}
+
+// Market filter bar — shared chain tabs + sort + search, wired client-side.
+{
+  const all = marketFilterBar(null, "https://agent402.tools");
+  ok(/href="\/marketplace"/.test(all), "filter bar: All tab links to /marketplace");
+  ok(/data-chain-tab="all"[^>]*class="[^"]*\bon\b/.test(all) || /class="[^"]*\bon\b[^"]*"[^>]*data-chain-tab="all"/.test(all), "filter bar: All tab is active in the all-chains view");
+  ok(/href="\/base"/.test(all) && /href="\/robinhood"/.test(all), "filter bar: every chain tab is a link");
+  const base = marketFilterBar("base", "https://agent402.tools");
+  ok(/data-chain-tab="base"[^>]*\bon\b|\bon\b[^>]*data-chain-tab="base"/.test(base), "filter bar: Base tab active on the Base view");
+  ok(/href="\/marketplace"/.test(base), "filter bar: All tab links back to /marketplace from a chain view");
+  ok(/Sort/i.test(all), "filter bar: has a Sort control");
+  // The roster lists SELLERS and sellers carry no category data — a Category
+  // select would be a dead control, so the bar must not render one.
+  ok(!/Category/i.test(all) && !/data-mfb-cat/.test(all), "filter bar: no dead Category control");
+  // Sort options per the spec: most settled (default), volume, buyers, tools,
+  // plus health (cheap — rows already carry routability).
+  for (const v of ["calls", "usd", "buyers", "tools", "health"]) ok(all.includes(`option value="${v}"`), `filter bar: sort option '${v}' present`);
+  // The wiring script ships with the bar: consumes data-mfb-sort +
+  // data-mfb-search over [data-mfb-row] rows, reorders by moving existing
+  // nodes (appendChild) and toggles style.display — never innerHTML.
+  ok(all.includes("select[data-mfb-sort]") && all.includes("addEventListener('change'"), "filter bar: script wires the data-mfb-sort select");
+  ok(all.includes("input[data-mfb-search]") && all.includes("addEventListener('input'"), "filter bar: script wires the data-mfb-search input");
+  ok(all.includes("data-mfb-row") && all.includes("appendChild") && all.includes("style.display"), "filter bar: script sorts/filters [data-mfb-row] rows via appendChild + style.display");
+  ok(!all.includes("innerHTML"), "filter bar: script never assigns innerHTML");
+  // Execution-order guard — the bar renders ABOVE the roster, so an inline
+  // script that queries [data-mfb-row] at parse time finds ZERO rows and its
+  // early return dead-wires Sort/search on every load (the original bug). The
+  // row lookup must be deferred to DOMContentLoaded: the wrapper must exist
+  // and textually precede the row query it defers.
+  const dclIdx = all.indexOf("addEventListener('DOMContentLoaded'");
+  ok(dclIdx !== -1 && dclIdx < all.indexOf("querySelectorAll('[data-mfb-row]')"), "filter bar: row lookup is deferred to DOMContentLoaded, not run at parse time");
+}
+
+// Roster rows carry the numeric data-* payload the filter bar script sorts on
+// — on BOTH the all-chains <tr> rows and the per-chain compact rows.
+{
+  const EXT = { origin: "https://ext1.example", displayName: "Ext One", homepage: "https://ext1.example", local: false, toolCount: 3, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xabc0000000000000000000000000000000000abc" } };
+  const leaderboardSnap = { leaderboard: [{ name: "Ext One", homepage: "https://ext1.example", wallet: "0xabc0000000000000000000000000000000000abc", wallets: ["0xabc0000000000000000000000000000000000abc"], callsSettled: 42, totalUsd: 3.5, uniqueBuyers: 7 }] };
+  const allHtml = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [LOCAL, EXT] }, leaderboardSnap });
+  ok(/<tr data-mfb-row data-local="0" data-health="1" data-calls="42" data-usd="3\.5" data-buyers="7" data-tools="3"/.test(allHtml), "all view: roster row carries numeric data-calls/usd/buyers/tools attributes");
+  ok(/<tr data-mfb-row data-local="1"/.test(allHtml), "all view: local row is marked data-local=1 (stays pinned through client sorts)");
+  // Per-chain compact view (>12 sellers forces compact rows).
+  const many = Array.from({ length: 14 }, (_, i) => ({ origin: `https://e${i}.example`, displayName: `E${i}`, homepage: `https://e${i}.example`, local: false, toolCount: i, routable: true, networks: ["eip155:8453"], payToByNetwork: {} }));
+  const chainHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, ...many] }, rail: null, activity: null, wallet: "0x1" });
+  ok(/<a [^>]*data-mfb-row data-local="0" data-health="1"[^>]*data-tools="13"/.test(chainHtml), "chain view: compact roster rows carry the same data-* payload");
+  ok(chainHtml.includes("select[data-mfb-sort]"), "chain view: filter-bar wiring script is emitted on per-chain pages too");
+}
+
+// Roster row cap (speed P0) — the all-chains roster renders at most
+// ALL_ROW_CAP (100) rows by default with an honest cap note + ?all=1 escape;
+// all:true renders every deduped seller. Counts, JSON-LD and the SELLERS card
+// stay on the FULL roster either way.
+{
+  const many = Array.from({ length: 120 }, (_, i) => ({ origin: `https://s${i}.example`, displayName: `Seller ${i}`, homepage: `https://s${i}.example`, local: false, toolCount: 1, routable: true, networks: ["eip155:8453"], payToByNetwork: {} }));
+  const snapshot = { sellers: [LOCAL, ...many] }; // 121 deduped sellers
+  const capped = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] } });
+  // Count `<tr data-mfb-row` (not the bare attribute — the filter-bar script
+  // legitimately mentions the attribute name once in its querySelectorAll).
+  ok((capped.match(/<tr data-mfb-row/g) || []).length === 100, `all view: default render caps the roster at 100 rows (got ${(capped.match(/<tr data-mfb-row/g) || []).length})`);
+  ok(capped.includes("showing the top 100 of 121 sellers"), "all view: cap note discloses the truncation honestly");
+  ok(capped.includes('href="/marketplace?all=1"'), "all view: cap note links the ?all=1 escape hatch");
+  ok(/<tr data-mfb-row data-local="1"/.test(capped), "all view: the local seller survives the cap (sorted first)");
+  ok(/SELLERS<\/div><div[^>]*>121</.test(capped), "all view: SELLERS card still counts the full roster (121), not the capped table");
+  const full = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] }, all: true });
+  ok((full.match(/<tr data-mfb-row/g) || []).length === 121, `all view: all:true renders every roster row (got ${(full.match(/<tr data-mfb-row/g) || []).length})`);
+  ok(!full.includes("showing the top 100"), "all view: no cap note when the full roster is rendered");
+}
+
+// All-chains view — marketPage(null, …) renders the unified "The x402
+// marketplace" directory instead of a chain-scoped page: neutral header +
+// positioning line, the filter bar with All active, a seller roster over
+// EVERY seller (not chain-filtered) with an added Chain column, and none of
+// the chain-specific extras (receipt strip / per-seller activity / sell copy).
+{
+  const LOCAL = { local: true, displayName: "Agent402.Tools", homepage: "https://agent402.tools", toolCount: 1431, routable: true, networks: ["eip155:8453"] };
+  const EXT = { origin: "https://ext.example", displayName: "Ext", homepage: "https://ext.example", local: false, toolCount: 3, routable: true, networks: ["solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"], payToByNetwork: {} };
+  const snapshot = { sellers: [LOCAL, EXT] };
+  ok(marketSellersAll(snapshot).length === 2, "marketSellersAll returns every seller regardless of chain");
+  const html = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] } });
+  ok(/The x402 <span[^>]*>marketplace/.test(html) || />The x402 marketplace/.test(html), "all view: header is 'The x402 marketplace'");
+  ok(/neutral x402 index/i.test(html), "all view: keeps the neutral-index positioning line");
+  ok(/data-chain-tab="all"/.test(html), "all view: renders the filter bar");
+  ok(/Chain<\/th>|>Chain</.test(html), "all view: seller list has a Chain column");
+  ok(!/first settlement|verify on/.test(html), "all view: no per-chain receipt/verify extras");
+}
+
+// All-view roster dedup — marketPageAll resolves a seller's payTo by walking
+// EVERY network in payToByNetwork (Object.values), unlike the per-chain
+// roster which is scoped to one network via C.isNetwork. Exercise that with
+// two sellers that share a settlement payTo but advertise it under DIFFERENT
+// networks, so the collapse can only work if the all-view actually checks
+// every network rather than just the first/matching one.
+{
+  const payTo = "0xdupmulti0000000000000000000000000dupm";
+  const A = { origin: "https://amulti.example", displayName: "Multi A", homepage: "https://amulti.example", local: false, toolCount: 50, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": payTo } };
+  const B = { origin: "https://svc-b-multi.up.railway.app", displayName: "Multi B", homepage: "https://svc-b-multi.up.railway.app", local: false, toolCount: 4, routable: true, networks: ["eip155:137"], payToByNetwork: { "eip155:137": payTo } };
+  const snapshot = { sellers: [LOCAL, A, B] };
+  const leaderboardSnap = { leaderboard: [{ name: "Grouped Multi", homepage: "https://amulti.example", wallet: payTo, wallets: [payTo], callsSettled: 777, totalUsd: 8, uniqueBuyers: 5 }] };
+  const html = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap });
+  const stripped = html.replace(/&middot;|·/g, " ");
+
+  ok((stripped.match(/777\s*tx/g) || []).length === 1, "all view: shared-payTo group (advertised on two different networks) renders its tx total once, not per host");
+  ok(stripped.includes("amulti.example"), "all view: canonical host (real domain) survives the multi-network collapse");
+  ok(!/svc-b-multi\.up\.railway\.app/.test(stripped), "all view: the platform-subdomain sibling on the OTHER network is collapsed away, not a second row");
+  ok(/\+1 more endpoint\b/.test(stripped), "all view: collapsed sibling is disclosed as '+1 more endpoint', not hidden");
+  ok(/SELLERS<\/div><div[^>]*>2</.test(html), "all view: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
+}
+
+// /marketplace + per-chain filter bar — the chain views must now carry the
+// shared filter bar (Task 3) so a visitor can jump straight to /marketplace
+// or another chain without going back through the switcher strip.
+{
+  const snapshot = { sellers: [{ local: true, displayName: "Agent402.Tools", homepage: "https://agent402.tools", toolCount: 1431, routable: true, networks: ["eip155:8453"] }] };
+  const baseView = marketPage("base", "https://agent402.tools", { snapshot, rail: null, activity: null });
+  ok(/data-chain-tab="base"[^>]*\bon\b|\bon\b[^>]*data-chain-tab="base"/.test(baseView), "chain view: filter bar present with Base active");
+  ok(/href="\/marketplace"/.test(baseView), "chain view: filter bar links back to /marketplace");
+}
+
+// Nav collapse (Task 5) — the site chrome carries ONE "Marketplace" entry
+// pointing at /marketplace (chains as its dropdown); the old separate "index"
+// trigger/panel and its /index links are gone from nav + footer. The word
+// "index" may only survive in body positioning copy ("the neutral x402 index").
+{
+  const html = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [] }, leaderboardSnap: { leaderboard: [] } });
+  ok(/href="\/marketplace"[^>]*>\s*[Mm]arketplace/.test(html) || />Marketplace<\/a>/.test(html), "nav: single Marketplace entry → /marketplace");
+  ok(!/>index<\/a>/i.test(html.replace(/neutral x402 index/gi, "")), "nav/footer: no user-facing 'index' link");
+  ok(/href="\/base"/.test(html), "nav: chain links still reachable (dropdown)");
+  ok(/href="\/leaderboard"/.test(html), "nav/footer: leaderboard link survives the index-panel merge");
+  ok(!/href="\/index"/.test(html) && !/href="\/marketplaces"/.test(html), "nav/footer: no links to the old /index or /marketplaces URLs");
+}
+
+// Sitemap + canonical (Task 7) — the sitemaps must list the unified
+// /marketplace surface and must NOT list the legacy /index or /marketplaces
+// URLs (both 301 to /marketplace now; a sitemap must never list URLs that
+// redirect). Exact-string checks so the legit /api/index JSON endpoint in the
+// monolith sitemap doesn't false-positive the /index assertion.
+{
+  const BASE = "https://agent402.tools";
+  for (const [label, xml] of [["sitemap-pages", sitemapPages(BASE, {})], ["sitemap.xml", sitemapXml(BASE, {})]]) {
+    ok(xml.includes(`${BASE}/marketplace</loc>`), `${label}: /marketplace listed`);
+    ok(!xml.includes(`${BASE}/index</loc>`), `${label}: legacy /index dropped (it 301s)`);
+    ok(!xml.includes(`${BASE}/marketplaces</loc>`), `${label}: legacy /marketplaces dropped (it 301s)`);
+  }
+  // llms.txt is a machine surface too — it must not point agents at the 301s.
+  const llms = llmsTxt(BASE, {});
+  ok(!llms.includes(`${BASE}/index)`) && !llms.includes(`${BASE}/marketplaces)`), "llms.txt: no links to the legacy /index or /marketplaces URLs");
+
+  // The all-chains view is self-canonical to /marketplace; per-chain pages
+  // stay self-canonical (spot-check /base).
+  const allHtml = marketPage(null, BASE, { snapshot: { sellers: [] }, leaderboardSnap: { leaderboard: [] } });
+  ok(allHtml.includes(`<link rel="canonical" href="${BASE}/marketplace">`), "all view: canonical is /marketplace");
+  const baseHtml = marketPage("base", BASE, { snapshot: { sellers: [] }, rail: null, activity: null });
+  ok(baseHtml.includes(`<link rel="canonical" href="${BASE}/base">`), "chain view: /base stays self-canonical");
+
+  // The chain pages' breadcrumb JSON-LD and the /.well-known/x402 manifest are
+  // machine surfaces too — they must point at /marketplace, not the 301s.
+  ok(baseHtml.includes(`"item":"${BASE}/marketplace"`), "chain view: breadcrumb JSON-LD points at /marketplace, not /index");
+  ok(!baseHtml.includes(`"item":"${BASE}/index"`), "chain view: breadcrumb JSON-LD has no /index item");
+  const manifest = serviceManifest({ baseUrl: BASE, network: "base", networks: ["base"], wallet: "0x1", walletName: "t", catalog: {}, toolCount: 0, powSlugs: [], powDifficulty: 20, prices: [] });
+  ok(manifest.discovery.sellerIndexHtml === `${BASE}/marketplace`, ".well-known/x402: sellerIndexHtml points at /marketplace, not the /index 301");
+}
+
+// Economy strip (Task 8) — marketPageAll accepts an optional economySnap and
+// renders a compact stats strip whose container carries id="economy" (three
+// live surfaces link to /marketplace#economy: the footer Economy link and the
+// /economy + /x402-economy 301s, so the anchor must exist when a snapshot
+// renders). Bound to x402EconomySnapshot()'s REAL shape — totals.last7d
+// {settlements, payers, merchants, volumeUsd} + totals.last30d {settlements} —
+// defensively: a missing field drops its cell, never NaN/undefined text.
+{
+  const AT = "https://agent402.tools";
+  const baseOpts = { snapshot: { sellers: [] }, leaderboardSnap: { leaderboard: [] } };
+  const economySnap = { totals: { last7d: { settlements: 12345, payers: 734, merchants: 41, volumeUsd: 987.65 }, last30d: { settlements: 54321 } } };
+  const html = marketPage(null, AT, { ...baseOpts, economySnap });
+  ok(/id="economy"/.test(html), 'all view: economy strip container carries id="economy" (closes the /marketplace#economy anchor)');
+  ok(/12,345/.test(html) && /54,321/.test(html), "all view: strip renders 7d + 30d settlements from totals");
+  ok(/>734</.test(html), "all view: strip renders 7d unique payers");
+  ok(/\$987\.65/.test(html), "all view: strip renders 7d volume in USD");
+  ok(/>41</.test(html), "all view: strip renders 7d settling sellers (merchants)");
+
+  // Partial snapshot: only one numeric field → that cell renders, the rest are
+  // omitted; the strip region must never contain NaN/undefined text.
+  const partial = marketPage(null, AT, { ...baseOpts, economySnap: { totals: { last7d: { settlements: 99 } } } });
+  const stripAt = partial.indexOf('id="economy"');
+  const stripRegion = partial.slice(stripAt, stripAt + 3000);
+  ok(stripAt !== -1 && /(>|\b)99</.test(stripRegion), "all view: partial snapshot still renders its one real field");
+  ok(!/NaN|undefined/.test(stripRegion), "all view: partial snapshot never renders NaN/undefined in the strip");
+
+  // Snapshot present but no usable numbers (all queries errored → totals {}):
+  // the anchor still exists (the three surfaces link to it) with an honest
+  // "unavailable" line, no fabricated zeros.
+  const empty = marketPage(null, AT, { ...baseOpts, economySnap: { totals: {}, errors: ["daily: boom"] } });
+  ok(/id="economy"/.test(empty) && /unavailable/i.test(empty), "all view: errored snapshot keeps the anchor with an honest unavailable line");
+
+  // No snapshot at all → honest omission: no strip, no crash.
+  const noEcon = marketPage(null, AT, baseOpts);
+  ok(typeof noEcon === "string" && noEcon.length > 0, "all view: no economy snapshot → page still renders (no crash)");
+  ok(!/id="economy"/.test(noEcon), "all view: no economy snapshot → no strip rendered (honest omission)");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

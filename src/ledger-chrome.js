@@ -234,6 +234,11 @@ a { color: inherit; }
   .ml-stagger > * { opacity: 1; transform: none; animation: none; }
   .ml-dot { animation: none; }
 }
+.mfb-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;}
+.mfb-tab{font-family:var(--font-mono);font-size:12px;padding:5px 11px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);text-decoration:none;white-space:nowrap;}
+.mfb-tab.on{background:var(--ink);color:var(--on-dark);}
+.mfb-sel,.mfb-search{font-family:var(--font-mono);font-size:12px;padding:6px 10px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);}
+.mfb-search{flex:1;min-width:120px;}
 `;
 
 // ---------------------------------------------------------------------------
@@ -254,8 +259,8 @@ function statusLine() {
 // ---------------------------------------------------------------------------
 
 // Three zones: buy's direct links (highest-traffic destinations, no hover
-// required) | the two grouped doors (index / sell, each a real link plus a
-// CSS-only dropdown) | docs. See design_handoff_x402_ia_redesign/README.md §1.
+// required) | the two grouped doors (marketplace / sell, each a real link plus
+// a CSS-only dropdown) | docs. See design_handoff_x402_ia_redesign/README.md §1.
 const NAV_ZONES = [
   [
     { href: "/skills", label: "skill packs" },
@@ -263,8 +268,7 @@ const NAV_ZONES = [
     { href: "/pricing", label: "pricing" },
   ],
   [
-    { href: "/marketplaces", label: "marketplaces", panel: "marketplaces" },
-    { href: "/index", label: "index", panel: "index" },
+    { href: "/marketplace", label: "marketplace", panel: "marketplace" },
     { href: "/sell", label: "sell", panel: "sell" },
   ],
   [{ href: "/docs", label: "docs" }],
@@ -323,28 +327,18 @@ function chainRowHtml(c, live) {
   return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:6px;color:var(--faint);"><span style="width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;"></span>unavailable</span></a>`;
 }
 
-function indexPanelHtml() {
-  return `<span class="mlnav-dd">
-              <span style="display:block;width:330px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE X402 INDEX - EVERY SELLER, RANKED ON-CHAIN</span>
-                <a href="/index" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">index</span><span style="color:var(--faint);">all sellers · health</span></a>
-                <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">by USDC settled</span></a>
-                <a href="/index" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/index</span></a>
-              </span>
-            </span>`;
-}
-
-// Marketplaces dropdown — the by-chain door: one row per rail (reuses the same
-// live chainRows/health as the old index "BY CHAIN" section, moved here so the
-// index dropdown is sellers-only and this one owns chain navigation) plus a
-// link to the /marketplaces hub.
-function marketplacesPanelHtml(chainInfo) {
+// Marketplace dropdown — the single buy-side door (the old separate
+// "marketplaces" and "index" panels, merged): one row per rail (live
+// chainRows/health), the leaderboard row carried over from the old index
+// panel, and the ink footer row linking the unified /marketplace directory.
+function marketPanelNav(chainInfo) {
   const rows = chainInfo.chains.map((c) => chainRowHtml(c, chainInfo.live)).join("\n                ");
   return `<span class="mlnav-dd">
               <span style="display:block;width:340px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">MARKETPLACES - PICK A CHAIN</span>
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE X402 MARKETPLACE - EVERY SELLER, EVERY CHAIN</span>
                 ${rows}
-                <a href="/marketplaces" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">all marketplaces →</span><span style="color:var(--dk-muted);">/marketplaces</span></a>
+                <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">by USDC settled</span></a>
+                <a href="/marketplace" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/marketplace</span></a>
               </span>
             </span>`;
 }
@@ -361,7 +355,7 @@ function sellPanelHtml() {
             </span>`;
 }
 
-const PANEL_HTML = { marketplaces: marketplacesPanelHtml, index: indexPanelHtml, sell: sellPanelHtml };
+const PANEL_HTML = { marketplace: marketPanelNav, sell: sellPanelHtml };
 
 function directLinkHtml(l, activePath) {
   const active = l.href === activePath;
@@ -385,8 +379,9 @@ const mmLink = (href, label, active, extra = "") =>
   `<a href="${esc(href)}" class="ml-mm-link${active ? " ml-mm-active" : ""}${extra}">${esc(label)}</a>`;
 
 // Mobile menu — every destination flattened into a tap list (the hover
-// dropdowns don't work on touch, so the chains, sell, and index sub-items all
-// live here directly). Shown ≤880px via the hamburger; hidden on desktop.
+// dropdowns don't work on touch, so the chains, sell, and marketplace
+// sub-items all live here directly). Shown ≤880px via the hamburger; hidden
+// on desktop.
 function mobileMenuHtml(chainInfo, activePath) {
   const chains = chainInfo.chains.map((c) => mmLink(c.href, c.label, c.href === activePath)).join("");
   return `<div id="ml-mobile-menu" class="ml-mobile-menu">
@@ -395,14 +390,10 @@ function mobileMenuHtml(chainInfo, activePath) {
       ${mmLink("/tools", "catalog", activePath === "/tools")}
       ${mmLink("/pricing", "pricing", activePath === "/pricing")}
     </div>
-    <div class="ml-mm-h">Marketplaces · by chain</div>
+    <div class="ml-mm-h">Marketplace · by chain</div>
     <div class="ml-mm-group">
-      ${mmLink("/marketplaces", "all marketplaces", activePath === "/marketplaces")}
+      ${mmLink("/marketplace", "all sellers · every chain", activePath === "/marketplace")}
       ${chains}
-    </div>
-    <div class="ml-mm-h">The index</div>
-    <div class="ml-mm-group">
-      ${mmLink("/index", "index · all sellers", activePath === "/index")}
       ${mmLink("/leaderboard", "leaderboard", activePath === "/leaderboard")}
     </div>
     <div class="ml-mm-h">Sell</div>
@@ -419,11 +410,10 @@ function mobileMenuHtml(chainInfo, activePath) {
 function nav(activePath) {
   const chainInfo = chainRows();
   const groupHrefs = {
-    // The chain hrefs live under "marketplaces" now (moved out of "index"), so a
-    // future chain page lights up the marketplaces trigger with zero nav edits.
-    // "index" is sellers/directory only; "marketplaces" owns by-chain nav.
-    marketplaces: new Set(["/marketplaces", ...chainInfo.chains.map((c) => c.href)]),
-    index: new Set(["/index", "/leaderboard"]),
+    // One buy-side door: /marketplace, every chain page, and /leaderboard (its
+    // panel row) all light the marketplace trigger — a future chain page lights
+    // it up with zero nav edits.
+    marketplace: new Set(["/marketplace", "/leaderboard", ...chainInfo.chains.map((c) => c.href)]),
     sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
   };
 
@@ -484,8 +474,8 @@ export function ledgerFooterFull() {
         <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/skills" style="color:var(--muted);text-decoration:none;">Skill packs</a><a href="/tools" style="color:var(--muted);text-decoration:none;">Tool catalog</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">LLM gateway</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">Pricing</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">Integrations</a><a href="/playground" style="color:var(--muted);text-decoration:none;">Playground</a></div>
       </div>
       <div>
-        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">x402 index</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/index" style="color:var(--muted);text-decoration:none;">Index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/marketplaces" style="color:var(--muted);text-decoration:none;">Marketplaces</a><a href="/index#economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a></div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">marketplace</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/marketplace" style="color:var(--muted);text-decoration:none;">Marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/marketplace#economy" style="color:var(--muted);text-decoration:none;">Economy</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for sellers</div>
@@ -517,7 +507,7 @@ export function ledgerFooterCompact() {
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <span style="display:flex;align-items:center;gap:10px;"><span style="width:24px;height:24px;border:2px solid var(--ink);color:var(--ink);font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center;">402</span><span style="font-weight:700;">Agent402.Tools</span></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">llm gateway</a><a href="/index" style="color:var(--muted);text-decoration:none;">index</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">llm gateway</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · built by <a href="https://github.com/MikeyPetrillo" rel="noopener" style="color:var(--muted);text-decoration:underline;">Mike Petrillo</a> · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>

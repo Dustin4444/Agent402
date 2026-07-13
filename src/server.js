@@ -47,7 +47,7 @@ import { runSelfCheck } from "./selfcheck.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools } from "./find.js";
 import { recordWish, getWishesAggregate } from "./wish.js";
-import { indexPage, indexSnapshot, routeQuery, startCrawler, validateOriginInput, registerOrigin } from "./x402-index.js";
+import { indexSnapshot, routeQuery, startCrawler, validateOriginInput, registerOrigin } from "./x402-index.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks } from "./payments.js";
 import { KIT } from "./tools/kit.js";
@@ -141,7 +141,6 @@ import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
 import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
-import { marketplacesPage } from "./marketplaces.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql } from "./revenue-live.js";
@@ -151,7 +150,7 @@ import { CHAIN_PAGES, marketSellers, marketPage, marketPanelHtml } from "./marke
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
-import { recordSale, salesSummary, topByBuyers, txFromPaymentResponse } from "./sales-ledger.js";
+import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
@@ -764,28 +763,8 @@ app.get("/", (_req, res) => {
     ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { chainSellerCounts })
   );
 });
-// /marketplaces — the infrastructure hub (per-chain marketplaces + index +
-// router + leaderboard). Same live seller counts the homepage strip uses.
-app.get("/marketplaces", (_req, res) => {
-  const chainSellerCounts = {};
-  let indexSnapshot = null;
-  try {
-    indexSnapshot = getIndexSnapshot();
-    for (const key of Object.keys(CHAIN_PAGES)) {
-      try { chainSellerCounts[key] = marketSellers(key, indexSnapshot).length; } catch { /* cell renders without the count */ }
-    }
-  } catch { /* snapshot unavailable — cards render "indexed live" */ }
-  let leaderboardSnap = null;
-  try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* top-sellers block just doesn't render */ }
-  const stats = getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES });
-  htmlCache(res, 60, 300).send(marketplacesPage(BASE_URL, {
-    chainSellerCounts,
-    indexSnapshot,
-    leaderboardSnap,
-    toolCount: Object.keys(CATALOG).length,
-    settlements: stats?.toolCallsServed?.total || 0,
-  }));
-});
+// /marketplaces — legacy surface, merged into /marketplace (301 keeps SEO equity).
+app.get("/marketplaces", (_req, res) => res.redirect(301, "/marketplace"));
 // Real health check — fails (503) when a load balancer or heartbeat should
 // route around this instance. Verifies the stats DB is readable and that the
 // payment configuration is intact (wallet present unless we're explicitly in
@@ -906,13 +885,14 @@ app.get("/api/x402-economy", async (_req, res) => {
     res.status(500).json({ error: "economy snapshot failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
-// The standalone Observatory page folded into /index's "The economy, over
-// time" section (id="economy") - little standalone traffic, and the daily
+// The standalone Observatory page folded into the marketplace's "The economy,
+// over time" section (id="economy") - little standalone traffic, and the daily
 // history + week-over-week trend now sit next to the rest of the ecosystem
-// dashboard. Permanent redirect; /api/x402-economy (above) is unchanged for
-// machine consumers.
+// dashboard. Permanent redirect straight to /marketplace (never chain through
+// the /index 301 - a redirect Location must not point at another redirect);
+// /api/x402-economy (above) is unchanged for machine consumers.
 app.get("/x402-economy", (_req, res) => {
-  res.redirect(301, "/index#economy");
+  res.redirect(301, "/marketplace#economy");
 });
 app.get("/changelog", (_req, res) => htmlCache(res, 300, 900).send(changelogPage(BASE_URL)));
 app.get("/use-cases", (_req, res) => htmlCache(res, 300, 900).send(useCasesPage(BASE_URL)));
@@ -1433,27 +1413,8 @@ setNavIndexProvider(() => {
     chains: Object.keys(CHAIN_PAGES).map((key) => chain(key, `/${key}`, key)),
   };
 });
-// x402EconomySnapshot caches 30 min internally and never rejects (per-query
-// errors settle into snap.errors), so awaiting it here just reads the cache
-// on the hot path; a cold cache only slows the request that warms it.
-app.get("/index", async (req, res) => {
-  let economySnap = null;
-  try { economySnap = await x402EconomySnapshot(); } catch { /* indexPage renders an honest "unavailable" state */ }
-  let leaderboardSnap = null;
-  try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* 24h sub-block simply doesn't render */ }
-  let buyRows = [];
-  try { buyRows = topByBuyers({ days: 30, limit: 8 }); } catch { /* demand panel renders its honest empty state */ }
-  htmlCache(res, 60, 300).send(indexPage(getIndexSnapshot(), {
-    baseUrl: BASE_URL,
-    network: req.query.network,
-    economySnap,
-    leaderboardSnap,
-    buyRows,
-    sort: req.query.sort,
-    dir: req.query.dir,
-    all: req.query.all,
-  }));
-});
+// /index — legacy surface, merged into /marketplace (301 keeps SEO equity).
+app.get("/index", (_req, res) => res.redirect(301, "/marketplace"));
 // /stellar's receipt strip reuses stellarRail with the same 60s cache
 // discipline the /revenue page applies — a public page must not turn every
 // request into Horizon fetches (rate-limits shared with the revenue ledger).
@@ -1750,6 +1711,22 @@ app.get("/api/market/:chain/panel", async (req, res) => {
     res.status(500).json({ error: "temporarily unavailable" });
   }
 });
+// The canonical all-chains marketplace directory — marketPage(null, …), the
+// unified "The x402 marketplace" view (Task 2). Thin wrapper: getIndexSnapshot
+// is the seller roster, getLeaderboardSnapshot is optional (a failed fetch
+// still renders the directory, just without the per-seller settled-call join),
+// and so is the economy snapshot (same try/catch the old /index route used —
+// a failed fetch omits the #economy strip rather than breaking the page;
+// x402EconomySnapshot caches 30 min, so this doesn't slow the hot path).
+// ?all=1 opts out of the 100-row roster cap (see ALL_ROW_CAP in market-page.js).
+app.get("/marketplace", async (req, res) => {
+  const snapshot = getIndexSnapshot();
+  let leaderboardSnap = null;
+  try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
+  let economySnap = null;
+  try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
+  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1" }));
+});
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure
 // degrades to "temporarily unavailable" text rather than a half-rendered page.
@@ -2042,10 +2019,11 @@ app.get("/card-1280.png", async (_req, res) => {
 app.get("/openapi.json", (_req, res) => res.set("Cache-Control", "public, max-age=3600").json(openapiSpec(BASE_URL, CATALOG)));
 app.get("/tools", (_req, res) => htmlCache(res, 300, 900).send(ledgerCatalogPage(BASE_URL, CATALOG, SKILL_PACKS)));
 app.get("/shop", (_req, res) => htmlCache(res, 300, 900).send(shopPage(BASE_URL, CATALOG)));
-// The standalone economy dashboard folded into /index's "The economy, over
-// time" section (its 24h totals/concentration/network-split summary moved
-// there; the top-10 list duplicated /leaderboard and was dropped).
-app.get("/economy", (_req, res) => res.redirect(301, "/index#economy"));
+// The standalone economy dashboard folded into the marketplace's "The economy,
+// over time" section (its 24h totals/concentration/network-split summary moved
+// there; the top-10 list duplicated /leaderboard and was dropped). Redirect
+// straight to /marketplace - never chain through the /index 301.
+app.get("/economy", (_req, res) => res.redirect(301, "/marketplace#economy"));
 app.get("/tools/category/:cat", (req, res) => {
   const html = categoryPage(BASE_URL, CATALOG, req.params.cat);
   if (!html) return res.status(404).type("html").send('<p>Category not found. <a href="/tools">All tools</a></p>');

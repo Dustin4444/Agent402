@@ -37,7 +37,7 @@ const PAGES = [
   { path: "/terms",       titleSubstr: "Terms" },
   { path: "/shop",        titleSubstr: "shop" },
   { path: "/leaderboard", titleSubstr: "Leaderboard" },
-  { path: "/index",       titleSubstr: "Index" },
+  { path: "/marketplace", titleSubstr: "marketplace" },
   { path: "/tools",       titleSubstr: "Catalog" },
   { path: "/skills",      titleSubstr: "skill" },
   { path: "/robinhood",   titleSubstr: "Robinhood" },
@@ -71,22 +71,38 @@ try {
     ok(titleMatch != null, `${path} has a <title> tag`);
     const title = titleMatch?.[1] ?? "";
     ok(title.toLowerCase().includes(titleSubstr.toLowerCase()), `${path} title contains '${titleSubstr}' (got '${title}')`);
-    if (path === "/index") {
-      // Both old economy pages folded into this one — assert the anchor +
-      // section landed, and that the nav no longer links the retired path.
-      ok(body.includes('id="economy"'), "/index contains the folded economy section anchor");
-      ok(/The economy, over time/.test(body), "/index contains the economy section heading");
-      ok(!body.includes('href="/economy"'), "/index nav/footer carries no /economy link");
+    if (path === "/marketplace") {
+      // The unified marketplace surface (the old /index and /marketplaces 301
+      // here) — its nav/footer must not link the retired standalone paths.
+      ok(!body.includes('href="/economy"'), "/marketplace nav/footer carries no /economy link");
+      ok(!body.includes('href="/index"'), "/marketplace nav/footer carries no /index link");
+      // The folded economy strip: three live surfaces link to
+      // /marketplace#economy (footer Economy link + the /economy and
+      // /x402-economy 301s), and the route always renders the anchor —
+      // x402EconomySnapshot never rejects (an errored snapshot keeps the
+      // anchor with an honest "unavailable" line).
+      ok(body.includes('id="economy"'), '/marketplace renders the id="economy" anchor');
     }
   }
 
-  // Both old economy pages folded into /index#economy: /x402-economy (the
+  // Legacy marketplace surfaces must 301 straight to /marketplace — same
+  // assertions as scripts/test-redirects.js, folded here so a regression
+  // fails CI (test-redirects.js stays as a standalone prod probe).
+  for (const path of ["/index", "/marketplaces"]) {
+    const res = await fetch(`${BASE}${path}`, { redirect: "manual" });
+    ok(res.status === 301, `${path} → 301 (got ${res.status})`);
+    ok(res.headers.get("location") === "/marketplace", `${path} Location is /marketplace (got ${res.headers.get("location")})`);
+  }
+
+  // Both old economy pages folded into the marketplace: /x402-economy (the
   // on-chain settlement Observatory) and /economy (the leaderboard-derived
-  // dashboard). Assert the permanent redirects instead of 200s.
+  // dashboard). Assert the permanent redirects instead of 200s — and that
+  // they point straight at /marketplace, never chaining through the /index
+  // 301 (a redirect Location must not point at another redirect).
   for (const path of ["/x402-economy", "/economy"]) {
     const res = await fetch(`${BASE}${path}`, { redirect: "manual" });
     ok(res.status === 301, `${path} → 301 (got ${res.status})`);
-    ok(res.headers.get("location") === "/index#economy", `${path} Location is /index#economy (got ${res.headers.get("location")})`);
+    ok(res.headers.get("location") === "/marketplace#economy", `${path} Location is /marketplace#economy (got ${res.headers.get("location")})`);
   }
 
   // The global error handler's HTML branch must itself be renderable. It

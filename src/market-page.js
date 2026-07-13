@@ -218,12 +218,82 @@ export function marketSellers(chainKey, snapshot) {
   return (snapshot?.sellers || []).filter((s) => s.local === true || (s.networks || []).some(C.isNetwork));
 }
 
+/** Every seller across every chain (local first) - backs the unified
+ *  "The x402 marketplace" all-chains view (marketPage(null, …)). Unlike
+ *  marketSellers this takes no chain and applies no network filter. */
+export function marketSellersAll(snapshot) {
+  const all = (snapshot?.sellers || []);
+  return all.slice().sort((a, b) => (a.local === b.local ? 0 : a.local ? -1 : 1));
+}
+
+/** CAIP-2 network id -> chain key, via the CHAIN_PAGES isNetwork matchers.
+ *  Returns null when no configured chain claims the network (e.g. a testnet). */
+function chainKeyForNetwork(network) {
+  for (const key of Object.keys(CHAIN_PAGES)) if (CHAIN_PAGES[key].isNetwork(network)) return key;
+  return null;
+}
+
 /** Tools purchasable on this chain. Remote snapshot entries carry no
  *  per-tool list, so this is the local catalog; external sellers render
  *  seller-level. */
 export function marketTools(_chainKey, snapshot) {
   const local = (snapshot?.sellers || []).find((s) => s.local === true);
   return local?.tools || [];
+}
+
+// Shared filter bar for the unified marketplace: chain tabs (links, so the
+// per-chain SEO URLs stay crawlable) + sort + search. chainKey===null marks
+// the "All" (/marketplace) view; a chain slug marks that chain's view. No
+// Category control: the roster lists SELLERS, and sellers carry no category
+// data — a select with nothing real to filter on would be a dead control.
+//
+// The trailing <script> wires Sort + search client-side over the roster rows'
+// numeric data-* payload (see rowData in marketPage / marketPageAll) — same
+// progressive-enhancement style as the seller-panel switch script: the page is
+// fully rendered server-side, and the whole block no-ops when the roster is
+// absent. Rows are re-ordered by moving EXISTING nodes (appendChild) and
+// hidden via style.display — never innerHTML.
+//
+// EXECUTION ORDER: the bar (and this script) render ABOVE the roster, so at
+// parse time zero [data-mfb-row] elements exist yet — everything is wired on
+// DOMContentLoaded, once the whole roster is in the DOM. (An earlier version
+// queried the rows at parse time and its zero-rows early return dead-wired
+// the controls on every load; the execution-order test locks this in.)
+export function marketFilterBar(chainKey, _baseUrl) {
+  const tab = (key, label, href, on) =>
+    `<a data-chain-tab="${key}" href="${href}" class="mfb-tab${on ? " on" : ""}">${esc(label)}</a>`;
+  const tabs = [tab("all", "All", "/marketplace", chainKey == null)]
+    .concat(Object.keys(CHAIN_PAGES).map((k) =>
+      tab(k, CHAIN_PAGES[k].chainName, `/${k}`, k === chainKey)));
+  return `
+  <div class="mfb" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:22px 0 6px;padding:12px;border:1.5px solid var(--ink);background:var(--card);">
+    <span class="mfb-label">Chain</span>
+    <div class="mfb-tabs" style="display:flex;flex-wrap:wrap;gap:5px;">${tabs.join("")}</div>
+    <span class="mfb-label" style="margin-left:6px;">Sort</span>
+    <select class="mfb-sel" data-mfb-sort><option value="calls">most settled</option><option value="usd">volume</option><option value="buyers">buyers</option><option value="tools">tools</option><option value="health">health</option></select>
+    <input class="mfb-search" data-mfb-search placeholder="search sellers">
+  </div>
+  <script>document.addEventListener('DOMContentLoaded',function(){
+  var rows=Array.prototype.slice.call(document.querySelectorAll('[data-mfb-row]'));
+  if(!rows.length)return;
+  var parent=rows[0].parentNode;
+  var num=function(el,k){var v=Number(el.getAttribute('data-'+k));return isFinite(v)?v:0;};
+  var sortSel=document.querySelector('select[data-mfb-sort]');
+  if(sortSel)sortSel.addEventListener('change',function(){
+    var k=sortSel.value;
+    rows.slice().sort(function(a,b){
+      if(num(a,'local')!==num(b,'local'))return num(b,'local')-num(a,'local');
+      if(k==='health'&&num(a,'health')!==num(b,'health'))return num(b,'health')-num(a,'health');
+      var m=k==='health'?'calls':k;
+      return num(b,m)-num(a,m);
+    }).forEach(function(r){parent.appendChild(r);});
+  });
+  var searchIn=document.querySelector('input[data-mfb-search]');
+  if(searchIn)searchIn.addEventListener('input',function(){
+    var q=searchIn.value.trim().toLowerCase();
+    rows.forEach(function(r){r.style.display=!q||(r.textContent||'').toLowerCase().indexOf(q)>-1?'':'none';});
+  });
+});</script>`;
 }
 
 function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) {
@@ -392,7 +462,9 @@ export function marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, 
   return sellerCardHtml(chainKey, picked, selectedSeller, activity, stat, payTo, leaderboardSnap?.windowLabel) + marketActivityHtml(chainKey, activity, selectedSeller);
 }
 
-export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap } = {}) {
+export function marketPage(chainKey, baseUrl, opts = {}) {
+  if (chainKey == null) return marketPageAll(baseUrl, opts);
+  const { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap } = opts;
   const C = CHAIN_PAGES[chainKey];
   const effectiveWallet = wallet || C.wallet;
   // Stellar/Algorand ship a committed public default wallet in CHAIN_PAGES;
@@ -435,6 +507,13 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   // Roster "· N tx" suffix — only when the leaderboard has settlements for this
   // seller's payTo on this chain (Base today); silent otherwise.
   const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
+  // Numeric data-* payload each roster row carries for the filter bar's
+  // client-side Sort/search (see the script marketFilterBar emits). Same
+  // attributes on the all-chains <tr> rows in marketPageAll.
+  const rowData = (s) => {
+    const st = sellerStat(s);
+    return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${s.toolCount || 0}"`;
+  };
 
   // Collapse hosts that settle to the SAME leaderboard group into one roster
   // row, so a group's tx total isn't repeated per host (it reads as 2–3× the
@@ -492,7 +571,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
     ? rosterSellers.map((s) => {
         const good = s.local || s.routable;
         return `
-    <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
+    <a href="${activityHref(s)}"${rowData(s)} data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
       <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}</span>
       <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
       <span class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</span>
@@ -503,7 +582,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
         const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
         const good = s.local || s.routable;
         return `
-    <div style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
+    <div${rowData(s)} style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;">${esc(s.displayName)}</a>
         ${s.local ? '<span class="mlr-badge">THIS HOST</span>' : ""}
@@ -548,7 +627,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       "@type": "BreadcrumbList",
       itemListElement: [
         { "@type": "ListItem", position: 1, name: "Agent402.Tools", item: baseUrl },
-        { "@type": "ListItem", position: 2, name: "Index", item: `${baseUrl}/index` },
+        { "@type": "ListItem", position: 2, name: "Marketplace", item: `${baseUrl}/marketplace` },
         { "@type": "ListItem", position: 3, name: C.chainName, item: `${baseUrl}/${chainKey}` },
       ],
     },
@@ -599,12 +678,12 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   const switcherHtml = `
 <div style="border-bottom:1.5px solid var(--ink);background:var(--card);">
   <div style="max-width:1080px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;">
-    <span style="color:var(--faint);letter-spacing:.08em;">INDEX /</span>
+    <span style="color:var(--faint);letter-spacing:.08em;">MARKETPLACE /</span>
     ${chainKeys.map((k) => {
       const active = k === chainKey;
       return `<a href="/${k}" style="text-decoration:none;color:${active ? "var(--ink)" : "var(--muted)"};font-weight:${active ? 700 : 400};border-bottom:2px solid ${active ? "var(--accent)" : "transparent"};padding-bottom:2px;">${esc(k)}</a>`;
     }).join("")}
-    <a href="/index" style="text-decoration:none;color:var(--muted);margin-left:auto;">all chains →</a>
+    <a href="/marketplace" style="text-decoration:none;color:var(--muted);margin-left:auto;">all chains →</a>
   </div>
 </div>`;
 
@@ -621,10 +700,11 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">An open index of the whole ${esc(C.chainName)} x402 economy - this host plus every independent seller the hourly crawl finds (CDP Bazaar included). Not a walled market: other venues' listings appear here too.</p>
       ${receiptHtml}
       <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">${C.canaryLine}</p>
-      ${statsHtml}
     </div>
     ${railManifestHtml}
-  </div>`;
+  </div>
+  ${marketFilterBar(chainKey, baseUrl)}
+  ${statsHtml}`;
 
   const rosterHtml = `
   <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on ${esc(C.chainName)}</h2>
@@ -703,6 +783,248 @@ ${ledgerFooterCompact()}`;
     canonical: `${baseUrl}/${chainKey}`,
     baseUrl,
     activePath: `/${chainKey}`,
+    jsonLd,
+    extraCss: ROSTER_CSS,
+    body,
+  });
+}
+
+// All-chains directory: "The x402 marketplace" (chainKey === null). Chain is
+// a filter, not a separate template - this is the unfiltered view over every
+// seller on every rail, so it carries NO chain-specific extras (no receipt
+// strip, no per-seller activity switching, no sell-on-<chain> copy). It
+// reuses the per-chain roster's leaderboard-join + shared-wallet dedup
+// LOGIC (see marketPage above) so a seller settling under one group isn't
+// double-counted here either, but the algorithm is duplicated rather than
+// extracted into a shared helper — the per-chain version is scoped to one
+// network's payTo (via C.isNetwork / C.acceptNetwork) while this view has to
+// match a seller's payTo on ANY network, and factoring that difference out
+// cleanly was more than this task's surface area. Flagged in the task report.
+// Compact economy strip — the one useful bit carried over from the old /index
+// page. The container carries id="economy": three live surfaces link to
+// /marketplace#economy (the footer Economy link and the /economy +
+// /x402-economy 301s), so the anchor must exist whenever a snapshot renders.
+// Binds defensively to x402EconomySnapshot()'s real shape (totals.last7d
+// {settlements, payers, merchants, volumeUsd} + totals.last30d.settlements):
+// a missing/non-numeric field drops its cell; a snapshot whose queries all
+// errored (totals empty) keeps the anchor with an honest "unavailable" line —
+// never NaN/undefined text, never fabricated zeros. No snapshot → no strip.
+function economyStripHtml(economySnap) {
+  if (!economySnap) return "";
+  const t7 = economySnap.totals?.last7d || {};
+  const t30 = economySnap.totals?.last30d || {};
+  const num = (v) => (v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+  const fmt = (n) => n.toLocaleString("en-US");
+  const cell = (label, value) => `
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">${label}</div><div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;">${value}</div></div>`;
+  const cells = [];
+  const s7 = num(t7.settlements);
+  if (s7 != null) cells.push(cell("SETTLEMENTS · 7D", fmt(s7)));
+  const v7 = num(t7.volumeUsd);
+  if (v7 != null) cells.push(cell("VOLUME · 7D", `$${v7.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`));
+  const p7 = num(t7.payers);
+  if (p7 != null) cells.push(cell("PAYERS · 7D", fmt(p7)));
+  const m7 = num(t7.merchants);
+  if (m7 != null) cells.push(cell("SELLERS SETTLING · 7D", fmt(m7)));
+  const s30 = num(t30.settlements);
+  if (s30 != null) cells.push(cell("SETTLEMENTS · 30D", fmt(s30)));
+  const inner = cells.length
+    ? `<div class="ml-2col" style="display:grid;grid-template-columns:repeat(${Math.min(cells.length, 5)},1fr);gap:14px;">${cells.join("")}</div>
+  <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin:8px 0 0;">every gasless EIP-3009 USDC settlement on Base - the primitive x402 uses - counted chain-wide across every seller, not just this host · machine-readable at <a href="/api/x402-economy" style="color:var(--muted);">/api/x402-economy</a></p>`
+    : `<p style="color:var(--muted);font-size:13.5px;margin:0;">chain-wide settlement stats unavailable right now - detail in <a href="/api/x402-economy">/api/x402-economy</a></p>`;
+  return `
+  <div id="economy" style="margin:40px 0 0;">
+    <h2 style="font-size:21px;font-weight:800;margin:0 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">The economy</h2>
+    ${inner}
+  </div>`;
+}
+
+// Default render caps the roster at the top ALL_ROW_CAP rows (the roster is
+// sorted local-first then by settled calls, so the cap keeps the sellers worth
+// reading); ?all=1 opts back into the full 700+-row table. Same speed
+// rationale + honest-disclosure pattern as x402-index.js's INDEX_ROW_CAP.
+const ALL_ROW_CAP = 100;
+
+function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = false } = {}) {
+  const sellers = marketSellersAll(snapshot);
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
+
+  // Leaderboard join, same shape as marketPage's statByWallet: gid = the
+  // leaderboard row a wallet belongs to (payment = identity for grouping).
+  const statByWallet = new Map();
+  (Array.isArray(leaderboardSnap?.leaderboard) ? leaderboardSnap.leaderboard : []).forEach((r, i) => {
+    const stat = { calls: r.callsSettled || 0, usd: r.totalUsd || 0, buyers: r.uniqueBuyers || 0, gid: `lb${i}` };
+    for (const w of (r.wallets && r.wallets.length ? r.wallets : [r.wallet])) if (w) statByWallet.set(String(w).toLowerCase(), stat);
+  });
+  // Unlike the per-chain view (one network via C.isNetwork), an all-chains
+  // seller may have a payTo on any of several networks - check them all.
+  const sellerStat = (s) => {
+    if (!s || s.local) return null;
+    for (const addr of Object.values(s.payToByNetwork || {})) {
+      const st = addr ? statByWallet.get(String(addr).toLowerCase()) : null;
+      if (st) return st;
+    }
+    return null;
+  };
+  const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
+
+  // This host first, then most settled calls, then healthy, then tool-rich -
+  // same ordering rationale as the per-chain roster.
+  sellers.sort((a, b) => {
+    if (!!a.local !== !!b.local) return a.local ? -1 : 1;
+    const ca = sellerStat(a)?.calls || 0, cb = sellerStat(b)?.calls || 0;
+    if (ca !== cb) return cb - ca;
+    if (!!a.routable !== !!b.routable) return a.routable ? -1 : 1;
+    return (b.toolCount || 0) - (a.toolCount || 0);
+  });
+
+  // Collapse hosts settling to the SAME leaderboard group into one row (see
+  // marketPage's identical rationale) so a group's tx total isn't repeated.
+  const PLATFORM_HOST = /\.(up\.railway\.app|run\.app|onrender\.com|fly\.dev|herokuapp\.com|vercel\.app|ondigitalocean\.app|workers\.dev)$/i;
+  const prefRank = (s) => (PLATFORM_HOST.test(hostOf(s.homepage)) ? 1 : 0);
+  const better = (a, b) => {
+    if (prefRank(a) !== prefRank(b)) return prefRank(a) < prefRank(b) ? a : b;
+    if ((a.toolCount || 0) !== (b.toolCount || 0)) return (a.toolCount || 0) > (b.toolCount || 0) ? a : b;
+    return hostOf(a.homepage).length <= hostOf(b.homepage).length ? a : b;
+  };
+  const extraByGid = new Map();
+  const primaryByGid = new Map();
+  const rosterSellers = [];
+  for (const s of sellers) {
+    const gid = s.local ? null : sellerStat(s)?.gid;
+    if (!gid) { rosterSellers.push(s); continue; }
+    const cur = primaryByGid.get(gid);
+    if (!cur) { primaryByGid.set(gid, s); extraByGid.set(gid, 0); rosterSellers.push(s); continue; }
+    extraByGid.set(gid, extraByGid.get(gid) + 1);
+    const winner = better(cur, s);
+    if (winner !== cur) { rosterSellers[rosterSellers.indexOf(cur)] = winner; primaryByGid.set(gid, winner); }
+  }
+  const endpointsNote = (s) => { const gid = s.local ? null : sellerStat(s)?.gid; const n = gid ? extraByGid.get(gid) || 0 : 0; return n > 0 ? ` &middot; +${n} more endpoint${n === 1 ? "" : "s"}` : ""; };
+
+  // Chain column - a seller may advertise more than one network; show the
+  // first resolvable chain name + "+N" for the rest, deduped.
+  const chainNamesFor = (s) => {
+    const names = [];
+    for (const n of s.networks || []) {
+      const key = chainKeyForNetwork(n);
+      if (key) names.push(CHAIN_PAGES[key].chainName);
+    }
+    return [...new Set(names)];
+  };
+  const chainCell = (s) => {
+    const names = chainNamesFor(s);
+    if (!names.length) return `<span style="color:var(--faint);">&mdash;</span>`;
+    return `${esc(names[0])}${names.length > 1 ? ` <span style="color:var(--faint);">+${names.length - 1}</span>` : ""}`;
+  };
+
+  // Numeric data-* payload for the filter bar's client-side Sort/search —
+  // same attributes as the per-chain roster rows (see rowData in marketPage).
+  const rowData = (s) => {
+    const st = sellerStat(s);
+    return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${s.toolCount || 0}"`;
+  };
+
+  // Row cap (speed): the deduped roster runs 700+ sellers in prod; render the
+  // top ALL_ROW_CAP by the default sort unless ?all=1 asked for everything.
+  // The local seller sorts first, so the cap can never drop it. Totals (the
+  // SELLERS card, JSON-LD numberOfItems) stay on the FULL roster — the cap
+  // truncates the table, never the honest count.
+  const truncated = !all && rosterSellers.length > ALL_ROW_CAP;
+  const visibleSellers = truncated ? rosterSellers.slice(0, ALL_ROW_CAP) : rosterSellers;
+  const capNote = truncated
+    ? `<p class="chips-note" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:10px 0 0;">showing the top ${ALL_ROW_CAP} of ${rosterSellers.length} sellers &middot; <a href="/marketplace?all=1" style="color:var(--muted);">show all &rarr;</a></p>`
+    : "";
+
+  const rows = visibleSellers.map((s) => {
+    const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
+    const good = s.local || s.routable;
+    return `
+    <tr${rowData(s)}>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);">
+        <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;">${esc(s.displayName)}</a>${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}
+        <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
+      </td>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:12.5px;">${chainCell(s)}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);" class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);"><span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span></td>
+    </tr>`;
+  }).join("");
+
+  const honesty = rosterSellers.length === 1 && rosterSellers[0]?.local
+    ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live - discovery is open, and external sellers are added automatically the moment their x402 challenges are crawled, on any supported chain.</p>`
+    : "";
+
+  const rosterHtml = `
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Every seller, every chain</h2>
+  <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · Chain shows where each seller settles</p>
+  <div style="overflow-x:auto;">
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+    <thead><tr style="text-align:left;">
+      <th style="padding:9px 12px;border-bottom:1.5px solid var(--ink);">Seller</th>
+      <th style="padding:9px 12px;border-bottom:1.5px solid var(--ink);">Chain</th>
+      <th style="padding:9px 12px;border-bottom:1.5px solid var(--ink);">Tools</th>
+      <th style="padding:9px 12px;border-bottom:1.5px solid var(--ink);">Status</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  </div>
+  ${capNote}
+  ${honesty}`;
+
+  const statsHtml = `
+  <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:26px 0 0;">
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">CHAINS SUPPORTED</div><div style="font-size:26px;font-weight:800;">${Object.keys(CHAIN_PAGES).length}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${(sellers.find((s) => s.local)?.toolCount || 0).toLocaleString("en-US")}</div></div>
+  </div>`;
+
+  const headerHtml = `
+  <div>
+    <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The x402 marketplace.</h1>
+    <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">Pay-per-call tools for AI agents, settled on-chain across every supported rail - no signup, no API keys, the wallet is the account.</p>
+    <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">the neutral x402 index &mdash; every seller, not just ours.</p>
+    ${statsHtml}
+  </div>`;
+
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: "The x402 marketplace",
+      url: `${baseUrl}/marketplace`,
+      description: `Pay-per-call tools for AI agents, settled via the x402 protocol across every supported chain. ${rosterSellers.length} sellers listed.`,
+      mainEntity: {
+        "@type": "OfferCatalog",
+        name: "x402-payable agent tools, every chain",
+        numberOfItems: rosterSellers.length,
+      },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Agent402.Tools", item: baseUrl },
+        { "@type": "ListItem", position: 2, name: "Marketplace", item: `${baseUrl}/marketplace` },
+      ],
+    },
+  ];
+
+  const body = `
+<div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
+  ${headerHtml}
+  ${marketFilterBar(null, baseUrl)}
+  ${rosterHtml}
+  ${economyStripHtml(economySnap)}
+  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
+</div>
+${ledgerFooterCompact()}`;
+
+  return ledgerShell({
+    title: "The x402 marketplace - pay-per-call tools for AI agents, every chain",
+    description: "The x402 marketplace: the neutral x402 index of pay-per-call agent tools across every supported chain - every seller, not just Agent402's own catalog.",
+    canonical: `${baseUrl}/marketplace`,
+    baseUrl,
+    activePath: "/marketplace",
     jsonLd,
     extraCss: ROSTER_CSS,
     body,

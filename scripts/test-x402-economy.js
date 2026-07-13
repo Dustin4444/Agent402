@@ -119,7 +119,8 @@ ok(!noDay.includes("Last 24h across the ecosystem"), "warming leaderboard snapsh
 const noDay2 = economySectionHtml({ daily: sampleDaily, totals: {}, errors: [] }, null);
 ok(!noDay2.includes("Last 24h across the ecosystem"), "missing leaderboard snapshot renders no 24h block");
 
-// --- /x402-economy now 301s to /index#economy -------------------------------
+// --- /x402-economy now 301s to /marketplace#economy (straight to the unified
+// surface — never chaining through the /index 301) ---------------------------
 {
   const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
   const PORT = 3103;
@@ -155,7 +156,7 @@ ok(!noDay2.includes("Last 24h across the ecosystem"), "missing leaderboard snaps
         try {
           const res = await fetch(`http://localhost:${PORT}${path}`, { redirect: "manual" });
           ok(res.status === 301, `${path} → 301 (got ${res.status})`);
-          ok(res.headers.get("location") === "/index#economy", `${path} Location is /index#economy (got ${res.headers.get("location")})`);
+          ok(res.headers.get("location") === "/marketplace#economy", `${path} Location is /marketplace#economy (got ${res.headers.get("location")})`);
         } catch (e) {
           ok(false, `${path} fetch failed: ${e?.cause?.code || e.message}`);
         }

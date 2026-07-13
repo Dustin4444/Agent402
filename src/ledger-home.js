@@ -48,7 +48,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       name: r.name.replace(/ Chain$/, "").toUpperCase(),
       asset: `${r.asset} · ${truncateCaip2(r.caip2)}`,
       assetFull: `${r.asset} · ${r.caip2}`,
-      href: hasPage ? `/${pageKey}` : "/index",
+      href: hasPage ? `/${pageKey}` : "/marketplace",
       nameColor: hasPage ? "var(--on-dark2)" : "var(--dk-muted2)",
       statusColor: live ? "var(--green)" : "var(--dk-muted3)",
       status: hasPage ? (known ? `${fmtNum(sellerCount)} seller${sellerCount === 1 ? "" : "s"} indexed` : "unavailable") : "rail live",
@@ -234,7 +234,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
             <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:8px;">02 / HERE FROM A CHAIN?</div>
             <div style="font-size:14.5px;line-height:1.5;color:var(--muted);margin-bottom:10px;">Your chain's x402 economy - sellers, receipts, rankings. All on-chain, all checkable.</div>
             <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12.5px;">
-              <a href="/index" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">the index →</a>
+              <a href="/marketplace" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">the marketplace →</a>
               <a href="/stellar" style="color:var(--muted);text-decoration:none;">stellar</a>
               <a href="/algorand" style="color:var(--muted);text-decoration:none;">algorand</a>
             </div>
@@ -343,10 +343,9 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1.1fr;gap:50px;align-items:center;">
         <div>
           <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 16px;color:var(--on-dark2);">Not just a seller -<br>the neutral index.</h2>
-          <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;">Index + Smart Order Router + Leaderboard, auto-crawled from the Coinbase CDP Bazaar and ranked by <strong style="color:var(--on-dark2);font-weight:700;">real on-chain USDC volume</strong>. Route a task across every x402 seller - not just ours.</p>
+          <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;">One marketplace: the open index, the Smart Order Router, and the leaderboard, auto-crawled from the Coinbase CDP Bazaar and ranked by <strong style="color:var(--on-dark2);font-weight:700;">real on-chain USDC volume</strong>. Route a task across every x402 seller - not just ours.</p>
           <div style="display:flex;gap:20px;flex-wrap:wrap;font-family:var(--font-mono);font-size:13px;">
-            <a href="/api/route" style="color:var(--accent);text-decoration:none;">/api/route →</a>
-            <a href="/index" style="color:var(--accent);text-decoration:none;">/index →</a>
+            <a href="/marketplace" style="color:var(--accent);text-decoration:none;">Explore the marketplace →</a>
           </div>
         </div>
         <div style="border:1.5px solid var(--dark-border2);background:var(--ink-panel);">
@@ -364,8 +363,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <!-- BY-CHAIN STRIP -->
       <div style="margin-top:40px;">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px;">
-          <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);">THE INDEX, BY CHAIN - ADDING A CHAIN ADDS A CELL, NOT A NAV LINK</span>
-          <a href="/index" style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted2);text-decoration:none;">/index →</a>
+          <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);">THE MARKETPLACE, BY CHAIN - ADDING A CHAIN ADDS A CELL, NOT A NAV LINK</span>
         </div>
         <div class="ml-mkts" style="display:grid;grid-template-columns:repeat(${chainCells.length},minmax(0,1fr));gap:0;border:1.5px solid var(--dark-border2);background:var(--ink-panel);">
           ${chainCells.map(chainCellHtml).join("\n          ")}
