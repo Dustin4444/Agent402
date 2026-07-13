@@ -253,6 +253,17 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             },
           },
         }] : []),
+        // Payment / wallet management surface — documents how paying works, how
+        // to configure a wallet + spend caps, and points to the on-chain
+        // wallet-balances / wallet-transactions tools for balance + history.
+        {
+          name: "payment_info",
+          title: "Payment and wallet setup",
+          annotations: { title: "Payment and wallet setup", ...SAFE },
+          description:
+            `How paying for Agent402 tools works and how to manage a wallet. This hosted connector holds NO wallet: ${freeCount} pure-CPU tools run free here (or solve a proof-of-work puzzle), the rest settle in USDC via x402. Covers: the free vs paid split, how to configure a funded wallet + per-call and budget spend caps, the rails (${RAILS_OR}), and checking a wallet's balance/transaction history via the wallet-balances / wallet-transactions tools. Returns { connector, freeTier, pay, spendControls, balanceAndHistory }.`,
+          inputSchema: { type: "object", properties: {} },
+        },
         // Curated free tools — exposed first-class so directory listings
         // (Glama, etc.) show what agents can actually run on this connector
         // without needing search_tools first. Each is callable by name.
@@ -437,6 +448,30 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         }
         // Curated tools called by name: route to the same handler as
         // call_tool but use `name` as the slug and `args` as params directly.
+        if (name === "payment_info") {
+          return {
+            content: [{ type: "text", text: JSON.stringify({
+              connector: "hosted free tier — no wallet is held on this connector (authless)",
+              freeTier: {
+                pureCpuToolsFree: freeCount,
+                how: "pure-CPU tools run free here (rate-limited); wallet-only tools return paid-access instructions",
+                proofOfWork: "a walletless client can solve a proof-of-work puzzle instead of paying on eligible tools",
+              },
+              pay: {
+                model: "HTTP 402 + x402, settled in USDC on-chain, non-custodial (you hold the key)",
+                rails: RAILS_PAREN,
+                setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
+                prices: "$0.001–$0.02 per call — see each tool's exact price in search_tools results",
+              },
+              spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },
+              balanceAndHistory: {
+                balance: "check a wallet's USDC balance with the `wallet-balances` (multi-chain) or `wallet-balance` (single) tool",
+                transactions: "pull a wallet's transaction history with the `wallet-transactions` tool",
+                note: "these are on-chain read tools — call them via call_tool (they need a wallet/paid access, or run them on the npm server)",
+              },
+            }, null, 2) }],
+          };
+        }
         // Curated tools are exposed snake_case but their real slug is kebab;
         // accept either the exposed name or the raw slug so no caller breaks.
         const curatedSlug = curatedSet.has(name)
