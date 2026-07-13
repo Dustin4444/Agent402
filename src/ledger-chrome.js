@@ -38,7 +38,14 @@ export const LEDGER_HEAD = `<link rel="preload" href="/fonts/archivo-800.woff2" 
 
 export const LEDGER_CSS = `
 :root {
-  --accent: #D63C1A;
+  /* Accent as small text needs >=4.5:1 (WCAG AA). #BF360C clears it on every
+     light surface (white, cream card, zebra). On DARK surfaces a dark red fails,
+     so accent text there uses --accent-lit (a brighter red) via a scoped
+     override on each dark container. Accent-as-background keeps white text
+     legible on #BF360C (5.8:1); brightening it would BREAK that, so dark
+     containers only override text, never accent-bg buttons. */
+  --accent: #BF360C;
+  --accent-lit: #F0522E;
   --paper: #FFFFFF;
   --card: #F7F7F5;
   --card-zebra: #F1F1EF;
@@ -47,7 +54,7 @@ export const LEDGER_CSS = `
   --ink-panel: #151515;
   --ink-tape: #0B0B0B;
   --muted: #4A4A4A;
-  --faint: #6A6A6A;
+  --faint: #8C8C8C;
   --hairline: #E0E0DE;
   --dash: #C9C9C7;
   --dark-border: #262626;
@@ -73,6 +80,7 @@ export const LEDGER_CSS = `
    prefers-color-scheme) before first paint - see ledgerShell. */
 :root[data-theme="dark"] {
   --accent: #F0522E;
+  --accent-lit: #F0522E;
   --paper: #0E0E10;
   --card: #171719;
   --card-zebra: #1E1E21;
@@ -202,7 +210,7 @@ a { color: inherit; }
 function statusLine() {
   return `<div style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:12px;letter-spacing:.02em;">
   <div class="ml-status-in" style="max-width:1180px;margin:0 auto;padding:8px 30px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
-    <span class="ml-status-left" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">HTTP/1.1 <span style="color:var(--accent);font-weight:700;">402</span> PAYMENT REQUIRED</span>
+    <span class="ml-status-left" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">HTTP/1.1 <span style="color:var(--accent-lit);font-weight:700;">402</span> PAYMENT REQUIRED</span>
     <span class="ml-status-ticker" style="color:var(--dk-muted);white-space:nowrap;">agent402.base.eth · ${RAILS_TICKER}</span>
   </div>
 </div>`;
@@ -504,7 +512,7 @@ export function ledgerTape(recentCalls) {
   const chip = (r) =>
     `<span>${esc(r.slug)} · <span style="color:#EDEDEB;">${r.paidWith === "proof-of-work" ? "PoW" : "$USDC"}</span> · ${agoStr(r.at)}</span>`;
   const track = items.map(chip).join("");
-  return `<div style="background:var(--ink-tape);border-bottom:1.5px solid var(--ink);overflow:hidden;display:flex;align-items:center;">
+  return `<div style="background:var(--ink-tape);--accent:var(--accent-lit);border-bottom:1.5px solid var(--ink);overflow:hidden;display:flex;align-items:center;">
   <div style="flex:none;padding:11px 18px;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);border-right:1px solid var(--dark-border);">●●● TAPE</div>
   <div style="overflow:hidden;flex:1;">
     <div style="display:flex;gap:30px;width:max-content;animation:ml-tape 40s linear infinite;font-family:var(--font-mono);font-size:12px;color:var(--dk-muted);padding:11px 18px;white-space:nowrap;">${track}${track}</div>
