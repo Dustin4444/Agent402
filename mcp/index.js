@@ -335,7 +335,9 @@ let pricingInfo = null;
 
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   const tools = curated.map((t) => ({
-    name: t.slug,
+    // snake_case exposed name so the whole tools/list is one convention
+    // (meta-tools are snake_case; slugs are kebab). CallTool accepts both.
+    name: t.slug.replace(/-/g, "_"),
     description: `[${t.price}/call${t.computePayable ? ", or free via proof-of-work" : ", wallet required"}] ${t.description}`,
     inputSchema: t.inputSchema,
   }));
@@ -497,9 +499,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         }],
       };
     }
-    const tool = catalog.get(name === "call_tool" ? args.slug : name);
+    // Curated tools are exposed snake_case for tools/list consistency, but the
+    // real slug is kebab — accept either the exposed name or the raw slug.
+    const wanted = name === "call_tool"
+      ? String(args.slug ?? "")
+      : (catalog.has(name) ? name : name.replace(/_/g, "-"));
+    const tool = catalog.get(wanted);
     if (!tool) {
-      return { content: [{ type: "text", text: `Unknown tool slug "${name === "call_tool" ? args.slug : name}". Use search_tools to find the right slug.` }], isError: true };
+      return { content: [{ type: "text", text: `Unknown tool slug "${wanted}". Use search_tools to find the right slug.` }], isError: true };
     }
     return await callEndpoint(tool, name === "call_tool" ? (args.params ?? {}) : args);
   } catch (err) {

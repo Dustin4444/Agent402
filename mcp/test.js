@@ -75,12 +75,18 @@ const client = new Client({ name: "agent402-mcp-test", version: "0.0.0" });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(ROOT, "mcp", "index.js")], env }));
 
 try {
-  // tools/list: curated + meta tools present, catalog NOT dumped wholesale
+  // tools/list: curated + meta tools present, catalog NOT dumped wholesale.
+  // Names are snake_case for one consistent convention (memory_write, not the
+  // kebab slug memory-write); CallTool still accepts the raw slug too.
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
-  for (const required of ["search_tools", "call_tool", "payment_info", "top_x402_sellers", "extract", "render", "hash", "memory-write"]) {
+  for (const required of ["search_tools", "call_tool", "payment_info", "top_x402_sellers", "extract", "render", "hash", "memory_write"]) {
     if (!names.includes(required)) fail(`tools/list missing "${required}" (got: ${names.join(", ")})`);
   }
+  if (names.some((n) => n.includes("-"))) fail(`tools/list names must be snake_case, found kebab: ${names.filter((n) => n.includes("-")).join(", ")}`);
+  // backward-compat: the raw kebab slug must still resolve on call.
+  const kebabCall = await client.callTool({ name: "memory-write", arguments: { key: "k", value: "v" } });
+  if (kebabCall.isError && /Unknown tool/i.test(text(kebabCall))) fail("kebab slug memory-write must still resolve (backward compat)");
   if (tools.length > 30) fail(`tools/list too large (${tools.length}) — must stay curated, not dump the catalog`);
   const hashTool = tools.find((t) => t.name === "hash");
   if (!hashTool.inputSchema?.properties?.text) fail("hash tool lost its input schema");
