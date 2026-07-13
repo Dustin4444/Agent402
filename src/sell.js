@@ -84,7 +84,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     try {
       const r = await fetch("/api/index/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: document.getElementById("reg-origin").value }) });
       const j = await r.json();
-      out.textContent = j.listed ? ("Listed - " + (j.seller?.displayName || j.origin) + " (" + (j.seller?.toolCount || 0) + " tools). Appears on /index and any chain page it advertises.") : ("Not listed: " + (j.error || "unknown error"));
+      out.textContent = j.listed ? ("Listed - " + (j.seller?.displayName || j.origin) + " (" + (j.seller?.toolCount || 0) + " tools). Appears on /marketplace and any chain page it advertises.") : ("Not listed: " + (j.error || "unknown error"));
     } catch { out.textContent = "submission failed - try again"; }
   });
   </script>`;
@@ -199,7 +199,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
       <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">·· WHAT YOU GET ··</div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13.5px;">
-        <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Listed on /index + your chain's market pages</div>
+        <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Listed on /marketplace + your chain's market pages</div>
         <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Routed by the Smart Order Router when healthy</div>
         <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Ranked on /leaderboard by settled volume</div>
         <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Settlement direct to your wallet, every chain you accept</div>

@@ -19,7 +19,7 @@ ok(html.includes("41,209"), "demand receipt sums calls settled across all seller
 ok(html.includes("$1,384.02"), "demand receipt sums USDC settled across all sellers");
 ok(html.includes(">412<"), "demand receipt sums unique buyer wallets across all sellers");
 ok(html.includes(">21<"), "demand receipt shows sellers-on-index count from the index snapshot");
-ok(html.includes('href="/leaderboard"') && html.includes('href="/index"'), "demand rows link to their proof surfaces");
+ok(html.includes('href="/leaderboard"') && html.includes('href="/marketplace"'), "demand rows link to their proof surfaces");
 ok(!html.includes("busiest category"), "busiest-category row omitted rather than invented");
 
 // --- unavailable state when snapshots are absent/failed -------------------
