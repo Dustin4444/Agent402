@@ -736,7 +736,7 @@ app.use((_req, res, next) => {
   res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
   );
   next();
 });
@@ -1817,6 +1817,22 @@ app.get("/demo.js", (_req, res) =>
 // assets/fonts/, OFL-licensed) so rasterization is deterministic and offline —
 // no Google Fonts fetch in the serving path. rasterizeSvg awaits fonts.ready.
 const fontB64 = (f) => readFileSync(new URL(`../assets/fonts/${f}`, import.meta.url)).toString("base64");
+
+// Self-hosted brand fonts (Archivo + Space Mono, latin woff2 in assets/fonts/),
+// served first-party with a 1-year immutable cache. This replaces the
+// render-blocking third-party Google Fonts stylesheet (worth ~1.9s of mobile
+// render-block + a cross-origin request chain) and gives repeat visits a free
+// cache hit. Filenames are strictly validated — no path traversal.
+const FONT_FILE_RE = /^(archivo|spacemono)-(400|500|600|700|800|900)\.woff2$/;
+app.get("/fonts/:file", (req, res) => {
+  const file = String(req.params.file || "");
+  if (!FONT_FILE_RE.test(file)) return res.status(404).end();
+  let buf;
+  try { buf = readFileSync(new URL(`../assets/fonts/${file}`, import.meta.url)); }
+  catch { return res.status(404).end(); }
+  res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+  res.type("font/woff2").send(buf);
+});
 const BRAND_FONT_STYLE = `<style>
 @font-face{font-family:'Space Mono';font-weight:400;src:url(data:font/woff2;base64,${fontB64("spacemono-400.woff2")}) format('woff2')}
 @font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}

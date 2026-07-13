@@ -15,9 +15,18 @@ export const esc = (s) =>
 // the ?v= literal whenever the logo art changes or old marks linger for weeks.
 // ---------------------------------------------------------------------------
 
-export const LEDGER_HEAD = `<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+export const LEDGER_HEAD = `<link rel="preload" href="/fonts/archivo-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/spacemono-400.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face{font-family:'Archivo';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/archivo-400.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/archivo-500.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/archivo-600.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/archivo-700.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:800;font-display:swap;src:url(/fonts/archivo-800.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:900;font-display:swap;src:url(/fonts/archivo-900.woff2) format('woff2')}
+@font-face{font-family:'Space Mono';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/spacemono-400.woff2) format('woff2')}
+@font-face{font-family:'Space Mono';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/spacemono-700.woff2) format('woff2')}
+</style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">
 <link rel="icon" type="image/png" sizes="512x512" href="/favicon.ico?v=3">
 <link rel="shortcut icon" href="/favicon.ico?v=3">
@@ -38,7 +47,7 @@ export const LEDGER_CSS = `
   --ink-panel: #151515;
   --ink-tape: #0B0B0B;
   --muted: #4A4A4A;
-  --faint: #8C8C8C;
+  --faint: #6A6A6A;
   --hairline: #E0E0DE;
   --dash: #C9C9C7;
   --dark-border: #262626;
