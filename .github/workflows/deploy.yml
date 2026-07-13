@@ -977,6 +977,9 @@ jobs:
       - name: Base/Solana/Polygon/Arbitrum/Robinhood marketplace page tests (offline, fixture snapshot)
         run: node scripts/test-market-pages.js
 
+      - name: Base activity via CDP SQL — guard/fail-safe paths (offline)
+        run: node scripts/test-base-activity.js
+
       - name: Sell hub page tests (offline, fixture snapshot)
         run: node scripts/test-sell-page.js
 

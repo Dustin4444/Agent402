@@ -144,7 +144,7 @@ import { ledgerHomePage } from "./ledger-home.js";
 import { marketplacesPage } from "./marketplaces.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketPage, marketPanelHtml } from "./market-page.js";
@@ -1633,24 +1633,40 @@ function walletShapeOkForChain(chainKey, wallet) {
   if (!wallet) return false;
   return chainKey === "solana" ? SOLANA_ADDR_RE.test(wallet) : EVM_ADDR_RE.test(wallet);
 }
+// One activity scan for a chain+wallet. Base uses CDP SQL (one server-side
+// aggregation query, no 10k scan cap, ~0.5s) and falls back to the RPC transfer
+// scan on ANY error (no CDP creds, rejected query, timeout) so the panel never
+// breaks. Other chains use their existing scanners.
+async function scanActivity(chainKey, wallet) {
+  if (chainKey === "solana") return solanaActivity(wallet);
+  if (chainKey === "robinhood") return robinhoodActivity(wallet);
+  if (chainKey === "base") {
+    const viaSql = await baseActivityViaSql(wallet).catch(() => null);
+    if (viaSql && !viaSql.error) return viaSql; // exact + fast
+    return evmActivity("base", wallet);          // fail-safe fallback
+  }
+  return evmActivity(chainKey, wallet);
+}
+
+// Stale-while-revalidate: a warm wallet returns instantly (even once past the
+// TTL) and refreshes in the background, so switching sellers never blocks on a
+// scan. Only the first-ever load of a wallet awaits — and on Base that's the
+// ~0.5s CDP SQL query, not a 10-page RPC walk. Concurrent cold calls share one
+// in-flight scan.
 async function getActivityForChain(chainKey, wallet) {
   if (!walletShapeOkForChain(chainKey, wallet)) return null;
   const key = `${chainKey}:${wallet}`;
   if (chainActivityByWallet.size > 500) chainActivityByWallet.clear(); // safety sweep
   let entry = chainActivityByWallet.get(key);
-  if (entry && !entry.inFlight && Date.now() - entry.at < CHAIN_ACTIVITY_TTL_MS) return entry.value;
-  if (!entry || !entry.inFlight) {
-    entry = entry || { at: 0, value: null, inFlight: null };
-    chainActivityByWallet.set(key, entry);
+  if (!entry) { entry = { at: 0, value: null, inFlight: null }; chainActivityByWallet.set(key, entry); }
+  const stale = Date.now() - entry.at >= CHAIN_ACTIVITY_TTL_MS;
+  if (stale && !entry.inFlight) {
     entry.inFlight = (async () => {
       try {
-        const a = chainKey === "solana" ? await solanaActivity(wallet)
-          : chainKey === "robinhood" ? await robinhoodActivity(wallet)
-          : await evmActivity(chainKey, wallet);
+        const a = await scanActivity(chainKey, wallet);
         entry.at = Date.now();
         if (a && !a.error) entry.value = a; // success — refresh the cached value
-        // else: leave entry.value as-is (stale-serving a prior good scan, or
-        // still null if this wallet has never scanned successfully)
+        // else: keep the prior good value (stale-serve) or stay null
       } catch {
         entry.at = Date.now(); // still respect the TTL before retrying
       } finally {
@@ -1658,7 +1674,8 @@ async function getActivityForChain(chainKey, wallet) {
       }
     })();
   }
-  await entry.inFlight;
+  if (entry.value) return entry.value; // SWR: serve cached immediately (fresh or stale)
+  await entry.inFlight;                // cold: nothing cached yet — wait for the first scan
   return entry.value;
 }
 // /base, /solana, /polygon, /arbitrum, /robinhood — five more x402

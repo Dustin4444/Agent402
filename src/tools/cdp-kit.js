@@ -112,6 +112,26 @@ async function cdpFetch(method, path, body) {
   throw lastErr;
 }
 
+/** True when CDP credentials are configured (cdpSql/cdpFetch can run). Cheap
+ *  pre-check so hot paths can fall back without triggering cdpFetch's 503 throw. */
+export function cdpConfigured() { return !!(keyId() && keySecret()); }
+
+/** Run a read-only ClickHouse SELECT over Coinbase's indexed, decoded chain data
+ *  (base.events, base.transactions, …) and return the result rows as an array.
+ *  Reuses cdpFetch (JWT + retry). Throws a 503 (via cdpFetch) when creds are unset
+ *  and surfaces CDP's own 4xx on a bad query — callers in latency-sensitive paths
+ *  should cdpConfigured()-gate and/or catch to fall back. `cacheSeconds` (≤900)
+ *  sets CDP's server-side result cache. */
+export async function cdpSql(sql, { cacheSeconds } = {}) {
+  const body = { sql: String(sql) };
+  if (Number.isFinite(cacheSeconds) && cacheSeconds > 0) {
+    body.cache = { maxAgeMs: Math.min(Math.floor(cacheSeconds), 900) * 1000 };
+  }
+  const res = await cdpFetch("POST", "/platform/v2/data/query/run", body);
+  const rows = res?.result ?? res?.rows ?? res?.data ?? res;
+  return Array.isArray(rows) ? rows : [];
+}
+
 const EVM_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 const SOL_ADDR_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const BALANCE_NETWORKS = new Set(["base", "ethereum", "base-sepolia", "solana", "solana-devnet"]);
