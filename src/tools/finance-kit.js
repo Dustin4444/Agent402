@@ -145,7 +145,10 @@ export const FINANCE_TOOLS = [
     name: "Stock quote",
     slug: "stock-quote",
     category: "data",
-    price: "$0.010",
+    // $0.010 → $0.003 (2026-07-13): our broadest-organic-demand tool (35
+    // distinct paying wallets/14d) was priced 3.3× the market leader's
+    // identical product. Match the market; watch volume.
+    price: "$0.003",
     description:
       "Live stock/index/FX/crypto quote: last price, day range, 52-week range, previous close, currency, exchange, and a relative change vs. previous close, as clean JSON. Backed by Yahoo Finance's public chart endpoint — keyless, no rate limits in practice. Symbols: equities (AAPL), indices (^GSPC), FX (EURUSD=X), crypto (BTC-USD).",
     tags: ["finance", "stocks", "quote", "market-data", "price"],

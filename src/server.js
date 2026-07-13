@@ -2190,7 +2190,26 @@ app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
     name: "Agent402.Tools",
-    description: `Pay-per-call tools for AI agents via the x402 payment protocol — ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory) plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    description: `Pay-per-call tools for AI agents via the x402 payment protocol — ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images — no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    // The LLM gateway is the highest-frequency product agents buy — surface its
+    // tiers at the top level instead of burying them among ${endpointCount}
+    // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows
+    // the worst case before sending.
+    llmGateway: {
+      wire: "OpenAI-compatible",
+      base: `${BASE_URL}/v1`,
+      pricing: "flat per call — never token-metered",
+      tiers: [
+        { path: "/v1/nano/chat/completions", price: "$0.003", note: "cheap fast models" },
+        { path: "/v1/auto/chat/completions", price: "$0.01", note: "model optional — deterministic eval-ranked routing" },
+        { path: "/v1/chat/completions", price: "$0.02", note: "base tier" },
+        { path: "/v1/pro/chat/completions", price: "$0.10", note: "frontier models" },
+        { path: "/v1/premium/chat/completions", price: "$0.50", note: "largest models" },
+        { path: "/v1/embeddings", price: "$0.002", note: "batch ≤64, cached by default" },
+        { path: "/v1/images/generations", price: "$0.08", note: "b64_json out" },
+      ],
+      docs: `${BASE_URL}/tools/category/llm`,
+    },
     payment: { protocol: "x402", version: 2, network: NETWORK, currency: "USDC", networks: enabledNetworks(NETWORK) },
     altPayment: {
       protocol: "proof-of-work",
@@ -2364,6 +2383,26 @@ if (FREE_MODE) {
   app.use((req, res, next) => {
     const def = CATALOG[`${req.method} ${req.path}`];
     if (def) {
+      // Make the free tier DISCOVERABLE at the moment of rejection: PostHog
+      // showed 2.1M 402 challenges vs 235 PoW challenges issued in 14 days —
+      // the on-ramp exists but nothing at the paywall points to it. For
+      // PoW-eligible tools, append an `altPayment` hint to the 402 JSON body
+      // (additive — x402 clients read `accepts` and ignore unknown fields) so
+      // an unfunded agent learns it can compute instead of pay.
+      if (POW_SLUGS.has(def.slug)) {
+        const origJson = res.json.bind(res);
+        res.json = (body) => {
+          if (res.statusCode === 402 && body && typeof body === "object" && !Array.isArray(body) && !body.altPayment) {
+            body.altPayment = {
+              protocol: "proof-of-work",
+              summary: "No wallet? This tool is also payable with a few ms of CPU: solve a sha256 puzzle instead — no money, no tokens.",
+              challengeUrl: `${BASE_URL}/api/pow/challenge?slug=${encodeURIComponent(def.slug)}`,
+              info: `${BASE_URL}/api/pow`,
+            };
+          }
+          return origJson(body);
+        };
+      }
       res.on("finish", () => {
         if (res.statusCode === 402) {
           // Classify the bounce by what the caller tried. A payment header that
