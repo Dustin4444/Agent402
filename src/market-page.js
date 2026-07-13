@@ -226,6 +226,27 @@ export function marketTools(_chainKey, snapshot) {
   return local?.tools || [];
 }
 
+// Shared filter bar for the unified marketplace: chain tabs (links, so the
+// per-chain SEO URLs stay crawlable) + category + sort + search. chainKey===null
+// marks the "All" (/marketplace) view; a chain slug marks that chain's view.
+export function marketFilterBar(chainKey, baseUrl) {
+  const tab = (key, label, href, on) =>
+    `<a data-chain-tab="${key}" href="${href}" class="mfb-tab${on ? " on" : ""}">${esc(label)}</a>`;
+  const tabs = [tab("all", "All", "/marketplace", chainKey == null)]
+    .concat(Object.keys(CHAIN_PAGES).map((k) =>
+      tab(k, CHAIN_PAGES[k].chainName, `/${k}`, k === chainKey)));
+  return `
+  <div class="mfb" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:22px 0 6px;padding:12px;border:1.5px solid var(--ink);background:var(--card);">
+    <span class="mfb-label">Chain</span>
+    <div class="mfb-tabs" style="display:flex;flex-wrap:wrap;gap:5px;">${tabs.join("")}</div>
+    <span class="mfb-label" style="margin-left:6px;">Sort</span>
+    <select class="mfb-sel" data-mfb-sort><option value="calls">most settled</option><option value="usd">volume</option><option value="buyers">buyers</option><option value="tools">tools</option></select>
+    <span class="mfb-label">Category</span>
+    <select class="mfb-sel" data-mfb-cat><option value="">all</option></select>
+    <input class="mfb-search" data-mfb-search placeholder="search sellers / tools">
+  </div>`;
+}
+
 function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) {
   const byCat = new Map();
   for (const t of tools) {

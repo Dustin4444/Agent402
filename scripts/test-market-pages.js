@@ -3,7 +3,7 @@
 // src/market-page.js already covers /stellar and /algorand (see
 // scripts/test-stellar-page.js / test-algorand-page.js); this file locks
 // down the CHAIN_PAGES entries added alongside them. No server, no network.
-import { marketSellers, marketPage, marketPanelHtml, CHAIN_PAGES } from "../src/market-page.js";
+import { marketSellers, marketPage, marketPanelHtml, CHAIN_PAGES, marketFilterBar } from "../src/market-page.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -195,6 +195,18 @@ for (const c of NEW_CHAINS) {
   const tailHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, C1, C2] }, rail: null, activity: null, leaderboardSnap: { leaderboard: [] }, wallet: "0x1" });
   ok(tailHtml.includes("c1.example") && tailHtml.includes("c2.example"), "base: no-leaderboard sellers stay individually listed (long-tail not collapsed)");
   ok(/SELLERS<\/div><div[^>]*>3</.test(tailHtml), "base: SELLERS count keeps ungrouped long-tail sellers distinct (3)");
+}
+
+// Market filter bar — shared chain tabs + category + sort + search.
+{
+  const all = marketFilterBar(null, "https://agent402.tools");
+  ok(/href="\/marketplace"/.test(all), "filter bar: All tab links to /marketplace");
+  ok(/data-chain-tab="all"[^>]*class="[^"]*\bon\b/.test(all) || /class="[^"]*\bon\b[^"]*"[^>]*data-chain-tab="all"/.test(all), "filter bar: All tab is active in the all-chains view");
+  ok(/href="\/base"/.test(all) && /href="\/robinhood"/.test(all), "filter bar: every chain tab is a link");
+  const base = marketFilterBar("base", "https://agent402.tools");
+  ok(/data-chain-tab="base"[^>]*\bon\b|\bon\b[^>]*data-chain-tab="base"/.test(base), "filter bar: Base tab active on the Base view");
+  ok(/href="\/marketplace"/.test(base), "filter bar: All tab links back to /marketplace from a chain view");
+  ok(/Sort/i.test(all) && /Category/i.test(all), "filter bar: has Sort + Category controls");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
