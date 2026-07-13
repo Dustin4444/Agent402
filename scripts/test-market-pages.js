@@ -146,16 +146,55 @@ for (const c of NEW_CHAINS) {
   ok(cardView.includes('id="seller-card"'), "base: seller card renders when a seller is selected");
   ok(cardView.includes("SETTLED CALLS") && cardView.includes("VOLUME") && cardView.includes("BUYERS") && cardView.includes("TOOLS"), "base: seller card has calls/volume/buyers/tools fields");
   ok(cardView.includes("0xabc0000000000000000000000000000000000abc"), "base: seller card shows the payTo");
-  ok(cardView.includes(">40<") || /SETTLED CALLS[\s\S]{0,120}>40</.test(cardView), "base: seller card uses the scoped activity totals (40 calls)");
+  // Card headline uses the leaderboard stat (42), NOT the narrower on-chain scan
+  // (40) — so the list and the card always show the same number for a seller.
+  ok(/SETTLED CALLS[\s\S]{0,140}>42</.test(cardView), "base: seller card headline uses the leaderboard stat (42 calls), matching the roster");
+  ok(!/SETTLED CALLS[\s\S]{0,140}>40</.test(cardView), "base: seller card headline does NOT fall back to the scoped on-chain total (40) when a leaderboard row exists");
+  ok(/rolling\s+7d\s+totals/i.test(cardView), "base: seller card labels its window (rolling 7d) so leaderboard-scoped totals read honestly");
 
   // Panel endpoint output matches the in-page panel (same renderer).
   const panel = marketPanelHtml("base", { snapshot, activity, selectedSeller: sel, leaderboardSnap });
   ok(panel.includes('id="seller-card"') && panel.includes('id="activity"'), "base: marketPanelHtml returns the seller card + activity for the /panel endpoint");
   ok(cardView.includes(panel.trim().slice(0, 200)), "base: page panel and endpoint panel render identically");
 
+  // Fallback: a seller with NO leaderboard row falls back to the scoped on-chain
+  // scan, and a capped scan is rendered as a floor ("40+") rather than a hard total.
+  const EXT2 = { origin: "https://ext2.example", displayName: "Ext Two", homepage: "https://ext2.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xdef0000000000000000000000000000000000def" } };
+  const snapshot2 = { sellers: [LOCAL, EXT2] };
+  const cappedActivity = { days: 30, truncated: true, buckets: [], totals: { tx: 40, usd: 3.2, buyers: 6 } };
+  const sel2 = { local: false, host: "ext2.example", name: "Ext Two" };
+  const fallbackCard = marketPanelHtml("base", { snapshot: snapshot2, activity: cappedActivity, selectedSeller: sel2, leaderboardSnap });
+  ok(/SETTLED CALLS[\s\S]{0,140}>40\+</.test(fallbackCard), "base: no-leaderboard seller falls back to the on-chain total, marked a floor (40+) when the scan is capped");
+  ok(/scan capped/i.test(fallbackCard), "base: capped on-chain fallback surfaces the 'scan capped' floor caveat on the card");
+
   // Host view (no selection) → no card, just activity.
   const hostPanel = marketPanelHtml("base", { snapshot, activity: null, selectedSeller: { local: true }, leaderboardSnap });
   ok(!hostPanel.includes('id="seller-card"'), "base: host view renders no seller card");
+}
+
+// Roster dedup — multiple crawled hosts that settle to the SAME leaderboard
+// group (shared payTo, or distinct wallets the leaderboard grouped) collapse
+// into ONE roster row, so the group's tx total isn't repeated per host.
+{
+  const payTo = "0xdup00000000000000000000000000000000dup0";
+  const A = { origin: "https://a.example", displayName: "Svc A", homepage: "https://a.example", local: false, toolCount: 50, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": payTo } };
+  const B = { origin: "https://svc-b.up.railway.app", displayName: "Svc B", homepage: "https://svc-b.up.railway.app", local: false, toolCount: 4, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": payTo } };
+  const snapshot = { sellers: [LOCAL, A, B] };
+  const leaderboardSnap = { leaderboard: [{ name: "Grouped", homepage: "https://a.example", wallet: payTo, wallets: [payTo], callsSettled: 999, totalUsd: 5, uniqueBuyers: 3 }] };
+  const html = marketPage("base", "https://agent402.tools", { snapshot, rail: null, activity: null, leaderboardSnap, wallet: "0x1" });
+  const stripped = html.replace(/&middot;|·/g, " ");
+  ok((stripped.match(/999\s*tx/g) || []).length === 1, "base: shared-wallet group's tx total renders once, not per host");
+  ok(stripped.includes("a.example"), "base: canonical host (real domain) survives the collapse");
+  ok(!/svc-b\.up\.railway\.app/.test(stripped), "base: the platform-subdomain sibling is collapsed away, not a second row");
+  ok(/\+1 more endpoint\b/.test(stripped), "base: collapsed sibling is disclosed as '+1 more endpoint', not hidden");
+  ok(/SELLERS<\/div><div[^>]*>2</.test(html), "base: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
+
+  // Sellers with NO leaderboard row are the discovery long-tail — never grouped.
+  const C1 = { origin: "https://c1.example", displayName: "C1", homepage: "https://c1.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xc1000000000000000000000000000000000000c1" } };
+  const C2 = { origin: "https://c2.example", displayName: "C2", homepage: "https://c2.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xc2000000000000000000000000000000000000c2" } };
+  const tailHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, C1, C2] }, rail: null, activity: null, leaderboardSnap: { leaderboard: [] }, wallet: "0x1" });
+  ok(tailHtml.includes("c1.example") && tailHtml.includes("c2.example"), "base: no-leaderboard sellers stay individually listed (long-tail not collapsed)");
+  ok(/SELLERS<\/div><div[^>]*>3</.test(tailHtml), "base: SELLERS count keeps ungrouped long-tail sellers distinct (3)");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

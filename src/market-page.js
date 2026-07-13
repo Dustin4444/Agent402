@@ -318,17 +318,28 @@ export function marketActivityHtml(chainKey, activity, selected) {
 
 // Seller card — shown when an external seller is selected from the roster. The
 // chain-level top cards (SELLERS / TOOLS / LATEST SETTLE / PRICE FLOOR) stay
-// chain-wide; this card gives the SELECTED seller's own numbers: settled calls,
-// volume and buyers (from the scoped on-chain activity scan, so it works on
-// every chain), tools + health (from the crawl), its payTo, and first settlement
-// seen in the window. Returns "" when nothing is selected (host view).
-export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo) {
+// chain-wide; this card gives the SELECTED seller's own numbers.
+//
+// Headline SETTLED CALLS / VOLUME / BUYERS come from the leaderboard `stat`
+// (the same rolling-window aggregate the roster's "· N tx" suffix uses) so the
+// list and the card always agree — it also folds in ALL of a seller's grouped
+// payTo wallets, not just the one advertised on this chain, so a router whose
+// real volume lives on a second wallet isn't undercounted. When a seller has no
+// leaderboard row (too small / off-chain-window), we fall back to the scoped
+// on-chain scan's totals; that scan caps at 10k transfers, so a capped total is
+// rendered as a floor ("N+"). The on-chain scan still powers the 30-day Activity
+// charts below regardless — that's where its per-address precision belongs.
+export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, windowLabel) {
   const C = CHAIN_PAGES[chainKey];
   if (!sel || sel.local || !seller) return "";
   const t = (activity && activity.totals) || {};
-  const calls = Number(t.tx ?? stat?.calls ?? 0);
-  const vol = Number(t.usd ?? stat?.usd ?? 0);
-  const buyers = Number(t.buyers ?? stat?.buyers ?? 0);
+  const fromLb = !!stat; // leaderboard row matched this seller's payTo
+  const capped = !fromLb && !!activity?.truncated; // on-chain fallback hit the scan ceiling
+  const plus = capped ? "+" : "";
+  const calls = Number(fromLb ? stat.calls : t.tx ?? 0);
+  const vol = Number(fromLb ? stat.usd : t.usd ?? 0);
+  const buyers = Number(fromLb ? stat.buyers : t.buyers ?? 0);
+  const winLabel = fromLb ? (windowLabel || "7d") : `${activity?.days || 30}d`;
   const toolN = seller.toolCount || 0;
   const health = seller.routable ? "healthy" : "unreachable";
   const firstSeen = (Array.isArray(activity?.buckets) ? activity.buckets.find((b) => Number(b.tx) > 0) : null)?.date || null;
@@ -351,12 +362,12 @@ export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo) {
       </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));border-bottom:1px solid var(--dark-border2);">
-      ${cell("SETTLED CALLS", calls.toLocaleString("en-US"))}
-      ${cell("VOLUME", usd(vol))}
-      ${cell("BUYERS", buyers.toLocaleString("en-US"))}
+      ${cell("SETTLED CALLS", calls.toLocaleString("en-US") + plus)}
+      ${cell("VOLUME", usd(vol) + plus)}
+      ${cell("BUYERS", buyers.toLocaleString("en-US") + plus)}
       ${cell("TOOLS", toolN.toLocaleString("en-US"))}
     </div>
-    <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
+    <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">rolling ${esc(winLabel)} totals${capped ? " (scan capped &mdash; a floor)" : ""} &middot; payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
   </div>`;
 }
 
@@ -378,7 +389,7 @@ export function marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, 
     const hit = rows.find((r) => (r.wallets && r.wallets.length ? r.wallets : [r.wallet]).some((w) => String(w).toLowerCase() === String(payTo).toLowerCase()));
     if (hit) stat = { calls: hit.callsSettled || 0, usd: hit.totalUsd || 0, buyers: hit.uniqueBuyers || 0 };
   }
-  return sellerCardHtml(chainKey, picked, selectedSeller, activity, stat, payTo) + marketActivityHtml(chainKey, activity, selectedSeller);
+  return sellerCardHtml(chainKey, picked, selectedSeller, activity, stat, payTo, leaderboardSnap?.windowLabel) + marketActivityHtml(chainKey, activity, selectedSeller);
 }
 
 export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap } = {}) {
@@ -399,12 +410,17 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   // other chains fall back to the scoped activity scan (which the seller card
   // uses directly). Match against every wallet the leaderboard grouped together.
   const statByWallet = new Map();
-  for (const r of (Array.isArray(leaderboardSnap?.leaderboard) ? leaderboardSnap.leaderboard : [])) {
-    const stat = { calls: r.callsSettled || 0, usd: r.totalUsd || 0, buyers: r.uniqueBuyers || 0 };
+  (Array.isArray(leaderboardSnap?.leaderboard) ? leaderboardSnap.leaderboard : []).forEach((r, i) => {
+    // `gid` = the leaderboard ROW this wallet belongs to. Two roster hosts are
+    // the same economic seller iff their payTos resolve to the same gid — this
+    // catches both a shared payTo address AND distinct wallets the leaderboard
+    // grouped under one operator (payment = identity).
+    const stat = { calls: r.callsSettled || 0, usd: r.totalUsd || 0, buyers: r.uniqueBuyers || 0, gid: `lb${i}` };
     for (const w of (r.wallets && r.wallets.length ? r.wallets : [r.wallet])) if (w) statByWallet.set(String(w).toLowerCase(), stat);
-  }
+  });
   const sellerPayTo = (s) => (s && !s.local ? (Object.entries(s.payToByNetwork || {}).find(([net]) => C.isNetwork(net))?.[1] || null) : null);
   const sellerStat = (s) => { const p = sellerPayTo(s); return p ? statByWallet.get(String(p).toLowerCase()) || null : null; };
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
 
   // Surface the sellers worth clicking: this host first, then most on-chain
   // settled calls, then healthy, then tool-rich. So the roster leads with active
@@ -419,6 +435,34 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   // Roster "· N tx" suffix — only when the leaderboard has settlements for this
   // seller's payTo on this chain (Base today); silent otherwise.
   const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
+
+  // Collapse hosts that settle to the SAME leaderboard group into one roster
+  // row, so a group's tx total isn't repeated per host (it reads as 2–3× the
+  // real volume otherwise). One row per settling seller; the canonical host is
+  // the one on a real domain (not a throwaway platform subdomain), then the
+  // richest catalog. Sellers with no leaderboard row aren't grouped — there's no
+  // shared-wallet evidence — so the discovery long-tail stays fully listed.
+  const PLATFORM_HOST = /\.(up\.railway\.app|run\.app|onrender\.com|fly\.dev|herokuapp\.com|vercel\.app|ondigitalocean\.app|workers\.dev)$/i;
+  const prefRank = (s) => (PLATFORM_HOST.test(hostOf(s.homepage)) ? 1 : 0);
+  const better = (a, b) => {
+    if (prefRank(a) !== prefRank(b)) return prefRank(a) < prefRank(b) ? a : b;
+    if ((a.toolCount || 0) !== (b.toolCount || 0)) return (a.toolCount || 0) > (b.toolCount || 0) ? a : b;
+    return hostOf(a.homepage).length <= hostOf(b.homepage).length ? a : b;
+  };
+  const extraByGid = new Map(); // gid -> count of collapsed sibling endpoints
+  const primaryByGid = new Map(); // gid -> the seller currently rendered for the group
+  const rosterSellers = [];
+  for (const s of sellers) {
+    const gid = s.local ? null : sellerStat(s)?.gid;
+    if (!gid) { rosterSellers.push(s); continue; }
+    const cur = primaryByGid.get(gid);
+    if (!cur) { primaryByGid.set(gid, s); extraByGid.set(gid, 0); rosterSellers.push(s); continue; }
+    extraByGid.set(gid, extraByGid.get(gid) + 1);
+    const winner = better(cur, s);
+    if (winner !== cur) { rosterSellers[rosterSellers.indexOf(cur)] = winner; primaryByGid.set(gid, winner); }
+  }
+  // "+N more endpoints" on the surviving row so the collapsed hosts are disclosed, not hidden.
+  const endpointsNote = (s) => { const gid = s.local ? null : sellerStat(s)?.gid; const n = gid ? extraByGid.get(gid) || 0 : 0; return n > 0 ? ` &middot; +${n} more endpoint${n === 1 ? "" : "s"}` : ""; };
   const prices = tools.map((t) => Number(t.price)).filter((n) => Number.isFinite(n) && n > 0);
   const low = prices.length ? Math.min(...prices) : 0.001;
   const high = prices.length ? Math.max(...prices) : 0.5;
@@ -436,7 +480,6 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       ${g.more ? `<div style="font-size:12px;color:var(--faint);margin-top:6px;">+ ${g.more} more in <a href="/tools" style="color:var(--muted);">the full catalog</a></div>` : ""}
     </div>`).join("");
 
-  const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
   // Which seller's activity is on screen: default is this host; an external
   // pick highlights that seller and re-scopes the Activity section.
   const selHost = selectedSeller && !selectedSeller.local ? String(selectedSeller.host || "").toLowerCase() : null;
@@ -444,19 +487,19 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
   const activityHref = (s) => (s.local ? `/${chainKey}#activity` : `/${chainKey}?seller=${encodeURIComponent(hostOf(s.homepage).toLowerCase())}#activity`);
   // Cards read well up to a dozen sellers; past that, compact rows keep the
   // roster scannable at any size.
-  const compact = sellers.length > 12;
+  const compact = rosterSellers.length > 12;
   const sellersHtml = compact
-    ? sellers.map((s) => {
+    ? rosterSellers.map((s) => {
         const good = s.local || s.routable;
         return `
     <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
       <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}</span>
       <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
-      <span class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}</span>
+      <span class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</span>
       <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
     </a>`;
       }).join("")
-    : sellers.map((s) => {
+    : rosterSellers.map((s) => {
         const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
         const good = s.local || s.routable;
         return `
@@ -467,7 +510,7 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
       </div>
       <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools${txSuffix(s)}</span>
+        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</span>
         <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>
       </div>
       <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;margin-top:2px;">${isSelected(s) ? "activity shown above" : "view activity →"}</a>
@@ -476,13 +519,13 @@ export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, select
 
   const statsHtml = `
   <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS</div><div style="font-size:26px;font-weight:800;">${sellers.length}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${tools.length.toLocaleString("en-US")}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">LATEST SETTLE</div><div style="font-size:26px;font-weight:800;">${latest ? usd(latest.usd) : "-"}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">PRICE FLOOR</div><div style="font-size:26px;font-weight:800;">${usd(low)}</div></div>
   </div>`;
 
-  const honesty = sellers.length === 1 && sellers[0]?.local
+  const honesty = rosterSellers.length === 1 && rosterSellers[0]?.local
     ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live - discovery is open, and external sellers are added automatically when their x402 challenges advertise ${C.honestyNetworkPhrase}.</p>`
     : "";
 
