@@ -331,7 +331,9 @@ export const ONCHAIN_IDENTITY_TOOLS = [
     tags: ["farcaster", "warpcast", "identity", "profile", "social"],
     discovery: {
       bodyType: "json",
-      input: { username: "dwr.eth" },
+      // FID, not username: FIDs are permanent, usernames rename out from under
+      // an example (dwr.eth became dwr and Neynar started 404ing the old handle).
+      input: { fid: 3 },
       inputSchema: {
         type: "object",
         properties: {
@@ -342,7 +344,7 @@ export const ONCHAIN_IDENTITY_TOOLS = [
       output: {
         example: {
           fid: 3,
-          username: "dwr.eth",
+          username: "dwr",
           displayName: "Dan Romero",
           pfpUrl: "https://...",
           bio: "Working on Farcaster.",
@@ -350,7 +352,7 @@ export const ONCHAIN_IDENTITY_TOOLS = [
           followingCount: 1000,
           activeOnFcNetwork: true,
           powerBadge: true,
-          venueUrl: "https://warpcast.com/dwr.eth",
+          venueUrl: "https://warpcast.com/dwr",
           source: "neynar",
         },
       },
@@ -381,13 +383,13 @@ export const ONCHAIN_IDENTITY_TOOLS = [
           found: true,
           address: "0xd7029bdea1c17493893aafe29aad69ef892b8ff2",
           fid: 3,
-          username: "dwr.eth",
+          username: "dwr",
           displayName: "Dan Romero",
           pfpUrl: "https://...",
           bio: "Working on Farcaster.",
           followerCount: 500000,
           followingCount: 1000,
-          venueUrl: "https://warpcast.com/dwr.eth",
+          venueUrl: "https://warpcast.com/dwr",
           source: "neynar",
         },
       },

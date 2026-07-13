@@ -70,7 +70,11 @@ async function certTransparencyHandler(body) {
         dispatcher: ssrfDispatcher,
         headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
       });
-      if (!res.ok) throw bad(`crt.sh returned HTTP ${res.status}`, res.status >= 500 ? 502 : 422);
+      // crt.sh's nginx front-end mislabels backend failures: a timed-out query
+      // comes back as HTTP 404 whose BODY is a "502 Bad Gateway" page. A real
+      // no-results query returns 200 with [], so 404 here is never a genuine
+      // answer — treat it as a retryable upstream failure, not a client error.
+      if (!res.ok) throw bad(`crt.sh returned HTTP ${res.status}`, res.status >= 500 || res.status === 404 ? 502 : 422);
       return res;
     } finally {
       clearTimeout(timer);
@@ -440,21 +444,24 @@ export const NETWORK_TOOLS2 = [
         },
         required: ["domain"],
       },
-      input: { domain: "example.com" },
-      example: { domain: "example.com" },
+      // agent402.tools, not example.com: crt.sh's %.example.com wildcard query
+      // is heavy enough that the backend consistently fails it (mislabelled as
+      // 404); our own domain answers in under a second and can't go stale.
+      input: { domain: "agent402.tools" },
+      example: { domain: "agent402.tools" },
       output: {
         example: {
-          domain: "example.com",
+          domain: "agent402.tools",
           count: 2,
           truncated: false,
-          subdomains: ["www.example.com"],
+          subdomains: ["agent402.tools"],
           certs: [
             {
               id: 1234567890,
               serial: "0a:1b:2c",
-              issuer: "C=US, O=DigiCert Inc, CN=DigiCert TLS RSA SHA256 2020 CA1",
-              commonName: "example.com",
-              sans: ["example.com", "www.example.com"],
+              issuer: "C=US, O=Let's Encrypt, CN=E5",
+              commonName: "agent402.tools",
+              sans: ["agent402.tools"],
               notBefore: "2026-01-15T00:00:00",
               notAfter: "2027-02-14T23:59:59",
             },

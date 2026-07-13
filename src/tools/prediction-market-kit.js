@@ -33,17 +33,29 @@ function bad(message, statusCode = 400) {
 }
 
 async function fetchJson(url, label) {
-  let res;
-  try {
-    res = await fetch(url, {
-      headers: { accept: "application/json", "user-agent": "agent402/prediction-market-kit" },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-  } catch (e) {
-    if (e.name === "TimeoutError" || /aborted/i.test(e.message)) {
-      throw bad(`${label} upstream timed out after ${TIMEOUT_MS}ms`, 504);
+  async function attempt() {
+    try {
+      return await fetch(url, {
+        headers: { accept: "application/json", "user-agent": "agent402/prediction-market-kit" },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+    } catch (e) {
+      if (e.name === "TimeoutError" || /aborted/i.test(e.message)) {
+        throw bad(`${label} upstream timed out after ${TIMEOUT_MS}ms`, 504);
+      }
+      throw bad(`${label} upstream unreachable: ${e.message}`, 502);
     }
-    throw bad(`${label} upstream unreachable: ${e.message}`, 502);
+  }
+  let res = await attempt();
+  // Retry once on 429/5xx after a short backoff — Kalshi burst-limits per IP
+  // (shared egress IPs intermittently 429 a first call) and both venues can
+  // 5xx under load. Same pattern as crypto-kit's CoinGecko 429 retry.
+  if (res.status === 429 || res.status >= 500) {
+    await new Promise((r) => setTimeout(r, 2500));
+    try {
+      const retryRes = await attempt();
+      if (retryRes.ok || retryRes.status !== res.status) res = retryRes;
+    } catch { /* fall through with the original response */ }
   }
   const ct = res.headers.get("content-type") || "";
   if (!res.ok) {
@@ -173,8 +185,14 @@ async function polymarketMarket({ slug, id } = {}) {
   if (i) {
     raw = await fetchJson(`${POLY_GAMMA}/markets/${encodeURIComponent(i)}`, "Polymarket Gamma");
   } else {
-    // Gamma doesn't take ?slug= directly — fetch by slug filter.
-    const r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}`, "Polymarket Gamma");
+    // Gamma doesn't take ?slug= directly — fetch by slug filter. The filter
+    // excludes closed markets by default, so a resolved market "disappears"
+    // from ?slug= even though it's still queryable — fall back to closed=true
+    // before declaring not-found.
+    let r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}`, "Polymarket Gamma");
+    if (!Array.isArray(r) || !r.length) {
+      r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}&closed=true`, "Polymarket Gamma");
+    }
     if (!Array.isArray(r) || !r.length) throw bad(`Market not found for slug "${s}"`, 404);
     raw = r[0];
   }
@@ -359,7 +377,7 @@ export const PREDICTION_MARKET_TOOLS = [
     tags: ["polymarket", "prediction-market", "market-detail", "odds"],
     discovery: {
       bodyType: "json",
-      input: { slug: "will-norway-win-the-2026-fifa-world-cup-893" },
+      input: { slug: "will-donald-trump-win-the-2024-us-presidential-election" },
       inputSchema: {
         type: "object",
         properties: {

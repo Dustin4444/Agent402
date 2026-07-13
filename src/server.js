@@ -215,19 +215,21 @@ const CATALOG = {
     tags: ["scraping", "markdown", "content-extraction"],
     discovery: {
       bodyType: "json",
-      input: { url: "https://example.com/article" },
+      // Self-hosted guide, not example.com/article: example.com serves only its
+      // root page, so any made-up path 404s. Our own guide can't go stale.
+      input: { url: "https://agent402.tools/guides/x402-in-5-minutes" },
       inputSchema: {
         properties: { url: { type: "string", description: "Public http(s) URL to extract" } },
         required: ["url"],
       },
       output: {
         example: {
-          url: "https://example.com/article",
-          title: "Article title",
-          byline: "Author",
+          url: "https://agent402.tools/guides/x402-in-5-minutes",
+          title: "x402 in 5 minutes",
+          byline: null,
           excerpt: "Short summary…",
           wordCount: 850,
-          markdown: "# Article title\n\nBody…",
+          markdown: "# x402 in 5 minutes\n\nBody…",
         },
       },
     },
@@ -327,13 +329,14 @@ const CATALOG = {
     tags: ["pdf", "documents", "text-extraction"],
     discovery: {
       bodyType: "json",
-      input: { url: "https://example.com/whitepaper.pdf" },
+      // A real, famously stable whitepaper URL — example.com/whitepaper.pdf 404s.
+      input: { url: "https://bitcoin.org/bitcoin.pdf" },
       inputSchema: {
         properties: { url: { type: "string", description: "Public http(s) URL of a PDF" } },
         required: ["url"],
       },
       output: {
-        example: { url: "https://example.com/whitepaper.pdf", pages: 12, info: { title: "Whitepaper" }, wordCount: 4800, text: "…" },
+        example: { url: "https://bitcoin.org/bitcoin.pdf", pages: 9, info: { title: null }, wordCount: 3604, text: "Bitcoin: A Peer-to-Peer Electronic Cash System\n…" },
       },
     },
   },
@@ -370,14 +373,18 @@ const CATALOG = {
       "Read from a wallet-scoped namespace. ?key=… returns the stored value; omit key to list keys. Reads your own namespace by default; add ?owner=0x… to read a namespace you've been granted access to.",
     tags: ["memory", "storage", "state", "key-value"],
     discovery: {
-      input: { key: "research/task-42" },
+      // List mode ({} = no key), not a hardcoded key read: memory is
+      // wallet-keyed, so a specific key correctly 404s for any wallet that
+      // hasn't written it. Listing keys answers 200 for every wallet,
+      // including a brand-new (empty) namespace.
+      input: {},
       inputSchema: {
         properties: {
           key: { type: "string", description: "Key to read; omit to list all keys" },
           owner: { type: "string", description: "Optional 0x namespace to read (requires a grant)" },
         },
       },
-      output: { example: { key: "research/task-42", value: { status: "done" }, updated: 1760000000000, owner: "0x…" } },
+      output: { example: { keys: [{ k: "research/task-42", updated: 1760000000000, exp: null }], owner: "0x…", persistent: true } },
     },
   },
   "POST /api/memory/incr": {

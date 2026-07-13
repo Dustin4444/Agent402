@@ -101,8 +101,8 @@ if (process.env.IDENTITY_LIVE_TEST === "1") {
     ok(ens.count === 1, `live ens-bulk-resolve: count=1`);
     ok(ens.results[0].name === "vitalik.eth", `live ens-bulk-resolve: vitalik.eth resolved (got ${ens.results[0].name})`);
 
-    const fc = await h("farcaster-profile")({ username: "dwr.eth" });
-    ok(typeof fc.fid === "number", `live farcaster-profile: dwr.eth fid (${fc.fid})`);
+    const fc = await h("farcaster-profile")({ fid: 3 });
+    ok(typeof fc.fid === "number", `live farcaster-profile: fid 3 (${fc.fid} @${fc.username})`);
 
     const eas = await h("eas-attestations")({ address: "0xd8da6bf26964af9d7eed9e03e53415d37aa96045", network: "mainnet", limit: 3 });
     ok(typeof eas.count === "number", `live eas-attestations: count returned (${eas.count})`);
