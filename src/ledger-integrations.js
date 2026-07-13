@@ -15,7 +15,7 @@ const ADAPTERS = [
 ];
 
 function adapterRow(a, isLast) {
-  return `<div style="display:grid;grid-template-columns:220px 1fr auto;gap:18px;align-items:center;padding:16px 20px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><div style="font-weight:700;font-size:16px;">${a.name}</div><div style="font-size:13.5px;color:var(--muted);">${a.desc}</div><code style="font-family:var(--font-mono);font-size:11.5px;background:var(--surface);color:var(--on-dark);padding:6px 10px;white-space:nowrap;">${a.pkg}</code></div>`;
+  return `<div class="ml-adapter-row" style="display:grid;grid-template-columns:220px 1fr auto;gap:18px;align-items:center;padding:16px 20px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><div style="font-weight:700;font-size:16px;">${a.name}</div><div style="font-size:13.5px;color:var(--muted);">${a.desc}</div><code style="font-family:var(--font-mono);font-size:11.5px;background:var(--surface);color:var(--on-dark);padding:6px 10px;white-space:nowrap;">${a.pkg}</code></div>`;
 }
 
 export function ledgerIntegrationsPage(baseUrl) {
@@ -35,6 +35,7 @@ export function ledgerIntegrationsPage(baseUrl) {
   const extraCss = `
 @media (max-width: 900px) {
   .ml-adapter-row { grid-template-columns: 1fr !important; gap: 8px !important; }
+  .ml-adapter-row code { white-space: normal !important; overflow-wrap: anywhere; justify-self: start; }
 }`;
 
   const body = `

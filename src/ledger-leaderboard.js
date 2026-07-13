@@ -107,7 +107,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
   <!-- FULL TABLE (dark printout) -->
   <section style="max-width: 1180px; margin: 0 auto; padding: 0 30px;">
     <div style="border: 1.5px solid var(--ink); background: var(--surface); font-family: var(--font-mono); font-size: 13px;">
-      <div style="display: grid; grid-template-columns: 36px 1fr 110px 90px 64px; gap: 12px; padding: 12px 20px; color: var(--dk-muted3); border-bottom: 1px solid var(--dark-border);"><span>#</span><span>seller \u00b7 payTo</span><span style="text-align: right;">usdc settled</span><span style="text-align: right;">calls</span><span style="text-align: right;">buyers</span></div>
+      <div class="lb-head" style="display: grid; grid-template-columns: 36px 1fr 110px 90px 64px; gap: 12px; padding: 12px 20px; color: var(--dk-muted3); border-bottom: 1px solid var(--dark-border);"><span>#</span><span>seller \u00b7 payTo</span><span style="text-align: right;">usdc settled</span><span style="text-align: right;">calls</span><span style="text-align: right;">buyers</span></div>
       ${hasData ? tableRows : warmingHtml}
     </div>
     <div style="font-family: var(--font-mono); font-size: 12px; color: var(--faint); margin-top: 12px;">live values from GET /api/leaderboard \u00b7 ?include=external to exclude Agent402</div>

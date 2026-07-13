@@ -37,6 +37,12 @@ export const LEDGER_HEAD = `<link rel="preload" href="/fonts/archivo-800.woff2" 
 // ---------------------------------------------------------------------------
 
 export const LEDGER_CSS = `
+/* Hard stop on page-level horizontal scroll: no content should ever push the
+   document sideways on a phone. Uses overflow-x: clip (not hidden) so it never
+   turns the root into a scroll container — position: sticky (docs TOC) keeps
+   working. Wide data tables get their own internal scroll below; everything
+   else is made to wrap/fit at mobile widths in the media queries. */
+html { overflow-x: clip; }
 :root {
   /* Accent as small text needs >=4.5:1 (WCAG AA). #BF360C clears it on every
      light surface (white, cream card, zebra). On DARK surfaces a dark red fails,
@@ -150,7 +156,8 @@ a { color: inherit; }
 @media (max-width: 900px) {
   .ml-ft-grid { grid-template-columns: repeat(2, 1fr) !important; }
   .ml-hero-grid { grid-template-columns: 1fr !important; }
-  .ml-2col { grid-template-columns: 1fr !important; }
+  .ml-2col { grid-template-columns: minmax(0, 1fr) !important; }
+  .ml-2col > * { min-width: 0; }
   .ml-slip { grid-template-columns: 1fr !important; }
   .ml-slip-cell { border-right: none !important; border-bottom: 1.5px solid var(--ink); }
   .ml-mkts { grid-template-columns: repeat(2, 1fr) !important; }
@@ -180,6 +187,24 @@ a { color: inherit; }
   .ml-roster-compact { grid-template-columns: 1fr !important; row-gap: 4px !important; }
   .sl-h1      { font-size: 40px !important; }
   .sl-steps   { grid-template-columns: 1fr !important; }
+  /* Long unbreakable strings — seller hosts, payTo addresses, package names —
+     must wrap on phones instead of forcing a fixed grid column (and the page)
+     wider than the viewport. This is the main source of the horizontal scroll:
+     an unwrappable host in a 1fr column sets a min-content floor above 375px. */
+  .lb-name, .lb-addr, .mlr-name, .mlr-host, .lb-addr a, pre, code { overflow-wrap: anywhere !important; word-break: break-word !important; }
+  /* pre code blocks: wrap long unbreakable tokens (URLs, hashes, one-line
+     commands) so they never widen a column past the phone viewport. */
+  pre { white-space: pre-wrap !important; }
+  /* 4-up stat / method grids and the 8-chain market strip stack tighter so their
+     cells never overflow. */
+  .lb-totals, .lb-method { grid-template-columns: repeat(2, 1fr) !important; }
+  .ml-mkts { grid-template-columns: repeat(2, 1fr) !important; }
+  /* Leaderboard table: its five fixed columns (rank + name + usdc + calls +
+     buyers) are wider than a phone on their own. Drop to the primary three
+     (rank, seller, USDC settled — the headline metric); hide the secondary
+     calls/buyers columns and their headers. Full table stays on desktop. */
+  .lb-head, .lb-row { grid-template-columns: 26px 1fr auto !important; column-gap: 10px !important; }
+  .lb-num, .lb-buyers, .lb-head > span:nth-child(4), .lb-head > span:nth-child(5) { display: none !important; }
 }
 
 /* --- home hero (settled-calls proof, spec strip, staggered load) --- */

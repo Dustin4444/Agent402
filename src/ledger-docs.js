@@ -34,8 +34,16 @@ export function ledgerDocsPage(baseUrl, catalog) {
   .ml-docs-grid [id] { scroll-margin-top: 110px; }
   .ml-docs-toc a.active { color: var(--ink) !important; font-weight: 700; }
   @media (max-width: 900px) {
-    .ml-docs-grid { grid-template-columns: 1fr !important; }
+    /* minmax(0,1fr) (not bare 1fr, which floors at min-content) + min-width:0
+       lets the stacked column shrink to the phone viewport instead of being
+       widened by a grid item's intrinsic width. */
+    .ml-docs-grid { grid-template-columns: minmax(0, 1fr) !important; }
+    .ml-docs-grid > * { min-width: 0 !important; }
     .ml-docs-toc > div { position: static !important; }
+    /* Nested content rows (endpoint/gateway tables: method · path · price) have
+       flexible 1fr columns that floor at their child's min-content. min-width:0
+       lets those columns actually shrink to the phone width; long tokens wrap. */
+    .ml-docs-grid main [style*="grid-template-columns"] > * { min-width: 0; overflow-wrap: anywhere; }
   }`;
 
   const body = `
