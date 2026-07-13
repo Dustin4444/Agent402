@@ -189,14 +189,14 @@ for (const c of NEW_CHAINS) {
   ok(stripped.includes("a.example"), "base: canonical host (real domain) survives the collapse");
   ok(!/svc-b\.up\.railway\.app/.test(stripped), "base: the platform-subdomain sibling is collapsed away, not a second row");
   ok(/\+1 more endpoint\b/.test(stripped), "base: collapsed sibling is disclosed as '+1 more endpoint', not hidden");
-  ok(/SELLERS<\/div><div[^>]*>2</.test(html), "base: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
+  ok(/SELLERS LISTED<\/div><div[^>]*>2</.test(html), "base: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
 
   // Sellers with NO leaderboard row are the discovery long-tail — never grouped.
   const C1 = { origin: "https://c1.example", displayName: "C1", homepage: "https://c1.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xc1000000000000000000000000000000000000c1" } };
   const C2 = { origin: "https://c2.example", displayName: "C2", homepage: "https://c2.example", local: false, toolCount: 2, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xc2000000000000000000000000000000000000c2" } };
   const tailHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, C1, C2] }, rail: null, activity: null, leaderboardSnap: { leaderboard: [] }, wallet: "0x1" });
   ok(tailHtml.includes("c1.example") && tailHtml.includes("c2.example"), "base: no-leaderboard sellers stay individually listed (long-tail not collapsed)");
-  ok(/SELLERS<\/div><div[^>]*>3</.test(tailHtml), "base: SELLERS count keeps ungrouped long-tail sellers distinct (3)");
+  ok(/SELLERS LISTED<\/div><div[^>]*>3</.test(tailHtml), "base: SELLERS count keeps ungrouped long-tail sellers distinct (3)");
 }
 
 // Market filter bar — shared chain tabs + sort + search, wired client-side.
@@ -256,11 +256,14 @@ for (const c of NEW_CHAINS) {
   const capped = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] } });
   // Count `<tr data-mfb-row` (not the bare attribute — the filter-bar script
   // legitimately mentions the attribute name once in its querySelectorAll).
-  ok((capped.match(/<tr data-mfb-row/g) || []).length === 100, `all view: default render caps the roster at 100 rows (got ${(capped.match(/<tr data-mfb-row/g) || []).length})`);
+  // THIS HOST is ranked, not pinned: in this fixture it ranks below the cap
+  // (no stats, not routable), so it's APPENDED after the top-100 rather than
+  // silently dropped — 101 rows total, local present at an unflattering spot.
+  ok((capped.match(/<tr data-mfb-row/g) || []).length === 101, `all view: cap renders top 100 + the appended local row (got ${(capped.match(/<tr data-mfb-row/g) || []).length})`);
   ok(capped.includes("showing the top 100 of 121 sellers"), "all view: cap note discloses the truncation honestly");
   ok(capped.includes('href="/marketplace?all=1"'), "all view: cap note links the ?all=1 escape hatch");
-  ok(/<tr data-mfb-row data-local="1"/.test(capped), "all view: the local seller survives the cap (sorted first)");
-  ok(/SELLERS<\/div><div[^>]*>121</.test(capped), "all view: SELLERS card still counts the full roster (121), not the capped table");
+  ok(/<tr data-mfb-row data-local="1"/.test(capped), "all view: the local seller survives the cap (ranked or appended, never dropped)");
+  ok(/SELLERS LISTED<\/div><div[^>]*>121</.test(capped), "all view: SELLERS LISTED card still counts the full roster (121), not the capped table");
   const full = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] }, all: true });
   ok((full.match(/<tr data-mfb-row/g) || []).length === 121, `all view: all:true renders every roster row (got ${(full.match(/<tr data-mfb-row/g) || []).length})`);
   ok(!full.includes("showing the top 100"), "all view: no cap note when the full roster is rendered");
@@ -295,6 +298,18 @@ for (const c of NEW_CHAINS) {
   // No wallet passed → honest silence (no invented number), never a crash.
   const noWallet = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [LOCAL8, EXT] }, leaderboardSnap: selfLb });
   ok(!/9,876\s*tx/.test(noWallet), "all view: without a route wallet the local row shows no tx (honest omission)");
+
+  // Neutral ranking: THIS HOST is NOT pinned — an external seller with more
+  // settled calls must rank ABOVE us in the rendered roster.
+  const BIGEXT = { origin: "https://big.example", displayName: "Big Ext", homepage: "https://big.example", local: false, toolCount: 5, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xb1g0000000000000000000000000000000000b1g" } };
+  const bigLb = { leaderboard: [
+    { name: "Big Ext", homepage: "https://big.example", wallet: "0xb1g0000000000000000000000000000000000b1g", wallets: ["0xb1g0000000000000000000000000000000000b1g"], callsSettled: 50000, totalUsd: 100, uniqueBuyers: 9 },
+    { name: "Agent402.Tools", homepage: "https://agent402.tools", wallet: OUR_WALLET, wallets: [OUR_WALLET], callsSettled: 9876, totalUsd: 42.5, uniqueBuyers: 55 },
+  ] };
+  const ranked = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [LOCAL8, BIGEXT] }, leaderboardSnap: bigLb, wallet: OUR_WALLET });
+  // Compare ROW positions ("THIS HOST" also appears in the subtitle above the
+  // table, so anchor on the local row's data attribute instead).
+  ok(ranked.indexOf("Big Ext") < ranked.indexOf('data-local="1"'), "all view: THIS HOST is ranked by calls, not pinned above a busier seller");
 }
 
 // All-view roster dedup — marketPageAll resolves a seller's payTo by walking
@@ -316,7 +331,7 @@ for (const c of NEW_CHAINS) {
   ok(stripped.includes("amulti.example"), "all view: canonical host (real domain) survives the multi-network collapse");
   ok(!/svc-b-multi\.up\.railway\.app/.test(stripped), "all view: the platform-subdomain sibling on the OTHER network is collapsed away, not a second row");
   ok(/\+1 more endpoint\b/.test(stripped), "all view: collapsed sibling is disclosed as '+1 more endpoint', not hidden");
-  ok(/SELLERS<\/div><div[^>]*>2</.test(html), "all view: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
+  ok(/SELLERS LISTED<\/div><div[^>]*>2</.test(html), "all view: SELLERS count reflects the collapsed roster (LOCAL + 1 group = 2, not 3)");
 }
 
 // /marketplace + per-chain filter bar — the chain views must now carry the
