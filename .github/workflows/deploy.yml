@@ -483,6 +483,46 @@ jobs:
           echo "::add-mask::$BURNER_KEY"
           node scripts/refresh-bazaar.js
 
+  bazaar-sweep:
+    # One-shot job (workflow_dispatch mode=bazaar-sweep): pays one tiny Base
+    # settlement against every cheap catalog route (≤ MAX_PRICE_USD) so
+    # settlement-driven indexes (x402scan) OBSERVE and list them. Distinct from
+    # bazaar-register (MODE=missing, only routes the Bazaar has never registered):
+    # this re-settles every affordable route to refresh the observation those
+    # indexes key on. Split into BATCH_COUNT passes (BATCH_INDEX 0..N) so no
+    # single pass runs long enough to time out; each pass is bounded by
+    # MAX_SPEND_USD (the script refuses to run a batch whose estimate exceeds it).
+    # Full pass ≈ 1,293 routes ≤ $0.01 ≈ $1.75 total; 4 batches ≈ $0.44 each.
+    needs: [markers, deploy]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'bazaar-sweep' && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TARGET_URL: https://agent402.tools
+      MODE: sweep
+      PAY_NETWORK: base
+      MAX_PRICE_USD: "0.01"
+      MAX_SPEND_USD: "1"
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch @x402/core @x402/evm viem
+      - name: Sweep the catalog via Base settlement (4 batches)
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
+        run: |
+          [ -n "$BURNER_KEY" ] || { echo "No BURNER_KEY — cannot pay the Base sweep"; exit 1; }
+          echo "::add-mask::$BURNER_KEY"
+          for i in 0 1 2 3; do
+            echo "::group::sweep batch $((i+1))/4"
+            BATCH_COUNT=4 BATCH_INDEX=$i node scripts/refresh-bazaar.js || echo "batch $((i+1)) reported errors (continuing)"
+            echo "::endgroup::"
+            [ "$i" -lt 3 ] && sleep 45 || true
+          done
+
   drain:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'drain' || needs.markers.outputs.drain == 'true'
