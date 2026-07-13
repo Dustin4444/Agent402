@@ -68,6 +68,12 @@ const PAY_NETWORK = (process.env.PAY_NETWORK || "base").toLowerCase();
 // them isn't worth actual money burn; they stay findable via the live 402.
 const MAX_PRICE_USD = Number(process.env.MAX_PRICE_USD || (MODE === "sweep" ? "0.05" : "Infinity"));
 const SLUGS_FILTER = process.env.SLUGS ? new Set(process.env.SLUGS.split(",").map(s => s.trim())) : null;
+// Deterministic batching for large sweeps: split the (sorted) work list into
+// BATCH_COUNT interleaved groups and run only BATCH_INDEX. Lets a big settlement
+// sweep run in several bounded passes (each ~1/COUNT of the routes + cost) so no
+// single pass runs long enough to time out. Default = one batch (everything).
+const BATCH_COUNT = Math.max(1, parseInt(process.env.BATCH_COUNT || "1", 10) || 1);
+const BATCH_INDEX = Math.min(BATCH_COUNT - 1, Math.max(0, parseInt(process.env.BATCH_INDEX || "0", 10) || 0));
 const BAZAAR_URL = "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources";
 const PAGE_SIZE = 1000;
 const HOST = new URL(TARGET).host;
@@ -190,11 +196,14 @@ async function runMissingMode({ sweep = false } = {}) {
     .filter((t) => sweep || !registered.has(t.path))
     .filter((t) => !SLUGS_FILTER || SLUGS_FILTER.has(t.slug))
     .filter((t) => t.priceUsd <= MAX_PRICE_USD)
-    .sort((a, b) => (sweep ? a.priceUsd - b.priceUsd : b.priceUsd - a.priceUsd));
+    .sort((a, b) => (sweep ? a.priceUsd - b.priceUsd : b.priceUsd - a.priceUsd))
+    // Batch stride (applied after sort so each batch is a price-balanced slice).
+    .filter((_, i) => i % BATCH_COUNT === BATCH_INDEX);
+  const batchNote = BATCH_COUNT > 1 ? ` · batch ${BATCH_INDEX + 1}/${BATCH_COUNT}` : "";
   console.log(
     sweep
-      ? `Catalog: ${catalog.length} · sweeping ${missing.length} routes priced ≤ $${MAX_PRICE_USD} via ${PAY_NETWORK}`
-      : `Catalog: ${catalog.length} · already on Bazaar: ${registered.size} · missing: ${missing.length}`
+      ? `Catalog: ${catalog.length} · sweeping ${missing.length} routes priced ≤ $${MAX_PRICE_USD} via ${PAY_NETWORK}${batchNote}`
+      : `Catalog: ${catalog.length} · already on Bazaar: ${registered.size} · missing: ${missing.length}${batchNote}`
   );
   if (!missing.length) {
     console.log("Nothing to register.");
