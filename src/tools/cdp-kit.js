@@ -70,29 +70,46 @@ export async function mintCdpJwt({ method, path, apiKeyId = keyId(), apiKeySecre
   return `${signingInput}.${b64url(signature)}`;
 }
 
-/** One authenticated CDP REST call with repo-standard error attribution. */
+/** One authenticated CDP REST call with repo-standard error attribution.
+ *
+ * Retries on transient failures — a network error / timeout, an HTTP 5xx
+ * (a gateway 502/504 is normal on the heavier SQL-observatory aggregations),
+ * or a 429 — with exponential backoff and a freshly-minted JWT per attempt.
+ * A single blip from a busy upstream should never surface to a buyer (or a CI
+ * gate) as a hard failure; only a sustained fault does. Client errors
+ * (400/404/422) and auth/config issues are returned immediately — retrying
+ * them just wastes time. Mirrors the 5xx-retry the finance/gov/crypto kits use. */
 async function cdpFetch(method, path, body) {
   if (!keyId() || !keySecret()) {
     throw bad("This tool is temporarily unavailable: the operator has not configured Coinbase Developer Platform credentials (CDP_API_KEY_ID / CDP_API_KEY_SECRET).", 503);
   }
-  const jwt = await mintCdpJwt({ method, path });
-  let res;
-  try {
-    res = await fetch(`https://${CDP_HOST}${path}`, {
-      method,
-      headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (e) {
-    throw bad(`Coinbase Developer Platform did not respond: ${String(e?.message || e).slice(0, 80)}`, 504);
+  const ATTEMPTS = 3;
+  let lastErr;
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 300 * 2 ** (attempt - 1))); // 300ms, 600ms
+    const jwt = await mintCdpJwt({ method, path });
+    let res;
+    try {
+      res = await fetch(`https://${CDP_HOST}${path}`, {
+        method,
+        headers: { Authorization: `Bearer ${jwt}`, "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      lastErr = bad(`Coinbase Developer Platform did not respond: ${String(e?.message || e).slice(0, 80)}`, 504);
+      continue; // network error / timeout — retry
+    }
+    const json = await res.json().catch(() => ({}));
+    if (res.ok) return json;
+    const detail = String(json?.errorMessage || json?.message || json?.errorType || res.statusText).slice(0, 200);
+    if (res.status === 400 || res.status === 404 || res.status === 422) throw bad(`CDP rejected the request: ${detail}`, 422);
+    if (res.status === 429) { lastErr = bad(`CDP rate limit: ${detail}`, 429); continue; } // transient — back off + retry
+    lastErr = bad(`CDP upstream error (HTTP ${res.status}): ${detail}`, 502);
+    if (res.status < 500) throw lastErr; // other non-5xx (e.g. 401/403 auth) — not retryable
+    // 5xx — fall through to retry
   }
-  const json = await res.json().catch(() => ({}));
-  if (res.ok) return json;
-  const detail = String(json?.errorMessage || json?.message || json?.errorType || res.statusText).slice(0, 200);
-  if (res.status === 429) throw bad(`CDP rate limit: ${detail}`, 429);
-  if (res.status === 400 || res.status === 404 || res.status === 422) throw bad(`CDP rejected the request: ${detail}`, 422);
-  throw bad(`CDP upstream error (HTTP ${res.status}): ${detail}`, 502);
+  throw lastErr;
 }
 
 const EVM_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
