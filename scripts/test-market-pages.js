@@ -305,5 +305,43 @@ for (const c of NEW_CHAINS) {
   ok(manifest.discovery.sellerIndexHtml === `${BASE}/marketplace`, ".well-known/x402: sellerIndexHtml points at /marketplace, not the /index 301");
 }
 
+// Economy strip (Task 8) — marketPageAll accepts an optional economySnap and
+// renders a compact stats strip whose container carries id="economy" (three
+// live surfaces link to /marketplace#economy: the footer Economy link and the
+// /economy + /x402-economy 301s, so the anchor must exist when a snapshot
+// renders). Bound to x402EconomySnapshot()'s REAL shape — totals.last7d
+// {settlements, payers, merchants, volumeUsd} + totals.last30d {settlements} —
+// defensively: a missing field drops its cell, never NaN/undefined text.
+{
+  const AT = "https://agent402.tools";
+  const baseOpts = { snapshot: { sellers: [] }, leaderboardSnap: { leaderboard: [] } };
+  const economySnap = { totals: { last7d: { settlements: 12345, payers: 734, merchants: 41, volumeUsd: 987.65 }, last30d: { settlements: 54321 } } };
+  const html = marketPage(null, AT, { ...baseOpts, economySnap });
+  ok(/id="economy"/.test(html), 'all view: economy strip container carries id="economy" (closes the /marketplace#economy anchor)');
+  ok(/12,345/.test(html) && /54,321/.test(html), "all view: strip renders 7d + 30d settlements from totals");
+  ok(/>734</.test(html), "all view: strip renders 7d unique payers");
+  ok(/\$987\.65/.test(html), "all view: strip renders 7d volume in USD");
+  ok(/>41</.test(html), "all view: strip renders 7d settling sellers (merchants)");
+
+  // Partial snapshot: only one numeric field → that cell renders, the rest are
+  // omitted; the strip region must never contain NaN/undefined text.
+  const partial = marketPage(null, AT, { ...baseOpts, economySnap: { totals: { last7d: { settlements: 99 } } } });
+  const stripAt = partial.indexOf('id="economy"');
+  const stripRegion = partial.slice(stripAt, stripAt + 3000);
+  ok(stripAt !== -1 && /(>|\b)99</.test(stripRegion), "all view: partial snapshot still renders its one real field");
+  ok(!/NaN|undefined/.test(stripRegion), "all view: partial snapshot never renders NaN/undefined in the strip");
+
+  // Snapshot present but no usable numbers (all queries errored → totals {}):
+  // the anchor still exists (the three surfaces link to it) with an honest
+  // "unavailable" line, no fabricated zeros.
+  const empty = marketPage(null, AT, { ...baseOpts, economySnap: { totals: {}, errors: ["daily: boom"] } });
+  ok(/id="economy"/.test(empty) && /unavailable/i.test(empty), "all view: errored snapshot keeps the anchor with an honest unavailable line");
+
+  // No snapshot at all → honest omission: no strip, no crash.
+  const noEcon = marketPage(null, AT, baseOpts);
+  ok(typeof noEcon === "string" && noEcon.length > 0, "all view: no economy snapshot → page still renders (no crash)");
+  ok(!/id="economy"/.test(noEcon), "all view: no economy snapshot → no strip rendered (honest omission)");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

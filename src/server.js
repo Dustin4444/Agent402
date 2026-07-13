@@ -1714,12 +1714,17 @@ app.get("/api/market/:chain/panel", async (req, res) => {
 // The canonical all-chains marketplace directory — marketPage(null, …), the
 // unified "The x402 marketplace" view (Task 2). Thin wrapper: getIndexSnapshot
 // is the seller roster, getLeaderboardSnapshot is optional (a failed fetch
-// still renders the directory, just without the per-seller settled-call join).
-app.get("/marketplace", (_req, res) => {
+// still renders the directory, just without the per-seller settled-call join),
+// and so is the economy snapshot (same try/catch the old /index route used —
+// a failed fetch omits the #economy strip rather than breaking the page;
+// x402EconomySnapshot caches 30 min, so this doesn't slow the hot path).
+app.get("/marketplace", async (_req, res) => {
   const snapshot = getIndexSnapshot();
   let leaderboardSnap = null;
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
-  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap }));
+  let economySnap = null;
+  try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
+  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap }));
 });
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure

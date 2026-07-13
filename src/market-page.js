@@ -759,7 +759,46 @@ ${ledgerFooterCompact()}`;
 // network's payTo (via C.isNetwork / C.acceptNetwork) while this view has to
 // match a seller's payTo on ANY network, and factoring that difference out
 // cleanly was more than this task's surface area. Flagged in the task report.
-function marketPageAll(baseUrl, { snapshot, leaderboardSnap } = {}) {
+// Compact economy strip — the one useful bit carried over from the old /index
+// page. The container carries id="economy": three live surfaces link to
+// /marketplace#economy (the footer Economy link and the /economy +
+// /x402-economy 301s), so the anchor must exist whenever a snapshot renders.
+// Binds defensively to x402EconomySnapshot()'s real shape (totals.last7d
+// {settlements, payers, merchants, volumeUsd} + totals.last30d.settlements):
+// a missing/non-numeric field drops its cell; a snapshot whose queries all
+// errored (totals empty) keeps the anchor with an honest "unavailable" line —
+// never NaN/undefined text, never fabricated zeros. No snapshot → no strip.
+function economyStripHtml(economySnap) {
+  if (!economySnap) return "";
+  const t7 = economySnap.totals?.last7d || {};
+  const t30 = economySnap.totals?.last30d || {};
+  const num = (v) => (v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null);
+  const fmt = (n) => n.toLocaleString("en-US");
+  const cell = (label, value) => `
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">${label}</div><div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;">${value}</div></div>`;
+  const cells = [];
+  const s7 = num(t7.settlements);
+  if (s7 != null) cells.push(cell("SETTLEMENTS · 7D", fmt(s7)));
+  const v7 = num(t7.volumeUsd);
+  if (v7 != null) cells.push(cell("VOLUME · 7D", `$${v7.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`));
+  const p7 = num(t7.payers);
+  if (p7 != null) cells.push(cell("PAYERS · 7D", fmt(p7)));
+  const m7 = num(t7.merchants);
+  if (m7 != null) cells.push(cell("SELLERS SETTLING · 7D", fmt(m7)));
+  const s30 = num(t30.settlements);
+  if (s30 != null) cells.push(cell("SETTLEMENTS · 30D", fmt(s30)));
+  const inner = cells.length
+    ? `<div class="ml-2col" style="display:grid;grid-template-columns:repeat(${Math.min(cells.length, 5)},1fr);gap:14px;">${cells.join("")}</div>
+  <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin:8px 0 0;">every gasless EIP-3009 USDC settlement on Base - the primitive x402 uses - counted chain-wide across every seller, not just this host · machine-readable at <a href="/api/x402-economy" style="color:var(--muted);">/api/x402-economy</a></p>`
+    : `<p style="color:var(--muted);font-size:13.5px;margin:0;">chain-wide settlement stats unavailable right now - detail in <a href="/api/x402-economy">/api/x402-economy</a></p>`;
+  return `
+  <div id="economy" style="margin:40px 0 0;">
+    <h2 style="font-size:21px;font-weight:800;margin:0 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">The economy</h2>
+    ${inner}
+  </div>`;
+}
+
+function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap } = {}) {
   const sellers = marketSellersAll(snapshot);
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
 
@@ -909,6 +948,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap } = {}) {
   ${headerHtml}
   ${marketFilterBar(null, baseUrl)}
   ${rosterHtml}
+  ${economyStripHtml(economySnap)}
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
 ${ledgerFooterCompact()}`;
