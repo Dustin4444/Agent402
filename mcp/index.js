@@ -51,6 +51,9 @@ const DEFAULT_CURATED = [
   // the tools agents can't replicate locally: live search, browser, PDF, shared memory
   "search", "extract", "render", "screenshot", "pdf", "meta", "dns", "http-check", "tls-cert", "whois",
   "memory-write", "memory-read", "memory-remember", "memory-recall",
+  // wallet management — balance + history, first-class so directories and
+  // agents see the capability by name (they execute here when AGENT_KEY is set)
+  "wallet-balances", "wallet-balance", "wallet-transactions",
   // one cheap pure-CPU tool so wallet-less clients see the proof-of-work path work
   "hash",
 ];

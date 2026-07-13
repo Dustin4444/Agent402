@@ -61,19 +61,38 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   const freeSlugs = new Set([...tools.entries()].filter(([, t]) => t.free).map(([slug]) => slug));
   const mcpClients = new Map(); // "name@version" -> initialize count since boot
 
-  // Curated first-class tools: popular free tools exposed directly in
-  // tools/list so MCP directories (Glama, etc.) surface them alongside the
-  // meta-tools. All must be PoW-eligible (free). Calling them by name is
-  // equivalent to call_tool({slug, params}) — same handler, same rate limit.
+  // Curated first-class tools: recognizable, self-explanatory free utilities
+  // exposed directly in tools/list so MCP directories (Glama, etc.) and agents
+  // see a legible slice of the catalog without a search_tools round-trip. All
+  // must be PoW-eligible (free). Calling one by name is equivalent to
+  // call_tool({slug, params}) — same handler, same rate limit. Kept deliberately
+  // small: every entry here is injected into every MCP client's context on
+  // every turn, so this is a legibility pick, not a dump of the full 1,400+
+  // catalog (that lives behind search_tools/find_tool/call_tool by design).
   const CURATED_SLUGS = [
     "hash", "base64", "jwt-decode", "json-diff", "json-format", "cron-next",
     "unit-convert", "timezone-convert", "stats-summary", "gzip",
     "readability-score", "qr",
+    // Added for directory legibility — universally-recognized dev utilities.
+    "uuid", "url-code", "base58", "regex", "slugify", "case",
+    "csv-to-json", "yaml-to-json", "markdown-to-html", "semver", "color",
   ];
   const curatedSet = new Set();
   for (const slug of CURATED_SLUGS) {
     const entry = tools.get(slug);
     if (entry?.free) curatedSet.add(slug);
+  }
+
+  // Wallet-management tools surfaced first-class so MCP directories see explicit
+  // balance + history capabilities by name (this is the dimension Glama scores
+  // as "wallet management"), not just the payment_info doc tool. These are
+  // on-chain READ tools and wallet-only (paid egress), so on this authless
+  // connector calling one returns paid-access setup instructions — the listing
+  // advertises the capability honestly; execution needs a funded wallet.
+  const WALLET_MGMT_SLUGS = ["wallet-balances", "wallet-balance", "wallet-transactions"];
+  const walletMgmtSet = new Set();
+  for (const slug of WALLET_MGMT_SLUGS) {
+    if (tools.has(slug)) walletMgmtSet.add(slug);
   }
 
   const schemaOf = (def) => {
@@ -277,6 +296,19 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             inputSchema: schemaOf(def),
           };
         }),
+        // Wallet-management tools — listed by name so directories/agents see the
+        // balance + history capability explicitly. Wallet-only: on this authless
+        // connector call_tool returns paid-access setup, not a live result.
+        ...[...walletMgmtSet].map((slug) => {
+          const { def } = tools.get(slug);
+          return {
+            name: toSnake(slug),
+            title: def.name,
+            annotations: { title: def.name, ...SAFE },
+            description: `[wallet-required, ${def.price}/call] ${def.description}${returnsHint(def)} This hosted connector holds no wallet, so calling it here returns paid-access setup; run it with a funded wallet via npx agent402-mcp or any x402 client.`,
+            inputSchema: schemaOf(def),
+          };
+        }),
       ],
     }));
 
@@ -472,18 +504,23 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             }, null, 2) }],
           };
         }
-        // Curated tools are exposed snake_case but their real slug is kebab;
+        // First-class tools are exposed snake_case but their real slug is kebab;
         // accept either the exposed name or the raw slug so no caller breaks.
-        const curatedSlug = curatedSet.has(name)
-          ? name
-          : curatedSet.has(name.replace(/_/g, "-"))
-            ? name.replace(/_/g, "-")
-            : null;
-        const isCurated = curatedSlug !== null;
-        if (name !== "call_tool" && !isCurated) {
+        // Curated tools are free; wallet-management tools are wallet-only and
+        // fall through to the paid-access response below (same as any wallet
+        // tool reached via call_tool), so both just need name -> slug resolution.
+        const kebab = name.replace(/_/g, "-");
+        const namedSlug = curatedSet.has(name) ? name
+          : curatedSet.has(kebab) ? kebab
+          : walletMgmtSet.has(name) ? name
+          : walletMgmtSet.has(kebab) ? kebab
+          : null;
+        const isNamed = namedSlug !== null;
+        const isCurated = isNamed && curatedSet.has(namedSlug);
+        if (name !== "call_tool" && !isNamed) {
           return { content: [{ type: "text", text: `Unknown tool "${name}".` }], isError: true };
         }
-        const resolvedSlug = isCurated ? curatedSlug : String(args.slug ?? "");
+        const resolvedSlug = isNamed ? namedSlug : String(args.slug ?? "");
         const entry = tools.get(resolvedSlug);
         if (!entry) {
           return { content: [{ type: "text", text: `Unknown slug "${resolvedSlug}". Use search_tools to find the right slug.` }], isError: true };
