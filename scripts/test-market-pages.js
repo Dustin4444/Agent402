@@ -222,6 +222,13 @@ for (const c of NEW_CHAINS) {
   ok(all.includes("input[data-mfb-search]") && all.includes("addEventListener('input'"), "filter bar: script wires the data-mfb-search input");
   ok(all.includes("data-mfb-row") && all.includes("appendChild") && all.includes("style.display"), "filter bar: script sorts/filters [data-mfb-row] rows via appendChild + style.display");
   ok(!all.includes("innerHTML"), "filter bar: script never assigns innerHTML");
+  // Execution-order guard — the bar renders ABOVE the roster, so an inline
+  // script that queries [data-mfb-row] at parse time finds ZERO rows and its
+  // early return dead-wires Sort/search on every load (the original bug). The
+  // row lookup must be deferred to DOMContentLoaded: the wrapper must exist
+  // and textually precede the row query it defers.
+  const dclIdx = all.indexOf("addEventListener('DOMContentLoaded'");
+  ok(dclIdx !== -1 && dclIdx < all.indexOf("querySelectorAll('[data-mfb-row]')"), "filter bar: row lookup is deferred to DOMContentLoaded, not run at parse time");
 }
 
 // Roster rows carry the numeric data-* payload the filter bar script sorts on

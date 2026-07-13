@@ -253,6 +253,12 @@ export function marketTools(_chainKey, snapshot) {
 // fully rendered server-side, and the whole block no-ops when the roster is
 // absent. Rows are re-ordered by moving EXISTING nodes (appendChild) and
 // hidden via style.display — never innerHTML.
+//
+// EXECUTION ORDER: the bar (and this script) render ABOVE the roster, so at
+// parse time zero [data-mfb-row] elements exist yet — everything is wired on
+// DOMContentLoaded, once the whole roster is in the DOM. (An earlier version
+// queried the rows at parse time and its zero-rows early return dead-wired
+// the controls on every load; the execution-order test locks this in.)
 export function marketFilterBar(chainKey, _baseUrl) {
   const tab = (key, label, href, on) =>
     `<a data-chain-tab="${key}" href="${href}" class="mfb-tab${on ? " on" : ""}">${esc(label)}</a>`;
@@ -267,7 +273,7 @@ export function marketFilterBar(chainKey, _baseUrl) {
     <select class="mfb-sel" data-mfb-sort><option value="calls">most settled</option><option value="usd">volume</option><option value="buyers">buyers</option><option value="tools">tools</option><option value="health">health</option></select>
     <input class="mfb-search" data-mfb-search placeholder="search sellers">
   </div>
-  <script>(function(){
+  <script>document.addEventListener('DOMContentLoaded',function(){
   var rows=Array.prototype.slice.call(document.querySelectorAll('[data-mfb-row]'));
   if(!rows.length)return;
   var parent=rows[0].parentNode;
@@ -287,7 +293,7 @@ export function marketFilterBar(chainKey, _baseUrl) {
     var q=searchIn.value.trim().toLowerCase();
     rows.forEach(function(r){r.style.display=!q||(r.textContent||'').toLowerCase().indexOf(q)>-1?'':'none';});
   });
-})();</script>`;
+});</script>`;
 }
 
 function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) {
