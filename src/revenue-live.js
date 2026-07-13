@@ -15,6 +15,7 @@ import { RAILS, RAILS_AMP } from "./rails.js";
 // payer isn't one of OUR wallets (canary/test burners) AND the amount is a
 // plausible per-call price. Internal test money is shown but never counted.
 import { usdcDeltaForOwner, payerFromMeta, isExternalPayment } from "../scripts/revenue-scan-solana.js";
+import { cdpSql, cdpConfigured } from "./tools/cdp-kit.js";
 
 export const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 export const USDC_SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
@@ -655,6 +656,56 @@ export async function evmActivity(chainKey, wallet, { days = 30, maxPages = 10 }
   const bucketed = bucketStellarActivity(entries, { days });
   out.buckets = bucketed.buckets;
   out.totals = bucketed.totals;
+  return out;
+}
+
+// Base USDC (native Circle) contract.
+const BASE_USDC = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+
+// Base activity via CDP SQL: ONE server-side aggregation over base.events
+// (decoded USDC Transfer logs) instead of paging up to 10k raw transfers over
+// RPC. Fast (~0.5s) and COMPLETE — no 10k scan cap, so a busy seller's totals
+// are exact, not a floor. Same output shape as evmActivity; callers fall back to
+// evmActivity when this errors (no CDP creds, rejected query, timeout). Two
+// parallel queries: per-day buckets + window totals (the window-wide DISTINCT
+// buyer count isn't the sum of per-day uniques, so it needs its own aggregate).
+// Injection-safe: wallet is regex-validated then lowercased, days is clamped to
+// an integer, the contract + internal-wallet set are server-owned.
+export async function baseActivityViaSql(wallet, { days = 30, now = Date.now() } = {}) {
+  const out = { rail: "Base", wallet: wallet || null, days, buckets: [], totals: { tx: 0, usd: 0, buyers: 0, internalTx: 0, internalUsd: 0 }, truncated: false, error: null, source: "cdp-sql" };
+  if (!wallet || !/^0x[0-9a-fA-F]{40}$/.test(wallet)) { out.error = "invalid wallet"; return out; }
+  if (!cdpConfigured()) { out.error = "cdp not configured"; return out; }
+  const w = wallet.toLowerCase();
+  const D = Math.max(1, Math.min(Math.floor(days) || 30, 90));
+  const ours = [...OUR_EVM_WALLETS].map((a) => `'${String(a).replace(/[^0-9a-fx]/gi, "")}'`).join(",") || "''";
+  const toS = (p) => `variantElement(${p}, 'String')`;
+  const val = `toFloat64(variantElement(parameters['value'], 'UInt256')) / 1e6`;
+  const from = `lower(${toS("parameters['from']")})`;
+  const where = `address = '${BASE_USDC}' AND event_name = 'Transfer' AND action = 'added' AND lower(${toS("parameters['to']")}) = '${w}' AND block_timestamp >= now() - INTERVAL ${D} DAY`;
+  const bucketSql = `SELECT toDate(block_timestamp) AS d, count() AS tx, round(sum(${val}),6) AS usd, uniqExact(${from}) AS buyers FROM base.events WHERE ${where} GROUP BY d ORDER BY d`;
+  const totalSql = `SELECT count() AS tx, round(sum(${val}),6) AS usd, uniqExact(${from}) AS buyers, countIf(${from} IN (${ours})) AS itx, round(sumIf(${val}, ${from} IN (${ours})),6) AS iusd FROM base.events WHERE ${where}`;
+  let bRows, tRows;
+  try {
+    [bRows, tRows] = await Promise.all([
+      cdpSql(bucketSql, { cacheSeconds: 300 }),
+      cdpSql(totalSql, { cacheSeconds: 300 }),
+    ]);
+  } catch (e) { out.error = String(e?.message || e).slice(0, 140); return out; }
+  const N = (x) => Number(x) || 0;
+  // 0-fill a continuous day series (oldest→newest) so the chart x-axis is complete,
+  // matching bucketStellarActivity's window shape.
+  const byDate = new Map((bRows || []).map((r) => [String(r.d), r]));
+  const DAY = 86_400_000;
+  for (let i = D - 1; i >= 0; i--) {
+    const date = new Date(now - i * DAY).toISOString().slice(0, 10);
+    const r = byDate.get(date);
+    out.buckets.push({ date, tx: N(r?.tx), usd: Number(N(r?.usd).toFixed(6)), buyers: N(r?.buyers) });
+  }
+  const t = (tRows && tRows[0]) || {};
+  out.totals = {
+    tx: N(t.tx), usd: Number(N(t.usd).toFixed(6)), buyers: N(t.buyers),
+    internalTx: N(t.itx), internalUsd: Number(N(t.iusd).toFixed(6)),
+  };
   return out;
 }
 
