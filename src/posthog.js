@@ -15,11 +15,10 @@
 //   - distinctId is a fixed server-side identifier (we have no end-user — the
 //     "user" of a tool error is the catalog operator, not the calling agent).
 //   - shape tag is keys-only ("b:url", "q:format") — same scrubbing as Sentry.
-//   - THE ONE EXCEPTION is capturePageview(): to count human page traffic it
-//     needs a per-visitor key, so it uses a DAILY-ROTATING, SALTED, one-way
-//     hash of ip+ua (the Plausible/Fathom model) as the distinctId — the raw
-//     ip/ua are never sent, the hash can't be reversed, and it changes every
-//     day so a visitor cannot be followed across days. No cookies, no client JS.
+//   - Human page traffic ($pageview / $pageleave / $web_vitals) is captured
+//     client-side by the cookieless posthog-js snippet in src/ledger-chrome.js,
+//     ingested first-party through the /e reverse proxy in src/server.js. This
+//     module stays server-only: no pageview code, no per-visitor keys here.
 //
 // Fire-and-forget: capture() enqueues; the SDK ships in the background, so a
 // hung PostHog can never slow a tool response. Wrapped in try/catch top-to-bottom.
@@ -29,7 +28,6 @@
 //   POSTHOG_HOST      — optional, defaults to "https://us.i.posthog.com"
 //                       (use "https://eu.i.posthog.com" for the EU region)
 import { PostHog } from "posthog-node";
-import crypto from "node:crypto";
 
 const API_KEY = process.env.POSTHOG_API_KEY || "";
 const HOST = process.env.POSTHOG_HOST || "https://us.i.posthog.com";
@@ -67,42 +65,6 @@ function capture(event, properties, distinctId = DISTINCT_ID) {
   if (!enabled || !client) return;
   try {
     client.capture({ distinctId, event, properties });
-  } catch { /* never throw from telemetry */ }
-}
-
-// Daily-rotating, salted, one-way visitor key. Same ip+ua on the same UTC day
-// hashes to the same id (so a day's pageviews group into one visitor + session);
-// the next day it's a different id (no cross-day tracking). Raw ip/ua are the
-// hash INPUT only — never sent to PostHog.
-const PAGEVIEW_SALT = process.env.POW_SECRET || "agent402-pv";
-function visitorKey(ip, ua) {
-  const day = new Date().toISOString().slice(0, 10); // UTC YYYY-MM-DD
-  return crypto.createHash("sha256").update(`${ip}|${ua}|${PAGEVIEW_SALT}|${day}`).digest("hex").slice(0, 32);
-}
-
-// Server-side $pageview for human page traffic — see the privacy note in the
-// header. Fire-and-forget from an Express request; never throws.
-export function capturePageview(req) {
-  if (!active()) return;
-  try {
-    const ip = String(req.ip || (req.headers?.["x-forwarded-for"] || "").split(",")[0] || "").trim();
-    const ua = String(req.headers?.["user-agent"] || "");
-    const did = visitorKey(ip, ua);
-    const proto = String(req.headers?.["x-forwarded-proto"] || req.protocol || "https").split(",")[0];
-    const host = String(req.headers?.["host"] || "");
-    const pathname = String(req.path || req.url || "/");
-    const current = `${proto}://${host}${req.originalUrl || pathname}`;
-    const referer = req.headers?.["referer"] || req.headers?.["referrer"] || null;
-    let refDomain = "$direct";
-    if (referer) { try { refDomain = new URL(referer).hostname; } catch { refDomain = "$direct"; } }
-    capture("$pageview", {
-      $current_url: current,
-      $pathname: pathname,
-      $host: host,
-      $session_id: did,
-      $referrer: referer || "$direct",
-      $referring_domain: refDomain,
-    }, did);
   } catch { /* never throw from telemetry */ }
 }
 
