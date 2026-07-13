@@ -34,7 +34,7 @@ import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCa
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePageview, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -624,6 +624,24 @@ const app = express();
 // attacker-supplied XFF value. This is what the per-IP rate limiters key on,
 // so spoofing it must not mint a fresh bucket. Tune for other topologies.
 app.set("trust proxy", Number(process.env.TRUST_PROXY_HOPS) || 1);
+
+// Server-side $pageview: count human page views without any client-side script,
+// cookie, or CSP change (see capturePageview's pseudonymous, daily-rotating key).
+// Fires on the response's `finish` — only for GET requests that actually returned
+// an HTML page (200 + text/html), skipping APIs, machine surfaces, static assets,
+// and obvious crawlers. Fire-and-forget; wrapped so it can never affect a request.
+const PAGEVIEW_SKIP = /^\/(api|mcp|v1|health|selfcheck|\.well-known|assets|static|favicon)|\.(js|mjs|css|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|map|xml|txt|json)$/i;
+const PAGEVIEW_BOT = /bot|crawler|spider|crawl|slurp|GPTBot|ClaudeBot|PerplexityBot|python-requests|scrapy|curl|wget|httpie|headless|facebookexternalhit|slackbot|discordbot|bingpreview|monitor|uptime|probe/i;
+app.use((req, res, next) => {
+  if (req.method === "GET" && !PAGEVIEW_SKIP.test(req.path) && !PAGEVIEW_BOT.test(req.headers["user-agent"] || "")) {
+    res.on("finish", () => {
+      try {
+        if (res.statusCode === 200 && /text\/html/i.test(String(res.getHeader("content-type") || ""))) capturePageview(req);
+      } catch { /* telemetry must never break a request */ }
+    });
+  }
+  next();
+});
 // gzip/deflate every response EXCEPT: (1) /v1/* and /mcp — the LLM gateway's
 // streaming tiers pipe SSE straight to the socket after settlement
 // (`{__sse}` sentinel in the route binder), and buffering those chunks to

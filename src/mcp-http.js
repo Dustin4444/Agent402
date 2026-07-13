@@ -81,6 +81,19 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     return s ? { type: "object", ...s } : { type: "object" };
   };
 
+  // MCP tool names are exposed in snake_case so the whole tools/list is one
+  // consistent convention (the meta-tools are already snake_case; the curated
+  // tools' slugs are kebab). CallTool accepts either form, so no caller breaks.
+  const toSnake = (slug) => String(slug).replace(/-/g, "_");
+  // A concise "Returns { … }" clause from a tool's documented example so every
+  // curated tool advertises its output shape, not just its input.
+  const returnsHint = (def) => {
+    const ex = def.discovery?.output?.example;
+    if (!ex || typeof ex !== "object") return "";
+    const keys = Object.keys(ex).slice(0, 8);
+    return keys.length ? ` Returns { ${keys.join(", ")} }.` : "";
+  };
+
   // Returns { rows, topScore } — topScore feeds the "did this actually match
   // anything useful" check for the request_tool hint (see search_tools below).
   function searchTools(query, limit = 10) {
@@ -157,7 +170,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Search the Agent402 tool catalog",
           annotations: { title: "Search the Agent402 tool catalog", ...SAFE },
           description:
-            `Search Agent402's ${tools.size} pay-per-call web tools (encoding, crypto, text, time, math, validation, unit conversions, network, browser, PDF, search, memory). ${freeCount} pure-CPU tools run free right here; the rest need a USDC wallet. Returns slugs + input schemas for call_tool.`,
+            `Keyword search over Agent402's ${tools.size} pay-per-call web tools (encoding, crypto, text, time, math, validation, unit conversions, network, browser, PDF, search, memory). Use this to BROWSE several candidates by keyword; use find_tool instead when you want the single best tool for a described task. ${freeCount} pure-CPU tools run free here; the rest need a USDC wallet. Returns { results, workflows } — each result has slug, price, access, description, inputSchema; run one with call_tool.`,
           inputSchema: {
             type: "object",
             properties: {
@@ -172,7 +185,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Find the right Agent402 tool for a task",
           annotations: { title: "Find the right Agent402 tool for a task", ...SAFE },
           description:
-            "Describe a task in plain language and get the best-matching Agent402 tool(s) ready to call — slug, price, input schema, and an example — so you skip searching/exploring. Then run call_tool with the chosen slug + params.",
+            "Describe a task in plain language and get the single best-matching Agent402 tool(s) ready to call: slug, price, input schema, and a worked example. Use this when you know the task and want the top pick (vs search_tools, which browses many candidates by keyword). Returns { task, matches } — each match is call-ready; then run call_tool with the chosen slug + params.",
           inputSchema: {
             type: "object",
             properties: {
@@ -246,10 +259,10 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         ...[...curatedSet].map((slug) => {
           const { def } = tools.get(slug);
           return {
-            name: slug,
+            name: toSnake(slug),
             title: def.name,
             annotations: { title: def.name, ...SAFE },
-            description: `[free] ${def.description}`,
+            description: `[free, no wallet] ${def.description}${returnsHint(def)}`,
             inputSchema: schemaOf(def),
           };
         }),
@@ -424,11 +437,18 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         }
         // Curated tools called by name: route to the same handler as
         // call_tool but use `name` as the slug and `args` as params directly.
-        const isCurated = curatedSet.has(name);
+        // Curated tools are exposed snake_case but their real slug is kebab;
+        // accept either the exposed name or the raw slug so no caller breaks.
+        const curatedSlug = curatedSet.has(name)
+          ? name
+          : curatedSet.has(name.replace(/_/g, "-"))
+            ? name.replace(/_/g, "-")
+            : null;
+        const isCurated = curatedSlug !== null;
         if (name !== "call_tool" && !isCurated) {
           return { content: [{ type: "text", text: `Unknown tool "${name}".` }], isError: true };
         }
-        const resolvedSlug = isCurated ? name : String(args.slug ?? "");
+        const resolvedSlug = isCurated ? curatedSlug : String(args.slug ?? "");
         const entry = tools.get(resolvedSlug);
         if (!entry) {
           return { content: [{ type: "text", text: `Unknown slug "${resolvedSlug}". Use search_tools to find the right slug.` }], isError: true };
