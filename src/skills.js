@@ -1823,7 +1823,7 @@ export const SKILL_PACKS = [
     tagline:
       "Ask Base anything in one paid call: your SQL runs against Coinbase's indexed, DECODED chain data (events with parsed parameters, transactions, blocks, user-ops) with the live schema alongside — no indexer, no RPC archaeology.",
     useCase:
-      "You need an answer that lives on-chain — 'how many wallets touched this contract this week', 'what did this address settle today', 'top USDC recipients yesterday' — and writing an indexer or paging through explorer HTML is absurd for one question. This pack runs your read-only ClickHouse-dialect SQL against base.events / base.transactions / base.blocks and returns the schema document in the same envelope, so a follow-up query can be written without a second discovery call. This is the same data path that powers the economy-over-time section at /index#economy.",
+      "You need an answer that lives on-chain — 'how many wallets touched this contract this week', 'what did this address settle today', 'top USDC recipients yesterday' — and writing an indexer or paging through explorer HTML is absurd for one question. This pack runs your read-only ClickHouse-dialect SQL against base.events / base.transactions / base.blocks and returns the schema document in the same envelope, so a follow-up query can be written without a second discovery call. This is the same data path that powers the economy-over-time section at /marketplace#economy.",
     toolSlugs: [
       "onchain-sql-schema",
       "onchain-sql",

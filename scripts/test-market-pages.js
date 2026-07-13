@@ -199,7 +199,7 @@ for (const c of NEW_CHAINS) {
   ok(/SELLERS<\/div><div[^>]*>3</.test(tailHtml), "base: SELLERS count keeps ungrouped long-tail sellers distinct (3)");
 }
 
-// Market filter bar — shared chain tabs + category + sort + search.
+// Market filter bar — shared chain tabs + sort + search, wired client-side.
 {
   const all = marketFilterBar(null, "https://agent402.tools");
   ok(/href="\/marketplace"/.test(all), "filter bar: All tab links to /marketplace");
@@ -208,7 +208,55 @@ for (const c of NEW_CHAINS) {
   const base = marketFilterBar("base", "https://agent402.tools");
   ok(/data-chain-tab="base"[^>]*\bon\b|\bon\b[^>]*data-chain-tab="base"/.test(base), "filter bar: Base tab active on the Base view");
   ok(/href="\/marketplace"/.test(base), "filter bar: All tab links back to /marketplace from a chain view");
-  ok(/Sort/i.test(all) && /Category/i.test(all), "filter bar: has Sort + Category controls");
+  ok(/Sort/i.test(all), "filter bar: has a Sort control");
+  // The roster lists SELLERS and sellers carry no category data — a Category
+  // select would be a dead control, so the bar must not render one.
+  ok(!/Category/i.test(all) && !/data-mfb-cat/.test(all), "filter bar: no dead Category control");
+  // Sort options per the spec: most settled (default), volume, buyers, tools,
+  // plus health (cheap — rows already carry routability).
+  for (const v of ["calls", "usd", "buyers", "tools", "health"]) ok(all.includes(`option value="${v}"`), `filter bar: sort option '${v}' present`);
+  // The wiring script ships with the bar: consumes data-mfb-sort +
+  // data-mfb-search over [data-mfb-row] rows, reorders by moving existing
+  // nodes (appendChild) and toggles style.display — never innerHTML.
+  ok(all.includes("select[data-mfb-sort]") && all.includes("addEventListener('change'"), "filter bar: script wires the data-mfb-sort select");
+  ok(all.includes("input[data-mfb-search]") && all.includes("addEventListener('input'"), "filter bar: script wires the data-mfb-search input");
+  ok(all.includes("data-mfb-row") && all.includes("appendChild") && all.includes("style.display"), "filter bar: script sorts/filters [data-mfb-row] rows via appendChild + style.display");
+  ok(!all.includes("innerHTML"), "filter bar: script never assigns innerHTML");
+}
+
+// Roster rows carry the numeric data-* payload the filter bar script sorts on
+// — on BOTH the all-chains <tr> rows and the per-chain compact rows.
+{
+  const EXT = { origin: "https://ext1.example", displayName: "Ext One", homepage: "https://ext1.example", local: false, toolCount: 3, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xabc0000000000000000000000000000000000abc" } };
+  const leaderboardSnap = { leaderboard: [{ name: "Ext One", homepage: "https://ext1.example", wallet: "0xabc0000000000000000000000000000000000abc", wallets: ["0xabc0000000000000000000000000000000000abc"], callsSettled: 42, totalUsd: 3.5, uniqueBuyers: 7 }] };
+  const allHtml = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [LOCAL, EXT] }, leaderboardSnap });
+  ok(/<tr data-mfb-row data-local="0" data-health="1" data-calls="42" data-usd="3\.5" data-buyers="7" data-tools="3"/.test(allHtml), "all view: roster row carries numeric data-calls/usd/buyers/tools attributes");
+  ok(/<tr data-mfb-row data-local="1"/.test(allHtml), "all view: local row is marked data-local=1 (stays pinned through client sorts)");
+  // Per-chain compact view (>12 sellers forces compact rows).
+  const many = Array.from({ length: 14 }, (_, i) => ({ origin: `https://e${i}.example`, displayName: `E${i}`, homepage: `https://e${i}.example`, local: false, toolCount: i, routable: true, networks: ["eip155:8453"], payToByNetwork: {} }));
+  const chainHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, ...many] }, rail: null, activity: null, wallet: "0x1" });
+  ok(/<a [^>]*data-mfb-row data-local="0" data-health="1"[^>]*data-tools="13"/.test(chainHtml), "chain view: compact roster rows carry the same data-* payload");
+  ok(chainHtml.includes("select[data-mfb-sort]"), "chain view: filter-bar wiring script is emitted on per-chain pages too");
+}
+
+// Roster row cap (speed P0) — the all-chains roster renders at most
+// ALL_ROW_CAP (100) rows by default with an honest cap note + ?all=1 escape;
+// all:true renders every deduped seller. Counts, JSON-LD and the SELLERS card
+// stay on the FULL roster either way.
+{
+  const many = Array.from({ length: 120 }, (_, i) => ({ origin: `https://s${i}.example`, displayName: `Seller ${i}`, homepage: `https://s${i}.example`, local: false, toolCount: 1, routable: true, networks: ["eip155:8453"], payToByNetwork: {} }));
+  const snapshot = { sellers: [LOCAL, ...many] }; // 121 deduped sellers
+  const capped = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] } });
+  // Count `<tr data-mfb-row` (not the bare attribute — the filter-bar script
+  // legitimately mentions the attribute name once in its querySelectorAll).
+  ok((capped.match(/<tr data-mfb-row/g) || []).length === 100, `all view: default render caps the roster at 100 rows (got ${(capped.match(/<tr data-mfb-row/g) || []).length})`);
+  ok(capped.includes("showing the top 100 of 121 sellers"), "all view: cap note discloses the truncation honestly");
+  ok(capped.includes('href="/marketplace?all=1"'), "all view: cap note links the ?all=1 escape hatch");
+  ok(/<tr data-mfb-row data-local="1"/.test(capped), "all view: the local seller survives the cap (sorted first)");
+  ok(/SELLERS<\/div><div[^>]*>121</.test(capped), "all view: SELLERS card still counts the full roster (121), not the capped table");
+  const full = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] }, all: true });
+  ok((full.match(/<tr data-mfb-row/g) || []).length === 121, `all view: all:true renders every roster row (got ${(full.match(/<tr data-mfb-row/g) || []).length})`);
+  ok(!full.includes("showing the top 100"), "all view: no cap note when the full roster is rendered");
 }
 
 // All-chains view — marketPage(null, …) renders the unified "The x402

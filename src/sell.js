@@ -57,7 +57,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
     receiptRow("calls settled, all sellers", totals ? fmtNum(totals.calls) : null, "/leaderboard"),
     receiptRow("USDC settled", totals ? fmtUsd(totals.usd) : null, "/leaderboard", { accent: true }),
     receiptRow("buyer wallets (per-seller sum)", totals ? fmtNum(totals.buyers) : null, "/leaderboard"),
-    receiptRow("sellers on the index", sellersOnIndex != null ? fmtNum(sellersOnIndex) : null, "/index"),
+    receiptRow("sellers on the index", sellersOnIndex != null ? fmtNum(sellersOnIndex) : null, "/marketplace"),
     // "busiest category over 30 days" is intentionally omitted — stats.js has
     // no per-category call breakdown, and a made-up row would violate the
     // "never invented" rule. Add it back once that aggregate exists cheaply.

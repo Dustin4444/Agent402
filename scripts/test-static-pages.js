@@ -74,11 +74,24 @@ try {
     if (path === "/marketplace") {
       // The unified marketplace surface (the old /index and /marketplaces 301
       // here) — its nav/footer must not link the retired standalone paths.
-      // (The folded economy strip's id="economy" anchor is asserted once the
-      // strip lands on this page.)
       ok(!body.includes('href="/economy"'), "/marketplace nav/footer carries no /economy link");
       ok(!body.includes('href="/index"'), "/marketplace nav/footer carries no /index link");
+      // The folded economy strip: three live surfaces link to
+      // /marketplace#economy (footer Economy link + the /economy and
+      // /x402-economy 301s), and the route always renders the anchor —
+      // x402EconomySnapshot never rejects (an errored snapshot keeps the
+      // anchor with an honest "unavailable" line).
+      ok(body.includes('id="economy"'), '/marketplace renders the id="economy" anchor');
     }
+  }
+
+  // Legacy marketplace surfaces must 301 straight to /marketplace — same
+  // assertions as scripts/test-redirects.js, folded here so a regression
+  // fails CI (test-redirects.js stays as a standalone prod probe).
+  for (const path of ["/index", "/marketplaces"]) {
+    const res = await fetch(`${BASE}${path}`, { redirect: "manual" });
+    ok(res.status === 301, `${path} → 301 (got ${res.status})`);
+    ok(res.headers.get("location") === "/marketplace", `${path} Location is /marketplace (got ${res.headers.get("location")})`);
   }
 
   // Both old economy pages folded into the marketplace: /x402-economy (the

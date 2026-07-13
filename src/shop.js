@@ -96,7 +96,7 @@ const TASKS = [
     extraLinks: [
       { href: "/api/find?q=stock+quote", label: "Try /api/find" },
       { href: "/leaderboard", label: "Seller leaderboard" },
-      { href: "/index", label: "Live index" },
+      { href: "/marketplace", label: "Marketplace" },
     ],
   },
 ];

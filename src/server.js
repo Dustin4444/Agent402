@@ -150,7 +150,7 @@ import { CHAIN_PAGES, marketSellers, marketPage, marketPanelHtml } from "./marke
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
-import { recordSale, salesSummary, topByBuyers, txFromPaymentResponse } from "./sales-ledger.js";
+import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
@@ -1718,13 +1718,14 @@ app.get("/api/market/:chain/panel", async (req, res) => {
 // and so is the economy snapshot (same try/catch the old /index route used —
 // a failed fetch omits the #economy strip rather than breaking the page;
 // x402EconomySnapshot caches 30 min, so this doesn't slow the hot path).
-app.get("/marketplace", async (_req, res) => {
+// ?all=1 opts out of the 100-row roster cap (see ALL_ROW_CAP in market-page.js).
+app.get("/marketplace", async (req, res) => {
   const snapshot = getIndexSnapshot();
   let leaderboardSnap = null;
   try { leaderboardSnap = getLeaderboardSnapshot(); } catch { /* directory still renders */ }
   let economySnap = null;
   try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
-  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap }));
+  htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1" }));
 });
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure

@@ -242,9 +242,18 @@ export function marketTools(_chainKey, snapshot) {
 }
 
 // Shared filter bar for the unified marketplace: chain tabs (links, so the
-// per-chain SEO URLs stay crawlable) + category + sort + search. chainKey===null
-// marks the "All" (/marketplace) view; a chain slug marks that chain's view.
-export function marketFilterBar(chainKey, baseUrl) {
+// per-chain SEO URLs stay crawlable) + sort + search. chainKey===null marks
+// the "All" (/marketplace) view; a chain slug marks that chain's view. No
+// Category control: the roster lists SELLERS, and sellers carry no category
+// data — a select with nothing real to filter on would be a dead control.
+//
+// The trailing <script> wires Sort + search client-side over the roster rows'
+// numeric data-* payload (see rowData in marketPage / marketPageAll) — same
+// progressive-enhancement style as the seller-panel switch script: the page is
+// fully rendered server-side, and the whole block no-ops when the roster is
+// absent. Rows are re-ordered by moving EXISTING nodes (appendChild) and
+// hidden via style.display — never innerHTML.
+export function marketFilterBar(chainKey, _baseUrl) {
   const tab = (key, label, href, on) =>
     `<a data-chain-tab="${key}" href="${href}" class="mfb-tab${on ? " on" : ""}">${esc(label)}</a>`;
   const tabs = [tab("all", "All", "/marketplace", chainKey == null)]
@@ -255,11 +264,30 @@ export function marketFilterBar(chainKey, baseUrl) {
     <span class="mfb-label">Chain</span>
     <div class="mfb-tabs" style="display:flex;flex-wrap:wrap;gap:5px;">${tabs.join("")}</div>
     <span class="mfb-label" style="margin-left:6px;">Sort</span>
-    <select class="mfb-sel" data-mfb-sort><option value="calls">most settled</option><option value="usd">volume</option><option value="buyers">buyers</option><option value="tools">tools</option></select>
-    <span class="mfb-label">Category</span>
-    <select class="mfb-sel" data-mfb-cat><option value="">all</option></select>
-    <input class="mfb-search" data-mfb-search placeholder="search sellers / tools">
-  </div>`;
+    <select class="mfb-sel" data-mfb-sort><option value="calls">most settled</option><option value="usd">volume</option><option value="buyers">buyers</option><option value="tools">tools</option><option value="health">health</option></select>
+    <input class="mfb-search" data-mfb-search placeholder="search sellers">
+  </div>
+  <script>(function(){
+  var rows=Array.prototype.slice.call(document.querySelectorAll('[data-mfb-row]'));
+  if(!rows.length)return;
+  var parent=rows[0].parentNode;
+  var num=function(el,k){var v=Number(el.getAttribute('data-'+k));return isFinite(v)?v:0;};
+  var sortSel=document.querySelector('select[data-mfb-sort]');
+  if(sortSel)sortSel.addEventListener('change',function(){
+    var k=sortSel.value;
+    rows.slice().sort(function(a,b){
+      if(num(a,'local')!==num(b,'local'))return num(b,'local')-num(a,'local');
+      if(k==='health'&&num(a,'health')!==num(b,'health'))return num(b,'health')-num(a,'health');
+      var m=k==='health'?'calls':k;
+      return num(b,m)-num(a,m);
+    }).forEach(function(r){parent.appendChild(r);});
+  });
+  var searchIn=document.querySelector('input[data-mfb-search]');
+  if(searchIn)searchIn.addEventListener('input',function(){
+    var q=searchIn.value.trim().toLowerCase();
+    rows.forEach(function(r){r.style.display=!q||(r.textContent||'').toLowerCase().indexOf(q)>-1?'':'none';});
+  });
+})();</script>`;
 }
 
 function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) {
@@ -473,6 +501,13 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   // Roster "· N tx" suffix — only when the leaderboard has settlements for this
   // seller's payTo on this chain (Base today); silent otherwise.
   const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
+  // Numeric data-* payload each roster row carries for the filter bar's
+  // client-side Sort/search (see the script marketFilterBar emits). Same
+  // attributes on the all-chains <tr> rows in marketPageAll.
+  const rowData = (s) => {
+    const st = sellerStat(s);
+    return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${s.toolCount || 0}"`;
+  };
 
   // Collapse hosts that settle to the SAME leaderboard group into one roster
   // row, so a group's tx total isn't repeated per host (it reads as 2–3× the
@@ -530,7 +565,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
     ? rosterSellers.map((s) => {
         const good = s.local || s.routable;
         return `
-    <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
+    <a href="${activityHref(s)}"${rowData(s)} data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
       <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}</span>
       <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
       <span class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</span>
@@ -541,7 +576,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
         const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
         const good = s.local || s.routable;
         return `
-    <div style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
+    <div${rowData(s)} style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;">${esc(s.displayName)}</a>
         ${s.local ? '<span class="mlr-badge">THIS HOST</span>' : ""}
@@ -798,7 +833,13 @@ function economyStripHtml(economySnap) {
   </div>`;
 }
 
-function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap } = {}) {
+// Default render caps the roster at the top ALL_ROW_CAP rows (the roster is
+// sorted local-first then by settled calls, so the cap keeps the sellers worth
+// reading); ?all=1 opts back into the full 700+-row table. Same speed
+// rationale + honest-disclosure pattern as x402-index.js's INDEX_ROW_CAP.
+const ALL_ROW_CAP = 100;
+
+function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = false } = {}) {
   const sellers = marketSellersAll(snapshot);
   const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
 
@@ -870,11 +911,29 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap } = {})
     return `${esc(names[0])}${names.length > 1 ? ` <span style="color:var(--faint);">+${names.length - 1}</span>` : ""}`;
   };
 
-  const rows = rosterSellers.map((s) => {
+  // Numeric data-* payload for the filter bar's client-side Sort/search —
+  // same attributes as the per-chain roster rows (see rowData in marketPage).
+  const rowData = (s) => {
+    const st = sellerStat(s);
+    return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${s.toolCount || 0}"`;
+  };
+
+  // Row cap (speed): the deduped roster runs 700+ sellers in prod; render the
+  // top ALL_ROW_CAP by the default sort unless ?all=1 asked for everything.
+  // The local seller sorts first, so the cap can never drop it. Totals (the
+  // SELLERS card, JSON-LD numberOfItems) stay on the FULL roster — the cap
+  // truncates the table, never the honest count.
+  const truncated = !all && rosterSellers.length > ALL_ROW_CAP;
+  const visibleSellers = truncated ? rosterSellers.slice(0, ALL_ROW_CAP) : rosterSellers;
+  const capNote = truncated
+    ? `<p class="chips-note" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:10px 0 0;">showing the top ${ALL_ROW_CAP} of ${rosterSellers.length} sellers &middot; <a href="/marketplace?all=1" style="color:var(--muted);">show all &rarr;</a></p>`
+    : "";
+
+  const rows = visibleSellers.map((s) => {
     const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
     const good = s.local || s.routable;
     return `
-    <tr>
+    <tr${rowData(s)}>
       <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;">${esc(s.displayName)}</a>${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}
         <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
@@ -903,6 +962,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap } = {})
     <tbody>${rows}</tbody>
   </table>
   </div>
+  ${capNote}
   ${honesty}`;
 
   const statsHtml = `
