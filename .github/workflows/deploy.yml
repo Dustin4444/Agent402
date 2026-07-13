@@ -729,6 +729,9 @@ jobs:
       - name: Self-check semantic invariants are meaningful (good passes, broken fails)
         run: node scripts/test-invariants.js
 
+      - name: Server-side pageview capture (pseudonymous key, no raw IP/UA leak)
+        run: node scripts/test-pageview.js
+
       - name: x402-market-pulse category classifier (path-aware, closed taxonomy)
         run: node scripts/test-ecosystem-category.js
 
