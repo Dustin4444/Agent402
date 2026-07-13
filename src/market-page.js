@@ -218,6 +218,21 @@ export function marketSellers(chainKey, snapshot) {
   return (snapshot?.sellers || []).filter((s) => s.local === true || (s.networks || []).some(C.isNetwork));
 }
 
+/** Every seller across every chain (local first) - backs the unified
+ *  "The x402 marketplace" all-chains view (marketPage(null, …)). Unlike
+ *  marketSellers this takes no chain and applies no network filter. */
+export function marketSellersAll(snapshot) {
+  const all = (snapshot?.sellers || []);
+  return all.slice().sort((a, b) => (a.local === b.local ? 0 : a.local ? -1 : 1));
+}
+
+/** CAIP-2 network id -> chain key, via the CHAIN_PAGES isNetwork matchers.
+ *  Returns null when no configured chain claims the network (e.g. a testnet). */
+function chainKeyForNetwork(network) {
+  for (const key of Object.keys(CHAIN_PAGES)) if (CHAIN_PAGES[key].isNetwork(network)) return key;
+  return null;
+}
+
 /** Tools purchasable on this chain. Remote snapshot entries carry no
  *  per-tool list, so this is the local catalog; external sellers render
  *  seller-level. */
@@ -413,7 +428,9 @@ export function marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, 
   return sellerCardHtml(chainKey, picked, selectedSeller, activity, stat, payTo, leaderboardSnap?.windowLabel) + marketActivityHtml(chainKey, activity, selectedSeller);
 }
 
-export function marketPage(chainKey, baseUrl, { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap } = {}) {
+export function marketPage(chainKey, baseUrl, opts = {}) {
+  if (chainKey == null) return marketPageAll(baseUrl, opts);
+  const { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap } = opts;
   const C = CHAIN_PAGES[chainKey];
   const effectiveWallet = wallet || C.wallet;
   // Stellar/Algorand ship a committed public default wallet in CHAIN_PAGES;
@@ -724,6 +741,183 @@ ${ledgerFooterCompact()}`;
     canonical: `${baseUrl}/${chainKey}`,
     baseUrl,
     activePath: `/${chainKey}`,
+    jsonLd,
+    extraCss: ROSTER_CSS,
+    body,
+  });
+}
+
+// All-chains directory: "The x402 marketplace" (chainKey === null). Chain is
+// a filter, not a separate template - this is the unfiltered view over every
+// seller on every rail, so it carries NO chain-specific extras (no receipt
+// strip, no per-seller activity switching, no sell-on-<chain> copy). It
+// reuses the per-chain roster's leaderboard-join + shared-wallet dedup
+// LOGIC (see marketPage above) so a seller settling under one group isn't
+// double-counted here either, but the algorithm is duplicated rather than
+// extracted into a shared helper — the per-chain version is scoped to one
+// network's payTo (via C.isNetwork / C.acceptNetwork) while this view has to
+// match a seller's payTo on ANY network, and factoring that difference out
+// cleanly was more than this task's surface area. Flagged in the task report.
+function marketPageAll(baseUrl, { snapshot, leaderboardSnap } = {}) {
+  const sellers = marketSellersAll(snapshot);
+  const hostOf = (u) => { try { return new URL(u).host; } catch { return ""; } };
+
+  // Leaderboard join, same shape as marketPage's statByWallet: gid = the
+  // leaderboard row a wallet belongs to (payment = identity for grouping).
+  const statByWallet = new Map();
+  (Array.isArray(leaderboardSnap?.leaderboard) ? leaderboardSnap.leaderboard : []).forEach((r, i) => {
+    const stat = { calls: r.callsSettled || 0, usd: r.totalUsd || 0, buyers: r.uniqueBuyers || 0, gid: `lb${i}` };
+    for (const w of (r.wallets && r.wallets.length ? r.wallets : [r.wallet])) if (w) statByWallet.set(String(w).toLowerCase(), stat);
+  });
+  // Unlike the per-chain view (one network via C.isNetwork), an all-chains
+  // seller may have a payTo on any of several networks - check them all.
+  const sellerStat = (s) => {
+    if (!s || s.local) return null;
+    for (const addr of Object.values(s.payToByNetwork || {})) {
+      const st = addr ? statByWallet.get(String(addr).toLowerCase()) : null;
+      if (st) return st;
+    }
+    return null;
+  };
+  const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
+
+  // This host first, then most settled calls, then healthy, then tool-rich -
+  // same ordering rationale as the per-chain roster.
+  sellers.sort((a, b) => {
+    if (!!a.local !== !!b.local) return a.local ? -1 : 1;
+    const ca = sellerStat(a)?.calls || 0, cb = sellerStat(b)?.calls || 0;
+    if (ca !== cb) return cb - ca;
+    if (!!a.routable !== !!b.routable) return a.routable ? -1 : 1;
+    return (b.toolCount || 0) - (a.toolCount || 0);
+  });
+
+  // Collapse hosts settling to the SAME leaderboard group into one row (see
+  // marketPage's identical rationale) so a group's tx total isn't repeated.
+  const PLATFORM_HOST = /\.(up\.railway\.app|run\.app|onrender\.com|fly\.dev|herokuapp\.com|vercel\.app|ondigitalocean\.app|workers\.dev)$/i;
+  const prefRank = (s) => (PLATFORM_HOST.test(hostOf(s.homepage)) ? 1 : 0);
+  const better = (a, b) => {
+    if (prefRank(a) !== prefRank(b)) return prefRank(a) < prefRank(b) ? a : b;
+    if ((a.toolCount || 0) !== (b.toolCount || 0)) return (a.toolCount || 0) > (b.toolCount || 0) ? a : b;
+    return hostOf(a.homepage).length <= hostOf(b.homepage).length ? a : b;
+  };
+  const extraByGid = new Map();
+  const primaryByGid = new Map();
+  const rosterSellers = [];
+  for (const s of sellers) {
+    const gid = s.local ? null : sellerStat(s)?.gid;
+    if (!gid) { rosterSellers.push(s); continue; }
+    const cur = primaryByGid.get(gid);
+    if (!cur) { primaryByGid.set(gid, s); extraByGid.set(gid, 0); rosterSellers.push(s); continue; }
+    extraByGid.set(gid, extraByGid.get(gid) + 1);
+    const winner = better(cur, s);
+    if (winner !== cur) { rosterSellers[rosterSellers.indexOf(cur)] = winner; primaryByGid.set(gid, winner); }
+  }
+  const endpointsNote = (s) => { const gid = s.local ? null : sellerStat(s)?.gid; const n = gid ? extraByGid.get(gid) || 0 : 0; return n > 0 ? ` &middot; +${n} more endpoint${n === 1 ? "" : "s"}` : ""; };
+
+  // Chain column - a seller may advertise more than one network; show the
+  // first resolvable chain name + "+N" for the rest, deduped.
+  const chainNamesFor = (s) => {
+    const names = [];
+    for (const n of s.networks || []) {
+      const key = chainKeyForNetwork(n);
+      if (key) names.push(CHAIN_PAGES[key].chainName);
+    }
+    return [...new Set(names)];
+  };
+  const chainCell = (s) => {
+    const names = chainNamesFor(s);
+    if (!names.length) return `<span style="color:var(--faint);">&mdash;</span>`;
+    return `${esc(names[0])}${names.length > 1 ? ` <span style="color:var(--faint);">+${names.length - 1}</span>` : ""}`;
+  };
+
+  const rows = rosterSellers.map((s) => {
+    const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
+    const good = s.local || s.routable;
+    return `
+    <tr>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);">
+        <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;">${esc(s.displayName)}</a>${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}
+        <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
+      </td>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:12.5px;">${chainCell(s)}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);" class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);"><span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span></td>
+    </tr>`;
+  }).join("");
+
+  const honesty = rosterSellers.length === 1 && rosterSellers[0]?.local
+    ? `<p style="color:var(--muted);font-size:13.5px;">1 seller live - discovery is open, and external sellers are added automatically the moment their x402 challenges are crawled, on any supported chain.</p>`
+    : "";
+
+  const rosterHtml = `
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Every seller, every chain</h2>
+  <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · Chain shows where each seller settles</p>
+  <div style="overflow-x:auto;">
+  <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
+    <thead><tr style="text-align:left;">
+      <th style="padding:9px 12px;border-bottom:1.5px solid var(--ink);">Seller</th>
+      <th style="padding:9px 12px;border-bottom:1.5px solid var(--ink);">Chain</th>
+      <th style="padding:9px 12px;border-bottom:1.5px solid var(--ink);">Tools</th>
+      <th style="padding:9px 12px;border-bottom:1.5px solid var(--ink);">Status</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  </div>
+  ${honesty}`;
+
+  const statsHtml = `
+  <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:26px 0 0;">
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">CHAINS SUPPORTED</div><div style="font-size:26px;font-weight:800;">${Object.keys(CHAIN_PAGES).length}</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${(sellers.find((s) => s.local)?.toolCount || 0).toLocaleString("en-US")}</div></div>
+  </div>`;
+
+  const headerHtml = `
+  <div>
+    <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The x402 marketplace.</h1>
+    <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">Pay-per-call tools for AI agents, settled on-chain across every supported rail - no signup, no API keys, the wallet is the account.</p>
+    <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">the neutral x402 index &mdash; every seller, not just ours.</p>
+    ${statsHtml}
+  </div>`;
+
+  const jsonLd = [
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      name: "The x402 marketplace",
+      url: `${baseUrl}/marketplace`,
+      description: `Pay-per-call tools for AI agents, settled via the x402 protocol across every supported chain. ${rosterSellers.length} sellers listed.`,
+      mainEntity: {
+        "@type": "OfferCatalog",
+        name: "x402-payable agent tools, every chain",
+        numberOfItems: rosterSellers.length,
+      },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      itemListElement: [
+        { "@type": "ListItem", position: 1, name: "Agent402.Tools", item: baseUrl },
+        { "@type": "ListItem", position: 2, name: "Marketplace", item: `${baseUrl}/marketplace` },
+      ],
+    },
+  ];
+
+  const body = `
+<div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
+  ${headerHtml}
+  ${marketFilterBar(null, baseUrl)}
+  ${rosterHtml}
+  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
+</div>
+${ledgerFooterCompact()}`;
+
+  return ledgerShell({
+    title: "The x402 marketplace - pay-per-call tools for AI agents, every chain",
+    description: "The x402 marketplace: the neutral x402 index of pay-per-call agent tools across every supported chain - every seller, not just Agent402's own catalog.",
+    canonical: `${baseUrl}/marketplace`,
+    baseUrl,
+    activePath: "/marketplace",
     jsonLd,
     extraCss: ROSTER_CSS,
     body,

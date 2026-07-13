@@ -3,7 +3,7 @@
 // src/market-page.js already covers /stellar and /algorand (see
 // scripts/test-stellar-page.js / test-algorand-page.js); this file locks
 // down the CHAIN_PAGES entries added alongside them. No server, no network.
-import { marketSellers, marketPage, marketPanelHtml, CHAIN_PAGES, marketFilterBar } from "../src/market-page.js";
+import { marketSellers, marketSellersAll, marketPage, marketPanelHtml, CHAIN_PAGES, marketFilterBar } from "../src/market-page.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -207,6 +207,24 @@ for (const c of NEW_CHAINS) {
   ok(/data-chain-tab="base"[^>]*\bon\b|\bon\b[^>]*data-chain-tab="base"/.test(base), "filter bar: Base tab active on the Base view");
   ok(/href="\/marketplace"/.test(base), "filter bar: All tab links back to /marketplace from a chain view");
   ok(/Sort/i.test(all) && /Category/i.test(all), "filter bar: has Sort + Category controls");
+}
+
+// All-chains view — marketPage(null, …) renders the unified "The x402
+// marketplace" directory instead of a chain-scoped page: neutral header +
+// positioning line, the filter bar with All active, a seller roster over
+// EVERY seller (not chain-filtered) with an added Chain column, and none of
+// the chain-specific extras (receipt strip / per-seller activity / sell copy).
+{
+  const LOCAL = { local: true, displayName: "Agent402.Tools", homepage: "https://agent402.tools", toolCount: 1431, routable: true, networks: ["eip155:8453"] };
+  const EXT = { origin: "https://ext.example", displayName: "Ext", homepage: "https://ext.example", local: false, toolCount: 3, routable: true, networks: ["solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"], payToByNetwork: {} };
+  const snapshot = { sellers: [LOCAL, EXT] };
+  ok(marketSellersAll(snapshot).length === 2, "marketSellersAll returns every seller regardless of chain");
+  const html = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] } });
+  ok(/The x402 <span[^>]*>marketplace/.test(html) || />The x402 marketplace/.test(html), "all view: header is 'The x402 marketplace'");
+  ok(/neutral x402 index/i.test(html), "all view: keeps the neutral-index positioning line");
+  ok(/data-chain-tab="all"/.test(html), "all view: renders the filter bar");
+  ok(/Chain<\/th>|>Chain</.test(html), "all view: seller list has a Chain column");
+  ok(!/first settlement|verify on/.test(html), "all view: no per-chain receipt/verify extras");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
