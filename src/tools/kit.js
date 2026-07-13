@@ -2102,12 +2102,14 @@ const networkTools = [
     tags: ["sitemap", "crawling", "seo", "urls"],
     discovery: {
       bodyType: "json",
-      input: { url: "https://example.com/sitemap.xml" },
+      // Our own sitemap, not example.com's: example.com serves no sitemap.xml
+      // (404), while /sitemap.xml is a committed free surface of this server.
+      input: { url: "https://agent402.tools/sitemap.xml" },
       inputSchema: {
         properties: { url: { type: "string", description: "Sitemap URL (xml)" } },
         required: ["url"],
       },
-      output: { example: { type: "urlset", count: 42, urls: [{ loc: "https://example.com/", lastmod: "2026-06-01" }] } },
+      output: { example: { type: "urlset", count: 42, urls: [{ loc: "https://agent402.tools/", lastmod: "2026-06-01" }] } },
     },
     handler: async (input) => {
       const { html: xml } = await safeFetch(need(input, "url"), { maxBytes: 5 * 1024 * 1024 });
