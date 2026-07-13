@@ -172,7 +172,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           </div>
         </div>
         <div class="ml-stagger" style="position:relative;">
-          <div style="background:var(--surface);border:1.5px solid var(--ink);box-shadow:8px 8px 0 #0b0b0b1f;">
+          <div style="background:var(--surface);--accent:var(--accent-lit);border:1.5px solid var(--ink);box-shadow:8px 8px 0 #0b0b0b1f;">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>~ / agent402</span><span>SH</span></div>
             <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># ${fmtNum(count)} x402 tools in Claude Code.
 # no signup, no API key.
@@ -337,7 +337,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </section>
 
   <!-- NEUTRAL LAYER / LEADERBOARD -->
-  <section style="background:var(--surface);margin-top:70px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
+  <section style="background:var(--surface);--accent:var(--accent-lit);margin-top:70px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
     <div style="max-width:1180px;margin:0 auto;padding:76px 30px;">
       <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/leaderboard</div>
       <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1.1fr;gap:50px;align-items:center;">
