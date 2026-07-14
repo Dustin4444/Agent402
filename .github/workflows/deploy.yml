@@ -769,6 +769,9 @@ jobs:
       - name: Paid-canary verdict (pages on real buying breaks, warns on upstream)
         run: node scripts/test-paid-canary.js
 
+      - name: New-tool coverage lock (The 500 slugs swept by test-all; canary leg prices honest — offline)
+        run: node scripts/test-canary-coverage.js
+
       - name: Tool resolver (/api/find ranking, guards)
         run: node scripts/test-find.js
 
