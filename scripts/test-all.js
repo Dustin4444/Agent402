@@ -169,6 +169,14 @@ const NETWORK = new Set([
   "/api/skill/fred-snapshot", "/api/skill/contact-verify", "/api/skill/domain-age",
   "/api/skill/hash-verify", "/api/skill/encoding-suite", "/api/skill/jwt-toolkit",
   "/api/skill/timezone-planner", "/api/skill/text-analyze", "/api/skill/content-clean",
+  // The 500 overhaul (2026-07): these 8 packs shipped WITHOUT NETWORK membership,
+  // so a slow upstream tripping their 20s AbortSignal counted as a strict failure
+  // and broke the build (feed-watch hit this). They compose network/wallet-only
+  // tools (feed-parse, extract, transcribe, contract/tx reads, market feeds), so
+  // they belong in the same timeout hedge as every other pack.
+  "/api/skill/contract-audit", "/api/skill/tx-forensics", "/api/skill/market-open",
+  "/api/skill/entity-enrich", "/api/skill/feed-watch", "/api/skill/subtitle-pipeline",
+  "/api/skill/locale-brief", "/api/skill/schema-guard",
   // LLM proxy kit: every call hits OpenAI upstream. Returns 503 without
   // OPENAI_API_KEY — the 502/503/504 tolerance below covers that.
   "/api/llm", "/api/llm-pro", "/api/llm-premium",

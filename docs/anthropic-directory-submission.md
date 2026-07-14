@@ -31,7 +31,7 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
 
 ## Description
 
-> Agent402 gives Claude a catalog of 500 small, deterministic web tools it
+> Agent402 gives Claude a catalog of 500+ small, deterministic web tools it
 > can call instantly: encoding and hashing, unit and data conversions, JSON/CSV
 > wrangling, text processing, date/cron math, validators, and more. There is no
 > account, no API key, and no setup — the pure-CPU tools run free on the hosted

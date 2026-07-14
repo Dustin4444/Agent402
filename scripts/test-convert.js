@@ -7,12 +7,17 @@
 // Task-2 shim). Also proves kit2's unit-convert tool delegates to the engine.
 //
 // Second half boots a free-mode server (pattern from test-static-pages.js) and
-// proves the 970 pairwise routes are retired GRACEFULLY: API calls (POST body
-// or GET query — the old tools accepted both) get a 410 whose body TEACHES the
-// replacement (never a 301: agents must not silently re-POST paid calls across
-// routes); /tools/convert-* pages 301 to the surviving /tools/unit-convert;
-// and the surviving convert-suffixed routes (base-convert, unit-convert,
-// timezone-convert) are NOT caught by the retirement pattern.
+// proves the 970 pairwise routes are retired GRACEFULLY: API calls we CAN
+// answer (valid unit pair + numeric value, POST body or GET query — the old
+// tools accepted both) are TRANSPARENTLY SERVED (200 with the real conversion,
+// same result as POST /api/unit-convert, plus _retired/_replacement shim
+// markers) so stale marketplace listings never see a rejection; calls we can't
+// answer (unparseable pair, cross-category guess, no numeric value) get a 410
+// whose body TEACHES the replacement (never a 301: agents must not silently
+// re-POST paid calls across routes); /tools/convert-* pages 301 to the
+// surviving /tools/unit-convert; and the surviving convert-suffixed routes
+// (base-convert, unit-convert, timezone-convert) are NOT caught by the
+// retirement pattern.
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -132,7 +137,23 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
   stdio: "ignore",
 });
 
-// A retired-route response must be a 410 whose body teaches the replacement:
+// A retired-route request we CAN answer must be transparently served: 200 with
+// the real conversion (same math + result shape as POST /api/unit-convert)
+// plus the honest shim markers { _retired: true, _replacement: "unit-convert" }.
+const assertServed = async (label, res, { expected, from, to }) => {
+  ok(res.status === 200, `${label}: status 200 (got ${res.status})`);
+  let body = null;
+  try { body = await res.json(); } catch {}
+  const tol = 1e-9 * Math.max(1, Math.abs(expected));
+  ok(Number.isFinite(body?.result) && Math.abs(body.result - expected) <= tol, `${label}: result = ${body?.result} (expected ~${expected})`);
+  ok(body?.from === from && body?.to === to, `${label}: from/to echoed (${body?.from} -> ${body?.to})`);
+  ok(body?._retired === true, `${label}: _retired = true (got ${JSON.stringify(body?._retired)})`);
+  ok(body?._replacement === "unit-convert", `${label}: _replacement = "unit-convert" (got ${JSON.stringify(body?._replacement)})`);
+  return body;
+};
+
+// A retired-route response we CANNOT answer must be a 410 whose body teaches
+// the replacement:
 // { error, replacement: { route: "POST /api/unit-convert", input: { value, from, to } } }.
 const assert410 = async (label, res, { value, from, to }) => {
   ok(res.status === 410, `${label}: status 410 (got ${res.status})`);
@@ -151,54 +172,79 @@ try {
   for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) { up = true; break; } } catch {} await sleep(500); }
   ok(up, "free-mode server boots (health 200)");
 
-  // Old POST form: body {value} — 410 teaches from/to parsed out of the slug
-  // and echoes the caller's value.
-  await assert410("POST retired route",
-    await fetch(`${BASE}/api/convert-miles-to-kilometers`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 5 }),
+  // Old POST form: body {value} — transparently served, real conversion.
+  await assertServed("POST retired route served",
+    await fetch(`${BASE}/api/convert-meters-to-feet`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 10 }),
     }),
-    { value: 5, from: "miles", to: "kilometers" });
+    { expected: 10 / 0.3048, from: "meters", to: "feet" });
 
-  // Old GET form: ?value=N — same teaching body.
-  await assert410("GET retired route",
+  // The served result must equal what the survivor itself returns.
+  {
+    const shim = await (await fetch(`${BASE}/api/convert-miles-to-kilometers`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 5 }),
+    })).json().catch(() => null);
+    const survivor = await (await fetch(`${BASE}/api/unit-convert`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: 5, from: "miles", to: "kilometers" }),
+    })).json().catch(() => null);
+    ok(shim?.result === survivor?.result && shim?.from === survivor?.from && shim?.to === survivor?.to,
+      `shim result identical to unit-convert (shim ${shim?.result}, survivor ${survivor?.result})`);
+  }
+
+  // Old GET form: ?value=N — same transparent serve.
+  await assertServed("GET retired route served",
     await fetch(`${BASE}/api/convert-miles-to-kilometers?value=3.5`),
-    { value: 3.5, from: "miles", to: "kilometers" });
+    { expected: 3.5 * 1.609344, from: "miles", to: "kilometers" });
 
   // The SLASH form is the shape the live routes actually had
   // (GET /api/convert/<from>-to-<to>?value=N — still cited by wiki examples and
-  // buyer scripts). It must get the same teaching 410, both verbs.
-  await assert410("GET retired route (slash form)",
+  // buyer scripts). Same transparent serve, both verbs.
+  await assertServed("GET retired route served (slash form)",
     await fetch(`${BASE}/api/convert/kilometers-to-miles?value=42`),
-    { value: 42, from: "kilometers", to: "miles" });
-  await assert410("POST retired route (slash form)",
+    { expected: 42 / 1.609344, from: "kilometers", to: "miles" });
+  await assertServed("POST retired route served (slash form)",
     await fetch(`${BASE}/api/convert/miles-to-kilometers`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 5 }),
     }),
-    { value: 5, from: "miles", to: "kilometers" });
+    { expected: 5 * 1.609344, from: "miles", to: "kilometers" });
 
   // Hyphenated unit ids on BOTH sides — the parser must split the middle
   // segment on the "-to-" whose two sides are both real unit ids, not the
   // first "-to-" it sees.
-  await assert410("hyphenated-unit parse",
+  await assertServed("hyphenated-unit parse served",
     await fetch(`${BASE}/api/convert-nautical-miles-to-light-years`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 2 }),
     }),
-    { value: 2, from: "nautical-miles", to: "light-years" });
+    { expected: (2 * 1852) / 9.4607304725808e15, from: "nautical-miles", to: "light-years" });
 
-  // Temperature ids are in the table too (affine category).
-  await assert410("temperature ids parse",
+  // Temperature ids ride the affine path through the same engine.
+  await assertServed("temperature served",
     await fetch(`${BASE}/api/convert-celsius-to-fahrenheit?value=100`),
-    { value: 100, from: "celsius", to: "fahrenheit" });
+    { expected: 212, from: "celsius", to: "fahrenheit" });
 
-  // Unknown units: still a 410 (the route shape IS the retired shape), but
-  // from/to are null and no value was sent → null.
-  await assert410("unknown units still 410, nulls",
-    await fetch(`${BASE}/api/convert-foo-to-bar`, {
+  // Valid pair but NO value — we can't compute, so the teaching 410 remains.
+  await assert410("valid pair without value still 410",
+    await fetch(`${BASE}/api/convert-miles-to-kilometers`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
     }),
-    { value: null, from: null, to: null });
+    { value: null, from: "miles", to: "kilometers" });
 
-  // Non-numeric value → echoed as null, never NaN.
+  // Unknown units: still a 410 (the route shape IS the retired shape), but
+  // from/to are null — even with a value we can't compute.
+  await assert410("unknown units still 410, nulls",
+    await fetch(`${BASE}/api/convert-foo-to-bar`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 3 }),
+    }),
+    { value: 3, from: null, to: null });
+
+  // Cross-category guess (a pairwise route that never existed): both ids are
+  // real units but convertAnyUnit refuses — teaching 410, never a 500.
+  await assert410("cross-category pair still 410",
+    await fetch(`${BASE}/api/convert-meters-to-grams?value=1`),
+    { value: 1, from: "meters", to: "grams" });
+
+  // Non-numeric value → 410, value echoed as null, never NaN.
   {
     const res = await fetch(`${BASE}/api/convert-miles-to-kilometers?value=abc`);
     ok(res.status === 410, `non-numeric value: status 410 (got ${res.status})`);
@@ -244,10 +290,12 @@ try {
     ok(res.status === 404, `unknown non-convert route stays 404 (got ${res.status})`);
   }
 
-  // Boot smoke: the catalog is capped at exactly 500 endpoints; /marketplace renders.
+  // Boot smoke: the catalog holds the 400-entry floor (no upper bound — growth
+  // is welcome; sync-count.js enforces the floor + the "500+" brand claim);
+  // /marketplace renders.
   {
     const pricing = await (await fetch(`${BASE}/api/pricing`)).json();
-    ok(Array.isArray(pricing.endpoints) && pricing.endpoints.length === 500, `catalog has 500 endpoints (got ${pricing.endpoints?.length})`);
+    ok(Array.isArray(pricing.endpoints) && pricing.endpoints.length >= 400, `catalog holds the 400-entry floor (got ${pricing.endpoints?.length})`);
     const mkt = await fetch(`${BASE}/marketplace`);
     ok(mkt.status === 200, `/marketplace → 200 (got ${mkt.status})`);
   }

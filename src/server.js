@@ -52,7 +52,7 @@ import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankB
 import { buildPaymentMiddleware, enabledNetworks } from "./payments.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
-import { UNIT_CATEGORIES } from "./tools/convert-gen.js";
+import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
 import { SEARCH_TOOLS } from "./tools/search.js";
 import { PDF_TOOLS } from "./tools/pdf-kit.js";
 import { DEMAND_TOOLS } from "./tools/demand-kit.js";
@@ -1971,9 +1971,11 @@ app.get("/shop", (_req, res) => htmlCache(res, 300, 900).send(shopPage(BASE_URL,
 app.get("/economy", (_req, res) => res.redirect(301, "/marketplace#economy"));
 // The ~970 pairwise convert-<from>-to-<to> endpoints are retired — the single
 // parametric POST /api/unit-convert serves every pair with the same unit ids
-// and the same math (src/tools/convert-gen.js). API calls get a 410 that
-// TEACHES the replacement — never a 301, because agents must not silently
-// re-POST paid calls across routes; the body hands them the exact new call
+// and the same math (src/tools/convert-gen.js). API calls that we CAN answer
+// (valid unit pair + numeric value) are transparently served (200) through
+// that same engine; the rest get a 410 that TEACHES the replacement — never
+// a 301, because agents must not silently re-POST paid calls across routes;
+// the body hands them the exact new call
 // instead. Pattern safety: every retired slug starts with "convert-", so
 // surviving routes like /api/base-convert, /api/unit-convert and
 // /api/timezone-convert can never match ^/api/convert-…-to-…$.
@@ -1997,18 +1999,46 @@ const parseRetiredConvertPath = (path) => {
   }
   return { from: null, to: null };
 };
-// The old tools accepted both POST {value} and GET ?value=N — the 410 handler
+// The old tools accepted both POST {value} and GET ?value=N — the handler
 // covers both verbs and echoes the caller's numeric value into the taught
 // input (null when absent or non-numeric — never NaN in a JSON body).
+//
+// TRANSPARENT SERVE: third-party marketplaces (Bazaar, agentic.market) cache
+// retired listings from past settlements long after retirement, and an agent
+// that discovers us there, calls a retired converter, and gets a 410 counts
+// it as OUR failure and deprioritizes us. So when we CAN compute the answer —
+// the path parses to valid unit ids AND a numeric value arrived — we serve
+// the real conversion (200) through the same engine, with the exact output
+// shape of POST /api/unit-convert (result/from/to; from/to are canonical
+// table ids so alias scaling is moot) plus honest shim markers `_retired` /
+// `_replacement`. The teaching 410 remains only for requests we genuinely
+// can't answer: unparseable pairs, cross-category guesses (routes that never
+// existed — convertAnyUnit throws, we fall through), or no numeric value.
+// These are legacy compatibility handlers, NOT catalog entries — the catalog
+// count is untouched and the boot-time shadow guard above still applies.
 const RETIRED_CONVERT_API_RE = /^\/api\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/;
 const retiredConvertHandler = (req, res) => {
   const { from, to } = parseRetiredConvertPath(req.path);
   const raw = req.body && req.body.value !== undefined ? req.body.value : req.query.value;
   const num = raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
   // Residual demand for a retired route is a product signal — without this
-  // event the teaching 410s are a telemetry blind spot. Fire-and-forget,
-  // rate-capped in posthog.js; env-gated no-op like every capture.
+  // event the retired routes are a telemetry blind spot (served or taught).
+  // Fire-and-forget, rate-capped in posthog.js; env-gated no-op like every capture.
   capturePostHogToolGone({ route: req.path, replacement: "POST /api/unit-convert" });
+  if (from && to && Number.isFinite(num)) {
+    try {
+      return res.json({
+        result: +convertAnyUnit(num, from, to).toPrecision(12),
+        from,
+        to,
+        _retired: true,
+        _replacement: "unit-convert",
+      });
+    } catch {
+      // Cross-category pair — a route shape that never existed. Can't compute;
+      // fall through to the teaching 410 below.
+    }
+  }
   res.status(410).json({
     error: "This pairwise conversion endpoint is retired. Use POST /api/unit-convert with { value, from, to } — the same unit ids and the same math, one route for every pair. Discovery: GET /api/find?q=unit+convert.",
     replacement: {

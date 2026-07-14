@@ -1,38 +1,36 @@
-// Single source of truth for the catalog's TOTAL tool count across every static
-// surface (README, wiki, docs, adapters, served-page copy, package descriptions).
-// Adding/removing tools used to mean hand-editing ~60 files; now:
+// Catalog-count consistency gate — evergreen edition.
 //
-//   node scripts/sync-count.js          # rewrite the total everywhere it's stale
-//   node scripts/sync-count.js --check  # exit 1 if the total is stale (CI guard)
+//   node scripts/sync-count.js          # verify (same checks as --check)
+//   node scripts/sync-count.js --check  # exit 1 on violation (CI guard)
 //
-// THE FLOOR (quality-consistency invariant, both modes): the catalog must
-// never fall below 400 entries — a drop that size means a kit accidentally
-// fell off the build, not a curation decision. Both counts are derived live
-// from the booted server (total = /health meta.toolCount, which counts every
-// CATALOG route including the pack endpoints; packs = /api/skill-packs.json
-// length; tools = total − packs), so the check can't be gamed by editing a
-// doc. There is NO upper bound: the catalog grows when a tool is worth
-// calling — every addition must answer its own example, be priced to market,
-// and be live-verified.
+// Marketing/static surfaces (README, wiki, docs, package descriptions, served
+// page copy) now say an evergreen "500+ tools" instead of the exact total, so
+// adding tools never requires a doc sweep again. Machine-readable surfaces
+// (/api/pricing, /openapi.json, /health, /.well-known/x402, docs.js
+// `${catalog.length}`) derive the exact count at runtime and are untouched.
 //
-// How the sweep stays safe: the catalog has several legitimate counts (total,
-// free/PoW tier, pack count). We only ever touch the TOTAL, by an EXACT value
-// replace of the previously-documented total → the real one, guarded by
-// digit/comma lookarounds so it can never rewrite part of a larger number. The
-// currently-documented total is read from the README H1 (the number right
-// before the word "tools", which is unambiguously the total). Runtime surfaces
-// (/api/pricing, /openapi.json, docs.js `${catalog.length}`) already derive it
-// and are left alone.
+// The old behavior — a repo-wide textual replace of the previous exact total —
+// is RETIRED: at the 500→501 bump it rewrote every standalone "500" in the
+// repo, including HTTP statuses (`res.status(500)` → 501), CSS font-weights,
+// font filenames, size caps, and even a tool price. Never bring the numeric
+// sweep back. If the brand floor ever moves (e.g. to "1,000+"), that's a rare,
+// deliberate rebrand: update BRAND_FLOOR here, then hand-edit the "500+"
+// phrases (they're grep-able and unambiguous).
 //
-// Known limitation: the replace is textual and repo-wide, so historical
-// narrative (old plan/spec docs quoting a past total) gets rewritten too —
-// revert those hunks by hand after a sweep if the old number was the point.
-// Also audit for non-count matches (SVG coordinates, decimals, addresses).
-import { spawn, execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+// What this script still enforces, live from the booted server (can't be
+// gamed by editing a doc):
+//   1. THE FLOOR — the catalog must never fall below 400 entries; a drop that
+//      size means a kit fell off the build, not a curation decision. There is
+//      NO upper bound: the catalog grows when a tool is worth calling.
+//   2. HONESTY — the evergreen "500+" claim must be true: total >= 500.
+//   3. ANCHOR — the README H1 must carry the literal "500+ tools" claim, so
+//      the flagship surface can't silently drift back to an exact count.
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 export const CATALOG_FLOOR = 400;
+export const BRAND_FLOOR = 500; // the number in the public "500+" claim
 
 // Returns null when the total is at or above the floor, else the CI failure
 // message. Exported (and main() gated below) so the assertion is unit-testable
@@ -42,8 +40,14 @@ export function floorViolation(total) {
   return `Catalog fell below the ${CATALOG_FLOOR}-entry floor (got ${total}) — a kit is probably missing.`;
 }
 
+// Returns null while the public "500+" claim is honest, else the CI failure
+// message. brandViolation(499) must return the message.
+export function brandViolation(total) {
+  if (total >= BRAND_FLOOR) return null;
+  return `Catalog (${total}) is below the public "${BRAND_FLOOR.toLocaleString("en-US")}+" claim — either restore the missing tools or rebrand the marketing surfaces.`;
+}
+
 async function main() {
-  const CHECK = process.argv.includes("--check");
   const PORT = 3199;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -56,50 +60,31 @@ async function main() {
     }
     if (!total) { console.error("sync-count: could not read the tool count from /health"); process.exit(2); }
 
-    // THE FLOOR — enforced before any sweep/check of doc surfaces, in both
-    // modes (never sweep a broken catalog's numbers into the docs).
     let packs = 0;
     try {
       const sp = await (await fetch(`http://localhost:${PORT}/api/skill-packs.json`)).json();
       packs = (sp?.packs || []).length;
     } catch {}
     if (!packs) { console.error("sync-count: could not read the pack count from /api/skill-packs.json"); process.exit(2); }
-    const violation = floorViolation(total);
-    if (violation) { console.error(violation); process.exit(1); }
 
-    const want = total.toLocaleString("en-US"); // "500"
+    // 1. THE FLOOR
+    const floor = floorViolation(total);
+    if (floor) { console.error(floor); process.exit(1); }
 
-    // The documented total = the number immediately before "tools" in the README
-    // H1 (comma-grouped or plain, so it works above and below 1,000).
+    // 2. HONESTY of the evergreen claim
+    const brand = brandViolation(total);
+    if (brand) { console.error(brand); process.exit(1); }
+
+    // 3. ANCHOR — the README H1 must claim "500+ tools" (evergreen), never an
+    // exact count that would rot as the catalog grows.
+    const claim = `${BRAND_FLOOR.toLocaleString("en-US")}+ tools`;
     const readmeH1 = (readFileSync("README.md", "utf8").split("\n")[0]) || "";
-    const documented = (readmeH1.match(/(\d{1,3}(?:,\d{3})*)(?= tools\b)/) || [])[0];
-    if (!documented) { console.error("sync-count: no count found in the README H1 to anchor on"); process.exit(2); }
-
-    if (documented === want) {
-      console.log(`sync-count: OK — total is in sync (${want} = ${total - packs} tools + ${packs} skill packs, above the ${CATALOG_FLOOR}-entry floor).`);
-      process.exit(0);
-    }
-
-    // Drift. Replace the exact old total value everywhere (distinct from the other counts).
-    // Lookarounds keep the match whole-number: a 3-digit total like "500" must not
-    // rewrite the inside of "1,500", "5000" or "3500".
-    const files = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter((f) =>
-      /\.(md|json|js|py|txt)$/.test(f) && !f.includes("/dist/") && f !== "package-lock.json");
-    const escaped = documented.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = `(?<![\\d,])${escaped}(?![\\d,])`;
-
-    if (CHECK) {
-      const hits = files.filter((f) => { try { return new RegExp(pattern).test(readFileSync(f, "utf8")); } catch { return false; } });
-      console.error(`sync-count: total is STALE — documented ${documented}, catalog has ${want}. ${hits.length} file(s) affected. Run \`node scripts/sync-count.js\`.`);
+    if (!readmeH1.includes(claim)) {
+      console.error(`sync-count: README H1 no longer carries the evergreen "${claim}" claim — restore it (exact counts on marketing surfaces are banned; runtime surfaces derive the real number).`);
       process.exit(1);
     }
-    let changed = 0;
-    for (const f of files) {
-      let src; try { src = readFileSync(f, "utf8"); } catch { continue; }
-      const out = src.replace(new RegExp(pattern, "g"), want);
-      if (out !== src) { writeFileSync(f, out); changed++; }
-    }
-    console.log(`sync-count: total ${documented} → ${want} across ${changed} file(s).`);
+
+    console.log(`sync-count: OK — catalog has ${total.toLocaleString("en-US")} entries (${total - packs} tools + ${packs} skill packs); the "${claim}" claim is honest and above the ${CATALOG_FLOOR}-entry floor. Marketing surfaces are evergreen — nothing to rewrite.`);
   } finally {
     srv.kill("SIGKILL");
   }

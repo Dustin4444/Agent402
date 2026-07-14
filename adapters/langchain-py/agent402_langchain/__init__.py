@@ -8,7 +8,7 @@ Four meta-tools, all free to discover — the same design as the JS adapter:
     agent402_call    — call a tool by slug, auto-pays (PoW free / x402 paid)
     agent402_about   — service manifest                     (/.well-known/x402)
 
-Why four and not one-tool-per-slug? Frameworks balk at registering 500 tools
+Why four and not one-tool-per-slug? Frameworks balk at registering 500++ tools
 at once and an LLM can't reason over that many. The agent picks a task, `find`/
 `route` picks the tool, and `call` handles payment.
 

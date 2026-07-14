@@ -977,6 +977,9 @@ jobs:
       - name: x402-kit tests (transfer-auth typed data + live Base RPC reads)
         run: node scripts/test-x402-kit.js
 
+      - name: x402-trending momentum tool (organic score, sorts, WoW activation, history persistence — offline)
+        run: node scripts/test-x402-trending.js
+
       - name: Util-kit tests (jwt-sign, uuid-v5, group-by, json-to-xml, geo-distance, color-contrast)
         run: node scripts/test-util-kit.js
 
