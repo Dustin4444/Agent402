@@ -100,7 +100,3 @@ export function convertAnyUnit(value, from, to) {
   const { units } = UNIT_CATEGORIES[fromCat];
   return (value * units[from]) / units[to];
 }
-
-// Task-2 removes: src/server.js still imports CONVERSIONS; empty shim keeps the
-// server bootable until the 970 pairwise routes are unmounted there.
-export const CONVERSIONS = [];

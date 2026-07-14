@@ -5,6 +5,17 @@
 // kelvin/rankine), 400s on unknown units and cross-category pairs (naming both
 // categories), and that the old CONVERSIONS tool array is gone (or an empty
 // Task-2 shim). Also proves kit2's unit-convert tool delegates to the engine.
+//
+// Second half boots a free-mode server (pattern from test-static-pages.js) and
+// proves the 970 pairwise routes are retired GRACEFULLY: API calls (POST body
+// or GET query — the old tools accepted both) get a 410 whose body TEACHES the
+// replacement (never a 301: agents must not silently re-POST paid calls across
+// routes); /tools/convert-* pages 301 to the surviving /tools/unit-convert;
+// and the surviving convert-suffixed routes (base-convert, unit-convert,
+// timezone-convert) are NOT caught by the retirement pattern.
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import * as gen from "../src/tools/convert-gen.js";
 import { KIT2 } from "../src/tools/kit2.js";
 
@@ -107,6 +118,135 @@ ok(Math.abs(res3.result - uc.discovery.output.example.result) < 1e-6, `unit-conv
 try { uc.handler({ value: 1, from: "meters", to: "grams" }); ok(false, "unit-convert cross-category did not throw"); }
 catch (e) { ok(e.statusCode === 400 && e.message.includes("length") && e.message.includes("mass"), `unit-convert cross-category 400: "${e.message}"`); }
 
+// ---------------------------------------------------------------------------
+// Booted-server section: graceful retirement of the pairwise convert routes.
+// ---------------------------------------------------------------------------
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const PORT = 3097;
+const BASE = `http://localhost:${PORT}`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
+  cwd: ROOT,
+  env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false" },
+  stdio: "ignore",
+});
+
+// A retired-route response must be a 410 whose body teaches the replacement:
+// { error, replacement: { route: "POST /api/unit-convert", input: { value, from, to } } }.
+const assert410 = async (label, res, { value, from, to }) => {
+  ok(res.status === 410, `${label}: status 410 (got ${res.status})`);
+  let body = null;
+  try { body = await res.json(); } catch {}
+  ok(typeof body?.error === "string" && body.error.length > 0, `${label}: body carries an error string`);
+  ok(body?.replacement?.route === "POST /api/unit-convert", `${label}: replacement.route teaches POST /api/unit-convert (got ${body?.replacement?.route})`);
+  const input = body?.replacement?.input || {};
+  ok(input.from === from, `${label}: replacement.input.from = ${JSON.stringify(from)} (got ${JSON.stringify(input.from)})`);
+  ok(input.to === to, `${label}: replacement.input.to = ${JSON.stringify(to)} (got ${JSON.stringify(input.to)})`);
+  ok(input.value === value, `${label}: replacement.input.value = ${JSON.stringify(value)} (got ${JSON.stringify(input.value)})`);
+};
+
+try {
+  let up = false;
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) { up = true; break; } } catch {} await sleep(500); }
+  ok(up, "free-mode server boots (health 200)");
+
+  // Old POST form: body {value} — 410 teaches from/to parsed out of the slug
+  // and echoes the caller's value.
+  await assert410("POST retired route",
+    await fetch(`${BASE}/api/convert-miles-to-kilometers`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 5 }),
+    }),
+    { value: 5, from: "miles", to: "kilometers" });
+
+  // Old GET form: ?value=N — same teaching body.
+  await assert410("GET retired route",
+    await fetch(`${BASE}/api/convert-miles-to-kilometers?value=3.5`),
+    { value: 3.5, from: "miles", to: "kilometers" });
+
+  // Hyphenated unit ids on BOTH sides — the parser must split the middle
+  // segment on the "-to-" whose two sides are both real unit ids, not the
+  // first "-to-" it sees.
+  await assert410("hyphenated-unit parse",
+    await fetch(`${BASE}/api/convert-nautical-miles-to-light-years`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 2 }),
+    }),
+    { value: 2, from: "nautical-miles", to: "light-years" });
+
+  // Temperature ids are in the table too (affine category).
+  await assert410("temperature ids parse",
+    await fetch(`${BASE}/api/convert-celsius-to-fahrenheit?value=100`),
+    { value: 100, from: "celsius", to: "fahrenheit" });
+
+  // Unknown units: still a 410 (the route shape IS the retired shape), but
+  // from/to are null and no value was sent → null.
+  await assert410("unknown units still 410, nulls",
+    await fetch(`${BASE}/api/convert-foo-to-bar`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
+    }),
+    { value: null, from: null, to: null });
+
+  // Non-numeric value → echoed as null, never NaN.
+  {
+    const res = await fetch(`${BASE}/api/convert-miles-to-kilometers?value=abc`);
+    ok(res.status === 410, `non-numeric value: status 410 (got ${res.status})`);
+    const body = await res.json().catch(() => null);
+    ok(body?.replacement?.input?.value === null, `non-numeric value echoes null (got ${JSON.stringify(body?.replacement?.input?.value)})`);
+  }
+
+  // Tool pages 301 to the survivor.
+  {
+    const res = await fetch(`${BASE}/tools/convert-miles-to-kilometers`, { redirect: "manual" });
+    ok(res.status === 301, `/tools/convert-miles-to-kilometers → 301 (got ${res.status})`);
+    ok(res.headers.get("location") === "/tools/unit-convert", `301 Location is /tools/unit-convert (got ${res.headers.get("location")})`);
+  }
+
+  // The survivor answers the taught call.
+  {
+    const res = await fetch(`${BASE}/api/unit-convert`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: 5, from: "miles", to: "kilometers" }),
+    });
+    ok(res.status === 200, `POST /api/unit-convert → 200 (got ${res.status})`);
+    const body = await res.json().catch(() => null);
+    ok(Math.abs((body?.result ?? NaN) - 8.04672) < 1e-6, `unit-convert 5 miles → km ≈ 8.046720 (got ${body?.result})`);
+  }
+
+  // CRITICAL exclusion: /api/base-convert survives — the retirement pattern is
+  // ^/api/convert-…-to-…$ and "base-convert" does not start with "convert-",
+  // so it must answer its own example (200), never 410.
+  {
+    const res = await fetch(`${BASE}/api/base-convert`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value: "ff", from: 16, to: 2 }),
+    });
+    ok(res.status === 200, `POST /api/base-convert NOT caught by retirement (200, got ${res.status})`);
+    const body = await res.json().catch(() => null);
+    ok(body?.result === "11111111", `base-convert ff/16 → 2 = 11111111 (got ${JSON.stringify(body?.result)})`);
+  }
+
+  // A non-convert unknown API route stays a plain 404 — retirement must not
+  // widen into a catch-all.
+  {
+    const res = await fetch(`${BASE}/api/definitely-not-a-tool`);
+    ok(res.status === 404, `unknown non-convert route stays 404 (got ${res.status})`);
+  }
+
+  // Boot smoke: interim catalog is exactly 462 tools; /marketplace renders.
+  {
+    const pricing = await (await fetch(`${BASE}/api/pricing`)).json();
+    ok(Array.isArray(pricing.endpoints) && pricing.endpoints.length === 462, `catalog has 462 tools (got ${pricing.endpoints?.length})`);
+    const mkt = await fetch(`${BASE}/marketplace`);
+    ok(mkt.status === 200, `/marketplace → 200 (got ${mkt.status})`);
+  }
+} catch (e) {
+  fail++;
+  console.error(`FAIL - booted section threw: ${e.message}`);
+} finally {
+  try { proc.kill("SIGKILL"); } catch {}
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) { console.error("convert: FAILURES"); process.exit(1); }
-console.log("convert: unit table + engine VERIFIED");
+console.log("convert: unit table + engine + graceful retirement VERIFIED");
+process.exit(0);

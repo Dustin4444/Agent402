@@ -52,7 +52,7 @@ import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankB
 import { buildPaymentMiddleware, enabledNetworks } from "./payments.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
-import { CONVERSIONS } from "./tools/convert-gen.js";
+import { UNIT_CATEGORIES } from "./tools/convert-gen.js";
 import { SEARCH_TOOLS } from "./tools/search.js";
 import { PDF_TOOLS } from "./tools/pdf-kit.js";
 import { DEMAND_TOOLS } from "./tools/demand-kit.js";
@@ -155,7 +155,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...CONVERSIONS, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool } from "./tools/route-execute.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
@@ -2039,6 +2039,52 @@ app.get("/shop", (_req, res) => htmlCache(res, 300, 900).send(shopPage(BASE_URL,
 // there; the top-10 list duplicated /leaderboard and was dropped). Redirect
 // straight to /marketplace - never chain through the /index 301.
 app.get("/economy", (_req, res) => res.redirect(301, "/marketplace#economy"));
+// The ~970 pairwise convert-<from>-to-<to> endpoints are retired — the single
+// parametric POST /api/unit-convert serves every pair with the same unit ids
+// and the same math (src/tools/convert-gen.js). API calls get a 410 that
+// TEACHES the replacement — never a 301, because agents must not silently
+// re-POST paid calls across routes; the body hands them the exact new call
+// instead. Pattern safety: every retired slug starts with "convert-", so
+// surviving routes like /api/base-convert, /api/unit-convert and
+// /api/timezone-convert can never match ^/api/convert-…-to-…$.
+const RETIRED_CONVERT_UNIT_IDS = new Set(
+  Object.values(UNIT_CATEGORIES).flatMap((cat) => Object.keys(cat.units))
+);
+// Unit ids can themselves contain hyphens (nautical-miles, light-years), so
+// the "<from>-to-<to>" middle segment can't be split on the first "-to-":
+// try every "-to-" split point and keep the one where BOTH sides are real
+// unit ids (temperature ids included). No valid split → nulls; the 410 body
+// still teaches the generic replacement.
+const parseRetiredConvertPath = (path) => {
+  const middle = path.slice("/api/convert-".length);
+  for (let i = middle.indexOf("-to-"); i !== -1; i = middle.indexOf("-to-", i + 1)) {
+    const from = middle.slice(0, i);
+    const to = middle.slice(i + 4);
+    if (RETIRED_CONVERT_UNIT_IDS.has(from) && RETIRED_CONVERT_UNIT_IDS.has(to)) return { from, to };
+  }
+  return { from: null, to: null };
+};
+// The old tools accepted both POST {value} and GET ?value=N — the 410 handler
+// covers both verbs and echoes the caller's numeric value into the taught
+// input (null when absent or non-numeric — never NaN in a JSON body).
+const RETIRED_CONVERT_API_RE = /^\/api\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/;
+const retiredConvertHandler = (req, res) => {
+  const { from, to } = parseRetiredConvertPath(req.path);
+  const raw = req.body && req.body.value !== undefined ? req.body.value : req.query.value;
+  const num = raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
+  res.status(410).json({
+    error: "This pairwise conversion endpoint is retired. Use POST /api/unit-convert with { value, from, to } — the same unit ids and the same math, one route for every pair. Discovery: GET /api/find?q=unit+convert.",
+    replacement: {
+      route: "POST /api/unit-convert",
+      input: { value: Number.isFinite(num) ? num : null, from, to },
+    },
+  });
+};
+app.post(RETIRED_CONVERT_API_RE, retiredConvertHandler);
+app.get(RETIRED_CONVERT_API_RE, retiredConvertHandler);
+// The retired tool PAGES carry inbound links + SEO equity — those 301 to the
+// survivor's page (a page visit has no re-POST hazard, unlike the API).
+app.get(/^\/tools\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/, (_req, res) => res.redirect(301, "/tools/unit-convert"));
 app.get("/tools/category/:cat", (req, res) => {
   const html = categoryPage(BASE_URL, CATALOG, req.params.cat);
   if (!html) return res.status(404).type("html").send('<p>Category not found. <a href="/tools">All tools</a></p>');
