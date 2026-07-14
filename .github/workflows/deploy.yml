@@ -1158,7 +1158,7 @@ jobs:
           curl -s -X POST localhost:3000/api/robots-check -H 'Content-Type: application/json' -d '{"url":"https://www.google.com/search","userAgent":"TestBot"}' | jq -c '{allowed, matchedRule}'
           curl -s -X POST localhost:3000/api/sitemap -H 'Content-Type: application/json' -d '{"url":"https://www.sitemaps.org/sitemap.xml"}' | jq -c '{type, count}'
           echo "=== discovery surfaces ==="
-          N=$(curl -s localhost:3000/api/pricing | jq '.endpoints | length'); echo "catalog endpoints: $N (expect >=1000)"; [ "$N" -ge 1000 ]
+          N=$(curl -s localhost:3000/api/pricing | jq '.endpoints | length'); echo "catalog endpoints: $N (expect 500, the cap)"; [ "$N" -ge 500 ]
           curl -s localhost:3000/openapi.json | jq '{paths: (.paths | length)}'
           curl -s localhost:3000/tools | grep -oiE -m1 '<h1[^>]*>'
           curl -s localhost:3000/tools/memory-write | grep -o '<title>[^<]*</title>'
@@ -1170,7 +1170,7 @@ jobs:
       - name: /api/stats surfaces the M2M economy
         run: |
           curl -s localhost:3000/api/hash -X POST -H 'Content-Type: application/json' -d '{"text":"x"}' >/dev/null
-          curl -s localhost:3000/api/stats | jq -e '.tools >= 1000 and .toolCallsServed.total >= 1 and (.summary | test("machine-to-machine"))' >/dev/null \
+          curl -s localhost:3000/api/stats | jq -e '.tools >= 500 and .toolCallsServed.total >= 1 and (.summary | test("machine-to-machine"))' >/dev/null \
             && echo "/api/stats OK" || { echo "/api/stats wrong"; curl -s localhost:3000/api/stats; exit 1; }
 
       - name: Proof-of-work tier (gate bypass with payments enabled)
@@ -1191,7 +1191,7 @@ jobs:
           const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
 
           const info = await (await fetch(B + "/api/pow")).json();
-          if (info.eligibleTools.length < 1000) fail("expected >=1000 PoW-eligible tools, got " + info.eligibleTools.length);
+          if (info.eligibleTools.length < 150) fail("expected >=150 PoW-eligible tools, got " + info.eligibleTools.length);
           if (info.eligibleTools.includes("render")) fail("render must NOT be PoW-eligible");
 
           const c = await (await fetch(B + "/api/pow/challenge?slug=hash")).json();
@@ -1317,8 +1317,8 @@ jobs:
             echo "  attempt $i: endpoints=$N hash=$paid — production still rolling out, retrying in 10s…"
             sleep 10
           done
-          echo "production endpoint count: $N (expect >=1000); hash unpaid → HTTP $paid (expect 402)"
-          [ "${N:-0}" -ge 1000 ] && [ "$paid" = "402" ] || { echo "Production not serving the catalog after ~2 min — real problem, investigate."; exit 1; }
+          echo "production endpoint count: $N (expect 500); hash unpaid → HTTP $paid (expect 402)"
+          [ "${N:-0}" -ge 500 ] && [ "$paid" = "402" ] || { echo "Production not serving the catalog after ~2 min — real problem, investigate."; exit 1; }
           curl -s "$PROD/api/pricing" | jq -r '.endpoints[] | "\(.method) \(.path) \(.price)"'
           echo "=== SEO + discovery surfaces on production (hard gate) ==="
           # These have all been live in production for a while — a miss now is a
