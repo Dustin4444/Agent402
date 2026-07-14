@@ -1,7 +1,8 @@
 # agent402-langchain (Python)
 
-Turn [Agent402](https://agent402.tools)'s 500 x402 pay-per-call tools into
-**LangChain** and **CrewAI** tools for Python agents.
+Turn [Agent402](https://agent402.tools)'s capped catalog — only 500: 400 x402
+pay-per-call tools + 100 skill packs — into **LangChain** and **CrewAI** tools
+for Python agents.
 
 Pure-CPU tools (hashing, encoding, QR, markdown, JSON, readability…) are **free**
 via built-in proof-of-work — no wallet, no API keys. Live-data tools (market

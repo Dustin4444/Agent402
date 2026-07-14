@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent402-langchain"
-version = "0.1.0"
-description = "Turn Agent402's 1,415 x402 pay-per-call tools into LangChain and CrewAI tools for Python agents. Free tier via proof-of-work — no wallet, no API keys."
+version = "0.1.1"
+description = "Turn Agent402's capped catalog — only 500: 400 x402 pay-per-call tools + 100 skill packs — into LangChain and CrewAI tools for Python agents. Free tier via proof-of-work — no wallet, no API keys."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
