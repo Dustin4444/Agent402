@@ -61,7 +61,7 @@ async function certTransparencyHandler(body) {
   // or a client 422; a timeout throws a bare AbortError.
   async function fetchJson(url, label) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
       const res = await fetch(url, {
         signal: controller.signal,
@@ -80,87 +80,79 @@ async function certTransparencyHandler(body) {
     }
   }
 
-  // crt.sh supports JSON output via ?output=json. We use the % wildcard prefix to
-  // match all subdomains. It's notoriously flaky: it routinely cold-times-out the
-  // FIRST request and then answers the next in under a second, and occasionally
-  // has multi-minute outages where every retry fails. So we make 2 attempts with
-  // a short warming backoff (the retry catches the cold-first-request case), and
-  // if crt.sh is STILL down we fall back to certspotter (also a free, keyless
-  // CT-log API) so the tool keeps answering instead of 502-ing on a transient
-  // upstream outage. A client error (422) is never retried and never falls back.
+  // Map each CT-log source's raw rows to our normalized cert shape (deduped, capped).
+  const mapCrtSh = (rows) => {
+    const seen = new Set(), certs = [];
+    for (const r of rows) {
+      const key = r.serial_number || `${r.issuer_ca_id}-${r.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const sans = String(r.name_value || "").split("\n").map(s => s.trim()).filter(Boolean);
+      certs.push({ id: r.id, serial: r.serial_number || null, issuer: r.issuer_name || null,
+        commonName: r.common_name || null, sans, notBefore: r.not_before || null, notAfter: r.not_after || null });
+      if (certs.length >= limit) break;
+    }
+    return { certs, total: rows.length };
+  };
+  const mapCertspotter = (rows) => {
+    const seen = new Set(), certs = [];
+    for (const r of rows) {
+      const key = r.cert_sha256 || r.id;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const sans = Array.isArray(r.dns_names) ? r.dns_names.map(s => String(s).trim()).filter(Boolean) : [];
+      // certspotter returns issuances regardless of expiry; honor includeExpired
+      // by dropping already-expired certs when the caller didn't ask for them.
+      if (!includeExpired && r.not_after && Date.parse(r.not_after) < Date.now()) continue;
+      certs.push({ id: r.id ?? null, serial: null, issuer: r.issuer?.name || r.issuer?.friendly_name || null,
+        commonName: sans[0] || null, sans, notBefore: r.not_before || null, notAfter: r.not_after || null });
+      if (certs.length >= limit) break;
+    }
+    return { certs, total: certs.length };
+  };
+
+  // crt.sh (richer, but chronically SLOW — routinely 8-9s even when healthy, and
+  // has outages) and certspotter (faster, smaller window) are two independent CT
+  // logs. We HEDGE so the endpoint is ALWAYS fast and never depends on one flaky
+  // upstream: fire crt.sh, and if it hasn't answered within HEDGE_MS also fire
+  // certspotter, then take whichever SUCCEEDS first. A slow or down source never
+  // delays the answer past the other source's latency — the tool returns as soon
+  // as either CT log responds, not "eventually". Only 502 if BOTH fail.
   const q = encodeURIComponent("%." + domain);
   const crtUrl = `https://crt.sh/?q=${q}&output=json${includeExpired ? "" : "&exclude=expired"}`;
-  let certs = null, total = 0, source = "crt.sh", lastErr;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
-    try {
-      let rows = await fetchJson(crtUrl, "crt.sh");
-      if (!Array.isArray(rows)) rows = [];
-      // Dedupe by serial (one cert can be logged in multiple CT logs).
-      const seen = new Set();
-      certs = [];
-      for (const r of rows) {
-        const key = r.serial_number || `${r.issuer_ca_id}-${r.id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const sans = String(r.name_value || "").split("\n").map(s => s.trim()).filter(Boolean);
-        certs.push({
-          id: r.id,
-          serial: r.serial_number || null,
-          issuer: r.issuer_name || null,
-          commonName: r.common_name || null,
-          sans,
-          notBefore: r.not_before || null,
-          notAfter: r.not_after || null,
-        });
-        if (certs.length >= limit) break;
-      }
-      total = rows.length;
-      lastErr = null;
-      break;
-    } catch (err) {
-      if (err.statusCode === 422) throw err; // client error, don't retry or fall back
-      lastErr = err;
-    }
-  }
+  const csUrl = `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names&expand=issuer`;
+  const HEDGE_MS = 1500;
 
-  if (certs === null) {
-    // crt.sh exhausted its retries — fall back to certspotter so a transient
-    // crt.sh outage doesn't fail the buyer's call. Certspotter's keyless tier
-    // returns a smaller window than crt.sh, but a degraded answer beats a 502.
-    const csUrl = `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names&expand=issuer`;
+  const crtP = fetchJson(crtUrl, "crt.sh").then((rows) => ({ source: "crt.sh", ...mapCrtSh(Array.isArray(rows) ? rows : []) }));
+  let csP = null;
+  const fireCertspotter = () => (csP ??= fetchJson(csUrl, "certspotter").then((rows) => ({ source: "certspotter", ...mapCertspotter(Array.isArray(rows) ? rows : []) })));
+  // Resolve on the FIRST fulfilment; reject with the first error only once ALL reject.
+  const firstSuccess = (ps) => new Promise((resolve, reject) => {
+    let pending = ps.length, firstErr = null;
+    for (const p of ps) p.then(resolve, (e) => { firstErr ??= e; if (--pending === 0) reject(firstErr); });
+  });
+
+  let result, hedgeTimer;
+  try {
+    // Give crt.sh a head start; if it wins within HEDGE_MS, certspotter never fires.
+    result = await Promise.race([
+      crtP,
+      new Promise((_, rej) => { hedgeTimer = setTimeout(() => rej(new Error("HEDGE")), HEDGE_MS); }),
+    ]);
+  } catch {
+    // crt.sh failed fast OR is still pending at HEDGE_MS → bring certspotter in and
+    // take whichever of the two succeeds first.
+    fireCertspotter();
     try {
-      let rows = await fetchJson(csUrl, "certspotter");
-      if (!Array.isArray(rows)) rows = [];
-      const seen = new Set();
-      certs = [];
-      for (const r of rows) {
-        const key = r.cert_sha256 || r.id;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const sans = Array.isArray(r.dns_names) ? r.dns_names.map(s => String(s).trim()).filter(Boolean) : [];
-        // certspotter returns issuances regardless of expiry; honor includeExpired
-        // by dropping already-expired certs when the caller didn't ask for them.
-        if (!includeExpired && r.not_after && Date.parse(r.not_after) < Date.now()) continue;
-        certs.push({
-          id: r.id ?? null,
-          serial: null,
-          issuer: r.issuer?.name || r.issuer?.friendly_name || null,
-          commonName: sans[0] || null,
-          sans,
-          notBefore: r.not_before || null,
-          notAfter: r.not_after || null,
-        });
-        if (certs.length >= limit) break;
-      }
-      total = certs.length;
-      source = "certspotter";
-    } catch {
-      // Both sources down — surface the primary (crt.sh) error.
-      if (lastErr?.statusCode) throw lastErr; // an upstream-status 502 already carries a clear message
-      throw bad(lastErr?.name === "AbortError" ? "crt.sh did not respond — try again later" : `Could not reach crt.sh: ${lastErr?.message}`, 502);
+      result = await firstSuccess([crtP, csP]);
+    } catch (bothFailed) {
+      if (bothFailed?.statusCode) throw bothFailed; // an upstream-status 502 already carries a clear message
+      throw bad(bothFailed?.name === "AbortError" ? "cert transparency logs did not respond — try again later" : `Could not reach a cert transparency log: ${bothFailed?.message}`, 502);
     }
+  } finally {
+    clearTimeout(hedgeTimer);
   }
+  const { certs, total, source } = result;
 
   // Surface the unique subdomain set — the most actionable output for a
   // security audit ("what subdomains do we have certs for?").
