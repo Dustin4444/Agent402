@@ -68,9 +68,21 @@ const TOP1 = [
   ["convert miles to kilometers",   "unit-convert"],
   ["convert kilometers to miles",   "unit-convert"],
   ["convert stones to kg",          "unit-convert"],
+  // Contract-tool discoverability: these exact phrasings were logged as
+  // find-misses (unmet demand) before the contract kit shipped. The tools
+  // exist now — lock that the lexical ranker actually surfaces them, so a
+  // tag/description rewording can't quietly turn these back into misses.
+  ["solidity auditor",              "solidity-scan"],
+  ["solidity",                      "solidity-scan"],
 ];
 
-const TOPN = [];
+const TOPN = [
+  // "smart contract" legitimately ties contract-abi and contract-source at the
+  // top (shorter-slug tie-break puts contract-abi first) — the intent is
+  // satisfied as long as the contract tools own the top of the list.
+  ["smart contract",                "contract-source", 3],
+  ["audit a contract",              "contract-source", 3],
+];
 
 // Pack locks: /api/find returns up to 2 skill packs alongside the tool results.
 // An agent asking a *task-shaped* question ("scrape a website", "decode a JWT")
@@ -85,6 +97,13 @@ const PACK_TOP1 = [
   ["trip planning",                 "trip-planner"],
   ["investment decision",           "investment-decision"],
   ["site status snapshot",          "status-snapshot"],
+  // The contract-audit pack is the whole-workflow answer to audit-shaped
+  // contract queries — it must ride along as the top pack, including for the
+  // single-word "solidity" phrasing (which scores exactly at the pack ranker's
+  // minScore via the tagline/useCase/workflow mentions).
+  ["audit a contract",              "contract-audit"],
+  ["solidity auditor",              "contract-audit"],
+  ["solidity",                      "contract-audit"],
 ];
 
 const slugs = async (q, k = 3) => {

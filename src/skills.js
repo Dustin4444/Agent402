@@ -1244,6 +1244,63 @@ export const SKILL_PACKS = [
   },
 
   {
+    slug: "webhook-intake",
+    title: "Webhook secure intake",
+    tagline:
+      "The production ingest path for every incoming webhook: verify the provider signature (GitHub / Stripe / Shopify / Slack, constant-time, replay-window enforced), schema-validate the now-trusted body against the provider envelope, fingerprint the raw bytes for redelivery dedup, normalize the event timestamp to UTC + epoch, and redact PII before anything hits a log. Five pure-CPU tools — the accept-or-reject gate, run on every event.",
+    useCase:
+      "webhook-debug answers 'why is my signature failing?' — this pack is what runs after that's solved: the gate an agent executes on EVERY incoming webhook in production. Step 1 is the security decision (reject on an invalid signature; Stripe and Slack timestamps get replay-window enforcement), and only then is the body treated as trusted: an envelope schema check catches provider API-version drift before it breaks your handler three layers down, a sha256 content fingerprint gives you the dedup key for provider redeliveries (or an Idempotency-Key for downstream calls), the event time is normalized to UTC ISO + epoch for storage, and PII is redacted so the audit log stays clean. One deterministic pass from raw bytes to a storable, loggable, deduplicated event.",
+    toolSlugs: [
+      "webhook-verify",
+      "json-validate",
+      "hash",
+      "time-convert",
+      "redact",
+    ],
+    workflow: [
+      "Verify the signature with webhook-verify — the accept/reject gate, and the reason this pack exists. Pass provider ('github' | 'stripe' | 'shopify' | 'slack'), the RAW body string exactly as received (signatures are over the raw bytes — a parsed-then-restringified body will not match), the signing secret, and the signature header value (scheme prefixes like 'sha256=' / 'v0=' / 't=…,v1=…' are handled). The tool recomputes the correct per-provider HMAC scheme and compares in constant time; for Stripe and Slack it also enforces the ±300s replay window when the timestamp is supplied (Stripe's can ride inside the signature's t= element). If valid=false: stop, return 401 to the sender, and log nothing but the fingerprint from step 3 — an unverified body is attacker-controlled input.",
+      "Schema-validate the now-trusted body with json-validate against a minimal provider envelope schema (GitHub push events carry repository/ref; Stripe events carry id/type/created; Slack carries type/event_time). The signature proves the bytes came from the provider — the schema proves they're the SHAPE your handler was written against. A schema failure on a validly-signed body is the API-version-drift signal (providers add, rename, and sunset fields on a schedule): alert loudly and route to a quarantine queue instead of silently dropping fields. Swap in your own event-specific schema per webhook topic in production.",
+      "Fingerprint the raw bytes with hash (sha256). Providers redeliver on timeout and at-least-once delivery is the contract — the same event can arrive three times with three different delivery ids. The content hash is the dedup key that survives redelivery: check it against your processed-events store before doing any work, or reuse it directly as the Idempotency-Key header on downstream paid calls. Hashing the RAW body (not the parsed object) keeps the fingerprint byte-stable and lets you log it safely even for rejected events — it reveals nothing about the payload.",
+      "Normalize the event timestamp with time-convert. Every provider ships a different clock format: Stripe created is epoch seconds, Slack event_time is epoch seconds, Shopify created_at is RFC 3339 with offset, GitHub commits carry ISO 8601. time-convert returns UTC ISO + epochSeconds + epochMillis in one call — store the epoch (sortable, timezone-proof), render the ISO. This is also where event-ordering bugs die: comparing a provider's local-offset string against your stored UTC string sorts wrong twice a year; comparing epochs never does.",
+      "Redact the body with redact before it touches any log or trace. Webhook payloads routinely carry emails, IPs, phone numbers, and card fragments; the redacted string replaces each with a typed placeholder and the response counts each kind so you can emit 'redacted 1 email, 0 cards' as a metric. Persist ONLY the redacted string in logs — the redact-before-log ordering is the difference between a clean audit and a reportable incident. (The full raw body, if you must keep it, belongs encrypted in your event store keyed by the step-3 fingerprint, not in the log pipeline.)",
+    ],
+    claudePrompt:
+      "Securely ingest this incoming webhook using Agent402's webhook-intake skill pack.\n\nProvider: github\nRaw body (byte-for-byte as received on the wire — never re-serialize before verifying):\n{\"ref\":\"refs/heads/main\",\"before\":\"6113728f27ae82c7b1a177c8d03f9e96e0adf246\",\"after\":\"d6fde92930d4715a2b49857d24b940956b26d2d3\",\"repository\":{\"full_name\":\"acme/checkout-service\"},\"pusher\":{\"name\":\"alice\",\"email\":\"alice@example.com\"},\"head_commit\":{\"id\":\"d6fde92930d4715a2b49857d24b940956b26d2d3\",\"message\":\"fix: retry payment capture on 5xx\",\"timestamp\":\"2026-07-01T15:04:05Z\"}}\n\nSignature header value: sha256=45f74caa8f537323fd4fa022357ebc620cbcfb28a6dcd65b0f1da3646edf5c4a\nSigning secret: gh_hook_secret_demo_only\n\n(1) webhook-verify with provider, payload=the RAW body string, secret, signature (scheme prefix ok). This is the accept/reject gate: if valid=false, STOP — return 401 to the sender and log only the step-3 fingerprint, never the body. For stripe/slack also pass the provider timestamp so the ±300s replay window is enforced (stripe's t= element inside the signature works too). (2) json-validate the parsed body against the provider envelope schema — for GitHub push events {type:'object', required:['repository']}; for Stripe require id/type/created. A schema failure on a VALID signature = provider API-version drift: alert loudly, quarantine, don't silently drop fields. (3) hash the raw body with algo='sha256' — the content fingerprint. Dedup redeliveries on it (at-least-once delivery means the same event arrives more than once) or reuse it as the Idempotency-Key for downstream calls. (4) time-convert the event timestamp (GitHub head_commit.timestamp ISO; Stripe created / Slack event_time epoch seconds; Shopify created_at RFC 3339) → UTC ISO + epochSeconds. Store the epoch, render the ISO. (5) redact the body before it touches any log. Persist ONLY the redacted string; report per-kind counts as metrics. Final return: {accepted: <signature valid AND schema valid>, verify: {valid, scheme, reason}, schemaValid: bool, schemaErrors: [], fingerprint: <sha256 hex>, eventTimeUtc, eventEpochSeconds, redactedBody, redactionCounts, oneLineSummary: 'webhook accepted: signature ok, envelope ok, deduped by fingerprint, 1 email redacted, safe to process'}. All five tools are pure-CPU and PoW-eligible — the whole gate runs on the free tier. Budget ≤ $0.01 even paid.",
+    promptArgs: [
+      {
+        name: "rawBody",
+        description: "the raw webhook body exactly as received on the wire (signatures are over the raw bytes)",
+        required: true,
+        substitute:
+          "{\"ref\":\"refs/heads/main\",\"before\":\"6113728f27ae82c7b1a177c8d03f9e96e0adf246\",\"after\":\"d6fde92930d4715a2b49857d24b940956b26d2d3\",\"repository\":{\"full_name\":\"acme/checkout-service\"},\"pusher\":{\"name\":\"alice\",\"email\":\"alice@example.com\"},\"head_commit\":{\"id\":\"d6fde92930d4715a2b49857d24b940956b26d2d3\",\"message\":\"fix: retry payment capture on 5xx\",\"timestamp\":\"2026-07-01T15:04:05Z\"}}",
+      },
+      {
+        name: "provider",
+        description: "which provider signed the webhook: github | stripe | shopify | slack",
+        required: true,
+        substitute: "github",
+      },
+      {
+        name: "secret",
+        description: "the webhook signing secret from the provider dashboard (never echoed back)",
+        required: true,
+        substitute: "gh_hook_secret_demo_only",
+      },
+      {
+        name: "signature",
+        description: "the signature header value, with or without its scheme prefix (sha256= / v0= / t=...,v1=...)",
+        required: true,
+        substitute: "sha256=45f74caa8f537323fd4fa022357ebc620cbcfb28a6dcd65b0f1da3646edf5c4a",
+      },
+      {
+        name: "timestamp",
+        description: "the provider timestamp header — required for stripe/slack replay protection (stripe's may ride in the signature's t= element)",
+        required: false,
+      },
+    ],
+  },
+
+  {
     slug: "a11y-audit",
     title: "WCAG accessibility audit",
     tagline:
@@ -2838,9 +2895,9 @@ export const SKILL_PACKS = [
     slug: "contract-audit",
     title: "Contract audit",
     tagline:
-      "Triage a smart contract before an agent interacts with it: verified source, heuristic vulnerability scan, known-address check, function-selector resolution, and a read-only dry-run of the exact call you plan to make.",
+      "Triage a smart contract before an agent interacts with it: verified Solidity source, heuristic vulnerability scan, known-address check, function-selector resolution, and a read-only dry-run of the exact call you plan to make.",
     useCase:
-      "An agent is about to approve, transfer, or call an unfamiliar contract — you want the verified source scanned for red flags, the address checked against known labels, and the intended calldata simulated before anything is signed or broadcast.",
+      "An agent is about to approve, transfer, or call an unfamiliar contract — you want the verified Solidity source scanned for red flags, the address checked against known labels, and the intended calldata simulated before anything is signed or broadcast: the first pass a smart-contract auditor would run.",
     promptArgs: [
       { name: "address", description: "0x-prefixed contract address to audit", required: true, substitute: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
       { name: "network", description: "EVM network (ethereum / base / polygon / arbitrum / optimism, default base)", required: false, substitute: "base" },

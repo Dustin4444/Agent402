@@ -983,6 +983,9 @@ jobs:
       - name: Util-kit tests (jwt-sign, uuid-v5, group-by, json-to-xml, geo-distance, color-contrast)
         run: node scripts/test-util-kit.js
 
+      - name: Webhook signature verify (per-provider HMAC vectors, replay tolerance, raw-body guard)
+        run: node scripts/test-webhook-verify.js
+
       - name: B20 decode unit tests (offline, synthetic logs in both indexed layouts)
         run: node scripts/test-b20-decode.js
 
