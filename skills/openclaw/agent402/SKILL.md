@@ -1,6 +1,6 @@
 ---
 name: agent402
-description: "Pay-per-call access to Agent402.Tools: 462 deterministic web tools (browser rendering, web search, PDFs, OCR, finance, SEC EDGAR, crypto/macro data, an OpenAI-compatible LLM gateway, stats/forecasting, ~210 pure-CPU utilities) plus a neutral Smart Order Router across the wider x402 ecosystem. Discover with GET /api/find?q=<task>, pay per call in USDC on Base (six other chains also accepted) or free via proof-of-work with no wallet at all, dispatch one-shot with POST /api/route/execute. Use when the agent needs a specific deterministic capability instead of reasoning it out itself: scrape a URL, hash a string, look up a stock quote, OCR an image, query SEC EDGAR, run a chat/embeddings/image call through an OpenAI-compatible wire, or pay a small USDC amount for any of the above. Do NOT activate for open-ended reasoning or tasks with no matching tool; POST /api/wish first in that case."
+description: "Pay-per-call access to Agent402.Tools: 500 deterministic web tools (browser rendering, web search, PDFs, OCR, finance, SEC EDGAR, crypto/macro data, an OpenAI-compatible LLM gateway, stats/forecasting, ~210 pure-CPU utilities) plus a neutral Smart Order Router across the wider x402 ecosystem. Discover with GET /api/find?q=<task>, pay per call in USDC on Base (six other chains also accepted) or free via proof-of-work with no wallet at all, dispatch one-shot with POST /api/route/execute. Use when the agent needs a specific deterministic capability instead of reasoning it out itself: scrape a URL, hash a string, look up a stock quote, OCR an image, query SEC EDGAR, run a chat/embeddings/image call through an OpenAI-compatible wire, or pay a small USDC amount for any of the above. Do NOT activate for open-ended reasoning or tasks with no matching tool; POST /api/wish first in that case."
 homepage: https://github.com/MikeyPetrillo/Agent402
 metadata:
   openclaw:
@@ -11,7 +11,7 @@ metadata:
 
 # Agent402.Tools
 
-462 deterministic web tools an agent can call over plain HTTP, paid per call.
+500 deterministic web tools an agent can call over plain HTTP, paid per call.
 No LLM sits in the serving path on Agent402's side; every response is a
 straight function call, so it's cheap, fast, and reproducible. Open-source and
 self-hostable (this skill points at the hosted instance).
@@ -32,7 +32,7 @@ curl "https://agent402.tools/api/pricing"
    funded with USDC (bridge at bridge.base.org or buy at coinbase.com). This is
    the native rail for OpenClaw agents on Virtuals/Base.
 2. **No wallet at all**: solve a proof-of-work puzzle instead of paying. About
-   210 of the 462 tools are pure-CPU and PoW-eligible; no money, no signup,
+   210 of the 500 tools are pure-CPU and PoW-eligible; no money, no signup,
    no funding step. See "Free tier" below.
 
 Never hardcode a price. Treat the runtime `402 Payment Required` response as

@@ -11,14 +11,14 @@ from langchain_openai import ChatOpenAI
 from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate
 
-# Agent402's 462 tools as four LangChain meta-tools (find / route / call / about)
+# Agent402's 500 tools as four LangChain meta-tools (find / route / call / about)
 toolkit = Agent402Toolkit(base_url="https://agent402.tools")
 tools = toolkit.get_tools()
 
 llm = ChatOpenAI(model="gpt-4o")  # bring your own key
 
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are an assistant with access to Agent402's 462 pay-per-call tools. "
+    ("system", "You are an assistant with access to Agent402's 500 pay-per-call tools. "
                "Use agent402_find to pick a tool, then agent402_call to run it."),
     ("human", "{input}"),
     ("placeholder", "{agent_scratchpad}"),

@@ -244,10 +244,10 @@ try {
     ok(res.status === 404, `unknown non-convert route stays 404 (got ${res.status})`);
   }
 
-  // Boot smoke: interim catalog is exactly 462 tools; /marketplace renders.
+  // Boot smoke: the catalog is capped at exactly 500 endpoints; /marketplace renders.
   {
     const pricing = await (await fetch(`${BASE}/api/pricing`)).json();
-    ok(Array.isArray(pricing.endpoints) && pricing.endpoints.length === 462, `catalog has 462 tools (got ${pricing.endpoints?.length})`);
+    ok(Array.isArray(pricing.endpoints) && pricing.endpoints.length === 500, `catalog has 500 endpoints (got ${pricing.endpoints?.length})`);
     const mkt = await fetch(`${BASE}/marketplace`);
     ok(mkt.status === 200, `/marketplace → 200 (got ${mkt.status})`);
   }

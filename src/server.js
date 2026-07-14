@@ -1389,7 +1389,7 @@ const indexCtx = () => ({
   toolCount: Object.keys(CATALOG).length,
   walletName: WALLET_ENS,
 });
-// Snapshot memo. indexSnapshot iterates the full CATALOG (~1100 tools) and the
+// Snapshot memo. indexSnapshot iterates the full CATALOG (500 endpoints) and the
 // crawler's seller cache; building it costs hundreds of ms and was being done
 // on every request. Cache for 30s with a sync read + background refresh so the
 // hot path is a property lookup. Crawler refreshes still propagate within 30s.
