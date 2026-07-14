@@ -242,7 +242,10 @@ console.log("\n# STT — cap-before-spend (local duration probe)");
   globalThis.fetch = async () => { fetches++; throw new Error("unexpected upstream fetch"); };
   await rejects(() => assertWithinDurationCap(wav(320), "audio.wav", "transcribe"), "up to 5 minutes", "transcribe rejects 5.3 min audio (cap 5 min)");
   await rejects(() => assertWithinDurationCap(wav(620), "audio.wav", "transcribe-pro"), "up to 10 minutes", "transcribe-pro rejects 10.3 min audio (cap 10 min)");
-  await rejects(() => assertWithinDurationCap(randomBytes(4096), "audio.mp3", "transcribe"), "Could not read", "unreadable container rejected (would be an unbounded bill)");
+  // Deterministic non-audio payload — random bytes occasionally form a
+  // valid-looking frame header that music-metadata parses (flaky "did not
+  // throw" in CI); a fixed ASCII blob is never a readable container.
+  await rejects(() => assertWithinDurationCap(Buffer.from("not-a-media-container ".repeat(200)), "audio.mp3", "transcribe"), "Could not read", "unreadable container rejected (would be an unbounded bill)");
   const dur = await assertWithinDurationCap(wav(280), "audio.wav", "transcribe");
   ok(Math.abs(dur - 280) < 2, `in-cap audio passes the probe (duration ${dur.toFixed(1)}s)`);
   ok((await probeDurationSeconds(wav(60), "audio.wav")) > 58, "probeDurationSeconds reads the header locally");
