@@ -197,7 +197,11 @@ export async function publicJsonRpc(network, method, params) {
       try { data = JSON.parse(text); } catch { lastErr = new Error(`non-JSON from upstream (HTTP ${res.status})`); continue; }
       if (data.error) {
         const msg = String(data.error.message || "unknown node error").slice(0, 300);
-        throw bad(`Node error: ${msg}`, 502);
+        const err = bad(`Node error: ${msg}`, 502);
+        // Carry the JSON-RPC error code so callers (tx-simulate) can tell a
+        // revert verdict (code 3) from node-side failures like rate limits.
+        if (typeof data.error.code === "number") err.rpcCode = data.error.code;
+        throw err;
       }
       if (data.result !== undefined) return data.result;
       lastErr = new Error(`HTTP ${res.status} from upstream`);

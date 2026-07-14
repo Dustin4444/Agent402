@@ -7,7 +7,7 @@
 //     supplied ABI/signature) are exercised end-to-end offline.
 //   • Live upstream calls are opt-in via CONTRACT_LIVE_TEST=1.
 
-import { CONTRACT_TOOLS, selectorOf } from "../src/tools/contract-kit.js";
+import { CONTRACT_TOOLS, selectorOf, classifyRpcError } from "../src/tools/contract-kit.js";
 
 const h = (slug) => CONTRACT_TOOLS.find((t) => t.slug === slug).handler;
 let fail = 0, pass = 0, liveOk = 0, liveErr = 0;
@@ -224,6 +224,96 @@ await throws(
   h("calldata-decode")({ data: "0xa9059cbb00", signature: "transfer(address,uint256)" }),
   400, "calldata-decode: truncated calldata → 400"
 );
+
+// ---- decoder coverage: hand-encoded calldata, expected values are constants
+// (never derived from the decoder itself). W() left-pads a hex value to one
+// 32-byte word.
+const W = (hexVal) => hexVal.padStart(64, "0");
+
+// nested static tuple ((uint8,uint8),uint256) — three flat static words
+const NESTED =
+  selectorOf("n(((uint8,uint8),uint256))") +
+  W("1") + // inner tuple .0 = 1
+  W("2") + // inner tuple .1 = 2
+  W("4d"); // outer uint256 = 77
+await returns(
+  h("calldata-decode")({ data: NESTED, signature: "n(((uint8,uint8),uint256))" }),
+  (r) => r.decoded && JSON.stringify(r.params[0].value) === '[["1","2"],"77"]',
+  "calldata-decode: nested static tuple ((uint8,uint8),uint256)"
+);
+
+// dynamic tuple (uint256,bytes) — head offset, then tuple-relative bytes offset
+const DYNTUP =
+  selectorOf("d((uint256,bytes))") +
+  W("20") +   // offset to the tuple
+  W("5") +    // .0 = 5
+  W("40") +   // offset of bytes, relative to the tuple start
+  W("3") +    // bytes length 3
+  "abcdef" + "0".repeat(58); // 0xabcdef right-padded to a word
+await returns(
+  h("calldata-decode")({ data: DYNTUP, signature: "d((uint256,bytes))" }),
+  (r) => r.decoded && JSON.stringify(r.params[0].value) === '["5","0xabcdef"]',
+  "calldata-decode: dynamic tuple (uint256,bytes)"
+);
+
+// bytes[] — array of dynamic elements: len, per-element offsets, then payloads
+const BYTESARR =
+  selectorOf("b(bytes[])") +
+  W("20") +  // offset to the array
+  W("2") +   // 2 elements
+  W("40") +  // elem 0 offset (relative to the element area)
+  W("80") +  // elem 1 offset
+  W("1") + "aa" + "0".repeat(62) +  // elem 0 = 0xaa
+  W("2") + "bbcc" + "0".repeat(60); // elem 1 = 0xbbcc
+await returns(
+  h("calldata-decode")({ data: BYTESARR, signature: "b(bytes[])" }),
+  (r) => r.decoded && JSON.stringify(r.params[0].value) === '["0xaa","0xbbcc"]',
+  "calldata-decode: bytes[] (dynamic array of dynamic elements)"
+);
+
+// uint256[2] — fixed static array, two inline words
+const FIXARR = selectorOf("a(uint256[2])") + W("7") + W("2a");
+await returns(
+  h("calldata-decode")({ data: FIXARR, signature: "a(uint256[2])" }),
+  (r) => r.decoded && JSON.stringify(r.params[0].value) === '["7","42"]',
+  "calldata-decode: uint256[2] fixed array"
+);
+
+// fail-safe: bogus dynamic offset (garbage pointer word) → 400, not a crash
+await throws(
+  h("calldata-decode")({ data: selectorOf("d2(bytes)") + "f".repeat(64), signature: "d2(bytes)" }),
+  400, "calldata-decode: bogus dynamic offset → 400"
+);
+// fail-safe: absurd declared array length (1,048,576 elements) → 400
+await throws(
+  h("calldata-decode")({ data: selectorOf("d3(uint256[])") + W("20") + W("100000"), signature: "d3(uint256[])" }),
+  400, "calldata-decode: absurd declared array length → 400"
+);
+// fail-safe: dynamic array truncated mid-elements → 400
+await throws(
+  h("calldata-decode")({ data: selectorOf("t(uint256[])") + W("20") + W("2") + W("7"), signature: "t(uint256[])" }),
+  400, "calldata-decode: truncated dynamic array → 400"
+);
+
+// ----------------------------------------------------------------------------
+// tx-simulate revert classification — pure, offline. A node error only counts
+// as the simulation's verdict when it is revert-shaped (or JSON-RPC code 3);
+// node-side failures must surface as 502s, never {success:false, revertReason}.
+// ----------------------------------------------------------------------------
+ok(classifyRpcError("execution reverted: ERC20: transfer amount exceeds balance", -32000) === "revert",
+  "classifyRpcError: execution reverted → revert");
+ok(classifyRpcError("out of gas", -32000) === "revert", "classifyRpcError: out of gas → revert");
+ok(classifyRpcError("insufficient funds for gas * price + value", -32000) === "revert",
+  "classifyRpcError: insufficient funds → revert");
+ok(classifyRpcError("some ABI-encoded revert payload", 3) === "revert",
+  "classifyRpcError: JSON-RPC code 3 → revert regardless of message");
+ok(classifyRpcError("rate limit exceeded", -32005) === "error",
+  "classifyRpcError: rate limit is a node failure, NOT a revert");
+ok(classifyRpcError("the method eth_call does not exist/is not available", -32601) === "error",
+  "classifyRpcError: method not found is a node failure, NOT a revert");
+ok(classifyRpcError("connection refused", undefined) === "error",
+  "classifyRpcError: connection trouble is a node failure, NOT a revert");
+ok(classifyRpcError("", undefined) === "error", "classifyRpcError: empty message → error");
 
 // address-label: hits + misses, case-insensitive
 await returns(

@@ -216,6 +216,17 @@ export function selectorOf(signature) {
   return "0x" + keccak256(signature).slice(0, 8);
 }
 
+// Classify a JSON-RPC node error for tx-simulate: is it the node's verdict
+// that the transaction would fail ("revert"), or a node-side problem
+// ("error" — rate limit, method not found, connectivity) that must surface
+// as a 502 instead of a false {success:false, revertReason} result?
+// JSON-RPC error code 3 is the standard "execution reverted" code.
+export function classifyRpcError(msg, code) {
+  if (code === 3) return "revert";
+  if (/revert|out of gas|insufficient funds|execution reverted/i.test(msg || "")) return "revert";
+  return "error";
+}
+
 // Parse "transfer(address,uint256)" → { name, types[] }.
 function parseSignature(sig) {
   const s = String(sig).trim();
@@ -671,10 +682,27 @@ export const CONTRACT_TOOLS = [
         return { ...tryDecode(sig), source: "provided-signature" };
       }
       // 3) Selector-DB fallback (egress) — try each candidate until one decodes.
+      // Prefer candidates that consume the calldata exactly: for an all-static
+      // signature the encoded length is exactly sum(headBytes), so a candidate
+      // that decodes but leaves trailing bytes is likely a selector collision —
+      // keep it only as a last resort. Dynamic signatures can't be measured
+      // cheaply (tail layout is offset-driven; offsets already validate against
+      // the data length), so they are accepted as-is.
       const { signatures, source } = await lookupSignatures(selector, "function");
+      let partial = null;
       for (const sig of signatures) {
-        try { return { ...tryDecode(sig), source }; } catch { /* collision — try next */ }
+        try {
+          const res = { ...tryDecode(sig), source };
+          const { types } = parseSignature(sig);
+          if (types.every((t) => !isDynamicType(t)) &&
+              types.reduce((s, t) => s + headBytes(t), 0) * 2 !== body.length) {
+            if (!partial) partial = res; // decodes, but ignores trailing calldata
+            continue;
+          }
+          return res;
+        } catch { /* collision — try next */ }
       }
+      if (partial) return partial;
       return {
         selector,
         decoded: false,
@@ -771,6 +799,12 @@ export const CONTRACT_TOOLS = [
     },
     handler: async (i) => {
       const network = pickNetwork(i.network);
+      // Extract the trimmed node message from a publicJsonRpc "Node error:"
+      // throw, or null when the error isn't a node-level JSON-RPC error.
+      const nodeErrMsg = (e) =>
+        e?.statusCode === 502 && /^Node error:/i.test(e.message || "")
+          ? e.message.replace(/^Node error:\s*/i, "").trim()
+          : null;
       const to = takeAddress(i.to, "to");
       const call = { to };
       if (i.from !== undefined) call.from = takeAddress(i.from, "from");
@@ -787,15 +821,20 @@ export const CONTRACT_TOOLS = [
         if (wei > 0n) call.value = "0x" + wei.toString(16);
       }
       // A node-level "execution reverted" is the simulation's verdict, not an
-      // upstream failure — surface it as a structured result.
-      const isRevert = (e) => e?.statusCode === 502 && /^Node error:/i.test(e.message || "");
+      // upstream failure — surface it as a structured result. Everything else a
+      // node reports (rate limit, method not found, connection trouble) is a
+      // tool failure and must stay a 502, never a false {success:false} verdict.
       let returnData = null, revertReason = null, success = true;
       try {
         returnData = await publicJsonRpc(network, "eth_call", [call, "latest"]);
       } catch (e) {
-        if (!isRevert(e)) throw e;
+        const msg = nodeErrMsg(e);
+        if (msg === null) throw e;
+        if (classifyRpcError(msg, e.rpcCode) !== "revert") {
+          throw bad(`RPC node error during simulation: ${msg.slice(0, 200)}`, 502);
+        }
         success = false;
-        revertReason = e.message.replace(/^Node error:\s*/i, "");
+        revertReason = msg;
       }
       let gasEstimate = null;
       if (success) {
@@ -803,7 +842,11 @@ export const CONTRACT_TOOLS = [
           const gasHex = await publicJsonRpc(network, "eth_estimateGas", [call]);
           gasEstimate = parseInt(gasHex, 16);
         } catch (e) {
-          if (!isRevert(e)) throw e;
+          const msg = nodeErrMsg(e);
+          if (msg === null) throw e;
+          if (classifyRpcError(msg, e.rpcCode) !== "revert") {
+            throw bad(`RPC node error during gas estimation: ${msg.slice(0, 200)}`, 502);
+          }
           // eth_call succeeded but estimation reverted (state-dependent edge) —
           // keep the call result, leave the estimate null.
         }
