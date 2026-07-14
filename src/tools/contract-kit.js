@@ -416,7 +416,7 @@ export const CONTRACT_TOOLS = [
     price: "$0.005",
     description:
       "Fetch the verified Solidity source files and compiler metadata for a contract address from Sourcify's open verification repository. Covers 8 EVM mainnets (ethereum, base, polygon, arbitrum, optimism, bsc, gnosis, celo). Contracts that were never verified return a structured {verified:false} miss, not an error. Feed the returned source into /api/solidity-scan for a heuristic pattern check.",
-    tags: ["crypto", "contract", "solidity", "source", "sourcify", "evm", "verification"],
+    tags: ["crypto", "contract", "smart-contract", "solidity", "source", "verified-source", "sourcify", "evm", "verification", "audit"],
     discovery: {
       bodyType: "json",
       input: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", network: "base" },
@@ -498,7 +498,7 @@ export const CONTRACT_TOOLS = [
     price: "$0.003",
     description:
       "Fetch the verified ABI for a contract address from Sourcify, plus a ready-to-use list of human-readable function signatures with their 4-byte selectors. Covers 8 EVM mainnets. Unverified contracts return a structured {verified:false} miss. Pair with /api/calldata-decode to decode transactions against this ABI.",
-    tags: ["crypto", "contract", "abi", "sourcify", "evm", "selector"],
+    tags: ["crypto", "contract", "smart-contract", "abi", "sourcify", "evm", "selector"],
     discovery: {
       bodyType: "json",
       input: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", network: "base" },
@@ -561,8 +561,8 @@ export const CONTRACT_TOOLS = [
     category: "crypto",
     price: "$0.01",
     description:
-      "Deterministic static pattern scan of Solidity source text — a fixed ruleset flagging tx.origin authentication, delegatecall, selfdestruct, unchecked low-level calls, unchecked .send(), floating pragmas, block-timestamp dependence, weak block-derived randomness, value-call reentrancy surface, inline assembly, ecrecover, and missing SPDX headers. Returns line-anchored findings with severities. This is a heuristic pattern check for triage — it is NOT a compiler, NOT a formal audit, and uses no AI. Pair with /api/contract-source to scan any verified contract.",
-    tags: ["crypto", "solidity", "security", "static-analysis", "contract", "scan", "evm"],
+      "Deterministic static pattern scan of Solidity smart-contract source text — a fixed ruleset flagging tx.origin authentication, delegatecall, selfdestruct, unchecked low-level calls, unchecked .send(), floating pragmas, block-timestamp dependence, weak block-derived randomness, value-call reentrancy surface, inline assembly, ecrecover, and missing SPDX headers. Returns line-anchored findings with severities. This is a heuristic pattern check for triage — it is NOT a compiler, NOT a formal audit, and uses no AI. Pair with /api/contract-source to scan any verified contract.",
+    tags: ["crypto", "solidity", "smart-contract", "security", "audit", "auditor", "static-analysis", "contract", "scan", "evm"],
     discovery: {
       bodyType: "json",
       input: {
@@ -612,8 +612,8 @@ export const CONTRACT_TOOLS = [
     category: "crypto",
     price: "$0.003",
     description:
-      "Decode EVM transaction calldata into the function name and typed parameters. Supply an ABI (from /api/contract-abi) or a signature like transfer(address,uint256) for a fully offline decode; with neither, the 4-byte selector is resolved via the openchain.xyz signature database (4byte.directory fallback) and each candidate signature is tried. Unknown selectors return a documented partial decode (selector + raw 32-byte words) instead of an error.",
-    tags: ["crypto", "calldata", "decode", "abi", "selector", "evm", "transaction"],
+      "Decode EVM smart-contract transaction calldata into the function name and typed parameters. Supply an ABI (from /api/contract-abi) or a signature like transfer(address,uint256) for a fully offline decode; with neither, the 4-byte selector is resolved via the openchain.xyz signature database (4byte.directory fallback) and each candidate signature is tried. Unknown selectors return a documented partial decode (selector + raw 32-byte words) instead of an error.",
+    tags: ["crypto", "calldata", "decode", "abi", "selector", "evm", "transaction", "smart-contract"],
     discovery: {
       bodyType: "json",
       input: { data: "0xa9059cbb000000000000000000000000abf4fabd7c416fb67202e5f9002389fc75e2a9d000000000000000000000000000000000000000000000000000000000000f4240" },
@@ -726,8 +726,8 @@ export const CONTRACT_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Resolve a 4-byte function selector or a 32-byte event topic hash to its known human-readable signatures, via the openchain.xyz signature database with 4byte.directory as fallback. Unknown selectors return {found:false} with an empty list, not an error.",
-    tags: ["crypto", "selector", "4byte", "signature", "event", "topic", "evm"],
+      "Resolve a 4-byte function selector or a 32-byte event topic hash to its known human-readable Solidity signatures, via the openchain.xyz signature database with 4byte.directory as fallback. Unknown selectors return {found:false} with an empty list, not an error.",
+    tags: ["crypto", "selector", "4byte", "signature", "event", "topic", "evm", "smart-contract", "solidity"],
     discovery: {
       bodyType: "json",
       input: { selector: "0xa9059cbb" },
@@ -768,8 +768,8 @@ export const CONTRACT_TOOLS = [
     category: "crypto",
     price: "$0.005",
     description:
-      "Dry-run a prospective transaction without broadcasting it: executes eth_call and eth_estimateGas against the latest block over the same keyless multi-endpoint public RPC pool as /api/evm-rpc (ethereum, base, polygon, arbitrum, optimism). Returns the return data and a gas estimate on success, or {success:false} with the revert reason when the call would fail. Strictly read-only — nothing is signed or broadcast.",
-    tags: ["crypto", "simulation", "eth_call", "gas", "transaction", "evm", "dry-run"],
+      "Dry-run a prospective smart-contract call or transaction without broadcasting it: executes eth_call and eth_estimateGas against the latest block over the same keyless multi-endpoint public RPC pool as /api/evm-rpc (ethereum, base, polygon, arbitrum, optimism). Returns the return data and a gas estimate on success, or {success:false} with the revert reason when the call would fail. Strictly read-only — nothing is signed or broadcast.",
+    tags: ["crypto", "simulation", "eth_call", "gas", "transaction", "evm", "dry-run", "smart-contract"],
     discovery: {
       bodyType: "json",
       input: {

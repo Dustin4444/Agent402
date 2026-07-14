@@ -2838,9 +2838,9 @@ export const SKILL_PACKS = [
     slug: "contract-audit",
     title: "Contract audit",
     tagline:
-      "Triage a smart contract before an agent interacts with it: verified source, heuristic vulnerability scan, known-address check, function-selector resolution, and a read-only dry-run of the exact call you plan to make.",
+      "Triage a smart contract before an agent interacts with it: verified Solidity source, heuristic vulnerability scan, known-address check, function-selector resolution, and a read-only dry-run of the exact call you plan to make.",
     useCase:
-      "An agent is about to approve, transfer, or call an unfamiliar contract — you want the verified source scanned for red flags, the address checked against known labels, and the intended calldata simulated before anything is signed or broadcast.",
+      "An agent is about to approve, transfer, or call an unfamiliar contract — you want the verified Solidity source scanned for red flags, the address checked against known labels, and the intended calldata simulated before anything is signed or broadcast: the first pass a smart-contract auditor would run.",
     promptArgs: [
       { name: "address", description: "0x-prefixed contract address to audit", required: true, substitute: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
       { name: "network", description: "EVM network (ethereum / base / polygon / arbitrum / optimism, default base)", required: false, substitute: "base" },
