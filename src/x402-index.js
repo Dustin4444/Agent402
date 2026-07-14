@@ -181,12 +181,6 @@ const bazaarToolsByOrigin = new Map();
 
 // Public x402 seller registries we crawl. Each exposes an unauthenticated
 // discovery endpoint; we extract unique origins from the listings.
-//
-// agent402.app marketplace is intentionally NOT included: its listing-with-URLs
-// view (`/bazaar/quality?details=true`) is already >16MB with 69k+ services and
-// growing; the slim view (`/bazaar/quality`) returns summary stats only with no
-// per-item URLs. Until they ship a paginated origin-list endpoint, Coinbase CDP
-// Bazaar is the canonical source.
 const DISCOVERY_SOURCES = [
   { name: "Coinbase CDP Bazaar", url: "https://api.cdp.coinbase.com/platform/v2/x402/discovery/resources" },
   // GoPlausible's AVM facilitator registry — where Algorand-native x402
@@ -307,12 +301,11 @@ async function discoverOneSource(source, selfOrigin) {
     } else {
       const data = await safeFetchJson(source.url);
       // Discovery shapes vary by registry: { resources }, { items }, { data },
-      // top-level array, or agent402.app's { services: [...] }.
+      // or a top-level array.
       list =
         data.resources ||
         data.items ||
         data.data ||
-        data.services ||
         (Array.isArray(data) ? data : []);
     }
     status.resources = list.length;

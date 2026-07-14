@@ -1,6 +1,6 @@
-// Media kit — ffmpeg-backed audio tools for the two biggest remaining unmet
-// demands on the agent402.app board: "ffmpeg normalize audio" (587 signals)
-// and "mp4 to mp3" (291 signals). Deterministic, no AI; ffmpeg is invoked
+// Media kit — ffmpeg-backed audio tools for two of the biggest observed unmet
+// agent demands: "ffmpeg normalize audio" and "mp4 to mp3".
+// Deterministic, no AI; ffmpeg is invoked
 // directly (execFile, no shell) on temp files with hard limits:
 //   • input capped at 30MB (SSRF-guarded fetch)
 //   • 90s processing timeout, process killed on breach

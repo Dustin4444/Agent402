@@ -27,8 +27,7 @@ import { createHash } from "node:crypto";
 /**
  * Stable replay identity for the x402 payment credential on this request, or
  * null when there is nothing to guard (no payment header — a proof-of-work
- * call, an unpaid discovery crawl, or a marketplace-bridged request that
- * already settled elsewhere).
+ * call or an unpaid discovery crawl).
  *
  * Prefers the network-scoped EIP-3009 nonce — the exact value the on-chain
  * `transferWithAuthorization` consumes — so a re-encoded-but-equivalent
