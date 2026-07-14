@@ -66,9 +66,12 @@ const NETWORK = new Set([
   // Finance-kit: Yahoo Finance chart (quote + history) and Nasdaq earnings
   // calendar — keyless live upstreams; tolerate transient 502/503/504.
   "/api/stock-quote", "/api/stock-history", "/api/earnings-calendar",
+  "/api/options-chain", "/api/premarket-quote", "/api/stock-dividends", "/api/dividend-calendar",
   // Crypto-kit: CoinGecko public API — keyless, ~30 req/min from a single IP.
   // Tolerate transient 429/502/503/504 (rate limit + Cloudflare hiccups).
+  // crypto-orderbook rides Coinbase Exchange's public API (same lenient posture).
   "/api/crypto-price", "/api/crypto-market", "/api/crypto-history", "/api/crypto-trending", "/api/crypto-global",
+  "/api/crypto-orderbook", "/api/stablecoin-peg",
   // Network-kit: live DNS resolution against 1.1.1.1/8.8.8.8/9.9.9.9. Public
   // resolvers can NXDOMAIN, time out, or return SERVFAIL for placeholder inputs —
   // tolerate transient failures, the shape check still gates the happy path.

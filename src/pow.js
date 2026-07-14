@@ -72,7 +72,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   "edgar-insider-trades", "edgar-13f-holdings", "edgar-recent-ipos", "edgar-search",
   "company-financials",
   "stock-quote", "stock-history", "earnings-calendar",
+  "options-chain", "premarket-quote", "stock-dividends", "dividend-calendar",
   "crypto-price", "crypto-market", "crypto-history", "crypto-trending", "crypto-global",
+  "crypto-orderbook", "stablecoin-peg",
   // Composite research tools fan out to multiple paid upstreams; PoW would
   // turn 1 free request into 5+ paid roundtrips. Wallet-only.
   "research-company",

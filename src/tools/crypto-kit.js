@@ -129,7 +129,7 @@ async function jsonGet(url, host = "CoinGecko") {
   const text = await res.text();
   if (!res.ok) {
     const s = res.status;
-    if (s === 404) throw bad(`${host} returned 404 — unknown coin id`, 422);
+    if (s === 404) throw bad(`${host} returned 404 — unknown coin or market`, 422);
     if (s === 429) throw bad(`${host} rate-limited the request — retry shortly`, 503);
     if (s >= 500) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
     throw bad(`${host} HTTP ${s}: ${text.slice(0, 200)}`, 422);
@@ -396,6 +396,144 @@ export const CRYPTO_TOOLS = [
         markets: d.markets ?? null,
         updatedAt: d.updated_at ? new Date(d.updated_at * 1000).toISOString() : null,
       };
+    },
+  },
+
+  {
+    route: "GET /api/crypto-orderbook",
+    name: "Crypto order book",
+    slug: "crypto-orderbook",
+    category: "crypto",
+    price: "$0.003",
+    description:
+      "L2 order-book snapshot for a spot pair: best bid/ask, mid price, spread (absolute + %), and the top N aggregated price levels per side (default 25, max 100). Pairs use BASE-QUOTE format (BTC-USD, ETH-USD, SOL-USDC). Backed by Coinbase Exchange's public market-data API — keyless; coverage is Coinbase-listed markets.",
+    tags: ["crypto", "orderbook", "depth", "spread", "trading", "market-data"],
+    discovery: {
+      input: { pair: "BTC-USD" },
+      inputSchema: {
+        properties: {
+          pair: { type: "string", description: "Spot pair as BASE-QUOTE (e.g. BTC-USD, ETH-USD, SOL-USDC)" },
+          depth: { type: "number", description: "Price levels per side to return (1-100, default 25)" },
+        },
+        required: ["pair"],
+      },
+      output: {
+        example: {
+          pair: "BTC-USD",
+          time: "2026-07-14T02:40:51Z",
+          sequence: 132601080491,
+          bestBid: 62489.29,
+          bestAsk: 62490.01,
+          midPrice: 62489.65,
+          spread: 0.72,
+          spreadPct: 0.0012,
+          bids: [{ price: 62489.29, size: 0.81109777, orders: 8 }],
+          asks: [{ price: 62490.01, size: 0.5, orders: 3 }],
+          depth: 1,
+          totalBidLevels: 15653,
+          totalAskLevels: 27473,
+        },
+      },
+    },
+    handler: async (i) => {
+      if (typeof i.pair !== "string" || !i.pair.trim()) throw bad('"pair" is required (e.g. "BTC-USD")');
+      const pair = i.pair.trim().toUpperCase().replace("/", "-");
+      if (!/^[A-Z0-9]{2,12}-[A-Z0-9]{2,12}$/.test(pair)) throw bad('"pair" must be BASE-QUOTE (e.g. "BTC-USD", "ETH-USDC")');
+      let depth = 25;
+      if (i.depth != null && i.depth !== "") {
+        depth = Number.isFinite(i.depth) ? Math.floor(i.depth) : parseInt(String(i.depth), 10);
+        if (!Number.isFinite(depth) || depth < 1 || depth > 100) throw bad('"depth" must be an integer 1-100');
+      }
+      // level=2 returns the FULL aggregated book (tens of thousands of levels
+      // for BTC-USD) — we slice server-side so agents get a bounded payload.
+      const data = await jsonGet(`https://api.exchange.coinbase.com/products/${encodeURIComponent(pair)}/book?level=2`, "Coinbase Exchange");
+      if (!Array.isArray(data?.bids) || !Array.isArray(data?.asks)) throw bad("Coinbase Exchange returned unexpected shape for the order book", 502);
+      // Levels arrive as [price, size, numOrders] string triples, best-first.
+      const mapLevel = ([price, size, orders]) => ({ price: +price, size: +size, orders: orders ?? null });
+      const bids = data.bids.slice(0, depth).map(mapLevel);
+      const asks = data.asks.slice(0, depth).map(mapLevel);
+      const bestBid = bids[0]?.price ?? null;
+      const bestAsk = asks[0]?.price ?? null;
+      const mid = bestBid != null && bestAsk != null ? +((bestBid + bestAsk) / 2).toFixed(8) : null;
+      const spread = bestBid != null && bestAsk != null ? +(bestAsk - bestBid).toFixed(8) : null;
+      const spreadPct = spread != null && mid ? +((spread / mid) * 100).toFixed(6) : null;
+      return {
+        pair,
+        time: data.time ?? null,
+        sequence: data.sequence ?? null,
+        bestBid,
+        bestAsk,
+        midPrice: mid,
+        spread,
+        spreadPct,
+        bids,
+        asks,
+        depth,
+        totalBidLevels: data.bids.length,
+        totalAskLevels: data.asks.length,
+      };
+    },
+  },
+
+  {
+    route: "GET /api/stablecoin-peg",
+    name: "Stablecoin peg monitor",
+    slug: "stablecoin-peg",
+    category: "crypto",
+    price: "$0.003",
+    description:
+      "Live $1-peg deviation for the top USD stablecoins (USDT, USDC, USDS, DAI, USDe, PYUSD, USDD, TUSD, FDUSD by default, or pass your own list): current price, deviation in basis points, 24h high/low, worst 24h deviation, market cap, and an on-peg / stressed / depegged status. Backed by CoinGecko's public API.",
+    tags: ["crypto", "stablecoin", "peg", "usdt", "usdc", "risk", "monitoring"],
+    discovery: {
+      input: {},
+      inputSchema: {
+        properties: {
+          coins: { type: "string", description: "Optional comma-separated symbols or CoinGecko ids to check instead of the default top-stablecoin set (e.g. \"USDT,USDC\"). Max 15." },
+        },
+      },
+      output: {
+        example: {
+          peg: "USD $1.00",
+          count: 2,
+          coins: [
+            { id: "tether", symbol: "USDT", name: "Tether", price: 0.998868, deviationBps: -11.32, high24h: 0.999372, low24h: 0.998674, maxDeviation24hBps: 13.26, marketCap: 184092462233, status: "on-peg" },
+            { id: "usd-coin", symbol: "USDC", name: "USDC", price: 0.999819, deviationBps: -1.81, high24h: 0.999923, low24h: 0.99953, maxDeviation24hBps: 4.7, marketCap: 73033499074, status: "on-peg" },
+          ],
+        },
+      },
+    },
+    handler: async (i) => {
+      // Default set: the top USD stablecoins by market cap (ids verified live).
+      const DEFAULT_STABLECOINS = [
+        "tether", "usd-coin", "usds", "dai", "ethena-usde",
+        "paypal-usd", "usdd", "true-usd", "first-digital-usd",
+      ];
+      const ids = i.coins != null && i.coins !== "" ? resolveCoinList(i.coins, 15) : DEFAULT_STABLECOINS;
+      const url = `${CG}/coins/markets?vs_currency=usd&ids=${encodeURIComponent(ids.join(","))}&order=market_cap_desc`;
+      const data = await jsonGet(url);
+      if (!Array.isArray(data)) throw bad("CoinGecko returned unexpected shape for /coins/markets", 502);
+      if (data.length === 0) throw bad("No CoinGecko data for the requested coins — check the ids/symbols", 422);
+      const bps = (p) => (typeof p === "number" ? +((p - 1) * 10000).toFixed(2) : null);
+      const coins = data.map((c) => {
+        const dev = bps(c.current_price);
+        const worst = Math.max(Math.abs(bps(c.high_24h) ?? 0), Math.abs(bps(c.low_24h) ?? 0));
+        // Deterministic bands: within ±50bps ($0.995-1.005) = on-peg, within
+        // ±200bps = stressed, beyond = depegged.
+        const status = dev == null ? "unknown" : Math.abs(dev) <= 50 ? "on-peg" : Math.abs(dev) <= 200 ? "stressed" : "depegged";
+        return {
+          id: c.id,
+          symbol: (c.symbol || "").toUpperCase() || null,
+          name: c.name ?? null,
+          price: c.current_price ?? null,
+          deviationBps: dev,
+          high24h: c.high_24h ?? null,
+          low24h: c.low_24h ?? null,
+          maxDeviation24hBps: +worst.toFixed(2),
+          marketCap: c.market_cap ?? null,
+          status,
+        };
+      });
+      return { peg: "USD $1.00", count: coins.length, coins };
     },
   },
 ];

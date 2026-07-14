@@ -25,6 +25,13 @@ for (const [slug, args, label] of [
   ["stock-history", { symbol: "AAPL", range: "decade" }, "stock-history rejects invalid range"],
   ["earnings-calendar", { date: "20260622" }, "earnings-calendar rejects YYYYMMDD date"],
   ["earnings-calendar", { date: "June 22, 2026" }, "earnings-calendar rejects human-readable date"],
+  ["options-chain", {}, "options-chain rejects missing symbol"],
+  ["options-chain", { symbol: "AAPL", expiration: "07/17/2026" }, "options-chain rejects US-format expiration"],
+  ["options-chain", { symbol: "BAD SYMBOL!" }, "options-chain rejects invalid symbol"],
+  ["premarket-quote", {}, "premarket-quote rejects missing symbol"],
+  ["stock-dividends", {}, "stock-dividends rejects missing symbol"],
+  ["stock-dividends", { symbol: "AAPL", range: "decade" }, "stock-dividends rejects invalid range"],
+  ["dividend-calendar", { date: "20260714" }, "dividend-calendar rejects YYYYMMDD date"],
 ]) {
   try { await h(slug)(args); ok(false, label); }
   catch (e) { ok(e.statusCode === 400, label + ` (got ${e.statusCode})`); }
@@ -72,6 +79,39 @@ const today = new Date().toISOString().slice(0, 10);
 await live("earnings-calendar", { date: today },
   (r) => r.date === today && typeof r.count === "number" && Array.isArray(r.entries),
   `earnings-calendar ${today}`);
+
+// Options chain — AAPL always has listed options with dozens of expirations.
+// Exercises the cookie+crumb handshake (the endpoint 401s without it), the
+// nearest-expiry default, and the call/put projection.
+await live("options-chain", { symbol: "AAPL" },
+  (r) => r.symbol === "AAPL" && Array.isArray(r.expirations) && r.expirations.length > 3 &&
+    Array.isArray(r.calls) && r.calls.length > 0 && typeof r.calls[0].strike === "number" &&
+    Array.isArray(r.puts) && r.puts.length > 0,
+  "options-chain AAPL (nearest expiry)");
+
+// Pre/post-market quote — SPY trades 04:00-20:00 ET so the extended series is
+// almost always populated; out-of-hours the latest bar is simply the last
+// session print. Assert the session label is one of the enumerated values.
+await live("premarket-quote", { symbol: "SPY" },
+  (r) => r.symbol === "SPY" && typeof r.latestPrice === "number" && r.latestPrice > 0 &&
+    ["pre", "regular", "post", "closed", "unknown"].includes(r.latestSession) &&
+    typeof r.regularMarketPrice === "number",
+  "premarket-quote SPY");
+
+// Dividend history — AAPL has paid quarterly since 2012: a 5y window always
+// holds ~20 dividends. Splits may be empty (last AAPL split 2020-08 falls out
+// of a rolling 5y window) — only the array shape is asserted.
+await live("stock-dividends", { symbol: "AAPL" },
+  (r) => r.symbol === "AAPL" && Array.isArray(r.dividends) && r.dividends.length >= 10 &&
+    r.dividends.every((d) => typeof d.amount === "number" && /^\d{4}-\d{2}-\d{2}$/.test(d.date)) &&
+    Array.isArray(r.splits),
+  "stock-dividends AAPL 5y");
+
+// Dividend calendar — same Nasdaq API family as earnings-calendar; weekends
+// return an empty rows array which surfaces as count: 0 (a valid answer).
+await live("dividend-calendar", { date: today },
+  (r) => r.date === today && typeof r.count === "number" && Array.isArray(r.entries),
+  `dividend-calendar ${today}`);
 
 console.log(`\nvalidation asserts failed: ${assertFail} | live ok: ${liveOk} | live upstream-errors (tolerated): ${liveErr}`);
 if (assertFail > 0 || liveOk === 0) { console.error("finance-kit: FAILED"); process.exit(1); }

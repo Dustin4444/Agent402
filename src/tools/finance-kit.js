@@ -13,10 +13,12 @@
 //     given date (all companies reporting that day). Their CDN rejects empty
 //     User-Agents, so we send a browser-like one.
 //
-// Note: options-chain is intentionally NOT in this kit. Yahoo's
-// /v7/finance/options endpoint moved behind a session-cookie + crumb gate
-// in 2023 and now returns 401 to keyless callers. A future follow-up will
-// either implement the crumb dance or wire a different upstream.
+// Note on options-chain: Yahoo's /v7/finance/options endpoint moved behind a
+// session-cookie + crumb gate in 2023 and returns 401 to bare keyless callers.
+// We implement the same handshake browsers do (fc.yahoo.com sets the A3
+// cookie, /v1/test/getcrumb converts it to a crumb) — see getYahooSession()
+// below. The cookie+crumb pair is cached module-wide and refreshed once on a
+// 401, so steady-state calls cost a single upstream round-trip.
 //
 // safeFetch hardcodes the Agent402 UA (correct for our HTML scrapers) but
 // some of these upstreams discriminate on UA, so this kit uses
@@ -137,6 +139,89 @@ async function fetchNasdaq(path) {
   } catch (e) {
     return jsonGet(`${relayUrl}${path}`, "Nasdaq (relay)", { Authorization: `Bearer ${relayToken}` });
   }
+}
+
+// --- Yahoo options session (cookie + crumb handshake) -----------------------
+// fc.yahoo.com answers 404 but sets the HttpOnly A3 session cookie;
+// /v1/test/getcrumb converts that cookie into the crumb the options endpoint
+// requires. Both are cached module-wide (the cookie is valid for months, the
+// crumb for the cookie's lifetime) and refreshed at most once per failed call.
+let yahooSession = null; // { cookie, crumb, fetchedAt }
+const YAHOO_SESSION_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function getYahooSession(force = false) {
+  if (!force && yahooSession && Date.now() - yahooSession.fetchedAt < YAHOO_SESSION_TTL_MS) return yahooSession;
+  const headers = { "User-Agent": financeUserAgent(), Accept: "*/*" };
+  let cookie = "";
+  try {
+    const url = await assertPublicUrl("https://fc.yahoo.com/");
+    const res = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(10_000) });
+    await res.text().catch(() => {}); // drain — body is a throwaway 404 page
+    const setCookies = typeof res.headers.getSetCookie === "function" ? res.headers.getSetCookie() : [];
+    cookie = setCookies.map((c) => c.split(";")[0].trim()).filter(Boolean).join("; ");
+  } catch (e) {
+    throw bad(`Yahoo Finance session handshake failed: ${e.message}`, 504);
+  }
+  if (!cookie) throw bad("Yahoo Finance did not issue a session cookie — options auth handshake failed", 502);
+  const crumbUrl = await assertPublicUrl("https://query1.finance.yahoo.com/v1/test/getcrumb");
+  let crumbRes;
+  try {
+    crumbRes = await fetch(crumbUrl, { headers: { ...headers, Cookie: cookie }, signal: AbortSignal.timeout(10_000) });
+  } catch (e) {
+    throw bad(`Yahoo Finance crumb request failed: ${e.message}`, 504);
+  }
+  const crumb = (await crumbRes.text()).trim();
+  // A real crumb is a short opaque token; HTML in the body means a block page.
+  if (!crumbRes.ok || !crumb || crumb.length > 64 || crumb.includes("<")) {
+    throw bad(`Yahoo Finance crumb handshake failed (HTTP ${crumbRes.status})`, 502);
+  }
+  yahooSession = { cookie, crumb, fetchedAt: Date.now() };
+  return yahooSession;
+}
+
+// Options fetch: relay first when configured (the relay Worker performs the
+// crumb dance on its own egress — see workers/yfinance-relay), falling back
+// to a direct cookie+crumb call. Direct-first would be wasted work on hosts
+// whose egress Yahoo null-routes (the whole reason the relay exists).
+async function fetchOptions(symbol, params = {}) {
+  const basePath = `/v7/finance/options/${encodeURIComponent(symbol)}`;
+  const relayUrl = (process.env.YAHOO_RELAY_URL || "").trim().replace(/\/$/, "");
+  const relayToken = (process.env.YAHOO_RELAY_TOKEN || "").trim();
+  if (relayUrl && relayToken) {
+    try {
+      const qs = new URLSearchParams(params);
+      return await jsonGet(`${relayUrl}${basePath}?${qs}`, "Yahoo Finance (relay)", { Authorization: `Bearer ${relayToken}` });
+    } catch {
+      // Deployed relay may predate the options path (403s it) — fall through
+      // to direct, which works wherever Yahoo permits the egress IP.
+    }
+  }
+  const attempt = async (force) => {
+    const s = await getYahooSession(force);
+    const qs = new URLSearchParams(params);
+    qs.set("crumb", s.crumb);
+    return jsonGet(`https://query1.finance.yahoo.com${basePath}?${qs}`, "Yahoo Finance (options)", { Cookie: s.cookie });
+  };
+  try {
+    return await attempt(false);
+  } catch (e) {
+    // jsonGet maps Yahoo's 401 "Invalid Crumb" to 502 — refresh the session
+    // once (expired cookie) and retry before surfacing the error.
+    if (e.statusCode === 502) return attempt(true);
+    throw e;
+  }
+}
+
+// Session classifier for pre/post-market quotes. `currentTradingPeriod` in
+// Yahoo's chart meta carries the epoch bounds of today's pre/regular/post
+// windows in the exchange's own timezone — no local DST math needed.
+function classifySession(epochSeconds, ctp) {
+  if (!ctp || !Number.isFinite(epochSeconds)) return "unknown";
+  const inside = (p) => p && epochSeconds >= p.start && epochSeconds < p.end;
+  if (inside(ctp.pre)) return "pre";
+  if (inside(ctp.regular)) return "regular";
+  if (inside(ctp.post)) return "post";
+  return "closed";
 }
 
 export const FINANCE_TOOLS = [
@@ -341,6 +426,309 @@ export const FINANCE_TOOLS = [
           epsEstimate: parseNumeric(row.epsForecast),
           epsActual: parseNumeric(row.eps),
           marketCap: parseNumeric(row.marketCap),
+        }));
+      return { date, count: entries.length, entries };
+    },
+  },
+
+  {
+    route: "GET /api/options-chain",
+    name: "Options chain",
+    slug: "options-chain",
+    category: "data",
+    price: "$0.005",
+    description:
+      "Option chain for a US-listed ticker: all listed expiration dates, the strike ladder, and per-contract bid/ask/last/volume/open-interest/implied-volatility for calls and puts at one expiry (nearest by default, or pass `expiration` as YYYY-MM-DD). Backed by Yahoo Finance's options endpoint with the session-crumb handshake handled server-side.",
+    tags: ["finance", "options", "derivatives", "strikes", "market-data"],
+    discovery: {
+      input: { symbol: "AAPL" },
+      inputSchema: {
+        properties: {
+          symbol: { type: "string", description: "US-listed ticker (e.g. AAPL, SPY, TSLA)" },
+          expiration: { type: "string", description: "Optional expiry to fetch, YYYY-MM-DD — must be one of the listed expirations (default: nearest)" },
+        },
+        required: ["symbol"],
+      },
+      output: {
+        example: {
+          symbol: "AAPL",
+          underlyingPrice: 232.45,
+          currency: "USD",
+          expiration: "2026-07-17",
+          expirations: ["2026-07-17", "2026-07-24", "2026-08-21"],
+          strikes: [220, 225, 230, 235, 240],
+          calls: [
+            { contractSymbol: "AAPL260717C00230000", strike: 230, lastPrice: 4.35, bid: 4.30, ask: 4.45, volume: 1523, openInterest: 8211, impliedVolatility: 0.2431, inTheMoney: true, expiration: "2026-07-17" },
+          ],
+          puts: [
+            { contractSymbol: "AAPL260717P00230000", strike: 230, lastPrice: 1.95, bid: 1.90, ask: 2.02, volume: 987, openInterest: 5410, impliedVolatility: 0.2519, inTheMoney: false, expiration: "2026-07-17" },
+          ],
+          callCount: 1,
+          putCount: 1,
+        },
+      },
+    },
+    handler: async (i) => {
+      const symbol = normalizeSymbol(i.symbol);
+      const params = {};
+      if (i.expiration != null && i.expiration !== "") {
+        if (typeof i.expiration !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(i.expiration)) {
+          throw bad('"expiration" must be YYYY-MM-DD (one of the listed expirations)');
+        }
+        // Yahoo keys expiries by UTC-midnight epoch seconds.
+        params.date = String(Math.floor(Date.parse(`${i.expiration}T00:00:00Z`) / 1000));
+      }
+      const data = await fetchOptions(symbol, params);
+      const r = data?.optionChain?.result?.[0];
+      if (!r) {
+        throw bad(`No options data for "${symbol}" — the symbol may not have listed options (only US-listed equities/ETFs do).`, 422);
+      }
+      const iso = (sec) => (Number.isFinite(sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null);
+      const chain = r.options?.[0];
+      if (!chain && params.date) {
+        throw bad(`"${symbol}" has no option chain for expiration ${i.expiration}. Listed expirations: ${(r.expirationDates ?? []).map(iso).join(", ")}`, 422);
+      }
+      const mapContract = (c) => ({
+        contractSymbol: c.contractSymbol ?? null,
+        strike: c.strike ?? null,
+        lastPrice: c.lastPrice ?? null,
+        bid: c.bid ?? null,
+        ask: c.ask ?? null,
+        volume: c.volume ?? null,
+        openInterest: c.openInterest ?? null,
+        impliedVolatility: typeof c.impliedVolatility === "number" ? +c.impliedVolatility.toFixed(6) : null,
+        inTheMoney: c.inTheMoney ?? null,
+        expiration: iso(c.expiration),
+      });
+      const calls = (chain?.calls ?? []).map(mapContract);
+      const puts = (chain?.puts ?? []).map(mapContract);
+      return {
+        symbol: r.underlyingSymbol ?? symbol,
+        underlyingPrice: r.quote?.regularMarketPrice ?? null,
+        currency: r.quote?.currency ?? null,
+        expiration: iso(chain?.expirationDate),
+        expirations: (r.expirationDates ?? []).map(iso),
+        strikes: r.strikes ?? [],
+        calls,
+        puts,
+        callCount: calls.length,
+        putCount: puts.length,
+      };
+    },
+  },
+
+  {
+    route: "GET /api/premarket-quote",
+    name: "Pre/post-market quote",
+    slug: "premarket-quote",
+    category: "data",
+    price: "$0.003",
+    description:
+      "Extended-hours quote for a US-listed ticker: latest traded price including pre-market and after-hours sessions, which session it printed in (pre / regular / post / closed), change vs. the last regular-session price, and today's session windows. Backed by Yahoo Finance's chart endpoint with includePrePost.",
+    tags: ["finance", "stocks", "premarket", "after-hours", "quote", "extended-hours"],
+    discovery: {
+      input: { symbol: "SPY" },
+      inputSchema: {
+        properties: {
+          symbol: { type: "string", description: "US-listed ticker (e.g. SPY, AAPL)" },
+        },
+        required: ["symbol"],
+      },
+      output: {
+        example: {
+          symbol: "SPY",
+          name: "SPDR S&P 500 ETF Trust",
+          currency: "USD",
+          exchange: "PCX",
+          marketState: "post",
+          regularMarketPrice: 620.32,
+          regularMarketTime: "2026-07-13T20:00:00Z",
+          previousClose: 618.10,
+          latestPrice: 621.05,
+          latestTime: "2026-07-13T23:59:00Z",
+          latestSession: "post",
+          extendedChangeAbs: 0.73,
+          extendedChangePct: 0.1177,
+          sessions: {
+            pre: { start: "2026-07-13T08:00:00Z", end: "2026-07-13T13:30:00Z" },
+            regular: { start: "2026-07-13T13:30:00Z", end: "2026-07-13T20:00:00Z" },
+            post: { start: "2026-07-13T20:00:00Z", end: "2026-07-14T00:00:00Z" },
+          },
+        },
+      },
+    },
+    handler: async (i) => {
+      const symbol = normalizeSymbol(i.symbol);
+      const data = await fetchChart(symbol, { interval: "1m", range: "1d", includePrePost: "true" });
+      const r = data?.chart?.result?.[0];
+      const m = r?.meta;
+      if (!m || typeof m.regularMarketPrice !== "number") {
+        throw bad(`No quote data for "${symbol}". Extended-hours quotes cover US-listed equities/ETFs (e.g. SPY, AAPL).`, 422);
+      }
+      const ctp = m.currentTradingPeriod;
+      // Walk the 1-minute bars from the end for the latest print — with
+      // includePrePost the series covers pre + regular + post sessions.
+      const ts = r.timestamp ?? [];
+      const closes = r.indicators?.quote?.[0]?.close ?? [];
+      let latestPrice = null, latestEpoch = null;
+      for (let idx = ts.length - 1; idx >= 0; idx--) {
+        if (closes[idx] != null) { latestPrice = closes[idx]; latestEpoch = ts[idx]; break; }
+      }
+      if (latestPrice == null) { latestPrice = m.regularMarketPrice; latestEpoch = m.regularMarketTime ?? null; }
+      const latestSession = classifySession(latestEpoch, ctp);
+      // Change vs the last regular-session price — correct in both directions:
+      // during pre-market regularMarketPrice is yesterday's close; after hours
+      // it's today's close.
+      const base = m.regularMarketPrice;
+      const extAbs = base ? +(latestPrice - base).toFixed(6) : null;
+      const extPct = base ? +(((latestPrice - base) / base) * 100).toFixed(4) : null;
+      const window = (p) => (p && Number.isFinite(p.start) && Number.isFinite(p.end)
+        ? { start: new Date(p.start * 1000).toISOString(), end: new Date(p.end * 1000).toISOString() }
+        : null);
+      return {
+        symbol: m.symbol ?? symbol,
+        name: m.longName ?? m.shortName ?? null,
+        currency: m.currency ?? null,
+        exchange: m.exchangeName ?? null,
+        marketState: classifySession(Math.floor(Date.now() / 1000), ctp),
+        regularMarketPrice: base,
+        regularMarketTime: m.regularMarketTime ? new Date(m.regularMarketTime * 1000).toISOString() : null,
+        previousClose: m.chartPreviousClose ?? m.previousClose ?? null,
+        latestPrice,
+        latestTime: latestEpoch ? new Date(latestEpoch * 1000).toISOString() : null,
+        latestSession,
+        extendedChangeAbs: extAbs,
+        extendedChangePct: extPct,
+        sessions: { pre: window(ctp?.pre), regular: window(ctp?.regular), post: window(ctp?.post) },
+      };
+    },
+  },
+
+  {
+    route: "GET /api/stock-dividends",
+    name: "Stock dividends & splits",
+    slug: "stock-dividends",
+    category: "data",
+    price: "$0.003",
+    description:
+      "Dividend and stock-split history for a ticker: every cash dividend (ex-date + amount) and split (date + ratio) over a configurable range (default 5y, up to max). Empty arrays for non-payers — a valid answer, not an error. Backed by Yahoo Finance's chart endpoint with events=div,split.",
+    tags: ["finance", "dividends", "splits", "income", "history"],
+    discovery: {
+      input: { symbol: "AAPL" },
+      inputSchema: {
+        properties: {
+          symbol: { type: "string", description: "Ticker symbol (e.g. AAPL)" },
+          range: { type: "string", description: "History window: 1y, 2y, 5y, 10y, ytd, max (default 5y)" },
+        },
+        required: ["symbol"],
+      },
+      output: {
+        example: {
+          symbol: "AAPL",
+          currency: "USD",
+          range: "5y",
+          dividends: [
+            { date: "2026-05-11", amount: 0.26 },
+          ],
+          splits: [
+            { date: "2020-08-31", numerator: 4, denominator: 1, ratio: "4:1" },
+          ],
+          dividendCount: 1,
+          splitCount: 1,
+        },
+      },
+    },
+    handler: async (i) => {
+      const symbol = normalizeSymbol(i.symbol);
+      const range = typeof i.range === "string" && i.range ? i.range : "5y";
+      if (!VALID_RANGES.has(range)) throw bad(`"range" must be one of: ${[...VALID_RANGES].join(", ")}`);
+      const data = await fetchChart(symbol, { interval: "1mo", range, events: "div,split" });
+      const r = data?.chart?.result?.[0];
+      if (!r) throw bad(`No data for "${symbol}" — check the symbol format (equity: AAPL).`, 422);
+      const day = (sec) => (Number.isFinite(sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null);
+      const dividends = Object.values(r.events?.dividends ?? {})
+        .map((d) => ({ date: day(d.date), amount: d.amount ?? null }))
+        .sort((a, b) => (a.date < b.date ? -1 : 1));
+      const splits = Object.values(r.events?.splits ?? {})
+        .map((s) => ({
+          date: day(s.date),
+          numerator: s.numerator ?? null,
+          denominator: s.denominator ?? null,
+          ratio: s.splitRatio ?? (s.numerator && s.denominator ? `${s.numerator}:${s.denominator}` : null),
+        }))
+        .sort((a, b) => (a.date < b.date ? -1 : 1));
+      return {
+        symbol: r.meta?.symbol ?? symbol,
+        currency: r.meta?.currency ?? null,
+        range,
+        dividends,
+        splits,
+        dividendCount: dividends.length,
+        splitCount: splits.length,
+      };
+    },
+  },
+
+  {
+    route: "GET /api/dividend-calendar",
+    name: "Dividend calendar",
+    slug: "dividend-calendar",
+    category: "data",
+    price: "$0.005",
+    description:
+      "Market-wide ex-dividend calendar for a given date — every US-listed company going ex-dividend that day with dividend rate, indicated annual dividend, payment date, and record date. Optional `symbol` filter narrows to one ticker. Defaults to today (UTC). Backed by Nasdaq's public calendar API — same upstream as earnings-calendar.",
+    tags: ["finance", "dividends", "calendar", "ex-dividend", "income", "events"],
+    discovery: {
+      input: {},
+      inputSchema: {
+        properties: {
+          date: { type: "string", description: "YYYY-MM-DD (default: today UTC)" },
+          symbol: { type: "string", description: "Optional ticker filter" },
+        },
+      },
+      output: {
+        example: {
+          date: "2026-07-14",
+          count: 1,
+          entries: [
+            { symbol: "APOG", name: "Apogee Enterprises, Inc. Common Stock", exDate: "2026-07-14", paymentDate: "2026-07-29", recordDate: "2026-07-14", announcementDate: "2026-06-24", dividend: 0.27, annualDividend: 1.08 },
+          ],
+        },
+      },
+    },
+    handler: async (i) => {
+      const date = typeof i.date === "string" && i.date ? i.date : new Date().toISOString().slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw bad('"date" must be YYYY-MM-DD');
+      const data = await fetchNasdaq(`/api/calendar/dividends?date=${encodeURIComponent(date)}`);
+      // Nasdaq nests dividend rows one level deeper than earnings:
+      // { data: { calendar: { rows: [...] } } }. Empty dates → null calendar —
+      // surface as count: 0, "nothing goes ex-div today" is a valid answer.
+      const rows = data?.data?.calendar?.rows ?? [];
+      const filter = typeof i.symbol === "string" ? normalizeSymbol(i.symbol) : null;
+      // Rates arrive as numbers, but guard the "N/A"/string case Nasdaq uses
+      // elsewhere in the same API family (see earnings-calendar).
+      const num = (v) => {
+        if (v == null || v === "" || v === "N/A") return null;
+        const n = Number(String(v).replace(/[$,]/g, ""));
+        return Number.isFinite(n) ? n : null;
+      };
+      // Dates arrive US-style ("7/14/2026") — normalize to ISO for agents.
+      const usDate = (s) => {
+        if (typeof s !== "string" || !s || s === "N/A") return null;
+        const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+        return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : null;
+      };
+      const entries = rows
+        .filter((row) => !filter || row.symbol === filter)
+        .map((row) => ({
+          symbol: row.symbol ?? null,
+          name: row.companyName ?? null,
+          exDate: usDate(row.dividend_Ex_Date),
+          paymentDate: usDate(row.payment_Date),
+          recordDate: usDate(row.record_Date),
+          announcementDate: usDate(row.announcement_Date),
+          dividend: num(row.dividend_Rate),
+          annualDividend: num(row.indicated_Annual_Dividend),
         }));
       return { date, count: entries.length, entries };
     },
