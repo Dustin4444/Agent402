@@ -37,6 +37,9 @@ const NETWORK = new Set([
   "/api/federal-awards", "/api/geo-lookup", "/api/fema-disasters",
   "/api/geocode", "/api/reverse-geocode", "/api/place-search",
   "/api/image-ocr",
+  // Image-kit URL tools: the examples fetch a small stable sample image from
+  // raw.githubusercontent.com — live egress, tolerate transient upstream flaps.
+  "/api/image-exif", "/api/image-dominant-color", "/api/image-crop",
   "/api/barcode-lookup", "/api/fx-rate", "/api/weather-forecast",
   // Weather-kit: live open-meteo forecasts — same upstream class as
   // weather-forecast above (was misfiled as pure-CPU; an open-meteo outage

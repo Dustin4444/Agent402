@@ -61,6 +61,8 @@ export const WALLET_ONLY_SLUGS = new Set([
   "device-recalls", "college-lookup", "fec-candidates",
   "federal-awards", "geo-lookup", "fema-disasters",
   "barcode-lookup", "fx-rate", "weather-forecast",
+  // Image tools that can fetch a caller-supplied URL (safeFetch egress).
+  "image-exif", "image-dominant-color", "image-crop",
   "treasury-yield-curve", "treasury-yield-history", "yield-curve-spread",
   "treasury-debt", "treasury-avg-rates",
   "fx-historical", "fx-timeseries", "fx-dashboard",

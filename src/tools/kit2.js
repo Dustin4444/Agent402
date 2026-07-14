@@ -1,6 +1,6 @@
-// Kit 2 — 36 more pure-CPU tools (free via proof-of-work) taking the catalog to
-// 100. All deterministic, no network, ~zero cost to serve, and each covered by
-// an exact-output test in scripts/test-kit2.js.
+// Kit 2 — 38 more pure-CPU tools (free via proof-of-work). All deterministic,
+// no network, ~zero cost to serve, and each covered by an exact-output test in
+// scripts/test-kit2.js.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
 import { convertAnyUnit } from "./convert-gen.js";
@@ -618,7 +618,85 @@ const conversion = [
       return { result: total };
     },
   },
+  {
+    route: "POST /api/srt-convert", name: "Subtitle convert (SRT/VTT)", slug: "srt-convert", category: "conversion", price: "$0.002",
+    description:
+      "Convert subtitles between SRT, WebVTT, plain text, and JSON cues. Send SRT or VTT text (auto-detected) — or a JSON cues array [{start,end,text}] with times in ms — and the target format. Deterministic, pure CPU.",
+    tags: ["srt", "vtt", "subtitles", "captions", "convert", "webvtt"],
+    discovery: {
+      bodyType: "json",
+      input: { input: "1\n00:00:01,000 --> 00:00:03,000\nHello world\n\n2\n00:00:03,500 --> 00:00:05,000\nSecond line\n", to: "vtt" },
+      inputSchema: {
+        properties: {
+          input: { type: "string", description: "SRT or WebVTT text (format auto-detected)" },
+          cues: { type: "array", description: "alternative: cue objects [{start,end,text}] with start/end in milliseconds" },
+          to: { type: "string", description: "target format: srt | vtt | text | json" },
+        },
+        required: ["to"],
+      },
+      output: { example: { detected: "srt", to: "vtt", count: 2, result: "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello world\n\n00:00:03.500 --> 00:00:05.000\nSecond line\n" } },
+    },
+    handler: (i) => {
+      const to = String(need(i, "to")).toLowerCase();
+      if (!["srt", "vtt", "text", "json"].includes(to)) throw bad('to must be "srt", "vtt", "text", or "json"');
+      let cues, detected;
+      if (Array.isArray(i.cues)) {
+        if (i.cues.length > 5000) throw bad("too many cues (max 5000)");
+        detected = "json";
+        cues = i.cues.map((c, k) => {
+          const start = parseCueTime(c && c.start), end = parseCueTime(c && c.end);
+          if (start === null || end === null) throw bad(`cues[${k}] needs numeric ms (or "HH:MM:SS,mmm") start and end`);
+          return { start, end, text: cap(String(c.text ?? ""), 10_000, `cues[${k}].text`) };
+        });
+      } else {
+        const parsed = parseSubtitles(cap(need(i, "input"), 200_000, "input"));
+        cues = parsed.cues;
+        detected = parsed.detected;
+        if (!cues.length) throw bad("no subtitle cues found in input");
+      }
+      const count = cues.length;
+      if (to === "json") return { detected, to, count, cues: cues.map((c, k) => ({ index: k + 1, ...c, startTime: fmtCueTime(c.start, ","), endTime: fmtCueTime(c.end, ",") })) };
+      let result;
+      if (to === "text") result = cues.map((c) => c.text).join("\n");
+      else if (to === "srt") result = cues.map((c, k) => `${k + 1}\n${fmtCueTime(c.start, ",")} --> ${fmtCueTime(c.end, ",")}\n${c.text}`).join("\n\n") + "\n";
+      else result = "WEBVTT\n\n" + cues.map((c) => `${fmtCueTime(c.start, ".")} --> ${fmtCueTime(c.end, ".")}\n${c.text}`).join("\n\n") + "\n";
+      return { detected, to, count, result };
+    },
+  },
 ];
+
+// Subtitle helpers for /api/srt-convert. Cue times are held as integer ms.
+const CUE_TIME_RE = /^(?:(\d{1,3}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})$/;
+function parseCueTime(v) {
+  if (typeof v === "number" && Number.isFinite(v) && v >= 0) return Math.round(v);
+  if (typeof v !== "string") return null;
+  const m = CUE_TIME_RE.exec(v.trim());
+  if (!m) return null;
+  return (Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3])) * 1000 + Number(m[4].padEnd(3, "0"));
+}
+function fmtCueTime(ms, msSep) {
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)}${msSep}${p(ms % 1000, 3)}`;
+}
+function parseSubtitles(text) {
+  const src = text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+  const detected = /^WEBVTT/.test(src.trimStart()) ? "vtt" : "srt";
+  const cues = [];
+  for (const blockRaw of src.split(/\n{2,}/)) {
+    const block = blockRaw.trim();
+    if (!block || /^WEBVTT/.test(block) || /^(NOTE|STYLE|REGION)\b/.test(block)) continue;
+    const lines = block.split("\n");
+    const ti = lines.findIndex((l) => l.includes("-->"));
+    if (ti === -1) continue;
+    const [startRaw, endRaw = ""] = lines[ti].split("-->");
+    const start = parseCueTime(startRaw.trim());
+    const end = parseCueTime(endRaw.trim().split(/\s+/)[0]); // drop VTT cue settings
+    if (start === null || end === null) continue;
+    if (cues.length >= 5000) throw bad("too many cues (max 5000)");
+    cues.push({ start, end, text: lines.slice(ti + 1).join("\n").trim() });
+  }
+  return { cues, detected };
+}
 
 // ===========================================================================
 // Math & finance
@@ -1039,6 +1117,94 @@ const validation = [
       return { valid: true, version, variant };
     },
   },
+  {
+    route: "POST /api/json-schema-infer", name: "JSON Schema infer", slug: "json-schema-infer", category: "validation", price: "$0.002",
+    description:
+      "Infer a draft-07 JSON Schema from sample JSON document(s). Send one sample as json, or several as samples. Heuristic merge rules: required = keys present in every sample, conflicting types become a type union, integer widens to number, and string formats (date-time, date, email, uri, uuid) are detected from values. Complements json-validate.",
+    tags: ["json", "schema", "infer", "draft-07", "validate", "generate"],
+    discovery: {
+      bodyType: "json",
+      input: { json: { name: "Ada", age: 36, active: true, tags: ["pioneer"], joined: "1843-10-18" } },
+      inputSchema: {
+        properties: {
+          json: { description: "a sample JSON document (object or JSON string)" },
+          samples: { type: "array", description: "alternative: 1-50 sample documents merged into one schema" },
+        },
+      },
+      output: { example: { schema: { $schema: "http://json-schema.org/draft-07/schema#", type: "object", properties: { name: { type: "string" }, age: { type: "integer" } }, required: ["name", "age"] }, samples: 1 } },
+    },
+    handler: (i) => {
+      let samples;
+      if (Array.isArray(i.samples)) samples = i.samples.map((s, k) => parseMaybeJson(s, `samples[${k}]`));
+      else if ("json" in i) samples = [parseMaybeJson(i.json, "json")];
+      else throw bad('Provide "json" (a sample document) or "samples" (an array of sample documents)');
+      if (!samples.length || samples.length > 50) throw bad('"samples" must contain 1-50 documents');
+      if (JSON.stringify(samples).length > 300_000) throw bad("sample JSON exceeds 300000 characters");
+      let schema = null;
+      for (const s of samples) schema = mergeInferred(schema, inferSchema(s, 0));
+      return { schema: { $schema: "http://json-schema.org/draft-07/schema#", ...schema }, samples: samples.length };
+    },
+  },
 ];
+
+// --- json-schema-infer helpers ---------------------------------------------
+const STRING_FORMATS = [
+  ["date-time", /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/],
+  ["date", /^\d{4}-\d{2}-\d{2}$/],
+  ["time", /^\d{2}:\d{2}:\d{2}(\.\d+)?$/],
+  ["uuid", /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i],
+  ["email", /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/],
+  ["uri", /^https?:\/\/\S+$/],
+];
+function inferSchema(value, depth) {
+  if (depth > 24) return {};
+  if (value === null || value === undefined) return { type: "null" };
+  const t = typeof value;
+  if (t === "boolean") return { type: "boolean" };
+  if (t === "number") return { type: Number.isInteger(value) ? "integer" : "number" };
+  if (t === "string") {
+    const fmt = STRING_FORMATS.find(([, re]) => re.test(value));
+    return fmt ? { type: "string", format: fmt[0] } : { type: "string" };
+  }
+  if (Array.isArray(value)) {
+    let items = null;
+    for (const el of value.slice(0, 200)) items = mergeInferred(items, inferSchema(el, depth + 1));
+    return items ? { type: "array", items } : { type: "array" };
+  }
+  if (t === "object") {
+    const keys = Object.keys(value).slice(0, 500);
+    const properties = {};
+    for (const k of keys) properties[k] = inferSchema(value[k], depth + 1);
+    const out = { type: "object", properties };
+    if (keys.length) out.required = keys;
+    return out;
+  }
+  return {};
+}
+function mergeInferred(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const ta = a.type, tb = b.type;
+  if (ta === tb && !Array.isArray(ta)) {
+    if (ta === "object") {
+      const properties = { ...(a.properties || {}) };
+      for (const [k, v] of Object.entries(b.properties || {})) properties[k] = properties[k] ? mergeInferred(properties[k], v) : v;
+      const required = (a.required || []).filter((k) => (b.required || []).includes(k));
+      const out = { type: "object", properties };
+      if (required.length) out.required = required;
+      return out;
+    }
+    if (ta === "array") {
+      const items = a.items && b.items ? mergeInferred(a.items, b.items) : a.items || b.items;
+      return items ? { type: "array", items } : { type: "array" };
+    }
+    if (ta === "string") return a.format && a.format === b.format ? { type: "string", format: a.format } : { type: "string" };
+    return { type: ta };
+  }
+  const flat = (t) => (Array.isArray(t) ? t : [t]);
+  const types = [...new Set([...flat(ta), ...flat(tb)])];
+  if (types.length === 2 && types.includes("integer") && types.includes("number")) return { type: "number" };
+  return { type: types.sort() };
+}
 
 export const KIT2 = [...encoding, ...text, ...conversion, ...math, ...time, ...validation];

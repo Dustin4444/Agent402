@@ -1,4 +1,4 @@
-// Exact-output tests for the 36 kit2 tools. Proves each one actually works by
+// Exact-output tests for the 38 kit2 tools. Proves each one actually works by
 // asserting a known input produces the expected result.
 import { KIT2 } from "../src/tools/kit2.js";
 
@@ -67,6 +67,16 @@ await check("base-convert", { value: "ff", from: 16, to: 2 }, (o) => o.result ==
 await check("base-convert", { value: "255", from: 10, to: 16 }, (o) => o.result === "ff", "dec→hex");
 await check("roman", { value: 2024 }, (o) => o.result === "MMXXIV");
 await check("roman", { value: "MMXXIV" }, (o) => o.result === 2024, "roman→int");
+{
+  const srt = "1\n00:00:01,000 --> 00:00:03,000\nHello world\n\n2\n00:00:03,500 --> 00:00:05,000\nSecond line\n";
+  await check("srt-convert", { input: srt, to: "vtt" },
+    (o) => o.detected === "srt" && o.count === 2 && o.result.startsWith("WEBVTT\n\n") && o.result.includes("00:00:01.000 --> 00:00:03.000\nHello world") && o.result.includes("00:00:03.500 --> 00:00:05.000"), "srt→vtt");
+  await check("srt-convert", { input: srt, to: "text" }, (o) => o.result === "Hello world\nSecond line", "srt→text");
+  await check("srt-convert", { input: srt, to: "json" }, (o) => o.count === 2 && o.cues[0].start === 1000 && o.cues[0].end === 3000 && o.cues[1].text === "Second line" && o.cues[1].startTime === "00:00:03,500", "srt→json");
+  const vtt = "WEBVTT\n\nNOTE a comment\n\n00:00:01.000 --> 00:00:03.000 align:start\nHello world\n";
+  await check("srt-convert", { input: vtt, to: "srt" }, (o) => o.detected === "vtt" && o.count === 1 && o.result === "1\n00:00:01,000 --> 00:00:03,000\nHello world\n", "vtt→srt (drops NOTE + cue settings)");
+  await check("srt-convert", { cues: [{ start: 0, end: 1500, text: "Hi" }], to: "srt" }, (o) => o.result === "1\n00:00:00,000 --> 00:00:01,500\nHi\n", "json cues→srt");
+}
 
 // Math
 await check("calc", { expr: "2 + 3 * (4 - 1) ^ 2" }, (o) => o.result === 29);
@@ -95,6 +105,17 @@ await check("isbn-validate", { isbn: "0-306-40615-2" }, (o) => o.valid === true 
 await check("password-strength", { password: "Tr0ub4dour&3xtra" }, (o) => o.score >= 3 && o.entropyBits > 60);
 await check("json-pointer", { json: { items: [{ name: "a" }, { name: "b" }] }, pointer: "/items/1/name" }, (o) => o.found && o.value === "b");
 await check("uuid-validate", { uuid: "0190a1b2-3c4d-7e6f-8a9b-0c1d2e3f4a5b" }, (o) => o.valid && o.version === 7);
+await check("json-schema-infer", { json: { name: "Ada", age: 36, active: true, tags: ["x", "y"], joined: "1843-10-18" } },
+  (o) => o.schema.$schema === "http://json-schema.org/draft-07/schema#" && o.schema.type === "object"
+    && o.schema.properties.age.type === "integer" && o.schema.properties.active.type === "boolean"
+    && o.schema.properties.tags.items.type === "string" && o.schema.properties.joined.format === "date"
+    && JSON.stringify(o.schema.required) === '["name","age","active","tags","joined"]');
+await check("json-schema-infer", { samples: [{ a: 1, b: "x" }, { a: 1.5 }] },
+  (o) => o.samples === 2 && o.schema.properties.a.type === "number" && JSON.stringify(o.schema.required) === '["a"]', "merge: integer widens, required intersects");
+await check("json-schema-infer", { samples: [{ v: 1 }, { v: "s" }] },
+  (o) => JSON.stringify(o.schema.properties.v.type) === '["integer","string"]', "conflicting types → union");
+await check("json-schema-infer", { json: '{"email":"a@b.co","when":"2026-07-13T12:00:00Z"}' },
+  (o) => o.schema.properties.email.format === "email" && o.schema.properties.when.format === "date-time", "string sample + formats");
 
 console.log(`\n${pass} checks passed, ${fails.length} failed (across ${KIT2.length} tools)`);
 if (fails.length) {
