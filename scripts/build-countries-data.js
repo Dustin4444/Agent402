@@ -26,7 +26,18 @@ if (!tzMeta?.countries) throw new Error("tz meta map: unexpected shape");
 
 const trimmed = raw.map((c) => {
   const idd = c.idd || {};
-  const callingCode = idd.root ? idd.root + ((idd.suffixes || []).length === 1 ? idd.suffixes[0] : "") : null;
+  // Calling code: root+suffix when there's exactly one suffix (247 countries). With
+  // multiple suffixes, the bare root is only a complete dialing code for the shared
+  // roots +1 (NANP: US/CA/DO/PR) and +7 (RU/KZ) — for anything else (EH/SH/VA) no
+  // single prefix exists, so emit null plus the full `callingCodes` list instead.
+  const suffixes = idd.suffixes || [];
+  let callingCode = null;
+  let callingCodes;
+  if (idd.root) {
+    if (suffixes.length === 1) callingCode = idd.root + suffixes[0];
+    else if (idd.root === "+1" || idd.root === "+7") callingCode = idd.root;
+    else if (suffixes.length > 1) callingCodes = suffixes.map((s) => idd.root + s);
+  }
   // Record keys are exactly the country-info response's `country` object —
   // the handler filters on name/officialName/code2/code3 and returns the
   // matching record as-is.
@@ -38,7 +49,7 @@ const trimmed = raw.map((c) => {
     currencies: Object.entries(c.currencies || {}).map(([cc, v]) => ({ code: cc, name: v?.name ?? null, symbol: v?.symbol ?? null })),
     languages: Object.values(c.languages || {}),
     timezones: tzMeta.countries[c.cca2]?.zones ?? null,
-    callingCode,
+    callingCode, ...(callingCodes ? { callingCodes } : {}),
     tld: Array.isArray(c.tld) ? c.tld[0] ?? null : c.tld ?? null,
     demonym: c.demonyms?.eng?.m ?? null, flag: c.flag ?? null,
     latlng: c.latlng ?? null, area: c.area ?? null,
