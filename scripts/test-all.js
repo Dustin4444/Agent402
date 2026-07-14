@@ -90,6 +90,12 @@ const NETWORK = new Set([
   // evm-rpc rides keyless public RPC endpoints (no Alchemy key needed) but
   // shares per-IP rate limits — tolerate transient upstream failures.
   "/api/evm-rpc",
+  // Contract-kit egress: Sourcify (contract-source / contract-abi), the
+  // openchain.xyz + 4byte.directory signature DBs (selector-lookup, and
+  // calldata-decode's no-ABI fallback), and the shared public RPC pool
+  // (tx-simulate). solidity-scan + address-label are pure CPU and stay strict.
+  "/api/contract-source", "/api/contract-abi", "/api/calldata-decode",
+  "/api/selector-lookup", "/api/tx-simulate",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama).
   // CoinGecko's free tier shares a per-IP ~30 rpm limit; tolerate 429/502/503/504.
   "/api/price-pyth", "/api/price-coingecko", "/api/defi-tvl",

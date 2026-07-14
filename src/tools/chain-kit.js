@@ -45,7 +45,7 @@ function requireKey() {
   return key;
 }
 
-function pickNetwork(value, dflt = "base") {
+export function pickNetwork(value, dflt = "base") {
   const n = typeof value === "string" ? value.toLowerCase().trim() : dflt;
   const def = NETWORKS[n];
   if (!def) throw bad(`Unsupported network "${value}" — supported: ${Object.keys(NETWORKS).join(", ")}`);
@@ -173,7 +173,7 @@ const PUBLIC_RPCS = {
   optimism: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com", "https://optimism.llamarpc.com", "https://optimism.drpc.org"],
 };
 
-async function publicJsonRpc(network, method, params) {
+export async function publicJsonRpc(network, method, params) {
   const key = process.env.ALCHEMY_API_KEY;
   const urls = [
     ...(key ? [`https://${network.subdomain}.g.alchemy.com/v2/${key}`] : []),

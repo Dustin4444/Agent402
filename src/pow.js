@@ -90,6 +90,12 @@ export const WALLET_ONLY_SLUGS = new Set([
   // paid upstream / exhaust the shared quota.
   "wallet-balance", "token-metadata", "token-price", "wallet-transactions",
   "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call", "evm-rpc",
+  // Contract-kit: Sourcify (contract-source / contract-abi), openchain.xyz +
+  // 4byte.directory signature DBs (selector-lookup, and calldata-decode's
+  // no-ABI fallback path), and the shared keyless public RPC pool
+  // (tx-simulate — same per-IP quota as evm-rpc). solidity-scan and
+  // address-label are pure CPU and stay PoW-eligible.
+  "contract-source", "contract-abi", "calldata-decode", "selector-lookup", "tx-simulate",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama)
   // but the rate limits are shared per-IP. PoW would let one client exhaust the
   // shared quota for every other caller.
