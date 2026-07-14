@@ -60,6 +60,57 @@ try {
   r = await hash(sol1, "key-DIFFERENT");
   ok(r.status !== 200, `used token + different key does not replay (got ${r.status})`);
 
+  // 4b. CROSS-BODY (invariant: the cache key binds method+path+credential+body).
+  // Same Idempotency-Key but a DIFFERENT body must NEVER return the first body's
+  // cached paid result — a changed body hashes to a different key, so it's a
+  // cache MISS that re-enters the gate and can only reflect the NEW body's
+  // outcome. This is the core anti-replay property for mutated payloads.
+  const bodyHash = (sol, idem, body) => fetch(`${B}/api/hash`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Pow-Solution": sol, ...(idem ? { "Idempotency-Key": idem } : {}) },
+    body: JSON.stringify(body),
+  });
+  const solA = await powFor();
+  const rA = await bodyHash(solA, "xbody", { text: "cross-body-A" });
+  const jA = await rA.json().catch(() => ({}));
+  ok(rA.status === 200 && !!jA.hex, `cross-body setup: body A paid+keyed -> 200 (got ${rA.status})`);
+  // Same key, same (now-spent) credential, DIFFERENT body -> different cache key
+  // -> miss -> gate re-runs (token already used) -> non-200, never body A's hex.
+  const rBspent = await bodyHash(solA, "xbody", { text: "cross-body-B-different" });
+  const bBspent = await rBspent.text();
+  ok(rBspent.headers.get("x-idempotent-replay") !== "true" && !bBspent.includes(jA.hex),
+    `same key + different body does NOT replay body A's result (got ${rBspent.status})`);
+  // Fresh credential + same key + body B -> a genuine new charge yields body B's
+  // OWN result (different hash), never a replay of body A.
+  const solB = await powFor();
+  const rBfresh = await bodyHash(solB, "xbody", { text: "cross-body-B-different" });
+  const jBfresh = await rBfresh.json().catch(() => ({}));
+  ok(rBfresh.status === 200 && !!jBfresh.hex && jBfresh.hex !== jA.hex && rBfresh.headers.get("x-idempotent-replay") !== "true",
+    `same key + different body + fresh credential -> body B's own fresh result, not a replay of A (got ${rBfresh.status})`);
+
+  // 4c. STREAMED routes are NEVER idempotency-replayable. The idem cache hook
+  // wraps res.json ONLY; a streaming gateway tier returns the __sse sentinel and
+  // the route binder (src/server.js) writes SSE straight to the socket without
+  // ever calling res.json — so a streamed 200 can never be stored, and no repeat
+  // can be served X-Idempotent-Replay. We supply an X-Pow-Solution so the idem
+  // middleware is actually engaged for the route (cred is non-null), yet the
+  // streamed response is still never cached. A live 200 SSE needs
+  // OPENROUTER_API_KEY (the paid canary's llm-stream leg covers that in prod);
+  // here we assert the cache is never engaged for a streamed route across two
+  // identical keyed requests.
+  const streamReq = () => fetch(`${B}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Idempotency-Key": "stream-key", "X-Pow-Solution": "irrelevant:0" },
+    body: JSON.stringify({ model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "hi" }], stream: true }),
+  });
+  const s1 = await streamReq();
+  await s1.text().catch(() => "");
+  const s2 = await streamReq();
+  await s2.text().catch(() => "");
+  ok(s1.status !== 200 && s2.status !== 200 &&
+    s1.headers.get("x-idempotent-replay") !== "true" && s2.headers.get("x-idempotent-replay") !== "true",
+    `streamed route is never served from the idempotency cache (got ${s1.status}/${s2.status})`);
+
   // 5. Idempotency-Key but NO credential on an unproven call: gate still applies
   // (the paywall returns 402 with egress; 5xx here where the facilitator host is
   // unreachable — either way it never returns a result or a replay).

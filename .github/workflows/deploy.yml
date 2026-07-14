@@ -925,6 +925,24 @@ jobs:
       - name: Idempotency (opt-in safe retry of paid/proven calls; boots paid-mode)
         run: node scripts/test-idempotency.js
 
+      - name: Deep security audit (payment gate + PoW replay/slug-bind/tamper + SSRF + attribution; boots paid-mode)
+        env:
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+        run: |
+          # Boot a paid-mode server (x402 paywall ACTIVE) so the gate is real,
+          # then run the deep audit against it. PoW/SSRF/attribution assertions
+          # are facilitator-independent; the unpaid-402 shape check lights up
+          # when the base-sepolia facilitator syncs, and fails CLOSED otherwise
+          # (the audit treats fail-closed as no-bypass, only a 200 is a hard fail).
+          WALLET_ADDRESS=0x0000000000000000000000000000000000000001 NETWORK=base-sepolia \
+          POW_SECRET="${POW_SECRET:-ci-audit-secret}" POW_DIFFICULTY=12 POW_ALLOW_EPHEMERAL=true \
+          PORT=3778 node src/server.js > /tmp/audit-deep-srv.log 2>&1 &
+          SRV_PID=$!
+          for i in $(seq 1 30); do curl -s localhost:3778/api/pow >/dev/null && break; sleep 1; done
+          BASE_URL=http://localhost:3778 node scripts/audit-deep.mjs; rc=$?
+          kill $SRV_PID 2>/dev/null || true
+          exit $rc
+
       - name: Tool correctness regressions (20 wrong-answer bugs from the review; boots free-mode, TZ=UTC)
         run: node scripts/test-correctness-fixes.js
 
