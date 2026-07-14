@@ -34,7 +34,7 @@ These exist because an agent mid-task cannot give itself a browser, a paid searc
 
 ## The long tail (pure-CPU, also payable with compute)
 
-~1,189 utilities at mostly **$0.001**: hashing/HMAC, base58/base32/base64, JWT decode+verify, UUIDs, CRC32, morse, HTML entities, `token-count` (exact OpenAI BPE), `text-chunk` (RAG), `json-validate` (JSON Schema), `jsonl`, text stats/dedupe/sort/truncate/diff (Levenshtein), JSON/CSV/YAML conversion and querying, date math and cron calculators, validators (email syntax, IP, IBAN-style checksums…), math/stats, QR codes, and **`unit-convert`** — one parametric endpoint (`POST /api/unit-convert` with `{value, from, to}`) covering every unit pair across length, mass, volume, area, speed, time, data, pressure, energy, power, angle, frequency, temperature.
+~210 utilities at mostly **$0.001**: hashing/HMAC, base58/base32/base64, JWT decode+verify, UUIDs, CRC32, morse, HTML entities, `token-count` (exact OpenAI BPE), `text-chunk` (RAG), `json-validate` (JSON Schema), `jsonl`, text stats/dedupe/sort/truncate/diff (Levenshtein), JSON/CSV/YAML conversion and querying, date math and cron calculators, validators (email syntax, IP, IBAN-style checksums…), math/stats, QR codes, and **`unit-convert`** — one parametric endpoint (`POST /api/unit-convert` with `{value, from, to}`) covering every unit pair across length, mass, volume, area, speed, time, data, pressure, energy, power, angle, frequency, temperature.
 
 Why would an agent pay $0.001 instead of writing the code? Because writing, testing, and debugging a CSV parser mid-task burns 10–100× that in tokens — and some sandboxes can't execute code at all.
 

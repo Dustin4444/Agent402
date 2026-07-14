@@ -18,7 +18,7 @@ Jobs are selected by commit-message markers (`[test]`, `[deploy]`, `[publish]`, 
 
 ## Heartbeat (`.github/workflows/heartbeat.yml`)
 
-- **Every 15 min:** probe production — `/health`, catalog ≥1000, a real PoW-paid call, MCP `initialize`. Three consecutive failures → a `Heartbeat: production DOWN` issue (auto-closed on recovery).
+- **Every 15 min:** probe production — `/health`, catalog ≥400, a real PoW-paid call, MCP `initialize`. Three consecutive failures → a `Heartbeat: production DOWN` issue (auto-closed on recovery).
 - **Every 6 h:** decode recent on-chain USDC receipts to the **real payer** (the `transferWithAuthorization` calldata, not the facilitator's tx.from). Any payer that isn't the known test burner → an **"External customer payments detected"** issue with amount, wallet, and tx link — deduped by tx hash. Your first customer is a push notification.
 
 ## Observability: 3-rail attribution

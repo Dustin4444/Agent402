@@ -17,10 +17,10 @@ alphabetical by repo name; legend: 📇 = TypeScript/JavaScript, ☁️ = cloud/
 2. In the Aggregators section, insert alphabetically:
 
 ```markdown
-- [MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402) 📇 ☁️ 🏠 - The headless browser, live web search, OCR, and durable wallet-keyed memory an agent's sandbox doesn't have — plus 1,000+ deterministic utilities — rented per call via x402 (USDC on Base + 4 more chains (Solana, Polygon, Arbitrum, Stellar), or USDG on Robinhood Chain) or free with proof-of-work. Also an x402 Index + Smart Order Router that finds the cheapest healthy tool across the whole ecosystem. Hosted remote connector at agent402.tools/mcp.
+- [MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402) 📇 ☁️ 🏠 - The headless browser, live web search, OCR, and durable wallet-keyed memory an agent's sandbox doesn't have — plus ~210 deterministic utilities — rented per call via x402 (USDC on Base + 4 more chains (Solana, Polygon, Arbitrum, Stellar), or USDG on Robinhood Chain) or free with proof-of-work. Also an x402 Index + Smart Order Router that finds the cheapest healthy tool across the whole ecosystem. Hosted remote connector at agent402.tools/mcp.
 ```
 
-3. PR title: `Add Agent402 (aggregator: 1,000+ pay-per-call web tools over x402)`
+3. PR title: `Add Agent402 (aggregator: 462 pay-per-call web tools over x402)`
 
 ---
 
@@ -153,7 +153,7 @@ that takes a GitHub repo URL; no PR, no fork.
      Agent402 gives AI agents the headless browser, live web search + answers
      with citations, OCR, PDF text extraction, financial/crypto/macro data
      (Yahoo, CoinGecko, FRED, ECB, World Bank), SEC EDGAR filings, DNS/TLS/WHOIS,
-     wallet-keyed shared memory, and ~1,000 deterministic utilities (hash, JWT,
+     wallet-keyed shared memory, and ~210 deterministic utilities (hash, JWT,
      regex, compression, forecasting, statistics, finance math, etc.) — paid per
      call in USDC on Base (or Solana, Polygon, Arbitrum, Stellar) — plus USDG on
      Robinhood Chain — 6 chains total via the x402 protocol, or free via built-in

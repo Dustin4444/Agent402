@@ -1253,8 +1253,9 @@ function logToolError(slug, status, message, shape, synthetic, probe) {
   const klass = status >= 500 ? "5xx" : status >= 400 ? "4xx" : "err";
   // Probe 4xx = an empty-input scanner sweeping the catalog and every tool
   // correctly rejecting it — expected behavior, not an error. An indexer sweep
-  // of all 462 tools emitted 462 [err] lines in ~10s (2026-07-13), tripping
-  // Railway's 500 logs/sec cap and DROPPING real log lines. Skip the console
+  // of the full catalog (1,432 entries at the time) emitted 1,432 [err] lines
+  // in ~10s (2026-07-13), tripping Railway's 500 logs/sec cap and DROPPING
+  // real log lines. Skip the console
   // line for those (PostHog still captures the probe-tagged event for
   // dashboards); probe 5xx still logs — a server bug is our bug no matter who
   // triggered it.

@@ -27,11 +27,11 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
 
 ## Tagline (short)
 
-> The headless browser, live web search, and durable memory your agent's sandbox doesn't have — plus 1,000+ instant utilities. No signup, no API key.
+> The headless browser, live web search, and durable memory your agent's sandbox doesn't have — plus ~210 instant utilities. No signup, no API key.
 
 ## Description
 
-> Agent402 gives Claude a catalog of 1,000+ small, deterministic web tools it
+> Agent402 gives Claude a catalog of 462 small, deterministic web tools it
 > can call instantly: encoding and hashing, unit and data conversions, JSON/CSV
 > wrangling, text processing, date/cron math, validators, and more. There is no
 > account, no API key, and no setup — the pure-CPU tools run free on the hosted
@@ -47,7 +47,7 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
    schemas. Read-only.
 2. **call_tool** — "Run an Agent402 tool". Executes a catalog tool by slug.
    On this hosted connector only the pure-CPU, deterministic tools execute
-   (~1,189 of them); network/browser/storage tools return guidance instead of
+   (~210 of them); network/browser/storage tools return guidance instead of
    running. Read-only, idempotent, no external side effects.
 3. **about_agent402** — "About this connector". Static service description.
 

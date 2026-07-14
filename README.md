@@ -31,7 +31,7 @@
 [![npm](https://img.shields.io/npm/v/agent402-openai-agents?label=openai-agents)](https://www.npmjs.com/package/agent402-openai-agents)
 
 **Give your AI agent 462 ready-to-use web tools — plus 92 multi-tool skill packs — from one server. Browser
-rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and ~1,000 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
+rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and ~210 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
 plain HTTP, no API keys, no signup), connect it to Claude/ChatGPT/any MCP
 client, and add your own tools in a few lines. Every tool is deterministic —
 **no LLM in the serving path** — and re-tested against its own example before
@@ -104,7 +104,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | **Compression** | `gzip`/`gunzip`, `brotli-compress`/`decompress`, `compress-compare` (algorithm shootout, pure-CPU via node:zlib) |
 | **HTML extraction** | `html-select` (CSS query), `html-table`, `html-strip`, `html-links`, `html-meta` — deterministic counterpart to `extract` |
 | **Network ops** | `dns-lookup`, `dns-propagation`, `spf`/`dmarc`/`dkim` checks, `email-deliverability`; `cert-transparency`, `http-headers` (security audit), `tech-stack`, `asn-info` (IP geo) |
-| **~1,000 pure-CPU utilities** | hashing, JWT, base58, JSON⇄CSV/YAML, `token-count`, `text-chunk`, `json-validate`, text stats, cron math, validators, ~970 unit conversions |
+| **~210 pure-CPU utilities** | hashing, JWT, base58, JSON⇄CSV/YAML, `token-count`, `text-chunk`, `json-validate`, text stats, cron math, validators, ~970 unit conversions |
 
 Full schemas live in [`/openapi.json`](https://agent402.tools/openapi.json); a
 machine-readable catalog is at [`/api/pricing`](https://agent402.tools/api/pricing)
@@ -368,7 +368,7 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 | Path | What |
 |---|---|
 | `src/server.js` | Express app + the tool catalog (routes, prices, schemas, discovery) |
-| `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, ~1,000 pure-CPU utilities) — **add tools here** |
+| `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, ~210 pure-CPU utilities) — **add tools here** |
 | `src/mcp-http.js` | Hosted MCP connector (streamable HTTP, authless free tier) |
 | `src/pow.js` | Proof-of-work tier (signed, single-use, slug-scoped challenges) |
 | `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Stellar/Algorand + USDG on Robinhood Chain (7 chains), CDP facilitator, Bazaar discovery |

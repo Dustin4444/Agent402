@@ -128,7 +128,7 @@ Cache key formula: `sha256(METHOD + path + Idempotency-Key + gate-credential)`. 
 
 | Surface | Limit | Notes |
 |---|---|---|
-| PoW tier | Natural (CPU cost per challenge) | ~1,189 pure-CPU tools only; difficulty 16 = ~65k hashes |
+| PoW tier | Natural (CPU cost per challenge) | ~210 pure-CPU tools only; difficulty 16 = ~65k hashes |
 | MCP connector (`/mcp`) | 20/min, 120/hr per IP | Pure-CPU set only; override with `AGENT402_MCP_MAX_PER_MIN/HOUR` |
 | Marketplace bridge (`/mkt/`) | Global rate cap + per-slug token auth | Leaked URL exposes only its one tool |
 
