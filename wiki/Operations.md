@@ -13,8 +13,7 @@ Jobs are selected by commit-message markers (`[test]`, `[deploy]`, `[publish]`, 
 | `publish` | `agent402-mcp` to npm (gated on its own e2e), then the official MCP Registry via GitHub OIDC |
 | `paytest` / `drain` | Funded-wallet end-to-end buys against production; drain empties the test burner into the revenue wallet through real paid calls |
 | `purl` | Interop: Stripe's `purl` client must parse our 402 and (burner permitting) settle a real payment |
-| `marketplace` | Registers/verifies the agent402.app listing end-to-end |
-| `probe` | Read-only diagnostics: Railway deploy history, marketplace docs, on-chain revenue decode |
+| `probe` | Read-only diagnostics: Railway deploy history, on-chain revenue decode |
 
 ## Heartbeat (`.github/workflows/heartbeat.yml`)
 
@@ -35,7 +34,7 @@ There's also a **charged-but-failed** counter: any non-200 response that left an
 
 - **Railway**, single service, Docker (Node 22 + Chromium + ffmpeg), persistent volume at `/data` (SQLite: stats, memory, PoW replay). Without the volume, counters and paid memory reset on every redeploy — this was a real incident; the volume is now asserted by the deploy job.
 - **Graceful SIGTERM**: in-flight (already-paid) requests drain before exit.
-- Env that matters: `WALLET_ADDRESS`, `NETWORK`, `CDP_API_KEY_ID/SECRET` (facilitator), `BASE_URL`, `BRAVE_API_KEY` (search), `MARKETPLACE_TOKEN` (bridge), `POW_SECRET` (durable PoW + heartbeat-token signer), `X402_INDEX_SEEDS` (extra origins for the Index, optional), `FREE_MODE` (never in production).
+- Env that matters: `WALLET_ADDRESS`, `NETWORK`, `CDP_API_KEY_ID/SECRET` (facilitator), `BASE_URL`, `BRAVE_API_KEY` (search), `POW_SECRET` (durable PoW + heartbeat-token signer), `X402_INDEX_SEEDS` (extra origins for the Index, optional), `FREE_MODE` (never in production).
 
 ## Incident playbook
 

@@ -85,7 +85,6 @@ Set these on your host. None are committed to the repo.
 | `YAHOO_RELAY_TOKEN` | No | Bearer token for the Yahoo relay worker |
 | `REDIS_URL` | No | Enables Redis response caching (see below) |
 | `ANALYTICS_DATABASE_URL` | No | Postgres connection string for analytics; falls back to `DATABASE_URL` |
-| `MARKETPLACE_TOKEN` | No | Secret for the agent402.app marketplace bridge |
 | `GLAMA_MAINTAINER_EMAIL` | No | Email returned at `/.well-known/glama.json` |
 
 ## Free mode vs paid mode

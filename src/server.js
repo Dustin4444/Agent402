@@ -169,7 +169,6 @@ import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } 
 const powHttpLimiter = createRateLimiter("pow-http");
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, getStats, getOperatorBreakdown, dbHealthy, statsPersistent } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
-import { marketplaceSlugToken } from "./marketplace-token.js";
 
 const PORT = process.env.PORT || 3000;
 const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
@@ -179,33 +178,6 @@ const WALLET_ENS = process.env.WALLET_ENS || "agent402.base.eth";
 const NETWORK = process.env.NETWORK || "base";
 const FREE_MODE = process.env.FREE_MODE === "true";
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
-
-// Marketplace bridge (agent402.app): that platform IS the paywall — it collects
-// the caller's USDC (settled directly to our wallet) and then forwards the call
-// to the endpoint we registered. So those forwarded calls must skip our own
-// x402 paywall. Off unless MARKETPLACE_TOKEN is set.
-//
-// The master MARKETPLACE_TOKEN is NEVER placed in a URL. Each registered
-// service_endpoint instead carries a PER-SLUG token = HMAC(master, slug): it
-// authorizes exactly one tool, so a leaked endpoint (their on-chain metadata is
-// public) grants free access to that single tool, not the whole catalog, and
-// reveals nothing about the master secret. The bypass header the gate honors is
-// also per-slug-derived and only set on internally-forwarded requests.
-const MARKETPLACE_TOKEN = process.env.MARKETPLACE_TOKEN || "";
-const marketplaceTokenOk = (t) => {
-  if (!MARKETPLACE_TOKEN || typeof t !== "string") return false;
-  const a = Buffer.from(t);
-  const b = Buffer.from(MARKETPLACE_TOKEN);
-  return a.length === b.length && timingSafeEqual(a, b);
-};
-// HMAC(master, slug), hex-truncated — the token that actually appears in a URL.
-// Shared with the registration/verify scripts via src/marketplace-token.js.
-const marketplaceSlugTokenOk = (token, slug) => {
-  if (!MARKETPLACE_TOKEN || typeof token !== "string") return false;
-  const a = Buffer.from(token);
-  const b = Buffer.from(marketplaceSlugToken(MARKETPLACE_TOKEN, slug));
-  return a.length === b.length && timingSafeEqual(a, b);
-};
 
 const CATALOG = {
   "POST /api/extract": {
@@ -1914,62 +1886,6 @@ app.get("/logo.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control
 // survives tab scale. Marketplaces/link previews keep the roomier LOGO_SVG.
 const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}<rect width="512" height="512" fill="${BRAND.ink}"/><text x="246" y="342" font-size="252" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-14" fill="${BRAND.paper}">402</text><rect x="408" y="408" width="68" height="68" fill="${BRAND.accent}"/></svg>`;
 
-// Marketplace bridge endpoint. agent402.app POSTs the caller's JSON body here
-// after collecting payment; we authenticate via the PER-SLUG token in the path
-// (HMAC(master, slug) — the master secret is never in any URL), adapt the body
-// to the tool's own method, and serve the result with the paywall bypassed. A
-// leaked endpoint thus only exposes its one tool. A coarse global rate limit
-// bounds abuse. Off unless MARKETPLACE_TOKEN set.
-if (MARKETPLACE_TOKEN) {
-  // The bridge dispatches paid tool calls forwarded by the marketplace. It must
-  // NOT be able to reach wallet-keyed memory tools: those are identity-scoped to
-  // the paying wallet, and a bridged call carries no payer. Exclude them so the
-  // bridge's safety doesn't rest on a downstream "no payer -> 400" check.
-  const slugToRoute = new Map();
-  for (const [route, def] of Object.entries(CATALOG)) {
-    if (def.slug.startsWith("memory-")) continue;
-    slugToRoute.set(def.slug, route);
-  }
-  let mktCount = 0;
-  let mktWindow = Date.now();
-  const MKT_PER_MIN = Math.min(Math.max(parseInt(process.env.MARKETPLACE_RATE_PER_MIN, 10) || 600, 10), 100000);
-
-  app.all("/mkt/:token/:slug", async (req, res) => {
-    // Token in the path is scoped to this exact slug — not the master secret.
-    if (!marketplaceSlugTokenOk(req.params.token, req.params.slug)) {
-      return res.status(404).json({ error: "Not found" });
-    }
-    const route = slugToRoute.get(req.params.slug);
-    if (!route) return res.status(404).json({ error: `Unknown service "${req.params.slug}"` });
-    const now = Date.now();
-    if (now - mktWindow > 60000) { mktCount = 0; mktWindow = now; }
-    if (++mktCount > MKT_PER_MIN) return res.status(429).json({ error: "Marketplace rate limit" });
-
-    const [method, path] = route.split(" ");
-    const input = { ...(req.query || {}), ...(req.body || {}) };
-    const headers = { "X-Mkt-Bypass": MARKETPLACE_TOKEN };
-    let target = `http://127.0.0.1:${PORT}${path}`;
-    let body;
-    if (method === "GET") {
-      const qs = new URLSearchParams(
-        Object.entries(input).map(([k, v]) => [k, typeof v === "object" ? JSON.stringify(v) : String(v)])
-      ).toString();
-      if (qs) target += `?${qs}`;
-    } else {
-      headers["Content-Type"] = "application/json";
-      body = JSON.stringify(input);
-    }
-    try {
-      const r = await fetch(target, { method, headers, body });
-      const ct = r.headers.get("content-type") || "application/json";
-      const buf = Buffer.from(await r.arrayBuffer());
-      res.status(r.status).type(ct).send(buf);
-    } catch (err) {
-      res.status(502).json({ error: `Bridge dispatch failed: ${err.message}` });
-    }
-  });
-  console.log(`Marketplace bridge enabled at /mkt/<per-slug-token>/<slug> (${MKT_PER_MIN}/min cap)`);
-}
 let logoPngCache = null;
 app.get("/logo.png", async (_req, res) => {
   try {
@@ -2538,21 +2454,6 @@ if (FREE_MODE) {
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
   // on /mcp could keep hammering /api/* with fresh PoW solutions for free.
   app.use((req, res, next) => {
-    // Marketplace-forwarded calls already settled USDC to our wallet via
-    // agent402.app's facilitator — honor the bridge token and skip our paywall.
-    // BUT never for memory-* routes: those are wallet-keyed identity tools and a
-    // marketplace-forwarded call carries no payer to scope the namespace to, so
-    // bypassing here would let bridged traffic read/write memory with no owner.
-    // The per-slug bridge (above) already excludes memory-*; excluding the route
-    // from THIS master-token branch closes the same gap here — a memory route
-    // with a valid bypass token still falls through to the normal x402 paywall
-    // below (defense in depth; the memory handlers also reject a null payer).
-    const bypassDef = CATALOG[`${req.method} ${req.path}`];
-    const bypassMemory = bypassDef?.slug?.startsWith("memory-");
-    if (!bypassMemory && marketplaceTokenOk(req.header("x-mkt-bypass"))) {
-      res.setHeader("X-Settled-Via", "marketplace");
-      return next();
-    }
     const slug = POW_ROUTES.get(`${req.method} ${req.path}`);
     if (slug) {
       const solution = req.header("x-pow-solution");
@@ -2577,7 +2478,7 @@ if (FREE_MODE) {
     }
     // Payment-nonce replay guard (M3, defends "Five Attacks on x402" Attack II —
     // replay / insufficient idempotency). Reached only on the genuine x402 path:
-    // the PoW-accepted and marketplace-bridged branches above already returned.
+    // the PoW-accepted branch above already returned.
     // Settle-before-grant already makes an on-chain nonce single-use; this
     // rejects a duplicate authorization BEFORE the facilitator and refuses a
     // concurrent replay (same authorization fired at once, racing the settle —
@@ -2647,12 +2548,10 @@ app.use((req, res, next) => {
         // answer "did anyone pay on <chain>" without per-chain explorer scans.
         recordServedCall(def.slug, method, method === "usdc" ? networkFromPaymentResponse(settleReceipt) : null);
         // Funnel stage 3 — the gate accepted payment and the tool answered.
-        // Mirrors the stats attribution above; the marketplace bridge is its
-        // own rail here (stats folds it into usdc) because funnel analysis
-        // cares which surface converted. Skipped in FREE_MODE — nothing was
-        // paid, so a "settlement" event would be a lie.
+        // Mirrors the stats attribution above. Skipped in FREE_MODE — nothing
+        // was paid, so a "settlement" event would be a lie.
         if (!FREE_MODE) {
-          const rail = res.getHeader("X-Settled-Via") === "marketplace" ? "marketplace" : method;
+          const rail = method;
           const network = method === "usdc" ? networkFromPaymentResponse(settleReceipt) : null;
           const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
           const synthetic = method === "heartbeat" || isSyntheticRequest(req);
@@ -2992,7 +2891,7 @@ else console.log(`[posthog] disabled (${posthogInit.reason || "unknown"})`);
 
 // x402 Index crawler: warms the cross-seller cache used by /index + /api/route.
 // Seeds come from X402_INDEX_SEEDS (comma-separated origins) plus auto-discovered
-// origins pulled from public x402 registries (Coinbase CDP Bazaar, agent402.app).
+// origins pulled from public x402 registries (Coinbase CDP Bazaar, etc.).
 // selfOrigin is passed so the discovery feeder skips our own listings. Fire-and-
 // forget so a slow upstream can't delay boot or /health.
 startCrawler({ selfOrigin: BASE_URL });

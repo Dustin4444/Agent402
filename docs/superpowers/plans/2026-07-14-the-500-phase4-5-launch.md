@@ -47,7 +47,7 @@
 **Files:** `docs/ecosystem-listings.md` (copy-paste text for manual directory forms → update to 500/100), verify npm/PyPI package descriptions (swept by sync-count — confirm), `mcp/server.json` (MCP registry metadata — count derives or swept).
 - [ ] Update `docs/ecosystem-listings.md` + any pending-submission copy (Cline #1849) to the new numbers/framing.
 - [ ] Verify npm package.json descriptions + keywords (agent402-mcp, agent402-client, tollbooth, 8 adapters) reflect 500 (sync-count should have — confirm, fix any it missed).
-- [ ] STAGE (do not fire) the Phase-5 CI markers: `[publish]` (npm + MCP registry — versions already bumped: mcp 0.11.5, client 0.6.1), `[marketplace]` (agent402.app re-register — drops removed converter slugs), `[bazaar-refresh]` (CDP Bazaar metadata re-observe). Document each in the report as a Phase-5 dispatch.
+- [ ] STAGE (do not fire) the Phase-5 CI markers: `[publish]` (npm + MCP registry — versions already bumped: mcp 0.11.5, client 0.6.1), `[bazaar-refresh]` (CDP Bazaar metadata re-observe). Document each in the report as a Phase-5 dispatch.
 - [ ] Commit `brand(5): registry listing copy + staged publish/register markers`.
 
 ### Task 6 (Phase 5): THE LAUNCH — atomic v2.0.0 deploy + proof

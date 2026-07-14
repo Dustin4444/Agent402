@@ -271,7 +271,7 @@ settlement). x402scan indexes our 402s (re-register after chain changes).
 
 Already listed (no action): official MCP Registry (with the hosted remote),
 npm, Coinbase CDP Bazaar discovery (verified 2026-06-16: 64 Agent402 endpoints
-in the public Bazaar index), agent402.app marketplace, Glama, mcp.so
+in the public Bazaar index), Glama, mcp.so
 (verified 2026-06-21: live at mcp.so/server/agent402).
 Pending review: Cline MCP Marketplace (filed 2026-06-21 as
 cline/mcp-marketplace#1849) — any follow-up copy on that issue should use the
@@ -319,9 +319,9 @@ Next up once submitted: the Anthropic connector directory
 ### Identity / reputation registries (per-chain trust layer)
 
 - **AgentZone** — unified explorer combining ERC-8004 identity, x402 payment
-  history, reputation, live status across **Base and Arbitrum**. We already
-  carry an erc8004 identity (agent402.app registration) — register/claim on
-  AgentZone so Base + Arbitrum settlements attribute to it.
+  history, reputation, live status across **Base and Arbitrum**. Register an
+  erc8004 identity and claim it on AgentZone so Base + Arbitrum settlements
+  attribute to it.
 - **Solana Agent Registry (solana.com/agent-registry)** + **8004-solana
   (QuantuLabs/PayAI)** — the ERC-8004 port on Solana with on-chain feedback
   and trust tiers, integrated with PayAI (our Solana facilitator). Register

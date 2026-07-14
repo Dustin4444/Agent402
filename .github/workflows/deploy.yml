@@ -11,7 +11,6 @@ on:
       - ".github/trigger-paytest"
       - ".github/trigger-purl"
       - ".github/trigger-publish"
-      - ".github/trigger-marketplace"
       - ".github/trigger-drain"
       - ".github/trigger-bazaar-refresh"
       - ".github/trigger-bazaar-register"
@@ -19,7 +18,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "probe, test, paytest, purl (Stripe client interop), publish (npm), marketplace (list on agent402.app), bazaar-refresh, bazaar-register (one-shot: pay missing routes so the Coinbase harvester registers them), demo (run the company one-pager with the funded burner, upload output), or deploy"
+        description: "probe, test, paytest, purl (Stripe client interop), publish (npm), bazaar-refresh, bazaar-register (one-shot: pay missing routes so the Coinbase harvester registers them), demo (run the company one-pager with the funded burner, upload output), or deploy"
         default: "deploy"
       burner_key:
         description: "Existing funded burner key for paytest (hex). Leave empty to generate a fresh wallet."
@@ -52,10 +51,8 @@ jobs:
       publish: ${{ steps.parse.outputs.publish }}
       probe: ${{ steps.parse.outputs.probe }}
       drain: ${{ steps.parse.outputs.drain }}
-      demand: ${{ steps.parse.outputs.demand }}
       paytest: ${{ steps.parse.outputs.paytest }}
       purl: ${{ steps.parse.outputs.purl }}
-      marketplace: ${{ steps.parse.outputs.marketplace }}
       bazaar_refresh: ${{ steps.parse.outputs.bazaar_refresh }}
       bazaar_register: ${{ steps.parse.outputs.bazaar_register }}
       bazaar_solana: ${{ steps.parse.outputs.bazaar_solana }}
@@ -71,7 +68,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          MARKERS="test deploy publish probe drain demand paytest purl marketplace bazaar-refresh bazaar-register bazaar-solana"
+          MARKERS="test deploy publish probe drain paytest purl bazaar-refresh bazaar-register bazaar-solana"
           if [ "$EVENT_NAME" != "push" ]; then
             echo "Event is $EVENT_NAME (not push) — emitting all markers as false."
             for m in $MARKERS; do
@@ -105,27 +102,6 @@ jobs:
               echo "${out_name}=false" >> "$GITHUB_OUTPUT"
             fi
           done
-
-  # Isolated demand-board read so its output isn't buried under the probe job's
-  # verbose steps. Gated on the demand marker. Pure read; never fails the run.
-  demand:
-    needs: markers
-    if: needs.markers.outputs.demand == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      A402APP_KEY: ${{ secrets.AGENT402_APP_API_KEY }}
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 22
-      - name: Scan agent402.app Demand Intelligence
-        run: |
-          [ -n "$A402APP_KEY" ] && echo "::add-mask::$A402APP_KEY"
-          node scripts/demand-scan.js || true
-      - name: Supply-side gap scan (public Bazaar discovery)
-        run: node scripts/supply-scan.js || true
 
   paytest:
     needs: markers
@@ -551,36 +527,6 @@ jobs:
             shred -u "$RUNNER_TEMP/agent-key" 2>/dev/null || rm -f "$RUNNER_TEMP/agent-key"
           fi
 
-  marketplace:
-    # Registers the LIVE catalog on agent402.app — same prod-ordering rule as
-    # bazaar-register: when this run also deploys, wait for the deploy so the
-    # sweep sees the new tools; deploy skipped → run immediately.
-    needs: [markers, deploy]
-    if: always() && (github.event_name == 'workflow_dispatch' && inputs.mode == 'marketplace' || needs.markers.outputs.marketplace == 'true') && (needs.deploy.result == 'success' || needs.deploy.result == 'skipped')
-    runs-on: ubuntu-latest
-    env:
-      A402APP_KEY: ${{ secrets.AGENT402_APP_API_KEY }}
-      MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
-      BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
-      WALLET_ADDRESS: ${{ secrets.WALLET_ADDRESS || '0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0' }}
-      SITE: https://agent402.tools
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
-        with:
-          node-version: 22
-      - name: Register / update the agent402.app marketplace listing
-        run: |
-          [ -n "$A402APP_KEY" ] || { echo "AGENT402_APP_API_KEY secret missing"; exit 1; }
-          [ -n "$MARKETPLACE_TOKEN" ] || { echo "MARKETPLACE_TOKEN secret missing (must match the value set on the Railway service)"; exit 1; }
-          echo "::add-mask::$MARKETPLACE_TOKEN"
-          [ -n "$BURNER_KEY" ] && echo "::add-mask::$BURNER_KEY"
-          node scripts/marketplace-register.js
-      - name: Verify the listing works end to end
-        run: |
-          npm install --no-save --ignore-scripts @x402/fetch @x402/core @x402/evm viem
-          node scripts/marketplace-verify.js
-
   # Interop check against Stripe's open-source x402 client (github.com/stripe/purl).
   # Stripe's machine-payments quickstart points buyers at purl, so "purl can pay
   # us" means every developer following Stripe's docs can buy from us unchanged.
@@ -697,7 +643,6 @@ jobs:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
       FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
-      MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
       E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -723,9 +668,6 @@ jobs:
 
       - name: Security regressions (proto-pollution, input-DoS, 500-hardening)
         run: node scripts/test-security.js
-
-      - name: Marketplace contract (registration updates existing endpoints)
-        run: node scripts/test-marketplace-contract.js
 
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
@@ -1247,11 +1189,11 @@ jobs:
           console.log("proof-of-work gate: all assertions passed");
           '
 
-      - name: Marketplace bridge (per-slug token bypasses paywall; master/wrong token does not)
+      - name: Bridge routes removed (no token grants free access; direct unpaid call still 402s)
         run: |
-          # Paywall ACTIVE + a bridge token set. Each registered endpoint carries
-          # a PER-SLUG token = HMAC(master, slug); the master must NEVER work in a
-          # URL, a wrong token is rejected, and a direct unpaid call still 402s.
+          # Paywall ACTIVE. The old marketplace bridge (/mkt/<token>/<slug> +
+          # X-Mkt-Bypass header) must be fully gone: no token value may skip the
+          # x402 paywall, and a direct unpaid call still 402s.
           WALLET_ADDRESS=0x000000000000000000000000000000000000dEaD NETWORK=base \
           FACILITATOR_URL=https://facilitator.payai.network X402_SYNC_ON_START=false \
           MARKETPLACE_TOKEN=test-bridge-token PORT=3004 node src/server.js &
@@ -1261,36 +1203,20 @@ jobs:
           const B = "http://localhost:3004"; const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
           const MASTER = "test-bridge-token";
           const tok = (slug) => createHmac("sha256", MASTER).update(slug).digest("hex").slice(0, 32);
-          // good per-slug token → POST body adapted to the hash tool, paywall bypassed
-          const good = await fetch(B + "/mkt/" + tok("hash") + "/hash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "hello world" }) });
-          if (good.status !== 200) fail("valid per-slug token should serve 200, got " + good.status);
-          if ((await good.json()).hex.slice(0, 8) !== "b94d27b9") fail("bridge returned wrong result");
-          console.log("bridge per-slug token -> 200 ✓");
-          // the MASTER secret in a URL must NOT work (the whole point of per-slug)
-          const master = await fetch(B + "/mkt/" + MASTER + "/hash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "x" }) });
-          if (master.status === 200) fail("master token in URL must NOT be served");
-          console.log("bridge master-in-url -> " + master.status + " ✓");
-          // a per-slug token must not be reusable on a different slug
-          const cross = await fetch(B + "/mkt/" + tok("hash") + "/uuid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 2 }) });
-          if (cross.status === 200) fail("per-slug token must not work on another slug");
-          console.log("bridge cross-slug reuse -> " + cross.status + " ✓");
-          // wrong token → 404 (route hidden)
-          const bad = await fetch(B + "/mkt/nope/hash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "x" }) });
-          if (bad.status === 200) fail("wrong bridge token must not be served");
-          console.log("bridge wrong token -> " + bad.status + " ✓");
+          // the old per-slug bridge URL must not exist (even with the env var still set)
+          const perSlug = await fetch(B + "/mkt/" + tok("hash") + "/hash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "hello world" }) });
+          if (perSlug.status === 200) fail("removed bridge route must not serve a result");
+          console.log("bridge per-slug URL -> " + perSlug.status + " ✓ (removed)");
+          // the old master-token bypass header must not skip the paywall
+          const bypass = await fetch(B + "/api/hash", { method: "POST", headers: { "Content-Type": "application/json", "X-Mkt-Bypass": MASTER }, body: JSON.stringify({ text: "x" }) });
+          if (bypass.status === 200) fail("X-Mkt-Bypass header must not skip the paywall");
+          console.log("bypass header -> " + bypass.status + " ✓ (paywalled)");
           // direct unpaid call to the tool still requires payment
           const direct = await fetch(B + "/api/hash", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "x" }) });
           if (direct.status === 200) fail("direct unpaid call must still be paywalled");
           console.log("direct unpaid -> " + direct.status + " ✓");
-          // a wallet-only / GET-style tool also works through the bridge with its own per-slug token
-          const g2 = await fetch(B + "/mkt/" + tok("uuid") + "/uuid", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ count: 2 }) });
-          if (g2.status !== 200) fail("bridge GET-tool adaptation failed, got " + g2.status);
-          console.log("bridge GET-tool (uuid) -> 200 ✓");
-          console.log("marketplace bridge: all assertions passed");
+          console.log("bridge removal: all assertions passed");
           '
-
-      - name: Marketplace registration script (dry-run, no writes)
-        run: A402APP_KEY=dummy MARKETPLACE_TOKEN=test DRY_RUN=1 node scripts/marketplace-register.js | head -40 || true
 
       - name: MCP server e2e (catalog, search, proof-of-work settlement, wallet guidance)
         run: |
@@ -1811,27 +1737,6 @@ jobs:
               | tail -80 || echo "(no matching lines)"
           fi
 
-      - name: Read the agent402.app marketplace API docs (read-only)
-        env:
-          A402APP_KEY: ${{ secrets.AGENT402_APP_API_KEY }}
-        run: |
-          [ -n "$A402APP_KEY" ] && echo "::add-mask::$A402APP_KEY"
-          echo "=== docs page text (tags stripped) ==="
-          curl -s --max-time 20 -L "https://marketplace.agent402.app/docs" -o /tmp/docs.html
-          wc -c /tmp/docs.html
-          # strip scripts/styles/tags to readable text and print the API sections
-          python3 - << 'PY'
-          import re
-          html = open("/tmp/docs.html", encoding="utf-8", errors="replace").read()
-          html = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
-          html = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</li>|</h[1-6]>|</pre>|</code>", "\n", html)
-          text = re.sub(r"(?s)<[^>]+>", " ", html)
-          text = re.sub(r"[ \t]+", " ", text)
-          text = "\n".join(l.strip() for l in text.splitlines() if l.strip())
-          # Full dump this time — the API reference lives past the 20k mark.
-          i = text.find("Interactive API Reference")
-          print(text[max(i, 0):])
-          PY
 
       - name: Revenue + real-usage check (stats vs on-chain receipts)
         run: |
@@ -1983,7 +1888,6 @@ jobs:
       # Yahoo directly. Surfaced as flags.yahooRelay on /health.
       YAHOO_RELAY_URL: ${{ secrets.YAHOO_RELAY_URL }}
       YAHOO_RELAY_TOKEN: ${{ secrets.YAHOO_RELAY_TOKEN }}
-      MARKETPLACE_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
       WALLET_ADDRESS: ${{ secrets.WALLET_ADDRESS || '0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0' }}
       NETWORK: ${{ vars.NETWORK || 'base' }}
       # CDP keys take priority in the server's facilitator selection, so this
@@ -2002,7 +1906,6 @@ jobs:
           [ -n "$FRED_API_KEY" ] && echo "::add-mask::$FRED_API_KEY"
           [ -n "$FRED_API_KEY_V2" ] && echo "::add-mask::$FRED_API_KEY_V2"
           [ -n "$YAHOO_RELAY_TOKEN" ] && echo "::add-mask::$YAHOO_RELAY_TOKEN"
-          [ -n "$MARKETPLACE_TOKEN" ] && echo "::add-mask::$MARKETPLACE_TOKEN"
           [ -n "$RAILWAY_API_TOKEN" ] || { echo "No Railway token provided"; exit 1; }
           [ -n "$WALLET_ADDRESS" ] || { echo "No wallet address provided"; exit 1; }
 
@@ -2177,9 +2080,6 @@ jobs:
           # silently fall through to direct Yahoo and re-trigger the canary.
           if [ -n "$YAHOO_RELAY_URL" ] && [ -n "$YAHOO_RELAY_TOKEN" ]; then
             VARS=$(echo "$VARS" | jq --arg u "$YAHOO_RELAY_URL" --arg t "$YAHOO_RELAY_TOKEN" '. + {YAHOO_RELAY_URL:$u, YAHOO_RELAY_TOKEN:$t}')
-          fi
-          if [ -n "$MARKETPLACE_TOKEN" ]; then
-            VARS=$(echo "$VARS" | jq --arg m "$MARKETPLACE_TOKEN" '. + {MARKETPLACE_TOKEN:$m}')
           fi
           RESP=$(jq -n --arg p '${{ steps.project.outputs.project_id }}' --arg e '${{ steps.project.outputs.env_id }}' --arg s '${{ steps.service.outputs.service_id }}' --argjson v "$VARS" \
             '{query:"mutation($p:String!, $e:String!, $s:String!, $v:EnvironmentVariables!) { variableCollectionUpsert(input: { projectId: $p, environmentId: $e, serviceId: $s, variables: $v }) }", variables:{p:$p,e:$e,s:$s,v:$v}}' | gql)

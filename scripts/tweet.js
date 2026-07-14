@@ -1,7 +1,7 @@
 // Post to X (Twitter) from the CLI — an ops utility for release and changelog
-// announcements, in the spirit of scripts/marketplace-register.js. Deterministic,
-// dependency-free: signs the request with OAuth 1.0a (HMAC-SHA1) using Node's
-// built-in crypto and posts to POST /2/tweets.
+// announcements. Deterministic, dependency-free: signs the request with
+// OAuth 1.0a (HMAC-SHA1) using Node's built-in crypto and posts to
+// POST /2/tweets.
 //
 // The four credentials come from an X developer App (developer.x.com — create a
 // Project + App, set permissions to Read and write, generate keys and tokens).

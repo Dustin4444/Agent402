@@ -1,6 +1,5 @@
-// Demand kit — tools built directly from the agent402.app Demand Intelligence
-// board (top unmet queries with real signal counts):
-//   pdf-to-markdown   (461 signals "pdf to markdown", + 611 "convert pdf")
+// Demand kit — tools built from observed agent demand (top unmet queries):
+//   pdf-to-markdown   ("pdf to markdown" / "convert pdf")
 // All deterministic, no AI, inputs SSRF-guarded via safeFetch.
 import { pdfToText } from "./pdf.js";
 import { safeFetch } from "./fetch-guard.js";

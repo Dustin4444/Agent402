@@ -6,8 +6,8 @@
 // body/header claim). Nobody can browse another wallet's purchase profile:
 // the only way to unlock a report is to spend from the wallet it describes.
 //
-// SVM/Stellar payments and marketplace-bridge calls carry no signed payer the
-// server can verify, so they get a self-explaining 400 instead of a report.
+// SVM/Stellar payments carry no signed payer the server can verify, so they
+// get a self-explaining 400 instead of a report.
 import { payerFromRequest } from "../payer.js";
 import { payerUsage } from "../sales-ledger.js";
 
@@ -52,7 +52,7 @@ export const USAGE_TOOLS = [
       const wallet = payerFromRequest(req);
       if (!wallet) {
         throw bad(
-          "This report is keyed to the wallet that PAYS for it. Pay via x402 with an EIP-3009 authorization (USDC on Base, Polygon, or Arbitrum) and the response covers that wallet's history. Solana/Stellar payments and marketplace-bridge tokens carry no signed payer the server can verify, so they cannot unlock a report."
+          "This report is keyed to the wallet that PAYS for it. Pay via x402 with an EIP-3009 authorization (USDC on Base, Polygon, or Arbitrum) and the response covers that wallet's history. Solana/Stellar payments carry no signed payer the server can verify, so they cannot unlock a report."
         );
       }
       const days = input?.days === undefined ? 30 : parseInt(input.days, 10);
