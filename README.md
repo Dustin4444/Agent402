@@ -1,4 +1,4 @@
-# Agent402.Tools — the open x402 index (Find · Route · Leaderboard) + 500 tools & 100 skill packs for AI agents
+# Agent402.Tools — the open x402 index (Find · Route · Leaderboard) + a capped catalog of 500 tools & skill packs for AI agents
 
 > **What makes it different:** Agent402 is **open-source and self-hostable** — and a
 > single integration gives a buyer **three free primitives over the whole x402
@@ -8,8 +8,8 @@
 > - **Route** — [`POST /api/route`](https://agent402.tools/api/route) is the **neutral Smart Order Router**: rank tools across every x402 seller crawled (auto-discovered from the Coinbase CDP Bazaar), health-aware, with `include=external` to exclude us.
 > - **Leaderboard** — [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) is the **public on-chain ranking** of every x402 seller by **Base USDC settled volume** — calls served, totalUsd, unique buyers per seller. Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate by `payTo`. Hourly snapshot.
 >
-> Plus the whole **500-tool catalog** and **100 curated skill packs** (multi-tool
-> workflows callable as MCP prompts), all runnable yourself, plus
+> Plus the capped catalog — **only 500: 400 tools + 100 curated skill packs**
+> (multi-tool workflows callable as MCP prompts) — all runnable yourself, plus
 > [`agent402-tollbooth`](tollbooth) — an open pay-per-crawl gate for the other
 > side of x402.
 
@@ -30,7 +30,7 @@
 [![npm](https://img.shields.io/npm/v/agent402-google-adk?label=google-adk)](https://www.npmjs.com/package/agent402-google-adk)
 [![npm](https://img.shields.io/npm/v/agent402-openai-agents?label=openai-agents)](https://www.npmjs.com/package/agent402-openai-agents)
 
-**Give your AI agent 500 ready-to-use web tools — plus 100 multi-tool skill packs — from one server. Browser
+**Only 500 — 400 ready-to-use web tools + 100 multi-tool skill packs for your AI agent, from one server. Every one tested, priced, and settled on-chain; nothing else made the cut. Browser
 rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and ~210 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
 plain HTTP, no API keys, no signup), connect it to Claude/ChatGPT/any MCP
 client, and add your own tools in a few lines. Every tool is deterministic —
@@ -38,8 +38,8 @@ client, and add your own tools in a few lines. Every tool is deterministic —
 every release.
 
 > Optionally, the same server can charge per call over the [x402
-> protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Stellar &
-> Algorand, plus USDG on Robinhood Chain — 7 chains) — so the instance you
+> protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad,
+> Stellar & Algorand, plus USDG on Robinhood Chain — 8 chains) — so the instance you
 > self-host for free can also be a hosted, monetized one. That part is opt-in;
 > **by default everything runs free.**
 
@@ -254,7 +254,7 @@ const res = await openai.chat.completions.create({ model: "gpt-4o-mini", tools, 
 
 Already a Claude/MCP user? `agent402-mcp` is still the better path — paste `https://agent402.tools/mcp` into your client. The adapters are for direct API integrations where MCP isn't available. Sources: [`adapters/`](adapters).
 
-**OpenClaw agents:** drop in [`skills/openclaw/agent402/SKILL.md`](skills/openclaw/agent402/SKILL.md) — teaches an OpenClaw agent to find, pay (x402 USDC on Base, six other chains accepted, or free proof-of-work), and call any of the 500 tools.
+**OpenClaw agents:** drop in [`skills/openclaw/agent402/SKILL.md`](skills/openclaw/agent402/SKILL.md) — teaches an OpenClaw agent to find, pay (x402 USDC on Base, seven other chains accepted, or free proof-of-work), and call any of the 500 tools.
 
 ## Add your own tool (~15 lines)
 
@@ -292,8 +292,8 @@ wallet-only. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full walkthrough.
 The same server can require payment per call — useful if you host a public
 instance. It's off by default (`FREE_MODE=true`); to enable, set `WALLET_ADDRESS`
 + CDP facilitator keys (free at [portal.cdp.coinbase.com](https://portal.cdp.coinbase.com))
-and agents pay in USDC on Base (or Solana, Polygon, Arbitrum, Stellar, Algorand —
-or USDG on Robinhood Chain via `PAYMENT_NETWORKS=…,robinhood` +
+and agents pay in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Stellar,
+Algorand — or USDG on Robinhood Chain via `PAYMENT_NETWORKS=…,robinhood` +
 `ROBINHOOD_FACILITATOR_URL`) via standard x402 clients:
 
 ```js
@@ -375,7 +375,7 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 | `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, ~210 pure-CPU utilities) — **add tools here** |
 | `src/mcp-http.js` | Hosted MCP connector (streamable HTTP, authless free tier) |
 | `src/pow.js` | Proof-of-work tier (signed, single-use, slug-scoped challenges) |
-| `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Stellar/Algorand + USDG on Robinhood Chain (7 chains), CDP facilitator, Bazaar discovery |
+| `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Monad/Stellar/Algorand + USDG on Robinhood Chain (8 chains), CDP facilitator, Bazaar discovery |
 | `src/x402-index.js` | x402 Index + Smart Order Router: cross-seller crawl, auto-discovery, health-aware routing, per-chain marketplace pages (`/stellar`, `/algorand`) |
 | `src/sell.js` | `/sell` — the seller front door: free self-serve listing (`POST /api/index/register`) or `agent402-tollbooth` for pay-per-crawl |
 | `mcp/` | The `agent402-mcp` npm package (stdio MCP server) |
