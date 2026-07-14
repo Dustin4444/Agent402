@@ -1,6 +1,6 @@
 # agent402-langchain (Python)
 
-Turn [Agent402](https://agent402.tools)'s capped catalog — only 500: 400 x402
+Turn [Agent402](https://agent402.tools)'s catalog — 500 strong: 400 x402
 pay-per-call tools + 100 skill packs — into **LangChain** and **CrewAI** tools
 for Python agents.
 

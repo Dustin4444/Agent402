@@ -161,7 +161,7 @@ function checkRateLimit(ip) {
 
 /**
  * Record a "we don't have this tool" signal. `need` is required free text
- * (capped at 500 chars); `context` is optional free text (capped at 300).
+ * (max 500 chars); `context` is optional free text (max 300).
  * `source` is "api" | "mcp" | "find-miss" — find-miss records are implicit
  * (a /api/find or find_tool query that matched nothing useful) and are
  * exempt from the rate limit, since they're not a user directly hitting an

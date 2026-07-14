@@ -5,13 +5,15 @@
 //   node scripts/sync-count.js          # rewrite the total everywhere it's stale
 //   node scripts/sync-count.js --check  # exit 1 if the total is stale (CI guard)
 //
-// THE CAP (permanent invariant, both modes): the catalog is hard-capped at
-// exactly 500 endpoints — 400 tools + 100 skill packs. Both halves are derived
-// live from the booted server (total = /health meta.toolCount, which counts
-// every CATALOG route including the pack endpoints; packs =
-// /api/skill-packs.json length; tools = total − packs), so the check can't be
-// gamed by editing a doc. Any drift fails CI with the policy message: for a
-// new tool to enter, one must leave.
+// THE FLOOR (quality-consistency invariant, both modes): the catalog must
+// never fall below 400 entries — a drop that size means a kit accidentally
+// fell off the build, not a curation decision. Both counts are derived live
+// from the booted server (total = /health meta.toolCount, which counts every
+// CATALOG route including the pack endpoints; packs = /api/skill-packs.json
+// length; tools = total − packs), so the check can't be gamed by editing a
+// doc. There is NO upper bound: the catalog grows when a tool is worth
+// calling — every addition must answer its own example, be priced to market,
+// and be live-verified.
 //
 // How the sweep stays safe: the catalog has several legitimate counts (total,
 // free/PoW tier, pack count). We only ever touch the TOTAL, by an EXACT value
@@ -30,15 +32,14 @@ import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-export const CAP_TOOLS = 400;
-export const CAP_PACKS = 100;
+export const CATALOG_FLOOR = 400;
 
-// Returns null when the split is exactly at the cap, else the CI failure
+// Returns null when the total is at or above the floor, else the CI failure
 // message. Exported (and main() gated below) so the assertion is unit-testable
-// without booting the server: capViolation(401, 100) must return the message.
-export function capViolation(tools, packs) {
-  if (tools === CAP_TOOLS && packs === CAP_PACKS) return null;
-  return `The catalog is capped at ${CAP_TOOLS + CAP_PACKS} (${CAP_TOOLS} tools + ${CAP_PACKS} skill packs). For a new tool to enter, one must leave. (got ${tools} tools + ${packs} packs)`;
+// without booting the server: floorViolation(399) must return the message.
+export function floorViolation(total) {
+  if (total >= CATALOG_FLOOR) return null;
+  return `Catalog fell below the ${CATALOG_FLOOR}-entry floor (got ${total}) — a kit is probably missing.`;
 }
 
 async function main() {
@@ -55,15 +56,15 @@ async function main() {
     }
     if (!total) { console.error("sync-count: could not read the tool count from /health"); process.exit(2); }
 
-    // THE CAP — enforced before any sweep/check of doc surfaces, in both modes
-    // (never sweep an over- or under-cap catalog's numbers into the docs).
+    // THE FLOOR — enforced before any sweep/check of doc surfaces, in both
+    // modes (never sweep a broken catalog's numbers into the docs).
     let packs = 0;
     try {
       const sp = await (await fetch(`http://localhost:${PORT}/api/skill-packs.json`)).json();
       packs = (sp?.packs || []).length;
     } catch {}
     if (!packs) { console.error("sync-count: could not read the pack count from /api/skill-packs.json"); process.exit(2); }
-    const violation = capViolation(total - packs, packs);
+    const violation = floorViolation(total);
     if (violation) { console.error(violation); process.exit(1); }
 
     const want = total.toLocaleString("en-US"); // "500"
@@ -75,7 +76,7 @@ async function main() {
     if (!documented) { console.error("sync-count: no count found in the README H1 to anchor on"); process.exit(2); }
 
     if (documented === want) {
-      console.log(`sync-count: OK — total is in sync (${want} = ${total - packs} tools + ${packs} skill packs, at the cap).`);
+      console.log(`sync-count: OK — total is in sync (${want} = ${total - packs} tools + ${packs} skill packs, above the ${CATALOG_FLOOR}-entry floor).`);
       process.exit(0);
     }
 

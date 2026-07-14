@@ -1,4 +1,4 @@
-# Agent402.Tools — the open x402 index (Find · Route · Leaderboard) + a capped catalog of 500 tools & skill packs for AI agents
+# Agent402.Tools — the open x402 index (Find · Route · Leaderboard) + a catalog of 500 tools & skill packs for AI agents
 
 > **What makes it different:** Agent402 is **open-source and self-hostable** — and a
 > single integration gives a buyer **three free primitives over the whole x402
@@ -8,7 +8,7 @@
 > - **Route** — [`POST /api/route`](https://agent402.tools/api/route) is the **neutral Smart Order Router**: rank tools across every x402 seller crawled (auto-discovered from the Coinbase CDP Bazaar), health-aware, with `include=external` to exclude us.
 > - **Leaderboard** — [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) is the **public on-chain ranking** of every x402 seller by **Base USDC settled volume** — calls served, totalUsd, unique buyers per seller. Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate by `payTo`. Hourly snapshot.
 >
-> Plus the capped catalog — **only 500: 400 tools + 100 curated skill packs**
+> Plus the catalog — **500 strong: 400 tools + 100 curated skill packs**
 > (multi-tool workflows callable as MCP prompts) — all runnable yourself, plus
 > [`agent402-tollbooth`](tollbooth) — an open pay-per-crawl gate for the other
 > side of x402.
@@ -30,8 +30,8 @@
 [![npm](https://img.shields.io/npm/v/agent402-google-adk?label=google-adk)](https://www.npmjs.com/package/agent402-google-adk)
 [![npm](https://img.shields.io/npm/v/agent402-openai-agents?label=openai-agents)](https://www.npmjs.com/package/agent402-openai-agents)
 
-**Only 500 — 400 ready-to-use web tools + 100 multi-tool skill packs for your AI agent, from one server. Every one tested, priced, and settled on-chain; nothing else made the cut. Browser
-rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and ~210 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
+**500 strong — 400 ready-to-use web tools + 100 multi-tool skill packs for your AI agent, from one server. Every one tested, priced, and settled on-chain; every one earns its place. Browser
+rendering, web search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, deterministic stats, forecasting, and options/bond pricing (Black-Scholes, YTM), compression, and 216 pure-CPU utilities.** Run it yourself for free in 30 seconds (MCP **or**
 plain HTTP, no API keys, no signup), connect it to Claude/ChatGPT/any MCP
 client, and add your own tools in a few lines. Every tool is deterministic —
 **no LLM in the serving path** — and re-tested against its own example before
@@ -84,9 +84,10 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 
 ## What's in the catalog (500 tools)
 
-> **The catalog is hard-capped at 500 — 400 tools + 100 skill packs — and CI enforces it**
-> (`scripts/sync-count.js --check`). For a new tool to enter, one must leave. Every entry
-> earns its slot: deterministic, tested against its own example on every CI run.
+> **Every tool earns its place: deterministic, tested against its own example on every CI
+> run, priced to market, settled on-chain.** CI keeps the docs in sync with the running
+> catalog and holds a 400-entry floor (`scripts/sync-count.js --check`). The catalog
+> grows only when a tool is worth calling.
 
 | | Examples |
 |---|---|
@@ -108,7 +109,7 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | **Compression** | `gzip`/`gunzip`, `brotli-compress`/`decompress`, `compress-compare` (algorithm shootout, pure-CPU via node:zlib) |
 | **HTML extraction** | `html-select` (CSS query), `html-table`, `html-strip`, `html-links`, `html-meta` — deterministic counterpart to `extract` |
 | **Network ops** | `dns-lookup`, `dns-propagation`, `spf`/`dmarc`/`dkim` checks, `email-deliverability`; `cert-transparency`, `http-headers` (security audit), `tech-stack`, `asn-info` (IP geo) |
-| **~210 pure-CPU utilities** | hashing, JWT, base58, JSON⇄CSV/YAML, `token-count`, `text-chunk`, `json-validate`, text stats, cron math, validators, ~970 unit conversions |
+| **216 pure-CPU utilities** | hashing, JWT, base58, JSON⇄CSV/YAML, `token-count`, `text-chunk`, `json-validate`, text stats, cron math, validators, unit conversions across 13 categories (one parametric tool) |
 
 Full schemas live in [`/openapi.json`](https://agent402.tools/openapi.json); a
 machine-readable catalog is at [`/api/pricing`](https://agent402.tools/api/pricing)
@@ -254,7 +255,7 @@ const res = await openai.chat.completions.create({ model: "gpt-4o-mini", tools, 
 
 Already a Claude/MCP user? `agent402-mcp` is still the better path — paste `https://agent402.tools/mcp` into your client. The adapters are for direct API integrations where MCP isn't available. Sources: [`adapters/`](adapters).
 
-**OpenClaw agents:** drop in [`skills/openclaw/agent402/SKILL.md`](skills/openclaw/agent402/SKILL.md) — teaches an OpenClaw agent to find, pay (x402 USDC on Base, seven other chains accepted, or free proof-of-work), and call any of the 500 tools.
+**OpenClaw agents:** drop in [`skills/openclaw/agent402/SKILL.md`](skills/openclaw/agent402/SKILL.md) — teaches an OpenClaw agent to find, pay (x402 USDC on Base, seven other chains accepted, or free proof-of-work), and call any of the 400 tools (or 100 packs).
 
 ## Add your own tool (~15 lines)
 
@@ -372,7 +373,7 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 | Path | What |
 |---|---|
 | `src/server.js` | Express app + the tool catalog (routes, prices, schemas, discovery) |
-| `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, ~210 pure-CPU utilities) — **add tools here** |
+| `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, 216 pure-CPU utilities) — **add tools here** |
 | `src/mcp-http.js` | Hosted MCP connector (streamable HTTP, authless free tier) |
 | `src/pow.js` | Proof-of-work tier (signed, single-use, slug-scoped challenges) |
 | `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Monad/Stellar/Algorand + USDG on Robinhood Chain (8 chains), CDP facilitator, Bazaar discovery |
