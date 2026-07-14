@@ -153,6 +153,10 @@ if (payerFromRequest(mkReq({ payload: { authorization: { from: evm } } })) !== e
 // non-EVM authorization.from → null (no signature-free namespace via this path)
 if (payerFromRequest(mkReq({ payload: { authorization: { from: "GABC" + "A".repeat(52) } } })) !== null)
   { console.error("FAIL - minted a non-EVM namespace"); process.exit(1); }
+// permit.owner is an UNSIGNED fallback field — must NOT be honored (only the
+// EIP-3009-signed authorization.from can carry memory identity)
+if (payerFromRequest(mkReq({ permit: { owner: evm } })) !== null)
+  { console.error("FAIL - honored unsigned permit.owner"); process.exit(1); }
 // Algorand/Stellar never lowercased by normalizePayerAddress
 const algo = "A".repeat(58);
 if (normalizePayerAddress(algo) !== algo) { console.error("FAIL - lowercased Algorand"); process.exit(1); }
