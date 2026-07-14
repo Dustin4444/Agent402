@@ -14,6 +14,7 @@
 
 import { parseBuffer } from "music-metadata";
 import { safeFetch } from "./fetch-guard.js";
+import { redactSecrets } from "./redact.js";
 
 const OPENAI_KEY = () => (process.env.OPENAI_API_KEY || "").trim();
 
@@ -123,8 +124,12 @@ async function callOpenAI(audioBuffer, filename, model, language) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
     if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
     if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
-    let msg = text.slice(0, 200);
-    try { msg = JSON.parse(text).error?.message || msg; } catch {}
+    // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
+    // 200-char cut leaves an unredactable prefix); the route binder returns
+    // err.message verbatim to buyers and logs it.
+    const safe = redactSecrets(text);
+    let msg = safe.slice(0, 200);
+    try { msg = JSON.parse(safe).error?.message || msg; } catch {}
     throw bad(`OpenAI error: ${msg}`, 502);
   }
 

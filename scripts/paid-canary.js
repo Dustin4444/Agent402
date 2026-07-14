@@ -85,8 +85,19 @@ export const TOOLS = [
     kit: "finance",
     path: "/api/stock-quote?symbol=AAPL",
     method: "GET",
-    priceUsd: 0.005,
+    priceUsd: 0.003,
     check: (r) => (r.symbol === "AAPL" && r.currency === "USD" && r.price > 1) || `expected AAPL/USD/price>1, got ${JSON.stringify(r).slice(0, 80)}`,
+  },
+  {
+    // Options-chain rides the Yahoo relay's options endpoint (session-crumb
+    // handshake handled server-side) — a different relay path than
+    // stock-quote's chart endpoint, so this leg keeps the deployed options
+    // route continuously proven. Input is the tool's own discovery example.
+    kit: "finance",
+    path: "/api/options-chain?symbol=AAPL",
+    method: "GET",
+    priceUsd: 0.005,
+    check: (r) => (r.symbol === "AAPL" && Array.isArray(r.expirations) && r.expirations.length > 0 && Array.isArray(r.strikes) && Array.isArray(r.calls) && Array.isArray(r.puts)) || `expected AAPL chain with expirations/strikes/calls/puts, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
     kit: "crypto",

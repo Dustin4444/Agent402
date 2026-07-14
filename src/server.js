@@ -34,7 +34,7 @@ import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCa
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -2089,6 +2089,10 @@ const retiredConvertHandler = (req, res) => {
   const { from, to } = parseRetiredConvertPath(req.path);
   const raw = req.body && req.body.value !== undefined ? req.body.value : req.query.value;
   const num = raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
+  // Residual demand for a retired route is a product signal — without this
+  // event the teaching 410s are a telemetry blind spot. Fire-and-forget,
+  // rate-capped in posthog.js; env-gated no-op like every capture.
+  capturePostHogToolGone({ route: req.path, replacement: "POST /api/unit-convert" });
   res.status(410).json({
     error: "This pairwise conversion endpoint is retired. Use POST /api/unit-convert with { value, from, to } — the same unit ids and the same math, one route for every pair. Discovery: GET /api/find?q=unit+convert.",
     replacement: {

@@ -22,6 +22,7 @@
 // ecosystem (yield curves, FX time series, GDP/inflation indicators, CPI YoY,
 // fed funds, recession signals). Pure HTTP wrappers, deterministic.
 import { safeFetch, assertPublicUrl } from "./fetch-guard.js";
+import { redactSecrets } from "./redact.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -478,7 +479,9 @@ async function fredGetJson(url, extraHeaders = {}) {
   let body = null;
   try { body = JSON.parse(text); } catch {}
   if (!res.ok) {
-    const msg = body?.error_message || body?.message || text.slice(0, 200) || `HTTP ${res.status}`;
+    // Redact the full body/message before slicing — FRED_API_KEY(_V2) rides the
+    // query string (v1) and could be reflected in an upstream diagnostic.
+    const msg = redactSecrets(body?.error_message || body?.message || text || `HTTP ${res.status}`).slice(0, 200);
     // FRED 4xx with a key set almost always means a bad/expired/whitespace key —
     // attribute as caller-fixable (422) so it shows up in client_errored.
     throw bad(`FRED upstream HTTP ${res.status}: ${msg}`, res.status >= 500 ? 502 : 422);

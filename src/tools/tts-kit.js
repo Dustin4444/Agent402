@@ -5,6 +5,8 @@
 //   tts      $0.05  — tts-1       (2000 chars, fast)
 //   tts-hd   $0.10  — tts-1-hd    (2000 chars, higher fidelity)
 
+import { redactSecrets } from "./redact.js";
+
 const OPENAI_KEY = () => (process.env.OPENAI_API_KEY || "").trim();
 
 function bad(message, statusCode = 400) {
@@ -70,8 +72,12 @@ async function callOpenAI(text, voice, format, tierSlug) {
     if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
     if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
     const errText = await res.text().catch(() => "");
-    let msg = errText.slice(0, 200);
-    try { msg = JSON.parse(errText).error?.message || msg; } catch {}
+    // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
+    // 200-char cut leaves an unredactable prefix); the route binder returns
+    // err.message verbatim to buyers and logs it.
+    const safe = redactSecrets(errText);
+    let msg = safe.slice(0, 200);
+    try { msg = JSON.parse(safe).error?.message || msg; } catch {}
     throw bad(`OpenAI error: ${msg}`, 502);
   }
 

@@ -11,6 +11,8 @@
 // Covered by scripts/test-dex-kit.js (offline) and the daily paid-canary
 // (which probes Alchemy end-to-end via gas-snapshot).
 
+import { redactSecrets } from "./redact.js";
+
 const TIMEOUT_MS = 10_000;
 
 // Uniswap V3 deployments. Ethereum/Polygon/Arbitrum/Optimism share the
@@ -130,7 +132,9 @@ async function jsonRpc(network, method, params) {
     method: "POST",
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
-  if (data.error) throw bad(`Chain RPC error: ${data.error.message || "unknown"}`, 502);
+  // Upstream-derived text — the Alchemy key rides the request URL, so redact
+  // before echoing (the route binder returns err.message verbatim to buyers).
+  if (data.error) throw bad(`Chain RPC error: ${redactSecrets(String(data.error.message || "unknown")).slice(0, 300)}`, 502);
   return data.result;
 }
 

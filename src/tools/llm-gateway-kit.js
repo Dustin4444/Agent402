@@ -30,6 +30,11 @@ import { createHash } from "node:crypto";
 // synchronous because promptCacheKey — called from the pre-paywall cache
 // middleware — normalizes through it.
 import { countTokens } from "gpt-tokenizer/model/gpt-4o";
+// cl100k tokenizer for the embeddings margin clamp — all three supported
+// embeddings models bill cl100k input tokens, not o200k. Static import for
+// the same reason as above: embeddingsCacheKey (pre-paywall) must stay sync.
+import { countTokens as countEmbeddingTokens } from "gpt-tokenizer/model/text-embedding-3-small";
+import { redactSecrets } from "./redact.js";
 
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -258,7 +263,7 @@ const MAX_N = 4; // `n` multiplies output cost — bounded and priced in the mar
 // Effective cost is elementwise-min'd with the tier's provider max_price
 // bound (OpenRouter refuses pricier providers), so an overestimate here
 // can't reject traffic the provider bound already makes safe.
-const MODEL_COST = [
+export const MODEL_COST = [
   ["openai/o3-pro", { prompt: 20, completion: 80 }],
   ["openai/o3-mini", { prompt: 1.1, completion: 4.4 }],
   ["openai/o3", { prompt: 2, completion: 8 }],
@@ -298,7 +303,7 @@ export function costFor(model) {
   return best ? best.cost : null;
 }
 
-const MARGIN = 0.7;          // worst-case upstream ≤ 70% of the tier price
+export const MARGIN = 0.7;   // worst-case upstream ≤ 70% of the tier price
 const MIN_OUT_TOKENS = 64;   // a clamp below this is useless — reject with guidance instead
 const IMAGE_TOKENS = 1600;   // conservative flat per-image input estimate (high-detail tiling)
 const TOKEN_SAFETY = 1.15;   // headroom for BPE drift across vendors
@@ -315,15 +320,32 @@ function estimateInputTokens(body, imageCount) {
   return Math.ceil(countTokens(text) * TOKEN_SAFETY) + imageCount * IMAGE_TOKENS;
 }
 
-function clampToMargin(body, tier, imageCount) {
+/** Worst-case upstream bill (USD) for an outbound body at this tier:
+ *  exact-BPE input pricing plus the full output cap × n, against the model's
+ *  list cost elementwise-min'd with the tier's provider max_price bound.
+ *  This is THE pricing function the margin clamp uses — the pricing-margin
+ *  CI test (scripts/test-pricing-margin.js) imports it so the test and the
+ *  runtime can never disagree on the math. */
+export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
   const listed = costFor(body.model) || tier.maxPrice;
   const cost = {
     prompt: Math.min(listed.prompt, tier.maxPrice.prompt),
     completion: Math.min(listed.completion, tier.maxPrice.completion),
   };
-  const budgetUsd = tier.price * MARGIN;
   const inTokens = estimateInputTokens(body, imageCount);
   const inUsd = (inTokens / 1e6) * cost.prompt;
+  const n = body.n || 1;
+  const outUsd = ((Number(body.max_tokens) || 0) / 1e6) * cost.completion * n;
+  return { inTokens, inUsd, outUsd, totalUsd: inUsd + outUsd, cost };
+}
+
+/** Shrinks body.max_tokens so the worst-case upstream bill stays ≤ MARGIN ×
+ *  the tier price; throws a self-explaining 400 when the INPUT alone busts
+ *  the budget. Exported for the failover chain walk (each fallback model is
+ *  re-clamped at its own cost) and for the pricing-margin CI test. */
+export function clampToMargin(body, tier, imageCount) {
+  const { inUsd, inTokens, cost } = worstCaseUpstreamCost(body, tier, imageCount);
+  const budgetUsd = tier.price * MARGIN;
   const n = body.n || 1;
   const affordableOut = Math.floor(((budgetUsd - inUsd) * 1e6) / cost.completion / n);
   if (affordableOut < MIN_OUT_TOKENS) {
@@ -463,8 +485,12 @@ async function throwUpstreamError(res) {
   if (res.status === 402) throw bad("Gateway upstream balance exhausted — the operator has been notified", 502);
   if (res.status === 429) throw bad("Upstream rate-limited — retry shortly", 503);
   if (res.status >= 500) throw bad(`Upstream error (HTTP ${res.status})`, 502);
-  let msg = text.slice(0, 200);
-  try { msg = JSON.parse(text).error?.message || msg; } catch { /* keep raw slice */ }
+  // Redact the FULL body BEFORE slicing/parsing — a secret straddling the
+  // 200-char cut would otherwise leave an unredactable prefix. The route binder
+  // returns err.message verbatim to buyers and logs it, so this must be clean.
+  const safe = redactSecrets(text);
+  let msg = safe.slice(0, 200);
+  try { msg = JSON.parse(safe).error?.message || msg; } catch { /* keep raw slice */ }
   throw bad(`Upstream error: ${msg}`, 502);
 }
 
@@ -635,6 +661,24 @@ const EMBEDDINGS_DEFAULT_MODEL = "text-embedding-3-small";
 const EMBEDDINGS_MODELS = new Set([EMBEDDINGS_DEFAULT_MODEL, "text-embedding-3-large", "text-embedding-ada-002"]);
 const EMBEDDINGS_MAX_ITEMS = 64;
 const EMBEDDINGS_MAX_CHARS = 16_000;
+export const EMBEDDINGS_PRICE = 0.002;
+// Upstream list prices (USD per 1M input tokens, OpenAI published rates).
+// Like MODEL_COST: only needs to never UNDERestimate.
+const EMBEDDINGS_COST = {
+  "text-embedding-3-small": 0.02,
+  "text-embedding-3-large": 0.13,
+  "text-embedding-ada-002": 0.10,
+};
+
+/** Exact upstream bill for a validated embeddings body — cl100k tokens per
+ *  item (embeddings bill input tokens only, and cl100k is what all three
+ *  models meter) × the model's list rate. Used by the margin clamp below and
+ *  imported by the pricing-margin CI test so they can never disagree. */
+export function embeddingsUpstreamCost(body) {
+  let tokens = 0;
+  for (const it of body.input) tokens += countEmbeddingTokens(it);
+  return { tokens, totalUsd: (tokens / 1e6) * EMBEDDINGS_COST[body.model] };
+}
 
 export function validateEmbeddingsRequest(input) {
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
@@ -656,6 +700,20 @@ export function validateEmbeddingsRequest(input) {
   }
   if (totalChars > EMBEDDINGS_MAX_CHARS) throw bad(`Input too large (${totalChars} chars). /v1/embeddings allows up to ${EMBEDDINGS_MAX_CHARS} chars per request`);
   const body = { model, input: items };
+  // Margin clamp — same discipline as the chat tiers. The char cap alone
+  // can't bound the bill: token-dense scripts pack ~2 cl100k tokens per char
+  // (rare CJK), so 16k chars ≈ 32k tokens — $0.0042 on 3-large, over the
+  // $0.002 price. There is no output knob to shrink here, so an over-budget
+  // input gets a self-explaining 400 BEFORE any upstream spend. Exact-BPE and
+  // sync → deterministic, so embeddingsCacheKey stays stable.
+  const { tokens } = embeddingsUpstreamCost(body);
+  const maxTokens = Math.floor((EMBEDDINGS_PRICE * MARGIN * 1e6) / EMBEDDINGS_COST[model]);
+  if (tokens > maxTokens) {
+    throw bad(
+      `Input is too token-dense for ${model} at this price (est. ${tokens} tokens, max ${maxTokens}). ` +
+      `Send fewer or shorter inputs${model === EMBEDDINGS_DEFAULT_MODEL ? "" : `, or use ${EMBEDDINGS_DEFAULT_MODEL}`}.`
+    );
+  }
   if (input.dimensions !== undefined) {
     if (model === "text-embedding-ada-002") throw bad('"dimensions" is not supported by text-embedding-ada-002');
     const d = parseInt(input.dimensions, 10);
@@ -723,11 +781,17 @@ async function embeddingsHandler(input) {
 // accounting reports the exact bill to PostHog on every call.
 export const IMAGES_PATH = "/v1/images/generations";
 const IMAGES_MODEL = "google/gemini-2.5-flash-image";
-const IMAGES_PRICE = 0.08;
-const IMAGES_MAX_PROMPT_CHARS = 4_000;
-const IMAGES_MAX_TOKENS = 1_600; // one image (~1300 tok) + a little text headroom
+export const IMAGES_PRICE = 0.08;
+export const IMAGES_MAX_PROMPT_CHARS = 4_000;
+export const IMAGES_MAX_TOKENS = 1_600; // one image (~1300 tok) + a little text headroom
 // Worst case at these bounds: 1600 tok × $35/M = $0.056 ≤ 70% of the price.
-const IMAGES_MAX_PRICE = { prompt: 1, completion: 35, image: 0.05, request: 0.05 };
+// `request` is deliberately near-zero: the locked model's providers charge no
+// per-request fee (OpenRouter lists prompt/completion/image-output pricing
+// only), so this bound never rejects a real provider — but a generous value
+// here would be a standing ALLOWANCE for a fee-charging provider to stack
+// $0.05/request on top of the token bill and invert the margin. Exported
+// (with the caps above) for the pricing-margin CI test.
+export const IMAGES_MAX_PRICE = { prompt: 1, completion: 35, image: 0.05, request: 0.005 };
 
 export function validateImagesRequest(input) {
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
@@ -889,6 +953,16 @@ async function speechHandler(input) {
   return { __binary: buffer, contentType };
 }
 
+/** Image blocks in a validated messages array — the margin clamp bills each
+ *  a flat IMAGE_TOKENS, so the failover re-clamp needs the same count. */
+function countImages(messages) {
+  let images = 0;
+  for (const m of Array.isArray(messages) ? messages : []) {
+    if (Array.isArray(m?.content)) for (const b of m.content) if (b?.type === "image_url") images++;
+  }
+  return images;
+}
+
 function makeHandler(tierSlug) {
   return async (input) => {
     const body = validateRequest(input, tierSlug);
@@ -923,6 +997,21 @@ function makeHandler(tierSlug) {
       ...(body.zdr === true ? { zdr: true } : {}),
     };
     const provider = Object.keys(providerPrefs).length ? providerPrefs : undefined;
+    // Margin holds on EVERY link of the chain, not just the requested model:
+    // validateRequest clamped max_tokens against the REQUESTED model's cost,
+    // so a cheap-model clamp (often a no-op) would ride unchanged to a
+    // pricier fallback and could push the worst-case upstream bill past the
+    // flat price (e.g. nano gpt-4.1-nano n=4 at the full output cap failing
+    // over to deepseek-chat). Re-clamp each candidate at ITS OWN cost — a
+    // no-op for the primary model, tighter output for pricier fallbacks, and
+    // a fallback whose input alone busts its budget is skipped (payment
+    // settled; serving a shorter answer beats losing money or 502ing).
+    const imageCount = countImages(body.messages);
+    const outboundFor = (model) => {
+      const attempt = { ...body, model };
+      clampToMargin(attempt, TIERS[tierSlug], imageCount); // throws 400 → caller skips this candidate
+      return { ...attempt, zdr: undefined, ...(provider ? { provider } : {}) };
+    };
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
       // streamOpenRouterTo throws only BEFORE headers are written, so the
@@ -931,8 +1020,10 @@ function makeHandler(tierSlug) {
         __sse: async (res) => {
           let lastErr;
           for (const model of chain) {
+            let outbound;
+            try { outbound = outboundFor(model); } catch (e) { if (!lastErr) lastErr = e; continue; }
             try {
-              return await streamOpenRouterTo({ ...body, model, zdr: undefined, ...(provider ? { provider } : {}) }, res);
+              return await streamOpenRouterTo(outbound, res);
             } catch (e) {
               if (res.headersSent || ![502, 503, 504].includes(e?.statusCode)) throw e;
               lastErr = e;
@@ -944,12 +1035,14 @@ function makeHandler(tierSlug) {
     }
     let lastErr;
     for (const model of chain) {
+      let outbound;
+      try { outbound = outboundFor(model); } catch (e) { if (!lastErr) lastErr = e; continue; }
       try {
         // usage.include asks OpenRouter for the exact upstream bill on this
         // call — margin telemetry. Injected at call time (like provider), so
         // it is never part of the normalized body or cache keys. Non-stream
         // only: on streams the accounting rides the raw SSE the buyer sees.
-        const data = await callOpenRouter({ ...body, model, zdr: undefined, ...(provider ? { provider } : {}), usage: { include: true } });
+        const data = await callOpenRouter({ ...outbound, usage: { include: true } });
         // The exact upstream cost is operator telemetry, never a buyer-visible
         // field — capture it, then strip it before the response is cached or
         // returned. Standard token counts stay (OpenAI wire shape).
@@ -1175,7 +1268,7 @@ export function modelsList() {
       id: m,
       object: "model",
       owned_by: "openai",
-      x402: { tier: "v1-embeddings", endpoint: EMBEDDINGS_PATH, priceUsd: 0.002, maxInputChars: EMBEDDINGS_MAX_CHARS, maxItems: EMBEDDINGS_MAX_ITEMS },
+      x402: { tier: "v1-embeddings", endpoint: EMBEDDINGS_PATH, priceUsd: EMBEDDINGS_PRICE, maxInputChars: EMBEDDINGS_MAX_CHARS, maxItems: EMBEDDINGS_MAX_ITEMS },
     });
   }
   data.push({

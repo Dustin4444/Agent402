@@ -14,6 +14,7 @@
 import sha3 from "js-sha3"; // CommonJS — default import, then destructure
 const { keccak256 } = sha3;
 import { ssrfDispatcher } from "./fetch-guard.js";
+import { redactSecrets } from "./redact.js";
 
 // Documented Base addresses (docs.base.org/get-started/launch-b20-token).
 const REGISTRY = "0x8453000000000000000000000000000000000001";
@@ -69,7 +70,11 @@ async function rpc(method, params, { passes = 2 } = {}) {
     }
     if (attempt < passes - 1) await sleep(1000 * (attempt + 1));
   }
-  throw bad(`Base RPC unavailable: ${String(lastErr?.message || lastErr).slice(0, 160)}`, 502);
+  // lastErr.message can embed the RPC URL, which for the Alchemy endpoint
+  // carries ALCHEMY_API_KEY — redact before it reaches the buyer/log. (Today
+  // the keyless public RPCs run last and overwrite lastErr, but a list reorder
+  // would otherwise be a direct key leak needing no adversarial upstream.)
+  throw bad(`Base RPC unavailable: ${redactSecrets(String(lastErr?.message || lastErr)).slice(0, 160)}`, 502);
 }
 
 const ethCall = (to, data) => rpc("eth_call", [{ to, data }, "latest"]);

@@ -2,6 +2,8 @@
 // Checks text for harmful content categories. Upstream cost is $0 (free API),
 // so the $0.002 price is 100% margin. Env-gated: missing OPENAI_API_KEY → 503.
 
+import { redactSecrets } from "./redact.js";
+
 const OPENAI_KEY = () => (process.env.OPENAI_API_KEY || "").trim();
 
 function bad(message, statusCode = 400) {
@@ -43,8 +45,12 @@ async function callOpenAI(text) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
     if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
     if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
-    let msg = body.slice(0, 200);
-    try { msg = JSON.parse(body).error?.message || msg; } catch {}
+    // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
+    // 200-char cut leaves an unredactable prefix); the route binder returns
+    // err.message verbatim to buyers and logs it.
+    const safe = redactSecrets(body);
+    let msg = safe.slice(0, 200);
+    try { msg = JSON.parse(safe).error?.message || msg; } catch {}
     throw bad(`OpenAI error: ${msg}`, 502);
   }
 

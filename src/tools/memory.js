@@ -71,7 +71,10 @@ db.exec("CREATE INDEX IF NOT EXISTS kv_exp ON kv (exp) WHERE exp IS NOT NULL");
 
 const MAX_KEY = 256;
 const MAX_VALUE = 64 * 1024;
-const MAX_KEYS_PER_NS = 10000;
+// Per-namespace key cap. Env-tunable and read at call time (same contract as
+// MAX_NS_BYTES below) so tests can exercise the quota without 10k writes.
+// 413, not 400: the request is well-formed — the store is full.
+const MAX_KEYS_PER_NS = () => Number(process.env.MEMORY_MAX_NS_KEYS) || 10000;
 const MAX_DOCS_PER_NS = 2000;
 const MAX_DOC_TEXT = 8 * 1024;
 const EMBED_DIM = 256;
@@ -225,10 +228,10 @@ export function memoryPut(owner, key, value, { actor = owner, ttlSeconds } = {})
   const serialized = typeof value === "string" ? value : JSON.stringify(value);
   if (serialized === undefined || serialized.length > MAX_VALUE)
     throw bad(`"value" is required and must serialize to at most ${MAX_VALUE} bytes`);
-  if (kvCount.get(owner).n >= MAX_KEYS_PER_NS && !kvGet.get(owner, key)) {
+  if (kvCount.get(owner).n >= MAX_KEYS_PER_NS() && !kvGet.get(owner, key)) {
     // Expired rows must not consume quota — reclaim before rejecting.
     kvPruneExpired.run(owner, nowSec());
-    if (kvCount.get(owner).n >= MAX_KEYS_PER_NS) throw bad(`Namespace is full (${MAX_KEYS_PER_NS} keys)`);
+    if (kvCount.get(owner).n >= MAX_KEYS_PER_NS()) throw bad(`Namespace is full (${MAX_KEYS_PER_NS()} keys)`, 413);
   }
   assertByteBudget(owner, key, serialized.length);
   let exp = null;
@@ -280,9 +283,9 @@ export const memoryIncr = db.transaction((owner, key, by, actor) => {
     const n = Number(row.v);
     if (!Number.isFinite(n)) throw bad(`Key "${key}" holds a non-numeric value; cannot increment`);
     current = n;
-  } else if (kvCount.get(owner).n >= MAX_KEYS_PER_NS) {
+  } else if (kvCount.get(owner).n >= MAX_KEYS_PER_NS()) {
     kvPruneExpired.run(owner, nowSec());
-    if (kvCount.get(owner).n >= MAX_KEYS_PER_NS) throw bad(`Namespace is full (${MAX_KEYS_PER_NS} keys)`);
+    if (kvCount.get(owner).n >= MAX_KEYS_PER_NS()) throw bad(`Namespace is full (${MAX_KEYS_PER_NS()} keys)`, 413);
   }
   const next = current + amount;
   kvPut.run({ ns: owner, k: key, v: String(next), updated: now(), exp: row?.exp ?? null });
@@ -319,9 +322,9 @@ export const memoryCas = db.transaction((owner, key, expected, value, { actor = 
   }
   const serialized = typeof value === "string" ? value : JSON.stringify(value);
   if (serialized === undefined || serialized.length > MAX_VALUE) throw bad(`"value" must serialize to at most ${MAX_VALUE} bytes`);
-  if (!row && kvCount.get(owner).n >= MAX_KEYS_PER_NS) {
+  if (!row && kvCount.get(owner).n >= MAX_KEYS_PER_NS()) {
     kvPruneExpired.run(owner, nowSec());
-    if (kvCount.get(owner).n >= MAX_KEYS_PER_NS) throw bad(`Namespace is full (${MAX_KEYS_PER_NS} keys)`);
+    if (kvCount.get(owner).n >= MAX_KEYS_PER_NS()) throw bad(`Namespace is full (${MAX_KEYS_PER_NS()} keys)`, 413);
   }
   assertByteBudget(owner, key, serialized.length);
   let exp = null;

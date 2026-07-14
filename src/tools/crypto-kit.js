@@ -17,6 +17,7 @@
 // use the same assertPublicUrl + native fetch pattern as finance-kit for
 // consistency and to keep the per-host UA option open.
 import { assertPublicUrl } from "./fetch-guard.js";
+import { redactSecrets } from "./redact.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -136,7 +137,10 @@ async function jsonGet(url, host = "CoinGecko") {
     if (s === 404) throw bad(`${host} returned 404 — unknown coin or market`, 422);
     if (s === 429) throw bad(`${host} rate-limited the request — retry shortly`, 503);
     if (s >= 500) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
-    throw bad(`${host} HTTP ${s}: ${text.slice(0, 200)}`, 422);
+    // Redact the FULL upstream body before slicing (a secret straddling the
+    // 200-char cut would otherwise leave an unredactable prefix): the CoinGecko
+    // demo key rides this request and there is no 401/403 shield above.
+    throw bad(`${host} HTTP ${s}: ${redactSecrets(text).slice(0, 200)}`, 422);
   }
   try { return JSON.parse(text); }
   catch { throw bad(`${host} returned non-JSON response`, 502); }

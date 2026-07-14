@@ -24,6 +24,7 @@
 // is far heavier than the three REST calls we make. Claim structure mirrors
 // the SDK's auth/utils/jwt.ts exactly.
 import { createPrivateKey, createSign, randomBytes, sign as edSign } from "node:crypto";
+import { redactSecrets } from "./redact.js";
 
 const CDP_HOST = "api.cdp.coinbase.com";
 
@@ -102,7 +103,10 @@ async function cdpFetch(method, path, body) {
     }
     const json = await res.json().catch(() => ({}));
     if (res.ok) return json;
-    const detail = String(json?.errorMessage || json?.message || json?.errorType || res.statusText).slice(0, 200);
+    // Redact any configured secret from the upstream error text before echoing
+    // it — the request's JWT carries CDP_API_KEY_ID as its issuer/subject, so a
+    // "key <id> not found"-style upstream message could otherwise reflect it.
+    const detail = redactSecrets(String(json?.errorMessage || json?.message || json?.errorType || res.statusText)).slice(0, 200);
     if (res.status === 400 || res.status === 404 || res.status === 422) throw bad(`CDP rejected the request: ${detail}`, 422);
     if (res.status === 429) { lastErr = bad(`CDP rate limit: ${detail}`, 429); continue; } // transient — back off + retry
     lastErr = bad(`CDP upstream error (HTTP ${res.status}): ${detail}`, 502);

@@ -17,6 +17,7 @@ import { randomBytes } from "node:crypto";
 import sha3 from "js-sha3"; // CommonJS — default import, then destructure
 const { keccak256 } = sha3;
 import { assertPublicUrl, ssrfDispatcher } from "./fetch-guard.js";
+import { redactSecrets } from "./redact.js";
 
 // ENS (Ethereum mainnet) — namehash + registry/resolver selectors for forward
 // resolution (name -> address). keccak256 over UTF-8 labels per EIP-137.
@@ -137,7 +138,9 @@ async function rpc(net, method, params, { passes = 2 } = {}) {
     }
     if (attempt < passes - 1) await sleep(1000 * (attempt + 1));
   }
-  throw bad(`${net.key} RPC unavailable: ${lastErr?.message}`, 502);
+  // lastErr.message can embed the RPC URL, which for the Alchemy robinhood
+  // endpoint carries ALCHEMY_API_KEY — redact before it reaches the buyer/log.
+  throw bad(`${net.key} RPC unavailable: ${redactSecrets(String(lastErr?.message ?? "")).slice(0, 200)}`, 502);
 }
 
 const NETWORK_PARAM = { type: "string", description: `chain: ${NETWORK_NAMES.join(" | ")} (default base)` };
