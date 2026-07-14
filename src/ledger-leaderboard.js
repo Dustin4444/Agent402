@@ -74,7 +74,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
 
       // Row/rank/last-row styling is handled by the .lb-row classes (see
       // LB_ROW_CSS) so this markup carries no per-row inline styles - a busy
-      // leaderboard renders 501+ rows and inline styles ballooned the page.
+      // leaderboard renders 500+ rows and inline styles ballooned the page.
       return `<div class="lb-row${isFirst ? " first" : ""}"><span class="lb-rank">${esc(rank)}</span><span>${nameHtml} <span class="lb-addr">\u00b7 ${esc(shortAddr(displayWallet))}</span></span><span class="lb-usd">${fmtUsd(r.totalUsd)}</span><span class="lb-num">${fmtNum(r.callsSettled)}</span><span class="lb-buyers">${fmtNum(r.uniqueBuyers)}</span></div>`;
     })
     .join("\n      ");

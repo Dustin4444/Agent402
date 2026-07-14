@@ -839,14 +839,14 @@ app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerInte
 app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPage(BASE_URL, CATALOG)));
 // Live consolidated revenue view — every rail's wallet on one page instead
 // of one explorer tab per chain. Server-side reads with a 60s module cache;
-// individual rail failures degrade to "unavailable" without a 501.
+// individual rail failures degrade to "unavailable" without a 500.
 const revenueWallets = () => ({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null, algorandWallet: (process.env.ALGORAND_WALLET_ADDRESS || "").trim() || null });
 app.get("/api/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
     res.set("Cache-Control", "public, max-age=30").json({ ...snap, allTime: ledgerSummary(revenueWallets()), sales: salesSummary() });
   } catch (e) {
-    res.status(501).json({ error: "revenue snapshot failed", detail: String(e?.message || e).slice(0, 120) });
+    res.status(500).json({ error: "revenue snapshot failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
 app.get("/revenue", async (_req, res) => {
@@ -854,7 +854,7 @@ app.get("/revenue", async (_req, res) => {
     const snap = await revenueSnapshot(revenueWallets());
     res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), sales: salesSummary() }));
   } catch (e) {
-    res.status(501).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
+    res.status(500).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
   }
 });
 // Sales ledger — what external wallets actually buy, by name. Free and
@@ -864,7 +864,7 @@ app.get("/api/sales", (_req, res) => {
   try {
     res.set("Cache-Control", "public, max-age=60").json(salesSummary());
   } catch (err) {
-    res.status(501).json({ error: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -874,7 +874,7 @@ app.get("/api/x402-economy", async (_req, res) => {
   try {
     res.set("Cache-Control", "public, max-age=300").json(await x402EconomySnapshot());
   } catch (e) {
-    res.status(501).json({ error: "economy snapshot failed", detail: String(e?.message || e).slice(0, 120) });
+    res.status(500).json({ error: "economy snapshot failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
 // The standalone Observatory page folded into the marketplace's "The economy,
@@ -975,7 +975,7 @@ app.post("/api/tollbooth/waitlist", async (req, res) => {
     ip,
     ua: (req.get("user-agent") || "").toString(),
   });
-  if (!r.ok) return res.status(501).json({ ok: false, error: "insert-failed" });
+  if (!r.ok) return res.status(500).json({ ok: false, error: "insert-failed" });
   res.json({ ok: true, id: r.id });
 });
 
@@ -1171,7 +1171,7 @@ app.get("/api/selfcheck", async (_req, res) => {
   try {
     res.json({ ...(await selfCheckInFlight), cached: false });
   } catch {
-    res.status(501).json({ ok: false, error: "selfcheck failed to run" });
+    res.status(500).json({ ok: false, error: "selfcheck failed to run" });
   }
 });
 // Stripe Agentic Commerce Protocol (ACP) — lets AI agents on Stripe's payment
@@ -1225,16 +1225,16 @@ const findCachePolicy = CACHEABLE_ROUTES[findCachePath];
 // message we already serialize to the response body. No body, no IP, no UA.
 // 4xx = caller sent bad input; 5xx = our tool or its upstream broke.
 function logToolError(slug, status, message, shape, synthetic, probe) {
-  const klass = status >= 501 ? "5xx" : status >= 400 ? "4xx" : "err";
+  const klass = status >= 500 ? "5xx" : status >= 400 ? "4xx" : "err";
   // Probe 4xx = an empty-input scanner sweeping the catalog and every tool
   // correctly rejecting it — expected behavior, not an error. An indexer sweep
   // of the full catalog (1,432 entries at the time) emitted 1,432 [err] lines
-  // in ~10s (2026-07-13), tripping Railway's 501 logs/sec cap and DROPPING
+  // in ~10s (2026-07-13), tripping Railway's 500 logs/sec cap and DROPPING
   // real log lines. Skip the console
   // line for those (PostHog still captures the probe-tagged event for
   // dashboards); probe 5xx still logs — a server bug is our bug no matter who
   // triggered it.
-  const skipConsole = probe && status < 501;
+  const skipConsole = probe && status < 500;
   // Log the request's TOP-LEVEL KEYS (no values, no IPs, no payment info) on
   // 4xx so we can spot shape-mismatch patterns the schema didn't anticipate.
   // Keys are bounded — privacy-safe and small.
@@ -1304,7 +1304,7 @@ async function serveCachedDiscovery(path, policy, input, computeFn, analyticsSlu
     res.json(result);
   } catch (err) {
     errored = true;
-    status = err.statusCode || 501;
+    status = err.statusCode || 500;
     logToolError(analyticsSlug, status, err.message, undefined, synthetic);
     res.status(status).json({ error: err.message });
   } finally {
@@ -1337,7 +1337,7 @@ app.post("/api/wish", (req, res) => {
     const result = recordWish({ need, context, source: "api", ip: req.ip || "?" });
     res.json(result);
   } catch (err) {
-    const status = err.statusCode || 501;
+    const status = err.statusCode || 500;
     res.status(status).json({ error: err.message });
   }
 });
@@ -1361,7 +1361,7 @@ const indexCtx = () => ({
   toolCount: Object.keys(CATALOG).length,
   walletName: WALLET_ENS,
 });
-// Snapshot memo. indexSnapshot iterates the full CATALOG (501 endpoints) and the
+// Snapshot memo. indexSnapshot iterates the full CATALOG (500 endpoints) and the
 // crawler's seller cache; building it costs hundreds of ms and was being done
 // on every request. Cache for 30s with a sync read + background refresh so the
 // hot path is a property lookup. Crawler refreshes still propagate within 30s.
@@ -1452,7 +1452,7 @@ const STELLAR_STRKEY_RE = /^G[A-Z2-7]{55}$/;
 const stellarActivityByWallet = new Map(); // wallet -> { at, value, inFlight }
 async function getStellarActivityFor(wallet) {
   if (!wallet || !STELLAR_STRKEY_RE.test(wallet)) return null;
-  if (stellarActivityByWallet.size > 501) stellarActivityByWallet.clear(); // safety sweep
+  if (stellarActivityByWallet.size > 500) stellarActivityByWallet.clear(); // safety sweep
   let entry = stellarActivityByWallet.get(wallet);
   if (entry && !entry.inFlight && Date.now() - entry.at < STELLAR_ACTIVITY_TTL_MS) return entry.value;
   if (!entry || !entry.inFlight) {
@@ -1492,7 +1492,7 @@ app.get("/stellar", async (req, res) => {
       : null;
     htmlCache(res, 120, 600).send(stellarPage(BASE_URL, { snapshot, rail, activity, selectedSeller, stellarWallet: selfWallet || undefined }));
   } catch (e) {
-    res.status(501).type("text/plain").send("temporarily unavailable");
+    res.status(500).type("text/plain").send("temporarily unavailable");
   }
 });
 // /algorand's receipt strip reuses algorandRail with the same 60s cache
@@ -1531,7 +1531,7 @@ const ALGORAND_STRKEY_RE = /^[A-Z2-7]{58}$/;
 const algorandActivityByWallet = new Map(); // wallet -> { at, value, inFlight }
 async function getAlgorandActivityFor(wallet) {
   if (!wallet || !ALGORAND_STRKEY_RE.test(wallet)) return null;
-  if (algorandActivityByWallet.size > 501) algorandActivityByWallet.clear(); // safety sweep
+  if (algorandActivityByWallet.size > 500) algorandActivityByWallet.clear(); // safety sweep
   let entry = algorandActivityByWallet.get(wallet);
   if (entry && !entry.inFlight && Date.now() - entry.at < ALGORAND_ACTIVITY_TTL_MS) return entry.value;
   if (!entry || !entry.inFlight) {
@@ -1571,13 +1571,13 @@ app.get("/algorand", async (req, res) => {
       : null;
     htmlCache(res, 120, 600).send(algorandPage(BASE_URL, { snapshot, rail, activity, selectedSeller, algorandWallet: selfWallet || undefined }));
   } catch (e) {
-    res.status(501).type("text/plain").send("temporarily unavailable");
+    res.status(500).type("text/plain").send("temporarily unavailable");
   }
 });
 // 30-day activity scan (Transactions/Volume/Buyers cards) for the five
 // snapshot-backed market pages — mirrors getStellarActivityFor/
 // getAlgorandActivityFor EXACTLY in shape (10-min TTL, in-flight dedup,
-// address-shape validated, 501-entry size-capped sweep), one deviation: on a
+// address-shape validated, 500-entry size-capped sweep), one deviation: on a
 // failed refresh this keeps serving the LAST GOOD value instead of nulling
 // it out (these scanners lean on third-party APIs — Alchemy/Blockscout —
 // that are flakier than Horizon/AlgoNode, so a single bad refresh shouldn't
@@ -1618,7 +1618,7 @@ async function scanActivity(chainKey, wallet) {
 async function getActivityForChain(chainKey, wallet) {
   if (!walletShapeOkForChain(chainKey, wallet)) return null;
   const key = `${chainKey}:${wallet}`;
-  if (chainActivityByWallet.size > 501) chainActivityByWallet.clear(); // safety sweep
+  if (chainActivityByWallet.size > 500) chainActivityByWallet.clear(); // safety sweep
   let entry = chainActivityByWallet.get(key);
   if (!entry) { entry = { at: 0, value: null, inFlight: null }; chainActivityByWallet.set(key, entry); }
   const stale = Date.now() - entry.at >= CHAIN_ACTIVITY_TTL_MS;
@@ -1691,7 +1691,7 @@ for (const chainKey of Object.keys(SNAPSHOT_RAIL_LABEL)) {
       const rail = revSnap?.rails?.find((r) => r.rail === SNAPSHOT_RAIL_LABEL[chainKey]) || null;
       htmlCache(res, 120, 600).send(marketPage(chainKey, BASE_URL, { snapshot, rail, activity, selectedSeller, wallet: rail?.wallet || undefined, leaderboardSnap: getLeaderboardSnapshot() }));
     } catch (e) {
-      res.status(501).type("text/plain").send("temporarily unavailable");
+      res.status(500).type("text/plain").send("temporarily unavailable");
     }
   });
 }
@@ -1709,7 +1709,7 @@ app.get("/api/market/:chain/panel", async (req, res) => {
     const html = marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap: getLeaderboardSnapshot() });
     res.set("Cache-Control", "public, max-age=60").json({ html, seller: selectedSeller });
   } catch (e) {
-    res.status(501).json({ error: "temporarily unavailable" });
+    res.status(500).json({ error: "temporarily unavailable" });
   }
 });
 // The canonical all-chains marketplace directory — marketPage(null, …), the
@@ -1737,7 +1737,7 @@ app.get("/sell", (_req, res) => {
       sellPage(BASE_URL, { leaderboardSnapshot: getLeaderboardSnapshot(), indexSnapshot: getIndexSnapshot() })
     );
   } catch (e) {
-    res.status(501).type("text/plain").send("temporarily unavailable");
+    res.status(500).type("text/plain").send("temporarily unavailable");
   }
 });
 app.get("/api/index", (_req, res) =>
@@ -1789,7 +1789,7 @@ app.post("/api/route", (req, res) => {
 // sub-millisecond read, never a live Bazaar walk.
 //
 // Query params (all optional):
-//   top      max rows to return (default 25, max 501)
+//   top      max rows to return (default 25, max 500)
 //   include  "all" (default) | "external" (exclude Agent402 — neutral view)
 //   self     override the wallet treated as "self" for include=external
 //   window   requested window hint: "24h" (default — the scan's SPAN_BLOCKS
@@ -1801,7 +1801,7 @@ app.post("/api/route", (req, res) => {
 const SUPPORTED_WINDOWS = new Set(["24h", "7d", "30d", "all"]);
 app.get("/api/leaderboard", (req, res) => {
   const snap = getLeaderboardSnapshot();
-  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 25, 1), 501);
+  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 25, 1), 500);
   const include = req.query.include === "external" ? "external" : "all";
   const self = (req.query.self || WALLET_ADDRESS || "").toLowerCase();
   const requested = String(req.query.window || "").toLowerCase();
@@ -1856,7 +1856,7 @@ const fontB64 = (f) => readFileSync(new URL(`../assets/fonts/${f}`, import.meta.
 // render-blocking third-party Google Fonts stylesheet (worth ~1.9s of mobile
 // render-block + a cross-origin request chain) and gives repeat visits a free
 // cache hit. Filenames are strictly validated — no path traversal.
-const FONT_FILE_RE = /^(archivo|spacemono)-(400|501|600|700|800|900)\.woff2$/;
+const FONT_FILE_RE = /^(archivo|spacemono)-(400|500|600|700|800|900)\.woff2$/;
 app.get("/fonts/:file", (req, res) => {
   const file = String(req.params.file || "");
   if (!FONT_FILE_RE.test(file)) return res.status(404).end();
@@ -2191,11 +2191,11 @@ mountMcp(app, CATALOG, {
   onServed: (slug, meta = {}) => {
     recordServedCall(slug, "pow");
     // MCP doesn't carry an HTTP status, so we synthesize one for the split:
-    // 200 on success, 501 on error (no separate 4xx classification — MCP
+    // 200 on success, 500 on error (no separate 4xx classification — MCP
     // tool-call errors come back in-band, not as transport-level failures).
-    const status = meta.errored ? (meta.statusCode | 0 || 501) : 200;
+    const status = meta.errored ? (meta.statusCode | 0 || 500) : 200;
     // Probe detection: a 4xx with zero input keys = scanning/discovery call.
-    const isProbe = meta.errored && status >= 400 && status < 501
+    const isProbe = meta.errored && status >= 400 && status < 500
       && Array.isArray(meta.inputKeys) && meta.inputKeys.filter((k) => k !== "slug").length === 0;
     // MCP transport has no HTTP header surface, so `X-Heartbeat-Token` can't
     // ride along — synthetic is always false here. Pass explicitly so future
@@ -2711,7 +2711,7 @@ const memHandler = (fn) => async (req, res) => {
   try {
     res.json(await fn(req, actor, targetOwner(req, actor)));
   } catch (err) {
-    res.status(err.statusCode || 501).json({ error: err.message });
+    res.status(err.statusCode || 500).json({ error: err.message });
   }
 };
 
@@ -2810,13 +2810,13 @@ for (const tool of ALL_KIT) {
       res.json(result);
     } catch (err) {
       errored = true;
-      status = err.statusCode || 501;
+      status = err.statusCode || 500;
       if (res.headersSent) { try { res.end(); } catch { /* stream already gone */ } return; }
       // Probe detection: a 4xx with zero meaningful input keys is a scanning/
       // discovery call (agent probing endpoints without arguments), not a real
       // schema mismatch. Tag it so the dashboard can exclude it from error rates.
-      const shape = status < 501 ? requestShape(req) : null;
-      if (status >= 400 && status < 501) {
+      const shape = status < 500 ? requestShape(req) : null;
+      if (status >= 400 && status < 500) {
         const meaningfulKeys = (shape || []).filter((k) => !["b:params", "b:input", "b:args", "b:slug"].includes(k));
         probe = meaningfulKeys.length === 0;
       }
@@ -2825,7 +2825,7 @@ for (const tool of ALL_KIT) {
       // example back on 4xx so the LLM has everything it needs to fix the
       // call without searching the catalog again. 5xx stays minimal — the
       // caller did nothing wrong, no schema hint is useful there.
-      if (status >= 400 && status < 501) {
+      if (status >= 400 && status < 500) {
         res.status(status).json({
           error: err.message,
           tool: tool.slug,
@@ -2856,12 +2856,12 @@ app.use((err, req, res, _next) => {
               : err && typeof err.status === "number" ? err.status
               : err && err.type === "entity.too.large" ? 413
               : err && err.type === "entity.parse.failed" ? 400
-              : 501;
+              : 500;
   // Server-side visibility for real faults: a 5xx that reaches this handler
   // was thrown outside any tool handler and would otherwise vanish (the
   // client just sees {"error":"internal"}). Log message + stack to the
   // console only — never to the network.
-  if (status >= 501) {
+  if (status >= 500) {
     console.error(`[unhandled-5xx] ${req.method} ${req.path} → ${status}: ${err?.message || err}`);
     if (err?.stack) console.error(String(err.stack).split("\n").slice(0, 6).join("\n"));
   }

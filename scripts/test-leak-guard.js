@@ -201,7 +201,7 @@ globalThis.fetch = async (url, init) => {
   const echo = { error: { message: `Incorrect API key provided: ${cred}`, type: "invalid_request_error" } };
   if (mode === "auth-echo-401") return jsonRes(401, echo);
   if (mode === "bad-request-echo-400") return jsonRes(400, echo);
-  if (mode === "server-error-echo-501") return jsonRes(500, echo);
+  if (mode === "server-error-echo-500") return jsonRes(500, echo);
   // JSON-RPC error carried in a 200 body — the exact Alchemy shape that slips
   // past HTTP-status shields (the key rides the request URL, echoed here).
   if (mode === "rpc-error-200") return jsonRes(200, { jsonrpc: "2.0", id: 1, error: { code: -32000, message: `Incorrect API key provided: ${cred}` } });
@@ -229,7 +229,7 @@ const HANDLER_CASES = [
   { slug: "answer", handler: bySlug(SEARCH_TOOLS, "answer"), input: { q: "what is x402?" } },
 ];
 
-const MODES = ["auth-echo-401", "bad-request-echo-400", "server-error-echo-501", "network-error"];
+const MODES = ["auth-echo-401", "bad-request-echo-400", "server-error-echo-500", "network-error"];
 
 for (const { slug, handler, input } of HANDLER_CASES) {
   for (const m of MODES) {
@@ -245,7 +245,7 @@ for (const { slug, handler, input } of HANDLER_CASES) {
     if (leaked) console.error(`  LEAKED >>> ${blob.slice(0, 300)}`);
     ok(sawCanaryCred, `${slug} [${m}] mock upstream actually received the credential (test validity)`);
     // Upstream failures must surface as clean upstream-attributed errors,
-    // never a raw 501 and never a success.
+    // never a raw 500 and never a success.
     ok(err !== null && [502, 503, 504].includes(err.statusCode), `${slug} [${m}] clean 502/503/504 (got ${err ? err.statusCode : "no error"})`);
   }
 }
@@ -288,7 +288,7 @@ for (const { slug, handler, input } of NON_AI_CASES) {
 // scrubs an Alchemy-key-bearing error string directly (regression-locks the
 // fix against a future BASE_RPCS reorder that would make it the surviving err).
 {
-  mode = "server-error-echo-501";
+  mode = "server-error-echo-500";
   sawCanaryCred = false;
   const b20 = bySlug(B20_TOOLS, "b20-activation-check");
   let out, err = null;

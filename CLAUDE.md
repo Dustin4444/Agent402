@@ -1,6 +1,6 @@
 # Agent402.Tools — project memory for Claude Code
 
-Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 501 deterministic
+Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 500+ deterministic
 web tools an AI agent can call and pay for per request (USDC on Base via the x402
 protocol, or free via proof-of-work). It's two-sided — it also ships
 `agent402-tollbooth` (pay-per-crawl for site owners) and `agent402-client` (a buyer SDK).
@@ -32,7 +32,7 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
   "answers its own example" CI check (`scripts/test-all.js`).
 - Pure-CPU tools are PoW-eligible (free tier) automatically unless in `WALLET_ONLY_SLUGS`.
 - **Catalog floor: 400 entries, CI-checked by `sync-count.js --check`** (counts derive live from the booted server, never from a doc). No upper bound — additions must meet the bar: answers its own example, priced to market, live-verified.
-- **After adding/removing tools, run `node scripts/sync-count.js`** to update the total-count string across the ~60 static surfaces (README, wiki, docs, adapters). CI runs `sync-count.js --check` and fails on drift. Runtime surfaces (`/api/pricing`, `/openapi.json`, `docs.js`) already derive the count — leave those.
+- **Counts on marketing/static surfaces are evergreen — “500+ tools”, never an exact number** (README, wiki, docs, adapters, package descriptions, served-page copy). Adding tools requires NO doc sweep. `node scripts/sync-count.js` (and `--check` in CI) verifies, live from the booted server: the 400-entry floor, that the “500+” claim is honest (total ≥ 500), and that the README H1 still carries “500+ tools”. The old repo-wide numeric rewrite is RETIRED (it once corrupted HTTP 500s/font-weights/prices — see sync-count.js header); never reintroduce it. Runtime surfaces (`/api/pricing`, `/openapi.json`, `/health`, `docs.js`) derive the exact count — leave those exact.
 - Memory tools (`/api/memory*`) are wallet-keyed (payment = identity), routed via `memHandler`, and must be in `WALLET_ONLY_SLUGS`. Per-namespace
   quotas: 10k keys (`MEMORY_MAX_NS_KEYS`, call-time read, default 10000) AND a 32MB
   total-value byte budget (`MEMORY_MAX_NS_BYTES`, call-time read); both return **413** when
@@ -156,8 +156,8 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   procedure: verify OpenRouter's audio API with one curl from a keyed machine
   (`.github/workflows/openrouter-tts-probe.yml` is dispatchable from main and probes
   candidate model ids); on a 200, set `OPENROUTER_TTS_ENABLED=true` on Railway, re-add the
-  llm-speech canary leg in `scripts/paid-canary.js`, run `node scripts/sync-count.js`
-  (count +1), and re-run `[bazaar-register]`.
+  llm-speech canary leg in `scripts/paid-canary.js` (marketing counts are evergreen
+  “500+” — no count sweep needed), and re-run `[bazaar-register]`.
 - OpenRouter account top-up is manual (their programmatic top-up API is deprecated). If a
   "Gateway credits LOW" issue opens, top up the account; the alarm auto-closes the issue
   once `/api/gateway-status` reports `ok` again.

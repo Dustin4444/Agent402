@@ -82,7 +82,7 @@ ok(showAll.includes("Seller 150"), "show-all: every filtered seller renders with
 ok(/24H USDC/.test(capped), "columns: header uses the leaderboard's real window label (24h), not a hardcoded 7D");
 ok(!/7D USDC/.test(capped), "columns: does not fake a 7-day window the snapshot never scanned");
 ok(/\$12\.50/.test(capped), "columns: matched seller shows real USDC settled");
-ok(/>501</.test(capped), "columns: matched seller shows real call count");
+ok(/>500</.test(capped), "columns: matched seller shows real call count");
 
 // Unmatched seller (e.g. Seller 3, toolCount 3, no leaderboard row) must show
 // "-" for both new columns, never a fabricated $0 / 0.
@@ -98,7 +98,7 @@ if (seller3RowMatch) {
 // --- per-operator revenue attribution (no duplicate $ across shared-wallet aliases) ---
 // One operator (leaderboard row seller1) crawled under three origins: its
 // homepage plus two preview-deploy aliases. Only the primary (homepage) origin
-// must show the $12.50 / 501; the aliases show "-" (revenue counted on the
+// must show the $12.50 / 500; the aliases show "-" (revenue counted on the
 // primary), never the operator's total repeated.
 {
   const primary = { origin: "https://seller1.example", displayName: "Seller 1", homepage: "https://seller1.example", network: "base", toolCount: 40, fetchedAt: Date.now(), local: false };

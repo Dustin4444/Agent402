@@ -99,7 +99,7 @@ ok(cmpRes.results[0].outputBytes <= cmpRes.results[1].outputBytes, "compress-com
 ok(cmpRes.results[0].algorithm === cmpRes.best, "compress-compare: best matches first result");
 
 // ============================================================================
-// Error contracts — every failure mode returns statusCode=400, never 501.
+// Error contracts — every failure mode returns statusCode=400, never 500.
 // ============================================================================
 throws(() => gzip.handler({}), 400, "gzip: missing input → 400");
 throws(() => gzip.handler({ input: 42 }), 400, "gzip: non-string input → 400");

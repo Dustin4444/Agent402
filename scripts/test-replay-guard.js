@@ -78,7 +78,7 @@ function evmCred({ network = "eip155:8453", nonce = "0xabc", from = "0x" + "1".r
   const k = "n:ttl";
   g.begin(k, 0);
   g.settle(k, 0);
-  ok(g.begin(k, 501) === "consumed", "within TTL → still consumed");
+  ok(g.begin(k, 500) === "consumed", "within TTL → still consumed");
   ok(g.begin(k, 5000) === "ok", "past TTL → pruned, key reusable (safe: on-chain nonce still dead)");
 }
 {

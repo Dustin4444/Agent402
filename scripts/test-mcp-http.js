@@ -38,7 +38,7 @@ const list = await rpc("tools/list", {});
 const names = (list.result?.tools ?? []).map((t) => t.name).sort();
 // The connector exposes a deliberately TIGHT, curated 15-tool surface: MCP
 // directories (Glama) score a well-scoped server at 3-15 tools, and the full
-// 501-tool catalog lives behind search_tools/find_tool/call_tool by design.
+// 500-tool catalog lives behind search_tools/find_tool/call_tool by design.
 const EXPECTED_15 = [
   "search_tools", "find_tool", "call_tool", "payment_info",
   "hash", "unit_convert", "qr", "json_format", "jwt_decode", "base64", "uuid", "csv_to_json", "markdown_to_html",

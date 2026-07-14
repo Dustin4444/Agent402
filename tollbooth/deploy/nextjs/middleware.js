@@ -23,7 +23,7 @@ import { createEdgeTollbooth, httpStatsSink } from "agent402-tollbooth/edge";
 // A stable secret is REQUIRED at the edge (PoW tokens are HMAC-signed and must
 // verify across stateless invocations). Set TOLLBOOTH_SECRET in your Vercel
 // project env (Settings → Environment Variables) — any long random string.
-// If it's missing we fail OPEN (let everyone through) rather than 501 the whole
+// If it's missing we fail OPEN (let everyone through) rather than 500 the whole
 // site — including your human visitors. The warning makes the misconfig loud.
 const statsSink = process.env.TOLLBOOTH_STATS_URL
   ? httpStatsSink(process.env.TOLLBOOTH_STATS_URL, { token: process.env.TOLLBOOTH_STATS_TOKEN })

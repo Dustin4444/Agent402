@@ -154,7 +154,7 @@ ok(typeof farFromNamed.name === "string" && farFromNamed.distance > 0,
    "name: arbitrary hex finds *some* nearest name with distance > 0");
 
 // ============================================================================
-// Error contracts — every failure mode returns statusCode=400, never 501.
+// Error contracts — every failure mode returns statusCode=400, never 500.
 // ============================================================================
 throws(() => convert.handler({}), 400, "convert: missing color → 400");
 throws(() => convert.handler({ color: 42 }), 400, "convert: non-string color → 400");

@@ -52,7 +52,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
 
   // Happy path — query ranked across sellers, include=all.
   const res = await post({ query: "ocr image", top: 3, include: "all" });

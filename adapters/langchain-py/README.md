@@ -1,6 +1,6 @@
 # agent402-langchain (Python)
 
-Turn [Agent402](https://agent402.tools)'s catalog — 501 strong: 400 x402
+Turn [Agent402](https://agent402.tools)'s catalog — 500+ strong: 400 x402
 pay-per-call tools + 100 skill packs — into **LangChain** and **CrewAI** tools
 for Python agents.
 
@@ -19,7 +19,7 @@ toolkit = Agent402Toolkit(base_url="https://agent402.tools")
 tools = toolkit.get_tools()   # four meta-tools your agent can call
 ```
 
-It exposes **four meta-tools** rather than 501 individual ones (frameworks and
+It exposes **four meta-tools** rather than 500+ individual ones (frameworks and
 LLMs both choke on thousands of tools):
 
 | Tool | What it does |

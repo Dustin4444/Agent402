@@ -74,7 +74,7 @@ async function fetchJson(url, label, init) {
     // Redact the FULL body before slicing — the Alchemy key rides the request
     // URL and an upstream error body could reflect it.
     const body = redactSecrets(await res.text().catch(() => "")).slice(0, 240);
-    throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 501 ? 502 : res.status);
+    throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 500 ? 502 : res.status);
   }
   return res.json();
 }

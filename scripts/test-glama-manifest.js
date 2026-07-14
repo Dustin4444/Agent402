@@ -44,7 +44,7 @@ const boot = (port, env) => {
 };
 
 const waitUp = async (port) => {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`http://localhost:${port}/health`)).ok) return true; } catch {} await sleep(501); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`http://localhost:${port}/health`)).ok) return true; } catch {} await sleep(500); }
   return false;
 };
 

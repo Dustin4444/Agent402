@@ -314,7 +314,7 @@ export function classifyResult({ status, shapeOk, transportError } = {}) {
   if (transportError) return "unreachable";
   if (status === 200) return shapeOk === true ? "settled" : "bad-shape";
   if (status === 402) return "unsettled";   // x402 payment did not complete
-  if (status >= 501) return "upstream";     // PAID (settles pre-handler); upstream data source errored
+  if (status >= 500) return "upstream";     // PAID (settles pre-handler); upstream data source errored
   return "request-error";                   // other 4xx — tool-specific, not a buying break
 }
 
@@ -381,7 +381,7 @@ async function main() {
   // recorded as an "upstream" warning (payment still settled), not a buying break.
   async function payOnceWithRetryOn5xx(url, init) {
     const first = await payFetch(url, init);
-    if (first.status < 501 || first.status > 599) return first;
+    if (first.status < 500 || first.status > 599) return first;
     await first.text().catch(() => "");
     console.warn(`  retry ${init.method} ${url} after HTTP ${first.status} (10s backoff)`);
     await new Promise((r) => setTimeout(r, 10000));

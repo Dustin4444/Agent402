@@ -42,7 +42,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
 
   // /api/pow info — pick a known compute-payable slug from eligibleTools.
   const infoRes = await fetch(`${BASE}/api/pow`);

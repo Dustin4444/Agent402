@@ -482,7 +482,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(gpt5Full.max_tokens === 8192, "a cheap frontier model with the same input keeps the full tier cap");
 
   // Worst-case arithmetic: the clamped opus request must cost under the price.
-  const worstUsd = (58_501 / 3 / 1e6) * 15 + (opusFull.max_tokens / 1e6) * 75;
+  const worstUsd = (58_500 / 3 / 1e6) * 15 + (opusFull.max_tokens / 1e6) * 75;
   ok(worstUsd < 0.5, `clamped opus worst case stays under the $0.50 price (est $${worstUsd.toFixed(3)})`);
 
   // Token-dense text is priced by TOKENS, not chars — CJK that fits the char

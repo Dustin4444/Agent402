@@ -41,7 +41,7 @@ const kvStore = (kv) => ({
 export default {
   async fetch(request, env, ctx) {
     if (!env.TOLLBOOTH_SECRET) {
-      return new Response("Tollbooth misconfigured: set TOLLBOOTH_SECRET (wrangler secret put TOLLBOOTH_SECRET)", { status: 501 });
+      return new Response("Tollbooth misconfigured: set TOLLBOOTH_SECRET (wrangler secret put TOLLBOOTH_SECRET)", { status: 500 });
     }
     if (!env.TOLLBOOTH_KV) {
       // No durable store → replay protection is per-isolate only; a solved token
@@ -92,7 +92,7 @@ export default {
 
     // Allowed → proxy to the origin.
     const upstream = env.TOLLBOOTH_UPSTREAM;
-    if (!upstream) return new Response("Tollbooth: set TOLLBOOTH_UPSTREAM to your origin", { status: 501 });
+    if (!upstream) return new Response("Tollbooth: set TOLLBOOTH_UPSTREAM to your origin", { status: 500 });
     const target = new URL(request.url);
     const origin = new URL(upstream);
     target.protocol = origin.protocol;

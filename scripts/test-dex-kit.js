@@ -35,7 +35,7 @@ for (const t of DEX_TOOLS) {
 ok(pad32("0x1") === "0".repeat(63) + "1", "pad32: 0x1 → 63 zeros + 1");
 ok(pad32("ABCD").length === 64, "pad32: produces 64-char output");
 ok(encAddr("0x" + "a".repeat(40)).length === 64, "encAddr: 64 chars");
-ok(encUint(501) === "0".repeat(61) + "1f4", "encUint(501): hex 1f4 right-aligned");
+ok(encUint(500) === "0".repeat(61) + "1f4", "encUint(500): hex 1f4 right-aligned");
 ok(encUint(3000).endsWith("bb8"), "encUint(3000): hex bb8");
 
 ok(slots("0x" + "a".repeat(128)).length === 2, "slots: splits 256 bytes → 2 slots");
@@ -90,7 +90,7 @@ await throws(h("dex-pair")({}), 400, "dex-pair: missing tokenA");
 await throws(h("dex-pair")({ tokenA: "0x" + "a".repeat(40) }), 400, "dex-pair: missing tokenB");
 await throws(h("dex-pair")({ tokenA: "0x" + "a".repeat(40), tokenB: "0x" + "b".repeat(40) }), 400, "dex-pair: missing fee");
 await throws(h("dex-pair")({ tokenA: "0x" + "a".repeat(40), tokenB: "0x" + "b".repeat(40), fee: 1234 }), 400, "dex-pair: bad fee");
-await throws(h("dex-pair")({ tokenA: "not-an-address", tokenB: "0x" + "b".repeat(40), fee: 501 }), 400, "dex-pair: bad tokenA");
+await throws(h("dex-pair")({ tokenA: "not-an-address", tokenB: "0x" + "b".repeat(40), fee: 500 }), 400, "dex-pair: bad tokenA");
 await throws(h("dex-pair")({ tokenA: "0x" + "a".repeat(40), tokenB: "0x" + "b".repeat(40), fee: 500, network: "fakechain" }), 400, "dex-pair: bad network");
 
 // dex-pool
@@ -110,7 +110,7 @@ await throws(h("dex-quote")({ poolAddress: "0x" + "a".repeat(40), amountIn: 1, z
 // ----------------------------------------------------------------------------
 const stashedKey = process.env.ALCHEMY_API_KEY;
 delete process.env.ALCHEMY_API_KEY;
-await throws(h("dex-pair")({ tokenA: "0x" + "a".repeat(40), tokenB: "0x" + "b".repeat(40), fee: 501 }), 503, "dex-pair: 503 without key");
+await throws(h("dex-pair")({ tokenA: "0x" + "a".repeat(40), tokenB: "0x" + "b".repeat(40), fee: 500 }), 503, "dex-pair: 503 without key");
 await throws(h("dex-pool")({ poolAddress: "0x" + "a".repeat(40) }), 503, "dex-pool: 503 without key");
 await throws(h("dex-quote")({ poolAddress: "0x" + "a".repeat(40), amountIn: 1, zeroForOne: true }), 503, "dex-quote: 503 without key");
 if (stashedKey) process.env.ALCHEMY_API_KEY = stashedKey;
@@ -133,7 +133,7 @@ if (process.env.DEX_LIVE_TEST === "1" && process.env.ALCHEMY_API_KEY) {
     ok(/^0x[0-9a-f]{40}$/.test(pair.poolAddress), `live dex-pair: USDC/WETH 0.05% base → ${pair.poolAddress}`);
     if (pair.poolAddress !== "0x0000000000000000000000000000000000000000") {
       const pool = await h("dex-pool")({ poolAddress: pair.poolAddress, network: "base" });
-      ok(pool.fee === 500, `live dex-pool: fee=501 (got ${pool.fee})`);
+      ok(pool.fee === 500, `live dex-pool: fee=500 (got ${pool.fee})`);
       ok(typeof pool.spotPrice_1per0 === "number" && pool.spotPrice_1per0 > 0, `live dex-pool: spot price > 0 (got ${pool.spotPrice_1per0})`);
       const quote = await h("dex-quote")({ poolAddress: pair.poolAddress, amountIn: 1, zeroForOne: true, network: "base" });
       ok(quote.amountOut > 0, `live dex-quote: 1 token0 → ${quote.amountOut} token1`);

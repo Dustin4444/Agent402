@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Re-verify the entire attack surface of the 501-entry catalog and cover everything added since the 2026-06-25 audit, fixing each confirmed finding with a permanent regression test in the same pass.
+**Goal:** Re-verify the entire attack surface of the 500-entry catalog and cover everything added since the 2026-06-25 audit, fixing each confirmed finding with a permanent regression test in the same pass.
 
 **Architecture:** Seven attack-domain tasks (D1–D7). Each runs a find→verify→fix loop: enumerate the surface, adversarially probe, verify a finding is real with a concrete repro, then fix and lock it with a regression test wired into `.github/workflows/deploy.yml`. Every task ALSO adds pre-specified *invariant* tests (below) that assert known-good behavior holds — these catch regressions even where the audit finds nothing. Findings are discovered, so a task's discovery loop is open-ended, but its invariant tests and surface are fully specified here.
 
@@ -71,7 +71,7 @@ catch (e) { console.error("FAIL - blocked a public host", e.message); process.ex
 ### Task 2 (D2): Input validation / injection / DoS
 
 **Files:**
-- Audit: all 501 handlers, concentrated on parsers/regex/recursion in `kit.js, kit2.js, data-kit.js, convert-gen.js, pdf-kit.js, enrich-kit.js, web-kit.js, contract-kit.js`.
+- Audit: all 500 handlers, concentrated on parsers/regex/recursion in `kit.js, kit2.js, data-kit.js, convert-gen.js, pdf-kit.js, enrich-kit.js, web-kit.js, contract-kit.js`.
 - Test: `scripts/test-security.js` (EXISTS — extend it).
 
 **Interfaces:**

@@ -19,9 +19,9 @@ const postRaw = (p, b) => fetch(`${B}/api/${p}`, { method: "POST", headers: { "C
 const get = async (p, q) => (await fetch(`${B}/api/${p}?${new URLSearchParams(q)}`)).json();
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch {} await sleep(501); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch {} await sleep(500); }
 
-  ok((await post("duration", { value: "501ms" })).seconds === 0.5, "duration: 501ms -> 0.5s (ms no longer dead regex branch)");
+  ok((await post("duration", { value: "500ms" })).seconds === 0.5, "duration: 500ms -> 0.5s (ms no longer dead regex branch)");
   ok((await post("mod-arithmetic", { op: "mod", a: "9007199254740993", m: "10" })).result === "3", "mod-arithmetic: big int via string is exact");
   ok((await post("gcd-lcm", { a: 999999937, b: 999999893 })).lcm === "999999830000006741", "gcd-lcm: exact past 2^53");
   ok((await get("timezone-convert", { datetime: "2026-01-15T09:00:00", from: "Europe/London", to: "America/New_York" })).utc === "2026-01-15T09:00:00.000Z", "timezone-convert: naive datetime read in the from-zone");
@@ -45,7 +45,7 @@ try {
   ok((await post("braille-convert", { text: br.result, decode: true })).result === "1a", "braille-convert: letter sign ends number mode (1a round-trips)");
   const wf = await post("word-frequency", { text: "the the the cat cat dog" });
   ok(wf.totalWords === 3 && wf.uniqueWords === 2, "word-frequency: consistent denominators (stop words excluded from both)");
-  ok((await post("readability-score", { text: "100 200 300 400 501 600." })).fleschReadingEase <= 122, "readability: numeric tokens count as syllables (Flesch in range)");
+  ok((await post("readability-score", { text: "100 200 300 400 500 600." })).fleschReadingEase <= 122, "readability: numeric tokens count as syllables (Flesch in range)");
   ok((await post("phone-format", { phone: "9188888888", country: "IN" })).valid === true, "phone-format: keeps a national number that starts with the country digits");
 
   console.log(`\n${failed ? "FAILED" : "OK"}: ${pass} passed, ${failed} failed`);

@@ -73,7 +73,7 @@ async function fetchJson(url, label, init) {
       ? JSON.stringify(await res.json().catch(() => null))
       : await res.text().catch(() => "");
     const body = redactSecrets(raw).slice(0, 240);
-    throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 501 ? 502 : res.status);
+    throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 500 ? 502 : res.status);
   }
   return res.json();
 }

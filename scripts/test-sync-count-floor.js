@@ -3,7 +3,7 @@
 // at or above 400 total entries (no upper bound — growth is fine), and the CI
 // failure message must name the floor and the actual count. No network, no
 // server — importing sync-count.js must NOT boot anything (the is-main guard).
-import { floorViolation, CATALOG_FLOOR } from "./sync-count.js";
+import { floorViolation, brandViolation, CATALOG_FLOOR, BRAND_FLOOR } from "./sync-count.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -15,8 +15,8 @@ ok(true, "importing sync-count.js resolves without booting the server (is-main g
 // The floor constant itself is part of the contract
 ok(CATALOG_FLOOR === 400, "CATALOG_FLOOR is 400");
 
-// Today's catalog size → null (501 = 400 tools + 100 packs)
-ok(floorViolation(501) === null, "floorViolation(501) → null (today's catalog)");
+// Today's catalog size → null (500 = 400 tools + 100 packs)
+ok(floorViolation(500) === null, "floorViolation(500) → null (today's catalog)");
 
 // Exactly at the floor → null (the floor is inclusive)
 ok(floorViolation(400) === null, "floorViolation(400) → null (at the floor)");
@@ -29,11 +29,20 @@ ok(typeof under === "string" && under.includes("(got 399)"), "below-floor messag
 ok(typeof under === "string" && under.includes("a kit is probably missing"), "below-floor message says a kit is probably missing");
 
 // Growth is welcome — NO upper bound
-ok(floorViolation(600) === null, "floorViolation(600) → null (growth beyond 501 is fine)");
+ok(floorViolation(600) === null, "floorViolation(600) → null (growth beyond 500 is fine)");
 ok(floorViolation(1500) === null, "floorViolation(1500) → null (no ceiling at all)");
 
 // Degenerate catastrophes still fail
 ok(typeof floorViolation(0) === "string", "floorViolation(0) → violation (empty catalog)");
+
+// The evergreen "500+" brand claim: honest at/above 500, violation below.
+ok(BRAND_FLOOR === 500, "BRAND_FLOOR is 500");
+ok(brandViolation(500) === null, "brandViolation(500) → null (claim exactly met)");
+ok(brandViolation(501) === null, "brandViolation(501) → null (claim honest as the catalog grows)");
+ok(brandViolation(1500) === null, "brandViolation(1500) → null (no ceiling)");
+const dishonest = brandViolation(499);
+ok(typeof dishonest === "string" && dishonest.includes('"500+"'), "brandViolation(499) names the public claim");
+ok(typeof dishonest === "string" && dishonest.includes("499"), "brandViolation(499) includes the got-count");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

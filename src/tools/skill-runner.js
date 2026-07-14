@@ -190,7 +190,7 @@ export const PACK_PRICES = {
   "xml-json":              0.05,
   "checksum-suite":        0.05,
   "validator-suite":       0.05,
-  // "The 501" phase-2 packs (2026-07): whole-agent jobs on the new
+  // "The 500" phase-2 packs (2026-07): whole-agent jobs on the new
   // contract / finance / enrich / web / conversion tools. Priced per the
   // additions shortlist (sum-of-tools × tier rule).
   "contract-audit":        0.15, // 5-tool chain: contract-source + solidity-scan + selector-lookup + address-label + tx-simulate
@@ -831,12 +831,12 @@ export const PACK_STEPS = {
           cashflows.push(target);
           return { cashflows, discountRate: 0.03 };
       } },
-      // Back-solve required return: with a $501/mo contribution, what rate
+      // Back-solve required return: with a $500/mo contribution, what rate
       // hits the target? IRR of [-monthly×12 × N years, +target].
       { slug: "irr",               mapInput: (a) => {
           const { target, years } = parseGoalString(a.goal);
           const cashflows = [];
-          for (let i = 0; i < years; i++) cashflows.push(-501 * 12);
+          for (let i = 0; i < years; i++) cashflows.push(-500 * 12);
           cashflows.push(target);
           return { cashflows };
       } },
@@ -2017,7 +2017,7 @@ export const PACK_STEPS = {
   },
 
   // ──────────────────────────────────────────────────────────────────────
-  // "The 501" phase-2 packs (2026-07): whole-agent jobs on the new
+  // "The 500" phase-2 packs (2026-07): whole-agent jobs on the new
   // contract / finance / enrich / web / conversion tools.
   // ──────────────────────────────────────────────────────────────────────
 

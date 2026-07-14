@@ -452,7 +452,7 @@ export const CONTRACT_TOOLS = [
           note: "Contract is not verified on Sourcify for this chain — no source available.",
         };
       }
-      // Cap the response: trim gigantic source trees rather than 501.
+      // Cap the response: trim gigantic source trees rather than 500.
       const MAX_TOTAL = 800_000;
       const sources = {};
       let total = 0, truncated = false;

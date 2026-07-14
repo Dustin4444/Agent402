@@ -147,7 +147,7 @@ All errors return a JSON body with an `error` string field.
 | `402` | Payment required -- x402 quote included in body |
 | `404` | Tool not found |
 | `429` | Rate limited -- retry after the `Retry-After` header value |
-| `501` | Internal server error |
+| `500` | Internal server error |
 | `502` | Bad gateway -- upstream dependency failed |
 | `503` | Service unavailable -- upstream temporarily unreachable |
 | `504` | Gateway timeout -- upstream timed out |
@@ -156,7 +156,7 @@ Handlers throw errors with `.statusCode` set; the server maps these to the appro
 
 ## See also
 
-- [[Tool Catalog]] -- what the 501 tools are and how agents discover them
+- [[Tool Catalog]] -- what the 500+ tools are and how agents discover them
 - [[Paying with x402]] -- USDC payment flow with code examples
 - [[Paying with Compute]] -- proof-of-work protocol and reference solver
 - [[MCP Connector]] -- hosted connector and the `agent402-mcp` npm server

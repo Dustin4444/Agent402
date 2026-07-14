@@ -19,7 +19,7 @@ const DATA_DIR = HAS_DATA_DIR ? "/data" : "/tmp";
 let WISH_FILE = join(DATA_DIR, "wishes.jsonl");
 export const wishStoragePersistent = HAS_DATA_DIR;
 
-const NEED_MAX = 501;
+const NEED_MAX = 500;
 const CONTEXT_MAX = 300;
 const MAX_READ_BYTES = 5 * 1024 * 1024; // 5MB boot-read cap; beyond that, tail only.
 const CLUSTER_CAP = 20_000; // bound in-memory distinct-cluster growth
@@ -161,7 +161,7 @@ function checkRateLimit(ip) {
 
 /**
  * Record a "we don't have this tool" signal. `need` is required free text
- * (max 501 chars); `context` is optional free text (max 300).
+ * (max 500 chars); `context` is optional free text (max 300).
  * `source` is "api" | "mcp" | "find-miss" — find-miss records are implicit
  * (a /api/find or find_tool query that matched nothing useful) and are
  * exempt from the rate limit, since they're not a user directly hitting an
@@ -222,7 +222,7 @@ export function recordWish({ need, context, source, ip } = {}) {
  * esc()'d in case this ever gets rendered on an HTML surface later.
  */
 export function getWishesAggregate({ limit = 200 } = {}) {
-  const cap = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 501);
+  const cap = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
   const rows = [...clusters.entries()]
     .sort((a, b) => b[1].count - a[1].count || b[1].lastSeen - a[1].lastSeen)
     .slice(0, cap)

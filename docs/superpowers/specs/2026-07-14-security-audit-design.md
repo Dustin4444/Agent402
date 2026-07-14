@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-14
 **Status:** Design approved, plan pending
-**Scope:** Re-verify the entire attack surface of the 501-entry catalog (400 tools + 100 skill
+**Scope:** Re-verify the entire attack surface of the 500-entry catalog (400 tools + 100 skill
 packs) and cover the 30 tools + 8 packs added since the last audit (2026-06-25); add a
 pricing/margin dimension the prior audit did not perform.
 
@@ -16,10 +16,10 @@ test in the same pass.
 
 ## Non-goals
 
-- Not a rebuild of functional CI. The answers-own-example sweep (`test-all.js`, all 501), the
+- Not a rebuild of functional CI. The answers-own-example sweep (`test-all.js`, all 500), the
   MCP sweep (`test-mcp-all.js`), and the 26-leg paid canary already prove functional
   correctness. The audit verifies those gates *cover the new tools* and spot-checks new tools
-  live on prod — it does not independently re-test all 501 against upstreams.
+  live on prod — it does not independently re-test all 500 against upstreams.
 - Not a systematic price pass over pure-CPU / free-data tools (zero marginal cost). Those get an
   obvious-error spot-check only.
 - Not an infra/dependency-CVE sweep beyond confirming the known upstream npm advisories
@@ -82,7 +82,7 @@ triage is per call-site, not per file.
 **Regression home:** new `scripts/test-ssrf-guard.js` (extends the existing fetch-guard probe).
 
 ### D2 — Input validation / injection / DoS
-**Surface:** all 501 handlers, but concentrated on parsers and anything with regex, recursion,
+**Surface:** all 500 handlers, but concentrated on parsers and anything with regex, recursion,
 or unbounded input. **Checks:** prototype pollution (all merge/unflatten/set-path paths, not
 just json-flatten), ReDoS (catastrophic-backtracking regex on buyer input), path traversal
 (the github-owner/`..` class already found once), unbounded input → memory/time DoS (size caps

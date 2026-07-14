@@ -18,7 +18,7 @@ const stats = (calls) => ({ recentCalls: calls });
 ok(lastPaidAgeSeconds(stats([{ slug: "transcribe", paidWith: "usdc", at: iso(30) }]), NOW) === 30,
   "age of the newest usdc call is measured");
 ok(lastPaidAgeSeconds(stats([
-  { slug: "hash", paidWith: "usdc", at: iso(501) },
+  { slug: "hash", paidWith: "usdc", at: iso(500) },
   { slug: "transcribe", paidWith: "usdc", at: iso(40) },
 ]), NOW) === 40, "the NEWEST usdc call wins regardless of feed order");
 ok(lastPaidAgeSeconds(stats([
@@ -49,8 +49,8 @@ let mode = "busy-then-quiet";
 let hits = 0;
 const server = createServer((req, res) => {
   hits++;
-  if (mode === "http-501") {
-    res.writeHead(501).end("boom");
+  if (mode === "http-500") {
+    res.writeHead(500).end("boom");
     return;
   }
   // busy for the first two polls, then the last paid call ages out
@@ -77,7 +77,7 @@ r = await runGate({ TARGET_URL: `http://127.0.0.1:${busyServer.address().port}`,
 ok(r.code === 0 && /proceeding anyway/.test(r.out), "sustained traffic → proceeds after max wait with a warning (never strands a deploy)");
 busyServer.close();
 
-hits = 0; mode = "http-501";
+hits = 0; mode = "http-500";
 r = await runGate({ TARGET_URL: base, QUIET_SECS: "60", POLL_SECS: "0.2", MAX_WAIT_SECS: "30" });
 ok(r.code === 0 && /failing OPEN/.test(r.out) && hits >= 4, "unreachable stats fails open after consecutive errors");
 

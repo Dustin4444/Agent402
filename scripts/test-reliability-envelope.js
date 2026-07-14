@@ -40,7 +40,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
 
   const res = await fetch(`${BASE}/api/reliability`);
   ok(res.status === 200, `/api/reliability → 200 (got ${res.status})`);

@@ -78,7 +78,7 @@ function takeAddress(raw, field = "address") {
 function pickFee(value) {
   const f = Number.parseInt(value, 10);
   if (!SUPPORTED_FEES.has(f)) {
-    throw bad(`"fee" must be one of ${[...SUPPORTED_FEES].join(", ")} (100/501/3000/10000 bps)`);
+    throw bad(`"fee" must be one of ${[...SUPPORTED_FEES].join(", ")} (100/500/3000/10000 bps)`);
   }
   return f;
 }

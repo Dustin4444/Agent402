@@ -60,7 +60,7 @@ const AN_EXTRA_CSS = `
 .an-ph h2{margin:0;font-size:1rem;color:var(--accent);font-family:var(--font-body);font-weight:700}
 .an-ph .an-pn{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px;margin-top:2px}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;color:var(--dk-muted);font-weight:501;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:10px 18px;border-bottom:1px solid var(--dark-border)}
+th{text-align:left;color:var(--dk-muted);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:10px 18px;border-bottom:1px solid var(--dark-border)}
 th.num{text-align:right}
 td{padding:10px 18px;border-bottom:1px solid var(--dark-border);color:var(--on-dark);font-family:var(--font-mono);font-size:13px}
 td.num{text-align:right}

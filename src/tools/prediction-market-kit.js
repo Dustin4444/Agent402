@@ -50,7 +50,7 @@ async function fetchJson(url, label) {
   // Retry once on 429/5xx after a short backoff — Kalshi burst-limits per IP
   // (shared egress IPs intermittently 429 a first call) and both venues can
   // 5xx under load. Same pattern as crypto-kit's CoinGecko 429 retry.
-  if (res.status === 429 || res.status >= 501) {
+  if (res.status === 429 || res.status >= 500) {
     await new Promise((r) => setTimeout(r, 2500));
     try {
       const retryRes = await attempt();
@@ -60,7 +60,7 @@ async function fetchJson(url, label) {
   const ct = res.headers.get("content-type") || "";
   if (!res.ok) {
     const body = ct.includes("json") ? JSON.stringify(await res.json().catch(() => null)).slice(0, 240) : (await res.text().catch(() => "")).slice(0, 240);
-    throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 501 ? 502 : res.status);
+    throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 500 ? 502 : res.status);
   }
   if (!ct.includes("json")) {
     throw bad(`${label} upstream returned non-JSON content-type: ${ct}`, 502);
@@ -438,7 +438,7 @@ export const PREDICTION_MARKET_TOOLS = [
           bestAsk: 0.63,
           midPrice: 0.62,
           spread: 0.02,
-          bids: [{ price: 0.61, size: 1000 }, { price: 0.60, size: 501 }],
+          bids: [{ price: 0.61, size: 1000 }, { price: 0.60, size: 500 }],
           asks: [{ price: 0.63, size: 800 }, { price: 0.64, size: 1200 }],
           source: "polymarket-clob",
         },

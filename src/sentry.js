@@ -64,7 +64,7 @@ export function captureToolError({ slug, status, message, shape, synthetic }) {
     Sentry.withScope((scope) => {
       scope.setTag("tool", slug);
       scope.setTag("status", String(status));
-      scope.setTag("errorClass", status >= 501 ? "5xx" : "4xx");
+      scope.setTag("errorClass", status >= 500 ? "5xx" : "4xx");
       if (Array.isArray(shape) && shape.length) {
         scope.setTag("shape", shape.join(","));
       }
@@ -74,7 +74,7 @@ export function captureToolError({ slug, status, message, shape, synthetic }) {
       scope.setTag("synthetic", synthetic ? "true" : "false");
       Sentry.captureMessage(
         `${slug}: ${String(message || "").slice(0, 200)}`,
-        status >= 501 ? "error" : "warning",
+        status >= 500 ? "error" : "warning",
       );
     });
   } catch { /* never throw from telemetry */ }

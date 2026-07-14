@@ -110,7 +110,7 @@ export function capturePostHogToolError({ slug, status, message, shape, syntheti
   capture("tool_error", {
     slug,
     status: Number(status) || 0,
-    errorClass: Number(status) >= 501 ? "5xx" : "4xx",
+    errorClass: Number(status) >= 500 ? "5xx" : "4xx",
     shape: Array.isArray(shape) && shape.length ? shape.join(",") : "",
     // Bounded — message text is never PII (we author all error messages
     // in the kits) but truncating is cheap defense in depth.
@@ -331,7 +331,7 @@ export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthe
 // replacement. Retired routes are also crawler fodder, so captures are
 // capped per rolling hour like discovery; the 410 response itself is never
 // affected.
-const TOOL_GONE_MAX_PER_HOUR = 501;
+const TOOL_GONE_MAX_PER_HOUR = 500;
 let toolGoneWindowStart = 0;
 let toolGoneWindowCount = 0;
 

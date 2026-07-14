@@ -19,7 +19,7 @@ export const LEDGER_HEAD = `<link rel="preload" href="/fonts/archivo-800.woff2" 
 <link rel="preload" href="/fonts/spacemono-400.woff2" as="font" type="font/woff2" crossorigin>
 <style>
 @font-face{font-family:'Archivo';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/archivo-400.woff2) format('woff2')}
-@font-face{font-family:'Archivo';font-style:normal;font-weight:501;font-display:swap;src:url(/fonts/archivo-501.woff2) format('woff2')}
+@font-face{font-family:'Archivo';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/archivo-500.woff2) format('woff2')}
 @font-face{font-family:'Archivo';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/archivo-600.woff2) format('woff2')}
 @font-face{font-family:'Archivo';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/archivo-700.woff2) format('woff2')}
 @font-face{font-family:'Archivo';font-style:normal;font-weight:800;font-display:swap;src:url(/fonts/archivo-800.woff2) format('woff2')}

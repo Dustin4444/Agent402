@@ -14,7 +14,7 @@
 //   4. payment block carries protocol/network/currency (the x402 deal),
 //      altPayment is the PoW summary.
 //   5. categories[] is a non-empty array — homepage chips iterate over it.
-//   6. endpoints[] floor: >= 400 (The 501 era: 462 interim, 501 at launch;
+//   6. endpoints[] floor: >= 400 (The 500 era: 462 interim, 500 at launch;
 //      alarm only on a real catalog collapse).
 //   7. Per-endpoint shape: method, path, price, category, slug, description,
 //      docs, computePayable. These are the columns the listing portals
@@ -45,7 +45,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
 
   const res = await fetch(`${BASE}/api/pricing`);
   ok(res.status === 200, `/api/pricing → 200 (got ${res.status})`);
@@ -73,7 +73,7 @@ try {
   ok(Object.keys(body.categories).length > 0, `categories has >= 1 entry (got ${Object.keys(body.categories).length})`);
 
   // Endpoints floor.
-  ok(Array.isArray(body.endpoints) && body.endpoints.length >= 400, `endpoints has >= 400 entries (got ${body.endpoints?.length}) — The 501 catalog floor`);
+  ok(Array.isArray(body.endpoints) && body.endpoints.length >= 400, `endpoints has >= 400 entries (got ${body.endpoints?.length}) — The 500 catalog floor`);
 
   // Per-endpoint shape. Walk every row so a silent drop on row 847 surfaces.
   let shapeOk = 0;

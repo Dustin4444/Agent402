@@ -91,12 +91,12 @@ await withMockedFetch(fakeResponse({ status: 503 }), async () => {
 });
 ok("upstream 503 → our 502 with retry hint");
 
-// upstream 501 → 502
-await withMockedFetch(fakeResponse({ status: 501 }), async () => {
-  try { await safeFetch(PUBLIC); fail("expected throw on upstream 501"); }
-  catch (e) { if (e.statusCode !== 502) fail(`upstream 501 → expected 502, got ${e.statusCode}`); }
+// upstream 500 → 502
+await withMockedFetch(fakeResponse({ status: 500 }), async () => {
+  try { await safeFetch(PUBLIC); fail("expected throw on upstream 500"); }
+  catch (e) { if (e.statusCode !== 502) fail(`upstream 500 → expected 502, got ${e.statusCode}`); }
 });
-ok("upstream 501 → our 502");
+ok("upstream 500 → our 502");
 
 // happy text: contentType surfaced
 await withMockedFetch(fakeResponse({ status: 200, contentType: "text/html; charset=utf-8", body: "<html>" }), async () => {

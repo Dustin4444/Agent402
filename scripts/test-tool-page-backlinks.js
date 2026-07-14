@@ -40,7 +40,7 @@ const packsContaining = (slug) =>
   SKILL_PACKS.filter((p) => (p.toolSlugs || []).includes(slug)).map((p) => p.slug);
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
 
   // extract is widely re-used across workflows. If this list ever shrinks to
   // <2 packs, swap to another well-covered tool — but extract being in many

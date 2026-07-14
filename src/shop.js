@@ -8,7 +8,7 @@
 // in them; curated lists end up with the one or two right answers.
 //
 // Bundles point at slugs that must exist in CATALOG. If a slug here
-// goes missing the page silently drops the row — better than a 501 —
+// goes missing the page silently drops the row — better than a 500 —
 // and the missing tool shows up as a soft-warning at the top.
 
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";

@@ -458,7 +458,7 @@ export const SKILL_PACKS = [
       "Look at the first few characters before calling anything. \"eyJ\" → almost certainly a JWT (it's base64url for `{\"`). \"H4sI\" → base64-encoded gzip (gzip's 1f 8b magic, base64'd). All hex chars and a multiple-of-2 length → likely hex-encoded bytes. Mostly A-Z/a-z/0-9/+// with optional `=` padding → base64.",
       "If it looks like a JWT, call jwt-decode — returns the header + payload as JSON without verifying the signature. The header tells you the algorithm; the payload is your answer. If decoded successfully but the payload is itself base64'd or gzipped, recurse with this pack.",
       "If the prefix is \"H4sI\" (or starts with bytes 1f 8b after a base64 decode), it's gzipped. Call gunzip with the base64 string directly — outputFormat \"utf8\" if you expect text, \"base64\" if you expect another binary layer.",
-      "Brotli has no fixed magic in the stream, but if you've ruled out gzip and the bytes still don't look like text after base64 decode, try brotli-decompress. Failure is cheap (a 400, not a 501) so this is safe to attempt.",
+      "Brotli has no fixed magic in the stream, but if you've ruled out gzip and the bytes still don't look like text after base64 decode, try brotli-decompress. Failure is cheap (a 400, not a 500) so this is safe to attempt.",
       "Fall back to base64 with mode=\"decode\" — it's the most common wrapper. If the result is human-readable text, you're done; if it looks like more binary, you're peeling another layer (very common: base64(gzip(json))).",
       "If everything is in [0-9a-f] pairs and an even length, use hex with mode=\"decode\". This is how a lot of crypto/hash tooling formats output — sha256 digests, wallet addresses, encryption ciphertexts.",
       "When you finally land on something that parses as JSON, run json-format to pretty-print it — much easier to inspect a 50-key payload with indented keys than as one long line. If the original blob was a hash you wanted to verify, call hash on the source content and compare hex outputs.",
@@ -699,7 +699,7 @@ export const SKILL_PACKS = [
     tagline:
       "Will my retirement plan actually work? Project the accumulation phase forward with compound interest, compute the target nest egg from your expected spending, then model the drawdown phase using the same PMT formula a mortgage uses — your retirement is mathematically a loan you're paying yourself. Deterministic numbers, no glossy advisor PowerPoint.",
     useCase:
-      "You're 35 years old with $100,000 saved, contributing $1,500/month, retiring at 65 and you want an honest answer to: will the nest egg get there? How much can I draw down per year without running out? What happens if I retire 5 years earlier — or contribute $501/mo less? The accumulation phase, the target calculation, and the drawdown phase are all the same handful of textbook formulas the finance-math kit already implements; this pack composes them into the full plan.",
+      "You're 35 years old with $100,000 saved, contributing $1,500/month, retiring at 65 and you want an honest answer to: will the nest egg get there? How much can I draw down per year without running out? What happens if I retire 5 years earlier — or contribute $500/mo less? The accumulation phase, the target calculation, and the drawdown phase are all the same handful of textbook formulas the finance-math kit already implements; this pack composes them into the full plan.",
     promptArgs: [
       {
         name: "scenario",
@@ -744,7 +744,7 @@ export const SKILL_PACKS = [
     tagline:
       "How much do I need to save each month to hit $X in N years? Pin down the required contribution with a clever PV-discount trick: discount the target back to today, then call loan-payment with the discounted target as principal — the 'payment' the tool returns IS your required monthly savings. Same PMT formula a mortgage uses; different decision.",
     useCase:
-      "You have a concrete goal — save $1,000,000 for retirement in 30 years, $501k for a child's college in 18 years, $80k for a down payment in 5 years, $20k for a wedding in 2 years — and want the deterministic answer to: how much per month? What's the gap if I keep saving at my current rate? What return would I need on a fixed contribution? This pack walks the agent through projecting current savings, computing the gap, and back-solving the required PMT — all with the finance-math kit, all free over PoW.",
+      "You have a concrete goal — save $1,000,000 for retirement in 30 years, $500k for a child's college in 18 years, $80k for a down payment in 5 years, $20k for a wedding in 2 years — and want the deterministic answer to: how much per month? What's the gap if I keep saving at my current rate? What return would I need on a fixed contribution? This pack walks the agent through projecting current savings, computing the gap, and back-solving the required PMT — all with the finance-math kit, all free over PoW.",
     promptArgs: [
       {
         name: "goal",
@@ -807,7 +807,7 @@ export const SKILL_PACKS = [
       "extract",
     ],
     workflow: [
-      "Start with whois — domain age is the single best fraud predictor. Established brands have domains registered years ago; impersonators are usually using domains < 90 days old. Also surfaces the registrar (some — like privacy-shrouded resellers operating out of jurisdictions with slow abuse response — are over-represented in fraud) and registrant info (privacy-protected WHOIS is normal for personal sites, suspicious for a business claiming to be Fortune-501 established).",
+      "Start with whois — domain age is the single best fraud predictor. Established brands have domains registered years ago; impersonators are usually using domains < 90 days old. Also surfaces the registrar (some — like privacy-shrouded resellers operating out of jurisdictions with slow abuse response — are over-represented in fraud) and registrant info (privacy-protected WHOIS is normal for personal sites, suspicious for a business claiming to be Fortune-500 established).",
       "Pull the cert-transparency log. CT logs every TLS cert ever issued for the domain. A legitimate long-running site shows years of cert renewals from major CAs. A classic phishing pattern is a brand-new domain with exactly one Let's Encrypt cert issued in the last few days — there's no history because there's no history. Burst issuance across many subdomains in a short window can indicate a phishing kit operator.",
       "Inspect the live cert with tls-cert. Self-signed = major red flag, period. Wildcard certs across a sprawling subdomain set on a brand-new domain can indicate a phishing kit operator running many landing pages off one cert. Cert validity window matters too — Let's Encrypt's 90-day cert on a domain claiming to be an established bank is anomalous (real banks use OV/EV certs with longer validity and the green-bar / org-name treatment).",
       "Run asn-info on the resolved IP. Cloudflare / AWS / GCP / Azure are neutral — most of the internet runs there. Known abuse-friendly hosters (specific ASNs in Russia, China, and certain Eastern European countries) over-index on fraud. Geographic mismatch matters: a US-targeted brand impersonator hosted in a country with no business presence there is a meaningful signal. Cross-reference the ASN against public abuse databases if the user wants depth.",
@@ -869,7 +869,7 @@ export const SKILL_PACKS = [
     useCase:
       "You inherited a text dump (support tickets, exported chat history, scraped reviews, log files) and need to prepare it for analysis or storage. The pack enforces the one ordering that matters: redact PII before any other step caches an intermediate result. Every step after redact is allowed to be sloppy with retention because the secrets are already gone. Output: a cleaned, deduped, sorted stream plus an entity index and a readability score telling you whether the cleaned text is still human-grade.",
     promptArgs: [
-      { name: "text", description: "The raw text dump to clean (max 501KB)", required: true, substitute: "support log dump" },
+      { name: "text", description: "The raw text dump to clean (max 500KB)", required: true, substitute: "support log dump" },
     ],
     // Seven tools, ordered to enforce a single security-relevant invariant:
     // measure → REDACT FIRST → mutate freely. text-stats measures the
@@ -909,7 +909,7 @@ export const SKILL_PACKS = [
     useCase:
       "You inherited a CSV (export from a data warehouse, a CSV from finance, a survey dump, scraped table from a wiki). Before deciding what's worth analyzing, you need to know: which columns are numeric? what are the ranges? are there outliers that will distort everything downstream? do any two columns move together? would a straight-line fit even be reasonable? This pack runs that workup mechanically — no model required, no judgment calls, just the numbers — so you walk into the actual analysis already knowing the shape of the data.",
     promptArgs: [
-      { name: "csv", description: "Raw CSV text (max 501KB; first row is treated as the header)", required: true, substitute: "year,revenue,cost\n2022,1000,800\n2023,1500,1100\n2024,2100,1400" },
+      { name: "csv", description: "Raw CSV text (max 500KB; first row is treated as the header)", required: true, substitute: "year,revenue,cost\n2022,1000,800\n2023,1500,1100\n2024,2100,1400" },
       { name: "columnA", description: "Primary numeric column to profile in depth (e.g. revenue)", required: true, substitute: "revenue" },
       { name: "columnB", description: "Second numeric column for correlation + regression (e.g. cost)", required: true, substitute: "cost" },
     ],
@@ -1660,7 +1660,7 @@ export const SKILL_PACKS = [
       "Call robots-check with url=<URL> and userAgent=<caller's agent token> to verify the agent is actually allowed to crawl the path. Returns {allowed, matchedRule, sitemaps}. This is the policy gate that should run *before* the caller spends money on extract/render — calling extract on a Disallow'd path is wasteful at best, hostile at worst. The sitemaps[] list is a bonus side-benefit: hand it to the caller's crawl planner so it doesn't have to discover sitemaps separately. Final payload: { url, host, ok: true|false, rollup: 'ok'|'warn'|'fail', dns: {...}, http: {status, latencyMs, finalUrl}, headers: {securityScore, hsts, csp, server, cacheControl}, tls: {daysRemaining, issuer, altNames} | null, robots: {allowed, matchedRule, sitemaps}, warnings: [<string flags>] } — a single object the caller's monitor/gate consumes directly.",
     ],
     claudePrompt:
-      "Run a status snapshot for https://example.com using Agent402. Derive host = new URL(url).host. Initialize warnings = [].\n\n(1) dns-lookup with host=<host>, type='A' — return {answers}. If answers is empty, return {url, host, ok: false, rollup: 'fail', stage: 'dns', warnings: ['NXDOMAIN or no A records']}. (2) http-check with url=https://example.com — return {status, latencyMs, finalUrl}. If status >= 500, push warnings += ['origin 5xx']. If latencyMs > 3000, push warnings += ['slow response (>3s)']. (3) http-headers with url=https://example.com — return {headers}. Compute securityScore = ['strict-transport-security','content-security-policy','x-content-type-options'].filter(h => headers[h]).length / 3. If securityScore < 0.67, push warnings += ['weak security headers']. (4) tls-cert with host=<host> ONLY if URL starts with 'https://' — return {daysRemaining, issuer, altNames}. If daysRemaining < 14, push warnings += ['cert expires in <14 days']. If daysRemaining < 30, push warnings += ['cert renewal window (<30 days)']. (5) robots-check with url=https://example.com, userAgent='*' — return {allowed, matchedRule, sitemaps}. If !allowed, push warnings += ['robots.txt disallows this path']. Compute rollup: 'fail' if step 2 status>=501 OR step 4 daysRemaining<14 OR step 5 !allowed; 'warn' if any warnings remain; else 'ok'. Final return: {url: 'https://example.com', host, ok: rollup !== 'fail', rollup, dns: {answers: <step 1>}, http: {status, latencyMs, finalUrl}, headers: {securityScore, hsts: !!headers['strict-transport-security'], csp: !!headers['content-security-policy'], server: headers.server || null, cacheControl: headers['cache-control'] || null}, tls: <step 4 or null>, robots: {allowed, matchedRule, sitemaps}, warnings}. Budget ~$0.013 paid; all 5 tools are PoW-eligible (pure network I/O, free here on the hosted connector after a small PoW).",
+      "Run a status snapshot for https://example.com using Agent402. Derive host = new URL(url).host. Initialize warnings = [].\n\n(1) dns-lookup with host=<host>, type='A' — return {answers}. If answers is empty, return {url, host, ok: false, rollup: 'fail', stage: 'dns', warnings: ['NXDOMAIN or no A records']}. (2) http-check with url=https://example.com — return {status, latencyMs, finalUrl}. If status >= 500, push warnings += ['origin 5xx']. If latencyMs > 3000, push warnings += ['slow response (>3s)']. (3) http-headers with url=https://example.com — return {headers}. Compute securityScore = ['strict-transport-security','content-security-policy','x-content-type-options'].filter(h => headers[h]).length / 3. If securityScore < 0.67, push warnings += ['weak security headers']. (4) tls-cert with host=<host> ONLY if URL starts with 'https://' — return {daysRemaining, issuer, altNames}. If daysRemaining < 14, push warnings += ['cert expires in <14 days']. If daysRemaining < 30, push warnings += ['cert renewal window (<30 days)']. (5) robots-check with url=https://example.com, userAgent='*' — return {allowed, matchedRule, sitemaps}. If !allowed, push warnings += ['robots.txt disallows this path']. Compute rollup: 'fail' if step 2 status>=500 OR step 4 daysRemaining<14 OR step 5 !allowed; 'warn' if any warnings remain; else 'ok'. Final return: {url: 'https://example.com', host, ok: rollup !== 'fail', rollup, dns: {answers: <step 1>}, http: {status, latencyMs, finalUrl}, headers: {securityScore, hsts: !!headers['strict-transport-security'], csp: !!headers['content-security-policy'], server: headers.server || null, cacheControl: headers['cache-control'] || null}, tls: <step 4 or null>, robots: {allowed, matchedRule, sitemaps}, warnings}. Budget ~$0.013 paid; all 5 tools are PoW-eligible (pure network I/O, free here on the hosted connector after a small PoW).",
     promptArgs: [
       {
         name: "url",
@@ -2831,7 +2831,7 @@ export const SKILL_PACKS = [
   },
 
   // ──────────────────────────────────────────────────────────────────────
-  // "The 501" phase-2 packs (2026-07): whole-agent jobs on the new
+  // "The 500" phase-2 packs (2026-07): whole-agent jobs on the new
   // contract / finance / enrich / web / conversion tools.
   // ──────────────────────────────────────────────────────────────────────
   {
@@ -3279,7 +3279,7 @@ const PACK_STOPWORDS = new Set([
 ]);
 
 export function rankSkillPacks(query, { k = 2, baseUrl = "", minScore = 4 } = {}) {
-  const q = String(query || "").slice(0, 501);
+  const q = String(query || "").slice(0, 500);
   const rawTerms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   const terms = rawTerms.filter((t) => t.length > 1 && !PACK_STOPWORDS.has(t)).slice(0, 32);
   if (!terms.length) return [];

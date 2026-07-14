@@ -1,6 +1,6 @@
 // Security regressions from the deep audit. Calls handlers directly and asserts
 // the hardening holds: no prototype pollution, hostile input yields a clean 4xx
-// (not a 501), and the DoS-prone tools stay bounded.
+// (not a 500), and the DoS-prone tools stay bounded.
 import { KIT2 } from "../src/tools/kit2.js";
 import { KIT } from "../src/tools/kit.js";
 import { AGENT_TOOLS } from "../src/tools/agent-kit.js";
@@ -23,11 +23,11 @@ for (const payload of [{ "__proto__.polluted": "YES" }, { "constructor.prototype
 if (({}).polluted !== undefined || ({}).pwned !== undefined) fail("Object.prototype was polluted!");
 console.log("1. json-flatten blocks prototype pollution ✓");
 
-// 2. stats must return a clean 400 (not a 501) on a non-JSON `numbers` string.
+// 2. stats must return a clean 400 (not a 500) on a non-JSON `numbers` string.
 let threw = false;
 try { await call("stats", { numbers: "AAAA" }); } catch (e) { threw = true; if (e.statusCode !== 400) fail(`stats should 400 on bad input, got statusCode ${e.statusCode}`); }
 if (!threw) fail("stats should reject non-array numbers");
-console.log("2. stats returns 400 (not 501) on bad input ✓");
+console.log("2. stats returns 400 (not 500) on bad input ✓");
 
 // 3. xml-to-json must reject deeply-nested XML fast (no event-loop DoS).
 {
@@ -73,8 +73,8 @@ console.log("2. stats returns 400 (not 501) on bad input ✓");
   ];
   for (const args of MERGE_POLLUTERS) {
     // json-merge sanitizes rather than 400s (it strips proto keys) — the contract
-    // here is "no pollution", so we only require it not to throw a 501.
-    try { await call("json-merge", args); } catch (e) { if (e.statusCode === undefined || e.statusCode >= 501) fail(`json-merge 501 on ${JSON.stringify(args)}`); }
+    // here is "no pollution", so we only require it not to throw a 500.
+    try { await call("json-merge", args); } catch (e) { if (e.statusCode === undefined || e.statusCode >= 500) fail(`json-merge 500 on ${JSON.stringify(args)}`); }
   }
   for (const k of ["a5", "b5", "c5", "d5", "e5", "f5"]) {
     if (({})[k] !== undefined) fail(`Object.prototype polluted with ${k}!`);
@@ -95,7 +95,7 @@ console.log("2. stats returns 400 (not 501) on bad input ✓");
   for (const [slug, input] of REGEX_CASES) {
     const t0 = Date.now();
     try { await call(slug, input); } catch (e) {
-      if (e.statusCode === undefined || e.statusCode < 400 || e.statusCode >= 501) fail(`${slug} ReDoS input must 4xx, got statusCode ${e.statusCode}`);
+      if (e.statusCode === undefined || e.statusCode < 400 || e.statusCode >= 500) fail(`${slug} ReDoS input must 4xx, got statusCode ${e.statusCode}`);
     }
     const ms = Date.now() - t0;
     if (ms > 2000) fail(`${slug} ReDoS: ${ms}ms on hostile input (>2s = event-loop DoS)`);

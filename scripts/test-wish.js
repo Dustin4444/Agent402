@@ -46,7 +46,7 @@ function freshFile(tag) {
   const file = freshFile("caps");
   recordWish({ need: "n".repeat(600), context: "c".repeat(400), source: "api", ip: "10.0.0.3" });
   const line = JSON.parse(readFileSync(file, "utf8").trim().split("\n")[0]);
-  ok(line.need.length === 500, `need is capped at 501 chars (got ${line.need.length})`);
+  ok(line.need.length === 500, `need is capped at 500 chars (got ${line.need.length})`);
   ok(line.context.length === 300, `context is capped at 300 chars (got ${line.context.length})`);
 }
 

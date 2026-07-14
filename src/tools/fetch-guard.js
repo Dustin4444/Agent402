@@ -241,7 +241,7 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
   // do next (fix the URL vs. retry later).
   if (!response.ok) {
     const upstreamStatus = response.status;
-    if (upstreamStatus >= 400 && upstreamStatus < 501) {
+    if (upstreamStatus >= 400 && upstreamStatus < 500) {
       throw Object.assign(
         new Error(
           `Source URL returned HTTP ${upstreamStatus} — check the URL is correct and publicly reachable`

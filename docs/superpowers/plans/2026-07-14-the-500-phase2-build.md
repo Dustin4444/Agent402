@@ -1,8 +1,8 @@
-# The 501 — Phase 2 (Build) + Phase 3 (Invariant) Implementation Plan
+# The 500 — Phase 2 (Build) + Phase 3 (Invariant) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development. Steps use checkbox syntax.
 
-**Goal:** Implement the owner-approved 30 tools + 8 skill packs (shortlist: `docs/superpowers/specs/2026-07-14-the-501-additions-shortlist.md` — THE requirements source: slugs, prices, upstreams, categories per its tables), taking the catalog 462 → exactly 501 (400 tools + 100 packs), then land the CI cap.
+**Goal:** Implement the owner-approved 30 tools + 8 skill packs (shortlist: `docs/superpowers/specs/2026-07-14-the-500-additions-shortlist.md` — THE requirements source: slugs, prices, upstreams, categories per its tables), taking the catalog 462 → exactly 500 (400 tools + 100 packs), then land the CI cap.
 
 **Architecture:** Tools grouped into 6 kit tasks (each self-contained in one kit file + its test), then packs, then the invariant + count sweep. Sequential tasks (shared surfaces: pow.js WALLET_ONLY_SLUGS, test-all NETWORK set, find.js).
 
@@ -41,8 +41,8 @@ Files: extend an appropriate kit (data-kit); Nager.Date + restcountries keyless;
 Files: `src/skills.js` + `src/tools/skill-runner.js` (follow the existing 92's structure exactly); Test: the pack CI pattern (`scripts/test-mcp-prompts.js` expectations 92→100 + whatever validates pack steps).
 Packs per the shortlist table (composing tools + price). Every pack must run end-to-end against a FREE_MODE boot (steps that need wallet-only tools: follow how existing packs handle that — verify pattern first).
 
-### Task 8: Finale — exactly 501 + THE CAP (Phase 3)
-1. Full battery: boot + `TARGET_URL node scripts/test-all.js` (every example answers), all kit tests, mcp-all (expect 501), find/market/static/index/sell suites.
-2. `node scripts/sync-count.js` at 501; then implement the invariant in `sync-count.js --check`: assert tools===400 AND packs===100 exactly; failure message: "The catalog is capped at 501 (400 tools + 100 skill packs). For a new tool to enter, one must leave." Add the policy line to CLAUDE.md conventions + README + wiki Home.
-3. Verify `--check` green at 501/400/100; commit; controller pushes `[test]`.
-4. STOP: Phases 4-5 (brand sweep + launch) get their own plan after the owner sees 501 green.
+### Task 8: Finale — exactly 500 + THE CAP (Phase 3)
+1. Full battery: boot + `TARGET_URL node scripts/test-all.js` (every example answers), all kit tests, mcp-all (expect 500), find/market/static/index/sell suites.
+2. `node scripts/sync-count.js` at 500; then implement the invariant in `sync-count.js --check`: assert tools===400 AND packs===100 exactly; failure message: "The catalog is capped at 500 (400 tools + 100 skill packs). For a new tool to enter, one must leave." Add the policy line to CLAUDE.md conventions + README + wiki Home.
+3. Verify `--check` green at 500/400/100; commit; controller pushes `[test]`.
+4. STOP: Phases 4-5 (brand sweep + launch) get their own plan after the owner sees 500 green.

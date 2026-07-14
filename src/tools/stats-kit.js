@@ -12,7 +12,7 @@ function bad(message) {
   return err;
 }
 
-// Coerce an input to a finite-number array. Throws 400 (not 501) on every
+// Coerce an input to a finite-number array. Throws 400 (not 500) on every
 // failure mode so callers see an honest message instead of a stack trace.
 function toNumbers(value, field) {
   if (!Array.isArray(value)) throw bad(`"${field}" must be an array of numbers`);

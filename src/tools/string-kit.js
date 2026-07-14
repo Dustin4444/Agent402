@@ -315,7 +315,7 @@ export const STRING_TOOLS = [
           text: { type: "string", description: "The text to wrap" },
           width: {
             type: "integer",
-            description: "Maximum line width in characters (default 80, max 501)",
+            description: "Maximum line width in characters (default 80, max 500)",
           },
           indent: {
             type: "string",
@@ -337,7 +337,7 @@ export const STRING_TOOLS = [
 
       let width = input.width !== undefined ? Number(input.width) : 80;
       if (!Number.isFinite(width) || width < 1) width = 80;
-      if (width > 501) width = 501;
+      if (width > 500) width = 500;
 
       const indent = typeof input.indent === "string" ? input.indent : "";
       const effectiveWidth = Math.max(width - indent.length, 1);

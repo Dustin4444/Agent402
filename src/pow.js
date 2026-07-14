@@ -192,7 +192,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "skill-fred-snapshot",     // calls fred-series (wallet-only)
   "skill-contact-verify",    // calls email-validate + dns-lookup (both wallet-only)
   "skill-domain-age",        // calls whois + dns-lookup + tls-cert (all wallet-only)
-  // "The 501" phase-2 packs (2026-07) that call wallet-only tools in-process
+  // "The 500" phase-2 packs (2026-07) that call wallet-only tools in-process
   // (skill-schema-guard is pure CPU and stays PoW-eligible):
   "skill-contract-audit",    // calls contract-source + selector-lookup + tx-simulate (all wallet-only)
   "skill-tx-forensics",      // calls tx-status + evm-rpc + calldata-decode + selector-lookup (all wallet-only)

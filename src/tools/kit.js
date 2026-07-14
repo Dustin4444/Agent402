@@ -987,13 +987,13 @@ const textTools = [
       bodyType: "json",
       input: { text: "Some long document…" },
       inputSchema: {
-        properties: { text: { type: "string", description: "Text to analyze (max 501KB)" } },
+        properties: { text: { type: "string", description: "Text to analyze (max 500KB)" } },
         required: ["text"],
       },
       output: { example: { characters: 1200, words: 210, sentences: 14, paragraphs: 4, readingTimeMinutes: 1.1, estimatedTokens: 300 } },
     },
     handler: (input) => {
-      const text = capText(need(input, "text"), 501_000);
+      const text = capText(need(input, "text"), 500_000);
       const words = text.split(/\s+/).filter(Boolean);
       const sentences = (text.match(/[.!?]+(\s|$)/g) || []).length || (words.length ? 1 : 0);
       const paragraphs = text.split(/\n\s*\n/).filter((p) => p.trim()).length;
@@ -1021,7 +1021,7 @@ const textTools = [
       input: { text: "Long article text…", limit: 10 },
       inputSchema: {
         properties: {
-          text: { type: "string", description: "Text to analyze (max 501KB)" },
+          text: { type: "string", description: "Text to analyze (max 500KB)" },
           limit: { type: "number", description: "Max keywords (default 15)" },
         },
         required: ["text"],
@@ -1029,7 +1029,7 @@ const textTools = [
       output: { example: { keywords: [{ term: "payment", count: 9 }], phrases: [{ term: "x402 protocol", count: 4 }] } },
     },
     handler: (input) => {
-      const text = capText(need(input, "text"), 501_000);
+      const text = capText(need(input, "text"), 500_000);
       const limit = Math.min(Math.max(parseInt(input.limit, 10) || 15, 1), 50);
       const words = text.toLowerCase().match(/[a-z][a-z0-9'-]{2,}/g) || [];
       const counts = new Map();
@@ -1341,7 +1341,7 @@ const timeTools = [
       else if (typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim())) seconds = Number(v);
       else if (typeof v === "string") {
         // `ms` must precede `m` — JS alternation is first-match-wins, so listing
-        // `m` first made `ms` dead code (parsing "501ms" as 501 minutes).
+        // `m` first made `ms` dead code (parsing "500ms" as 500 minutes).
         const matches = [...v.toLowerCase().matchAll(/(\d+(?:\.\d+)?)\s*(ms|w|d|h|m|s)/g)];
         if (!matches.length) throw bad(`Cannot parse duration: ${v}`);
         const mult = { w: 604800, d: 86400, h: 3600, m: 60, s: 1, ms: 0.001 };
@@ -2098,7 +2098,7 @@ const networkTools = [
     slug: "sitemap",
     category: "network",
     price: "$0.003",
-    description: "Fetch and parse a sitemap.xml (or sitemap index): returns up to 501 URLs with lastmod, or the child sitemaps of an index.",
+    description: "Fetch and parse a sitemap.xml (or sitemap index): returns up to 500 URLs with lastmod, or the child sitemaps of an index.",
     tags: ["sitemap", "crawling", "seo", "urls"],
     discovery: {
       bodyType: "json",
@@ -2114,7 +2114,7 @@ const networkTools = [
     handler: async (input) => {
       const { html: xml } = await safeFetch(need(input, "url"), { maxBytes: 5 * 1024 * 1024 });
       const isIndex = /<sitemapindex/i.test(xml);
-      const blocks = [...xml.matchAll(/<(?:url|sitemap)>([\s\S]*?)<\/(?:url|sitemap)>/gi)].slice(0, 501);
+      const blocks = [...xml.matchAll(/<(?:url|sitemap)>([\s\S]*?)<\/(?:url|sitemap)>/gi)].slice(0, 500);
       const urls = blocks.map((b) => {
         const loc = b[1].match(/<loc>\s*([^<]+?)\s*<\/loc>/i)?.[1] ?? null;
         const lastmod = b[1].match(/<lastmod>\s*([^<]+?)\s*<\/lastmod>/i)?.[1] ?? undefined;

@@ -484,7 +484,7 @@ async function fredGetJson(url, extraHeaders = {}) {
     const msg = redactSecrets(body?.error_message || body?.message || text || `HTTP ${res.status}`).slice(0, 200);
     // FRED 4xx with a key set almost always means a bad/expired/whitespace key —
     // attribute as caller-fixable (422) so it shows up in client_errored.
-    throw bad(`FRED upstream HTTP ${res.status}: ${msg}`, res.status >= 501 ? 502 : 422);
+    throw bad(`FRED upstream HTTP ${res.status}: ${msg}`, res.status >= 500 ? 502 : 422);
   }
   if (!body) throw bad("FRED returned non-JSON response", 502);
   return body;

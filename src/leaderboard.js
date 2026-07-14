@@ -826,7 +826,7 @@ ${CHROME_HEAD_LINKS}
   .ph h2 { margin:0; font-size:1rem; color:var(--accent); }
   .ph .pn { color:var(--muted); font-size:.82rem; margin-top:2px; }
   table { width:100%; border-collapse:collapse; font-size:.9rem; }
-  th { text-align:left; color:var(--muted); font-weight:501; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; padding:10px 18px; border-bottom:1px solid var(--line); }
+  th { text-align:left; color:var(--muted); font-weight:500; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; padding:10px 18px; border-bottom:1px solid var(--line); }
   th.num { text-align:right; }
   td { padding:10px 18px; border-bottom:1px solid var(--line); }
   td.num { font-family:ui-monospace,Menlo,monospace; text-align:right; }

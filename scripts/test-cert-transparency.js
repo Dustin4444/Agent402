@@ -65,7 +65,7 @@ try {
   ok(r.source === "certspotter", "crt.sh fast-fail → source=certspotter");
   ok(Date.now() - t0 < 1500, "crt.sh fast-fail → certspotter served without waiting the full hedge delay");
 
-  // 4. Both sources down → clean 502 (not a hang, not a 501).
+  // 4. Both sources down → clean 502 (not a hang, not a 500).
   stub(() => Promise.resolve(errRes(503)));
   let threw = null;
   try { await tool.handler({ domain: "example.com" }); } catch (e) { threw = e; }

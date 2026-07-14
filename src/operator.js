@@ -43,7 +43,7 @@ export function operatorPage(baseUrl, data) {
 .op-ph input{background:var(--ink-panel);color:var(--on-dark);border:1px solid var(--dark-border);padding:5px 8px;font-family:var(--font-mono);font-size:12px}
 .op-ph input:focus{outline:none;border-color:var(--accent)}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;color:var(--dk-muted);font-weight:501;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:9px 14px;border-bottom:1px solid var(--dark-border);position:sticky;top:0;background:var(--surface);cursor:pointer;user-select:none}
+th{text-align:left;color:var(--dk-muted);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:9px 14px;border-bottom:1px solid var(--dark-border);position:sticky;top:0;background:var(--surface);cursor:pointer;user-select:none}
 th.num{text-align:right}
 td{padding:8px 14px;border-bottom:1px solid var(--dark-border);color:var(--on-dark);font-family:var(--font-mono);font-size:13px}
 td.num{text-align:right}

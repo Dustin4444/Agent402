@@ -56,7 +56,7 @@ if (!process.env.AGENT402_BASE_URL) {
   });
   for (let i = 0; i < 40; i++) {
     try { if ((await fetch(`${BASE}/api/pow`)).ok) break; } catch {}
-    await new Promise((r) => setTimeout(r, 501));
+    await new Promise((r) => setTimeout(r, 500));
   }
 }
 
