@@ -1,4 +1,4 @@
-// Exact-output tests for the 38 kit2 tools. Proves each one actually works by
+// Exact-output tests for the 39 kit2 tools. Proves each one actually works by
 // asserting a known input produces the expected result.
 import { KIT2 } from "../src/tools/kit2.js";
 
@@ -76,6 +76,46 @@ await check("roman", { value: "MMXXIV" }, (o) => o.result === 2024, "roman→int
   const vtt = "WEBVTT\n\nNOTE a comment\n\n00:00:01.000 --> 00:00:03.000 align:start\nHello world\n";
   await check("srt-convert", { input: vtt, to: "srt" }, (o) => o.detected === "vtt" && o.count === 1 && o.result === "1\n00:00:01,000 --> 00:00:03,000\nHello world\n", "vtt→srt (drops NOTE + cue settings)");
   await check("srt-convert", { cues: [{ start: 0, end: 1500, text: "Hi" }], to: "srt" }, (o) => o.result === "1\n00:00:00,000 --> 00:00:01,500\nHi\n", "json cues→srt");
+}
+{
+  const ics = [
+    "BEGIN:VCALENDAR", "PRODID:-//Agent402//EN", "VERSION:2.0", "X-WR-CALNAME:Team cal",
+    "BEGIN:VEVENT", "UID:demo-1", "SUMMARY:Team sync\\, weekly", "DTSTART:20260720T150000Z", "DTEND:20260720T153000Z",
+    "LOCATION:Zoom", "STATUS:CONFIRMED", "ORGANIZER;CN=Ada:mailto:ada@example.com",
+    "ATTENDEE;CN=Bob;PARTSTAT=ACCEPTED:mailto:bob@example.com",
+    "DESCRIPTION:Line one\\nLine two", "RRULE:FREQ=WEEKLY;COUNT=3",
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  await check("ics-parse", { ics }, (o) =>
+    o.calendar.prodId === "-//Agent402//EN" && o.calendar.name === "Team cal" && o.count === 1 &&
+    o.events[0].uid === "demo-1" && o.events[0].summary === "Team sync, weekly" &&
+    o.events[0].location === "Zoom" && o.events[0].status === "CONFIRMED" &&
+    o.events[0].description === "Line one\nLine two" &&
+    o.events[0].organizer.name === "Ada" && o.events[0].attendees[0].status === "ACCEPTED" &&
+    o.events[0].start.iso === "2026-07-20T15:00:00Z" && o.events[0].end.iso === "2026-07-20T15:30:00Z" &&
+    o.events[0].rrule.freq === "WEEKLY" && o.events[0].rrule.count === 3, "parse VEVENT + escapes");
+  await check("ics-parse", { ics, expand: true }, (o) =>
+    o.events[0].occurrences.count === 3 && o.events[0].occurrences.capped === false &&
+    o.events[0].occurrences.dates.join("|") === "2026-07-20T15:00:00Z|2026-07-27T15:00:00Z|2026-08-03T15:00:00Z", "expand WEEKLY COUNT=3");
+  // Line folding + all-day + BYDAY expansion + UNTIL
+  const folded = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nSUMMARY:A very long su\r\n mmary line\r\nDTSTART;VALUE=DATE:20260701\r\nRRULE:FREQ=DAILY;UNTIL=20260703\r\nEND:VEVENT\r\nEND:VCALENDAR";
+  await check("ics-parse", { ics: folded, expand: true }, (o) =>
+    o.events[0].summary === "A very long summary line" && o.events[0].start.allDay === true &&
+    o.events[0].occurrences.dates.join("|") === "2026-07-01|2026-07-02|2026-07-03", "unfold + all-day DAILY UNTIL");
+  const byday = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:Standup\nDTSTART:20260706T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE;COUNT=4\nEND:VEVENT\nEND:VCALENDAR";
+  await check("ics-parse", { ics: byday, expand: true }, (o) =>
+    o.events[0].occurrences.dates.join("|") === "2026-07-06T09:00:00Z|2026-07-08T09:00:00Z|2026-07-13T09:00:00Z|2026-07-15T09:00:00Z", "WEEKLY BYDAY=MO,WE");
+  const monthly = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:Rent\nDTSTART;VALUE=DATE:20260131\nRRULE:FREQ=MONTHLY;COUNT=3\nEND:VEVENT\nEND:VCALENDAR";
+  await check("ics-parse", { ics: monthly, expand: true }, (o) =>
+    o.events[0].occurrences.dates.join("|") === "2026-01-31|2026-03-31|2026-05-31", "MONTHLY skips short months (RFC)");
+  const complex = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:X\nDTSTART:20260701T090000Z\nRRULE:FREQ=MONTHLY;BYSETPOS=2;BYDAY=MO\nEND:VEVENT\nEND:VCALENDAR";
+  await check("ics-parse", { ics: complex, expand: true }, (o) =>
+    o.events[0].occurrences.supported === false, "complex RRULE → supported:false, no guessing");
+  const uncapped = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:Daily\nDTSTART:20260701T090000Z\nRRULE:FREQ=DAILY\nEND:VEVENT\nEND:VCALENDAR";
+  await check("ics-parse", { ics: uncapped, expand: true, maxOccurrences: 5 }, (o) =>
+    o.events[0].occurrences.count === 5 && o.events[0].occurrences.capped === true, "unbounded RRULE hits the cap");
+  await check("ics-parse", { ics: "VALARM inside:\nBEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:Real\nDTSTART:20260701T090000Z\nBEGIN:VALARM\nDESCRIPTION:alarm text\nEND:VALARM\nEND:VEVENT\nEND:VCALENDAR" },
+    (o) => o.count === 1 && o.events[0].summary === "Real" && o.events[0].description === null, "VALARM props don't leak into the event");
 }
 
 // Math
