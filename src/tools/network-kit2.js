@@ -56,16 +56,14 @@ async function certTransparencyHandler(body) {
   const includeExpired = body?.includeExpired === true;
   const limit = Math.max(1, Math.min(500, Number(body?.limit) || 50));
 
-  // crt.sh supports JSON output via ?output=json. Queries are slow but free and
-  // require no auth. We use the % wildcard prefix to match all subdomains.
-  // Retries once on timeout/5xx — crt.sh is notoriously flaky under load.
-  const q = encodeURIComponent("%." + domain);
-  const crtUrl = `https://crt.sh/?q=${q}&output=json${includeExpired ? "" : "&exclude=expired"}`;
-  async function crtFetch() {
+  // A JSON GET on the shared SSRF dispatcher with a hard timeout. Maps a non-ok
+  // upstream to a retryable 502 (5xx, and crt.sh's mislabelled 404 — see below)
+  // or a client 422; a timeout throws a bare AbortError.
+  async function fetchJson(url, label) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const timer = setTimeout(() => controller.abort(), 12000);
     try {
-      const res = await fetch(crtUrl, {
+      const res = await fetch(url, {
         signal: controller.signal,
         dispatcher: ssrfDispatcher,
         headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
@@ -74,46 +72,94 @@ async function certTransparencyHandler(body) {
       // comes back as HTTP 404 whose BODY is a "502 Bad Gateway" page. A real
       // no-results query returns 200 with [], so 404 here is never a genuine
       // answer — treat it as a retryable upstream failure, not a client error.
-      if (!res.ok) throw bad(`crt.sh returned HTTP ${res.status}`, res.status >= 500 || res.status === 404 ? 502 : 422);
-      return res;
+      if (!res.ok) throw bad(`${label} returned HTTP ${res.status}`, res.status >= 500 || res.status === 404 ? 502 : 422);
+      const text = await res.text();
+      try { return JSON.parse(text); } catch { throw bad(`${label} returned non-JSON — try again later`, 502); }
     } finally {
       clearTimeout(timer);
     }
   }
-  let response;
-  try {
-    response = await crtFetch();
-  } catch (err) {
-    if (err.statusCode === 422) throw err; // client error, don't retry
-    // Single retry on timeout or 5xx
-    try { response = await crtFetch(); } catch (err2) {
-      if (err2.statusCode) throw err2;
-      throw bad(err2.name === "AbortError" ? "crt.sh did not respond — try again later" : `Could not reach crt.sh: ${err2.message}`, 502);
+
+  // crt.sh supports JSON output via ?output=json. We use the % wildcard prefix to
+  // match all subdomains. It's notoriously flaky: it routinely cold-times-out the
+  // FIRST request and then answers the next in under a second, and occasionally
+  // has multi-minute outages where every retry fails. So we make 2 attempts with
+  // a short warming backoff (the retry catches the cold-first-request case), and
+  // if crt.sh is STILL down we fall back to certspotter (also a free, keyless
+  // CT-log API) so the tool keeps answering instead of 502-ing on a transient
+  // upstream outage. A client error (422) is never retried and never falls back.
+  const q = encodeURIComponent("%." + domain);
+  const crtUrl = `https://crt.sh/?q=${q}&output=json${includeExpired ? "" : "&exclude=expired"}`;
+  let certs = null, total = 0, source = "crt.sh", lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
+    try {
+      let rows = await fetchJson(crtUrl, "crt.sh");
+      if (!Array.isArray(rows)) rows = [];
+      // Dedupe by serial (one cert can be logged in multiple CT logs).
+      const seen = new Set();
+      certs = [];
+      for (const r of rows) {
+        const key = r.serial_number || `${r.issuer_ca_id}-${r.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const sans = String(r.name_value || "").split("\n").map(s => s.trim()).filter(Boolean);
+        certs.push({
+          id: r.id,
+          serial: r.serial_number || null,
+          issuer: r.issuer_name || null,
+          commonName: r.common_name || null,
+          sans,
+          notBefore: r.not_before || null,
+          notAfter: r.not_after || null,
+        });
+        if (certs.length >= limit) break;
+      }
+      total = rows.length;
+      lastErr = null;
+      break;
+    } catch (err) {
+      if (err.statusCode === 422) throw err; // client error, don't retry or fall back
+      lastErr = err;
     }
   }
-  const text = await response.text();
-  let rows;
-  try { rows = JSON.parse(text); } catch { throw bad("crt.sh returned non-JSON — try again later", 502); }
-  if (!Array.isArray(rows)) rows = [];
 
-  // Dedupe by serial (one cert can be logged in multiple CT logs).
-  const seen = new Set();
-  const certs = [];
-  for (const r of rows) {
-    const key = r.serial_number || `${r.issuer_ca_id}-${r.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const sans = String(r.name_value || "").split("\n").map(s => s.trim()).filter(Boolean);
-    certs.push({
-      id: r.id,
-      serial: r.serial_number || null,
-      issuer: r.issuer_name || null,
-      commonName: r.common_name || null,
-      sans,
-      notBefore: r.not_before || null,
-      notAfter: r.not_after || null,
-    });
-    if (certs.length >= limit) break;
+  if (certs === null) {
+    // crt.sh exhausted its retries — fall back to certspotter so a transient
+    // crt.sh outage doesn't fail the buyer's call. Certspotter's keyless tier
+    // returns a smaller window than crt.sh, but a degraded answer beats a 502.
+    const csUrl = `https://api.certspotter.com/v1/issuances?domain=${encodeURIComponent(domain)}&include_subdomains=true&expand=dns_names&expand=issuer`;
+    try {
+      let rows = await fetchJson(csUrl, "certspotter");
+      if (!Array.isArray(rows)) rows = [];
+      const seen = new Set();
+      certs = [];
+      for (const r of rows) {
+        const key = r.cert_sha256 || r.id;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const sans = Array.isArray(r.dns_names) ? r.dns_names.map(s => String(s).trim()).filter(Boolean) : [];
+        // certspotter returns issuances regardless of expiry; honor includeExpired
+        // by dropping already-expired certs when the caller didn't ask for them.
+        if (!includeExpired && r.not_after && Date.parse(r.not_after) < Date.now()) continue;
+        certs.push({
+          id: r.id ?? null,
+          serial: null,
+          issuer: r.issuer?.name || r.issuer?.friendly_name || null,
+          commonName: sans[0] || null,
+          sans,
+          notBefore: r.not_before || null,
+          notAfter: r.not_after || null,
+        });
+        if (certs.length >= limit) break;
+      }
+      total = certs.length;
+      source = "certspotter";
+    } catch {
+      // Both sources down — surface the primary (crt.sh) error.
+      if (lastErr?.statusCode) throw lastErr; // an upstream-status 502 already carries a clear message
+      throw bad(lastErr?.name === "AbortError" ? "crt.sh did not respond — try again later" : `Could not reach crt.sh: ${lastErr?.message}`, 502);
+    }
   }
 
   // Surface the unique subdomain set — the most actionable output for a
@@ -128,9 +174,10 @@ async function certTransparencyHandler(body) {
   return {
     domain,
     count: certs.length,
-    truncated: rows.length > certs.length,
+    truncated: total > certs.length,
     subdomains: [...subdomains].sort(),
     certs,
+    source,
     queriedAt: new Date().toISOString(),
   };
 }

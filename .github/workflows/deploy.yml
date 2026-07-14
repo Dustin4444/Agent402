@@ -730,6 +730,9 @@ jobs:
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
 
+      - name: Cert-transparency crt.sh→certspotter fallback (flaky-upstream resilience)
+        run: node scripts/test-cert-transparency.js
+
       - name: Discovery & trust surfaces (/.well-known/x402, /api/reliability)
         run: node scripts/test-discovery.js
 
