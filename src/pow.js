@@ -98,6 +98,11 @@ export const WALLET_ONLY_SLUGS = new Set([
   // (tx-simulate — same per-IP quota as evm-rpc). solidity-scan and
   // address-label are pure CPU and stay PoW-eligible.
   "contract-source", "contract-abi", "calldata-decode", "selector-lookup", "tx-simulate",
+  // Enrich-kit: GLEIF (lei-lookup), Wikidata (wikidata-entity), gravatar.com
+  // (gravatar-check — the hash is CPU but the probe is egress), api.github.com
+  // (github-repo — shared 60/hr per-IP keyless quota PoW must not farm), and
+  // arbitrary caller sites (favicon-grab). All egress → wallet-only.
+  "lei-lookup", "wikidata-entity", "gravatar-check", "github-repo", "favicon-grab",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama)
   // but the rate limits are shared per-IP. PoW would let one client exhaust the
   // shared quota for every other caller.

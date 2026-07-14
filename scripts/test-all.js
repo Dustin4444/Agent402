@@ -99,6 +99,11 @@ const NETWORK = new Set([
   // (tx-simulate). solidity-scan + address-label are pure CPU and stay strict.
   "/api/contract-source", "/api/contract-abi", "/api/calldata-decode",
   "/api/selector-lookup", "/api/tx-simulate",
+  // Enrich-kit: GLEIF (lei-lookup), Wikidata (wikidata-entity), gravatar.com
+  // (gravatar-check), api.github.com (github-repo — 60/hr per-IP keyless quota
+  // can 403→503 in CI), favicon fetch against a live site (favicon-grab).
+  "/api/lei-lookup", "/api/wikidata-entity", "/api/gravatar-check",
+  "/api/github-repo", "/api/favicon-grab",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama).
   // CoinGecko's free tier shares a per-IP ~30 rpm limit; tolerate 429/502/503/504.
   "/api/price-pyth", "/api/price-coingecko", "/api/defi-tvl",
