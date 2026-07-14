@@ -192,6 +192,15 @@ export const WALLET_ONLY_SLUGS = new Set([
   "skill-fred-snapshot",     // calls fred-series (wallet-only)
   "skill-contact-verify",    // calls email-validate + dns-lookup (both wallet-only)
   "skill-domain-age",        // calls whois + dns-lookup + tls-cert (all wallet-only)
+  // "The 500" phase-2 packs (2026-07) that call wallet-only tools in-process
+  // (skill-schema-guard is pure CPU and stays PoW-eligible):
+  "skill-contract-audit",    // calls contract-source + selector-lookup + tx-simulate (all wallet-only)
+  "skill-tx-forensics",      // calls tx-status + evm-rpc + calldata-decode + selector-lookup (all wallet-only)
+  "skill-market-open",       // calls stock-quote + premarket-quote + options-chain + stock-dividends + earnings-calendar (all wallet-only)
+  "skill-entity-enrich",     // calls wikidata-entity + lei-lookup + edgar-company-lookup + whois + tech-stack + favicon-grab (all wallet-only)
+  "skill-feed-watch",        // calls feed-parse + extract (both wallet-only)
+  "skill-subtitle-pipeline", // calls transcribe (wallet-only — OpenAI upstream credit)
+  "skill-locale-brief",      // calls public-holidays (wallet-only — Nager.Date egress)
   // LLM proxy kit: every call burns real upstream inference credit (OpenAI).
   // PoW would let one client farm our API keys for free.
   "llm", "llm-pro", "llm-premium",

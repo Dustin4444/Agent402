@@ -2829,6 +2829,183 @@ export const SKILL_PACKS = [
     claudePrompt:
       "Clean this text using Agent402's content-clean skill pack: 'line b\\nline a\\nline b\\nemail: test@test.com'. (1) Redact emails and phone numbers, (2) remove duplicate lines, (3) sort alphabetically. Return the cleaned result.",
   },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // "The 500" phase-2 packs (2026-07): whole-agent jobs on the new
+  // contract / finance / enrich / web / conversion tools.
+  // ──────────────────────────────────────────────────────────────────────
+  {
+    slug: "contract-audit",
+    title: "Contract audit",
+    tagline:
+      "Triage a smart contract before an agent interacts with it: verified source, heuristic vulnerability scan, known-address check, function-selector resolution, and a read-only dry-run of the exact call you plan to make.",
+    useCase:
+      "An agent is about to approve, transfer, or call an unfamiliar contract — you want the verified source scanned for red flags, the address checked against known labels, and the intended calldata simulated before anything is signed or broadcast.",
+    promptArgs: [
+      { name: "address", description: "0x-prefixed contract address to audit", required: true, substitute: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+      { name: "network", description: "EVM network (ethereum / base / polygon / arbitrum / optimism, default base)", required: false, substitute: "base" },
+      { name: "data", description: "0x-prefixed calldata you intend to send (default: a balanceOf probe)", required: false, substitute: "0x70a08231000000000000000000000000abf4fabd7c416fb67202e5f9002389fc75e2a9d0" },
+    ],
+    toolSlugs: ["contract-source", "solidity-scan", "selector-lookup", "address-label", "tx-simulate"],
+    workflow: [
+      "Fetch the verified Solidity source and compiler metadata from Sourcify via contract-source — an unverified contract is itself a finding.",
+      "Run solidity-scan over the returned source for line-anchored heuristic findings: tx.origin auth, delegatecall, selfdestruct, unchecked calls, weak randomness, and more.",
+      "Resolve the 4-byte selector of the calldata you plan to send with selector-lookup so you know exactly which function it hits.",
+      "Check the address against the curated known-address dataset with address-label — is this the real token/router/bridge or an impostor?",
+      "Dry-run the exact call with tx-simulate (eth_call + gas estimate, strictly read-only) to see whether it succeeds or reverts before anything is signed.",
+    ],
+    claudePrompt:
+      "Audit the contract 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 on base before interacting with it, using Agent402's contract-audit skill pack. (1) Fetch the verified source from Sourcify, (2) run the heuristic Solidity scan over it, (3) resolve the selector of the planned calldata 0x70a08231000000000000000000000000abf4fabd7c416fb67202e5f9002389fc75e2a9d0, (4) check the address against known labels, (5) simulate the call read-only. Report: verification status, scan findings by severity, what the calldata does, whether the address is a known contract, and the dry-run verdict.",
+  },
+  {
+    slug: "tx-forensics",
+    title: "Transaction forensics",
+    tagline:
+      "Explain what an EVM transaction actually did: confirmation status, the raw transaction from the chain, decoded calldata with typed parameters, the resolved function signature, and labeled counterparties.",
+    useCase:
+      "An agent (or its owner) is staring at a transaction hash and needs the plain-English story — did it confirm, which function was called, with what arguments, and is the counterparty a known contract or an unknown address.",
+    promptArgs: [
+      { name: "hash", description: "0x-prefixed 32-byte transaction hash", required: true, substitute: "0x0000000000000000000000000000000000000000000000000000000000000000" },
+      { name: "network", description: "EVM network (ethereum / base / polygon / arbitrum / optimism, default base)", required: false, substitute: "base" },
+    ],
+    toolSlugs: ["tx-status", "evm-rpc", "calldata-decode", "selector-lookup", "address-label"],
+    workflow: [
+      "Get the confirmation verdict from tx-status — success, revert, or still pending, plus gas used and block number.",
+      "Pull the raw transaction with evm-rpc eth_getTransactionByHash for the from/to addresses, value, and the input calldata.",
+      "Decode the calldata with calldata-decode — function name and typed parameters via ABI signature databases.",
+      "Cross-check the 4-byte selector with selector-lookup to surface every known signature that matches.",
+      "Label the counterparty with address-label — known token contract, DEX router, bridge, exchange wallet, or unknown.",
+    ],
+    claudePrompt:
+      "Explain what transaction 0x0000000000000000000000000000000000000000000000000000000000000000 on base actually did, using Agent402's tx-forensics skill pack. (1) Check its confirmation status, (2) fetch the raw transaction via eth_getTransactionByHash, (3) decode the calldata into the function and arguments, (4) resolve the selector against the signature databases, (5) label the destination address. Summarize as a plain-English story: what was called, with what arguments, by whom, to whom, and whether it succeeded.",
+  },
+  {
+    slug: "market-open",
+    title: "Market open brief",
+    tagline:
+      "Full pre-trade snapshot for one ticker before the bell: the live quote, the pre-market quote, the options surface, dividend posture, and the next earnings date — one payment.",
+    useCase:
+      "An agent positioning ahead of the open needs everything that moves a pre-trade decision: where the stock closed, where pre-market has taken it, what the options chain implies, whether a dividend or an earnings print is imminent.",
+    promptArgs: [
+      { name: "ticker", description: "Stock ticker (e.g. SPY, AAPL, NVDA)", required: true, substitute: "SPY" },
+    ],
+    toolSlugs: ["stock-quote", "premarket-quote", "options-chain", "stock-dividends", "earnings-calendar"],
+    workflow: [
+      "Get the live quote from stock-quote — last price, day range, 52-week range, volume.",
+      "Pull the pre-market quote from premarket-quote — where the stock is trading before the bell and the gap versus the prior close.",
+      "Fetch the options chain from options-chain — strikes, bids/asks, and implied volatility for the nearest expiry.",
+      "Check dividend posture with stock-dividends — recent payouts and whether an ex-dividend date is close.",
+      "Get the next earnings date from earnings-calendar so a print doesn't ambush the position.",
+    ],
+    claudePrompt:
+      "Build a pre-open trading brief for SPY using Agent402's market-open skill pack. (1) Get the live quote, (2) get the pre-market quote and compute the gap, (3) pull the options chain for the nearest expiry, (4) check recent dividends and any upcoming ex-date, (5) get the next earnings date. Summarize: current positioning, pre-market signal, what implied vol says, and any dividend/earnings events inside the next two weeks.",
+  },
+  {
+    slug: "entity-enrich",
+    title: "Entity enrichment",
+    tagline:
+      "Company name → verified identity + web footprint dossier: Wikidata facts, the official LEI legal-entity record, the SEC EDGAR filer, domain registration, tech stack, and brand favicon — in one pass.",
+    useCase:
+      "KYB, lead enrichment, or counterparty checks — an agent has a company name (maybe a domain and ticker) and needs to establish that the entity is real, who it legally is, and what its web presence looks like.",
+    promptArgs: [
+      { name: "name", description: "Company name to enrich (e.g. Apple)", required: true, substitute: "Apple" },
+      { name: "domain", description: "Company website domain (e.g. apple.com)", required: false, substitute: "apple.com" },
+      { name: "ticker", description: "Stock ticker for the SEC EDGAR lookup (e.g. AAPL)", required: false, substitute: "AAPL" },
+    ],
+    toolSlugs: ["wikidata-entity", "lei-lookup", "edgar-company-lookup", "whois", "tech-stack", "favicon-grab"],
+    workflow: [
+      "Resolve the name to a Wikidata entity with wikidata-entity — the encyclopedic identity: what it is, founding date, headquarters, official website.",
+      "Look up the Legal Entity Identifier record with lei-lookup (GLEIF) — the verified legal name, jurisdiction, and registered address.",
+      "Find the SEC EDGAR filer with edgar-company-lookup — CIK number and filing history existence (public companies only).",
+      "Pull domain registration with whois — creation date, registrar, and expiry; a week-old domain claiming a decades-old brand is a red flag.",
+      "Fingerprint the site's tech-stack — CMS, framework, CDN — the operational footprint.",
+      "Grab the favicon with favicon-grab as the brand asset for the dossier card.",
+    ],
+    claudePrompt:
+      "Build an identity dossier on Apple (domain apple.com, ticker AAPL) using Agent402's entity-enrich skill pack. (1) Resolve the Wikidata entity, (2) look up the LEI legal-entity record, (3) find the SEC EDGAR filer, (4) pull whois on the domain, (5) fingerprint the tech stack, (6) grab the favicon. Report as a KYB-style dossier: verified legal identity, public-company status, domain age vs claimed history, and web footprint — flag any mismatches.",
+  },
+  {
+    slug: "feed-watch",
+    title: "Feed watch",
+    tagline:
+      "Monitor an RSS/Atom feed in one call: parse the feed, read the top story in full, extract the keywords driving the cycle, and diff the item list against your last run to isolate what's new.",
+    useCase:
+      "An agent on a monitoring loop — news, changelogs, security advisories, competitor blogs — needs each run to answer: what changed since last time, and what is it about?",
+    promptArgs: [
+      { name: "url", description: "RSS/Atom feed URL to monitor", required: true, substitute: "https://hnrss.org/frontpage" },
+      { name: "previous", description: "The item-title list from your previous run (one per line) to diff against", required: false, substitute: "PREVIOUS_SNAPSHOT" },
+    ],
+    toolSlugs: ["feed-parse", "extract", "keywords", "text-diff"],
+    workflow: [
+      "Parse the feed with feed-parse — titles, links, publish dates, and summaries for the latest items.",
+      "Extract the top item's linked page in full with extract — the actual story, not just the teaser.",
+      "Run keywords over the combined titles and summaries to surface what the current cycle is about.",
+      "Diff the current item list against your previous snapshot with text-diff — the added lines are the new items since last run.",
+    ],
+    claudePrompt:
+      "Monitor the feed https://hnrss.org/frontpage using Agent402's feed-watch skill pack. (1) Parse the feed for the latest items, (2) extract the top story's full text, (3) pull keywords from the titles and summaries, (4) diff the current item-title list against PREVIOUS_SNAPSHOT (paste your last run's list; leave empty on the first run). Report: new items since last run, the dominant topics, and a two-sentence summary of the top story.",
+  },
+  {
+    slug: "schema-guard",
+    title: "Schema guard",
+    tagline:
+      "Contract-test a JSON payload in one call: validate it against your schema, infer the schema the payload actually implies, diff the two to expose drift, and return a normalized pretty-print.",
+    useCase:
+      "An agent consuming a third-party API or another agent's structured output needs to know — before trusting the data — whether the payload still matches the agreed contract, and if not, exactly which fields drifted.",
+    promptArgs: [
+      { name: "payload", description: "The JSON payload to check (as a JSON string)", required: true, substitute: '{"id":1,"name":"Ada"}' },
+      { name: "schema", description: "The expected JSON Schema (as a JSON string; defaults to none)", required: false, substitute: '{"type":"object","required":["id"]}' },
+    ],
+    toolSlugs: ["json-validate", "json-schema-infer", "json-diff", "json-format"],
+    workflow: [
+      "Validate the payload against the expected schema with json-validate — the pass/fail verdict with the exact violation list.",
+      "Infer the schema the payload actually implies with json-schema-infer — types, required keys, formats.",
+      "Diff the expected schema against the inferred one with json-diff — the drift report: added fields, changed types, dropped keys.",
+      "Normalize the payload with json-format for a canonical pretty-printed copy to log or store.",
+    ],
+    claudePrompt:
+      'Contract-test this JSON payload using Agent402\'s schema-guard skill pack: {"id":1,"name":"Ada"} against the expected schema {"type":"object","required":["id"]}. (1) Validate the payload against the schema, (2) infer the schema the payload actually implies, (3) diff expected vs inferred to expose drift, (4) return the normalized pretty-print. Report: valid or not (with violations), and every drifted field with its old vs new type.',
+  },
+  {
+    slug: "subtitle-pipeline",
+    title: "Subtitle pipeline",
+    tagline:
+      "Audio URL → finished subtitles in one call: transcribe the audio, emit the transcript as SRT/WebVTT/JSON cues, and report the text statistics — length, reading time, word count.",
+    useCase:
+      "An agent processing podcasts, voice notes, or video audio needs shippable subtitle files plus the stats to budget downstream steps (summarization, translation, chapters) — without stitching three tools by hand.",
+    promptArgs: [
+      { name: "url", description: "Public URL of the audio file to transcribe", required: true, substitute: "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg" },
+      { name: "format", description: "Subtitle output format: srt | vtt | text | json (default vtt)", required: false, substitute: "vtt" },
+    ],
+    toolSlugs: ["transcribe", "srt-convert", "text-stats"],
+    workflow: [
+      "Transcribe the audio with transcribe — OpenAI speech-to-text with language detection and duration.",
+      "Convert the transcript into subtitle cues with srt-convert in your chosen format (SRT, WebVTT, plain text, or JSON cues).",
+      "Run text-stats over the transcript — word count, sentence count, and estimated reading time for downstream budgeting.",
+    ],
+    claudePrompt:
+      "Turn the audio at https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg into subtitles using Agent402's subtitle-pipeline skill pack. (1) Transcribe the audio, (2) convert the transcript to vtt subtitles, (3) get the text statistics. Return the subtitle file content, the detected language and duration, and the word count.",
+  },
+  {
+    slug: "locale-brief",
+    title: "Locale brief",
+    tagline:
+      "\"Can I reach this counterparty this week?\" — country facts, this year's public holidays, working days remaining this week, and what time it is there right now, in one call.",
+    useCase:
+      "An agent scheduling outreach, deliveries, or meetings across borders needs the practical local picture: currency and languages, whether a public holiday lands this week, how many business days are left, and the current local time.",
+    promptArgs: [
+      { name: "country", description: "Country name (e.g. Japan, Germany, Brazil)", required: true, substitute: "Japan" },
+    ],
+    toolSlugs: ["country-info", "public-holidays", "business-days", "timezone-convert"],
+    workflow: [
+      "Get the country facts from country-info — capital, currency, languages, calling code, and timezones.",
+      "Pull this year's public holidays with public-holidays (keyed off the country code from step 1) and check which land in the next 7 days.",
+      "Count the working days in the coming week with business-days.",
+      "Convert the current UTC time into the country's primary timezone with timezone-convert — is it business hours there right now?",
+    ],
+    claudePrompt:
+      "Tell me whether I can realistically reach a counterparty in Japan this week, using Agent402's locale-brief skill pack. (1) Get the country facts (currency, languages, timezone), (2) pull this year's public holidays and flag any in the next 7 days, (3) count the business days remaining this week, (4) convert the current time to the local timezone. Answer: local time now, holidays in the window, working days available, and the best contact window in my timezone.",
+  },
 ];
 
 // HTML escape — copied from guides.js/pages.js to keep skills self-contained.
