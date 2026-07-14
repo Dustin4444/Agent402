@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MikeyPetrillo/agent402",
   "title": "Agent402.Tools — pay-per-call web tools",
-  "description": "500 pay-per-call tools + 100 skill packs. USDC on 7 chains or free via PoW.",
-  "version": "0.11.4",
+  "description": "400 pay-per-call tools + 100 skill packs. USDC on 8 chains, or free via PoW.",
+  "version": "0.11.5",
   "repository": {
     "url": "https://github.com/MikeyPetrillo/Agent402",
     "source": "github"
@@ -20,14 +20,14 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "agent402-mcp",
-      "version": "0.11.4",
+      "version": "0.11.5",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "AGENT_KEY",
-          "description": "Hex private key of a wallet funded with USDC on Base (or Solana/Polygon/Arbitrum/Stellar/Algorand). Unset = proof-of-work mode (free pure-CPU tools).",
+          "description": "Hex private key of a wallet funded with USDC on Base (or Solana/Polygon/Arbitrum/Monad/Stellar/Algorand). Unset = proof-of-work mode (free pure-CPU tools).",
           "isRequired": false,
           "isSecret": true
         },

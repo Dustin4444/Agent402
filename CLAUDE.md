@@ -31,7 +31,7 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
 - **Deterministic only — no LLM in the serving path.** Every tool is covered by the
   "answers its own example" CI check (`scripts/test-all.js`).
 - Pure-CPU tools are PoW-eligible (free tier) automatically unless in `WALLET_ONLY_SLUGS`.
-- **The catalog is hard-capped at 500 (400 tools + 100 skill packs), CI-enforced by `sync-count.js --check`.** Adding a tool requires removing one (same for packs) — the check derives both halves live from the booted server and fails on any other split.
+- **Catalog floor: 400 entries, CI-checked by `sync-count.js --check`** (counts derive live from the booted server, never from a doc). No upper bound — additions must meet the bar: answers its own example, priced to market, live-verified.
 - **After adding/removing tools, run `node scripts/sync-count.js`** to update the total-count string across the ~60 static surfaces (README, wiki, docs, adapters). CI runs `sync-count.js --check` and fails on drift. Runtime surfaces (`/api/pricing`, `/openapi.json`, `docs.js`) already derive the count — leave those.
 - Memory tools (`/api/memory*`) are wallet-keyed (payment = identity), routed via `memHandler`, and must be in `WALLET_ONLY_SLUGS` + excluded from the marketplace bridge. Per-namespace
   quotas: 10k keys AND a 32MB total-value byte budget (`MEMORY_MAX_NS_BYTES`, call-time read;

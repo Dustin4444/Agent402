@@ -27,6 +27,10 @@ const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks, { chainSellerCounts } = {}) {
   const tools = toolList(catalog);
   const count = tools.length;
+  // The catalog's entries split into plain tools and skill-pack routes — the
+  // curation story ("N tools + M packs") needs the composition, and it
+  // must derive like everything else (never hardcode the counts here).
+  const toolOnlyCount = tools.filter((t) => t.category !== "skill-pack").length;
   const freeCount = tools.filter(isComputePayable).length;
   const served = stats?.toolCallsServed;
   const recent = Array.isArray(stats?.recentCalls) ? stats.recentCalls : [];
@@ -93,9 +97,9 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   // landing page had and the ledger redesign initially dropped — the deploy
   // workflow's SEO gate greps prod for both surfaces).
   const faqs = [
-    { q: "What is Agent402?", a: `A live node in the machine-to-machine economy: ${fmtNum(count)} web tools an autonomous agent can call and pay for per request in USDC via x402 - or with proof-of-work, no wallet. No human, no signup, no API key.` },
+    { q: "What is Agent402?", a: `A live node in the machine-to-machine economy: ${fmtNum(toolOnlyCount)} web tools and ${packCount} skill packs (a catalog of ${fmtNum(count)}) an autonomous agent can call and pay for per request in USDC via x402 - or with proof-of-work, no wallet. Every one earns its place. No human, no signup, no API key.` },
     { q: "How does an agent pay for a tool?", a: `It calls an endpoint and gets an HTTP 402 quote. An x402 client signs a payment - ${RAILS_PAREN} - from the agent's own wallet, and retries; the call settles on-chain in seconds. The wallet is the identity.` },
-    { q: "Are any tools free?", a: `Yes - ${fmtNum(freeCount)} of the ${fmtNum(count)} pure-CPU tools work with no wallet: solve a short proof-of-work puzzle (a few seconds of CPU) instead of paying USDC.` },
+    { q: "Are any tools free?", a: `Yes - the free tier is proof-of-work on the pure-CPU tools: ${fmtNum(freeCount)} of the ${fmtNum(count)} work with no wallet. Solve a short puzzle (a few seconds of CPU) instead of paying USDC; tools that cost real infrastructure to run settle in USDC.` },
     { q: "Does it spend my model tokens?", a: "No LLM in the deterministic tool path - parsers, hashes, math, a real browser. Tools like /api/extract exist to save your tokens: clean markdown out instead of 100k tokens of raw HTML in. (The optional /v1 gateway is a separate OpenAI-compatible LLM proxy you opt into.)" },
     { q: "How do I get paid as a seller?", a: "Serve x402 challenges from your API (or install agent402-tollbooth on your site) and buyers settle USDC straight to your wallet - non-custodial, no merchant account. The index crawler lists any origin whose 402s answer; ranking is health-based and listing is free." },
   ];
@@ -159,7 +163,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         <div class="ml-stagger">
           <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">open source · <span style="color:var(--accent);">x402</span> · mcp-native · settle in seconds</div>
           <h1 class="ml-hero-h1" style="font-family:var(--font-body);font-weight:800;font-size:70px;line-height:.94;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);">Where agents<br><span style="color:var(--accent);">pay</span> agents.</h1>
-          <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 24px;"><strong style="color:var(--ink);font-weight:700;">${fmtNum(count)} tools your AI agent calls and pays for by the request</strong> - OpenAI-compatible chat, embeddings &amp; images, live web search, market data, PDF &amp; OCR, on-chain reads. No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
+          <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 24px;"><strong style="color:var(--ink);font-weight:700;">${fmtNum(count)} strong: ${fmtNum(toolOnlyCount)} tools + ${packCount} skill packs your AI agent calls and pays for by the request.</strong> OpenAI-compatible chat, embeddings &amp; images, live web search, market data, PDF &amp; OCR, on-chain reads. Every one tested, priced, and settled on-chain - every one earns its place. No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
           <div style="display:flex;flex-wrap:wrap;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);margin:0 0 26px;max-width:560px;">
             ${[[fmtNum(count),"tools"],[String(packCount),"skill packs"],[fmtNum(freeCount),"free · pow"],['<span style="color:var(--accent);">$</span>0.001',"per call"],[String(RAILS.length),"chains"]].map(([n,l])=>`<div class="ml-spec-cell" style="flex:1 1 auto;padding:11px 16px 10px 0;margin-right:16px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:19px;line-height:1;font-variant-numeric:tabular-nums;">${n}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px;">${l}</div></div>`).join("")}
           </div>
@@ -319,10 +323,11 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   <!-- CATALOG INDEX -->
   <section style="max-width:1180px;margin:0 auto;padding:70px 30px 20px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /catalog</div>
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:28px;">
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">The index - ${fmtNum(count)} tools.</h2>
       <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">deterministic · flat-priced · no LLM in the path</span>
     </div>
+    <p style="font-size:16px;color:var(--muted);max-width:640px;margin:0 0 28px;">The catalog is ${fmtNum(count)} strong (${fmtNum(toolOnlyCount)} tools + ${packCount} skill packs). Every tool earns its place: tested against its own example on every deploy, priced to market, settled on-chain. The catalog grows only when a tool is worth calling.</p>
     <div style="border:1.5px solid var(--ink);background:var(--card);">
       <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;">
         <div style="border-right:1.5px solid var(--ink);">
