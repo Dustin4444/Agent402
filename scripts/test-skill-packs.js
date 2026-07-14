@@ -14,6 +14,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { SKILL_PACKS, buildPromptMessages } from "../src/skills.js";
+import { PACK_STEPS } from "../src/tools/skill-runner.js";
 import { WALLET_ONLY_SLUGS } from "../src/pow.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -106,13 +107,35 @@ try {
   // tool must itself be wallet-only, or a single PoW puzzle hands out N paid
   // upstream calls for free (this exact leak shipped with skill-price-monitor
   // and skill-weather-brief).
+  //
+  // Key on the ACTUAL tools the runner executes (PACK_STEPS[slug].steps[].slug),
+  // NOT just the pack's DECLARED toolSlugs — the runner dispatches the steps, so
+  // a step calling a wallet-only tool that isn't in the declared list would still
+  // leak. We union both sources so drift in either one is caught.
   for (const pack of SKILL_PACKS) {
-    const walletMembers = (pack.toolSlugs || []).filter((s2) => WALLET_ONLY_SLUGS.has(s2));
+    const declared = pack.toolSlugs || [];
+    const executed = (PACK_STEPS[pack.slug]?.steps || []).map((st) => st.slug);
+    const members = [...new Set([...declared, ...executed])];
+    const walletMembers = members.filter((s2) => WALLET_ONLY_SLUGS.has(s2));
     if (walletMembers.length) {
       ok(
         WALLET_ONLY_SLUGS.has(`skill-${pack.slug}`),
         `skill-${pack.slug} is wallet-only (composes wallet-only: ${walletMembers.join(", ")})`
       );
+    }
+    // A declared member that the runner never executes, or vice-versa, is itself
+    // drift worth surfacing (the leak check is only as good as the two lists
+    // agreeing on what the pack actually calls).
+    if (PACK_STEPS[pack.slug]) {
+      const onlyDeclared = declared.filter((s2) => !executed.includes(s2));
+      const onlyExecuted = executed.filter((s2) => !declared.includes(s2));
+      ok(
+        onlyExecuted.length === 0,
+        `skill-${pack.slug}: every executed step is in declared toolSlugs (undeclared executed: ${onlyExecuted.join(", ") || "none"})`
+      );
+      if (onlyDeclared.length) {
+        console.log(`  note - ${pack.slug}: declared-but-not-executed: ${onlyDeclared.join(", ")}`);
+      }
     }
   }
 
