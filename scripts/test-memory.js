@@ -136,6 +136,80 @@ ok("recall reports its embedder", typeof r.embedder === "string" && r.embedder.l
   delete process.env.MEMORY_MAX_NS_BYTES;
 }
 
+// --- D4 audit: payer attribution cannot be spoofed --------------------------
+// payerFromRequest must read ONLY the signed payload.payload.authorization.from
+// (the field the EIP-3009 signature covers) and be EVM-only — anything else
+// would mint a signature-free memory namespace.
+import { payerFromRequest, normalizePayerAddress } from "../src/payer.js";
+const mkReq = (obj) => ({ header: (h) => h.toLowerCase() === "x-payment"
+  ? Buffer.from(JSON.stringify(obj)).toString("base64") : undefined });
+// top-level unsigned `from` must NOT be honored (only authorization.from)
+if (payerFromRequest(mkReq({ from: "0x" + "a".repeat(40) })) !== null)
+  { console.error("FAIL - honored unsigned top-level from"); process.exit(1); }
+// a valid signed EVM from IS honored, lowercased
+const evm = "0x" + "A".repeat(40);
+if (payerFromRequest(mkReq({ payload: { authorization: { from: evm } } })) !== evm.toLowerCase())
+  { console.error("FAIL - did not attribute signed EVM from"); process.exit(1); }
+// non-EVM authorization.from → null (no signature-free namespace via this path)
+if (payerFromRequest(mkReq({ payload: { authorization: { from: "GABC" + "A".repeat(52) } } })) !== null)
+  { console.error("FAIL - minted a non-EVM namespace"); process.exit(1); }
+// Algorand/Stellar never lowercased by normalizePayerAddress
+const algo = "A".repeat(58);
+if (normalizePayerAddress(algo) !== algo) { console.error("FAIL - lowercased Algorand"); process.exit(1); }
+console.log("ok - payer attribution cannot be spoofed");
+
+// Adjacent attribution invariants, in the file's native check style.
+ok("missing payment header -> null identity", payerFromRequest({ header: () => undefined }) === null);
+ok("garbage (non-base64-JSON) header -> null", payerFromRequest({ header: () => "!!not-base64-json!!" }) === null);
+const stellar = "G" + "B".repeat(55);
+ok("Stellar address never lowercased", normalizePayerAddress(stellar) === stellar);
+const sol = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
+ok("Solana base58 case preserved", normalizePayerAddress(sol) === sol);
+ok("EVM normalized to lowercase", normalizePayerAddress("0x" + "AB".repeat(20)) === "0x" + "ab".repeat(20));
+
+// --- D4 audit: memory scoping via payer-derived namespaces ------------------
+// Derive both identities exactly the way the server does (payerFromRequest on
+// a signed x402 header) and prove reads/writes stay inside the payer namespace.
+{
+  const signed = (from) => mkReq({ payload: { authorization: { from } } });
+  const payerA = payerFromRequest(signed("0x" + "1a".repeat(20)));
+  const payerB = payerFromRequest(signed("0x" + "2b".repeat(20)));
+  ok("payerFromRequest derives two distinct identities", !!payerA && !!payerB && payerA !== payerB);
+  memoryPut(payerA, "secret", { pin: 1234 }, { actor: payerA });
+  throws("payer B cannot read payer A's key", () => memoryGet(payerA, "secret", { actor: payerB }), 403);
+  throws("payer B cannot list payer A's keys", () => memoryGet(payerA, undefined, { actor: payerB }), 403);
+  throws("payer B cannot write into payer A's namespace", () => memoryPut(payerA, "planted", "x", { actor: payerB }), 403);
+  throws("payer B cannot read payer A's audit log", () => getLog(payerA, payerB, 10), 403);
+  let recallDenied = false;
+  try { await recall(payerA, "secret", 5, { actor: payerB }); } catch (e) { recallDenied = e.statusCode === 403; }
+  ok("payer B recall against A's namespace -> 403", recallDenied);
+  // A checksummed casing of A's address is the SAME namespace, not a fresh one.
+  const payerAChecksum = payerFromRequest(signed("0x" + "1A".repeat(20)));
+  ok("checksum-cased EVM header maps to the same namespace", payerAChecksum === payerA);
+  ok("owner still reads its own key", memoryGet(payerA, "secret", { actor: payerA }).value.pin === 1234);
+  memoryDelete(payerA, "secret", { actor: payerA });
+}
+
+// --- D4 audit: both quotas answer 413 when the store is full ----------------
+{
+  const E = rnd();
+  process.env.MEMORY_MAX_NS_BYTES = "1000";
+  memoryPut(E, "q1", "y".repeat(900));
+  throws("byte budget full -> 413", () => memoryPut(E, "q2", "y".repeat(200)), 413);
+  delete process.env.MEMORY_MAX_NS_BYTES;
+  const F = rnd();
+  process.env.MEMORY_MAX_NS_KEYS = "3";
+  memoryPut(F, "k1", 1);
+  memoryPut(F, "k2", 1);
+  memoryPut(F, "k3", 1);
+  throws("key-count quota full -> 413", () => memoryPut(F, "k4", 1), 413);
+  memoryPut(F, "k1", 2); // overwriting an existing key never counts against the cap
+  ok("overwrite allowed at the key cap", true);
+  throws("incr creating a key at the cap -> 413", () => memoryIncr(F, "k5", 1, F), 413);
+  throws("cas creating a key at the cap -> 413", () => memoryCas(F, "k6", null, "v", { hasValue: true }), 413);
+  delete process.env.MEMORY_MAX_NS_KEYS;
+}
+
 const failed = checks.filter(([, c]) => !c);
 console.log(`\n${pass}/${checks.length} checks passed`);
 if (failed.length) {
