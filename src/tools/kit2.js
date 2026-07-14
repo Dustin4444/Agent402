@@ -3,6 +3,7 @@
 // an exact-output test in scripts/test-kit2.js.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
+import { convertAnyUnit } from "./convert-gen.js";
 
 function bad(message) {
   const err = new Error(message);
@@ -664,32 +665,29 @@ function evalExpr(expr) {
   return out[0];
 }
 
-const UNITS = {
-  length: { m: 1, km: 1000, cm: 0.01, mm: 0.001, mi: 1609.344, yd: 0.9144, ft: 0.3048, in: 0.0254, nmi: 1852 },
-  mass: { g: 1, kg: 1000, mg: 0.001, t: 1e6, lb: 453.592, oz: 28.3495, st: 6350.29 },
-  // Bytes. Decimal SI names (kb=1000, matching the convert-* tools and the SI
-  // standard) and separate binary IEC names (kib=1024). Bit units are decimal —
-  // 1 kbit = 1000 bits = 125 bytes (the old kbit:128/mbit:131072 were ~2.4% off).
-  data: {
-    b: 1, byte: 1, bit: 0.125,
-    kb: 1000, mb: 1000 ** 2, gb: 1000 ** 3, tb: 1000 ** 4,
-    kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4,
-    kbit: 125, mbit: 125_000, gbit: 125_000_000,
-  },
-  time: { s: 1, ms: 0.001, min: 60, h: 3600, d: 86400, wk: 604800, yr: 31557600 },
-  speed: { mps: 1, kph: 1 / 3.6, mph: 0.44704, kn: 0.514444 },
+// unit-convert now delegates to the full 13-category table in convert-gen.js
+// (every unit the retired pairwise convert-* endpoints handled). The short ids
+// this tool historically accepted stay working as aliases; kbit/mbit/gbit have
+// no full-name id in the table, so they resolve to bits with a multiplier.
+const UNIT_ALIASES = {
+  m: "meters", km: "kilometers", cm: "centimeters", mm: "millimeters", mi: "miles",
+  yd: "yards", ft: "feet", in: "inches", nmi: "nautical-miles",
+  g: "grams", kg: "kilograms", mg: "milligrams", t: "tonnes", lb: "pounds", oz: "ounces", st: "stones",
+  b: "bytes", byte: "bytes", bit: "bits", kb: "kilobytes", mb: "megabytes", gb: "gigabytes", tb: "terabytes",
+  kib: "kibibytes", mib: "mebibytes", gib: "gibibytes", tib: "tebibytes",
+  kbit: ["bits", 1000], mbit: ["bits", 1e6], gbit: ["bits", 1e9],
+  s: "seconds", ms: "milliseconds", min: "minutes", h: "hours", d: "days", wk: "weeks", yr: "years",
+  mps: "meters-per-second", kph: "kilometers-per-hour", mph: "miles-per-hour", kn: "knots",
+  c: "celsius", f: "fahrenheit", k: "kelvin", r: "rankine",
 };
 function convertUnit(value, from, to) {
-  from = from.toLowerCase();
-  to = to.toLowerCase();
-  if (["c", "f", "k"].includes(from) && ["c", "f", "k"].includes(to)) {
-    let celsius = from === "c" ? value : from === "f" ? (value - 32) * 5 / 9 : value - 273.15;
-    return to === "c" ? celsius : to === "f" ? celsius * 9 / 5 + 32 : celsius + 273.15;
-  }
-  for (const table of Object.values(UNITS)) {
-    if (from in table && to in table) return (value * table[from]) / table[to];
-  }
-  throw bad(`Cannot convert ${from} → ${to} (unknown or incompatible units)`);
+  const resolve = (u) => {
+    const a = UNIT_ALIASES[String(u).toLowerCase()] ?? String(u).toLowerCase();
+    return Array.isArray(a) ? a : [a, 1];
+  };
+  const [fromId, fromScale] = resolve(from);
+  const [toId, toScale] = resolve(to);
+  return convertAnyUnit(value * fromScale, fromId, toId) / toScale;
 }
 
 function percentile(sorted, p) {
@@ -739,13 +737,22 @@ const math = [
   },
   {
     route: "POST /api/unit-convert", name: "Unit convert", slug: "unit-convert", category: "math", price: "$0.001",
-    description: "Convert a value between units of length, mass, temperature (C/F/K), data, time, or speed.",
-    tags: ["units", "convert", "length", "mass", "temperature"],
-    discovery: { bodyType: "json", input: { value: 100, from: "f", to: "c" }, inputSchema: { properties: { value: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["value", "from", "to"] }, output: { example: { result: 37.778, from: "f", to: "c" } } },
+    description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency — every unit the retired convert-* endpoints handled (e.g. miles, kilograms, us-gallons, fahrenheit, psi, kilowatt-hours).",
+    tags: ["units", "convert", "length", "mass", "temperature", "volume", "area", "speed", "time", "data", "pressure", "energy", "power", "angle", "frequency"],
+    discovery: {
+      bodyType: "json",
+      input: { value: 100, from: "fahrenheit", to: "celsius" },
+      inputSchema: { properties: {
+        value: { type: "number" },
+        from: { type: "string", description: 'Source unit id — any unit of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, or frequency (e.g. "miles", "fahrenheit", "us-gallons"). Short aliases like "km"/"lb"/"f" also work.' },
+        to: { type: "string", description: "Target unit id — must be in the same category as `from`." },
+      }, required: ["value", "from", "to"] },
+      output: { example: { result: 37.7777777778, from: "fahrenheit", to: "celsius" } },
+    },
     handler: (i) => {
       const value = Number(need(i, "value", "any"));
       if (!Number.isFinite(value)) throw bad('"value" must be a number');
-      return { result: +convertUnit(value, need(i, "from"), need(i, "to")).toFixed(6), from: i.from, to: i.to };
+      return { result: +convertUnit(value, need(i, "from"), need(i, "to")).toPrecision(12), from: i.from, to: i.to };
     },
   },
   {
