@@ -36,7 +36,7 @@ const VERSION = "0.3.0";
 // below this, reads as "the catalog probably doesn't have this" — the
 // trigger for the request_tool hint + a fire-and-forget find-miss wish.
 const FIND_WEAK_SCORE = 5;
-const WISH_HINT_TEXT = "Nothing matched well? Call request_tool with what you needed.";
+const WISH_HINT_TEXT = "Nothing matched well? Tell us what you needed via POST /api/wish — we cluster demand and build what keeps coming up.";
 
 // Per-IP sliding-window rate limit for tool executions (search/info are free).
 // Generous enough for real use of $0.001-grade CPU tools, tight enough that
@@ -61,21 +61,18 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   const freeSlugs = new Set([...tools.entries()].filter(([, t]) => t.free).map(([slug]) => slug));
   const mcpClients = new Map(); // "name@version" -> initialize count since boot
 
-  // Curated first-class tools: recognizable, self-explanatory free utilities
+  // Curated first-class tools: a SMALL, highly-recognizable set of free utilities
   // exposed directly in tools/list so MCP directories (Glama, etc.) and agents
   // see a legible slice of the catalog without a search_tools round-trip. All
   // must be PoW-eligible (free). Calling one by name is equivalent to
   // call_tool({slug, params}) — same handler, same rate limit. Kept deliberately
-  // small: every entry here is injected into every MCP client's context on
-  // every turn, so this is a legibility pick, not a dump of the full 1,400+
-  // catalog (that lives behind search_tools/find_tool/call_tool by design).
+  // TIGHT (the full 500-tool catalog lives behind search_tools/find_tool/call_tool
+  // by design): MCP directories score a well-scoped server at ~3-15 tools, and
+  // every entry here rides in each client's context on every turn. So this is a
+  // 9-tool legibility sample of universally-recognized dev utilities, not a dump.
   const CURATED_SLUGS = [
-    "hash", "base64", "jwt-decode", "json-diff", "json-format", "cron-next",
-    "unit-convert", "timezone-convert", "stats-summary", "gzip",
-    "readability-score", "qr",
-    // Added for directory legibility — universally-recognized dev utilities.
-    "uuid", "url-code", "base58", "regex", "slugify", "case",
-    "csv-to-json", "yaml-to-json", "markdown-to-html", "semver", "color",
+    "hash", "unit-convert", "qr", "json-format", "jwt-decode",
+    "base64", "uuid", "csv-to-json", "markdown-to-html",
   ];
   const curatedSet = new Set();
   for (const slug of CURATED_SLUGS) {
@@ -89,7 +86,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // on-chain READ tools and wallet-only (paid egress), so on this authless
   // connector calling one returns paid-access setup instructions — the listing
   // advertises the capability honestly; execution needs a funded wallet.
-  const WALLET_MGMT_SLUGS = ["wallet-balances", "wallet-balance", "wallet-transactions"];
+  const WALLET_MGMT_SLUGS = ["wallet-balances", "wallet-transactions"];
   const walletMgmtSet = new Set();
   for (const slug of WALLET_MGMT_SLUGS) {
     if (tools.has(slug)) walletMgmtSet.add(slug);
@@ -215,21 +212,6 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           },
         },
         {
-          name: "request_tool",
-          title: "Request a tool Agent402 doesn't have yet",
-          annotations: { title: "Request a tool Agent402 doesn't have yet", ...SAFE },
-          description:
-            "Call this when search_tools or find_tool found nothing suitable for your task. Tell us what you needed in plain language — repeated requests get clustered and tracked as real demand, and the ones that keep coming up get built. Free, no wallet required, lightly rate-limited (10/hour per client).",
-          inputSchema: {
-            type: "object",
-            properties: {
-              need: { type: "string", description: "What tool/capability you needed, in plain language (max 500 chars)" },
-              context: { type: "string", description: "Optional: what task you were doing when you hit the gap (max 300 chars)" },
-            },
-            required: ["need"],
-          },
-        },
-        {
           name: "call_tool",
           title: "Run an Agent402 tool",
           annotations: { title: "Run an Agent402 tool", ...SAFE },
@@ -244,34 +226,6 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             required: ["slug"],
           },
         },
-        {
-          name: "about_agent402",
-          title: "About this connector",
-          annotations: { title: "About this connector", ...SAFE },
-          description: `What this connector is and where to start: the /v1 OpenAI-compatible LLM gateway (flat per-call — chat nano $0.003, auto $0.01, embeddings $0.002; no API key, a funded wallet is the account), the free proof-of-work tier (${freeCount} pure-CPU tools, no wallet needed), and live market data (stock-quote $0.003). Also: what's free vs wallet-only, the curated multi-tool workflows (skill packs) available as prompts, and how paid access works (x402 — ${RAILS_OR} — plus proof-of-work).`,
-          inputSchema: { type: "object", properties: {} },
-        },
-        // Hosted leaderboard of x402 sellers settled in the recent window
-        // (default 24h). The same data backs /api/leaderboard + /leaderboard;
-        // surfacing it on MCP lets agents discover *which* sellers are getting
-        // paid in the wild, not just *what* tools exist in this catalog. The
-        // snapshot is shared across the process (hourly refresh) so this call
-        // is O(rows-returned) and never hits the chain on the request path.
-        ...(getLeaderboard ? [{
-          name: "top_x402_sellers",
-          title: "Top x402 sellers in the recent window",
-          annotations: { title: "Top x402 sellers in the recent window", ...SAFE },
-          description:
-            "List the x402 sellers earning the most USDC (or serving the most calls) on Base in the last ~24h, derived from on-chain USDC transfers. Cached snapshot — safe to call freely. Useful for agents discovering the live x402 economy: who's getting paid, which networks, and where to point demand. Defaults: top 10, sort by USDC, exclude this host's own wallet.",
-          inputSchema: {
-            type: "object",
-            properties: {
-              limit: { type: "number", description: "Max rows to return (default 10, max 50)" },
-              sort: { type: "string", enum: ["usd", "calls"], description: "Rank by USDC settled (default) or by call count" },
-              include: { type: "string", enum: ["external", "all"], description: "'external' (default) hides this host's own wallet; 'all' includes it" },
-            },
-          },
-        }] : []),
         // Payment / wallet management surface — documents how paying works, how
         // to configure a wallet + spend caps, and points to the on-chain
         // wallet-balances / wallet-transactions tools for balance + history.

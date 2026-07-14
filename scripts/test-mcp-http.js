@@ -36,15 +36,17 @@ assert(init.result?.serverInfo?.name === "agent402", `initialize returns serverI
 
 const list = await rpc("tools/list", {});
 const names = (list.result?.tools ?? []).map((t) => t.name).sort();
+// The connector exposes a deliberately TIGHT, curated 15-tool surface: MCP
+// directories (Glama) score a well-scoped server at 3-15 tools, and the full
+// 500-tool catalog lives behind search_tools/find_tool/call_tool by design.
+const EXPECTED_15 = [
+  "search_tools", "find_tool", "call_tool", "payment_info",
+  "hash", "unit_convert", "qr", "json_format", "jwt_decode", "base64", "uuid", "csv_to_json", "markdown_to_html",
+  "wallet_balances", "wallet_transactions",
+].sort();
 assert(
-  ["about_agent402", "call_tool", "find_tool", "search_tools"].every((n) => names.includes(n)),
-  `tools/list exposes search_tools, find_tool, call_tool, about_agent402 (got ${names.join(",")})`
-);
-// top_x402_sellers is mounted iff the server passes a getLeaderboard fn. The
-// real server.js always does, so this is a hard requirement in CI.
-assert(
-  names.includes("top_x402_sellers"),
-  `tools/list exposes top_x402_sellers (got ${names.join(",")})`
+  names.length === 15 && EXPECTED_15.every((n) => names.includes(n)),
+  `tools/list is the curated 15 (got ${names.length}: ${names.join(",")})`
 );
 assert(
   (list.result?.tools ?? []).every((t) => t.title && t.annotations?.readOnlyHint === true),
@@ -91,43 +93,8 @@ assert(paid.result?.isError === true, "wallet-only tool (render) is refused on t
 assert(paidText.includes("agent402-mcp") && paidText.includes("AGENT_KEY"), "refusal explains the paid path (agent402-mcp + AGENT_KEY)");
 assert(!paidText.includes("<html"), "wallet-only tool did NOT execute");
 
-const about = await rpc("tools/call", { name: "about_agent402", arguments: {} });
-assert((about.result?.content?.[0]?.text ?? "").includes("x402"), "about_agent402 describes paid access via x402");
-
-// top_x402_sellers: snapshot-backed, must answer even when warming. Don't
-// require non-empty results (CI may run before the first chain scan finishes)
-// — just verify the envelope, sort/include args, and link back to /api/leaderboard.
-const sellers = await rpc("tools/call", { name: "top_x402_sellers", arguments: { limit: 5, sort: "calls", include: "all" } });
-const sellersText = sellers.result?.content?.[0]?.text ?? "";
-assert(!sellers.result?.isError, `top_x402_sellers returns without error (got ${sellersText.slice(0, 160)})`);
-let sellersJson;
-try { sellersJson = JSON.parse(sellersText); } catch { throw new Error(`top_x402_sellers output is not JSON: ${sellersText.slice(0, 200)}`); }
-assert(sellersJson.sort === "calls" && sellersJson.include === "all", `top_x402_sellers echoes sort+include (got sort=${sellersJson.sort}, include=${sellersJson.include})`);
-assert(Array.isArray(sellersJson.results) && sellersJson.results.length <= 5, "top_x402_sellers honors limit");
-assert(typeof sellersJson.source === "string" && sellersJson.source.endsWith("/api/leaderboard"), "top_x402_sellers links back to /api/leaderboard");
-
-// Defaults: with no args, sort='usd' and include='external'. The default-args
-// path is what agents hit first (no schema, just "show me the leaderboard")
-// and a silent default flip would skew every uninformed query.
-const sellersDefault = await rpc("tools/call", { name: "top_x402_sellers", arguments: {} });
-let sellersDefaultJson;
-try { sellersDefaultJson = JSON.parse(sellersDefault.result?.content?.[0]?.text ?? ""); } catch { throw new Error("top_x402_sellers default output is not JSON"); }
-assert(sellersDefaultJson.sort === "usd", `default sort is 'usd' (got ${sellersDefaultJson.sort})`);
-assert(sellersDefaultJson.include === "external", `default include is 'external' (got ${sellersDefaultJson.include})`);
-assert(typeof sellersDefaultJson.totalSellers === "number", `totalSellers is a number (got ${typeof sellersDefaultJson.totalSellers})`);
-assert(typeof sellersDefaultJson.window === "string" && sellersDefaultJson.window.length > 0, `window label is a non-empty string (got ${JSON.stringify(sellersDefaultJson.window)})`);
-
-// Per-row shape — only locked when there are rows to inspect. CI may run with
-// a warming cache (results=[]); when populated, every row carries the documented
-// token-cheap shape. A silent rename here would break any agent rendering a
-// "who else is on x402?" table.
-if (sellersDefaultJson.results?.length) {
-  const row = sellersDefaultJson.results[0];
-  for (const key of ["rank", "name", "network", "wallet", "callsSettled", "totalUsd", "uniqueBuyers"]) {
-    assert(key in row, `top_x402_sellers row carries ${key} (got keys: ${Object.keys(row).join(",")})`);
-  }
-  assert(typeof row.totalUsd === "number", `row.totalUsd is a number (got ${typeof row.totalUsd})`);
-  assert(typeof row.callsSettled === "number", `row.callsSettled is a number (got ${typeof row.callsSettled})`);
-}
+// about_agent402 and top_x402_sellers were removed from the curated 15-tool
+// surface (directory-legibility trim). The x402-seller leaderboard still lives
+// at /api/leaderboard and /leaderboard for agents that want it.
 
 console.log("\nremote MCP connector: all checks passed");
