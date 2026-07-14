@@ -171,7 +171,7 @@ export const GOV_TOOLS = [
     route: "GET /api/earthquakes", name: "Recent earthquakes (USGS)", slug: "earthquakes", category: "data", price: "$0.003",
     description:
       "Real-time USGS earthquake feed: magnitude, place, time, depth, coordinates. Live government data, no key. ?minMag=4.5&period=day (minMag: significant|4.5|2.5|1.0|all; period: hour|day|week|month).",
-    tags: ["earthquakes", "usgs", "geology", "government", "real-time"],
+    tags: ["earthquakes", "earthquake", "feed", "usgs", "geology", "government", "real-time"],
     discovery: {
       input: { minMag: "4.5", period: "day" },
       inputSchema: {
