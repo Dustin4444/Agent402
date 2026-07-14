@@ -134,7 +134,7 @@ NULs trimmed, only when the result is printable, else `null`.
 - Add both slugs to test-all's lenient NETWORK set (upstream flaps must not fail CI).
 - Offline unit tests for the decode helpers (synthetic logs, both indexed layouts,
   memo printability edge cases: valid UTF-8, binary junk, all-zero).
-- `node scripts/sync-count.js` after adding (1,431 → 1,431 across static surfaces).
+- `node scripts/sync-count.js` after adding (1,432 → 1,432 across static surfaces).
 - Bazaar/marketplace registration markers on the shipping PR per the usual flow.
 
 ## Out of scope

@@ -14,6 +14,13 @@
 //   const a = new Agent402({ fetch: payFetch });
 import { createHash } from "node:crypto";
 
+// Keep in lockstep with package.json. Every request the SDK issues carries
+// `User-Agent: agent402-client/<version>` — a standard header, no extra
+// network calls — so a seller can attribute traffic (and settled payments)
+// to this SDK. Product token only; nothing about the caller rides along.
+const VERSION = "0.6.1";
+const USER_AGENT = `agent402-client/${VERSION}`;
+
 const leadingZeroBits = (buf) => { let n = 0; for (const b of buf) { if (b === 0) { n += 8; continue; } n += Math.clz32(b) - 24; break; } return n; };
 
 export class Agent402 {

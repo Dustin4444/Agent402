@@ -1,6 +1,8 @@
 // Chain kit — wallet balances, token metadata + price, NFT ownership + metadata,
-// gas snapshot, and a read-only JSON-RPC passthrough for power users. Backed by
-// Alchemy (single key, every supported chain). Wallet-only (egress = external
+// gas snapshot, and read-only JSON-RPC passthroughs for power users. Backed by
+// Alchemy (single key, every supported chain), except evm-rpc which rides
+// keyless public RPC endpoints with failover (Alchemy lane first when the key
+// is set) so it answers on every deployment. Wallet-only (egress = external
 // quota), never PoW-eligible.
 //
 // Supported networks: ethereum, base, polygon, arbitrum, optimism. Mainnets only —
@@ -10,6 +12,8 @@
 // settles and where most agent activity lives today.
 //
 // Covered by scripts/test-chain-kit.js (offline validation tests, no key needed).
+
+import { ssrfDispatcher } from "./fetch-guard.js";
 
 const TIMEOUT_MS = 10_000;
 
@@ -149,6 +153,73 @@ const RPC_METHOD_WHITELIST = new Set([
   "net_version",
   "web3_clientVersion",
 ]);
+
+// ============================================================================
+// evm-rpc transport — keyless public RPC endpoints with failover, following
+// the x402-kit rpc() pattern. Distinct from jsonRpc() above: it does NOT
+// require ALCHEMY_API_KEY (the Alchemy lane simply goes first when the key is
+// set), so the passthrough answers on every deployment. 8s per-endpoint
+// timeout, one full retry pass over the endpoint list on transport/5xx
+// failures. A well-formed JSON-RPC *error* from a node is the node's verdict
+// on the request (bad params, reverted call) — consistent across nodes, so it
+// passes through as a 502 instead of burning the failover chain.
+// ============================================================================
+const EVM_RPC_TIMEOUT_MS = 8_000;
+const PUBLIC_RPCS = {
+  ethereum: ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://eth.drpc.org", "https://cloudflare-eth.com"],
+  base:     ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.llamarpc.com", "https://base.drpc.org"],
+  polygon:  ["https://polygon-rpc.com", "https://polygon-bor-rpc.publicnode.com", "https://polygon.llamarpc.com", "https://polygon.drpc.org"],
+  arbitrum: ["https://arb1.arbitrum.io/rpc", "https://arbitrum-one-rpc.publicnode.com", "https://arbitrum.llamarpc.com", "https://arbitrum.drpc.org"],
+  optimism: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com", "https://optimism.llamarpc.com", "https://optimism.drpc.org"],
+};
+
+async function publicJsonRpc(network, method, params) {
+  const key = process.env.ALCHEMY_API_KEY;
+  const urls = [
+    ...(key ? [`https://${network.subdomain}.g.alchemy.com/v2/${key}`] : []),
+    ...PUBLIC_RPCS[network.name],
+  ];
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    for (const url of urls) {
+      let res, text;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+          signal: AbortSignal.timeout(EVM_RPC_TIMEOUT_MS),
+          dispatcher: ssrfDispatcher,
+        });
+        text = await res.text();
+      } catch (e) { lastErr = e; continue; } // timeout / transport → next endpoint
+      let data;
+      try { data = JSON.parse(text); } catch { lastErr = new Error(`non-JSON from upstream (HTTP ${res.status})`); continue; }
+      if (data.error) {
+        const msg = String(data.error.message || "unknown node error").slice(0, 300);
+        throw bad(`Node error: ${msg}`, 502);
+      }
+      if (data.result !== undefined) return data.result;
+      lastErr = new Error(`HTTP ${res.status} from upstream`);
+    }
+  }
+  throw bad(`RPC upstream unavailable for ${network.name}${lastErr ? ` (${String(lastErr.message).slice(0, 120)})` : ""}`, 502);
+}
+
+// evm-rpc method whitelist — HARD, read-only only. Tighter than
+// RPC_METHOD_WHITELIST above: no eth_getLogs (unbounded result sets), no
+// send/sign/subscribe anything. Matching is case-insensitive on input but the
+// canonical casing is what goes upstream.
+const EVM_RPC_METHODS = [
+  "eth_blockNumber", "eth_gasPrice", "eth_getBalance", "eth_getTransactionCount",
+  "eth_getBlockByNumber", "eth_getTransactionByHash", "eth_getTransactionReceipt",
+  "eth_call", "eth_getCode", "eth_getStorageAt", "eth_chainId", "eth_feeHistory",
+  "net_version",
+];
+const EVM_RPC_METHOD_BY_LOWER = new Map(EVM_RPC_METHODS.map((m) => [m.toLowerCase(), m]));
+const EVM_RPC_MAX_PARAMS = 8;
+const EVM_RPC_MAX_PARAMS_BYTES = 4096;
+const EVM_RPC_MAX_RESULT_BYTES = 200_000;
 
 export const CHAIN_TOOLS = [
   // ===========================================================================
@@ -583,6 +654,71 @@ export const CHAIN_TOOLS = [
       const params = Array.isArray(i.params) ? i.params : [];
       const network = pickNetwork(i.network);
       const result = await jsonRpc(network, method, params);
+      return { network: network.name, method, result };
+    },
+  },
+
+  // ===========================================================================
+  // evm-rpc — multi-chain read-only JSON-RPC micro-feed. Keyless public RPC
+  // failover (works on every deployment, no Alchemy key required), a hard
+  // read-only whitelist (no eth_getLogs, no send/sign/subscribe), bounded
+  // params in and a bounded result out.
+  // ===========================================================================
+  {
+    route: "POST /api/evm-rpc",
+    name: "Multi-chain EVM RPC (read-only)",
+    slug: "evm-rpc",
+    category: "crypto",
+    price: "$0.004",
+    description:
+      "Read-only JSON-RPC against Ethereum, Base, Polygon, Arbitrum, or Optimism with built-in multi-endpoint failover — one paid call, no node or API key of your own. Whitelisted methods only: eth_blockNumber, eth_gasPrice, eth_getBalance, eth_getTransactionCount, eth_getBlockByNumber, eth_getTransactionByHash, eth_getTransactionReceipt, eth_call, eth_getCode, eth_getStorageAt, eth_chainId, eth_feeHistory, net_version. Mutating, signing, subscription, and unbounded methods (eth_getLogs) are rejected. Results over 200KB serialized return 413 — narrow the query.",
+    tags: ["crypto", "rpc", "json-rpc", "evm", "multichain", "base", "ethereum", "polygon", "arbitrum"],
+    discovery: {
+      bodyType: "json",
+      input: { network: "base", method: "eth_blockNumber", params: [] },
+      inputSchema: {
+        properties: {
+          network: { type: "string", description: "ethereum / base / polygon / arbitrum / optimism (default base)." },
+          method: { type: "string", description: "Whitelisted read-only JSON-RPC method (e.g. eth_blockNumber, eth_getBalance, eth_call)." },
+          params: { type: "array", description: "JSON-RPC positional parameter array (default []). Max 8 entries, 4KB serialized. eth_call's block parameter defaults to \"latest\"." },
+        },
+        required: ["method"],
+      },
+      output: {
+        example: {
+          network: "base",
+          method: "eth_blockNumber",
+          result: "0x1a2b3c4",
+        },
+      },
+    },
+    handler: async (i) => {
+      const network = pickNetwork(i.network);
+      const rawMethod = typeof i.method === "string" ? i.method.trim() : "";
+      const method = EVM_RPC_METHOD_BY_LOWER.get(rawMethod.toLowerCase());
+      if (!method) {
+        throw bad(
+          `${rawMethod ? `Method "${rawMethod}" is not allowed — read-only whitelist only` : `"method" is required`}. Allowed: ${EVM_RPC_METHODS.join(", ")}`
+        );
+      }
+      let params = i.params === undefined || i.params === null ? [] : i.params;
+      if (!Array.isArray(params)) throw bad(`"params" must be an array (JSON-RPC positional parameters)`);
+      if (params.length > EVM_RPC_MAX_PARAMS) throw bad(`"params" is capped at ${EVM_RPC_MAX_PARAMS} entries (got ${params.length})`);
+      let serialized;
+      try { serialized = JSON.stringify(params); } catch { serialized = undefined; }
+      if (typeof serialized !== "string" || Buffer.byteLength(serialized, "utf8") > EVM_RPC_MAX_PARAMS_BYTES) {
+        throw bad(`"params" must be JSON-serializable and ≤${EVM_RPC_MAX_PARAMS_BYTES} bytes serialized`);
+      }
+      if (method === "eth_call" && params.length === 1) params = [...params, "latest"];
+      const result = await publicJsonRpc(network, method, params);
+      const resultJson = JSON.stringify(result);
+      const resultBytes = resultJson === undefined ? 0 : Buffer.byteLength(resultJson, "utf8");
+      if (resultBytes > EVM_RPC_MAX_RESULT_BYTES) {
+        throw bad(
+          `Result too large (${resultBytes} bytes serialized, cap ${EVM_RPC_MAX_RESULT_BYTES}) — narrow the query (e.g. eth_getBlockByNumber with hydrated transactions off)`,
+          413
+        );
+      }
       return { network: network.name, method, result };
     },
   },

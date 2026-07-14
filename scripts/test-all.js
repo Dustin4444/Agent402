@@ -87,6 +87,9 @@ const NETWORK = new Set([
   "/api/wallet-balance", "/api/token-metadata", "/api/token-price",
   "/api/wallet-transactions", "/api/nft-holdings", "/api/nft-metadata",
   "/api/gas-snapshot", "/api/eth-call",
+  // evm-rpc rides keyless public RPC endpoints (no Alchemy key needed) but
+  // shares per-IP rate limits — tolerate transient upstream failures.
+  "/api/evm-rpc",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama).
   // CoinGecko's free tier shares a per-IP ~30 rpm limit; tolerate 429/502/503/504.
   "/api/price-pyth", "/api/price-coingecko", "/api/defi-tvl",

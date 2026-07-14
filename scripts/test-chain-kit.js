@@ -17,7 +17,7 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 // ----------------------------------------------------------------------------
 // Catalog envelope
 // ----------------------------------------------------------------------------
-ok(CHAIN_TOOLS.length === 8, `8 tools exported (got ${CHAIN_TOOLS.length})`);
+ok(CHAIN_TOOLS.length === 9, `9 tools exported (got ${CHAIN_TOOLS.length})`);
 for (const t of CHAIN_TOOLS) {
   ok(typeof t.slug === "string" && t.slug.length > 0, `${t.slug}: has slug`);
   ok(t.route?.startsWith("POST /api/"), `${t.slug}: POST /api/ route`);
@@ -70,6 +70,34 @@ await throws(h("eth-call")({}), 400, "eth-call: missing method");
 await throws(h("eth-call")({ method: "eth_sendTransaction" }), 400, "eth-call: rejects mutating method");
 await throws(h("eth-call")({ method: "eth_sendRawTransaction" }), 400, "eth-call: rejects raw broadcast");
 await throws(h("eth-call")({ method: "personal_sign" }), 400, "eth-call: rejects non-whitelisted method");
+
+// evm-rpc — validation runs before any network egress, so all deterministic
+await throws(h("evm-rpc")({}), 400, "evm-rpc: missing method");
+await throws(h("evm-rpc")({ method: "eth_sendTransaction" }), 400, "evm-rpc: rejects mutating method");
+await throws(h("evm-rpc")({ method: "eth_sendRawTransaction" }), 400, "evm-rpc: rejects raw broadcast");
+await throws(h("evm-rpc")({ method: "eth_getLogs" }), 400, "evm-rpc: rejects eth_getLogs (unbounded)");
+await throws(h("evm-rpc")({ method: "eth_subscribe" }), 400, "evm-rpc: rejects subscriptions");
+await throws(h("evm-rpc")({ method: "personal_sign" }), 400, "evm-rpc: rejects signing");
+await throws(h("evm-rpc")({ method: "eth_blockNumber", network: "fakechain" }), 400, "evm-rpc: bad network");
+await throws(h("evm-rpc")({ method: "eth_blockNumber", params: "latest" }), 400, "evm-rpc: params must be an array");
+await throws(h("evm-rpc")({ method: "eth_blockNumber", params: Array(9).fill("0x0") }), 400, "evm-rpc: params capped at 8 entries");
+await throws(h("evm-rpc")({ method: "eth_blockNumber", params: ["0x" + "a".repeat(5000)] }), 400, "evm-rpc: params capped at 4KB serialized");
+// Case-insensitive method match: uppercased method resolves (so the failure
+// below is the params-shape 400, not the whitelist 400).
+try {
+  await h("evm-rpc")({ method: "ETH_BLOCKNUMBER", params: "nope" });
+  fail++; console.error("ASSERT FAIL - evm-rpc: case-insensitive match (did not throw)");
+} catch (e) {
+  const isParamsError = e.statusCode === 400 && /must be an array/.test(e.message);
+  ok(isParamsError, `evm-rpc: case-insensitive method match (got: ${e.message.slice(0, 60)})`);
+}
+// The whitelist rejection message must list the allowed methods.
+try {
+  await h("evm-rpc")({ method: "debug_traceTransaction" });
+  fail++; console.error("ASSERT FAIL - evm-rpc: whitelist message (did not throw)");
+} catch (e) {
+  ok(/eth_blockNumber/.test(e.message) && /net_version/.test(e.message), "evm-rpc: 400 lists allowed methods");
+}
 
 // ----------------------------------------------------------------------------
 // 503 path — valid input + no key → "not configured"

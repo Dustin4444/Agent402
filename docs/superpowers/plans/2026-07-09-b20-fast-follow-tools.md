@@ -18,7 +18,7 @@
 - Discovery examples must answer in CI with no special env (`blocks: 1000`; empty results are valid).
 - Both routes go into test-all's lenient `NETWORK` set.
 - Commit messages: plain text, no CI-marker substrings until the final ship commit; no AI attribution, no session links.
-- After adding tools: run `node scripts/sync-count.js` (1,431 → 1,431).
+- After adding tools: run `node scripts/sync-count.js` (1,432 → 1,432).
 - Addresses: EVM-only here, lowercase normalization is safe (kit convention).
 
 ---
@@ -438,7 +438,7 @@ node scripts/sync-count.js
 node scripts/sync-count.js --check
 ```
 
-Expected: rewrites the static surfaces to 1,431; `--check` exits 0.
+Expected: rewrites the static surfaces to 1,432; `--check` exits 0.
 
 - [ ] **Step 3: Full local test sweep**
 
@@ -450,13 +450,13 @@ TARGET_URL=http://localhost:3000 node scripts/test-all.js
 kill %1
 ```
 
-Expected: decode tests pass; test-all reports the two new routes as exercised (lenient/NETWORK), zero strict failures, total tool count 1,431.
+Expected: decode tests pass; test-all reports the two new routes as exercised (lenient/NETWORK), zero strict failures, total tool count 1,432.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add -A
-git commit -m "B20 fast-follows: CI decode-test wiring + tool count 1,431 across static surfaces"
+git commit -m "B20 fast-follows: CI decode-test wiring + tool count 1,432 across static surfaces"
 ```
 
 ---
@@ -479,7 +479,7 @@ git push origin claude/sweet-brown-i99jl3
 - [ ] **Step 2: Open a draft PR, strip the session footer**
 
 ```bash
-gh pr create --draft --title "B20 fast-follows: b20-new-tokens + b20-memos" --body "Two log-scanning B20 tools per docs/superpowers/specs/2026-07-09-b20-fast-follow-tools-design.md: factory B20Created discovery (0xB200 self-validation + eth_call enrichment) and Transfer+Memo adjacency memo reads. Both wallet-only, \$0.005, chunked getLogs, offline decode tests in both indexed layouts. Tool count 1,431."
+gh pr create --draft --title "B20 fast-follows: b20-new-tokens + b20-memos" --body "Two log-scanning B20 tools per docs/superpowers/specs/2026-07-09-b20-fast-follow-tools-design.md: factory B20Created discovery (0xB200 self-validation + eth_call enrichment) and Transfer+Memo adjacency memo reads. Both wallet-only, \$0.005, chunked getLogs, offline decode tests in both indexed layouts. Tool count 1,432."
 ```
 
 Then remove any auto-appended session-link footer via `gh pr edit <n> --body "<same body>"` (project rule: no session links).
@@ -495,4 +495,4 @@ node -e "fetch('https://agent402.tools/health').then(r=>r.json()).then(j=>consol
 node -e "fetch('https://agent402.tools/api/find?q=b20+memo').then(r=>r.json()).then(j=>console.log(JSON.stringify(j).slice(0,300)))"
 ```
 
-Expected: count 1,431; find resolves b20-memos.
+Expected: count 1,432; find resolves b20-memos.

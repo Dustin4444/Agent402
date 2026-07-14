@@ -85,10 +85,11 @@ export const WALLET_ONLY_SLUGS = new Set([
   "x402-quote", "usdc-balance", "tx-status", "gas-estimate", "x402-verify", "transfer-authorization", "ens-resolve", "x402-audit",
   // B20 kit — RPC egress against Base (b20-feature-id is pure CPU and stays PoW-eligible).
   "b20-activation-check", "b20-token-info", "b20-verify", "b20-new-tokens", "b20-memos",
-  // Chain-kit: every tool talks to Alchemy and counts against our compute-unit
-  // quota. PoW would let one client farm our paid upstream.
+  // Chain-kit: tools talk to Alchemy (compute-unit quota) or, for evm-rpc,
+  // shared-per-IP public RPC endpoints. PoW would let one client farm our
+  // paid upstream / exhaust the shared quota.
   "wallet-balance", "token-metadata", "token-price", "wallet-transactions",
-  "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call",
+  "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call", "evm-rpc",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama)
   // but the rate limits are shared per-IP. PoW would let one client exhaust the
   // shared quota for every other caller.
