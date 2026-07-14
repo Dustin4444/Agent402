@@ -189,5 +189,59 @@ await withMockedFetch(fakeResponse({ status: 200, contentType: "application/octe
 ok("media-info does NOT pre-reject application/octet-stream (lets ffprobe decide)");
 
 console.log("\nmedia-kit fail-fast: all assertions passed");
+
+// ---------------------------------------------------------------------------
+// SSRF guard invariants (security audit D1): every private / loopback /
+// link-local / metadata / non-http class must be rejected by assertPublicUrl
+// with statusCode 400, and a real public host must still pass (the guard must
+// not be over-broad — the gravatar 192.0.64.0/18 regression).
+// isPrivateIp is intentionally not exported — probe it via assertPublicUrl.
+// ---------------------------------------------------------------------------
+console.log("\nSSRF guard invariants:");
+
+const { assertPublicUrl } = await import("../src/tools/fetch-guard.js");
+const blocks = async (url) => {
+  try { await assertPublicUrl(url); return false; } catch (e) { return e.statusCode === 400; }
+};
+// cloud metadata + private + loopback + link-local must all reject
+for (const u of [
+  "http://169.254.169.254/latest/meta-data/",      // AWS/GCP metadata
+  "http://[fd00::1]/",                               // IPv6 unique-local
+  "http://[::ffff:169.254.169.254]/",               // v4-mapped metadata
+  "http://127.0.0.1:6379/",                          // loopback redis
+  "http://10.0.0.5/", "http://192.168.1.1/", "http://172.16.0.1/",
+  "http://100.64.0.1/",                              // CGNAT
+  "http://user:pass@169.254.169.254/",              // userinfo-smuggled
+  "ftp://example.com/",                              // non-http scheme
+]) {
+  if (!(await blocks(u))) { console.error("FAIL - guard let through", u); process.exit(1); }
+  console.log("ok - blocked", u);
+}
+// a real public host must PASS (guard is not over-broad — gravatar regression)
+try { await assertPublicUrl("https://gravatar.com/avatar/abc"); console.log("ok - public host allowed"); }
+catch (e) { console.error("FAIL - blocked a public host", e.message); process.exit(1); }
+
+// ---------------------------------------------------------------------------
+// Buyer-URL tools stay guarded: x402-quote and x402-audit are the only tools
+// in the raw-fetch triage set that accept a caller-supplied URL. Their handlers
+// must reject a private target BEFORE any fetch happens (assertPublicUrl runs
+// first, so this needs no network and no mock). If someone ever removes the
+// guard from either handler, this fails.
+// ---------------------------------------------------------------------------
+console.log("\nbuyer-URL x402 tools reject private targets:");
+
+const { X402_TOOLS } = await import("../src/tools/x402-kit.js");
+for (const slug of ["x402-quote", "x402-audit"]) {
+  const tool = X402_TOOLS.find((t) => t.slug === slug);
+  if (!tool) fail(`${slug} tool not found in X402_TOOLS`);
+  try {
+    await tool.handler({ url: "http://169.254.169.254/latest/meta-data/" });
+    fail(`${slug} must reject a metadata-IP url`);
+  } catch (e) {
+    if (e.statusCode !== 400) fail(`${slug} private-url rejection must be statusCode 400, got ${e.statusCode}; msg=${e.message}`);
+  }
+  ok(`${slug} rejects a private/metadata URL with 400`);
+}
+
 console.log("\ntest-fetch-guard: ALL PASS");
 process.exit(0);
