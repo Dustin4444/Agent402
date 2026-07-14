@@ -90,6 +90,10 @@ export const WALLET_ONLY_SLUGS = new Set([
   "cert-transparency", "http-headers", "tech-stack", "asn-info",
   // x402 payments toolkit — kept off the free connector (paid surface only).
   "x402-quote", "usdc-balance", "tx-status", "gas-estimate", "x402-verify", "transfer-authorization", "ens-resolve", "x402-audit",
+  // x402-trending is the PAID ecosystem-analysis layer (momentum + organic-buyer
+  // grade + week-over-week growth); the raw seller ranking stays free at
+  // /api/leaderboard. Pay-only so the differentiated analysis is monetized.
+  "x402-trending",
   // B20 kit — RPC egress against Base (b20-feature-id is pure CPU and stays PoW-eligible).
   "b20-activation-check", "b20-token-info", "b20-verify", "b20-new-tokens", "b20-memos",
   // Chain-kit: tools talk to Alchemy (compute-unit quota) or, for evm-rpc,
