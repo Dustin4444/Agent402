@@ -766,6 +766,9 @@ jobs:
       - name: Tool resolver (/api/find ranking, guards)
         run: node scripts/test-find.js
 
+      - name: Catalog cap invariant (capViolation — null only at 400+100, policy message)
+        run: node scripts/test-sync-count-cap.js
+
       - name: Self-check semantic invariants are meaningful (good passes, broken fails)
         run: node scripts/test-invariants.js
 
