@@ -10,8 +10,11 @@
 // SSRF: favicon-grab takes a caller URL and rides safeFetch/assertPublicUrl
 // end-to-end (page fetch AND the icon fetch derived from the page's HTML).
 // The other tools hit fixed hosts but still ride the guarded dispatcher by
-// convention. github-repo path segments are validated against a strict
-// charset before interpolation.
+// convention. github-repo path segments are validated before interpolation:
+// owner gets GitHub's real username charset (no dots at all), repo keeps dots
+// (.github, repo.js are legit) but "."/".." and any ".." substring are
+// rejected — otherwise owner=".." would URL-normalize /repos/../user into an
+// arbitrary single-segment GitHub API endpoint spent on OUR token budget.
 //
 // Covered by scripts/test-enrich-kit.js (offline validation; live upstream
 // checks opt-in via ENRICH_LIVE_TEST=1).
@@ -185,7 +188,14 @@ async function gravatarProbe(url, upstream, accept = "*/*") {
 // ============================================================================
 // github-repo — GitHub REST v3, keyless (optional GITHUB_TOKEN lifts limits).
 // ============================================================================
-const GH_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+// Owner follows GitHub's actual username/org rule: alphanumeric + hyphens,
+// can't start with a hyphen, max 39 chars — critically, NO dots, so "." / ".."
+// can never build a path-traversing /repos/../<x> URL.
+const GH_OWNER_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
+// Repo names legitimately contain dots (e.g. ".github", "repo.js"), so dots
+// stay in the charset — dot-only and ".."-bearing names are rejected in the
+// handler instead.
+const GH_REPO_RE = /^[A-Za-z0-9._-]+$/;
 
 function ghHeaders() {
   const h = {
@@ -577,8 +587,8 @@ export const ENRICH_TOOLS = [
     handler: async (i) => {
       const owner = typeof i.owner === "string" ? i.owner.trim() : "";
       const repo = typeof i.repo === "string" ? i.repo.trim() : "";
-      if (!GH_SEGMENT_RE.test(owner) || owner.length > 64) throw bad(`"owner" must be a GitHub user/org name (letters, digits, . _ -)`);
-      if (!GH_SEGMENT_RE.test(repo) || repo.length > 128) throw bad(`"repo" must be a GitHub repository name (letters, digits, . _ -)`);
+      if (!GH_OWNER_RE.test(owner)) throw bad(`"owner" must be a GitHub user/org name (letters, digits, hyphens; max 39 chars)`);
+      if (!GH_REPO_RE.test(repo) || repo.length > 128 || repo === "." || repo.includes("..")) throw bad(`"repo" must be a GitHub repository name (letters, digits, . _ -; no ".." segments)`);
       const base = `https://api.github.com/repos/${owner}/${repo}`;
       const { status, data } = await getJson(base, "GitHub", ghHeaders());
       if (status === 404 || !data || typeof data !== "object") {

@@ -75,6 +75,25 @@ await throws(h("github-repo")({ owner: "MikeyPetrillo" }), 400, "github-repo: mi
 await throws(h("github-repo")({ owner: "a/b", repo: "Agent402" }), 400, "github-repo: slash in owner rejected");
 await throws(h("github-repo")({ owner: "MikeyPetrillo", repo: "x?y" }), 400, "github-repo: bad repo charset rejected");
 await throws(h("github-repo")({ owner: "..%2f..", repo: "x" }), 400, "github-repo: traversal-shaped owner rejected");
+// Path traversal: owner ".." would URL-normalize /repos/../user into an
+// arbitrary single-segment GitHub API endpoint — must 400 at validation.
+await throws(h("github-repo")({ owner: "..", repo: "user" }), 400, "github-repo: owner '..' traversal rejected");
+await throws(h("github-repo")({ owner: ".", repo: "x" }), 400, "github-repo: owner '.' rejected");
+await throws(h("github-repo")({ owner: "dotted.owner", repo: "x" }), 400, "github-repo: dotted owner rejected (GitHub usernames have no dots)");
+await throws(h("github-repo")({ owner: "-leadinghyphen", repo: "x" }), 400, "github-repo: hyphen-leading owner rejected");
+await throws(h("github-repo")({ owner: "a".repeat(40), repo: "x" }), 400, "github-repo: owner over 39 chars rejected");
+await throws(h("github-repo")({ owner: "MikeyPetrillo", repo: ".." }), 400, "github-repo: repo '..' rejected");
+await throws(h("github-repo")({ owner: "MikeyPetrillo", repo: "." }), 400, "github-repo: repo '.' rejected");
+await throws(h("github-repo")({ owner: "MikeyPetrillo", repo: "a..b" }), 400, "github-repo: '..' substring in repo rejected");
+// Dotted REPO names are legit (.github, repo.js) — validation must pass and the
+// handler must reach the fetch. Whatever happens upstream (404 for a repo that
+// doesn't exist, 5xx offline), it must NOT be a validation 400.
+try {
+  await h("github-repo")({ owner: "MikeyPetrillo", repo: "repo.js" });
+  ok(true, "github-repo: dotted repo passes validation (reached upstream)");
+} catch (e) {
+  ok(e.statusCode !== 400, `github-repo: dotted repo passes validation — non-400 upstream error is fine (got ${e.statusCode}: ${e.message})`);
+}
 
 // favicon-grab
 await throws(h("favicon-grab")({}), 400, "favicon-grab: missing url");
