@@ -177,6 +177,9 @@ const NETWORK = new Set([
   "/api/skill/contract-audit", "/api/skill/tx-forensics", "/api/skill/market-open",
   "/api/skill/entity-enrich", "/api/skill/feed-watch", "/api/skill/subtitle-pipeline",
   "/api/skill/locale-brief", "/api/skill/schema-guard",
+  // webhook-intake (2026-07): pure-CPU chain, but every pack rides the same
+  // timeout hedge per the convention above.
+  "/api/skill/webhook-intake",
   // LLM proxy kit: every call hits OpenAI upstream. Returns 503 without
   // OPENAI_API_KEY — the 502/503/504 tolerance below covers that.
   "/api/llm", "/api/llm-pro", "/api/llm-premium",

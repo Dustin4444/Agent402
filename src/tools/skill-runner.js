@@ -166,6 +166,7 @@ export const PACK_PRICES = {
   "data-interchange":      0.05,
   "rag-prep":              0.05,
   "webhook-debug":         0.05,
+  "webhook-intake":        0.05, // 5-tool chain: webhook-verify + json-validate + hash + time-convert + redact (pure CPU)
   "a11y-audit":            0.05,
   "trip-planner":          0.05,
   "identity-mint":         0.05,
@@ -530,6 +531,60 @@ export const PACK_STEPS = {
       } },
       { slug: "redact",          mapInput: (a) => ({ text: a.rawBody }) },
       { slug: "extract-entities", mapInput: (a) => ({ text: a.rawBody }) },
+    ],
+  },
+
+  // Production webhook ingest — distinct job from webhook-debug: that pack
+  // diagnoses a failing signature; this one is the hot-path gate that runs on
+  // EVERY incoming event. Verify FIRST (per-provider scheme, constant-time
+  // compare, replay tolerance for Stripe/Slack), then treat the body as
+  // trusted: per-provider envelope schema check (catches API-version drift),
+  // sha256 fingerprint of the raw bytes (dedup key for at-least-once
+  // redeliveries / Idempotency-Key reuse), event-time normalization to
+  // UTC + epoch, and PII redaction before the event is logged. Chain mode so
+  // the envelope reads top-to-bottom as the ingest pipeline — the verify
+  // verdict rides in steps[0] and the agent gates on it.
+  "webhook-intake": {
+    mode: "chain",
+    steps: [
+      { slug: "webhook-verify", mapInput: (a) => {
+          const input = { provider: a.provider, payload: a.rawBody, secret: a.secret, signature: a.signature };
+          if (a.timestamp !== undefined && a.timestamp !== null && a.timestamp !== "") input.timestamp = a.timestamp;
+          return input;
+      } },
+      // Minimal per-provider envelope schemas — enough to catch top-level
+      // API-version drift without pinning event-specific shapes. Swap in an
+      // event-type-specific schema in your own integration.
+      { slug: "json-validate", mapInput: (a) => {
+          let data = {};
+          try { data = JSON.parse(a.rawBody); } catch {}
+          const envelopes = {
+            github:  { type: "object", required: ["repository"], properties: { repository: { type: "object" }, ref: { type: "string" } } },
+            stripe:  { type: "object", required: ["id", "type", "created"], properties: { id: { type: "string" }, type: { type: "string" }, created: { type: "integer" } } },
+            shopify: { type: "object", required: ["id"], properties: {} },
+            slack:   { type: "object", required: ["type"], properties: { type: { type: "string" }, event_time: { type: "integer" } } },
+          };
+          const schema = envelopes[String(a.provider || "").trim().toLowerCase()] || { type: "object" };
+          return { data, schema };
+      } },
+      // sha256 of the RAW bytes = the event's content fingerprint. Providers
+      // redeliver on timeout (at-least-once delivery) — dedup on this hash or
+      // reuse it as the Idempotency-Key for downstream calls. Safe to log even
+      // for rejected events: it reveals nothing about the payload.
+      { slug: "hash", mapInput: (a) => ({ text: a.rawBody, algo: "sha256" }) },
+      // Normalize the event timestamp. Field name varies by provider: Stripe
+      // created / Slack event_time (epoch s), Shopify created_at (RFC 3339),
+      // GitHub head_commit.timestamp (ISO). Falls back to "now" so a payload
+      // without a recognizable clock field doesn't fail the step.
+      { slug: "time-convert", mapInput: (a) => {
+          let b = {};
+          try { b = JSON.parse(a.rawBody) || {}; } catch {}
+          const when = b.created ?? b.event_time ?? b.created_at ?? b.head_commit?.timestamp ?? "now";
+          return { value: when };
+      } },
+      // Redact-before-log: the redacted string is the only version that may
+      // touch the log pipeline.
+      { slug: "redact", mapInput: (a) => ({ text: a.rawBody }) },
     ],
   },
 
