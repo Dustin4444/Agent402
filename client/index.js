@@ -39,7 +39,9 @@ export class Agent402 {
     if (typeof fetchImpl !== "function") throw new Error("No fetch available — pass { fetchImpl } on Node < 18");
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
     this.payFetch = payFetch || null;
-    this.f = fetchImpl;
+    // Wrap the plain fetch so every request identifies the SDK (see USER_AGENT
+    // above). Caller-supplied init.headers still win on a key collision.
+    this.f = (url, init = {}) => fetchImpl(url, { ...init, headers: { "User-Agent": USER_AGENT, ...(init.headers || {}) } });
     this._catalog = null;
     this._cache = cache ? new Map() : null;
     // Spending policy (defends the x402 "wallet drain via uncapped spending"
@@ -174,7 +176,9 @@ export class Agent402 {
 
     const idem = idempotencyKey || `a402-${createHash("sha256").update(`${cacheKey}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 24)}`;
     const send = (extraHeaders = {}, useFetch = this.f) => {
-      const headers = { "Idempotency-Key": idem, ...extraHeaders };
+      // UA set here too (not only in the this.f wrapper) so the x402 payFetch
+      // path — the one that settles real payments — always carries it.
+      const headers = { "User-Agent": USER_AGENT, "Idempotency-Key": idem, ...extraHeaders };
       let url = `${this.baseUrl}${tool.path}`;
       const init = { method: tool.method, headers };
       if (tool.method === "GET") {

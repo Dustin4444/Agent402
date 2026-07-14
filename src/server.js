@@ -2585,7 +2585,12 @@ app.use((req, res, next) => {
           // facilitator-verified payer in the settle receipt — otherwise every
           // Solana/Stellar buyer records as null in PostHog and the sales ledger.
           const payer = payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
-          capturePostHogSettlement({ slug: def.slug, rail, network, priceUsd, synthetic, payer });
+          // Client attribution: the User-Agent PRODUCT TOKEN only (first
+          // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
+          // "node") so payment_settled can answer "which SDK/client do paying
+          // wallets use?". Never the full UA string, never an IP.
+          const clientUa = String(req.headers["user-agent"] || "").trim().split(/\s+/)[0].slice(0, 40) || null;
+          capturePostHogSettlement({ slug: def.slug, rail, network, priceUsd, synthetic, payer, clientUa });
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
           // buy" is answerable forever (the question the odometer can't).

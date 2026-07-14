@@ -114,6 +114,15 @@ ok(got[1].properties.rail === "pow" && got[1].properties.network === null, "PoW 
 ok(Object.keys(got[0].properties).sort().join(",") === "network,priceUsd,rail,slug,synthetic",
   "settlement properties are exactly {slug, rail, network, priceUsd, synthetic} — no payer identity");
 
+// --- unit: settlement clientUa (SDK attribution, product token only) --------------
+capturePostHogSettlement({ slug: "hash", rail: "usdc", network: "eip155:8453", priceUsd: 0.001, synthetic: false, clientUa: "agent402-client/0.6.1" });
+capturePostHogSettlement({ slug: "hash", rail: "pow", network: null, priceUsd: 0, synthetic: false, clientUa: "x".repeat(80) });
+got = take();
+ok(got[0].properties.clientUa === "agent402-client/0.6.1",
+  "settlement carries the caller's UA product token when provided (clientUa)");
+ok(got[1].properties.clientUa === "x".repeat(40),
+  `clientUa is hard-capped at 40 chars (got ${got[1].properties.clientUa?.length})`);
+
 // --- unit: tool_error probe suppression still holds through the sink refactor ----
 capturePostHogToolError({ slug: "hash", status: 400, message: "x", shape: [], synthetic: false, probe: true });
 ok(take().length === 0, "probe tool_errors stay suppressed (regression lock)");
