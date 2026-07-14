@@ -2883,11 +2883,11 @@ export const SKILL_PACKS = [
     slug: "market-open",
     title: "Market open brief",
     tagline:
-      "Full pre-trade snapshot for one ticker before the bell: the live quote, the pre-market quote, the options surface, dividend posture, and the next earnings date — one payment.",
+      "Full pre-trade snapshot for one ticker before the bell: the live quote, the pre-market quote, the options surface, dividend posture, and today's market-wide earnings calendar — one payment.",
     useCase:
-      "An agent positioning ahead of the open needs everything that moves a pre-trade decision: where the stock closed, where pre-market has taken it, what the options chain implies, whether a dividend or an earnings print is imminent.",
+      "An agent positioning ahead of the open needs everything that moves a pre-trade decision: where the stock closed, where pre-market has taken it, what the options chain implies, whether a dividend is imminent, and which earnings prints hit the tape today.",
     promptArgs: [
-      { name: "ticker", description: "Stock ticker (e.g. SPY, AAPL, NVDA)", required: true, substitute: "SPY" },
+      { name: "ticker", description: "Stock ticker (e.g. AAPL, NVDA, SPY)", required: true, substitute: "AAPL" },
     ],
     toolSlugs: ["stock-quote", "premarket-quote", "options-chain", "stock-dividends", "earnings-calendar"],
     workflow: [
@@ -2895,10 +2895,10 @@ export const SKILL_PACKS = [
       "Pull the pre-market quote from premarket-quote — where the stock is trading before the bell and the gap versus the prior close.",
       "Fetch the options chain from options-chain — strikes, bids/asks, and implied volatility for the nearest expiry.",
       "Check dividend posture with stock-dividends — recent payouts and whether an ex-dividend date is close.",
-      "Get the next earnings date from earnings-calendar so a print doesn't ambush the position.",
+      "Pull today's market-wide earnings calendar from earnings-calendar — every company reporting today, so no print ambushes the open.",
     ],
     claudePrompt:
-      "Build a pre-open trading brief for SPY using Agent402's market-open skill pack. (1) Get the live quote, (2) get the pre-market quote and compute the gap, (3) pull the options chain for the nearest expiry, (4) check recent dividends and any upcoming ex-date, (5) get the next earnings date. Summarize: current positioning, pre-market signal, what implied vol says, and any dividend/earnings events inside the next two weeks.",
+      "Build a pre-open trading brief for AAPL using Agent402's market-open skill pack. (1) Get the live quote, (2) get the pre-market quote and compute the gap, (3) pull the options chain for the nearest expiry, (4) check recent dividends and any upcoming ex-date, (5) pull today's market-wide earnings calendar to see which prints hit the tape today. Summarize: current positioning, pre-market signal, what implied vol says, dividend posture, and today's notable earnings reports.",
   },
   {
     slug: "entity-enrich",

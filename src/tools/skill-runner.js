@@ -2072,7 +2072,12 @@ export const PACK_STEPS = {
     ],
   },
 
-  // Pre-open trading snapshot: five independent reads on one ticker.
+  // Pre-open trading snapshot: four ticker reads + today's market-wide
+  // earnings calendar. The earnings step deliberately does NOT filter by the
+  // ticker — earnings-calendar returns companies reporting on ONE date
+  // (defaults today; symbol is only a filter), so a ticker filter comes back
+  // empty on almost every day and always for ETFs. The market-wide list
+  // ("which prints hit the tape today") is the useful pre-open context.
   "market-open": {
     mode: "fanout",
     steps: [
@@ -2080,7 +2085,7 @@ export const PACK_STEPS = {
       { slug: "premarket-quote",   mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "options-chain",     mapInput: (a) => ({ symbol: a.ticker }) },
       { slug: "stock-dividends",   mapInput: (a) => ({ symbol: a.ticker }) },
-      { slug: "earnings-calendar", mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "earnings-calendar", mapInput: () => ({}) },
     ],
   },
 
