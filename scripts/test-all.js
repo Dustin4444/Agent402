@@ -16,7 +16,7 @@ const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 // exercised by this sweep — search-kit shape/validation is covered by
 // scripts/test-search-kit.js and post-deploy by scripts/paid-canary.js.
 const BRAVE_ROUTES = new Set([
-  "/api/search", "/api/search-news", "/api/search-images", "/api/search-suggest", "/api/answer",
+  "/api/search", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer",
   "/api/multi-search",
 ]);
 const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
@@ -24,7 +24,10 @@ const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
 const NETWORK = new Set([
   "/api/extract", "/api/meta", "/api/dns", "/api/render", "/api/screenshot", "/api/pdf",
   "/api/http-check", "/api/tls-cert", "/api/whois", "/api/robots-check", "/api/sitemap",
-  "/api/email-validate", "/api/ip-info", "/api/search", "/api/search-news", "/api/search-images", "/api/search-suggest", "/api/answer", "/api/multi-search",
+  "/api/email-validate", "/api/ip-info", "/api/search", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer", "/api/multi-search",
+  // Web-content kit: archive.org (archive-snapshot), caller feed URLs
+  // (feed-parse), caller redirect chains (unshorten-url) — all live egress.
+  "/api/archive-snapshot", "/api/feed-parse", "/api/unshorten-url",
   "/api/pdf-info", "/api/pdf-merge", "/api/pdf-extract-pages", "/api/pdf-rotate", "/api/images-to-pdf",
   "/api/pdf-to-markdown",
   "/api/media-info", "/api/audio-convert", "/api/audio-normalize",

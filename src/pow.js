@@ -52,7 +52,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "memory-write", "memory-read", "memory-incr", "memory-cas", "memory-grant", "memory-revoke",
   "memory-grants", "memory-log", "memory-remember", "memory-recall", "memory-forget",
   "http-check", "tls-cert", "whois", "robots-check", "sitemap",
-  "email-validate", "ip-info", "search", "search-news", "search-images", "search-suggest", "answer",
+  "email-validate", "ip-info", "search", "search-news", "search-images", "search-videos", "search-suggest", "answer",
   "pdf-info", "pdf-merge", "pdf-extract-pages", "pdf-rotate", "images-to-pdf",
   "pdf-to-markdown",
   "media-info", "audio-convert", "audio-normalize",
@@ -103,6 +103,11 @@ export const WALLET_ONLY_SLUGS = new Set([
   // (github-repo — shared 60/hr per-IP keyless quota PoW must not farm), and
   // arbitrary caller sites (favicon-grab). All egress → wallet-only.
   "lei-lookup", "wikidata-entity", "gravatar-check", "github-repo", "favicon-grab",
+  // Web-content kit: archive.org availability API (archive-snapshot), arbitrary
+  // caller feed URLs (feed-parse), and redirect-chain following against
+  // arbitrary caller URLs (unshorten-url). All egress → wallet-only.
+  // (search-videos rides with the other Brave routes above.)
+  "archive-snapshot", "feed-parse", "unshorten-url",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama)
   // but the rate limits are shared per-IP. PoW would let one client exhaust the
   // shared quota for every other caller.
