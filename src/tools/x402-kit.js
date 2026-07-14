@@ -535,6 +535,39 @@ export const X402_TOOLS = [
       });
     },
   },
+  {
+    route: "GET /api/demand-radar", name: "agent demand radar", slug: "demand-radar", category: "research", price: "$0.005",
+    description:
+      "What agents want that no one is serving yet — the paid intelligence layer over Agent402's agent-demand board, for x402 sellers deciding what to build next. Ranks the aggregated wish clusters (searches that found nothing + explicit tool requests) and adds the analysis the free raw feed (/api/wishes) doesn't have: signalType classifies each cluster as 'explicit-request' (agents proactively asked — build it), 'discoverability' (dominated by find-misses — the capability may exist but ranking failed, so improve discovery before building), or 'mixed'; nearThreshold marks clusters within 2 signals of the build threshold (the strongest build signals), with gapToThreshold as the exact distance; obvious operator/CI test traffic is flagged noise:true, never silently dropped. sort: 'count' (default) or 'recent' (by lastSeen); minCount filters low-signal noise. ?sort=count&limit=10",
+    tags: ["demand", "market-intelligence", "x402", "agents", "wishes", "research"],
+    discovery: {
+      input: { sort: "count", limit: 10, minCount: 1 },
+      inputSchema: {
+        properties: {
+          sort: { type: "string", enum: ["count", "recent"], description: "Ranking lens: count=most-demanded first (default), recent=most recently seen first" },
+          limit: { type: "integer", description: "How many clusters to return (1-50, default 10)" },
+          minCount: { type: "integer", description: "Only clusters with at least this many signals (default 1)" },
+        },
+      },
+      output: {
+        example: {
+          totalWishes: 42, distinctClusters: 17, buildThreshold: 5,
+          sort: "count", minCount: 1, limit: 10, matchedClusters: 17,
+          radar: [{
+            text: "reverse geocode coordinates to street address",
+            count: 4, sources: { api: 3, mcp: 1, "find-miss": 0 },
+            firstSeen: "2026-07-01T09:00:00.000Z", lastSeen: "2026-07-13T18:30:00.000Z",
+            signalType: "explicit-request", nearThreshold: true, gapToThreshold: 1, noise: false,
+          }],
+          generatedAt: "2026-07-14T00:00:05.000Z",
+        },
+      },
+    },
+    handler: async (i) => {
+      const { getWishesAggregate } = await import("../wish.js");
+      return computeDemandRadar(getWishesAggregate({ limit: 500 }), i);
+    },
+  },
 ];
 
 /**
@@ -647,6 +680,96 @@ export function computeTrending(snap, input = {}, { selfWallet = "", history = [
     snapshotAsOf: snap?.asOf || null,
     generatedAt: new Date().toISOString(),
     ...(snap?.warming ? { warming: true } : {}),
+  };
+}
+
+// Obvious operator/CI test traffic in the wish stream. Flagged, never dropped —
+// a buyer of this report may still want to see it, but it must not read as
+// organic demand. Deliberately NOT a content blocklist: only unambiguous
+// test-harness markers belong here.
+const NOISE_EXACT = new Set(["test"]);
+const NOISE_MARKERS = ["probe-test", "launch check"];
+
+// A cluster is "dominated" by one side when >= 2/3 of its signals come from it.
+const DOMINANCE = 2 / 3;
+// Clusters within this many signals of the build threshold are the strongest
+// build signals — one or two more asks and the board flags them for build.
+const NEAR_BAND = 2;
+
+/**
+ * Compute the demand-radar response from a wishes aggregate (getWishesAggregate
+ * shape: { totalWishes, distinctClusters, threshold, clusters:[{ text, count,
+ * sources:{api,mcp,"find-miss"}, firstSeen, lastSeen }] }). Pure and
+ * deterministic given its inputs — no I/O, no env reads — so it is
+ * unit-testable in isolation (scripts/test-demand-radar.js).
+ *
+ * Analysis the raw /api/wishes feed doesn't carry:
+ *   - signalType: "discoverability" when find-miss dominates (>= 2/3 of the
+ *     cluster's signals — agents searched and our ranking failed; the fix may
+ *     be discovery, not a new tool), "explicit-request" when api/mcp dominates
+ *     (agents proactively asked — a real build signal), else "mixed".
+ *   - nearThreshold + gapToThreshold: proximity to the build threshold from
+ *     the aggregate (count >= threshold - 2 → nearThreshold true).
+ *   - noise: unambiguous test-harness clusters are flagged, never dropped.
+ *
+ * Never throws on an empty or missing aggregate — a fresh boot returns a
+ * clean { totalWishes:0, distinctClusters:0, radar:[] } envelope.
+ */
+export function computeDemandRadar(agg, input = {}) {
+  const SORTS = new Set(["count", "recent"]);
+  const sort = SORTS.has(String(input?.sort || "").toLowerCase()) ? String(input.sort).toLowerCase() : "count";
+  const limit = Math.min(Math.max(parseInt(input?.limit, 10) || 10, 1), 50);
+  const minCount = Math.max(parseInt(input?.minCount, 10) || 1, 1);
+  const threshold = Number(agg?.threshold) || 0;
+
+  const rows = (Array.isArray(agg?.clusters) ? agg.clusters : [])
+    .map((c) => {
+      const sources = {
+        api: Number(c?.sources?.api) || 0,
+        mcp: Number(c?.sources?.mcp) || 0,
+        "find-miss": Number(c?.sources?.["find-miss"]) || 0,
+      };
+      const count = Number(c?.count) || 0;
+      const total = sources.api + sources.mcp + sources["find-miss"];
+      const findMissShare = total > 0 ? sources["find-miss"] / total : 0;
+      const signalType =
+        total === 0 ? "mixed"
+          : findMissShare >= DOMINANCE ? "discoverability"
+            : (1 - findMissShare) >= DOMINANCE ? "explicit-request"
+              : "mixed";
+      const text = String(c?.text || "");
+      const noise = NOISE_EXACT.has(text) || NOISE_MARKERS.some((m) => text.includes(m));
+      return {
+        text,
+        count,
+        sources,
+        firstSeen: c?.firstSeen || null,
+        lastSeen: c?.lastSeen || null,
+        signalType,
+        nearThreshold: threshold > 0 && count >= threshold - NEAR_BAND,
+        gapToThreshold: threshold > 0 ? Math.max(threshold - count, 0) : null,
+        noise,
+      };
+    })
+    .filter((r) => r.count >= minCount);
+
+  const lastMs = (r) => Date.parse(r.lastSeen || "") || 0;
+  rows.sort(
+    sort === "recent"
+      ? (a, b) => lastMs(b) - lastMs(a) || b.count - a.count || a.text.localeCompare(b.text)
+      : (a, b) => b.count - a.count || lastMs(b) - lastMs(a) || a.text.localeCompare(b.text)
+  );
+
+  return {
+    totalWishes: Number(agg?.totalWishes) || 0,
+    distinctClusters: Number(agg?.distinctClusters) || 0,
+    buildThreshold: threshold,
+    sort,
+    minCount,
+    limit,
+    matchedClusters: rows.length,
+    radar: rows.slice(0, limit),
+    generatedAt: new Date().toISOString(),
   };
 }
 

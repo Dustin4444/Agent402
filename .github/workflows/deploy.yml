@@ -980,6 +980,9 @@ jobs:
       - name: x402-trending momentum tool (organic score, sorts, WoW activation, history persistence — offline)
         run: node scripts/test-x402-trending.js
 
+      - name: Demand-radar seller intel (signalType, near-threshold, noise flag, wallet-only — offline)
+        run: node scripts/test-demand-radar.js
+
       - name: Util-kit tests (jwt-sign, uuid-v5, group-by, json-to-xml, geo-distance, color-contrast)
         run: node scripts/test-util-kit.js
 

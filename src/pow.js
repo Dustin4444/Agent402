@@ -94,6 +94,10 @@ export const WALLET_ONLY_SLUGS = new Set([
   // grade + week-over-week growth); the raw seller ranking stays free at
   // /api/leaderboard. Pay-only so the differentiated analysis is monetized.
   "x402-trending",
+  // demand-radar is the same play over the agent-demand board: the raw wish
+  // clusters stay free at /api/wishes, the ranked/classified seller
+  // intelligence (signalType, nearThreshold, noise flags) is pay-only.
+  "demand-radar",
   // B20 kit — RPC egress against Base (b20-feature-id is pure CPU and stays PoW-eligible).
   "b20-activation-check", "b20-token-info", "b20-verify", "b20-new-tokens", "b20-memos",
   // Chain-kit: tools talk to Alchemy (compute-unit quota) or, for evm-rpc,
