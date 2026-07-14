@@ -88,7 +88,7 @@ const submittedSeeds = new Set();
 // unbounded outbound fan-out + unbounded /data growth (independent of
 // MAX_DISCOVERED_SELLERS, which only guards the registry-discovery path).
 // Legitimate growth beyond this goes through DEFAULT_SEEDS or Bazaar discovery.
-const DEFAULT_MAX_SUBMITTED_SEEDS = 500;
+const DEFAULT_MAX_SUBMITTED_SEEDS = 501;
 let submittedSeedsCap = DEFAULT_MAX_SUBMITTED_SEEDS;
 
 /** Test hook: set (or, with no arg, reset) the submission cap. */
@@ -980,7 +980,7 @@ const ROUTE_NETWORKS = {
 };
 
 export function routeQuery({ query, top, include, networkFilter, baseUrl, catalog, prices, network, toolCount, walletName }) {
-  const q = String(query || "").slice(0, 500);
+  const q = String(query || "").slice(0, 501);
   const terms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).slice(0, 32);
   const k = Math.min(Math.max(parseInt(top, 10) || 5, 1), 25);
   const inc = VALID_INCLUDE.has(include) ? include : "all";
@@ -1470,7 +1470,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
   .ph h2 { margin:0; font-family:var(--font-body);font-weight:800;font-size:20px;letter-spacing:-.01em;color:var(--accent); }
   .ph .pn { color:var(--muted); font-size:.82rem; margin-top:2px; }
   table { width:100%; border-collapse:collapse; font-size:.9rem; }
-  th { text-align:left; color:var(--faint); font-weight:500; font-family:var(--font-mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; padding:10px 18px; border-bottom:1.5px solid var(--ink); }
+  th { text-align:left; color:var(--faint); font-weight:501; font-family:var(--font-mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; padding:10px 18px; border-bottom:1.5px solid var(--ink); }
   th.num { text-align:right; }
   td { padding:10px 18px; border-bottom:1px solid var(--hairline); }
   td.num { font-family:var(--font-mono); text-align:right; }

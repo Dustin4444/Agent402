@@ -1,6 +1,6 @@
 # Tool Catalog
 
-**500 endpoints + 100 multi-tool [[Skill Packs|Skill-Packs]].** All deterministic — **no LLM in the serving path**: same input, same output, full input/output schemas. Discover them machine-readably (don't hardcode this page):
+**501 endpoints + 100 multi-tool [[Skill Packs|Skill-Packs]].** All deterministic — **no LLM in the serving path**: same input, same output, full input/output schemas. Discover them machine-readably (don't hardcode this page):
 
 - [`/api/find?q={task}`](https://agent402.tools/api/find?q=extract%20article) — **resolve a plain-language task to the right tool** (route, price, schema, ready example) in one call, so an agent skips the token-heavy "search to find a tool" step. Also a `find_tool` MCP tool on the connector.
 - [`/api/pricing`](https://agent402.tools/api/pricing) — slug, route, price, category, description for everything
@@ -42,4 +42,4 @@ Why would an agent pay $0.001 instead of writing the code? Because writing, test
 
 - Every endpoint is re-tested **against its own documented example** in CI before any deploy reaches production.
 - Tools that can't be served honestly get removed rather than left to take money and 502 (this has happened — see [[Operations]]).
-- Errors are structured: a specific message naming the invalid field, never a bare 500.
+- Errors are structured: a specific message naming the invalid field, never a bare 501.

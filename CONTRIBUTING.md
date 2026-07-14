@@ -74,7 +74,7 @@ The simplest home for a pure-CPU tool is `AGENT_TOOLS` in
 - **Success:** return any JSON-serializable value. For binary output, return
   `{ __binary: Buffer, contentType: "image/png" }`.
 - **Client error:** `throw` an `Error` with `.statusCode = 400` (or another 4xx).
-  Anything else surfaces as a 500.
+  Anything else surfaces as a 501.
 
 ### Ground rules (a tool ships only if it can be served *honestly*)
 

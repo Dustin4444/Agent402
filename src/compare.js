@@ -24,12 +24,12 @@ export function comparePage(baseUrl) {
 .cmp-table{width:100%;border-collapse:collapse;background:var(--card);border:1.5px solid var(--ink);overflow:hidden;font-size:14px}
 .cmp-table th,.cmp-table td{padding:14px 18px;text-align:left;border-bottom:1px solid var(--hairline)}
 .cmp-table thead th{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
-.cmp-table thead th:first-child{color:var(--dk-muted2);font-weight:500;text-transform:none;letter-spacing:normal}
+.cmp-table thead th:first-child{color:var(--dk-muted2);font-weight:501;text-transform:none;letter-spacing:normal}
 .cmp-table tbody td{color:var(--muted)}
 .cmp-table tbody td:first-child{color:var(--ink);font-weight:600}
 .cmp-table tbody tr:last-child td{border-bottom:none}
 .cmp-table .col-a402{color:var(--accent)}
-.cmp-win{color:var(--accent);font-weight:500}
+.cmp-win{color:var(--accent);font-weight:501}
 .cmp-lose{color:var(--faint)}
 .check{color:var(--accent);font-size:1.1rem}
 .cross{color:#D63C1A;font-size:1.1rem}
@@ -45,7 +45,7 @@ export function comparePage(baseUrl) {
 <div class="cmp-wrap">
 <div class="cmp-eyebrow">$ GET /compare</div>
 <h1 class="cmp-h1">How Agent402 Compares</h1>
-<p class="cmp-intro">Agent402 gives your AI agent 500+ deterministic tools behind a single protocol. Here is how it stacks up against the common alternatives.</p>
+<p class="cmp-intro">Agent402 gives your AI agent 501+ deterministic tools behind a single protocol. Here is how it stacks up against the common alternatives.</p>
 
 <div class="cmp-section">
 <h2>Agent402 vs. building your own tool server</h2>
@@ -55,7 +55,7 @@ export function comparePage(baseUrl) {
 <tbody>
 <tr><td>Setup time</td><td class="cmp-win"><span class="check">&#10003;</span> One npm install or HTTP call</td><td class="cmp-lose">Weeks of engineering</td></tr>
 <tr><td>Maintenance</td><td class="cmp-win"><span class="check">&#10003;</span> Managed; monitored by a 15-minute heartbeat + daily paid canary</td><td class="cmp-lose">You own every outage</td></tr>
-<tr><td>Tool count</td><td class="cmp-win"><span class="check">&#10003;</span> 500+ tools and growing</td><td class="cmp-lose">Only what you build</td></tr>
+<tr><td>Tool count</td><td class="cmp-win"><span class="check">&#10003;</span> 501+ tools and growing</td><td class="cmp-lose">Only what you build</td></tr>
 <tr><td>Payment handling</td><td class="cmp-win"><span class="check">&#10003;</span> x402 protocol, built in</td><td class="cmp-lose">Build from scratch</td></tr>
 <tr><td>MCP support</td><td class="cmp-win"><span class="check">&#10003;</span> Native MCP endpoint</td><td class="cmp-lose">Implement yourself</td></tr>
 <tr><td>Cost</td><td class="cmp-win"><span class="check">&#10003;</span> Pay per call, free tier via PoW</td><td class="cmp-lose">Server + engineer time</td></tr>
@@ -112,7 +112,7 @@ export function comparePage(baseUrl) {
 
 <div class="cmp-cta">
 <h2>Ready to get started?</h2>
-<p>Connect your agent to 500+ tools in under five minutes. No API keys, no subscriptions, no lock-in.</p>
+<p>Connect your agent to 501+ tools in under five minutes. No API keys, no subscriptions, no lock-in.</p>
 <a class="btn" href="/quickstart">Start building &rarr;</a>
 </div>
 </div>

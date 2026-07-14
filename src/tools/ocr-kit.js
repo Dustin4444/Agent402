@@ -76,7 +76,7 @@ async function doRecognize(buf, lang) {
     // fresh worker; this avoids one bad input poisoning the process.
     workerPromise = null;
     workerLang = null;
-    throw bad(`OCR failed: ${e.message || "unknown"}`, 500);
+    throw bad(`OCR failed: ${e.message || "unknown"}`, 501);
   }
 }
 

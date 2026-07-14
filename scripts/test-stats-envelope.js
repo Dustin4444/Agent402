@@ -49,7 +49,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
 
   const res = await fetch(`${BASE}/api/stats`);
   ok(res.status === 200, `/api/stats → 200 (got ${res.status})`);
@@ -62,7 +62,7 @@ try {
   ok(body.service === "Agent402.Tools", `service='Agent402.Tools' (got ${body.service})`);
   ok(typeof body.summary === "string" && body.summary.length > 0, `summary is non-empty (got len ${body.summary?.length})`);
 
-  // Catalog floor: must stay >= 400 (The 500 era: 462 interim → 500; a counter that fell
+  // Catalog floor: must stay >= 400 (The 501 era: 462 interim → 501; a counter that fell
   // under 1000 would be a regression worth investigating).
   ok(typeof body.tools === "number" && body.tools >= 400, `tools is >= 400 (got ${body.tools})`);
 

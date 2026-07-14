@@ -102,7 +102,7 @@ const packSlugs = async (q) => {
 };
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
 
   // Sanity: catalog is loaded.
   const pricing = await fetch(`${BASE}/api/pricing`).then((r) => r.json());

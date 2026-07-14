@@ -80,7 +80,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/api/pow`)).ok) break; } catch {} await sleep(500); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/api/pow`)).ok) break; } catch {} await sleep(501); }
 
   // 1. Published rule.
   const info = await (await fetch(`${BASE}/api/pow`)).json();

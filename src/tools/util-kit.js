@@ -30,7 +30,7 @@ const NS_ALIASES = {
   dns: "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
   url: "6ba7b811-9dad-11d1-80b4-00c04fd430c8",
   oid: "6ba7b812-9dad-11d1-80b4-00c04fd430c8",
-  x500: "6ba7b814-9dad-11d1-80b4-00c04fd430c8",
+  x501: "6ba7b814-9dad-11d1-80b4-00c04fd430c8",
 };
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function uuidToBytes(uuid) {
@@ -107,14 +107,14 @@ export const UTIL_TOOLS = [
   {
     route: "POST /api/uuid-v5", name: "UUID v5 (deterministic)", slug: "uuid-v5", category: "identifiers", price: "$0.001",
     description:
-      "Generate a deterministic name-based UUID (version 5, SHA-1) from a namespace + name — the same inputs always yield the same UUID, for stable IDs without a database. Namespace may be a UUID or an alias: dns | url | oid | x500.",
+      "Generate a deterministic name-based UUID (version 5, SHA-1) from a namespace + name — the same inputs always yield the same UUID, for stable IDs without a database. Namespace may be a UUID or an alias: dns | url | oid | x501.",
     tags: ["uuid", "uuidv5", "deterministic", "identifier", "rfc4122"],
     discovery: {
       bodyType: "json",
       input: { namespace: "url", name: "https://agent402.tools" },
       inputSchema: {
         properties: {
-          namespace: { type: "string", description: "a UUID, or alias: dns | url | oid | x500" },
+          namespace: { type: "string", description: "a UUID, or alias: dns | url | oid | x501" },
           name: { type: "string", description: "the name to hash within the namespace" },
         },
         required: ["namespace", "name"],
@@ -124,7 +124,7 @@ export const UTIL_TOOLS = [
     handler: (i) => {
       const nsIn = need(i, "namespace").toLowerCase();
       const ns = NS_ALIASES[nsIn] || nsIn;
-      if (!UUID_RE.test(ns)) throw bad('"namespace" must be a UUID or one of: dns, url, oid, x500');
+      if (!UUID_RE.test(ns)) throw bad('"namespace" must be a UUID or one of: dns, url, oid, x501');
       const name = need(i, "name");
       const hash = createHash("sha1").update(Buffer.concat([uuidToBytes(ns), Buffer.from(name, "utf8")])).digest();
       const bytes = hash.subarray(0, 16);

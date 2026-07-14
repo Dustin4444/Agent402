@@ -67,7 +67,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
 
   const init = await rpc("initialize", { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "test-mcp-call-tool-contract", version: "0.0.0" } });
   ok(init.result?.serverInfo?.name === "agent402", `initialize returns serverInfo.name=agent402 (got ${init.result?.serverInfo?.name})`);

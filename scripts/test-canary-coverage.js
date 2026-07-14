@@ -1,4 +1,4 @@
-// Coverage lock for The 500's new tools (v2.0.0 overhaul) — offline, no server.
+// Coverage lock for The 501's new tools (v2.0.0 overhaul) — offline, no server.
 //
 // scripts/test-all.js sweeps every catalog entry it finds in /openapi.json, so a
 // tool is only ever silently untested if (a) it lost its discovery example (the
@@ -35,7 +35,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 
-// The 30 tools of The 500 phase 2 (t1 contract ×7, t2 market feeds ×6,
+// The 30 tools of The 501 phase 2 (t1 contract ×7, t2 market feeds ×6,
 // t3 enrich ×5, t4 web/content ×4, t5 media/format ×5, t6 locale/time ×3),
 // plus evm-rpc (demand batch, same launch window). slug → hosting kit export.
 const NEW_TOOLS = [

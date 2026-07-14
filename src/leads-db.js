@@ -103,7 +103,7 @@ export async function insertLead(lead) {
       sites: cap(lead.sites, 1000),
       message: cap(lead.message, 4000),
       ip: cap(lead.ip, 64),
-      ua: cap(lead.ua, 500),
+      ua: cap(lead.ua, 501),
     };
     const r = await p.query(
       `INSERT INTO tollbooth_leads (kind, plan, name, email, org, sites, message, ip, ua)

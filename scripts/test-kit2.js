@@ -70,7 +70,7 @@ await check("roman", { value: "MMXXIV" }, (o) => o.result === 2024, "roman→int
 {
   const srt = "1\n00:00:01,000 --> 00:00:03,000\nHello world\n\n2\n00:00:03,500 --> 00:00:05,000\nSecond line\n";
   await check("srt-convert", { input: srt, to: "vtt" },
-    (o) => o.detected === "srt" && o.count === 2 && o.result.startsWith("WEBVTT\n\n") && o.result.includes("00:00:01.000 --> 00:00:03.000\nHello world") && o.result.includes("00:00:03.500 --> 00:00:05.000"), "srt→vtt");
+    (o) => o.detected === "srt" && o.count === 2 && o.result.startsWith("WEBVTT\n\n") && o.result.includes("00:00:01.000 --> 00:00:03.000\nHello world") && o.result.includes("00:00:03.501 --> 00:00:05.000"), "srt→vtt");
   await check("srt-convert", { input: srt, to: "text" }, (o) => o.result === "Hello world\nSecond line", "srt→text");
   await check("srt-convert", { input: srt, to: "json" }, (o) => o.count === 2 && o.cues[0].start === 1000 && o.cues[0].end === 3000 && o.cues[1].text === "Second line" && o.cues[1].startTime === "00:00:03,500", "srt→json");
   const vtt = "WEBVTT\n\nNOTE a comment\n\n00:00:01.000 --> 00:00:03.000 align:start\nHello world\n";

@@ -28,7 +28,7 @@ function bad(message, statusCode = 400) {
 // a kit got renamed and this composite is stale; fail loudly so CI catches it.
 function getHandler(kit, slug) {
   const t = kit.find((x) => x.slug === slug);
-  if (!t) throw bad(`research-kit: missing dependency tool '${slug}' — sub-kit may have been renamed`, 500);
+  if (!t) throw bad(`research-kit: missing dependency tool '${slug}' — sub-kit may have been renamed`, 501);
   return t.handler;
 }
 

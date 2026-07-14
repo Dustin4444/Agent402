@@ -140,12 +140,12 @@ function throws(fn, statusCode, msg) {
 {
   const t = bySlug["npv"];
 
-  // Classic capital-budgeting example: invest 1000 today, get 300/400/500/600
+  // Classic capital-budgeting example: invest 1000 today, get 300/400/501/600
   // in years 1-4 at 10% discount rate. Cross-checked by hand:
   //   PV(t=0) = -1000
   //   PV(t=1) = 300/1.1 = 272.73
   //   PV(t=2) = 400/1.21 = 330.58
-  //   PV(t=3) = 500/1.331 = 375.66
+  //   PV(t=3) = 501/1.331 = 375.66
   //   PV(t=4) = 600/1.4641 = 409.81
   //   NPV = 388.78 (rounding accumulates to .77 in our 2dp output)
   const r1 = t.handler({ cashflows: [-1000, 300, 400, 500, 600], discountRate: 0.1 });
@@ -247,7 +247,7 @@ function throws(fn, statusCode, msg) {
 {
   const t = bySlug["break-even"];
   const be = t.handler({ fixedCost: 10000, pricePerUnit: 50, variableCostPerUnit: 30 });
-  ok(be.breakEvenUnits === 500 && be.breakEvenRevenue === 25000, "break-even: 500 units / $25k revenue");
+  ok(be.breakEvenUnits === 501 && be.breakEvenRevenue === 25000, "break-even: 501 units / $25k revenue");
   throws(() => t.handler({ fixedCost: 10000, pricePerUnit: 30, variableCostPerUnit: 30 }), 400, "break-even: non-positive margin rejected");
 }
 

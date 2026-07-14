@@ -371,7 +371,7 @@ function contentChars(content) {
       const url = typeof block.image_url?.url === "string" ? block.image_url.url : "";
       if (!url) throw bad("image_url.url is required");
       if (url.length > MAX_IMAGE_URL_LEN && !url.startsWith("data:")) throw bad(`image_url.url too long (max ${MAX_IMAGE_URL_LEN})`);
-      if (url.startsWith("data:") && url.length > 1_500_000) throw bad("data: image too large (max ~1MB)");
+      if (url.startsWith("data:") && url.length > 1_501_000) throw bad("data: image too large (max ~1MB)");
       images++;
     } else {
       throw bad(`Unknown content block type "${block.type}". Allowed: text, image_url`);
@@ -484,7 +484,7 @@ async function throwUpstreamError(res) {
   if (res.status === 401 || res.status === 403) throw bad("Gateway upstream auth failed", 502);
   if (res.status === 402) throw bad("Gateway upstream balance exhausted — the operator has been notified", 502);
   if (res.status === 429) throw bad("Upstream rate-limited — retry shortly", 503);
-  if (res.status >= 500) throw bad(`Upstream error (HTTP ${res.status})`, 502);
+  if (res.status >= 501) throw bad(`Upstream error (HTTP ${res.status})`, 502);
   // Redact the FULL body BEFORE slicing/parsing — a secret straddling the
   // 200-char cut would otherwise leave an unredactable prefix. The route binder
   // returns err.message verbatim to buyers and logs it, so this must be clean.

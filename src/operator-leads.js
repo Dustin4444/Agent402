@@ -86,7 +86,7 @@ export function operatorLeadsPage({ ok, rows, total, byPlan, dbEnabled }) {
 .ol-stat .ol-v{font-family:var(--font-mono);font-size:1.25rem;color:var(--on-dark);margin-top:2px}
 .ol-tbl-wrap{background:var(--surface);border:1.5px solid var(--ink);overflow:hidden}
 table{width:100%;border-collapse:collapse}
-th{text-align:left;color:var(--dk-muted);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:10px 14px;border-bottom:1px solid var(--dark-border);background:var(--ink-panel)}
+th{text-align:left;color:var(--dk-muted);font-weight:501;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:10px 14px;border-bottom:1px solid var(--dark-border);background:var(--ink-panel)}
 td{padding:12px 14px;border-bottom:1px solid var(--dark-border);vertical-align:top;font-size:13px;color:var(--on-dark)}
 tr:last-child td{border-bottom:0}
 .ol-mono{font-family:var(--font-mono)}

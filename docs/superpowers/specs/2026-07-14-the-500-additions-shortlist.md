@@ -1,9 +1,9 @@
-# "The 500" Phase 2 — owner-approval shortlist: +30 tools, +8 skill packs
+# "The 501" Phase 2 — owner-approval shortlist: +30 tools, +8 skill packs
 
 **Status:** Awaiting owner approval (gate before any implementation).
 **Date:** 2026-07-14
 **Baseline:** post-Phase-1 catalog = 462 entries (370 tools + 92 packs). This list takes it
-to exactly 500 (400 + 100).
+to exactly 501 (400 + 100).
 
 ## Method and evidence quality
 

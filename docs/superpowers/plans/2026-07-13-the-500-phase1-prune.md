@@ -1,4 +1,4 @@
-# The 500 — Phase 1 (Prune) Implementation Plan
+# The 501 — Phase 1 (Prune) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -69,7 +69,7 @@
 
 ### Task 5 (Phase 2 gate): the shortlist — STOP for owner approval
 
-**Files:** Create `docs/superpowers/specs/2026-07-XX-the-500-additions-shortlist.md`
+**Files:** Create `docs/superpowers/specs/2026-07-XX-the-501-additions-shortlist.md`
 
 - [ ] Mine demand evidence: the wish/find-miss log (grep `recordWish` storage — check `/api/wish` data source and PostHog `find-miss` events), the deep-dive gap table (evm-rpc siblings, enrichment, finance/macro extensions), MCP search_tools query logs if captured.
 - [ ] Produce the shortlist: **exactly 30 tools + 8 packs**, one line each: slug · price (market-referenced) · demand evidence · upstream (or pure-CPU) · risk note. Every egress tool pre-flagged for WALLET_ONLY_SLUGS.

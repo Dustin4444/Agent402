@@ -288,7 +288,7 @@ console.log("\n# tool_gone — retired-route telemetry");
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   try {
     let up = false;
-    for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) { up = true; break; } } catch {} await sleep(500); }
+    for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) { up = true; break; } } catch {} await sleep(501); }
     ok(up, "free-mode server booted");
 
     // Retired routes we CAN answer are transparently served (200 + shim
@@ -304,7 +304,7 @@ console.log("\n# tool_gone — retired-route telemetry");
     });
     ok(res2.status === 200, `slash-form retired route transparently serves 200 (got ${res2.status})`);
 
-    await sleep(500); // let stdout drain
+    await sleep(501); // let stdout drain
     const captured = serverLog.split("\n")
       .filter((l) => l.includes("[posthog-test]"))
       .map((l) => { try { return JSON.parse(l.slice(l.indexOf("{"))); } catch { return null; } })

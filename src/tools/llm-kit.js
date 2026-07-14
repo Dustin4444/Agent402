@@ -182,7 +182,7 @@ async function callOpenAI(model, messages, maxTokens, responseFormat, opts) {
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
     if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
-    if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
+    if (res.status >= 501) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
     // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
     // 200-char cut leaves an unredactable prefix); the route binder returns
     // err.message verbatim to buyers and logs it.
@@ -296,7 +296,7 @@ export const LLM_TOOLS = [
     name: "LLM inference (Premium)",
     slug: "llm-premium",
     category: "ai",
-    price: "$0.500",
+    price: "$0.501",
     description:
       "LLM inference proxy (Premium tier) — o3 or o3-mini reasoning models. Supports vision (up to 2 image URLs) and structured output (response_format: json_object or json_schema). No API key needed; pay per call via x402. Input capped at 32k chars, output at 2048 tokens.",
     tags: [...SHARED_TAGS, "o3", "o3-mini", "vision", "json-mode"],

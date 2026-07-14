@@ -371,7 +371,7 @@ export function adapterDocPage(baseUrl, slug) {
         <h2 style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 12px;">Configuration</h2>
         <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:.88rem;">
           <thead>
-            <tr><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Option</th><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Type</th><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Description</th></tr>
+            <tr><th style="text-align:left;color:var(--faint);font-weight:501;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Option</th><th style="text-align:left;color:var(--faint);font-weight:501;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Type</th><th style="text-align:left;color:var(--faint);font-weight:501;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Description</th></tr>
           </thead>
           <tbody>
 ${configRows}

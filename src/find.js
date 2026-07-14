@@ -50,7 +50,7 @@ const UNIT_WORDS = new Set(
  */
 export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}) {
   // Cap the query length so a pathological input can't drive unbounded work.
-  const q = String(query || "").slice(0, 500);
+  const q = String(query || "").slice(0, 501);
   // Strip stopwords + 1-char tokens — they match thousands of tools and add noise
   // without signal. Keep the cap tight so each scoring pass is bounded.
   const rawTerms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);

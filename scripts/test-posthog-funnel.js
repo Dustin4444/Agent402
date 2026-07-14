@@ -176,14 +176,14 @@ const solve = (c) => { let n = 0; while (lz(createHash("sha256").update(`${c.cha
 
 try {
   let up = false;
-  for (let i = 0; i < 60; i++) { try { if ((await fetch(`${B}/api/pow`)).ok) { up = true; break; } } catch {} await sleep(500); }
+  for (let i = 0; i < 60; i++) { try { if ((await fetch(`${B}/api/pow`)).ok) { up = true; break; } } catch {} await sleep(501); }
   ok(up, "paid-mode server booted against the mock facilitator");
 
   // Stage 1: discovery.
   ok((await fetch(`${B}/llms.txt`)).ok, "GET /llms.txt serves");
   ok((await fetch(`${B}/api/pricing`)).ok, "GET /api/pricing serves");
 
-  // Stage 2: an unpaid catalog call must get a REAL 402 (not a 500 — that
+  // Stage 2: an unpaid catalog call must get a REAL 402 (not a 501 — that
   // would mean the kind sync failed, the exact bug the wallet E2E hit).
   const unpaid = await fetch(`${B}/api/hash`, {
     method: "POST",

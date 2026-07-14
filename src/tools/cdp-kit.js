@@ -110,7 +110,7 @@ async function cdpFetch(method, path, body) {
     if (res.status === 400 || res.status === 404 || res.status === 422) throw bad(`CDP rejected the request: ${detail}`, 422);
     if (res.status === 429) { lastErr = bad(`CDP rate limit: ${detail}`, 429); continue; } // transient — back off + retry
     lastErr = bad(`CDP upstream error (HTTP ${res.status}): ${detail}`, 502);
-    if (res.status < 500) throw lastErr; // other non-5xx (e.g. 401/403 auth) — not retryable
+    if (res.status < 501) throw lastErr; // other non-5xx (e.g. 401/403 auth) — not retryable
     // 5xx — fall through to retry
   }
   throw lastErr;

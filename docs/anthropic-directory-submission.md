@@ -31,7 +31,7 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
 
 ## Description
 
-> Agent402 gives Claude a catalog of 500 small, deterministic web tools it
+> Agent402 gives Claude a catalog of 501 small, deterministic web tools it
 > can call instantly: encoding and hashing, unit and data conversions, JSON/CSV
 > wrangling, text processing, date/cron math, validators, and more. There is no
 > account, no API key, and no setup — the pure-CPU tools run free on the hosted
@@ -73,6 +73,6 @@ self-contained). Per-client rate limit: 20 calls/min, 120/hour.
 - A heartbeat probes production every 15 minutes (health, catalog, paid call,
   MCP initialize).
 - Errors are structured and human-readable (each tool returns a specific
-  message naming the missing/invalid field, never a bare 500).
+  message naming the missing/invalid field, never a bare 501).
 - No data collection: no accounts, no cookies, no trackers. IPs are used only
   for rate limiting (in-memory, ≤1 h). See /privacy.

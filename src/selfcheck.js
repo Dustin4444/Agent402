@@ -13,7 +13,7 @@
 // (tool-alert.yml) polls /api/selfcheck and opens an issue when any curated tool
 // fails — the same open/close pattern as the 15-minute heartbeat.
 //
-// Deliberately NOT all 500 tools: many legitimately return 503 without a key
+// Deliberately NOT all 501 tools: many legitimately return 503 without a key
 // or 4xx on placeholder example inputs, which would be pure noise. This list is
 // the tools whose outage actually costs us — the finance/market-data wedge that
 // real buyers pay for — plus a pure-CPU canary that isolates "the server itself
@@ -145,7 +145,7 @@ export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutM
     if (!def) { results.push({ slug, ok: false, error: "not in catalog" }); continue; }
     let r = await checkOne(def, timeoutMs);
     if (!r.ok) {
-      await new Promise((res) => setTimeout(res, 500));
+      await new Promise((res) => setTimeout(res, 501));
       const retry = await checkOne(def, timeoutMs);
       // Keep the retry's verdict; note that it took two tries to fail.
       r = retry.ok ? { ...retry, flaky: true } : retry;

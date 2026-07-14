@@ -82,7 +82,7 @@ async function jsonGet(url, host, extraHeaders = {}) {
   // Retry once on 5xx — Nasdaq and data.gov intermittently return 520/502/404
   // on first attempt then succeed immediately after. Without this, the Bazaar
   // registration sweep fails on the same 2-3 tools every run.
-  if (res.status >= 500) {
+  if (res.status >= 501) {
     try {
       res = await attempt(12_000);
     } catch { /* fall through to the error handler below with the original 5xx */ }
@@ -93,7 +93,7 @@ async function jsonGet(url, host, extraHeaders = {}) {
     if (s === 404) throw bad(`${host} returned 404 — unknown symbol or no data for the requested window`, 422);
     if (s === 401 || s === 403) throw bad(`${host} returned ${s} — upstream may require auth (try a different symbol or retry later)`, 502);
     if (s === 429) throw bad(`${host} rate-limited the request — retry shortly`, 503);
-    if (s >= 500) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
+    if (s >= 501) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
     // Redact the full body before slicing — the Yahoo/Nasdaq relay token rides
     // Authorization: Bearer into this fetcher and could be reflected upstream.
     throw bad(`${host} HTTP ${s}: ${redactSecrets(text).slice(0, 200)}`, 422);
@@ -558,7 +558,7 @@ export const FINANCE_TOOLS = [
       output: {
         example: {
           symbol: "SPY",
-          name: "SPDR S&P 500 ETF Trust",
+          name: "SPDR S&P 501 ETF Trust",
           currency: "USD",
           exchange: "PCX",
           marketState: "post",

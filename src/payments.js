@@ -232,7 +232,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // URL is set, DROP it from the offered networks entirely (below) — NOT just
   // its facilitator client. Registering a scheme / advertising an `accepts`
   // entry for a network that no facilitator can settle makes EVERY 402
-  // challenge throw, which surfaces as a 500 on ALL paid endpoints (buyers
+  // challenge throw, which surfaces as a 501 on ALL paid endpoints (buyers
   // can't pay anything). Degrading robinhood to "not offered" keeps the rest
   // of the gateway serving; it returns the moment ROBINHOOD_FACILITATOR_URL is set.
   const robinhoodEnabled = evmCaip2.includes(ROBINHOOD_CAIP2) && !!ROBINHOOD_FACILITATOR_URL;

@@ -24,6 +24,7 @@
 // eth_getLogs calls (~30s-2min). We cache the snapshot in memory and refresh
 // hourly; the endpoint reads from cache so each request is sub-millisecond.
 
+import { readFileSync, writeFileSync } from "node:fs";
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 
@@ -558,6 +559,60 @@ export async function runLeaderboard(overrides = {}) {
   };
 }
 
+// --- history persistence (week-over-week deltas) -----------------------------
+//
+// One compact point per UTC day, written after every successful refresh (the
+// day's point is always the latest scan of that day). Lives on the same /data
+// persistent volume the stats DB and submitted-seeds file use — no new infra.
+// Both bounds below exist because /data is shared: a point keeps only the top
+// HISTORY_MAX_SELLERS rows and the file keeps only HISTORY_MAX_DAYS points, so
+// the file stays a few hundred KB forever. Every write is try/caught: a missing
+// volume (local dev, CI) or a full disk silently skips — history is a nicety,
+// never a refresh-breaker. Consumed by the x402-trending tool (x402-kit.js).
+
+export const LEADERBOARD_HISTORY_FILE =
+  process.env.LEADERBOARD_HISTORY_FILE || "/data/leaderboard-history.json";
+const HISTORY_MAX_DAYS = 35; // ~5 weeks — enough for WoW with slack
+const HISTORY_MAX_SELLERS = 300; // per point — bounds file size on /data
+
+/** Read the persisted history: array of daily points, oldest first. [] on any error. */
+export function readLeaderboardHistory(file = LEADERBOARD_HISTORY_FILE) {
+  try {
+    const arr = JSON.parse(readFileSync(file, "utf8"));
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Persist a daily digest of a snapshot (idempotent per UTC day — re-running the
+ * same day replaces that day's point). Returns true if written, false if
+ * skipped (bad snapshot or no writable volume).
+ */
+export function persistLeaderboardHistoryPoint(snapshot, file = LEADERBOARD_HISTORY_FILE) {
+  try {
+    if (!snapshot || snapshot.scanSkipped || !Array.isArray(snapshot.leaderboard)) return false;
+    const asOf = snapshot.asOf || new Date().toISOString();
+    const day = String(asOf).slice(0, 10);
+    const sellers = snapshot.leaderboard.slice(0, HISTORY_MAX_SELLERS).map((r) => ({
+      // All of a group's wallets, so a later snapshot whose primary wallet
+      // shifted within the same operator group still matches its history.
+      wallets: Array.isArray(r.wallets) && r.wallets.length ? r.wallets : r.wallet ? [r.wallet] : [],
+      callsSettled: Number(r.callsSettled) || 0,
+      totalUsd: Number(r.totalUsd) || 0,
+      uniqueBuyers: Number(r.uniqueBuyers) || 0,
+    }));
+    const history = readLeaderboardHistory(file).filter((p) => p && p.day !== day);
+    history.push({ day, asOf, windowLabel: snapshot.windowLabel, sellers });
+    history.sort((a, b) => String(a.day).localeCompare(String(b.day)));
+    writeFileSync(file, JSON.stringify(history.slice(-HISTORY_MAX_DAYS)));
+    return true;
+  } catch {
+    return false; // no /data volume or disk error — skip silently
+  }
+}
+
 // --- server-side cache + refresh -------------------------------------------
 
 // One process-global snapshot. Restart-tolerant by design: a fresh boot warms
@@ -581,6 +636,10 @@ async function refreshOnce(opts) {
     const snap = await runLeaderboard(opts);
     cached.snapshot = snap;
     cached.lastError = null;
+    // Best-effort daily digest to /data so week-over-week deltas (the
+    // x402-trending tool) activate automatically once history accrues.
+    // No-op when the volume is absent (local dev, CI).
+    persistLeaderboardHistoryPoint(snap);
   } catch (e) {
     cached.lastError = String(e?.message || e);
     // Keep the previous snapshot — a transient RPC outage shouldn't wipe a
@@ -767,7 +826,7 @@ ${CHROME_HEAD_LINKS}
   .ph h2 { margin:0; font-size:1rem; color:var(--accent); }
   .ph .pn { color:var(--muted); font-size:.82rem; margin-top:2px; }
   table { width:100%; border-collapse:collapse; font-size:.9rem; }
-  th { text-align:left; color:var(--muted); font-weight:500; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; padding:10px 18px; border-bottom:1px solid var(--line); }
+  th { text-align:left; color:var(--muted); font-weight:501; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; padding:10px 18px; border-bottom:1px solid var(--line); }
   th.num { text-align:right; }
   td { padding:10px 18px; border-bottom:1px solid var(--line); }
   td.num { font-family:ui-monospace,Menlo,monospace; text-align:right; }

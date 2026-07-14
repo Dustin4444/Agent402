@@ -3,7 +3,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const USE_CASES = [
   {
     title: "Research 50 public companies overnight",
-    story: "An investment analyst\u2019s agent iterated through 50 S&P 500 tickers, pulling 10-K filings, earnings history, and live quotes for each. By morning, 50 structured summaries were ready for review.",
+    story: "An investment analyst\u2019s agent iterated through 50 S&P 501 tickers, pulling 10-K filings, earnings history, and live quotes for each. By morning, 50 structured summaries were ready for review.",
     tools: ["research-company", "edgar-filings", "stock-quote", "stock-history"],
     cost: "~$0.50 (50 \u00d7 ~$0.01/call)",
   },
@@ -38,10 +38,10 @@ const USE_CASES = [
     cost: "~$0.02 per question",
   },
   {
-    title: "Validate and geocode a 500-row address list",
+    title: "Validate and geocode a 501-row address list",
     story: "An ops agent processed a CSV of customer addresses: validated formatting, geocoded each to lat/lng, and flagged duplicates \u2014 no Google Maps API key required.",
     tools: ["geocode", "csv-lint", "email-validate"],
-    cost: "~$2.50 (500 geocodes at $0.005)",
+    cost: "~$2.50 (501 geocodes at $0.005)",
   },
   {
     title: "Cross-check SEC insider trades against stock moves",

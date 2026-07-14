@@ -1,6 +1,6 @@
 # Agent402 + Claude Code
 
-Add 500 tools to Claude Code in one command.
+Add 501 tools to Claude Code in one command.
 
 ## Install
 

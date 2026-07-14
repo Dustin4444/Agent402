@@ -66,7 +66,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // see a legible slice of the catalog without a search_tools round-trip. All
   // must be PoW-eligible (free). Calling one by name is equivalent to
   // call_tool({slug, params}) — same handler, same rate limit. Kept deliberately
-  // TIGHT (the full 500-tool catalog lives behind search_tools/find_tool/call_tool
+  // TIGHT (the full 501-tool catalog lives behind search_tools/find_tool/call_tool
   // by design): MCP directories score a well-scoped server at ~3-15 tools, and
   // every entry here rides in each client's context on every turn. So this is a
   // 9-tool legibility sample of universally-recognized dev utilities, not a dump.
@@ -597,7 +597,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     // Adoption telemetry: every MCP session announces its client at
     // initialize (e.g. "claude-ai", "claude-code"). In-memory since boot.
     const ci = req.body?.method === "initialize" ? req.body?.params?.clientInfo : null;
-    if (ci?.name && mcpClients.size < 500) {
+    if (ci?.name && mcpClients.size < 501) {
       const key = `${ci.name}@${ci.version || "?"}`.slice(0, 80);
       mcpClients.set(key, (mcpClients.get(key) || 0) + 1);
       console.log(`[mcp] initialize from ${key}`);
@@ -609,7 +609,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
       await transport.handleRequest(req, res, req.body);
     } catch (err) {
       if (!res.headersSent) {
-        res.status(500).json({ jsonrpc: "2.0", error: { code: -32603, message: err.message }, id: null });
+        res.status(501).json({ jsonrpc: "2.0", error: { code: -32603, message: err.message }, id: null });
       }
     }
   });

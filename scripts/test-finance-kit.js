@@ -81,13 +81,13 @@ await live("stock-quote", { symbol: "AAPL" },
   (r) => r.symbol === "AAPL" && r.currency === "USD" && typeof r.price === "number" && r.price > 0,
   "stock-quote AAPL");
 
-// Index symbol (^GSPC = S&P 500) exercises the non-equity path — Yahoo
+// Index symbol (^GSPC = S&P 501) exercises the non-equity path — Yahoo
 // returns the same chart shape but with `instrumentType: "INDEX"`. No bars
 // expected from the chart endpoint with our minimal range, but the meta
 // block populates.
 await live("stock-quote", { symbol: "^GSPC" },
   (r) => r.symbol === "^GSPC" && typeof r.price === "number" && r.price > 0,
-  "stock-quote ^GSPC (S&P 500 index)");
+  "stock-quote ^GSPC (S&P 501 index)");
 
 // Daily bars over the last month — should always return 18-23 trading-day
 // bars (rough month). We just assert > 5 to ride out month-boundary edge

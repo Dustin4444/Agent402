@@ -100,7 +100,7 @@ const searchSlugs = async (query, limit = 5) => {
 
 try {
   // Boot wait — server initializes the catalog + free-slug set before /mcp is useful.
-  for (let i = 0; i < 60; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
+  for (let i = 0; i < 60; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
 
   // Sanity: MCP surface is up and the connector exposes search_tools.
   const init = await rpc("initialize", {

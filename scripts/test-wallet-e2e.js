@@ -103,7 +103,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
     ...process.env,
     // Paid mode, testnet chain, fresh payTo. CDP keys forwarded: the CDP
     // facilitator settles base-sepolia and is what production runs — the
-    // zero-config x402.org default advertises no v2 kinds and 500s every
+    // zero-config x402.org default advertises no v2 kinds and 501s every
     // paid route (observable since the unhandled-5xx logging landed).
     NETWORK: "base-sepolia",
     WALLET_ADDRESS: seller.address,
@@ -121,7 +121,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
   stdio: ["ignore", logFd, logFd],
 });
 let booted = false;
-for (let i = 0; i < 60; i++) { try { if ((await fetch(`${BASE}/health`)).ok) { booted = true; break; } } catch {} await sleep(500); }
+for (let i = 0; i < 60; i++) { try { if ((await fetch(`${BASE}/health`)).ok) { booted = true; break; } } catch {} await sleep(501); }
 ok(booted, "paid-mode base-sepolia seller booted (CDP facilitator)");
 
 // --- 4. the newborn wallet's first purchase ------------------------------------
@@ -140,7 +140,7 @@ try {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "hello from a wallet born one minute ago" }),
     });
-    if (res.status < 500) break;
+    if (res.status < 501) break;
     console.log(`(attempt ${attempt}: HTTP ${res.status} — retrying in 4s)`);
     await sleep(4000);
   }

@@ -208,7 +208,7 @@ ${CHROME_CSS}
 .int-install{font-size:.75rem;color:var(--accent)}
 .int-footer{display:flex;align-items:center;justify-content:space-between;margin-top:auto;padding-top:.35rem}
 .int-pkg{font-family:var(--mono);font-size:.75rem;color:var(--muted);background:rgba(255,255,255,.04);padding:.15rem .45rem;border-radius:.25rem}
-.int-link{font-size:.8rem;color:var(--accent);text-decoration:none;font-weight:500}
+.int-link{font-size:.8rem;color:var(--accent);text-decoration:none;font-weight:501}
 .int-link:hover{text-decoration:underline}
 </style>
 <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>

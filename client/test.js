@@ -98,7 +98,7 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
     let paid = 0;
     const c = new Agent402({
       baseUrl: "https://seller.example", cache: false, dailyLimitUsd: 0.05,
-      fetch: async () => { paid++; return { ok: false, status: 500 }; },
+      fetch: async () => { paid++; return { ok: false, status: 501 }; },
       fetchImpl: async () => okResp,
     });
     c._catalog = new Map([["cheap", { method: "POST", path: "/api/cheap", computePayable: false, price: "$0.01" }]]);
@@ -126,7 +126,7 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`http://localhost:${PORT}/api/pow`)).ok) break; } catch {} await sleep(500); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`http://localhost:${PORT}/api/pow`)).ok) break; } catch {} await sleep(501); }
   const a = new Agent402({ baseUrl: `http://localhost:${PORT}` });
 
   // 1. find() resolves a task to the right tool.

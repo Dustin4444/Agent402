@@ -12,7 +12,7 @@ export function badgeSvg(style) {
 
 function defaultBadge() {
   const leftText = "Agent402";
-  const rightText = "500 tools";
+  const rightText = "501 tools";
   const leftWidth = 72;
   const rightWidth = 82;
   const totalWidth = leftWidth + rightWidth;
@@ -41,7 +41,7 @@ function defaultBadge() {
 
 function flatBadge() {
   const leftText = "Agent402";
-  const rightText = "500 tools";
+  const rightText = "501 tools";
   const leftWidth = 72;
   const rightWidth = 82;
   const totalWidth = leftWidth + rightWidth;

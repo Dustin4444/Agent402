@@ -298,7 +298,7 @@ const text = [
     tags: ["count", "occurrences", "text"],
     discovery: { bodyType: "json", input: { text: "the cat sat on the mat", find: "the" }, inputSchema: { properties: { text: { type: "string" }, find: { type: "string", description: "Optional substring to count" } }, required: ["text"] }, output: { example: { characters: 22, words: 6, lines: 1, occurrences: 2 } } },
     handler: (i) => {
-      const t = cap(need(i, "text"), 500_000);
+      const t = cap(need(i, "text"), 501_000);
       const out = { characters: t.length, words: (t.match(/\S+/g) || []).length, lines: t.split("\n").length };
       if (typeof i.find === "string" && i.find) {
         out.find = i.find;
@@ -313,7 +313,7 @@ const text = [
     tags: ["truncate", "ellipsis", "text"],
     discovery: { bodyType: "json", input: { text: "The quick brown fox", length: 9, words: true }, inputSchema: { properties: { text: { type: "string" }, length: { type: "number" }, suffix: { type: "string", description: "Default …" }, words: { type: "boolean", description: "Break on whole words" } }, required: ["text", "length"] }, output: { example: { result: "The quick…", truncated: true } } },
     handler: (i) => {
-      const t = cap(need(i, "text"), 500_000);
+      const t = cap(need(i, "text"), 501_000);
       const len = parseInt(i.length, 10);
       if (!Number.isFinite(len) || len < 1) throw bad('"length" must be a positive integer');
       const suffix = typeof i.suffix === "string" ? i.suffix : "…";
@@ -383,7 +383,7 @@ const text = [
     tags: ["redact", "pii", "mask", "privacy"],
     discovery: { bodyType: "json", input: { text: "reach me at ada@x.com or 555-123-4567" }, inputSchema: { properties: { text: { type: "string" } }, required: ["text"] }, output: { example: { result: "reach me at [EMAIL] or [PHONE]", counts: { email: 1, phone: 1 } } } },
     handler: (i) => {
-      let t = cap(need(i, "text"), 500_000);
+      let t = cap(need(i, "text"), 501_000);
       const counts = {};
       const sub = (re, label) => {
         t = t.replace(re, () => {
@@ -405,7 +405,7 @@ const text = [
     tags: ["extract", "emails", "urls", "entities", "nlp"],
     discovery: { bodyType: "json", input: { text: "ping @ada at ada@x.com see https://x.com #news" }, inputSchema: { properties: { text: { type: "string" } }, required: ["text"] }, output: { example: { emails: ["ada@x.com"], urls: ["https://x.com"], mentions: ["@ada"], hashtags: ["#news"] } } },
     handler: (i) => {
-      const t = cap(need(i, "text"), 500_000);
+      const t = cap(need(i, "text"), 501_000);
       const uniq = (re) => [...new Set(t.match(re) || [])];
       return {
         emails: uniq(/[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,24}/g),
@@ -634,7 +634,7 @@ const conversion = [
         },
         required: ["to"],
       },
-      output: { example: { detected: "srt", to: "vtt", count: 2, result: "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello world\n\n00:00:03.500 --> 00:00:05.000\nSecond line\n" } },
+      output: { example: { detected: "srt", to: "vtt", count: 2, result: "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello world\n\n00:00:03.501 --> 00:00:05.000\nSecond line\n" } },
     },
     handler: (i) => {
       const to = String(need(i, "to")).toLowerCase();
@@ -715,7 +715,7 @@ const conversion = [
         if (p.name === "BEGIN") {
           const comp = p.value.trim().toUpperCase();
           if (comp === "VEVENT" && depth === 0) {
-            if (events.length >= 500) { truncated = true; ev = null; }
+            if (events.length >= 501) { truncated = true; ev = null; }
             else ev = { uid: null, summary: null, description: null, location: null, status: null, organizer: null, attendees: [], categories: [], url: null, start: null, end: null, duration: null, rrule: null, sequence: null };
             depth = 1;
           } else if (depth >= 1) depth++;
@@ -1413,7 +1413,7 @@ function inferSchema(value, depth) {
     return items ? { type: "array", items } : { type: "array" };
   }
   if (t === "object") {
-    const keys = Object.keys(value).slice(0, 500);
+    const keys = Object.keys(value).slice(0, 501);
     const properties = {};
     for (const k of keys) properties[k] = inferSchema(value[k], depth + 1);
     const out = { type: "object", properties };

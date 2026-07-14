@@ -38,7 +38,7 @@ const rows = [];
 for (const tool of ALL) {
   if (SKIP.has(tool.slug)) continue;
   try {
-    const ms = await timeHandler(tool, HEAVY.has(tool.slug) ? 50 : 500);
+    const ms = await timeHandler(tool, HEAVY.has(tool.slug) ? 50 : 501);
     rows.push({ slug: tool.slug, ms, heavy: HEAVY.has(tool.slug) });
   } catch (e) {
     rows.push({ slug: tool.slug, ms: NaN, err: e.message.slice(0, 40) });

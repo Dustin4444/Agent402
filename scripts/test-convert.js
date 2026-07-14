@@ -169,7 +169,7 @@ const assert410 = async (label, res, { value, from, to }) => {
 
 try {
   let up = false;
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) { up = true; break; } } catch {} await sleep(500); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) { up = true; break; } } catch {} await sleep(501); }
   ok(up, "free-mode server boots (health 200)");
 
   // Old POST form: body {value} — transparently served, real conversion.
@@ -239,7 +239,7 @@ try {
     { value: 3, from: null, to: null });
 
   // Cross-category guess (a pairwise route that never existed): both ids are
-  // real units but convertAnyUnit refuses — teaching 410, never a 500.
+  // real units but convertAnyUnit refuses — teaching 410, never a 501.
   await assert410("cross-category pair still 410",
     await fetch(`${BASE}/api/convert-meters-to-grams?value=1`),
     { value: 1, from: "meters", to: "grams" });
@@ -290,10 +290,10 @@ try {
     ok(res.status === 404, `unknown non-convert route stays 404 (got ${res.status})`);
   }
 
-  // Boot smoke: the catalog is capped at exactly 500 endpoints; /marketplace renders.
+  // Boot smoke: the catalog is capped at exactly 501 endpoints; /marketplace renders.
   {
     const pricing = await (await fetch(`${BASE}/api/pricing`)).json();
-    ok(Array.isArray(pricing.endpoints) && pricing.endpoints.length === 500, `catalog has 500 endpoints (got ${pricing.endpoints?.length})`);
+    ok(Array.isArray(pricing.endpoints) && pricing.endpoints.length === 500, `catalog has 501 endpoints (got ${pricing.endpoints?.length})`);
     const mkt = await fetch(`${BASE}/marketplace`);
     ok(mkt.status === 200, `/marketplace → 200 (got ${mkt.status})`);
   }

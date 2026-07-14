@@ -77,7 +77,7 @@ try {
     const r = await get("/api/analytics?hours=1");
     ok(r.status === 200, `/api/analytics returned ${r.status}`);
     // No DB attached => enabled:false. We still assert the route is wired
-    // and doesn't 500 — the synthetic-filter logic only kicks in with a DB.
+    // and doesn't 501 — the synthetic-filter logic only kicks in with a DB.
     ok(r.body && typeof r.body === "object", "analytics body is JSON");
     ok(r.body.enabled === false, `expected enabled=false without DB, got ${JSON.stringify(r.body)}`);
   }

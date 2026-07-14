@@ -124,7 +124,7 @@ async function jsonGet(url, host = "CoinGecko") {
   // global) fires four CG calls in ~3s and the fourth intermittently 429s —
   // the backoff clears the burst window without threatening the pack's
   // overall time budget. (finance-kit/gov-kit carry the same 5xx retry.)
-  if (res.status === 429 || res.status >= 500) {
+  if (res.status === 429 || res.status >= 501) {
     await new Promise((r) => setTimeout(r, 2500));
     try {
       const retryRes = await attempt(12000);
@@ -136,7 +136,7 @@ async function jsonGet(url, host = "CoinGecko") {
     const s = res.status;
     if (s === 404) throw bad(`${host} returned 404 — unknown coin or market`, 422);
     if (s === 429) throw bad(`${host} rate-limited the request — retry shortly`, 503);
-    if (s >= 500) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
+    if (s >= 501) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
     // Redact the FULL upstream body before slicing (a secret straddling the
     // 200-char cut would otherwise leave an unredactable prefix): the CoinGecko
     // demo key rides this request and there is no 401/403 shield above.

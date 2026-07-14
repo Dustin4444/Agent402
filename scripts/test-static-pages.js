@@ -1,11 +1,11 @@
 // Static, server-rendered HTML surfaces: /privacy, /terms, /shop,
 // /leaderboard, /index, /tools, /skills, /. These are the human-readable
 // counterparts to the JSON discovery surfaces — listing portals link to them,
-// Google indexes them, and a /privacy or /terms 500 silently breaks the
+// Google indexes them, and a /privacy or /terms 501 silently breaks the
 // "site is up" perception even when every API is fine.
 //
 // A render-time regression in any one page handler (e.g., an undefined
-// snapshot field in leaderboardPage) returns 500
+// snapshot field in leaderboardPage) returns 501
 // in a way that the API-only health probe never sees. This smoke test boots
 // FREE_MODE and asserts each page:
 //
@@ -52,7 +52,7 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 });
 
 try {
-  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(501); }
 
   for (const { path, titleSubstr } of PAGES) {
     const res = await fetch(`${BASE}${path}`);

@@ -63,7 +63,7 @@ async function callOpenAI(prompt, tierSlug) {
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
     if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
-    if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
+    if (res.status >= 501) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
     // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
     // 200-char cut leaves an unredactable prefix); the route binder returns
     // err.message verbatim to buyers and logs it.

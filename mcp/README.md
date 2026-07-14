@@ -1,6 +1,6 @@
 # agent402-mcp
 
-MCP server for [Agent402](https://agent402.tools) — a catalog of **500: 400 pay-per-call web tools + 100 curated multi-tool skill packs** for AI agents (every one tested, priced, and settled on-chain; every one earns its place), paid per call in USDC via the [x402 protocol](https://www.x402.org), or **with compute (proof-of-work)** when no wallet is configured. Built by [Mike Petrillo](https://github.com/MikeyPetrillo).
+MCP server for [Agent402](https://agent402.tools) — a catalog of **501: 400 pay-per-call web tools + 100 curated multi-tool skill packs** for AI agents (every one tested, priced, and settled on-chain; every one earns its place), paid per call in USDC via the [x402 protocol](https://www.x402.org), or **with compute (proof-of-work)** when no wallet is configured. Built by [Mike Petrillo](https://github.com/MikeyPetrillo).
 
 Your agent gets browser rendering, screenshots, PDF text extraction, URL→markdown, live web search **+ web answers with citations**, live **financial/crypto/macro data** (Yahoo stock quotes, CoinGecko, FRED, ECB FX, World Bank, yield curve), **SEC EDGAR filings** (10-K/10-Q text, XBRL, insider, 13F, IPO calendar), **deterministic stats & forecasting** (Pearson correlation, OLS, Holt-Winters), **compression** (gzip/brotli), DNS/TLS/WHOIS + email-deliverability checks, wallet-keyed shared memory, and 216 deterministic pure-CPU utilities — plus 100 **skill packs** like `security-audit`, `trend-analysis`, `structured-scrape`, `decode-blob`, and `forecasting-bake-off` callable as MCP prompts. Payment handled invisibly underneath the MCP calls. No signup, no API key.
 
@@ -41,7 +41,7 @@ Claude Code: `claude mcp add agent402 -- npx -y agent402-mcp`
 
 - On startup the server reads the live catalog from `https://agent402.tools/api/pricing` + `/openapi.json`.
 - The high-value tools (`extract`, `render`, `screenshot`, `pdf`, `meta`, `dns`, `http-check`, `tls-cert`, `whois`, the `memory-*` coordination tools, `hash`) are exposed as first-class MCP tools.
-- The rest of the 500-endpoint catalog (400 tools + 100 skill packs) is reachable via `search_tools` (find by description) + `call_tool` (call by slug) — keeping your context window small.
+- The rest of the 501-endpoint catalog (400 tools + 100 skill packs) is reachable via `search_tools` (find by description) + `call_tool` (call by slug) — keeping your context window small.
 - When a call hits HTTP 402: with a wallet key set (`AGENT_KEY` for the EVM chains — Base/Polygon/Arbitrum/Monad, `SOLANA_AGENT_KEY` for Solana), the server signs an x402 USDC payment on a chain the seller accepts and retries; without a key it solves the tool's proof-of-work challenge (~0.2 s of CPU) on the eligible tools. (The service also settles USDC on Stellar and Algorand, and USDG on Robinhood Chain — 8 chains total — for callers using a raw x402 client rather than this package.)
 - `payment_info` tells the model which mode it's in and what a wallet would unlock.
 - `top_x402_sellers` returns the live x402 leaderboard — which sellers are settling the most USDC (primarily on Base) in the last ~24h, derived from on-chain transfers. Free to call (no payment, no proof-of-work). Useful for agents discovering the wider x402 economy beyond this single service's catalog.

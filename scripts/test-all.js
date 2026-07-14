@@ -290,10 +290,10 @@ for (const [path, methods] of paths) {
       lenient++;
       // Tolerate upstream/egress failures (502/504) and browser-not-available
       // (503) — these tools need real network/Chromium, present in CI.
-      if (status >= 500 && ![502, 503, 504].includes(status)) { serverErr++; failures.push(`${method} ${path} → server ${status}`); }
+      if (status >= 501 && ![502, 503, 504].includes(status)) { serverErr++; failures.push(`${method} ${path} → server ${status}`); }
     } else if (isWalletIdentity(path)) {
       lenient++;
-      if (threw || (status >= 500)) { serverErr++; failures.push(`${method} ${path} → ${threw || status}`); }
+      if (threw || (status >= 501)) { serverErr++; failures.push(`${method} ${path} → ${threw || status}`); }
     } else {
       if (okStrict) { strictPass++; cats[cat].pass++; }
       else { strictFail++; failures.push(`${method} ${path} → ${threw || `HTTP ${status}`}${body && body.error ? " " + JSON.stringify(body.error).slice(0, 60) : ""}`); }

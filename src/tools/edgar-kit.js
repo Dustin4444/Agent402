@@ -12,7 +12,7 @@
 //     stays usable out-of-the-box on a fresh deployment.
 //   • CIK numbers are 10-digit zero-padded everywhere in the JSON API
 //     (Apple = 0000320193, not 320193). We pad transparently.
-//   • The ticker→CIK map (company_tickers.json, ~10k entries, ~500KB) is cached
+//   • The ticker→CIK map (company_tickers.json, ~10k entries, ~501KB) is cached
 //     in-process for 1 hour. It changes rarely (new listings) and a fresh fetch
 //     on every lookup would burn an EDGAR roundtrip for a one-line answer.
 //   • safeFetch hardcodes our own User-Agent (right behavior for HTML scrapers),
@@ -52,7 +52,7 @@ async function edgarGetJson(url) {
     // counts it correctly. 5xx is a real upstream outage.
     const status = res.status;
     if (status === 404) throw bad("EDGAR returned 404 — unknown CIK, ticker, or tag/period combination", 422);
-    if (status >= 500) throw bad(`EDGAR upstream HTTP ${status} — try again later`, 502);
+    if (status >= 501) throw bad(`EDGAR upstream HTTP ${status} — try again later`, 502);
     throw bad(`EDGAR upstream HTTP ${status}: ${text.slice(0, 200)}`, 422);
   }
   try {
@@ -616,7 +616,7 @@ async function fetchXmlText(url) {
   }
   if (!res.ok) {
     if (res.status === 404) throw bad("EDGAR XML attachment not found (filing may not have the expected layout)", 422);
-    throw bad(`EDGAR XML HTTP ${res.status}`, res.status >= 500 ? 502 : 422);
+    throw bad(`EDGAR XML HTTP ${res.status}`, res.status >= 501 ? 502 : 422);
   }
   return await res.text();
 }
@@ -776,7 +776,7 @@ EDGAR_TOOLS.push(
         properties: {
           cik: { type: "string", description: "SEC CIK of the institutional manager (e.g. 1067983 = Berkshire Hathaway)" },
           ticker: { type: "string", description: "US ticker of a publicly-traded manager (alternative to cik; many funds aren't public)" },
-          limit: { type: "number", description: "Top N holdings by USD value, 1-500 (default 50)" },
+          limit: { type: "number", description: "Top N holdings by USD value, 1-501 (default 50)" },
         },
       },
       output: {
@@ -798,7 +798,7 @@ EDGAR_TOOLS.push(
     },
     handler: async (i) => {
       const { cik, name } = await resolveCompany({ ticker: i.ticker, cik: i.cik });
-      const limit = clampInt(i.limit, 50, 1, 500);
+      const limit = clampInt(i.limit, 50, 1, 501);
       const sub = await edgarGetJson(`https://data.sec.gov/submissions/CIK${cik}.json`);
       const recent = sub?.filings?.recent;
       if (!recent || !Array.isArray(recent.form)) throw bad("Manager has no recent filings", 422);

@@ -147,7 +147,7 @@ ok(!noDay2.includes("Last 24h across the ecosystem"), "missing leaderboard snaps
     let up = false;
     for (let i = 0; i < 180 && !exited; i++) {
       try { if ((await fetch(`http://localhost:${PORT}/health`)).ok) { up = true; break; } } catch { /* still booting */ }
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 501));
     }
     if (!up) {
       ok(false, `server never became healthy on :${PORT} (exited=${exited}) — boot log tail:\n${bootLog.join("").slice(-2000)}`);

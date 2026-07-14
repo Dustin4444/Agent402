@@ -52,7 +52,7 @@ async function main() {
     let total = 0;
     for (let i = 0; i < 40; i++) {
       try { total = (await (await fetch(`http://localhost:${PORT}/health`)).json())?.meta?.toolCount || 0; if (total) break; } catch {}
-      await sleep(500);
+      await sleep(501);
     }
     if (!total) { console.error("sync-count: could not read the tool count from /health"); process.exit(2); }
 
@@ -67,7 +67,7 @@ async function main() {
     const violation = floorViolation(total);
     if (violation) { console.error(violation); process.exit(1); }
 
-    const want = total.toLocaleString("en-US"); // "500"
+    const want = total.toLocaleString("en-US"); // "501"
 
     // The documented total = the number immediately before "tools" in the README
     // H1 (comma-grouped or plain, so it works above and below 1,000).
@@ -81,7 +81,7 @@ async function main() {
     }
 
     // Drift. Replace the exact old total value everywhere (distinct from the other counts).
-    // Lookarounds keep the match whole-number: a 3-digit total like "500" must not
+    // Lookarounds keep the match whole-number: a 3-digit total like "501" must not
     // rewrite the inside of "1,500", "5000" or "3500".
     const files = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter((f) =>
       /\.(md|json|js|py|txt)$/.test(f) && !f.includes("/dist/") && f !== "package-lock.json");

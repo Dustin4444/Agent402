@@ -499,7 +499,156 @@ export const X402_TOOLS = [
       return gradeX402Response({ href: url.href, protocol: url.protocol, status: res.status, cacheControl, bodyText, paymentRequiredHeader });
     },
   },
+  {
+    route: "GET /api/x402-trending", name: "x402 trending sellers", slug: "x402-trending", category: "payments", price: "$0.005",
+    description:
+      "Momentum radar for the x402 seller ecosystem — which sellers are heating up, graded for wash-trade resistance. Reads the hourly on-chain leaderboard (real Base USDC settlements) and adds per-seller signals the raw board doesn't have: organicScore (uniqueBuyers/callsSettled — 1000 calls from 2 buyers smells like self-dealing, 1000 from 400 is organic demand) and avgTicketUsd. Rank by sort: 'usd' (revenue, default), 'calls' (volume), 'organic' (buyer diversity — the honest-demand lens), or 'buyers' (reach). include='external' (default) excludes Agent402's own row; 'all' keeps it. Once ~7 days of persisted snapshots accrue, each row also carries deltaVsPrevWeek + trend (rising/flat/cooling/new) — the wow envelope says whether those are live; deltas are never faked. ?sort=organic&limit=10",
+    tags: ["x402", "trending", "momentum", "sellers", "leaderboard", "organic", "wash-trading", "ecosystem", "discovery"],
+    discovery: {
+      input: { sort: "usd", limit: 10, include: "external" },
+      inputSchema: {
+        properties: {
+          sort: { type: "string", enum: ["usd", "calls", "organic", "buyers"], description: "Ranking lens: usd=USDC settled (default), calls=raw volume, organic=organicScore (buyer diversity), buyers=distinct paying wallets" },
+          limit: { type: "integer", description: "How many sellers to return (1-50, default 10)" },
+          include: { type: "string", enum: ["external", "all"], description: "external (default) excludes Agent402's own wallet; all keeps it" },
+        },
+      },
+      output: {
+        example: {
+          window: "24h", sort: "usd", include: "external", limit: 10, totalSellers: 214,
+          sellers: [{
+            rank: 1, name: "example-seller", homepage: "https://seller.example", network: "base",
+            wallet: "0x1111111111111111111111111111111111111111",
+            callsSettled: 3541, totalUsd: 41.2, uniqueBuyers: 402,
+            organicScore: 0.1135, avgTicketUsd: 0.011635,
+          }],
+          wow: { available: false, note: "no persisted snapshot ~7 days old yet — week-over-week deltas activate automatically as history accrues" },
+          snapshotAsOf: "2026-07-14T00:00:00.000Z", generatedAt: "2026-07-14T00:00:05.000Z",
+        },
+      },
+    },
+    handler: async (i) => {
+      const { getLeaderboardSnapshot, readLeaderboardHistory } = await import("../leaderboard.js");
+      return computeTrending(getLeaderboardSnapshot(), i, {
+        selfWallet: process.env.WALLET_ADDRESS || "",
+        history: readLeaderboardHistory(),
+      });
+    },
+  },
 ];
+
+/**
+ * Compute the x402-trending response from a leaderboard snapshot (and optional
+ * persisted history). Pure and deterministic given its inputs — no network, no
+ * env reads — so it is unit-testable in isolation (scripts/test-x402-trending.js).
+ *
+ * Momentum signals from a single snapshot:
+ *   - organicScore = uniqueBuyers / callsSettled, clamped to [0,1] (0 when no
+ *     calls). High = diverse organic demand; low = few wallets hammering one
+ *     seller (wash-trade smell). This is the wash-resistance differentiator.
+ *   - avgTicketUsd = totalUsd / callsSettled (0 when no calls).
+ *
+ * Week-over-week (honest): only computed when a persisted daily point aged
+ * 6-10 days exists (closest to 7 wins). Then each row gains deltaVsPrevWeek
+ * {callsSettled, totalUsd}, trend (rising/flat/cooling by a ±5%-of-prev-calls
+ * band, min 1 call) and newThisWindow (true when the seller has no matching
+ * wallet in the baseline). Without a baseline the envelope's `wow.available`
+ * is false and NO delta fields appear — the tool never fakes a WoW number.
+ */
+export function computeTrending(snap, input = {}, { selfWallet = "", history = [] } = {}) {
+  const SORTS = new Set(["usd", "calls", "organic", "buyers"]);
+  const sort = SORTS.has(String(input?.sort || "").toLowerCase()) ? String(input.sort).toLowerCase() : "usd";
+  const limit = Math.min(Math.max(parseInt(input?.limit, 10) || 10, 1), 50);
+  const include = input?.include === "all" ? "all" : "external";
+  const self = String(selfWallet || "").toLowerCase();
+
+  let board = Array.isArray(snap?.leaderboard) ? snap.leaderboard : [];
+  // Same convention as /api/leaderboard?include=external — drop our own row(s)
+  // so the default view is the rest of the ecosystem. Checks the whole wallet
+  // group, not just the primary, so a multi-wallet self row can't slip through.
+  if (include === "external" && self) {
+    board = board.filter(
+      (r) => r?.wallet !== self && !(Array.isArray(r?.wallets) && r.wallets.some((w) => String(w).toLowerCase() === self))
+    );
+  }
+
+  // WoW baseline: the persisted point aged 6-10 days whose age is closest to 7.
+  const nowMs = Date.parse(snap?.asOf || "") || Date.now();
+  let baseline = null;
+  let baselineAge = Infinity;
+  for (const p of history || []) {
+    const t = Date.parse(p?.asOf || p?.day || "");
+    if (!Number.isFinite(t)) continue;
+    const ageDays = (nowMs - t) / 86400000;
+    if (ageDays >= 6 && ageDays <= 10 && Math.abs(ageDays - 7) < Math.abs(baselineAge - 7)) {
+      baseline = p;
+      baselineAge = ageDays;
+    }
+  }
+  const prevByWallet = new Map();
+  if (baseline) {
+    for (const s of baseline.sellers || []) {
+      for (const w of s.wallets || []) prevByWallet.set(String(w).toLowerCase(), s);
+    }
+  }
+
+  const rows = board.map((r) => {
+    const calls = Number(r?.callsSettled) || 0;
+    const usd = Number(r?.totalUsd) || 0;
+    const buyers = Number(r?.uniqueBuyers) || 0;
+    const row = {
+      name: r?.name || String(r?.homepage || "").replace(/^https?:\/\//, "") || r?.wallet || "unknown",
+      homepage: r?.homepage || null,
+      network: r?.network || "base",
+      wallet: r?.wallet || null,
+      ...(Array.isArray(r?.wallets) && r.wallets.length > 1 ? { wallets: r.wallets } : {}),
+      callsSettled: calls,
+      totalUsd: Number(usd.toFixed(6)),
+      uniqueBuyers: buyers,
+      organicScore: calls > 0 ? Number(Math.min(1, buyers / calls).toFixed(4)) : 0,
+      avgTicketUsd: calls > 0 ? Number((usd / calls).toFixed(6)) : 0,
+    };
+    if (baseline) {
+      const group = [r?.wallet, ...(Array.isArray(r?.wallets) ? r.wallets : [])].filter(Boolean);
+      const prev = group.map((w) => prevByWallet.get(String(w).toLowerCase())).find(Boolean);
+      if (prev) {
+        const dCalls = calls - (Number(prev.callsSettled) || 0);
+        row.deltaVsPrevWeek = { callsSettled: dCalls, totalUsd: Number((usd - (Number(prev.totalUsd) || 0)).toFixed(6)) };
+        const band = Math.max(1, (Number(prev.callsSettled) || 0) * 0.05);
+        row.trend = dCalls > band ? "rising" : dCalls < -band ? "cooling" : "flat";
+        row.newThisWindow = false;
+      } else {
+        row.trend = "new";
+        row.newThisWindow = true;
+      }
+    }
+    return row;
+  });
+
+  const metric = { usd: (r) => r.totalUsd, calls: (r) => r.callsSettled, organic: (r) => r.organicScore, buyers: (r) => r.uniqueBuyers }[sort];
+  rows.sort(
+    (a, b) =>
+      metric(b) - metric(a) ||
+      b.callsSettled - a.callsSettled ||
+      b.totalUsd - a.totalUsd ||
+      String(a.name).localeCompare(String(b.name))
+  );
+
+  return {
+    window: snap?.windowLabel || "—",
+    sort,
+    include,
+    limit,
+    totalSellers: rows.length,
+    sellers: rows.slice(0, limit).map((r, i2) => ({ rank: i2 + 1, ...r })),
+    wow: baseline
+      ? { available: true, comparedTo: baseline.day, note: "deltaVsPrevWeek compares this window's aggregates to the persisted snapshot from ~7 days ago" }
+      : { available: false, note: "no persisted snapshot ~7 days old yet — week-over-week deltas activate automatically as history accrues" },
+    snapshotAsOf: snap?.asOf || null,
+    generatedAt: new Date().toISOString(),
+    ...(snap?.warming ? { warming: true } : {}),
+  };
+}
 
 /**
  * Grade an x402 seller's externally-observable payment-security posture from a

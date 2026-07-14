@@ -1,6 +1,6 @@
 # Agent402.Tools Wiki
 
-**Agent402.Tools** is an **open-source, self-hostable MCP server + HTTP API with 500 ready-to-use tools and 100 multi-tool skill packs for AI agents** — browser rendering, web search, PDFs, OCR, images, live data, crypto/payments helpers, ~210 pure-CPU utilities, plus curated workflows ([[Skill Packs|Skill-Packs]]) for jobs no single tool covers. Clone it and run everything free in 30 seconds (no wallet, no signup), or use the hosted instance. Optionally, the same server can charge per call over the [x402 protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Stellar & Algorand — plus USDG on Robinhood Chain) — that part is opt-in; by default everything runs free.
+**Agent402.Tools** is an **open-source, self-hostable MCP server + HTTP API with 501 ready-to-use tools and 100 multi-tool skill packs for AI agents** — browser rendering, web search, PDFs, OCR, images, live data, crypto/payments helpers, ~210 pure-CPU utilities, plus curated workflows ([[Skill Packs|Skill-Packs]]) for jobs no single tool covers. Clone it and run everything free in 30 seconds (no wallet, no signup), or use the hosted instance. Optionally, the same server can charge per call over the [x402 protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Stellar & Algorand — plus USDG on Robinhood Chain) — that part is opt-in; by default everything runs free.
 
 > **Every entry earns its place** — tested against its own example on every CI run, priced to market, live-verified. CI holds a 400-entry catalog floor and keeps the documented counts in sync with the running server (`scripts/sync-count.js --check`).
 
@@ -25,7 +25,7 @@ It's also **the open x402 index**: a single integration gives a buyer three prim
 | [[Paying with Compute]] | The proof-of-work tier: spec + reference solver |
 | [[MCP Connector]] | Hosted connector + the `agent402-mcp` npm server |
 | [[Adapters]] | Drop-in tools for OpenAI / Anthropic / AI SDK / LangChain / LlamaIndex |
-| [[Tool Catalog]] | What the 500 tools are and how agents discover them |
+| [[Tool Catalog]] | What the 501 tools are and how agents discover them |
 | [[Skill-Packs]] | 100 multi-tool workflows — `prompts/list` → `prompts/get`, ready-to-run plans |
 | [[x402-Index-and-Router]] | The cross-seller index + Smart Order Router (cheapest healthy tool across the ecosystem) |
 | [[x402-Leaderboard]] | Public on-chain ranking of every x402 seller by Base USDC settled volume |

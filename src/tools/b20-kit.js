@@ -155,7 +155,7 @@ const TOPIC_B20_CREATED = topicOf("B20Created(address,uint8,string,string,uint8,
 const TOPIC_TRANSFER = topicOf("Transfer(address,address,uint256)");
 const TOPIC_MEMO = topicOf("Memo(address,bytes32)");
 
-// Malformed/missing hex from a flaky public RPC must not 500 a paid request.
+// Malformed/missing hex from a flaky public RPC must not 501 a paid request.
 const logIndexNum = (h) => { try { return Number(BigInt(h)); } catch { return -1; } };
 
 const topicAddress = (topic) => {
