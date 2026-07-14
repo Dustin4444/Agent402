@@ -757,6 +757,9 @@ jobs:
       - name: STT margin cap (duration enforced locally before any OpenAI spend — offline)
         run: node scripts/test-stt-cap.js
 
+      - name: Pricing margin invariant (worst-case upstream < price on every gateway tier, failover links included; cap-before-spend; 410 tool_gone telemetry — offline)
+        run: node scripts/test-pricing-margin.js
+
       - name: Secret-leak guard (canary keys never reach responses, caches, or errors; gateway cost-strip — offline)
         run: node scripts/test-leak-guard.js
 

@@ -323,6 +323,31 @@ export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthe
   });
 }
 
+// Retired routes — the teaching 410s (the pruned convert-* pairs). Residual
+// demand for a dead route is a product signal (someone's playbook or agent
+// prompt still cites it), and without an event that demand is invisible.
+// Properties are the route path (matched against a [a-z0-9-] regex before the
+// handler runs — unit ids only, never caller input) and the taught
+// replacement. Retired routes are also crawler fodder, so captures are
+// capped per rolling hour like discovery; the 410 response itself is never
+// affected.
+const TOOL_GONE_MAX_PER_HOUR = 500;
+let toolGoneWindowStart = 0;
+let toolGoneWindowCount = 0;
+
+export function capturePostHogToolGone({ route, replacement }) {
+  if (!active()) return;
+  try {
+    const now = Date.now();
+    if (now - toolGoneWindowStart > 3_600_000) {
+      toolGoneWindowStart = now;
+      toolGoneWindowCount = 0;
+    }
+    if (++toolGoneWindowCount > TOOL_GONE_MAX_PER_HOUR) return;
+    capture("tool_gone", { route: String(route || "unknown"), replacement: String(replacement || "") });
+  } catch { /* never throw from telemetry */ }
+}
+
 // Per-call gateway margin accounting. OpenRouter reports the exact upstream
 // bill when usage accounting is requested; this event pairs it with the flat
 // tier price so real margin per tier/model is a PostHog insight instead of a
