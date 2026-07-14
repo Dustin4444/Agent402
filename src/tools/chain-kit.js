@@ -14,6 +14,7 @@
 // Covered by scripts/test-chain-kit.js (offline validation tests, no key needed).
 
 import { ssrfDispatcher } from "./fetch-guard.js";
+import { redactSecrets } from "./redact.js";
 
 const TIMEOUT_MS = 10_000;
 
@@ -82,7 +83,9 @@ async function jsonRpc(network, method, params) {
     method: "POST",
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
   });
-  if (data.error) throw bad(`Chain RPC error: ${data.error.message || "unknown"}`, 502);
+  // Upstream-derived text — the Alchemy key rides the request URL, so redact
+  // before echoing (the route binder returns err.message verbatim to buyers).
+  if (data.error) throw bad(`Chain RPC error: ${redactSecrets(String(data.error.message || "unknown")).slice(0, 300)}`, 502);
   return data.result;
 }
 
@@ -196,7 +199,7 @@ export async function publicJsonRpc(network, method, params) {
       let data;
       try { data = JSON.parse(text); } catch { lastErr = new Error(`non-JSON from upstream (HTTP ${res.status})`); continue; }
       if (data.error) {
-        const msg = String(data.error.message || "unknown node error").slice(0, 300);
+        const msg = redactSecrets(String(data.error.message || "unknown node error")).slice(0, 300);
         const err = bad(`Node error: ${msg}`, 502);
         // Carry the JSON-RPC error code so callers (tx-simulate) can tell a
         // revert verdict (code 3) from node-side failures like rate limits.
@@ -207,7 +210,7 @@ export async function publicJsonRpc(network, method, params) {
       lastErr = new Error(`HTTP ${res.status} from upstream`);
     }
   }
-  throw bad(`RPC upstream unavailable for ${network.name}${lastErr ? ` (${String(lastErr.message).slice(0, 120)})` : ""}`, 502);
+  throw bad(`RPC upstream unavailable for ${network.name}${lastErr ? ` (${redactSecrets(String(lastErr.message)).slice(0, 120)})` : ""}`, 502);
 }
 
 // evm-rpc method whitelist — HARD, read-only only. Tighter than

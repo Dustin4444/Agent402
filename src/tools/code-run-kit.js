@@ -7,6 +7,8 @@
 //   code-run      $0.02  — 30s timeout, 10k chars, Python/JS
 //   code-run-pro  $0.05  — 60s timeout, 50k chars, Python/JS
 
+import { redactSecrets } from "./redact.js";
+
 let Sandbox;
 
 const E2B_KEY = () => (process.env.E2B_API_KEY || "").trim();
@@ -61,7 +63,10 @@ async function runInSandbox(code, language, tierSlug) {
   try {
     sbx = await Sandbox.create({ apiKey: key, timeoutMs: tier.timeoutMs + 10_000 });
   } catch (e) {
-    throw bad(`Sandbox creation failed: ${e.message}`, 502);
+    // e.message is E2B-SDK text wrapping the upstream API error body, and the
+    // E2B_API_KEY rides this request — redact before echoing (the route binder
+    // returns err.message verbatim to buyers and logs it).
+    throw bad(`Sandbox creation failed: ${redactSecrets(e.message)}`, 502);
   }
 
   try {
@@ -87,8 +92,10 @@ async function runInSandbox(code, language, tierSlug) {
     if (e.statusCode) throw e;
     // Timeout or SDK error
     const isTimeout = /timeout/i.test(e.message);
+    // Non-timeout branch echoes E2B-SDK-derived text (upstream error body) —
+    // redact any configured secret (E2B_API_KEY) before it reaches the buyer.
     throw bad(
-      isTimeout ? `Execution timed out after ${tier.timeoutMs / 1000}s` : `Execution failed: ${e.message}`,
+      isTimeout ? `Execution timed out after ${tier.timeoutMs / 1000}s` : `Execution failed: ${redactSecrets(e.message)}`,
       isTimeout ? 504 : 502,
     );
   } finally {

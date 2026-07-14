@@ -757,6 +757,9 @@ jobs:
       - name: STT margin cap (duration enforced locally before any OpenAI spend — offline)
         run: node scripts/test-stt-cap.js
 
+      - name: Secret-leak guard (canary keys never reach responses, caches, or errors; gateway cost-strip — offline)
+        run: node scripts/test-leak-guard.js
+
       - name: Deploy quiet gate (lull detection, fail-open paths — offline)
         run: node scripts/test-quiet-gate.js
 

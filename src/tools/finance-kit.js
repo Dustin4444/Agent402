@@ -24,6 +24,7 @@
 // some of these upstreams discriminate on UA, so this kit uses
 // assertPublicUrl + native fetch with a per-host UA.
 import { assertPublicUrl } from "./fetch-guard.js";
+import { redactSecrets } from "./redact.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -93,7 +94,9 @@ async function jsonGet(url, host, extraHeaders = {}) {
     if (s === 401 || s === 403) throw bad(`${host} returned ${s} — upstream may require auth (try a different symbol or retry later)`, 502);
     if (s === 429) throw bad(`${host} rate-limited the request — retry shortly`, 503);
     if (s >= 500) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
-    throw bad(`${host} HTTP ${s}: ${text.slice(0, 200)}`, 422);
+    // Redact the full body before slicing — the Yahoo/Nasdaq relay token rides
+    // Authorization: Bearer into this fetcher and could be reflected upstream.
+    throw bad(`${host} HTTP ${s}: ${redactSecrets(text).slice(0, 200)}`, 422);
   }
   try { return JSON.parse(text); }
   catch { throw bad(`${host} returned non-JSON response`, 502); }

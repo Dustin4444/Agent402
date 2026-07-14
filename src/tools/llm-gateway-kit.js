@@ -30,6 +30,7 @@ import { createHash } from "node:crypto";
 // synchronous because promptCacheKey — called from the pre-paywall cache
 // middleware — normalizes through it.
 import { countTokens } from "gpt-tokenizer/model/gpt-4o";
+import { redactSecrets } from "./redact.js";
 
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -463,8 +464,12 @@ async function throwUpstreamError(res) {
   if (res.status === 402) throw bad("Gateway upstream balance exhausted — the operator has been notified", 502);
   if (res.status === 429) throw bad("Upstream rate-limited — retry shortly", 503);
   if (res.status >= 500) throw bad(`Upstream error (HTTP ${res.status})`, 502);
-  let msg = text.slice(0, 200);
-  try { msg = JSON.parse(text).error?.message || msg; } catch { /* keep raw slice */ }
+  // Redact the FULL body BEFORE slicing/parsing — a secret straddling the
+  // 200-char cut would otherwise leave an unredactable prefix. The route binder
+  // returns err.message verbatim to buyers and logs it, so this must be clean.
+  const safe = redactSecrets(text);
+  let msg = safe.slice(0, 200);
+  try { msg = JSON.parse(safe).error?.message || msg; } catch { /* keep raw slice */ }
   throw bad(`Upstream error: ${msg}`, 502);
 }
 

@@ -23,6 +23,8 @@
 //
 // Covered by scripts/test-nft-market-kit.js (offline + opt-in live).
 
+import { redactSecrets } from "./redact.js";
+
 const TIMEOUT_MS = 12_000;
 
 // Same chain map as chain-kit/dex-kit/mev-and-l2-kit so an agent can pivot
@@ -90,7 +92,9 @@ async function alchemyGet(network, path, params, label) {
     throw bad(`${label} upstream unreachable: ${e.message}`, 502);
   }
   if (!res.ok) {
-    const body = (await res.text().catch(() => "")).slice(0, 240);
+    // Redact the FULL body before slicing — the Alchemy key rides the request
+    // URL and an upstream error body could reflect it.
+    const body = redactSecrets(await res.text().catch(() => "")).slice(0, 240);
     throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 500 ? 502 : res.status);
   }
   return res.json();

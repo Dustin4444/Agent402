@@ -19,6 +19,8 @@
 // All 5 tools are wallet-only — every handler hits an external API and shares
 // a per-IP rate limit (Flashbots relay) or our compute-unit quota (Alchemy).
 
+import { redactSecrets } from "./redact.js";
+
 const TIMEOUT_MS = 12_000;
 const FB_RELAY = "https://boost-relay.flashbots.net/relay/v1/data";
 const LLAMA = "https://api.llama.fi/v2/chains";
@@ -69,7 +71,9 @@ async function fetchJson(url, label, init) {
     throw bad(`${label} upstream unreachable: ${e.message}`, 502);
   }
   if (!res.ok) {
-    const body = (await res.text().catch(() => "")).slice(0, 240);
+    // Redact the FULL body before slicing — the Alchemy key rides the request
+    // URL and an upstream error body could reflect it.
+    const body = redactSecrets(await res.text().catch(() => "")).slice(0, 240);
     throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 500 ? 502 : res.status);
   }
   return res.json();
@@ -81,7 +85,10 @@ async function alchemyRpc(network, method, params) {
   const url = `https://${net.subdomain}.g.alchemy.com/v2/${key}`;
   const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params });
   const json = await fetchJson(url, "Alchemy", { method: "POST", body, headers: { "content-type": "application/json" } });
-  if (json.error) throw bad(`Alchemy ${method} error: ${json.error.message || JSON.stringify(json.error)}`, 502);
+  // Redact upstream-derived text: this error's message is folded into the
+  // 200-status l2-gas-comparison body as networks[].error (not just a thrown
+  // error), so an echoed Alchemy key would ship in a SUCCESS response.
+  if (json.error) throw bad(`Alchemy ${method} error: ${redactSecrets(String(json.error.message || JSON.stringify(json.error))).slice(0, 300)}`, 502);
   return json.result;
 }
 
@@ -309,7 +316,7 @@ async function l2GasComparison({ networks } = {}) {
     }),
   );
   const ok = results.map((r, i) =>
-    r.status === "fulfilled" ? r.value : { network: requested[i], error: r.reason?.message || "rpc-failed" },
+    r.status === "fulfilled" ? r.value : { network: requested[i], error: redactSecrets(String(r.reason?.message || "rpc-failed")).slice(0, 300) },
   );
   // Cheapest-first ordering is what an agent comparing chains actually wants.
   const sorted = ok.slice().sort((a, b) => {

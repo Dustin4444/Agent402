@@ -23,6 +23,8 @@
 //
 // Covered by scripts/test-onchain-identity-kit.js (offline + opt-in live).
 
+import { redactSecrets } from "./redact.js";
+
 const TIMEOUT_MS = 12_000;
 
 // Endpoints. Keep them at the top so a swap is a one-line change.
@@ -65,9 +67,12 @@ async function fetchJson(url, label, init) {
   }
   const ct = res.headers.get("content-type") || "";
   if (!res.ok) {
-    const body = ct.includes("json")
-      ? JSON.stringify(await res.json().catch(() => null)).slice(0, 240)
-      : (await res.text().catch(() => "")).slice(0, 240);
+    // Redact the FULL body before slicing (a secret straddling the 240-char cut
+    // would leave an unredactable prefix): Neynar requests carry NEYNAR_API_KEY.
+    const raw = ct.includes("json")
+      ? JSON.stringify(await res.json().catch(() => null))
+      : await res.text().catch(() => "");
+    const body = redactSecrets(raw).slice(0, 240);
     throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 500 ? 502 : res.status);
   }
   return res.json();
