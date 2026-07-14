@@ -57,7 +57,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   // from there to every individual tool page (category pages already link
   // every tool in the category).
   const catRow = (c, last) =>
-    `<a class="ml-cat-row" data-cat="${esc(c.key)}" href="/tools/category/${esc(c.key)}" style="display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;padding:13px 18px;text-decoration:none;color:inherit;${last ? "" : "border-bottom:1px solid var(--hairline);"}${c.key === "convert" ? "background:var(--card-zebra);" : ""}"><div><div style="font-weight:700;font-size:15px;">${esc(c.label)}</div><div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">${esc(shortBlurb(c.blurb))}</div></div><span style="font-family:var(--font-mono);font-weight:700;font-size:15px;">${fmtNum(c.count)}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent);width:56px;text-align:right;">${c.price}</span></a>`;
+    `<a class="ml-cat-row" data-cat="${esc(c.key)}" href="/tools/category/${esc(c.key)}" style="display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;padding:13px 18px;text-decoration:none;color:inherit;${last ? "" : "border-bottom:1px solid var(--hairline);"}"><div><div style="font-weight:700;font-size:15px;">${esc(c.label)}</div><div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">${esc(shortBlurb(c.blurb))}</div></div><span style="font-family:var(--font-mono);font-weight:700;font-size:15px;">${fmtNum(c.count)}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent);width:56px;text-align:right;">${c.price}</span></a>`;
 
   // ---- sample endpoint row ----
   const endpointRow = (ep, last) => {

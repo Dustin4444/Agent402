@@ -28,6 +28,9 @@ const STOPWORDS = new Set([
 // the one surviving converter instead of tying across unrelated *-convert
 // tools. "per"/"us" are dropped: they appear inside compound ids
 // (miles-per-hour, us-gallons) but are far too generic as standalone triggers.
+// Known tradeoff: generic time words (days/hours/years/seconds/light) stay in
+// the set, adding mild recall noise for date-ish queries. Deliberate — the
+// find suite locks the current behavior; trim later if it bites.
 const UNIT_WORDS = new Set(
   [
     ...Object.values(UNIT_CATEGORIES).flatMap((cat) => Object.keys(cat.units).flatMap((id) => id.split("-"))),

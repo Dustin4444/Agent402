@@ -5,15 +5,19 @@
 //   node scripts/sync-count.js          # rewrite the total everywhere it's stale
 //   node scripts/sync-count.js --check  # exit 1 if the total is stale (CI guard)
 //
-// How it stays safe: the catalog has several legitimate counts (total ~1,432,
-// free/PoW tier ~1,189, "~1,000 utilities"). We only ever touch the TOTAL, by an
-// EXACT value replace of the previously-documented total → the real one. Because
-// each count is a distinct comma-grouped value, replacing e.g. "1,432" → "1,432"
-// can't disturb the free-tier or the approximate figures. The real total comes
-// from a booted free-mode server (/health.meta.toolCount); the currently-documented
-// total is read from the README H1 (which is unambiguously the total). Runtime
-// surfaces (/api/pricing, /openapi.json, docs.js `${catalog.length}`) already
-// derive it and are left alone.
+// How it stays safe: the catalog has several legitimate counts (total, free/PoW
+// tier, pack count). We only ever touch the TOTAL, by an EXACT value replace of
+// the previously-documented total → the real one, guarded by digit/comma
+// lookarounds so it can never rewrite part of a larger number. The real total
+// comes from a booted free-mode server (/health.meta.toolCount); the
+// currently-documented total is read from the README H1 (the number right
+// before the word "tools", which is unambiguously the total). Runtime surfaces
+// (/api/pricing, /openapi.json, docs.js `${catalog.length}`) already derive it
+// and are left alone.
+//
+// Known limitation: the replace is textual and repo-wide, so historical
+// narrative (old plan/spec docs quoting a past total) gets rewritten too —
+// revert those hunks by hand after a sweep if the old number was the point.
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -29,11 +33,12 @@ try {
     await sleep(500);
   }
   if (!total) { console.error("sync-count: could not read the tool count from /health"); process.exit(2); }
-  const want = total.toLocaleString("en-US"); // "1,432"
+  const want = total.toLocaleString("en-US"); // "462"
 
-  // The documented total = the first comma-grouped 4-digit number in the README H1.
+  // The documented total = the number immediately before "tools" in the README
+  // H1 (comma-grouped or plain, so it works above and below 1,000).
   const readmeH1 = (readFileSync("README.md", "utf8").split("\n")[0]) || "";
-  const documented = (readmeH1.match(/\d,\d{3}/) || [])[0];
+  const documented = (readmeH1.match(/(\d{1,3}(?:,\d{3})*)(?= tools\b)/) || [])[0];
   if (!documented) { console.error("sync-count: no count found in the README H1 to anchor on"); process.exit(2); }
 
   if (documented === want) {
@@ -42,20 +47,23 @@ try {
   }
 
   // Drift. Replace the exact old total value everywhere (distinct from the other counts).
+  // Lookarounds keep the match whole-number: a 3-digit total like "462" must not
+  // rewrite the inside of "1,462", "4620" or "3462".
   const files = execFileSync("git", ["ls-files"], { encoding: "utf8" }).split("\n").filter((f) =>
     /\.(md|json|js|py|txt)$/.test(f) && !f.includes("/dist/") && f !== "package-lock.json");
   const escaped = documented.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(escaped, "g");
+  const pattern = `(?<![\\d,])${escaped}(?![\\d,])`;
 
   if (CHECK) {
-    const hits = files.filter((f) => { try { return re.test(readFileSync(f, "utf8")); } catch { return false; } });
+    const hits = files.filter((f) => { try { return new RegExp(pattern).test(readFileSync(f, "utf8")); } catch { return false; } });
     console.error(`sync-count: total is STALE — documented ${documented}, catalog has ${want}. ${hits.length} file(s) affected. Run \`node scripts/sync-count.js\`.`);
     process.exit(1);
   }
   let changed = 0;
   for (const f of files) {
     let src; try { src = readFileSync(f, "utf8"); } catch { continue; }
-    if (src.includes(documented)) { writeFileSync(f, src.split(documented).join(want)); changed++; }
+    const out = src.replace(new RegExp(pattern, "g"), want);
+    if (out !== src) { writeFileSync(f, out); changed++; }
   }
   console.log(`sync-count: total ${documented} → ${want} across ${changed} file(s).`);
 } finally {

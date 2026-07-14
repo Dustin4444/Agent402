@@ -157,7 +157,7 @@ Handlers throw errors with `.statusCode` set; the server maps these to the appro
 
 ## See also
 
-- [[Tool Catalog]] -- what the 1,432 tools are and how agents discover them
+- [[Tool Catalog]] -- what the 462 tools are and how agents discover them
 - [[Paying with x402]] -- USDC payment flow with code examples
 - [[Paying with Compute]] -- proof-of-work protocol and reference solver
 - [[MCP Connector]] -- hosted connector and the `agent402-mcp` npm server
