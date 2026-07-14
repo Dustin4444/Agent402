@@ -8,7 +8,7 @@
 // in the last 5 years (May 2023 crumb migration, 2021 schema flip). If the
 // live block is reporting many tolerated errors but assertions pass, that's
 // our signal to add a fallback before the next regression hits.
-import { FINANCE_TOOLS } from "../src/tools/finance-kit.js";
+import { FINANCE_TOOLS, assertListedExpiration } from "../src/tools/finance-kit.js";
 
 const h = (slug) => FINANCE_TOOLS.find((t) => t.slug === slug).handler;
 let assertFail = 0, liveOk = 0, liveErr = 0;
@@ -35,6 +35,31 @@ for (const [slug, args, label] of [
 ]) {
   try { await h(slug)(args); ok(false, label); }
   catch (e) { ok(e.statusCode === 400, label + ` (got ${e.statusCode})`); }
+}
+
+// --- options-chain expiration guard (pure, offline) ---
+// Yahoo answers an unlisted `date` with 200 + empty calls/puts instead of an
+// error; the guard is what turns that into a 422 before a buyer pays for an
+// empty chain. Rollover dates (2026-02-31 → Date.parse silently makes it
+// March 3) can never appear in a listed set, so the same check catches them.
+{
+  const listed = ["2026-07-17", "2026-07-24", "2026-08-21"];
+  try { assertListedExpiration("2026-07-24", listed, "AAPL"); ok(true, "assertListedExpiration accepts a listed expiry"); }
+  catch (e) { ok(false, `assertListedExpiration accepts a listed expiry (threw ${e.statusCode})`); }
+  for (const [date, label] of [
+    ["2027-07-16", "assertListedExpiration 422s an unlisted expiry"],
+    ["2026-02-31", "assertListedExpiration 422s a Date.parse-rollover date"],
+  ]) {
+    try { assertListedExpiration(date, listed, "AAPL"); ok(false, label); }
+    catch (e) { ok(e.statusCode === 422 && e.message.includes("2026-07-17"), label + ` (got ${e.statusCode})`); }
+  }
+  // Long-dated underlyings: the message caps the listed dates at 12 + "…".
+  const many = Array.from({ length: 20 }, (_, k) => `2026-08-${String(k + 1).padStart(2, "0")}`);
+  try { assertListedExpiration("2099-01-01", many, "SPY"); ok(false, "assertListedExpiration caps message at 12 dates"); }
+  catch (e) {
+    ok(e.statusCode === 422 && e.message.includes("…") && e.message.includes("2026-08-12") && !e.message.includes("2026-08-13"),
+      "assertListedExpiration caps message at 12 dates");
+  }
 }
 
 // --- live calls (tolerant of upstream rate-limiting / breakage) ---

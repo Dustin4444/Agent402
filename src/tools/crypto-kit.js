@@ -90,16 +90,20 @@ function normalizeCurrency(raw, dflt = "usd") {
 
 async function jsonGet(url, host = "CoinGecko") {
   const safeUrl = await assertPublicUrl(url);
+  // CoinGecko Demo key (env-gated; keyless works too, just worse): keyless
+  // requests are rate-limited PER IP — and Railway egress IPs are shared, so
+  // the effective quota is whatever other tenants left. A key moves metering
+  // to our own ~30 req/min quota. Gated to CoinGecko hosts only: this shared
+  // helper also hits Coinbase Exchange (crypto-orderbook), and the key must
+  // never ride a request to another host.
+  const cgKey = process.env.COINGECKO_API_KEY;
+  const sendCgKey = Boolean(cgKey) && safeUrl.hostname.toLowerCase().includes("coingecko");
   const attempt = (timeout) =>
     fetch(safeUrl, {
       headers: {
         "User-Agent": cryptoUserAgent(),
         Accept: "application/json",
-        // CoinGecko Demo key (env-gated; keyless works too, just worse):
-        // keyless requests are rate-limited PER IP — and Railway egress IPs
-        // are shared, so the effective quota is whatever other tenants left.
-        // A key moves metering to our own ~30 req/min quota.
-        ...(process.env.COINGECKO_API_KEY ? { "x-cg-demo-api-key": process.env.COINGECKO_API_KEY.trim() } : {}),
+        ...(sendCgKey ? { "x-cg-demo-api-key": cgKey.trim() } : {}),
       },
       signal: AbortSignal.timeout(timeout),
     });
@@ -516,7 +520,13 @@ export const CRYPTO_TOOLS = [
       const bps = (p) => (typeof p === "number" ? +((p - 1) * 10000).toFixed(2) : null);
       const coins = data.map((c) => {
         const dev = bps(c.current_price);
-        const worst = Math.max(Math.abs(bps(c.high_24h) ?? 0), Math.abs(bps(c.low_24h) ?? 0));
+        // Worst 24h deviation from the high/low extremes. When BOTH source
+        // fields are missing this is null (unknown), not 0.00 — a fabricated
+        // "perfect peg" is worse than no answer. One-sided data still yields
+        // the max of the available side.
+        const hiDev = bps(c.high_24h);
+        const loDev = bps(c.low_24h);
+        const worst = hiDev == null && loDev == null ? null : Math.max(Math.abs(hiDev ?? 0), Math.abs(loDev ?? 0));
         // Deterministic bands: within ±50bps ($0.995-1.005) = on-peg, within
         // ±200bps = stressed, beyond = depegged.
         const status = dev == null ? "unknown" : Math.abs(dev) <= 50 ? "on-peg" : Math.abs(dev) <= 200 ? "stressed" : "depegged";
@@ -528,7 +538,7 @@ export const CRYPTO_TOOLS = [
           deviationBps: dev,
           high24h: c.high_24h ?? null,
           low24h: c.low_24h ?? null,
-          maxDeviation24hBps: +worst.toFixed(2),
+          maxDeviation24hBps: worst == null ? null : +worst.toFixed(2),
           marketCap: c.market_cap ?? null,
           status,
         };

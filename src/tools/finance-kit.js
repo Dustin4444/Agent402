@@ -224,6 +224,17 @@ function classifySession(epochSeconds, ctp) {
   return "closed";
 }
 
+// Options-chain expiration guard — pure, exported so scripts/test-finance-kit.js
+// can exercise it offline. `requested` is the caller's YYYY-MM-DD string,
+// `listedIsoDates` the YYYY-MM-DD list derived from Yahoo's
+// optionChain.result[0].expirationDates meta. The error message caps the
+// listed dates at 12 so a long-dated underlying (SPY has 20+) stays readable.
+export function assertListedExpiration(requested, listedIsoDates, symbol) {
+  if (listedIsoDates.includes(requested)) return;
+  const shown = listedIsoDates.slice(0, 12).join(", ") + (listedIsoDates.length > 12 ? ", …" : "");
+  throw bad(`"${symbol}" has no listed option expiration ${requested} — "expiration" must be one of the listed expirations: ${shown}`, 422);
+}
+
 export const FINANCE_TOOLS = [
   {
     route: "GET /api/stock-quote",
@@ -484,9 +495,16 @@ export const FINANCE_TOOLS = [
         throw bad(`No options data for "${symbol}" — the symbol may not have listed options (only US-listed equities/ETFs do).`, 422);
       }
       const iso = (sec) => (Number.isFinite(sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null);
+      const expirations = (r.expirationDates ?? []).map(iso).filter(Boolean);
+      // Yahoo does NOT reject an unlisted `date` — it echoes it back with empty
+      // calls/puts, which would turn into a paid 200 with callCount: 0. Enforce
+      // the "must be one of the listed expirations" contract ourselves (this
+      // also catches impossible dates like 2026-02-31, which Date.parse
+      // silently rolls over to a different day).
+      if (params.date) assertListedExpiration(i.expiration, expirations, symbol);
       const chain = r.options?.[0];
       if (!chain && params.date) {
-        throw bad(`"${symbol}" has no option chain for expiration ${i.expiration}. Listed expirations: ${(r.expirationDates ?? []).map(iso).join(", ")}`, 422);
+        throw bad(`"${symbol}" has no option chain for expiration ${i.expiration}. Listed expirations: ${expirations.join(", ")}`, 422);
       }
       const mapContract = (c) => ({
         contractSymbol: c.contractSymbol ?? null,
@@ -507,7 +525,7 @@ export const FINANCE_TOOLS = [
         underlyingPrice: r.quote?.regularMarketPrice ?? null,
         currency: r.quote?.currency ?? null,
         expiration: iso(chain?.expirationDate),
-        expirations: (r.expirationDates ?? []).map(iso),
+        expirations,
         strikes: r.strikes ?? [],
         calls,
         puts,
