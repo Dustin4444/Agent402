@@ -7,8 +7,9 @@
 //
 // Also locks two cap-before-spend properties (STT duration cap and the
 // images prompt cap throw BEFORE any upstream fetch) and the tool_gone
-// telemetry on the teaching-410 handlers (a retired convert route must fire
-// a PostHog tool_gone event carrying route + replacement).
+// telemetry on the retired-converter handlers (a retired convert route must
+// fire a PostHog tool_gone event carrying route + replacement, whether the
+// request was transparently served 200 or taught with a 410).
 //
 //   node scripts/test-pricing-margin.js
 import { spawn } from "node:child_process";
@@ -261,8 +262,9 @@ console.log("\n# STT — cap-before-spend (local duration probe)");
 }
 
 // ---------------------------------------------------------------------------
-// 6. tool_gone telemetry — the teaching 410s must be visible in PostHog.
-console.log("\n# tool_gone — teaching-410 telemetry");
+// 6. tool_gone telemetry — every retired-route hit (transparently served 200
+// or teaching 410) must be visible in PostHog.
+console.log("\n# tool_gone — retired-route telemetry");
 {
   const events = _testEventsForTest();
   events.splice(0, events.length);
@@ -289,15 +291,18 @@ console.log("\n# tool_gone — teaching-410 telemetry");
     for (let i = 0; i < 120; i++) { try { if ((await fetch(`${B}/health`)).ok) { up = true; break; } } catch {} await sleep(500); }
     ok(up, "free-mode server booted");
 
+    // Retired routes we CAN answer are transparently served (200 + shim
+    // markers) — the tool_gone event must STILL fire for them (residual
+    // demand is the signal, served or taught).
     const res = await fetch(`${B}/api/convert-meters-to-feet?value=5`);
     const body = await res.json();
-    ok(res.status === 410, `retired convert route answers 410 (got ${res.status})`);
-    ok(body.replacement?.route === "POST /api/unit-convert" && body.replacement?.input?.from === "meters" && body.replacement?.input?.value === 5,
-      "410 body still teaches the exact replacement call");
+    ok(res.status === 200, `retired convert route transparently serves 200 (got ${res.status})`);
+    ok(Math.abs((body.result ?? NaN) - 5 / 0.3048) < 1e-6 && body._retired === true && body._replacement === "unit-convert",
+      "served body carries the real conversion + shim markers");
     const res2 = await fetch(`${B}/api/convert/kilograms-to-pounds`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 2 }),
     });
-    ok(res2.status === 410, `slash-form retired route answers 410 (got ${res2.status})`);
+    ok(res2.status === 200, `slash-form retired route transparently serves 200 (got ${res2.status})`);
 
     await sleep(500); // let stdout drain
     const captured = serverLog.split("\n")
