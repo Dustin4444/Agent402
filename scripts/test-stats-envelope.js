@@ -23,7 +23,7 @@
 //      viaHeartbeat` would be tempting but the chargedButFailed path drops
 //      the failure out of total without crediting a rail — so we lock the
 //      four keys exist + are numbers, not the sum identity).
-//   4. tools is a positive integer (the catalog size — must stay >= 1000).
+//   4. tools is a positive integer (the catalog size — must stay >= 400).
 //   5. estimatedRevenueUsd is a number, uptimeSeconds is a non-negative
 //      number, servingSince is a parseable ISO string.
 //   6. topTools / recentCalls are arrays.
@@ -62,9 +62,9 @@ try {
   ok(body.service === "Agent402.Tools", `service='Agent402.Tools' (got ${body.service})`);
   ok(typeof body.summary === "string" && body.summary.length > 0, `summary is non-empty (got len ${body.summary?.length})`);
 
-  // Catalog floor: must stay >= 1000 (we ship ~1199; a counter that fell
+  // Catalog floor: must stay >= 400 (The 500 era: 462 interim → 500; a counter that fell
   // under 1000 would be a regression worth investigating).
-  ok(typeof body.tools === "number" && body.tools >= 1000, `tools is >= 1000 (got ${body.tools})`);
+  ok(typeof body.tools === "number" && body.tools >= 400, `tools is >= 400 (got ${body.tools})`);
 
   // Rail breakdown — the four rails serve different stories on the dashboard.
   ok(typeof body.toolCallsServed === "object" && body.toolCallsServed != null, `toolCallsServed is an object`);
