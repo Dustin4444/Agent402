@@ -77,18 +77,69 @@ is presented to the owner for approval BEFORE implementation.
 - Policy documented in README, wiki, CLAUDE.md conventions, and the /marketplace +
   homepage copy.
 
-## Phase 4 — Brand sweep (after counts are final)
+## Phase 4 — Brand sweep (after counts are final; the FULL external footprint)
 
-- **Automated:** `sync-count.js` rewrites the ~60 count-bearing text surfaces (README,
-  wiki, docs, adapters, npm descriptions, server.json).
-- **Manual/rendered:** social preview image (regenerate via the existing Playwright
-  renderer), X header (redo the dark 8-chain header at the new numbers), homepage hero
-  ("Only 500. Every one earns its place." framing — final copy owner-approved),
-  llms.txt/manifest summaries, GitHub release notes.
-- **Publishes:** npm (`agent402-mcp`, `agent402-client` — versions already bumped this
-  session) via `[publish]`; MCP registry refresh; `[marketplace]` re-register;
-  `[bazaar-refresh]` for metadata.
-- Nothing ships a number until the catalog actually equals it — the sweep runs LAST.
+Nothing ships a number until the catalog actually equals it — this phase runs LAST,
+against a complete inventory. Owner directive: "update this EVERYWHERE."
+
+### 4a. Automated text surfaces
+- `sync-count.js` rewrites the ~60 count-bearing surfaces (README, wiki pages, docs/,
+  adapters' READMEs + package.json descriptions/keywords, server.json).
+- Runtime surfaces derive automatically (/api/pricing, /openapi.json, docs.js).
+
+### 4b. Website + SEO (agent402.tools)
+- Homepage hero + marketplace story: "Only 500. Every one earns its place." (final
+  copy owner-approved). FAQ answers that cite counts.
+- Every `<title>`/meta description/OG description carrying a count (ledger-chrome
+  head, per-page descriptions), JSON-LD (WebApplication/OfferCatalog numberOfItems,
+  AggregateOffer offerCount), llms.txt, `/.well-known/x402` summary, MCP connector
+  copy (about_agent402 / search_tools), guides + skill-pack pages that cite totals.
+- Sitemap regenerates (converter pages drop out); IndexNow ping (`indexnow-submit.js`)
+  so Bing/Copilot/DDG re-crawl; Google picks up via sitemap. Verify the deploy SEO
+  gate strings (FAQPage / GET /faq / AggregateOffer) survive the copy rewrite.
+- PageSpeed mobile re-run — bar holds (Perf 99 / A11y 100 / BP 100 / SEO 100).
+
+### 4c. GitHub
+- Repo **description** + topics reworded to the curation story ("500 tools · 100
+  skill packs · CI-capped").
+- **New social preview image** (repo settings asset — regenerate via the Playwright
+  card renderer at the new numbers, upload manually or via API if supported).
+- README: hero copy, badges, any screenshots that show counts.
+- **Release v2.0.0** with the curation narrative; wiki synced (CI job).
+
+### 4d. Registries + marketplaces (every listing we hold)
+- **npm**: `agent402-mcp` 0.11.5 + `agent402-client` 0.6.1 (already bumped) +
+  `agent402-tollbooth` if copy changes + all 8 adapter packages' descriptions —
+  `[publish]`.
+- **PyPI**: `agent402-langchain` description/readme (langchain-py-v* tag flow).
+- **MCP Registry** (io.github.MikeyPetrillo/agent402): refreshed metadata via
+  `[publish]` flow.
+- **Glama**: `/.well-known/glama.json` re-crawl (server-derived; verify it reflects
+  new counts post-deploy) + their listing page re-check.
+- **Smithery / mcp.so / PulseMCP**: verify listings pick up the new npm metadata;
+  where a listing caches copy, use each site's refresh/contact path.
+- **CDP Bazaar**: `[bazaar-refresh]` so listing metadata (serviceName/descriptions)
+  re-observes; stale converter entries age out on their own (no dereg API).
+- **x402scan**: settlement sweep over the post-overhaul catalog (`bazaar-sweep`
+  batches) so its settlement-driven view converges on the new set; its cached server
+  description updates on its next crawl of our manifest.
+- **agent402.app marketplace**: `[marketplace]` re-register — replaces the old
+  listing set with the 500 (bridge slugs for removed tools disappear).
+- **Cline directory** (pending #1849) + any other pending directory submissions:
+  update the submitted copy in `docs/ecosystem-listings.md` to the new numbers.
+
+### 4e. Images (all regenerated from the REAL new numbers via the committed-font
+Playwright renderers — never mocked)
+- **X/Twitter profile**: new header (dark, 8-chain, "500 · 100" numbers — redo of the
+  2026-07-12 header), avatar refresh IF the mark carries a number (verify; the 402
+  mark itself likely stays).
+- **Announcement/tweet cards**: a launch card ("The 500" — before/after or the
+  invariant story) for the v2.0.0 announcement; queued for owner approval per the
+  standing flow.
+- **GitHub social preview**: new card at 1280×640 (repo setting).
+- **Site OG image** (`/og` social card route): verify the server-rendered card
+  derives the new counts; regenerate any static PNG variants.
+- Wiki/docs images that show counts, if any (audit during execution).
 
 ## Phase 5 — Launch + verification
 
