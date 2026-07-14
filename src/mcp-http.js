@@ -238,7 +238,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           inputSchema: {
             type: "object",
             properties: {
-              slug: { type: "string", description: 'Tool slug, e.g. "convert-miles-to-kilometers"' },
+              slug: { type: "string", description: 'Tool slug, e.g. "unit-convert"' },
               params: { type: "object", description: "Tool input, matching the tool's inputSchema" },
             },
             required: ["slug"],

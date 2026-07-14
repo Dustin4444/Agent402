@@ -55,7 +55,7 @@ Tools accept `GET` (query params) or `POST` (JSON body), depending on the tool. 
 ### GET example
 
 ```bash
-curl 'https://agent402.tools/api/convert/kilometers-to-miles?value=42'
+curl 'https://agent402.tools/api/dns?name=example.com&type=A'
 ```
 
 ### POST example

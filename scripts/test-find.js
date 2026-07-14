@@ -7,10 +7,11 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 const CATALOG = {
   "POST /api/extract": { name: "Extract article", slug: "extract", category: "web", price: "$0.005", description: "Extract the main article content from any URL as clean markdown.", tags: ["scraping", "markdown", "content"], discovery: { inputSchema: { properties: { url: { type: "string" } }, required: ["url"] }, input: { url: "https://example.com/article" } } },
   "POST /api/qr": { name: "QR code", slug: "qr", category: "identifiers", price: "$0.001", description: "Generate a QR code PNG from text or a URL.", tags: ["qr", "barcode"], discovery: { inputSchema: { properties: { text: { type: "string" } } }, input: { text: "hello" } } },
-  "GET /api/convert/miles-to-kilometers": { name: "miles to kilometers", slug: "convert-miles-to-kilometers", category: "convert", price: "$0.001", description: "Convert miles to kilometers.", tags: ["distance", "length"], discovery: { example: { value: 5 } } },
+  "POST /api/unit-convert": { name: "Unit convert", slug: "unit-convert", category: "math", price: "$0.001", description: "Convert a value between units of length, mass, temperature and more (e.g. miles, kilograms, fahrenheit).", tags: ["units", "convert", "length", "mass"], discovery: { example: { value: 100, from: "fahrenheit", to: "celsius" } } },
+  "GET /api/time-now": { name: "Time now", slug: "time-now", category: "time", price: "$0.001", description: "Current time in a timezone.", tags: ["time", "timezone"], discovery: { example: { tz: "UTC" } } },
   "POST /api/hash": { name: "Hash", slug: "hash", category: "encoding", price: "$0.001", description: "Hash text with sha256/md5/etc.", tags: ["sha256", "crypto"], discovery: { inputSchema: { properties: { text: { type: "string" } }, required: ["text"] }, input: { text: "hi", algo: "sha256" } } },
 };
-const POW = new Set(["qr", "hash", "convert-miles-to-kilometers"]);
+const POW = new Set(["qr", "hash", "unit-convert", "time-now"]);
 
 // Exact slug term wins.
 let r = findTools(CATALOG, "extract", { baseUrl: "https://agent402.tools", powSlugs: POW });
@@ -27,13 +28,16 @@ ok(r.results[0].callExample?.method === "POST" && r.results[0].callExample?.path
 const k = Object.keys(r.results[0]);
 ok(k.indexOf("callExample") < k.indexOf("description") && k.indexOf("example") < k.indexOf("description"), `callExample + example come before description (keys: ${k.join(",")})`);
 
-// Natural-language task resolves to the right tool.
+// Natural-language task resolves to the surviving parametric converter — the
+// unit-word synonym expansion maps "miles"/"kilometers" onto the "units" tag.
 r = findTools(CATALOG, "convert miles to kilometers", {});
-ok(r.results[0].slug === "convert-miles-to-kilometers", `NL task → convert tool (got ${r.results[0]?.slug})`);
-// GET tools put the example values on query, not body.
-ok(r.results[0].callExample?.method === "GET" && r.results[0].callExample?.path === "/api/convert/miles-to-kilometers" && r.results[0].callExample?.query?.value === 5 && !("body" in r.results[0].callExample), `GET callExample uses query, not body (got ${JSON.stringify(r.results[0].callExample)})`);
+ok(r.results[0].slug === "unit-convert", `NL task → unit-convert (got ${r.results[0]?.slug})`);
 // A tool with no required[] returns required:[] (not undefined) so agents can scan safely.
 ok(Array.isArray(r.results[0].required) && r.results[0].required.length === 0, `no-required tool returns required:[] (got ${JSON.stringify(r.results[0].required)})`);
+// GET tools put the example values on query, not body.
+r = findTools(CATALOG, "current time in a timezone", {});
+ok(r.results[0].slug === "time-now", `NL task → time-now (got ${r.results[0]?.slug})`);
+ok(r.results[0].callExample?.method === "GET" && r.results[0].callExample?.path === "/api/time-now" && r.results[0].callExample?.query?.tz === "UTC" && !("body" in r.results[0].callExample), `GET callExample uses query, not body (got ${JSON.stringify(r.results[0].callExample)})`);
 
 r = findTools(CATALOG, "make a qr code for a url", { powSlugs: POW });
 ok(r.results[0].slug === "qr", `"qr code" → qr (got ${r.results[0]?.slug})`);

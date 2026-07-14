@@ -164,6 +164,18 @@ try {
     await fetch(`${BASE}/api/convert-miles-to-kilometers?value=3.5`),
     { value: 3.5, from: "miles", to: "kilometers" });
 
+  // The SLASH form is the shape the live routes actually had
+  // (GET /api/convert/<from>-to-<to>?value=N — still cited by wiki examples and
+  // buyer scripts). It must get the same teaching 410, both verbs.
+  await assert410("GET retired route (slash form)",
+    await fetch(`${BASE}/api/convert/kilometers-to-miles?value=42`),
+    { value: 42, from: "kilometers", to: "miles" });
+  await assert410("POST retired route (slash form)",
+    await fetch(`${BASE}/api/convert/miles-to-kilometers`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 5 }),
+    }),
+    { value: 5, from: "miles", to: "kilometers" });
+
   // Hyphenated unit ids on BOTH sides — the parser must split the middle
   // segment on the "-to-" whose two sides are both real unit ids, not the
   // first "-to-" it sees.

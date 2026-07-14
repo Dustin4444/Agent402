@@ -622,7 +622,7 @@ jobs:
           PURL_PASSWORD: ci-throwaway
         run: |
           set +e
-          OUT=$(purl --dry-run "$TARGET_URL/api/convert/kilometers-to-miles?value=42" 2>&1)
+          OUT=$(purl --dry-run "$TARGET_URL/api/dns?name=example.com&type=A" 2>&1)
           STATUS=$?
           set -e
           echo "$OUT"
@@ -642,11 +642,11 @@ jobs:
         run: |
           [ -n "$BURNER_KEY" ] || { echo "no burner key — skipping paid call"; exit 0; }
           set +e
-          OUT=$(purl "$TARGET_URL/api/convert/kilometers-to-miles?value=42" 2>&1)
+          OUT=$(purl "$TARGET_URL/api/dns?name=example.com&type=A" 2>&1)
           STATUS=$?
           set -e
           echo "$OUT" | head -40
-          if [ $STATUS -eq 0 ] && echo "$OUT" | grep -q '26\.0'; then
+          if [ $STATUS -eq 0 ] && echo "$OUT" | grep -q 'records'; then
             echo "PAID CALL SETTLED via Stripe's purl client ✓"
           else
             echo "paid call did not complete (likely dust balance) — not failing the job"
@@ -1333,7 +1333,7 @@ jobs:
           ck "robots welcomes AI crawlers" 'curl -s "$PROD/robots.txt" | grep -q GPTBot'
           ck "MCP connector on landing"  'echo "$HTML" | grep -q agent402-mcp'
           ck "MCP connector in llms.txt" 'curl -s "$PROD/llms.txt" | grep -q agent402-mcp'
-          ck "unique conversion content" 'curl -s "$PROD/tools/convert-miles-to-kilometers" | grep -q "Common miles to kilometers values"'
+          ck "unit-convert tool page"    'curl -s "$PROD/tools/unit-convert" | grep -q "Unit convert"'
           ck "guides with TechArticle JSON-LD" 'curl -s "$PROD/guides/x402-in-5-minutes" | grep -q TechArticle'
           [ "$FAILS" -eq 0 ] || { echo "$FAILS production surface(s) regressed"; exit 1; }
           echo "=== proof-of-work tier live on production (no wallet) ==="

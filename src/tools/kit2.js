@@ -669,7 +669,7 @@ function evalExpr(expr) {
 // (every unit the retired pairwise convert-* endpoints handled). The short ids
 // this tool historically accepted stay working as aliases; kbit/mbit/gbit have
 // no full-name id in the table, so they resolve to bits with a multiplier.
-const UNIT_ALIASES = {
+export const UNIT_ALIASES = {
   m: "meters", km: "kilometers", cm: "centimeters", mm: "millimeters", mi: "miles",
   yd: "yards", ft: "feet", in: "inches", nmi: "nautical-miles",
   g: "grams", kg: "kilograms", mg: "milligrams", t: "tonnes", lb: "pounds", oz: "ounces", st: "stones",
@@ -738,7 +738,13 @@ const math = [
   {
     route: "POST /api/unit-convert", name: "Unit convert", slug: "unit-convert", category: "math", price: "$0.001",
     description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency — every unit the retired convert-* endpoints handled (e.g. miles, kilograms, us-gallons, fahrenheit, psi, kilowatt-hours).",
-    tags: ["units", "convert", "length", "mass", "temperature", "volume", "area", "speed", "time", "data", "pressure", "energy", "power", "angle", "frequency"],
+    // The category tags are joined by the most-queried unit words so lexical
+    // search surfaces ("convert miles to kilometers" via /api/find and the MCP
+    // search_tools) rank this tool where the retired pairwise convert-* slugs
+    // used to match. The full unit tail is handled by the unit-word synonym
+    // expansion in src/find.js (built from UNIT_CATEGORIES + UNIT_ALIASES).
+    tags: ["units", "convert", "length", "mass", "temperature", "volume", "area", "speed", "time", "data", "pressure", "energy", "power", "angle", "frequency",
+      "miles", "kilometers", "meters", "feet", "kilograms", "pounds", "celsius", "fahrenheit", "liters", "gallons"],
     discovery: {
       bodyType: "json",
       input: { value: 100, from: "fahrenheit", to: "celsius" },

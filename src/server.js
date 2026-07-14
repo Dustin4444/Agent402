@@ -609,6 +609,16 @@ if (CATALOG[ROUTE_EXECUTE_TOOL.route]) throw new Error(`Duplicate route: ${ROUTE
 CATALOG[ROUTE_EXECUTE_TOOL.route] = ROUTE_EXECUTE_TOOL;
 ALL_KIT.push(ROUTE_EXECUTE_TOOL);
 
+// Boot-time guard: the retired pairwise-converter 410 handler (see the
+// RETIRED_CONVERT_API_RE block below) owns both /api/convert-…-to-… and
+// /api/convert/…-to-… — a future catalog tool on either shape would be
+// silently shadowed by it, so fail the boot instead.
+for (const route of Object.keys(CATALOG)) {
+  if (/^(POST|GET) \/api\/convert[-/][a-z0-9-]+-to-[a-z0-9-]+$/.test(route)) {
+    throw new Error(`Catalog route "${route}" matches the retired convert-*-to-* pattern and would be shadowed by the 410 handler`);
+  }
+}
+
 // Routes that accept proof-of-work in lieu of payment: the pure-CPU tools.
 // Map "METHOD /path" -> tool slug, for the gate and the challenge endpoint.
 // slug -> numeric USD price, for revenue estimation in /api/stats.
@@ -2054,7 +2064,10 @@ const RETIRED_CONVERT_UNIT_IDS = new Set(
 // the "<from>-to-<to>" middle segment can't be split on the first "-to-":
 // try every "-to-" split point and keep the one where BOTH sides are real
 // unit ids (temperature ids included). No valid split → nulls; the 410 body
-// still teaches the generic replacement.
+// still teaches the generic replacement. Both retired prefixes —
+// "/api/convert/" (the shape the live routes actually had) and
+// "/api/convert-" (the slug shape) — are exactly 13 chars, so one slice
+// handles either.
 const parseRetiredConvertPath = (path) => {
   const middle = path.slice("/api/convert-".length);
   for (let i = middle.indexOf("-to-"); i !== -1; i = middle.indexOf("-to-", i + 1)) {
@@ -2082,9 +2095,18 @@ const retiredConvertHandler = (req, res) => {
 };
 app.post(RETIRED_CONVERT_API_RE, retiredConvertHandler);
 app.get(RETIRED_CONVERT_API_RE, retiredConvertHandler);
+// The routes that were ACTUALLY mounted (and documented in the wiki / cited by
+// buyers) were the slash form — GET /api/convert/<from>-to-<to>?value=N. Those
+// must get the same teaching 410, not a bare 404. The slug form above stays
+// covered too since agents commonly guess a route from a slug.
+const RETIRED_CONVERT_API_SLASH_RE = /^\/api\/convert\/[a-z0-9-]+-to-[a-z0-9-]+$/;
+app.post(RETIRED_CONVERT_API_SLASH_RE, retiredConvertHandler);
+app.get(RETIRED_CONVERT_API_SLASH_RE, retiredConvertHandler);
 // The retired tool PAGES carry inbound links + SEO equity — those 301 to the
 // survivor's page (a page visit has no re-POST hazard, unlike the API).
 app.get(/^\/tools\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/, (_req, res) => res.redirect(301, "/tools/unit-convert"));
+// The whole "convert" category page retired with its tools — same SEO-equity 301.
+app.get("/tools/category/convert", (_req, res) => res.redirect(301, "/tools/unit-convert"));
 app.get("/tools/category/:cat", (req, res) => {
   const html = categoryPage(BASE_URL, CATALOG, req.params.cat);
   if (!html) return res.status(404).type("html").send('<p>Category not found. <a href="/tools">All tools</a></p>');

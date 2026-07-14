@@ -68,7 +68,7 @@ endpoints":
 
 \`\`\`bash
 purl wallet add --name me --type evm -k 0xYOUR_KEY -p pass --set-active=true
-purl "https://agent402.tools/api/convert/kilometers-to-miles?value=42"
+purl "https://agent402.tools/api/dns?name=example.com&type=A"
 \`\`\`
 
 ## No wallet? Pay with CPU

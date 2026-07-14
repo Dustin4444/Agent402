@@ -20,7 +20,7 @@ const fmtPrice = (p) => {
 const SAMPLE_ENDPOINTS = [
   { method: "POST", route: "/api/extract", note: "$0.004 \u00b7 clean markdown out" },
   { method: "POST", route: "/api/render", note: "$0.02 \u00b7 headless browser, JS executed" },
-  { method: "GET", route: "/api/convert/miles-to-kilometers?value=5", note: "$0.001" },
+  { method: "POST", route: "/api/unit-convert", note: "$0.001 · every unit pair, one route" },
   { method: "POST", route: "/api/memory", note: "$0.002 \u00b7 durable, wallet-keyed" },
   { method: "POST", route: "/api/hash", note: "free \u00b7 proof-of-work" },
   { method: "GET", route: "/api/leaderboard", note: "free \u00b7 on-chain ranking" },

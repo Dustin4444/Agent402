@@ -57,26 +57,30 @@ GET https://agent402.tools/api/find?q={task}&k={limit}
   "count": 3,
   "results": [
     {
-      "slug": "convert-miles-to-kilometers",
-      "name": "Miles to Kilometers",
-      "route": "GET /api/convert/miles-to-kilometers",
+      "slug": "unit-convert",
+      "name": "Unit convert",
+      "route": "POST /api/unit-convert",
       "price": "$0.001",
       "callExample": {
-        "method": "GET",
-        "path": "/api/convert/miles-to-kilometers",
-        "query": { "value": "26.2" }
+        "method": "POST",
+        "path": "/api/unit-convert",
+        "body": { "value": 26.2, "from": "miles", "to": "kilometers" }
       },
-      "example": { "value": "26.2" },
-      "required": ["value"],
+      "example": { "value": 26.2, "from": "miles", "to": "kilometers" },
+      "required": ["value", "from", "to"],
       "inputSchema": {
         "type": "object",
-        "properties": { "value": { "type": "string" } },
-        "required": ["value"]
+        "properties": {
+          "value": { "type": "number" },
+          "from": { "type": "string" },
+          "to": { "type": "string" }
+        },
+        "required": ["value", "from", "to"]
       },
-      "category": "convert",
-      "description": "Convert miles to kilometers.",
+      "category": "math",
+      "description": "Convert a value between units of length, mass, temperature, and more.",
       "computePayable": true,
-      "docs": "https://agent402.tools/tools/convert-miles-to-kilometers"
+      "docs": "https://agent402.tools/tools/unit-convert"
     }
   ]
 }
@@ -105,13 +109,13 @@ GET https://agent402.tools/api/pricing
   "baseUrl": "https://agent402.tools",
   "endpoints": [
     {
-      "method": "GET",
-      "path": "/api/convert/miles-to-kilometers",
+      "method": "POST",
+      "path": "/api/unit-convert",
       "price": "$0.001",
-      "category": "convert",
-      "slug": "convert-miles-to-kilometers",
-      "description": "Convert miles to kilometers.",
-      "docs": "https://agent402.tools/tools/convert-miles-to-kilometers",
+      "category": "math",
+      "slug": "unit-convert",
+      "description": "Convert a value between units of length, mass, temperature, and more.",
+      "docs": "https://agent402.tools/tools/unit-convert",
       "computePayable": true
     }
   ]
@@ -181,8 +185,8 @@ Every tool in the catalog is a paid endpoint. Calling it without payment returns
 
 **Tool URL pattern:** `https://agent402.tools{path}` where `{path}` comes from the `route` field in `/api/find` or `/api/pricing` results.
 
-**GET tools** (conversions, lookups): pass parameters as query strings.
-Example: `https://agent402.tools/api/convert/miles-to-kilometers?value=26.2`
+**GET tools** (lookups): pass parameters as query strings.
+Example: `https://agent402.tools/api/dns?name=example.com&type=A`
 
 **POST tools** (browser, search, extract, memory): pass parameters as JSON body.
 Example: `https://agent402.tools/api/extract` with body `{"url": "https://example.com"}`
@@ -232,14 +236,14 @@ This plugin uses `initiate_x402_request` and `complete_x402_request` for all pai
 
 From `/api/find` response, extract the tool's `callExample`:
 
-**For a GET tool** (e.g. `convert-miles-to-kilometers`):
+**For a GET tool** (e.g. `dns`):
 ```
-callExample: { method: "GET", path: "/api/convert/miles-to-kilometers", query: { value: "26.2" } }
+callExample: { method: "GET", path: "/api/dns", query: { name: "example.com", type: "A" } }
 ```
 Map to `initiate_x402_request`:
 ```json
 {
-  "url": "https://agent402.tools/api/convert/miles-to-kilometers?value=26.2",
+  "url": "https://agent402.tools/api/dns?name=example.com&type=A",
   "method": "GET",
   "maxPayment": "0.01"
 }
@@ -266,8 +270,8 @@ Then call `complete_x402_request` with the returned `requestId` to get the resul
 **Prompt:** "Find me a tool to convert 26.2 miles to kilometers and call it"
 
 1. Discover: `GET https://agent402.tools/api/find?q=convert%20miles%20to%20kilometers`
-2. Read the top result's `callExample`: method GET, path `/api/convert/miles-to-kilometers`, query `{value: "26.2"}`
-3. Call `initiate_x402_request` with url `https://agent402.tools/api/convert/miles-to-kilometers?value=26.2`, method GET, maxPayment `"0.01"`
+2. Read the top result's `callExample`: method POST, path `/api/unit-convert`, body `{value: 26.2, from: "miles", to: "kilometers"}`
+3. Call `initiate_x402_request` with url `https://agent402.tools/api/unit-convert`, method POST, body `{"value": 26.2, "from": "miles", "to": "kilometers"}`, maxPayment `"0.01"`
 4. User approves the ~$0.001 USDC payment
 5. Call `complete_x402_request` with the requestId to get the conversion result
 

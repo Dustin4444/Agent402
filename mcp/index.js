@@ -365,7 +365,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       inputSchema: {
         type: "object",
         properties: {
-          slug: { type: "string", description: "Tool slug from search_tools, e.g. \"convert-miles-to-kilometers\"" },
+          slug: { type: "string", description: "Tool slug from search_tools, e.g. \"unit-convert\"" },
           params: { type: "object", description: "Tool input parameters, matching the tool's inputSchema" },
         },
         required: ["slug"],

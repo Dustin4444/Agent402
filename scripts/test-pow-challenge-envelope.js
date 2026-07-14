@@ -57,10 +57,10 @@ try {
   ok(info.submitFormat === "<token>:<nonce>", `info.submitFormat='<token>:<nonce>' (got ${info.submitFormat})`);
   ok(typeof info.challengeUrl === "string" && info.challengeUrl.endsWith("/api/pow/challenge"), `info.challengeUrl ends with /api/pow/challenge (got ${info.challengeUrl})`);
 
-  // Pick a known PoW slug — convert-kilometers-to-miles is in WALLET_ONLY_SLUGS' inverse
+  // Pick a known PoW slug — unit-convert is in WALLET_ONLY_SLUGS' inverse
   // (pure CPU, always PoW-eligible). Falls back to info.eligibleTools[0] if not found.
-  const TARGET = info.eligibleTools.includes("convert-kilometers-to-miles")
-    ? "convert-kilometers-to-miles"
+  const TARGET = info.eligibleTools.includes("unit-convert")
+    ? "unit-convert"
     : info.eligibleTools[0];
 
   // Happy path — known slug returns the full envelope.

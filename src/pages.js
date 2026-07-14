@@ -14,8 +14,7 @@ export const CATEGORIES = {
   payments: { label: "Payments & x402", blurb: "Non-custodial x402 tooling: decode HTTP 402 quotes, verify on-chain USDC settlements, read balances, tx status and gas across Base, Polygon, Arbitrum, Optimism, Ethereum, and Robinhood Chain, and build EIP-3009 transfer authorizations. The agent signs with its own key — Agent402 never touches funds." },
   conversion: { label: "Data conversion", blurb: "JSON ⇄ CSV/YAML/XML, markdown ⇄ HTML, diffs and queries — formats agents juggle constantly." },
   text: { label: "Text processing", blurb: "Slugs, case conversion, diffs, regex, keywords, token estimates, edit distance, readability, PII redaction." },
-  math: { label: "Math & finance", blurb: "Safe expression calculator, statistics, unit/percentage/number formatting, CIDR subnets, compound interest and loan math." },
-  convert: { label: "Unit conversions", blurb: "One real endpoint per unit pair across length, mass, volume, area, speed, time, data, pressure, energy, power, angle, frequency, and temperature — e.g. GET /api/convert/miles-to-kilometers?value=5." },
+  math: { label: "Math & finance", blurb: "Safe expression calculator, statistics, unit conversion across 13 categories (length, mass, temperature, …) via POST /api/unit-convert, percentage/number formatting, CIDR subnets, compound interest and loan math." },
   encoding: { label: "Encoding & crypto", blurb: "Hashes, HMAC signatures, base64/hex, JWT decoding, TOTP codes." },
   identifiers: { label: "Generators & IDs", blurb: "UUIDs, ULIDs, passwords, secure randomness, QR codes." },
   time: { label: "Time & scheduling", blurb: "Timezone-aware clocks, epoch conversion, cron parsing, durations." },
@@ -135,39 +134,6 @@ function payExample(baseUrl, tool) {
 });`;
 }
 
-// Unique, useful per-page content for the generated conversion tools — a
-// reference table + the factor + the inverse link — so the ~970 pages are
-// substantive rather than near-duplicate doorway pages.
-function convertContent(baseUrl, tool) {
-  let from, to, perUnit;
-  try {
-    const r = tool.handler({ value: 1 });
-    from = r.from;
-    to = r.to;
-    perUnit = r.result;
-  } catch {
-    return "";
-  }
-  const rows = [1, 2, 5, 10, 25, 100, 1000]
-    .map((v) => {
-      let out;
-      try {
-        out = tool.handler({ value: v }).result;
-      } catch {
-        out = "";
-      }
-      return `<tr><td>${v} ${esc(from.replace(/-/g, " "))}</td><td>${esc(String(out))} ${esc(to.replace(/-/g, " "))}</td></tr>`;
-    })
-    .join("");
-  const inverse = `convert-${to}-to-${from}`;
-  const fromL = from.replace(/-/g, " ");
-  const toL = to.replace(/-/g, " ");
-  return `
-  <p class="tp-sub"><b>1 ${esc(fromL)} = ${esc(String(perUnit))} ${esc(toL)}.</b> To convert, multiply the number of ${esc(fromL)} by ${esc(String(perUnit))}. The reverse direction is <a href="/tools/${inverse}" style="color:var(--accent);">${esc(toL)} \u2192 ${esc(fromL)}</a>.</p>
-  <h2 class="tp-h2">Common ${esc(fromL)} to ${esc(toL)} values</h2>
-  <table class="tp-table"><tr><th>${esc(fromL)}</th><th>${esc(toL)}</th></tr>${rows}</table>`;
-}
-
 // Format a cache TTL (in seconds) as the smallest unit that reads cleanly.
 // Used by the "Cached" badge on /tools/{slug}.
 function fmtTtl(seconds) {
@@ -267,7 +233,6 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
     cacheTtl ? ` · <span style="color:var(--dk-muted);" title="Server caches identical responses for ${e(fmtTtl(cacheTtl))}. Repeated calls return X-Cache: hit and don't re-hit the upstream.">Cached ${e(fmtTtl(cacheTtl))}</span>` : ""
   }</div>
   <p class="tp-sub">${e(tool.description)}</p>
-  ${tool.category === "convert" ? convertContent(baseUrl, tool) : ""}
 
   <h2 class="tp-h2">Input</h2>
   ${schemaRows ? `<table class="tp-table"><tr><th>Field</th><th>Type</th><th>Description</th></tr>${schemaRows}</table>` : `<p class="tp-sub">No parameters.</p>`}
@@ -360,7 +325,7 @@ export function toolsIndexPage(baseUrl, catalog) {
           : free > 0
             ? ` <span class="free">${free} FREE w/ compute</span>`
             : ` <span class="paidtag">USDC only</span>`;
-      // Large generated families (e.g. ~970 conversions) render as a compact
+      // Large families (e.g. the 100+ live-data tools) render as a compact
       // sample + count, not hundreds of cards; each still has its own /tools page.
       if (inCat.length > 40) {
         const sample = inCat
