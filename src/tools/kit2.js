@@ -1,8 +1,9 @@
-// Kit 2 — 36 more pure-CPU tools (free via proof-of-work) taking the catalog to
-// 100. All deterministic, no network, ~zero cost to serve, and each covered by
-// an exact-output test in scripts/test-kit2.js.
+// Kit 2 — 39 more pure-CPU tools (free via proof-of-work). All deterministic,
+// no network, ~zero cost to serve, and each covered by an exact-output test in
+// scripts/test-kit2.js.
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { isIP } from "node:net";
+import { convertAnyUnit } from "./convert-gen.js";
 
 function bad(message) {
   const err = new Error(message);
@@ -617,7 +618,326 @@ const conversion = [
       return { result: total };
     },
   },
+  {
+    route: "POST /api/srt-convert", name: "Subtitle convert (SRT/VTT)", slug: "srt-convert", category: "conversion", price: "$0.002",
+    description:
+      "Convert subtitles between SRT, WebVTT, plain text, and JSON cues. Send SRT or VTT text (auto-detected) — or a JSON cues array [{start,end,text}] with times in ms — and the target format. Deterministic, pure CPU.",
+    tags: ["srt", "vtt", "subtitles", "captions", "convert", "webvtt"],
+    discovery: {
+      bodyType: "json",
+      input: { input: "1\n00:00:01,000 --> 00:00:03,000\nHello world\n\n2\n00:00:03,500 --> 00:00:05,000\nSecond line\n", to: "vtt" },
+      inputSchema: {
+        properties: {
+          input: { type: "string", description: "SRT or WebVTT text (format auto-detected)" },
+          cues: { type: "array", description: "alternative: cue objects [{start,end,text}] with start/end in milliseconds" },
+          to: { type: "string", description: "target format: srt | vtt | text | json" },
+        },
+        required: ["to"],
+      },
+      output: { example: { detected: "srt", to: "vtt", count: 2, result: "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello world\n\n00:00:03.500 --> 00:00:05.000\nSecond line\n" } },
+    },
+    handler: (i) => {
+      const to = String(need(i, "to")).toLowerCase();
+      if (!["srt", "vtt", "text", "json"].includes(to)) throw bad('to must be "srt", "vtt", "text", or "json"');
+      let cues, detected;
+      if (Array.isArray(i.cues)) {
+        if (i.cues.length > 5000) throw bad("too many cues (max 5000)");
+        detected = "json";
+        cues = i.cues.map((c, k) => {
+          const start = parseCueTime(c && c.start), end = parseCueTime(c && c.end);
+          if (start === null || end === null) throw bad(`cues[${k}] needs numeric ms (or "HH:MM:SS,mmm") start and end`);
+          return { start, end, text: cap(String(c.text ?? ""), 10_000, `cues[${k}].text`) };
+        });
+      } else {
+        const parsed = parseSubtitles(cap(need(i, "input"), 200_000, "input"));
+        cues = parsed.cues;
+        detected = parsed.detected;
+        if (!cues.length) throw bad("no subtitle cues found in input");
+      }
+      const count = cues.length;
+      if (to === "json") return { detected, to, count, cues: cues.map((c, k) => ({ index: k + 1, ...c, startTime: fmtCueTime(c.start, ","), endTime: fmtCueTime(c.end, ",") })) };
+      let result;
+      if (to === "text") result = cues.map((c) => c.text).join("\n");
+      else if (to === "srt") result = cues.map((c, k) => `${k + 1}\n${fmtCueTime(c.start, ",")} --> ${fmtCueTime(c.end, ",")}\n${c.text}`).join("\n\n") + "\n";
+      else result = "WEBVTT\n\n" + cues.map((c) => `${fmtCueTime(c.start, ".")} --> ${fmtCueTime(c.end, ".")}\n${c.text}`).join("\n\n") + "\n";
+      return { detected, to, count, result };
+    },
+  },
+  {
+    route: "POST /api/ics-parse", name: "iCalendar parse (.ics)", slug: "ics-parse", category: "conversion", price: "$0.002",
+    description:
+      "Parse iCalendar (.ics) text into structured JSON events: summary, start/end, location, organizer, attendees, status, and RRULE. Optional bounded recurrence expansion (expand:true, capped occurrences). Deterministic, pure CPU — send the ICS text, not a URL.",
+    tags: ["ics", "icalendar", "calendar", "vevent", "rrule", "parse", "convert"],
+    discovery: {
+      bodyType: "json",
+      input: {
+        ics: "BEGIN:VCALENDAR\nPRODID:-//Agent402//EN\nVERSION:2.0\nBEGIN:VEVENT\nUID:demo-1\nSUMMARY:Team sync\nDTSTART:20260720T150000Z\nDTEND:20260720T153000Z\nLOCATION:Zoom\nRRULE:FREQ=WEEKLY;COUNT=3\nEND:VEVENT\nEND:VCALENDAR",
+        expand: true,
+      },
+      inputSchema: {
+        properties: {
+          ics: { type: "string", description: "iCalendar (.ics) text (VCALENDAR with VEVENTs)" },
+          expand: { type: "boolean", description: "expand simple RRULEs into occurrence dates (default false)" },
+          maxOccurrences: { type: "integer", description: "per-event expansion cap, 1-100 (default 50)" },
+        },
+        required: ["ics"],
+      },
+      output: {
+        example: {
+          calendar: { prodId: "-//Agent402//EN", version: "2.0", name: null, timezone: null },
+          count: 1,
+          events: [{
+            uid: "demo-1", summary: "Team sync", location: "Zoom", status: null,
+            start: { iso: "2026-07-20T15:00:00Z", allDay: false, tzid: null },
+            end: { iso: "2026-07-20T15:30:00Z", allDay: false, tzid: null },
+            rrule: { raw: "FREQ=WEEKLY;COUNT=3", freq: "WEEKLY", interval: 1, count: 3 },
+            occurrences: { count: 3, capped: false, dates: ["2026-07-20T15:00:00Z", "2026-07-27T15:00:00Z", "2026-08-03T15:00:00Z"] },
+          }],
+        },
+      },
+    },
+    handler: (i) => {
+      const text = cap(need(i, "ics"), 300_000, "ics");
+      if (!/BEGIN:VCALENDAR/i.test(text)) throw bad("ics does not look like iCalendar text (no BEGIN:VCALENDAR)");
+      const expand = i.expand === true || i.expand === "true";
+      let maxOcc = Number(i.maxOccurrences ?? 50);
+      if (!Number.isInteger(maxOcc) || maxOcc < 1 || maxOcc > 100) {
+        if (i.maxOccurrences !== undefined) throw bad("maxOccurrences must be an integer between 1 and 100");
+        maxOcc = 50;
+      }
+      const lines = unfoldIcs(text);
+      const calendar = { prodId: null, version: null, name: null, timezone: null };
+      const events = [];
+      let ev = null, truncated = false, depth = 0;
+      for (const line of lines) {
+        const p = parseIcsLine(line);
+        if (!p) continue;
+        if (p.name === "BEGIN") {
+          const comp = p.value.trim().toUpperCase();
+          if (comp === "VEVENT" && depth === 0) {
+            if (events.length >= 500) { truncated = true; ev = null; }
+            else ev = { uid: null, summary: null, description: null, location: null, status: null, organizer: null, attendees: [], categories: [], url: null, start: null, end: null, duration: null, rrule: null, sequence: null };
+            depth = 1;
+          } else if (depth >= 1) depth++;
+          continue;
+        }
+        if (p.name === "END") {
+          const comp = p.value.trim().toUpperCase();
+          if (comp === "VEVENT" && depth === 1) { if (ev) events.push(ev); ev = null; depth = 0; }
+          else if (depth >= 1) depth--;
+          continue;
+        }
+        if (!ev) {
+          if (depth !== 0) continue; // inside a non-VEVENT component (VTIMEZONE etc.)
+          if (p.name === "PRODID") calendar.prodId = unescapeIcsText(p.value);
+          else if (p.name === "VERSION") calendar.version = p.value.trim();
+          else if (p.name === "X-WR-CALNAME") calendar.name = unescapeIcsText(p.value);
+          else if (p.name === "X-WR-TIMEZONE") calendar.timezone = p.value.trim();
+          continue;
+        }
+        if (depth !== 1) continue; // nested component (VALARM) properties don't belong to the event
+        switch (p.name) {
+          case "UID": ev.uid = p.value.trim(); break;
+          case "SUMMARY": ev.summary = unescapeIcsText(p.value); break;
+          case "DESCRIPTION": ev.description = unescapeIcsText(p.value).slice(0, 10_000); break;
+          case "LOCATION": ev.location = unescapeIcsText(p.value); break;
+          case "STATUS": ev.status = p.value.trim().toUpperCase(); break;
+          case "URL": ev.url = p.value.trim(); break;
+          case "DURATION": ev.duration = p.value.trim(); break;
+          case "SEQUENCE": ev.sequence = Number.parseInt(p.value, 10); if (!Number.isFinite(ev.sequence)) ev.sequence = null; break;
+          case "ORGANIZER": ev.organizer = { name: p.params.CN || null, uri: p.value.trim() }; break;
+          case "ATTENDEE": if (ev.attendees.length < 50) ev.attendees.push({ name: p.params.CN || null, uri: p.value.trim(), role: p.params.ROLE || null, status: p.params.PARTSTAT || null }); break;
+          case "CATEGORIES": ev.categories.push(...unescapeIcsText(p.value).split(",").map((s) => s.trim()).filter(Boolean).slice(0, 20)); break;
+          case "DTSTART": ev.start = parseIcsDate(p.value, p.params); break;
+          case "DTEND": ev.end = parseIcsDate(p.value, p.params); break;
+          case "RRULE": ev.rrule = parseIcsRrule(p.value); break;
+        }
+      }
+      if (!events.length) throw bad("no VEVENT components found in the ICS text");
+      if (expand) {
+        for (const e of events) {
+          e.occurrences = e.rrule && e.start ? expandIcsRrule(e.start, e.rrule, maxOcc) : null;
+        }
+      }
+      // internal ms field is for expansion only — keep the payload clean
+      for (const e of events) {
+        if (e.start) delete e.start.ms;
+        if (e.end) delete e.end.ms;
+      }
+      const out = { calendar, count: events.length, events };
+      if (truncated) out.truncated = true;
+      return out;
+    },
+  },
 ];
+
+// --- iCalendar helpers for /api/ics-parse -----------------------------------
+// RFC 5545 line unfolding: CRLF (or LF) followed by a space/tab continues the
+// previous line.
+function unfoldIcs(text) {
+  const raw = text.replace(/^﻿/, "").replace(/\r\n?/g, "\n").split("\n");
+  const out = [];
+  for (const line of raw) {
+    if ((line.startsWith(" ") || line.startsWith("\t")) && out.length) out[out.length - 1] += line.slice(1);
+    else out.push(line);
+  }
+  return out.filter((l) => l.trim() !== "");
+}
+
+// Split "NAME;PARAM=V;PARAM2="q:v":value" at the first ":" outside quotes.
+function parseIcsLine(line) {
+  let inQ = false, ci = -1;
+  for (let k = 0; k < line.length; k++) {
+    const ch = line[k];
+    if (ch === '"') inQ = !inQ;
+    else if (ch === ":" && !inQ) { ci = k; break; }
+  }
+  if (ci <= 0) return null;
+  const left = line.slice(0, ci), value = line.slice(ci + 1);
+  const parts = [];
+  let cur = "", q = false;
+  for (const ch of left) {
+    if (ch === '"') { q = !q; cur += ch; }
+    else if (ch === ";" && !q) { parts.push(cur); cur = ""; }
+    else cur += ch;
+  }
+  parts.push(cur);
+  const name = parts[0].trim().toUpperCase();
+  if (!/^[A-Z0-9-]+$/.test(name)) return null;
+  const params = {};
+  for (const part of parts.slice(1)) {
+    const eq = part.indexOf("=");
+    if (eq > 0) params[part.slice(0, eq).trim().toUpperCase()] = part.slice(eq + 1).replace(/^"|"$/g, "");
+  }
+  return { name, params, value };
+}
+
+function unescapeIcsText(v) {
+  return v.replace(/\\(n|N|,|;|\\)/g, (_, c) => (c === "n" || c === "N" ? "\n" : c));
+}
+
+// DTSTART/DTEND: 20260720T150000Z (UTC), 20260720T150000 (floating/TZID-local),
+// or 20260720 (all-day). `ms` treats floating times as UTC for arithmetic only.
+function parseIcsDate(value, params = {}) {
+  const m = /^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/.exec(value.trim());
+  const tzid = params.TZID || null;
+  if (!m) return { raw: value, iso: null, allDay: false, tzid };
+  const [, Y, Mo, D, h, mi, s, z] = m;
+  const allDay = h === undefined;
+  const iso = allDay ? `${Y}-${Mo}-${D}` : `${Y}-${Mo}-${D}T${h}:${mi}:${s}${z ? "Z" : ""}`;
+  return { raw: value, iso, allDay, tzid, ms: Date.UTC(+Y, +Mo - 1, +D, +(h ?? 0), +(mi ?? 0), +(s ?? 0)) };
+}
+
+const ICS_DAYS = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+function parseIcsRrule(value) {
+  const rule = { raw: value.trim() };
+  for (const part of value.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq <= 0) continue;
+    const k = part.slice(0, eq).trim().toUpperCase(), v = part.slice(eq + 1).trim();
+    if (k === "FREQ") rule.freq = v.toUpperCase();
+    else if (k === "INTERVAL") { const n = Number.parseInt(v, 10); if (n > 0) rule.interval = n; }
+    else if (k === "COUNT") { const n = Number.parseInt(v, 10); if (n > 0) rule.count = n; }
+    else if (k === "UNTIL") rule.until = parseIcsDate(v).iso ?? v;
+    else if (k === "BYDAY") rule.byday = v.toUpperCase().split(",").map((s) => s.trim()).filter(Boolean);
+    else rule[k.toLowerCase()] = v; // bymonthday, bysetpos, wkst… kept verbatim
+  }
+  if (rule.interval === undefined) rule.interval = 1;
+  return rule;
+}
+
+// Bounded expansion of the common RRULE shapes (FREQ + INTERVAL + COUNT/UNTIL,
+// plus BYDAY for WEEKLY). Anything fancier (BYMONTHDAY, BYSETPOS, positional
+// BYDAY like 2MO…) returns supported:false rather than guessing. Deterministic:
+// anchored on DTSTART, never on the current clock.
+function expandIcsRrule(start, rule, maxOcc) {
+  const DAY = 86_400_000;
+  const unsupported =
+    !["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(rule.freq) ||
+    start.ms === undefined ||
+    rule.bymonthday !== undefined || rule.bysetpos !== undefined || rule.bymonth !== undefined ||
+    (rule.byday && (rule.freq !== "WEEKLY" || rule.byday.some((d) => !(d in ICS_DAYS))));
+  if (unsupported) return { supported: false, count: 0, capped: false, dates: [] };
+  // rule.until is the ISO form from parseIcsRrule — strip separators back to
+  // the compact ICS form so parseIcsDate can re-read it into ms.
+  const untilMs = rule.until ? parseIcsDate(String(rule.until).replace(/[-:]/g, "")).ms ?? Infinity : Infinity;
+  const limit = Math.min(rule.count ?? Infinity, maxOcc);
+  const fmt = (ms) => {
+    const d = new Date(ms);
+    const p = (n, w = 2) => String(n).padStart(w, "0");
+    const date = `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+    if (start.allDay) return date;
+    return `${date}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}${/Z$/.test(start.iso) ? "Z" : ""}`;
+  };
+  const out = [];
+  const push = (ms) => { if (ms <= untilMs && out.length < limit) { out.push(ms); return true; } return false; };
+  const interval = rule.interval;
+  if (rule.freq === "WEEKLY" && rule.byday && rule.byday.length) {
+    // Week-indexed day walk (WKST=MO default). DTSTART is always the first
+    // occurrence per RFC 5545, even if its weekday isn't in BYDAY.
+    push(start.ms);
+    const days = new Set(rule.byday.map((d) => ICS_DAYS[d]));
+    const weekStart = (ms) => ms - (((new Date(ms).getUTCDay() + 6) % 7) * DAY);
+    const anchor = weekStart(start.ms);
+    for (let k = 1; k <= 3700; k++) {
+      const ms = start.ms + k * DAY;
+      if (out.length >= limit || ms > untilMs) break;
+      const weekIdx = Math.round((weekStart(ms) - anchor) / (7 * DAY));
+      if (weekIdx % interval === 0 && days.has(new Date(ms).getUTCDay())) push(ms);
+    }
+  } else if (rule.freq === "DAILY" || rule.freq === "WEEKLY") {
+    const step = interval * DAY * (rule.freq === "WEEKLY" ? 7 : 1);
+    for (let k = 0; k < 100_000; k++) if (!push(start.ms + k * step)) break;
+  } else {
+    // MONTHLY / YEARLY: same day-of-month; months lacking it are skipped (RFC).
+    const d0 = new Date(start.ms);
+    const [y0, mo0, day] = [d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate()];
+    const timeMs = start.ms - Date.UTC(y0, mo0, day);
+    for (let k = 0; k < 2400; k++) {
+      const ms = rule.freq === "MONTHLY" ? Date.UTC(y0, mo0 + k * interval, day) + timeMs : Date.UTC(y0 + k * interval, mo0, day) + timeMs;
+      const d = new Date(ms - timeMs);
+      if (d.getUTCDate() !== day || (rule.freq === "YEARLY" && d.getUTCMonth() !== mo0)) continue; // Feb 31 → skip
+      if (ms > untilMs || out.length >= limit) break;
+      out.push(ms);
+    }
+  }
+  // capped = we stopped at maxOcc while the rule itself wanted more.
+  const capped = out.length >= maxOcc && (rule.count === undefined || rule.count > out.length);
+  return { count: out.length, capped, dates: out.map(fmt) };
+}
+
+// Subtitle helpers for /api/srt-convert. Cue times are held as integer ms.
+const CUE_TIME_RE = /^(?:(\d{1,3}):)?(\d{1,2}):(\d{2})[.,](\d{1,3})$/;
+function parseCueTime(v) {
+  if (typeof v === "number" && Number.isFinite(v) && v >= 0) return Math.round(v);
+  if (typeof v !== "string") return null;
+  const m = CUE_TIME_RE.exec(v.trim());
+  if (!m) return null;
+  return (Number(m[1] || 0) * 3600 + Number(m[2]) * 60 + Number(m[3])) * 1000 + Number(m[4].padEnd(3, "0"));
+}
+function fmtCueTime(ms, msSep) {
+  const p = (n, w = 2) => String(n).padStart(w, "0");
+  return `${p(Math.floor(ms / 3600000))}:${p(Math.floor(ms / 60000) % 60)}:${p(Math.floor(ms / 1000) % 60)}${msSep}${p(ms % 1000, 3)}`;
+}
+function parseSubtitles(text) {
+  const src = text.replace(/^﻿/, "").replace(/\r\n?/g, "\n");
+  const detected = /^WEBVTT/.test(src.trimStart()) ? "vtt" : "srt";
+  const cues = [];
+  for (const blockRaw of src.split(/\n{2,}/)) {
+    const block = blockRaw.trim();
+    if (!block || /^WEBVTT/.test(block) || /^(NOTE|STYLE|REGION)\b/.test(block)) continue;
+    const lines = block.split("\n");
+    const ti = lines.findIndex((l) => l.includes("-->"));
+    if (ti === -1) continue;
+    const [startRaw, endRaw = ""] = lines[ti].split("-->");
+    const start = parseCueTime(startRaw.trim());
+    const end = parseCueTime(endRaw.trim().split(/\s+/)[0]); // drop VTT cue settings
+    if (start === null || end === null) continue;
+    if (cues.length >= 5000) throw bad("too many cues (max 5000)");
+    cues.push({ start, end, text: lines.slice(ti + 1).join("\n").trim() });
+  }
+  return { cues, detected };
+}
 
 // ===========================================================================
 // Math & finance
@@ -664,32 +984,29 @@ function evalExpr(expr) {
   return out[0];
 }
 
-const UNITS = {
-  length: { m: 1, km: 1000, cm: 0.01, mm: 0.001, mi: 1609.344, yd: 0.9144, ft: 0.3048, in: 0.0254, nmi: 1852 },
-  mass: { g: 1, kg: 1000, mg: 0.001, t: 1e6, lb: 453.592, oz: 28.3495, st: 6350.29 },
-  // Bytes. Decimal SI names (kb=1000, matching the convert-* tools and the SI
-  // standard) and separate binary IEC names (kib=1024). Bit units are decimal —
-  // 1 kbit = 1000 bits = 125 bytes (the old kbit:128/mbit:131072 were ~2.4% off).
-  data: {
-    b: 1, byte: 1, bit: 0.125,
-    kb: 1000, mb: 1000 ** 2, gb: 1000 ** 3, tb: 1000 ** 4,
-    kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4,
-    kbit: 125, mbit: 125_000, gbit: 125_000_000,
-  },
-  time: { s: 1, ms: 0.001, min: 60, h: 3600, d: 86400, wk: 604800, yr: 31557600 },
-  speed: { mps: 1, kph: 1 / 3.6, mph: 0.44704, kn: 0.514444 },
+// unit-convert now delegates to the full 13-category table in convert-gen.js
+// (every unit the retired pairwise convert-* endpoints handled). The short ids
+// this tool historically accepted stay working as aliases; kbit/mbit/gbit have
+// no full-name id in the table, so they resolve to bits with a multiplier.
+export const UNIT_ALIASES = {
+  m: "meters", km: "kilometers", cm: "centimeters", mm: "millimeters", mi: "miles",
+  yd: "yards", ft: "feet", in: "inches", nmi: "nautical-miles",
+  g: "grams", kg: "kilograms", mg: "milligrams", t: "tonnes", lb: "pounds", oz: "ounces", st: "stones",
+  b: "bytes", byte: "bytes", bit: "bits", kb: "kilobytes", mb: "megabytes", gb: "gigabytes", tb: "terabytes",
+  kib: "kibibytes", mib: "mebibytes", gib: "gibibytes", tib: "tebibytes",
+  kbit: ["bits", 1000], mbit: ["bits", 1e6], gbit: ["bits", 1e9],
+  s: "seconds", ms: "milliseconds", min: "minutes", h: "hours", d: "days", wk: "weeks", yr: "years",
+  mps: "meters-per-second", kph: "kilometers-per-hour", mph: "miles-per-hour", kn: "knots",
+  c: "celsius", f: "fahrenheit", k: "kelvin", r: "rankine",
 };
 function convertUnit(value, from, to) {
-  from = from.toLowerCase();
-  to = to.toLowerCase();
-  if (["c", "f", "k"].includes(from) && ["c", "f", "k"].includes(to)) {
-    let celsius = from === "c" ? value : from === "f" ? (value - 32) * 5 / 9 : value - 273.15;
-    return to === "c" ? celsius : to === "f" ? celsius * 9 / 5 + 32 : celsius + 273.15;
-  }
-  for (const table of Object.values(UNITS)) {
-    if (from in table && to in table) return (value * table[from]) / table[to];
-  }
-  throw bad(`Cannot convert ${from} → ${to} (unknown or incompatible units)`);
+  const resolve = (u) => {
+    const a = UNIT_ALIASES[String(u).toLowerCase()] ?? String(u).toLowerCase();
+    return Array.isArray(a) ? a : [a, 1];
+  };
+  const [fromId, fromScale] = resolve(from);
+  const [toId, toScale] = resolve(to);
+  return convertAnyUnit(value * fromScale, fromId, toId) / toScale;
 }
 
 function percentile(sorted, p) {
@@ -739,13 +1056,28 @@ const math = [
   },
   {
     route: "POST /api/unit-convert", name: "Unit convert", slug: "unit-convert", category: "math", price: "$0.001",
-    description: "Convert a value between units of length, mass, temperature (C/F/K), data, time, or speed.",
-    tags: ["units", "convert", "length", "mass", "temperature"],
-    discovery: { bodyType: "json", input: { value: 100, from: "f", to: "c" }, inputSchema: { properties: { value: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["value", "from", "to"] }, output: { example: { result: 37.778, from: "f", to: "c" } } },
+    description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency — every unit the retired convert-* endpoints handled (e.g. miles, kilograms, us-gallons, fahrenheit, psi, kilowatt-hours).",
+    // The category tags are joined by the most-queried unit words so lexical
+    // search surfaces ("convert miles to kilometers" via /api/find and the MCP
+    // search_tools) rank this tool where the retired pairwise convert-* slugs
+    // used to match. The full unit tail is handled by the unit-word synonym
+    // expansion in src/find.js (built from UNIT_CATEGORIES + UNIT_ALIASES).
+    tags: ["units", "convert", "length", "mass", "temperature", "volume", "area", "speed", "time", "data", "pressure", "energy", "power", "angle", "frequency",
+      "miles", "kilometers", "meters", "feet", "kilograms", "pounds", "celsius", "fahrenheit", "liters", "gallons"],
+    discovery: {
+      bodyType: "json",
+      input: { value: 100, from: "fahrenheit", to: "celsius" },
+      inputSchema: { properties: {
+        value: { type: "number" },
+        from: { type: "string", description: 'Source unit id — any unit of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, or frequency (e.g. "miles", "fahrenheit", "us-gallons"). Short aliases like "km"/"lb"/"f" also work.' },
+        to: { type: "string", description: "Target unit id — must be in the same category as `from`." },
+      }, required: ["value", "from", "to"] },
+      output: { example: { result: 37.7777777778, from: "fahrenheit", to: "celsius" } },
+    },
     handler: (i) => {
       const value = Number(need(i, "value", "any"));
       if (!Number.isFinite(value)) throw bad('"value" must be a number');
-      return { result: +convertUnit(value, need(i, "from"), need(i, "to")).toFixed(6), from: i.from, to: i.to };
+      return { result: +convertUnit(value, need(i, "from"), need(i, "to")).toPrecision(12), from: i.from, to: i.to };
     },
   },
   {
@@ -1026,6 +1358,94 @@ const validation = [
       return { valid: true, version, variant };
     },
   },
+  {
+    route: "POST /api/json-schema-infer", name: "JSON Schema infer", slug: "json-schema-infer", category: "validation", price: "$0.002",
+    description:
+      "Infer a draft-07 JSON Schema from sample JSON document(s). Send one sample as json, or several as samples. Heuristic merge rules: required = keys present in every sample, conflicting types become a type union, integer widens to number, and string formats (date-time, date, email, uri, uuid) are detected from values. Complements json-validate.",
+    tags: ["json", "schema", "infer", "draft-07", "validate", "generate"],
+    discovery: {
+      bodyType: "json",
+      input: { json: { name: "Ada", age: 36, active: true, tags: ["pioneer"], joined: "1843-10-18" } },
+      inputSchema: {
+        properties: {
+          json: { description: "a sample JSON document (object or JSON string)" },
+          samples: { type: "array", description: "alternative: 1-50 sample documents merged into one schema" },
+        },
+      },
+      output: { example: { schema: { $schema: "http://json-schema.org/draft-07/schema#", type: "object", properties: { name: { type: "string" }, age: { type: "integer" } }, required: ["name", "age"] }, samples: 1 } },
+    },
+    handler: (i) => {
+      let samples;
+      if (Array.isArray(i.samples)) samples = i.samples.map((s, k) => parseMaybeJson(s, `samples[${k}]`));
+      else if ("json" in i) samples = [parseMaybeJson(i.json, "json")];
+      else throw bad('Provide "json" (a sample document) or "samples" (an array of sample documents)');
+      if (!samples.length || samples.length > 50) throw bad('"samples" must contain 1-50 documents');
+      if (JSON.stringify(samples).length > 300_000) throw bad("sample JSON exceeds 300000 characters");
+      let schema = null;
+      for (const s of samples) schema = mergeInferred(schema, inferSchema(s, 0));
+      return { schema: { $schema: "http://json-schema.org/draft-07/schema#", ...schema }, samples: samples.length };
+    },
+  },
 ];
+
+// --- json-schema-infer helpers ---------------------------------------------
+const STRING_FORMATS = [
+  ["date-time", /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/],
+  ["date", /^\d{4}-\d{2}-\d{2}$/],
+  ["time", /^\d{2}:\d{2}:\d{2}(\.\d+)?$/],
+  ["uuid", /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i],
+  ["email", /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/],
+  ["uri", /^https?:\/\/\S+$/],
+];
+function inferSchema(value, depth) {
+  if (depth > 24) return {};
+  if (value === null || value === undefined) return { type: "null" };
+  const t = typeof value;
+  if (t === "boolean") return { type: "boolean" };
+  if (t === "number") return { type: Number.isInteger(value) ? "integer" : "number" };
+  if (t === "string") {
+    const fmt = STRING_FORMATS.find(([, re]) => re.test(value));
+    return fmt ? { type: "string", format: fmt[0] } : { type: "string" };
+  }
+  if (Array.isArray(value)) {
+    let items = null;
+    for (const el of value.slice(0, 200)) items = mergeInferred(items, inferSchema(el, depth + 1));
+    return items ? { type: "array", items } : { type: "array" };
+  }
+  if (t === "object") {
+    const keys = Object.keys(value).slice(0, 500);
+    const properties = {};
+    for (const k of keys) properties[k] = inferSchema(value[k], depth + 1);
+    const out = { type: "object", properties };
+    if (keys.length) out.required = keys;
+    return out;
+  }
+  return {};
+}
+function mergeInferred(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const ta = a.type, tb = b.type;
+  if (ta === tb && !Array.isArray(ta)) {
+    if (ta === "object") {
+      const properties = { ...(a.properties || {}) };
+      for (const [k, v] of Object.entries(b.properties || {})) properties[k] = properties[k] ? mergeInferred(properties[k], v) : v;
+      const required = (a.required || []).filter((k) => (b.required || []).includes(k));
+      const out = { type: "object", properties };
+      if (required.length) out.required = required;
+      return out;
+    }
+    if (ta === "array") {
+      const items = a.items && b.items ? mergeInferred(a.items, b.items) : a.items || b.items;
+      return items ? { type: "array", items } : { type: "array" };
+    }
+    if (ta === "string") return a.format && a.format === b.format ? { type: "string", format: a.format } : { type: "string" };
+    return { type: ta };
+  }
+  const flat = (t) => (Array.isArray(t) ? t : [t]);
+  const types = [...new Set([...flat(ta), ...flat(tb)])];
+  if (types.length === 2 && types.includes("integer") && types.includes("number")) return { type: "number" };
+  return { type: types.sort() };
+}
 
 export const KIT2 = [...encoding, ...text, ...conversion, ...math, ...time, ...validation];

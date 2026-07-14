@@ -54,14 +54,14 @@ assert(
 const privacy = await fetch(`${BASE}/privacy`);
 assert(privacy.ok && (await privacy.text()).includes("Privacy policy"), "/privacy serves the policy (directory requirement)");
 
-const search = await rpc("tools/call", { name: "search_tools", arguments: { query: "kilometers to miles" } });
+const search = await rpc("tools/call", { name: "search_tools", arguments: { query: "convert kilometers to miles" } });
 const searchText = search.result?.content?.[0]?.text ?? "";
-assert(searchText.includes("convert-kilometers-to-miles"), "search_tools finds convert-kilometers-to-miles");
+assert(searchText.includes("unit-convert"), "search_tools finds unit-convert for a unit-conversion task");
 
 // find_tool: resolve a plain-language task to a ready-to-call tool.
 const find = await rpc("tools/call", { name: "find_tool", arguments: { task: "convert kilometers to miles", limit: 3 } });
 const findText = find.result?.content?.[0]?.text ?? "";
-assert(!find.result?.isError && findText.includes("convert-kilometers-to-miles") && findText.includes("callWith"), "find_tool resolves a task with a ready call_tool invocation");
+assert(!find.result?.isError && findText.includes("unit-convert") && findText.includes("callWith"), "find_tool resolves a task with a ready call_tool invocation");
 // Discovery prominence: top result carries `required` (always array) and the
 // actionable fields (callWith / example / required) come before description.
 const findParsed = (() => { try { return JSON.parse(findText); } catch { return null; } })();
@@ -72,7 +72,7 @@ assert(findKeys.indexOf("callWith") < findKeys.indexOf("description") && findKey
 
 const call = await rpc("tools/call", {
   name: "call_tool",
-  arguments: { slug: "convert-kilometers-to-miles", params: { value: 42 } },
+  arguments: { slug: "unit-convert", params: { value: 42, from: "kilometers", to: "miles" } },
 });
 const callText = call.result?.content?.[0]?.text ?? "";
 assert(!call.result?.isError && callText.includes("26.097590074"), `free CPU tool executes with exact output (got ${callText.slice(0, 120)})`);
@@ -80,7 +80,7 @@ assert(!call.result?.isError && callText.includes("26.097590074"), `free CPU too
 // LLM clients often stringify object args — params as a JSON string must still work.
 const callStr = await rpc("tools/call", {
   name: "call_tool",
-  arguments: { slug: "convert-kilometers-to-miles", params: '{"value": 42}' },
+  arguments: { slug: "unit-convert", params: '{"value": 42, "from": "kilometers", "to": "miles"}' },
 });
 const callStrText = callStr.result?.content?.[0]?.text ?? "";
 assert(!callStr.result?.isError && callStrText.includes("26.097590074"), `call_tool accepts params as a JSON string (got ${callStrText.slice(0, 120)})`);

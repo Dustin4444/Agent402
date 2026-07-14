@@ -68,7 +68,7 @@ endpoints":
 
 \`\`\`bash
 purl wallet add --name me --type evm -k 0xYOUR_KEY -p pass --set-active=true
-purl "https://agent402.tools/api/convert/kilometers-to-miles?value=42"
+purl "https://agent402.tools/api/dns?name=example.com&type=A"
 \`\`\`
 
 ## No wallet? Pay with CPU
@@ -214,7 +214,7 @@ settling real money on mainnet. Test the buyer side yourself with Stripe's
 
 ## What we learned operating one (the honest part)
 
-[agent402.tools](https://agent402.tools) runs ~1,431 paid endpoints this way —
+[agent402.tools](https://agent402.tools) runs ~500 paid endpoints this way —
 [fully open source](https://github.com/MikeyPetrillo/Agent402). The lessons:
 
 1. **x402 settles before your handler runs.** If your tool then fails, you took

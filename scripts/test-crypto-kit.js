@@ -26,6 +26,12 @@ for (const [slug, args, label] of [
   ["crypto-history", { coin: "BTC", days: "week" }, "crypto-history rejects non-numeric days"],
   ["crypto-history", { coin: "BTC", days: "0" }, "crypto-history rejects days 0"],
   ["crypto-history", { coin: "B@D" }, "crypto-history rejects coin with invalid char"],
+  ["crypto-orderbook", {}, "crypto-orderbook rejects missing pair"],
+  ["crypto-orderbook", { pair: "BTCUSD" }, "crypto-orderbook rejects pair without separator"],
+  ["crypto-orderbook", { pair: "BTC-USD", depth: 0 }, "crypto-orderbook rejects depth 0"],
+  ["crypto-orderbook", { pair: "BTC-USD", depth: 101 }, "crypto-orderbook rejects depth 101"],
+  ["stablecoin-peg", { coins: "USDT USDC" }, "stablecoin-peg rejects coins with space"],
+  ["stablecoin-peg", { coins: Array(16).fill("USDT").join(",") }, "stablecoin-peg rejects >15 coins"],
 ]) {
   try { await h(slug)(args); ok(false, label); }
   catch (e) { ok(e.statusCode === 400, label + ` (got ${e.statusCode})`); }
@@ -76,6 +82,24 @@ await live("crypto-trending", {},
 await live("crypto-global", { currency: "usd" },
   (r) => r.currency === "usd" && r.totalMarketCap > 1e11 && r.totalMarketCap < 1e14 && r.btcDominancePct > 20 && r.btcDominancePct < 80,
   "crypto-global usd");
+
+// Order book — BTC-USD is Coinbase's deepest market: both sides always
+// populated, best ask strictly above best bid, levels sorted best-first.
+await live("crypto-orderbook", { pair: "BTC-USD", depth: 5 },
+  (r) => r.pair === "BTC-USD" && r.bids.length === 5 && r.asks.length === 5 &&
+    r.bestAsk > r.bestBid && r.spread > 0 &&
+    r.bids.every((l) => typeof l.price === "number" && typeof l.size === "number"),
+  "crypto-orderbook BTC-USD depth 5");
+
+// Stablecoin peg — default set covers the top USD stables. In any plausible
+// market USDT and USDC sit within ±2% of $1; assert the deviation math and
+// the status enum rather than exact prices.
+await live("stablecoin-peg", {},
+  (r) => r.count >= 5 && r.coins.some((c) => c.id === "tether") && r.coins.some((c) => c.id === "usd-coin") &&
+    r.coins.every((c) => typeof c.price === "number" && typeof c.deviationBps === "number" &&
+      ["on-peg", "stressed", "depegged", "unknown"].includes(c.status)) &&
+    r.coins.filter((c) => ["tether", "usd-coin"].includes(c.id)).every((c) => Math.abs(c.deviationBps) < 200),
+  "stablecoin-peg default set");
 
 console.log(`\nvalidation asserts failed: ${assertFail} | live ok: ${liveOk} | live upstream-errors (tolerated): ${liveErr}`);
 if (assertFail > 0 || liveOk === 0) { console.error("crypto-kit: FAILED"); process.exit(1); }

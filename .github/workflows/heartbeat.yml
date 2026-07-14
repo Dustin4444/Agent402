@@ -54,7 +54,10 @@ jobs:
             FAILS=""
             curl -sf --max-time 15 "$PROD/health" >/dev/null || FAILS="$FAILS /health"
             N=$(curl -s --max-time 15 "$PROD/api/pricing" | jq '.endpoints | length' 2>/dev/null || echo 0)
-            [ "${N:-0}" -ge 1000 ] || FAILS="$FAILS catalog($N)"
+            # Catalog floor tracks "The 500" era (462 curated tools interim,
+            # 500 at launch). The alarm should only fire on a real catalog
+            # collapse (routes failing to mount), never on deliberate curation.
+            [ "${N:-0}" -ge 400 ] || FAILS="$FAILS catalog($N)"
             MCP=$(curl -s --max-time 15 -X POST "$PROD/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
               -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"heartbeat","version":"0"}}}' \
               | grep -c '"agent402"' || true)

@@ -14,8 +14,8 @@
 //   4. payment block carries protocol/network/currency (the x402 deal),
 //      altPayment is the PoW summary.
 //   5. categories[] is a non-empty array — homepage chips iterate over it.
-//   6. endpoints[] floor: >= 1000 (catalog must stay above the announced
-//      "1000+ tools" mark).
+//   6. endpoints[] floor: >= 400 (The 500 era: 462 interim, 500 at launch;
+//      alarm only on a real catalog collapse).
 //   7. Per-endpoint shape: method, path, price, category, slug, description,
 //      docs, computePayable. These are the columns the listing portals
 //      scrape; a missing computePayable would silently make PoW eligibility
@@ -73,7 +73,7 @@ try {
   ok(Object.keys(body.categories).length > 0, `categories has >= 1 entry (got ${Object.keys(body.categories).length})`);
 
   // Endpoints floor.
-  ok(Array.isArray(body.endpoints) && body.endpoints.length >= 1000, `endpoints has >= 1000 entries (got ${body.endpoints?.length}) — "1000+ tools" announced floor`);
+  ok(Array.isArray(body.endpoints) && body.endpoints.length >= 400, `endpoints has >= 400 entries (got ${body.endpoints?.length}) — The 500 catalog floor`);
 
   // Per-endpoint shape. Walk every row so a silent drop on row 847 surfaces.
   let shapeOk = 0;

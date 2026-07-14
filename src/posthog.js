@@ -166,8 +166,10 @@ export function capturePostHogToolCall({ slug, latencyMs, cached, errored, statu
 //                          200. Properties: slug, rail (usdc / pow /
 //                          heartbeat / marketplace), network for USDC.
 //
-// All three keep the file's privacy posture: no caller IP/UA/wallet/input —
-// only slugs, surfaces, rails, and counts. distinctId stays constant, so
+// All three keep the file's privacy posture: no caller IP or input — only
+// slugs, surfaces, rails, and counts, plus (on settlements only) the paying
+// wallet and the caller's UA product token (attribution, not identity — see
+// capturePostHogSettlement). distinctId stays constant, so
 // these are aggregate stage counters, not per-user tracking; conversion is
 // computed as a ratio of stage totals (a PostHog formula insight), which is
 // the honest framing for an anonymous-by-design payment protocol.
@@ -303,7 +305,12 @@ function flushPowChallengeRollup() {
 // Settlements are rare and precious — always per-event. `rail` is what the
 // gate actually accepted (mirrors the /api/stats three-rail attribution);
 // `network` is the settlement chain decoded from the x402 receipt for USDC.
-export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthetic, payer }) {
+// `clientUa` is the caller's User-Agent PRODUCT TOKEN only (first token,
+// hard-capped at 40 chars — e.g. "agent402-client/0.6.1", "node", "python-httpx/0.27"),
+// never the full UA string: it answers "which SDK/client do paying wallets
+// use?" (do agent402-client installs convert?) without carrying device or
+// platform detail. No IP, ever — consistent with the file's privacy posture.
+export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthetic, payer, clientUa }) {
   if (!active()) return;
   capture("payment_settled", {
     slug: String(slug || "unknown"),
@@ -312,6 +319,7 @@ export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthe
     priceUsd: Number(priceUsd) || 0,
     synthetic: !!synthetic,
     ...(payer ? { payer } : {}),
+    ...(clientUa ? { clientUa: String(clientUa).slice(0, 40) } : {}),
   });
 }
 

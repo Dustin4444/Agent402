@@ -19,7 +19,7 @@ It exposes four read-only tools (each carries safety annotations):
 |---|---|
 | `find_tool` | Describe a task in plain language; returns the best-matching tool(s) **ready to call** — slug, price, input schema, an example, and the exact `call_tool` invocation. Skips the token-heavy "explore to find a tool" step |
 | `search_tools` | Find tools by description across the catalog; returns slugs + input schemas |
-| `call_tool` | Execute a tool by slug. The ~1,189 pure-CPU tools run **free** (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
+| `call_tool` | Execute a tool by slug. The ~210 pure-CPU tools run **free** (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
 | `about_agent402` | Service description, free-vs-paid breakdown |
 
 ## 2. `agent402-mcp` (npm) — the full catalog, payment underneath
@@ -58,7 +58,7 @@ Other env knobs: `AGENT402_URL` (target service), `AGENT402_TOOLS` (override the
 |---|---|
 | **Connector won't connect** in claude.ai/Claude Code | Confirm the URL is exactly `https://agent402.tools/mcp` (HTTPS, no trailing path). In Claude Code, `claude mcp list` should show `agent402 ✓ Connected`. If it's mid-deploy it can briefly drop — retry in ~60s. |
 | **"Error occurred during tool execution"** (transient) | Usually a redeploy window on the host; the same call succeeds on retry. The endpoint is health-gated in CI on every deploy. |
-| **`call_tool` says a field is missing / "must be a number"** | Pass `params` as a JSON object, e.g. `{"slug":"convert-kilometers-to-miles","params":{"value":42}}`. A stringified object (`"{\"value\":42}"`) is also accepted. |
+| **`call_tool` says a field is missing / "must be a number"** | Pass `params` as a JSON object, e.g. `{"slug":"unit-convert","params":{"value":42,"from":"kilometers","to":"miles"}}`. A stringified object (`"{\"value\":42}"`) is also accepted. |
 | **A tool returns "wallet required" / paid-path guidance** | That tool (live search, browser render, screenshots, PDFs, durable memory) isn't in the hosted free tier. Run the npm server `npx -y agent402-mcp` with `AGENT_KEY` set to a funded Base wallet, or call it over HTTP with any x402 client. |
 | **"Free-tier rate limit reached"** | The hosted connector is capped at 20 calls/min, 120/hour per client. Wait, or use the npm server with a wallet for unmetered access. |
 | **Finding the right tool** | Call `find_tool` with a plain-language task — it returns the best match ready to call (slug + example + the exact `call_tool` invocation). `search_tools` is the broader, lower-level search. |

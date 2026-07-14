@@ -5,9 +5,14 @@
 // egress to CF's IP range, which Yahoo permits.
 //
 // Surface (deliberately narrow):
-//   • GET only — Yahoo's chart endpoint is GET; nothing else is needed.
-//   • Path allowlist: /v8/finance/chart/* exclusively. Refuses anything else
-//     with 403 so this Worker can't be repurposed as a generic proxy.
+//   • GET only — Yahoo's chart + options endpoints are GET; nothing else is needed.
+//   • Path allowlist: /v8/finance/chart/* and /v7/finance/options/* exclusively.
+//     Refuses anything else with 403 so this Worker can't be repurposed as a
+//     generic proxy.
+//   • Options paths get the cookie+crumb handshake performed HERE (fc.yahoo.com
+//     sets the A3 session cookie, /v1/test/getcrumb converts it) — the caller
+//     never sees Yahoo session state. The pair is cached per-isolate and
+//     refreshed once on a 401.
 //   • Bearer auth: Authorization: Bearer <token> must match the
 //     RELAY_TOKEN Worker secret. Without auth this Worker becomes a free
 //     Yahoo proxy for anyone who finds the URL — abuse vector that could
@@ -26,7 +31,38 @@
 
 const UPSTREAM_HOST = "https://query1.finance.yahoo.com";
 const ALLOWED_PATH = /^\/v8\/finance\/chart\/[A-Z0-9^.\-=%]+$/;
+const ALLOWED_OPTIONS_PATH = /^\/v7\/finance\/options\/[A-Z0-9^.\-=%]+$/;
 const DEFAULT_UA = "Mozilla/5.0 (compatible; Agent402-yfinance-relay/1.0; +https://agent402.tools)";
+
+// Yahoo session (cookie + crumb) for the options endpoint, cached per-isolate.
+// fc.yahoo.com answers 404 but sets the HttpOnly A3 cookie; /v1/test/getcrumb
+// converts it into the crumb /v7/finance/options requires since 2023.
+let yahooSession = null; // { cookie, crumb, fetchedAt }
+const SESSION_TTL_MS = 6 * 60 * 60 * 1000;
+
+async function getYahooSession(ua, force = false) {
+  if (!force && yahooSession && Date.now() - yahooSession.fetchedAt < SESSION_TTL_MS) return yahooSession;
+  const res = await fetch("https://fc.yahoo.com/", {
+    headers: { "User-Agent": ua, Accept: "*/*" },
+    redirect: "manual",
+  });
+  await res.text().catch(() => {}); // drain the throwaway 404 body
+  // Workers' fetch exposes multiple Set-Cookie values via getSetCookie().
+  const setCookies = typeof res.headers.getSetCookie === "function"
+    ? res.headers.getSetCookie()
+    : (res.headers.get("set-cookie") ? [res.headers.get("set-cookie")] : []);
+  const cookie = setCookies.map((c) => c.split(";")[0].trim()).filter(Boolean).join("; ");
+  if (!cookie) throw new Error("Yahoo did not issue a session cookie");
+  const crumbRes = await fetch(`${UPSTREAM_HOST}/v1/test/getcrumb`, {
+    headers: { "User-Agent": ua, Accept: "*/*", Cookie: cookie },
+  });
+  const crumb = (await crumbRes.text()).trim();
+  if (!crumbRes.ok || !crumb || crumb.length > 64 || crumb.includes("<")) {
+    throw new Error(`crumb handshake failed (HTTP ${crumbRes.status})`);
+  }
+  yahooSession = { cookie, crumb, fetchedAt: Date.now() };
+  return yahooSession;
+}
 
 export default {
   async fetch(request, env) {
@@ -47,23 +83,42 @@ export default {
     }
 
     const url = new URL(request.url);
-    if (!ALLOWED_PATH.test(url.pathname)) {
-      return new Response("path not allowed (only /v8/finance/chart/*)", { status: 403 });
+    const isOptions = ALLOWED_OPTIONS_PATH.test(url.pathname);
+    if (!ALLOWED_PATH.test(url.pathname) && !isOptions) {
+      return new Response("path not allowed (only /v8/finance/chart/* and /v7/finance/options/*)", { status: 403 });
     }
 
-    const upstreamUrl = `${UPSTREAM_HOST}${url.pathname}${url.search}`;
+    const ua = request.headers.get("User-Agent") || DEFAULT_UA;
+    const baseHeaders = {
+      "User-Agent": ua,
+      Accept: "application/json,text/plain,*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+    };
+
     let upstream;
     try {
-      upstream = await fetch(upstreamUrl, {
-        method: "GET",
-        headers: {
-          "User-Agent": request.headers.get("User-Agent") || DEFAULT_UA,
-          Accept: "application/json,text/plain,*/*",
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-        // Don't follow auth redirects — keeps the proxy surface minimal.
-        redirect: "follow",
-      });
+      if (isOptions) {
+        // Options endpoint needs the crumb + cookie. Refresh the session once
+        // on a 401 (expired cookie) before giving up.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const s = await getYahooSession(ua, attempt > 0);
+          const q = new URLSearchParams(url.search);
+          q.set("crumb", s.crumb);
+          upstream = await fetch(`${UPSTREAM_HOST}${url.pathname}?${q}`, {
+            method: "GET",
+            headers: { ...baseHeaders, Cookie: s.cookie },
+            redirect: "follow",
+          });
+          if (upstream.status !== 401) break;
+        }
+      } else {
+        upstream = await fetch(`${UPSTREAM_HOST}${url.pathname}${url.search}`, {
+          method: "GET",
+          headers: baseHeaders,
+          // Don't follow auth redirects — keeps the proxy surface minimal.
+          redirect: "follow",
+        });
+      }
     } catch (e) {
       // If CF itself can't reach Yahoo, surface a clear upstream failure
       // (not a relay bug). Useful for the server-side error attribution.

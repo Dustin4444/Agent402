@@ -8,7 +8,7 @@ Jobs are selected by commit-message markers (`[test]`, `[deploy]`, `[publish]`, 
 
 | Job | What it proves |
 |---|---|
-| `test` | Boots the server in free mode and runs the full gauntlet: unit tests for memory/kit2/PDF/media/conversions, **every endpoint called with its own documented example** (~1,431 calls), live-site exercises (BBC, Wikipedia, arXiv…), the SSRF guard (metadata endpoint must be blocked), PoW gate with payments enabled, marketplace bridge auth, MCP server e2e, the remote `/mcp` connector e2e — then polls **production** post-deploy: catalog size, 402 on unpaid calls, SEO surfaces, a real PoW-settled call, and the live `/mcp` endpoint |
+| `test` | Boots the server in free mode and runs the full gauntlet: unit tests for memory/kit2/PDF/media/conversions, **every endpoint called with its own documented example** (~500 calls), live-site exercises (BBC, Wikipedia, arXiv…), the SSRF guard (metadata endpoint must be blocked), PoW gate with payments enabled, marketplace bridge auth, MCP server e2e, the remote `/mcp` connector e2e — then polls **production** post-deploy: catalog size, 402 on unpaid calls, SEO surfaces, a real PoW-settled call, and the live `/mcp` endpoint |
 | `deploy` | Railway via GraphQL: find/create project + service, ensure the `/data` volume, domains, env vars, trigger the image build |
 | `publish` | `agent402-mcp` to npm (gated on its own e2e), then the official MCP Registry via GitHub OIDC |
 | `paytest` / `drain` | Funded-wallet end-to-end buys against production; drain empties the test burner into the revenue wallet through real paid calls |
@@ -18,7 +18,7 @@ Jobs are selected by commit-message markers (`[test]`, `[deploy]`, `[publish]`, 
 
 ## Heartbeat (`.github/workflows/heartbeat.yml`)
 
-- **Every 15 min:** probe production — `/health`, catalog ≥1000, a real PoW-paid call, MCP `initialize`. Three consecutive failures → a `Heartbeat: production DOWN` issue (auto-closed on recovery).
+- **Every 15 min:** probe production — `/health`, catalog ≥400, a real PoW-paid call, MCP `initialize`. Three consecutive failures → a `Heartbeat: production DOWN` issue (auto-closed on recovery).
 - **Every 6 h:** decode recent on-chain USDC receipts to the **real payer** (the `transferWithAuthorization` calldata, not the facilitator's tx.from). Any payer that isn't the known test burner → an **"External customer payments detected"** issue with amount, wallet, and tx link — deduped by tx hash. Your first customer is a push notification.
 
 ## Observability: 3-rail attribution

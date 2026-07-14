@@ -26,10 +26,10 @@ try {
   for (let i = 0; i < 50; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch {} await sleep(400); }
 
   // --- GATED catalog routes MUST be no-store -------------------------------------
-  // A GET catalog tool (pure-CPU conversion, works offline) — the URL-cacheable
-  // shape that Attack III exploits.
-  const conv = await fetch(`${B}/api/convert/miles-to-kilometers?value=10`);
-  ok(conv.status === 200, `conversion tool serves (got ${conv.status})`);
+  // A GET catalog tool (pure-CPU, works offline) — the URL-cacheable shape
+  // that Attack III exploits.
+  const conv = await fetch(`${B}/api/uuid`);
+  ok(conv.status === 200, `GET catalog tool serves (got ${conv.status})`);
   ok(cc(conv).includes("no-store"), `GET paid tool carries no-store (got "${cc(conv)}")`);
 
   // A POST catalog tool.

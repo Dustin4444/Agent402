@@ -38,7 +38,7 @@ const AGENT_KEY = process.env.AGENT_KEY || "";
 // settle on whichever chain the seller offers (EVM accepts are tried first).
 const SOLANA_AGENT_KEY = process.env.SOLANA_AGENT_KEY || "";
 const HAS_WALLET = Boolean(AGENT_KEY || SOLANA_AGENT_KEY);
-const VERSION = "0.11.2";
+const VERSION = "0.11.5";
 
 // Spend controls — enforced BEFORE a payment is ever signed, so a confused or
 // runaway model cannot drain the wallet. Unset = unlimited (back-compat).
@@ -348,7 +348,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     {
       name: "search_tools",
       description:
-        `Search the full Agent402 catalog (${catalog.size} pay-per-call tools: encoding, crypto, data conversion, text, time, validation, math, unit conversions, network, browser, memory). Returns matching tools with price, payment options, and input schema — call them with call_tool. Also returns matching multi-tool workflow templates (skill packs) when the query is task-shaped; fetch the whole template via prompts/get { name: "<slug>", arguments: { … } }.`,
+        `Search the full Agent402 catalog (${catalog.size} pay-per-call tools: live market data like stock-quote at $0.003, encoding, crypto, data conversion, text, time, validation, math, unit conversions, network, browser, memory). Many pure-CPU tools are free via proof-of-work — no wallet needed. There is also an OpenAI-compatible LLM gateway at ${BASE}/v1, flat per-call (chat nano $0.003, auto $0.01, embeddings $0.002) with no API key — a funded wallet is the account; its tiers are callable here via call_tool (slugs v1-chat-nano, v1-chat-auto, v1-embeddings) when a wallet key is set. Returns matching tools with price, payment options, and input schema — call them with call_tool. Also returns matching multi-tool workflow templates (skill packs) when the query is task-shaped; fetch the whole template via prompts/get { name: "<slug>", arguments: { … } }.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -361,11 +361,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     {
       name: "call_tool",
       description:
-        "Call any Agent402 tool by slug (find slugs and input schemas with search_tools). Payment is handled automatically: USDC via x402 if this server has a wallet key, otherwise proof-of-work on eligible tools.",
+        "Call any Agent402 tool by slug (find slugs and input schemas with search_tools). Payment is handled automatically: USDC via x402 if this server has a wallet key, otherwise free proof-of-work on eligible pure-CPU tools (no wallet needed). Wallet-keyed highlights: live market data (stock-quote $0.003) and the /v1 LLM gateway tiers (chat nano $0.003, embeddings $0.002 — no API key).",
       inputSchema: {
         type: "object",
         properties: {
-          slug: { type: "string", description: "Tool slug from search_tools, e.g. \"convert-miles-to-kilometers\"" },
+          slug: { type: "string", description: "Tool slug from search_tools, e.g. \"unit-convert\"" },
           params: { type: "object", description: "Tool input parameters, matching the tool's inputSchema" },
         },
         required: ["slug"],

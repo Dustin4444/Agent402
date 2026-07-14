@@ -6,6 +6,8 @@
 // connector's search_tools weighting.
 import { toolList } from "./pages.js";
 import { rankSkillPacks } from "./skills.js";
+import { UNIT_CATEGORIES } from "./tools/convert-gen.js";
+import { UNIT_ALIASES } from "./tools/kit2.js";
 
 // Common English stopwords that contribute noise instead of intent. Kept short
 // on purpose — every word here matches many tool descriptions, so dropping it
@@ -16,6 +18,25 @@ const STOPWORDS = new Set([
   "from", "into", "onto", "my", "me", "i", "you", "your", "we", "our",
   "do", "does", "did", "can", "will", "would", "should",
 ]);
+
+// Every unit word the retired ~970 pairwise convert-<from>-to-<to> slugs used
+// to lexical-match, derived from the live conversion table (full ids split on
+// hyphens, e.g. "nautical-miles" → nautical + miles) plus the short aliases
+// unit-convert accepts (km, kg, mph, …). A query containing any of these words
+// gets the synthetic term "units" appended, which maps it onto unit-convert's
+// curated "units" tag — so "convert stones to kg"-style tasks still resolve to
+// the one surviving converter instead of tying across unrelated *-convert
+// tools. "per"/"us" are dropped: they appear inside compound ids
+// (miles-per-hour, us-gallons) but are far too generic as standalone triggers.
+// Known tradeoff: generic time words (days/hours/years/seconds/light) stay in
+// the set, adding mild recall noise for date-ish queries. Deliberate — the
+// find suite locks the current behavior; trim later if it bites.
+const UNIT_WORDS = new Set(
+  [
+    ...Object.values(UNIT_CATEGORIES).flatMap((cat) => Object.keys(cat.units).flatMap((id) => id.split("-"))),
+    ...Object.keys(UNIT_ALIASES),
+  ].filter((w) => w.length > 1 && !STOPWORDS.has(w) && w !== "per" && w !== "us")
+);
 
 /**
  * Rank catalog tools against a free-text task description.
@@ -34,17 +55,22 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   // without signal. Keep the cap tight so each scoring pass is bounded.
   const rawTerms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
   const terms = rawTerms.filter((t) => t.length > 1 && !STOPWORDS.has(t)).slice(0, 32);
+  // Unit-word synonym: "convert miles to kilometers"-style tasks used to hit a
+  // dedicated pairwise slug; now they must resolve to unit-convert. One
+  // synthetic "units" term (a curated unit-convert tag) is enough to break the
+  // score tie against the other *-convert tools without distorting queries
+  // that never mention a unit.
+  if (!terms.includes("units") && terms.some((t) => UNIT_WORDS.has(t))) terms.push("units");
   const limit = Math.min(Math.max(parseInt(k, 10) || 5, 1), 25);
   if (!terms.length) return { query: q, count: 0, results: [] };
 
   // Directional alignment: how many adjacent (q[i], q[i+1]) query-term pairs
-  // appear in the slug *in the same order*. This is the tiebreaker that fixes
-  // the symmetric-convert problem — "convert miles to kilometers" should rank
-  // `convert-miles-to-kilometers` above `convert-kilometers-to-miles`, since
-  // their lexical scores tie and their slug lengths tie, but the first slug
-  // honors the directional intent of the query and the second reverses it.
-  // Cheap to compute (O(terms) per tool) and contributes only to the tiebreak,
-  // so it never overrides a stronger lexical match.
+  // appear in the slug *in the same order*. Historically this broke the tie
+  // between the symmetric pairwise convert slugs (miles-to-km vs km-to-miles —
+  // both retired in favor of unit-convert); it still helps any directional
+  // slug family (html-to-markdown vs markdown-to-html). Cheap to compute
+  // (O(terms) per tool) and contributes only to the tiebreak, so it never
+  // overrides a stronger lexical match.
   const directionScore = (slug) => {
     let s = 0;
     for (let i = 0; i < terms.length - 1; i++) {

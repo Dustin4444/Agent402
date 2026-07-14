@@ -1,7 +1,7 @@
 # Agent402 + CrewAI Starter
 # pip install "agent402-langchain[langchain]" crewai
 #
-# Agent402's 1,431 pay-per-call tools, exposed to CrewAI as four meta-tools
+# Agent402's 500 pay-per-call tools, exposed to CrewAI as four meta-tools
 # (find / route / call / about). Pure-CPU tools (hashing, encoding, QR, markdown,
 # JSON, readability…) are FREE via built-in proof-of-work — no wallet, no keys.
 # Live-data tools (market data, EDGAR, web search, on-chain) are wallet-only:

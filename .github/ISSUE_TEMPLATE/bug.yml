@@ -6,7 +6,7 @@ body:
     id: endpoint
     attributes:
       label: Endpoint / tool slug
-      placeholder: e.g. POST /api/extract, convert-kilometers-to-miles, /mcp
+      placeholder: e.g. POST /api/extract, unit-convert, /mcp
     validations:
       required: true
   - type: textarea

@@ -11,7 +11,7 @@ const USER_AGENT =
 const SSRF_BLOCK_CODE = "ESSRFBLOCKED";
 
 function isPrivateV4(ip) {
-  const [a, b] = ip.split(".").map(Number);
+  const [a, b, c] = ip.split(".").map(Number);
   return (
     a === 0 ||
     a === 10 ||
@@ -20,7 +20,10 @@ function isPrivateV4(ip) {
     (a === 169 && b === 254) ||
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
-    (a === 192 && b === 0) || // 192.0.0.0/24 special-purpose + 192.0.2.0/24 doc
+    // 192.0.0.0/24 special-purpose + 192.0.2.0/24 TEST-NET-1 only — the rest of
+    // 192.0.0.0/16 is ordinary public space (192.0.64.0/18 is Automattic:
+    // gravatar.com, wordpress.com; blocking b===0 alone broke those).
+    (a === 192 && b === 0 && (c === 0 || c === 2)) ||
     (a === 198 && (b === 18 || b === 19)) || // benchmarking
     (a === 198 && b === 51) || (a === 203 && b === 113) || // doc ranges
     a >= 224 // multicast, reserved, broadcast

@@ -35,9 +35,11 @@ console.log(result);`,
   {
     label: "Convert units",
     code: `// Convert miles to kilometers
-const result = await callTool("convert/miles-to-kilometers", {
-  value: 26.2
-}, { method: "GET" });
+const result = await callTool("unit-convert", {
+  value: 26.2,
+  from: "miles",
+  to: "kilometers"
+});
 console.log(result);`,
   },
   {

@@ -1,8 +1,8 @@
-// Generated unit-conversion tools. One real, individually-discoverable endpoint
-// per ordered unit pair (e.g. GET /api/convert/miles-to-kilometers?value=5),
-// backed by a single verified conversion engine and covered by exact-output +
-// round-trip tests in scripts/test-convert.js. This is how we scale the catalog
-// past 1000 without filler: every endpoint is a genuine, working operation.
+// The unit-conversion table + engine. Formerly a generator of ~970 pairwise
+// convert-* endpoints; those are retired — the single parametric `unit-convert`
+// tool (src/tools/kit2.js) now serves every pair through convertAnyUnit(),
+// with the exact same factor table and temperature math. Covered by
+// scripts/test-convert.js.
 
 function bad(message) {
   const err = new Error(message);
@@ -10,9 +10,12 @@ function bad(message) {
   return err;
 }
 
-// Each category: base unit factor table. id is slug-safe and human-readable so
-// the generated slug reads like "convert-miles-to-kilometers".
-const CATEGORIES = {
+// Each linear category: base unit + factor table (unit id -> how many base
+// units one of it is). Ids are slug-safe and human-readable — they are the
+// exact ids the retired convert-<from>-to-<to> endpoints used; never rename.
+// Temperature is affine (offset, not factor) — its units are listed here for
+// discovery/routing, converted via the celsius-pivot logic below.
+export const UNIT_CATEGORIES = {
   length: { base: "meters", tags: ["length", "distance"], units: {
     meters: 1, kilometers: 1000, centimeters: 0.01, millimeters: 0.001, micrometers: 1e-6, nanometers: 1e-9,
     miles: 1609.344, yards: 0.9144, feet: 0.3048, inches: 0.0254, "nautical-miles": 1852,
@@ -64,34 +67,12 @@ const CATEGORIES = {
   frequency: { base: "hertz", tags: ["frequency"], units: {
     hertz: 1, kilohertz: 1000, megahertz: 1e6, gigahertz: 1e9, rpm: 0.016666666666666666,
   } },
+  temperature: { base: "celsius", tags: ["temperature"], affine: true, units: {
+    celsius: 1, fahrenheit: 1, kelvin: 1, rankine: 1,
+  } },
 };
 
-const pretty = (id) => id.replace(/-/g, " ");
-
-function makeFactorTool(category, fromId, toId, fromFactor, toFactor, tags) {
-  const slug = `convert-${fromId}-to-${toId}`;
-  return {
-    route: `GET /api/convert/${fromId}-to-${toId}`,
-    name: `${pretty(fromId)} → ${pretty(toId)}`,
-    slug,
-    category: "convert",
-    price: "$0.001",
-    description: `Convert ${pretty(fromId)} to ${pretty(toId)} (${category}). Pass ?value=N.`,
-    tags: ["convert", "units", category, ...tags],
-    discovery: {
-      input: { value: "1" },
-      inputSchema: { properties: { value: { type: "string", description: "Numeric value to convert" } }, required: ["value"] },
-      output: { example: { value: 1, from: fromId, to: toId, result: +(fromFactor / toFactor).toFixed(6) } },
-    },
-    handler: (i) => {
-      const v = Number(i.value);
-      if (!Number.isFinite(v)) throw bad('"value" must be a number');
-      return { value: v, from: fromId, to: toId, result: +((v * fromFactor) / toFactor).toPrecision(12) };
-    },
-  };
-}
-
-// Temperature is affine, not a simple factor — handle separately.
+// Temperature is affine, not a simple factor — convert via celsius.
 const TEMP = { celsius: "c", fahrenheit: "f", kelvin: "k", rankine: "r" };
 function toCelsius(v, u) {
   return u === "c" ? v : u === "f" ? (v - 32) * 5 / 9 : u === "k" ? v - 273.15 : (v - 491.67) * 5 / 9;
@@ -99,39 +80,23 @@ function toCelsius(v, u) {
 function fromCelsius(c, u) {
   return u === "c" ? c : u === "f" ? c * 9 / 5 + 32 : u === "k" ? c + 273.15 : (c + 273.15) * 9 / 5;
 }
-function makeTempTool(fromId, toId) {
-  return {
-    route: `GET /api/convert/${fromId}-to-${toId}`,
-    name: `${pretty(fromId)} → ${pretty(toId)}`,
-    slug: `convert-${fromId}-to-${toId}`,
-    category: "convert",
-    price: "$0.001",
-    description: `Convert temperature from ${fromId} to ${toId}. Pass ?value=N.`,
-    tags: ["convert", "units", "temperature", fromId, toId],
-    discovery: {
-      input: { value: "100" },
-      inputSchema: { properties: { value: { type: "string", description: "Temperature value" } }, required: ["value"] },
-      output: { example: { value: 100, from: fromId, to: toId, result: +fromCelsius(toCelsius(100, TEMP[fromId]), TEMP[toId]).toFixed(4) } },
-    },
-    handler: (i) => {
-      const v = Number(i.value);
-      if (!Number.isFinite(v)) throw bad('"value" must be a number');
-      return { value: v, from: fromId, to: toId, result: +fromCelsius(toCelsius(v, TEMP[fromId]), TEMP[toId]).toPrecision(12) };
-    },
-  };
+
+// unit id -> category name, for O(1) lookup + cross-category error messages.
+const UNIT_TO_CATEGORY = {};
+for (const [name, { units }] of Object.entries(UNIT_CATEGORIES)) {
+  for (const id of Object.keys(units)) UNIT_TO_CATEGORY[id] = name;
 }
 
-function generate() {
-  const tools = [];
-  for (const [category, { units, tags }] of Object.entries(CATEGORIES)) {
-    const ids = Object.keys(units);
-    for (const a of ids) for (const b of ids) {
-      if (a !== b) tools.push(makeFactorTool(category, a, b, units[a], units[b], tags));
-    }
-  }
-  const tIds = Object.keys(TEMP);
-  for (const a of tIds) for (const b of tIds) if (a !== b) tools.push(makeTempTool(a, b));
-  return tools;
+// Convert `value` from one unit id to another within the same category.
+// Throws 400 on unknown units or cross-category pairs (naming both categories).
+export function convertAnyUnit(value, from, to) {
+  if (!Number.isFinite(value)) throw bad('"value" must be a number');
+  const fromCat = UNIT_TO_CATEGORY[from];
+  const toCat = UNIT_TO_CATEGORY[to];
+  if (!fromCat) throw bad(`Unknown unit "${from}". Categories: ${Object.keys(UNIT_CATEGORIES).join(", ")}.`);
+  if (!toCat) throw bad(`Unknown unit "${to}". Units in ${fromCat}: ${Object.keys(UNIT_CATEGORIES[fromCat].units).join(", ")}.`);
+  if (fromCat !== toCat) throw bad(`"${from}" is ${fromCat} but "${to}" is ${toCat} — units must share a category`);
+  if (fromCat === "temperature") return fromCelsius(toCelsius(value, TEMP[from]), TEMP[to]);
+  const { units } = UNIT_CATEGORIES[fromCat];
+  return (value * units[from]) / units[to];
 }
-
-export const CONVERSIONS = generate();

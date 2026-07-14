@@ -14,6 +14,13 @@
 //   const a = new Agent402({ fetch: payFetch });
 import { createHash } from "node:crypto";
 
+// Keep in lockstep with package.json. Every request the SDK issues carries
+// `User-Agent: agent402-client/<version>` — a standard header, no extra
+// network calls — so a seller can attribute traffic (and settled payments)
+// to this SDK. Product token only; nothing about the caller rides along.
+const VERSION = "0.6.1";
+const USER_AGENT = `agent402-client/${VERSION}`;
+
 const leadingZeroBits = (buf) => { let n = 0; for (const b of buf) { if (b === 0) { n += 8; continue; } n += Math.clz32(b) - 24; break; } return n; };
 
 export class Agent402 {
@@ -32,7 +39,9 @@ export class Agent402 {
     if (typeof fetchImpl !== "function") throw new Error("No fetch available — pass { fetchImpl } on Node < 18");
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
     this.payFetch = payFetch || null;
-    this.f = fetchImpl;
+    // Wrap the plain fetch so every request identifies the SDK (see USER_AGENT
+    // above). Caller-supplied init.headers still win on a key collision.
+    this.f = (url, init = {}) => fetchImpl(url, { ...init, headers: { "User-Agent": USER_AGENT, ...(init.headers || {}) } });
     this._catalog = null;
     this._cache = cache ? new Map() : null;
     // Spending policy (defends the x402 "wallet drain via uncapped spending"
@@ -167,7 +176,9 @@ export class Agent402 {
 
     const idem = idempotencyKey || `a402-${createHash("sha256").update(`${cacheKey}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 24)}`;
     const send = (extraHeaders = {}, useFetch = this.f) => {
-      const headers = { "Idempotency-Key": idem, ...extraHeaders };
+      // UA set here too (not only in the this.f wrapper) so the x402 payFetch
+      // path — the one that settles real payments — always carries it.
+      const headers = { "User-Agent": USER_AGENT, "Idempotency-Key": idem, ...extraHeaders };
       let url = `${this.baseUrl}${tool.path}`;
       const init = { method: tool.method, headers };
       if (tool.method === "GET") {

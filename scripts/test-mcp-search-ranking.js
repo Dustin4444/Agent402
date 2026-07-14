@@ -51,9 +51,9 @@ async function rpc(method, params) {
 }
 
 // top1: the slug an MCP client would obviously expect at rank 1 for this query.
-// topN: a looser lock — the slug must appear in the top N. search_tools has no
-// directional tiebreak (unlike findTools), so symmetric convert pairs go in
-// TOPN rather than TOP1.
+// topN: a looser lock — the slug must appear in the top N. search_tools keeps
+// bare "to" as a scoring term (no stopword strip, unlike findTools), so
+// x-to-y-slug queries go in TOPN rather than TOP1.
 const TOP1 = [
   ["qr code",                       "qr"],
   ["whois lookup",                  "whois"],
@@ -74,12 +74,13 @@ const TOPN = [
   // the umbrella slug. Just lock that pdf-info is *visible* for the extractor
   // query, since it's the right answer for that intent.
   ["pdf metadata",                  "pdf-info", 5],
-  // search_tools ties on slug-includes score for symmetric pairs (no directional
-  // tiebreak, unlike findTools — see test-find-ranking.js for the HTTP-ranker
-  // lock). Top-N is the honest contract here: both directions must be visible
-  // in the top K so a client can pick by intent.
-  ["convert kilometers to miles",   "convert-kilometers-to-miles", 5],
-  ["convert miles to kilometers",   "convert-miles-to-kilometers", 5],
+  // The pairwise convert-* slugs are retired: any unit-conversion phrasing
+  // must surface the parametric unit-convert. search_tools has no stopword
+  // strip, so the bare "to" term hands every x-to-y slug +4 — unit-convert's
+  // curated unit-word tags (miles/kilometers/…) are what keep it above that
+  // crowd. Top-N lock: it must be visible in the top K for both directions.
+  ["convert kilometers to miles",   "unit-convert", 5],
+  ["convert miles to kilometers",   "unit-convert", 5],
   ["html to markdown",              "html-to-markdown", 3],
   ["markdown to html",              "markdown-to-html", 3],
 ];

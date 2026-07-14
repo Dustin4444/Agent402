@@ -76,23 +76,23 @@ try {
   const toolNames = (list.result?.tools ?? []).map((t) => t.name);
   ok(toolNames.includes("call_tool"), `tools/list exposes call_tool (got ${toolNames.join(",")})`);
 
-  // 2. Canonical {slug, params} call. value=10 km → 6.21371... mi.
+  // 2. Canonical {slug, params} call. 10 km → 6.21371... mi via unit-convert.
   const canonical = await rpc("tools/call", {
     name: "call_tool",
-    arguments: { slug: "convert-kilometers-to-miles", params: { value: 10 } },
+    arguments: { slug: "unit-convert", params: { value: 10, from: "kilometers", to: "miles" } },
   });
   const canonicalText = canonical.result?.content?.[0]?.text || "";
   ok(!canonical.result?.isError, `canonical {slug, params} call returns success (got isError=${canonical.result?.isError})`);
   ok(canonicalText.includes("6.2137"), `canonical call yields the conversion (got '${canonicalText.slice(0, 80)}…')`);
 
-  // 3. Flattened args fallback — { slug, value } without `params:` wrapper.
-  // Critical: the whois analytics regression (p50=1ms, 100% errored) was
-  // exactly this — LLMs flattening the envelope. Without the fallback, this
-  // call returns a 4xx self-correction envelope; with the fallback, it
+  // 3. Flattened args fallback — { slug, value, from, to } without `params:`
+  // wrapper. Critical: the whois analytics regression (p50=1ms, 100% errored)
+  // was exactly this — LLMs flattening the envelope. Without the fallback,
+  // this call returns a 4xx self-correction envelope; with the fallback, it
   // succeeds the same way the canonical path does.
   const flattened = await rpc("tools/call", {
     name: "call_tool",
-    arguments: { slug: "convert-kilometers-to-miles", value: 10 },
+    arguments: { slug: "unit-convert", value: 10, from: "kilometers", to: "miles" },
   });
   const flattenedText = flattened.result?.content?.[0]?.text || "";
   ok(!flattened.result?.isError, `flattened args (no params: wrapper) executes (got isError=${flattened.result?.isError})`);
@@ -101,7 +101,7 @@ try {
   // 4. Stringified params — LLMs sometimes JSON.stringify the object.
   const stringified = await rpc("tools/call", {
     name: "call_tool",
-    arguments: { slug: "convert-kilometers-to-miles", params: JSON.stringify({ value: 10 }) },
+    arguments: { slug: "unit-convert", params: JSON.stringify({ value: 10, from: "kilometers", to: "miles" }) },
   });
   const stringifiedText = stringified.result?.content?.[0]?.text || "";
   ok(!stringified.result?.isError, `stringified params executes (got isError=${stringified.result?.isError})`);

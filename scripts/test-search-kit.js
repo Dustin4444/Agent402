@@ -26,6 +26,8 @@ for (const [slug, args, label] of [
   ["search-news", {}, "search-news rejects missing q"],
   ["search-news", { q: "" }, "search-news rejects empty q"],
   ["search-images", {}, "search-images rejects missing q"],
+  ["search-videos", {}, "search-videos rejects missing q"],
+  ["search-videos", { q: "  " }, "search-videos rejects empty q (whitespace)"],
   ["search-suggest", {}, "search-suggest rejects missing q"],
 ]) {
   try { await h(slug)(args); ok(false, label); }
@@ -44,7 +46,7 @@ async function live(slug, args, check, label) {
   }
 }
 
-// Live calls are opt-in. Every [test] CI run otherwise burns 4 Brave calls;
+// Live calls are opt-in. Every [test] CI run otherwise burns 5 Brave calls;
 // the daily paid-canary (scripts/paid-canary.js) already exercises the real
 // integration post-deploy and is the system-of-record for "Brave still works".
 if (process.env.BRAVE_LIVE_TEST === "1") {
@@ -66,6 +68,13 @@ if (process.env.BRAVE_LIVE_TEST === "1") {
   await live("search-images", { q: "golden gate bridge", count: 3 },
     (r) => r.query === "golden gate bridge" && Array.isArray(r.results) && r.results.length > 0 && r.results.every((x) => typeof x.thumbnail === "string" && typeof x.source === "string"),
     "search-images golden gate bridge count=3");
+
+  // Video search — verified live against the current subscription 2026-07-13
+  // (videos/search returned real results). Every result should carry a video
+  // page URL; duration/creator ride best-effort from the video sub-object.
+  await live("search-videos", { q: "agent payments", count: 3 },
+    (r) => r.query === "agent payments" && Array.isArray(r.results) && r.results.length > 0 && r.results.every((x) => typeof x.url === "string"),
+    "search-videos agent payments count=3");
 
   // Suggest should expand a brand prefix into completions. We don't assert any
   // specific suggestion (Brave can re-rank), just that we get a non-empty array

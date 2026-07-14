@@ -73,7 +73,7 @@ try {
   // + static pages). Floor of 1000 catches a wholesale loop drop without
   // pinning the exact number (which drifts with each new tool).
   const locCount = (xml.match(/<loc>/g) || []).length;
-  ok(locCount >= 1000, `sitemap entry count >= 1000 (got ${locCount}) — under this floor means a loop section was dropped`);
+  ok(locCount >= 400, `sitemap entry count >= 400 (got ${locCount}) — under this floor means a loop section was dropped`);
 
   console.log(`\n${pass} passed (${locCount} sitemap entries, ${SKILL_PACKS.length} skill packs)`);
   proc.kill("SIGKILL");

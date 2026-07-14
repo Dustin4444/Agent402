@@ -37,8 +37,8 @@ Stripe's open-source [purl](https://github.com/stripe/purl) ("curl for paid endp
 
 ```bash
 purl wallet add --name me --type evm -k 0xYOUR_KEY -p yourpass --set-active=true
-purl --dry-run "https://agent402.tools/api/convert/kilometers-to-miles?value=42"  # see the quote
-purl "https://agent402.tools/api/convert/kilometers-to-miles?value=42"            # pay + get result
+purl --dry-run "https://agent402.tools/api/dns?name=example.com&type=A"  # see the quote
+purl "https://agent402.tools/api/dns?name=example.com&type=A"            # pay + get result
 ```
 
 ## Spend controls

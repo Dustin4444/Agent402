@@ -1,7 +1,7 @@
 // Smoke test for the /api/find lexical ranker against the *live* catalog.
 //
-// scripts/test-find.js exercises the ranking math on a 4-tool synthetic
-// catalog — useful but blind to whether the real 1,338-tool catalog still
+// scripts/test-find.js exercises the ranking math on a small synthetic
+// catalog — useful but blind to whether the real live catalog still
 // returns the intuitive tool for agent-style task descriptions. A tool rename,
 // a description rewording, or a category shuffle could silently bump the
 // expected top-1 out of place, and the discovery surface (HTTP /api/find +
@@ -57,14 +57,17 @@ const TOP1 = [
   ["compute HMAC signature",       "hmac"],
   ["current price of bitcoin",     "crypto-price"],
   ["earthquake feed",               "earthquakes"],
-  // Symmetric convert slugs (miles<->km, kg<->lbs, etc.) tie on score and slug
-  // length. The directional tiebreaker in findTools() (more in-order query-term
-  // pairs wins) lifts the slug whose token order matches the query intent.
-  // Locking top-1 here is the regression guard — if someone weakens or removes
-  // the direction signal, the reverse-direction slug will float to the top and
-  // these assertions break loudly.
-  ["convert miles to kilometers",   "convert-miles-to-kilometers"],
-  ["convert kilometers to miles",   "convert-kilometers-to-miles"],
+  // The ~970 pairwise convert-<from>-to-<to> slugs are retired — every unit
+  // conversion phrasing must now resolve to the single parametric survivor.
+  // The unit-word synonym expansion in findTools() (any unit word appends the
+  // "units" term, which hits unit-convert's curated tag) is what breaks the
+  // tie against base-convert/case-convert/time-convert. Locking top-1 for a
+  // tag-covered pair, both directions, AND a long-tail pair with no direct
+  // tag/description hit ("stones"/"kg") guards that expansion — remove it and
+  // the tail queries tie at the generic *-convert score and alpha-sort wins.
+  ["convert miles to kilometers",   "unit-convert"],
+  ["convert kilometers to miles",   "unit-convert"],
+  ["convert stones to kg",          "unit-convert"],
 ];
 
 const TOPN = [];
@@ -103,7 +106,7 @@ try {
 
   // Sanity: catalog is loaded.
   const pricing = await fetch(`${BASE}/api/pricing`).then((r) => r.json());
-  ok((pricing.endpoints || []).length > 500, `live catalog has >500 endpoints (got ${(pricing.endpoints || []).length})`);
+  ok((pricing.endpoints || []).length > 400, `live catalog has >400 endpoints (got ${(pricing.endpoints || []).length})`);
 
   for (const [q, expected] of TOP1) {
     const found = await slugs(q, 3);

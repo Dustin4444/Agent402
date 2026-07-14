@@ -184,7 +184,7 @@ export function llmsTxt(baseUrl, catalog) {
       const inCat = tools.filter((t) => t.category === key);
       if (!inCat.length) return "";
       if (inCat.length > 40) {
-        return `## Tools — ${label}\n\n- [${inCat.length} ${label} endpoints](${baseUrl}/api/pricing): all \`GET /api/convert/{from}-to-{to}?value=N\` at ${inCat[0].price}/call; full list in the OpenAPI spec and pricing JSON`;
+        return `## Tools — ${label}\n\n- [${inCat.length} ${label} endpoints](${baseUrl}/api/pricing): full list with routes, prices, and input schemas in the OpenAPI spec and pricing JSON`;
       }
       const items = inCat.map(
         (t) => `- [${t.name}](${baseUrl}/tools/${t.slug}): ${t.price}/call. ${t.description}`

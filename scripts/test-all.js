@@ -16,7 +16,7 @@ const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 // exercised by this sweep — search-kit shape/validation is covered by
 // scripts/test-search-kit.js and post-deploy by scripts/paid-canary.js.
 const BRAVE_ROUTES = new Set([
-  "/api/search", "/api/search-news", "/api/search-images", "/api/search-suggest", "/api/answer",
+  "/api/search", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer",
   "/api/multi-search",
 ]);
 const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
@@ -24,7 +24,10 @@ const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
 const NETWORK = new Set([
   "/api/extract", "/api/meta", "/api/dns", "/api/render", "/api/screenshot", "/api/pdf",
   "/api/http-check", "/api/tls-cert", "/api/whois", "/api/robots-check", "/api/sitemap",
-  "/api/email-validate", "/api/ip-info", "/api/search", "/api/search-news", "/api/search-images", "/api/search-suggest", "/api/answer", "/api/multi-search",
+  "/api/email-validate", "/api/ip-info", "/api/search", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer", "/api/multi-search",
+  // Web-content kit: archive.org (archive-snapshot), caller feed URLs
+  // (feed-parse), caller redirect chains (unshorten-url) — all live egress.
+  "/api/archive-snapshot", "/api/feed-parse", "/api/unshorten-url",
   "/api/pdf-info", "/api/pdf-merge", "/api/pdf-extract-pages", "/api/pdf-rotate", "/api/images-to-pdf",
   "/api/pdf-to-markdown",
   "/api/media-info", "/api/audio-convert", "/api/audio-normalize",
@@ -34,7 +37,11 @@ const NETWORK = new Set([
   "/api/federal-awards", "/api/geo-lookup", "/api/fema-disasters",
   "/api/geocode", "/api/reverse-geocode", "/api/place-search",
   "/api/image-ocr",
+  // Image-kit URL tools: the examples fetch a small stable sample image from
+  // raw.githubusercontent.com — live egress, tolerate transient upstream flaps.
+  "/api/image-exif", "/api/image-dominant-color", "/api/image-crop",
   "/api/barcode-lookup", "/api/fx-rate", "/api/weather-forecast",
+  "/api/public-holidays",
   // Weather-kit: live open-meteo forecasts — same upstream class as
   // weather-forecast above (was misfiled as pure-CPU; an open-meteo outage
   // must not hard-block the deploy gate).
@@ -66,9 +73,12 @@ const NETWORK = new Set([
   // Finance-kit: Yahoo Finance chart (quote + history) and Nasdaq earnings
   // calendar — keyless live upstreams; tolerate transient 502/503/504.
   "/api/stock-quote", "/api/stock-history", "/api/earnings-calendar",
+  "/api/options-chain", "/api/premarket-quote", "/api/stock-dividends", "/api/dividend-calendar",
   // Crypto-kit: CoinGecko public API — keyless, ~30 req/min from a single IP.
   // Tolerate transient 429/502/503/504 (rate limit + Cloudflare hiccups).
+  // crypto-orderbook rides Coinbase Exchange's public API (same lenient posture).
   "/api/crypto-price", "/api/crypto-market", "/api/crypto-history", "/api/crypto-trending", "/api/crypto-global",
+  "/api/crypto-orderbook", "/api/stablecoin-peg",
   // Network-kit: live DNS resolution against 1.1.1.1/8.8.8.8/9.9.9.9. Public
   // resolvers can NXDOMAIN, time out, or return SERVFAIL for placeholder inputs —
   // tolerate transient failures, the shape check still gates the happy path.
@@ -87,6 +97,20 @@ const NETWORK = new Set([
   "/api/wallet-balance", "/api/token-metadata", "/api/token-price",
   "/api/wallet-transactions", "/api/nft-holdings", "/api/nft-metadata",
   "/api/gas-snapshot", "/api/eth-call",
+  // evm-rpc rides keyless public RPC endpoints (no Alchemy key needed) but
+  // shares per-IP rate limits — tolerate transient upstream failures.
+  "/api/evm-rpc",
+  // Contract-kit egress: Sourcify (contract-source / contract-abi), the
+  // openchain.xyz + 4byte.directory signature DBs (selector-lookup, and
+  // calldata-decode's no-ABI fallback), and the shared public RPC pool
+  // (tx-simulate). solidity-scan + address-label are pure CPU and stay strict.
+  "/api/contract-source", "/api/contract-abi", "/api/calldata-decode",
+  "/api/selector-lookup", "/api/tx-simulate",
+  // Enrich-kit: GLEIF (lei-lookup), Wikidata (wikidata-entity), gravatar.com
+  // (gravatar-check), api.github.com (github-repo — 60/hr per-IP keyless quota
+  // can 403→503 in CI), favicon fetch against a live site (favicon-grab).
+  "/api/lei-lookup", "/api/wikidata-entity", "/api/gravatar-check",
+  "/api/github-repo", "/api/favicon-grab",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama).
   // CoinGecko's free tier shares a per-IP ~30 rpm limit; tolerate 429/502/503/504.
   "/api/price-pyth", "/api/price-coingecko", "/api/defi-tvl",

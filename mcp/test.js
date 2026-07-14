@@ -94,7 +94,7 @@ try {
 
   // search_tools finds catalog tools that are not first-class
   const search = await client.callTool({ name: "search_tools", arguments: { query: "convert miles to kilometers" } });
-  if (!text(search).includes("convert-miles-to-kilometers")) fail(`search_tools missed the conversion tool: ${text(search).slice(0, 300)}`);
+  if (!text(search).includes("unit-convert")) fail(`search_tools missed the conversion tool: ${text(search).slice(0, 300)}`);
   console.log("search_tools finds long-tail catalog tools ✓");
 
   // search_tools surfaces matching multi-tool workflow templates (skill packs)
@@ -111,7 +111,7 @@ try {
   console.log("first-class call settled with proof-of-work ✓");
 
   // call_tool reaches the long tail with payment handled
-  const converted = await client.callTool({ name: "call_tool", arguments: { slug: "convert-miles-to-kilometers", params: { value: 10 } } });
+  const converted = await client.callTool({ name: "call_tool", arguments: { slug: "unit-convert", params: { value: 10, from: "miles", to: "kilometers" } } });
   if (converted.isError || !text(converted).includes("16.09344")) fail(`call_tool conversion wrong: ${text(converted).slice(0, 300)}`);
   console.log("call_tool long-tail call settled with proof-of-work ✓");
 

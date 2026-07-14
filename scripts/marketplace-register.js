@@ -95,7 +95,7 @@ async function main() {
   if (!agent) {
     const payload = {
       name: AGENT_NAME,
-      description: `1,431 pay-per-call web tools for AI agents via x402 (USDC on Base, Solana, Polygon, Arbitrum & Stellar; USDG on Robinhood Chain): live web search & answers, headless-browser rendering & screenshots, PDF extraction, URL-to-markdown, live financial/crypto/macro data, SEC EDGAR filings, and wallet-keyed memory & coordination. No signup, no API key. ${SITE}`,
+      description: `500 pay-per-call web tools for AI agents via x402 (USDC on Base, Solana, Polygon, Arbitrum & Stellar; USDG on Robinhood Chain): live web search & answers, headless-browser rendering & screenshots, PDF extraction, URL-to-markdown, live financial/crypto/macro data, SEC EDGAR filings, and wallet-keyed memory & coordination. No signup, no API key. ${SITE}`,
       identity_provider_id: "erc8004",
       identity_network_caip2: "eip155:8453",
       settlement_network_caip2: SETTLEMENT,
@@ -154,7 +154,7 @@ async function main() {
   }
 
   // 3) Publish to the marketplace.
-  const publish = { is_published: true, tagline: "1,431 web tools agents pay for per call — search, browser, finance, EDGAR, memory. No signup.", tags: ["tools", "web-search", "browser", "memory", "finance", "edgar", "x402", "agents"] };
+  const publish = { is_published: true, tagline: "500 web tools agents pay for per call — search, browser, finance, EDGAR, memory. No signup.", tags: ["tools", "web-search", "browser", "memory", "finance", "edgar", "x402", "agents"] };
   if (DRY) { console.log("[dry-run] would PATCH publish", publish); }
   else { await api("PATCH", `/api/v1/agents/${agent.id}`, publish); console.log(`\npublished agent ${agent.id} to the marketplace`); }
 

@@ -189,7 +189,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Search the Agent402 tool catalog",
           annotations: { title: "Search the Agent402 tool catalog", ...SAFE },
           description:
-            `Keyword search over Agent402's ${tools.size} pay-per-call web tools (encoding, crypto, text, time, math, validation, unit conversions, network, browser, PDF, search, memory). Use this to BROWSE several candidates by keyword; use find_tool instead when you want the single best tool for a described task. ${freeCount} pure-CPU tools run free here; the rest need a USDC wallet. Returns { results, workflows } — each result has slug, price, access, description, inputSchema; run one with call_tool.`,
+            `Keyword search over Agent402's ${tools.size} pay-per-call web tools (live market data like stock-quote at $0.003, encoding, crypto, text, time, math, validation, unit conversions, network, browser, PDF, search, memory). Use this to BROWSE several candidates by keyword; use find_tool instead when you want the single best tool for a described task. ${freeCount} pure-CPU tools run free here (proof-of-work — no wallet needed); the rest need a USDC wallet. There is also an OpenAI-compatible LLM gateway at ${baseUrl}/v1 — flat per-call (chat nano $0.003, auto $0.01, embeddings $0.002), no API key: a funded wallet is the account. Returns { results, workflows } — each result has slug, price, access, description, inputSchema; run one with call_tool.`,
           inputSchema: {
             type: "object",
             properties: {
@@ -234,11 +234,11 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Run an Agent402 tool",
           annotations: { title: "Run an Agent402 tool", ...SAFE },
           description:
-            `Run an Agent402 tool by slug (find slugs with search_tools). The ${freeCount} pure-CPU tools execute free on this hosted connector (rate-limited). Wallet-only tools (live search, browser rendering, PDFs, durable memory) return instructions for paid access instead.`,
+            `Run an Agent402 tool by slug (find slugs with search_tools). The ${freeCount} pure-CPU tools execute free on this hosted connector (rate-limited, no wallet — proof-of-work covers them). Wallet-only tools (live market data like stock-quote at $0.003, live search, browser rendering, PDFs, durable memory) return instructions for paid access instead.`,
           inputSchema: {
             type: "object",
             properties: {
-              slug: { type: "string", description: 'Tool slug, e.g. "convert-miles-to-kilometers"' },
+              slug: { type: "string", description: 'Tool slug, e.g. "unit-convert"' },
               params: { type: "object", description: "Tool input, matching the tool's inputSchema" },
             },
             required: ["slug"],
@@ -248,7 +248,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           name: "about_agent402",
           title: "About this connector",
           annotations: { title: "About this connector", ...SAFE },
-          description: `What this connector is: the free tier of agent402.tools, what's free vs wallet-only, the curated multi-tool workflows (skill packs) available as prompts, and how paid access works (x402 — ${RAILS_OR} — plus proof-of-work).`,
+          description: `What this connector is and where to start: the /v1 OpenAI-compatible LLM gateway (flat per-call — chat nano $0.003, auto $0.01, embeddings $0.002; no API key, a funded wallet is the account), the free proof-of-work tier (${freeCount} pure-CPU tools, no wallet needed), and live market data (stock-quote $0.003). Also: what's free vs wallet-only, the curated multi-tool workflows (skill packs) available as prompts, and how paid access works (x402 — ${RAILS_OR} — plus proof-of-work).`,
           inputSchema: { type: "object", properties: {} },
         },
         // Hosted leaderboard of x402 sellers settled in the recent window
@@ -280,7 +280,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Payment and wallet setup",
           annotations: { title: "Payment and wallet setup", ...SAFE },
           description:
-            `How paying for Agent402 tools works and how to manage a wallet. This hosted connector holds NO wallet: ${freeCount} pure-CPU tools run free here (or solve a proof-of-work puzzle), the rest settle in USDC via x402. Covers: the free vs paid split, how to configure a funded wallet + per-call and budget spend caps, the rails (${RAILS_OR}), and checking a wallet's balance/transaction history via the wallet-balances / wallet-transactions tools. Returns { connector, freeTier, pay, spendControls, balanceAndHistory }.`,
+            `How paying for Agent402 tools works and how to manage a wallet. This hosted connector holds NO wallet: ${freeCount} pure-CPU tools run free here (or solve a proof-of-work puzzle), the rest — including the /v1 OpenAI-compatible LLM gateway (chat nano $0.003, embeddings $0.002; no API key, wallet = account) — settle in USDC via x402. Covers: the free vs paid split, how to configure a funded wallet + per-call and budget spend caps, the rails (${RAILS_OR}), and checking a wallet's balance/transaction history via the wallet-balances / wallet-transactions tools. Returns { connector, freeTier, pay, spendControls, balanceAndHistory }.`,
           inputSchema: { type: "object", properties: {} },
         },
         // Curated free tools — exposed first-class so directory listings
@@ -407,6 +407,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
               text: JSON.stringify({
                 service: baseUrl,
                 connector: "hosted free tier (authless)",
+                // Lead with what the demand data says converts. Prices here must
+                // track the catalog (llm-gateway-kit tiers, finance-kit
+                // stock-quote) — update in lockstep, never invent numbers.
+                startHere: {
+                  llmGateway: `OpenAI-compatible LLM gateway at ${baseUrl}/v1 — flat per-call pricing: chat nano $0.003, auto (eval-ranked model routing) $0.01, embeddings $0.002. No API key, no signup: a funded wallet IS the account (x402 settles per call).`,
+                  freeTier: `${freeCount} pure-CPU tools run free right here with no wallet — payable with ~milliseconds of proof-of-work CPU.`,
+                  liveMarketData: "Live market data at agent-native prices — stock-quote is $0.003/call (find it and stock-history/crypto-price via search_tools).",
+                },
                 tools: tools.size,
                 freeHere: freeCount,
                 walletOnly: tools.size - freeCount,
@@ -427,7 +435,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                   })),
                 },
                 clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
-                paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol — npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; prices $0.001–$0.02/call.`,
+                paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol — npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; most tools $0.001–$0.02/call (LLM gateway tiers $0.002–$0.50).`,
                 ...(getLeaderboard ? { ecosystem: "Call top_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h — discovers the live economy beyond this catalog." } : {}),
                 missingATool: "Call request_tool (or POST /api/wish) with what you needed. We cluster and track demand — repeated requests get built.",
                 docs: `${baseUrl}/llms.txt`,
@@ -493,7 +501,8 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 model: "HTTP 402 + x402, settled in USDC on-chain, non-custodial (you hold the key)",
                 rails: RAILS_PAREN,
                 setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
-                prices: "$0.001–$0.02 per call — see each tool's exact price in search_tools results",
+                prices: "most tools $0.001–$0.02 per call (LLM gateway tiers $0.002–$0.50) — see each tool's exact price in search_tools results",
+                llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way — point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
               },
               spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },
               balanceAndHistory: {

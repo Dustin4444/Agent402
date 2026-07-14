@@ -52,7 +52,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "memory-write", "memory-read", "memory-incr", "memory-cas", "memory-grant", "memory-revoke",
   "memory-grants", "memory-log", "memory-remember", "memory-recall", "memory-forget",
   "http-check", "tls-cert", "whois", "robots-check", "sitemap",
-  "email-validate", "ip-info", "search", "search-news", "search-images", "search-suggest", "answer",
+  "email-validate", "ip-info", "search", "search-news", "search-images", "search-videos", "search-suggest", "answer",
   "pdf-info", "pdf-merge", "pdf-extract-pages", "pdf-rotate", "images-to-pdf",
   "pdf-to-markdown",
   "media-info", "audio-convert", "audio-normalize",
@@ -61,6 +61,11 @@ export const WALLET_ONLY_SLUGS = new Set([
   "device-recalls", "college-lookup", "fec-candidates",
   "federal-awards", "geo-lookup", "fema-disasters",
   "barcode-lookup", "fx-rate", "weather-forecast",
+  // Locale/time reference (data-kit): Nager.Date egress → wallet-only.
+  // (country-info is a committed in-repo dataset now — pure CPU, PoW-eligible.)
+  "public-holidays",
+  // Image tools that can fetch a caller-supplied URL (safeFetch egress).
+  "image-exif", "image-dominant-color", "image-crop",
   "treasury-yield-curve", "treasury-yield-history", "yield-curve-spread",
   "treasury-debt", "treasury-avg-rates",
   "fx-historical", "fx-timeseries", "fx-dashboard",
@@ -72,7 +77,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   "edgar-insider-trades", "edgar-13f-holdings", "edgar-recent-ipos", "edgar-search",
   "company-financials",
   "stock-quote", "stock-history", "earnings-calendar",
+  "options-chain", "premarket-quote", "stock-dividends", "dividend-calendar",
   "crypto-price", "crypto-market", "crypto-history", "crypto-trending", "crypto-global",
+  "crypto-orderbook", "stablecoin-peg",
   // Composite research tools fan out to multiple paid upstreams; PoW would
   // turn 1 free request into 5+ paid roundtrips. Wallet-only.
   "research-company",
@@ -85,10 +92,27 @@ export const WALLET_ONLY_SLUGS = new Set([
   "x402-quote", "usdc-balance", "tx-status", "gas-estimate", "x402-verify", "transfer-authorization", "ens-resolve", "x402-audit",
   // B20 kit — RPC egress against Base (b20-feature-id is pure CPU and stays PoW-eligible).
   "b20-activation-check", "b20-token-info", "b20-verify", "b20-new-tokens", "b20-memos",
-  // Chain-kit: every tool talks to Alchemy and counts against our compute-unit
-  // quota. PoW would let one client farm our paid upstream.
+  // Chain-kit: tools talk to Alchemy (compute-unit quota) or, for evm-rpc,
+  // shared-per-IP public RPC endpoints. PoW would let one client farm our
+  // paid upstream / exhaust the shared quota.
   "wallet-balance", "token-metadata", "token-price", "wallet-transactions",
-  "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call",
+  "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call", "evm-rpc",
+  // Contract-kit: Sourcify (contract-source / contract-abi), openchain.xyz +
+  // 4byte.directory signature DBs (selector-lookup, and calldata-decode's
+  // no-ABI fallback path), and the shared keyless public RPC pool
+  // (tx-simulate — same per-IP quota as evm-rpc). solidity-scan and
+  // address-label are pure CPU and stay PoW-eligible.
+  "contract-source", "contract-abi", "calldata-decode", "selector-lookup", "tx-simulate",
+  // Enrich-kit: GLEIF (lei-lookup), Wikidata (wikidata-entity), gravatar.com
+  // (gravatar-check — the hash is CPU but the probe is egress), api.github.com
+  // (github-repo — shared 60/hr per-IP keyless quota PoW must not farm), and
+  // arbitrary caller sites (favicon-grab). All egress → wallet-only.
+  "lei-lookup", "wikidata-entity", "gravatar-check", "github-repo", "favicon-grab",
+  // Web-content kit: archive.org availability API (archive-snapshot), arbitrary
+  // caller feed URLs (feed-parse), and redirect-chain following against
+  // arbitrary caller URLs (unshorten-url). All egress → wallet-only.
+  // (search-videos rides with the other Brave routes above.)
+  "archive-snapshot", "feed-parse", "unshorten-url",
   // Price-feed-kit: keyless public upstreams (Pyth Hermes, CoinGecko, DeFiLlama)
   // but the rate limits are shared per-IP. PoW would let one client exhaust the
   // shared quota for every other caller.
@@ -168,6 +192,15 @@ export const WALLET_ONLY_SLUGS = new Set([
   "skill-fred-snapshot",     // calls fred-series (wallet-only)
   "skill-contact-verify",    // calls email-validate + dns-lookup (both wallet-only)
   "skill-domain-age",        // calls whois + dns-lookup + tls-cert (all wallet-only)
+  // "The 500" phase-2 packs (2026-07) that call wallet-only tools in-process
+  // (skill-schema-guard is pure CPU and stays PoW-eligible):
+  "skill-contract-audit",    // calls contract-source + selector-lookup + tx-simulate (all wallet-only)
+  "skill-tx-forensics",      // calls tx-status + evm-rpc + calldata-decode + selector-lookup (all wallet-only)
+  "skill-market-open",       // calls stock-quote + premarket-quote + options-chain + stock-dividends + earnings-calendar (all wallet-only)
+  "skill-entity-enrich",     // calls wikidata-entity + lei-lookup + edgar-company-lookup + whois + tech-stack + favicon-grab (all wallet-only)
+  "skill-feed-watch",        // calls feed-parse + extract (both wallet-only)
+  "skill-subtitle-pipeline", // calls transcribe (wallet-only — OpenAI upstream credit)
+  "skill-locale-brief",      // calls public-holidays (wallet-only — Nager.Date egress)
   // LLM proxy kit: every call burns real upstream inference credit (OpenAI).
   // PoW would let one client farm our API keys for free.
   "llm", "llm-pro", "llm-premium",

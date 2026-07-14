@@ -108,6 +108,21 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
   }
 }
 
+// Offline: every request the SDK issues carries its own User-Agent product
+// token (agent402-client/<version>) — the plain-fetch path AND the x402
+// payFetch path that settles real payments — so sellers can attribute paid
+// traffic to this SDK (payment_settled.clientUa server-side).
+{
+  const uas = [];
+  const grab = async (_url, init) => { uas.push(init?.headers?.["User-Agent"] ?? null); return { ok: true, json: async () => ({ endpoints: [] }) }; };
+  const c = new Agent402({ baseUrl: "https://seller.example", cache: false, fetch: grab, fetchImpl: grab });
+  await c._loadCatalog(); // plain fetch path
+  c._catalog = new Map([["cheap", { method: "POST", path: "/api/cheap", computePayable: false, price: "$0.01" }]]);
+  await c.call("cheap"); // payFetch path
+  ok(uas.length >= 2 && uas.every((u) => /^agent402-client\/\d+\.\d+\.\d+$/.test(u || "")),
+    `every request carries the agent402-client UA product token (got ${JSON.stringify(uas)})`);
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 try {

@@ -66,6 +66,23 @@ try {
   r = await fetch(`${B}/api/hash`, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": "key-x" }, body: JSON.stringify({ text: "hi" }) });
   ok(r.status !== 200 && r.headers.get("x-idempotent-replay") !== "true", `Idempotency-Key without payment/PoW does not get through or replay (got ${r.status})`);
 
+  // 6. Free-tier discoverability: a bare 402 for a PoW-ELIGIBLE tool must carry
+  // the altPayment hint (protocol=proof-of-work + a slug-scoped challengeUrl) so
+  // unfunded agents learn the compute path at the moment of rejection; a
+  // wallet-only tool's 402 must NOT advertise it.
+  r = await fetch(`${B}/api/hash`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "hi" }) });
+  if (r.status === 402) {
+    const body = await r.json().catch(() => ({}));
+    ok(body.altPayment?.protocol === "proof-of-work" && String(body.altPayment?.challengeUrl || "").includes("slug=hash"), "402 for a PoW-eligible tool advertises the free proof-of-work path");
+    const w = await fetch(`${B}/api/stock-quote?symbol=AAPL`);
+    const wb = w.status === 402 ? await w.json().catch(() => ({})) : {};
+    ok(!wb.altPayment, `wallet-only tool's 402 does not advertise PoW (got ${w.status})`);
+  } else {
+    // Facilitator host unreachable in this sandbox → the paywall 5xxes before
+    // building a challenge; the hint can't be exercised here. Skip honestly.
+    console.log(`skip - altPayment hint (paywall returned ${r.status}, no 402 body to inspect)`);
+  }
+
   console.log(`\n${pass} passed`);
   proc.kill("SIGKILL");
   process.exit(0);

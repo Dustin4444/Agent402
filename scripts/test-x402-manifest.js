@@ -83,7 +83,7 @@ try {
   // chosen well below the current ~1199 — if we ever drop below it, that's a
   // real regression, not a planned trim.
   ok(typeof m.capabilities?.tools === "number", `capabilities.tools is a number (got ${typeof m.capabilities?.tools})`);
-  ok(m.capabilities.tools >= 1000, `capabilities.tools >= 1000 (got ${m.capabilities.tools}) — under this floor means a kit went missing`);
+  ok(m.capabilities.tools >= 400, `capabilities.tools >= 400 (got ${m.capabilities.tools}) — under this floor means a kit went missing (The 500 era: 462 interim → 500)`);
 
   // capabilities.categories — per-category breakdown for discovery aggregators.
   ok(Array.isArray(m.capabilities?.categories) && m.capabilities.categories.length > 0, `capabilities.categories is a non-empty array (got length ${m.capabilities?.categories?.length})`);

@@ -190,6 +190,17 @@ export const PACK_PRICES = {
   "xml-json":              0.05,
   "checksum-suite":        0.05,
   "validator-suite":       0.05,
+  // "The 500" phase-2 packs (2026-07): whole-agent jobs on the new
+  // contract / finance / enrich / web / conversion tools. Priced per the
+  // additions shortlist (sum-of-tools × tier rule).
+  "contract-audit":        0.15, // 5-tool chain: contract-source + solidity-scan + selector-lookup + address-label + tx-simulate
+  "tx-forensics":          0.10, // 5-tool chain: tx-status + evm-rpc + calldata-decode + selector-lookup + address-label
+  "market-open":           0.12, // 5-tool fanout: stock-quote + premarket-quote + options-chain + stock-dividends + earnings-calendar
+  "entity-enrich":         0.15, // 6-tool fanout: wikidata-entity + lei-lookup + edgar-company-lookup + whois + tech-stack + favicon-grab
+  "feed-watch":            0.08, // 4-tool chain: feed-parse + extract + keywords + text-diff
+  "schema-guard":          0.05, // 4-tool chain: json-validate + json-schema-infer + json-diff + json-format (pure CPU)
+  "subtitle-pipeline":     0.10, // 3-tool chain: transcribe + srt-convert + text-stats
+  "locale-brief":          0.05, // 4-tool chain: country-info + public-holidays + business-days + timezone-convert
 };
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -2006,8 +2017,197 @@ export const PACK_STEPS = {
   },
 
   // ──────────────────────────────────────────────────────────────────────
-  // End of PACK_STEPS. All 86 packs above; getStepConfig auto-stubs any
-  // SKILL_PACKS entry that lands here without a matching PACK_STEPS row.
+  // "The 500" phase-2 packs (2026-07): whole-agent jobs on the new
+  // contract / finance / enrich / web / conversion tools.
+  // ──────────────────────────────────────────────────────────────────────
+
+  // Pre-interaction contract triage: source → heuristic scan → selector →
+  // label → read-only dry-run. Chain mode so solidity-scan reads the fetched
+  // source from prior["contract-source"]. Unverified contracts make the scan
+  // step fail cleanly ("no source") — that absence is itself the finding.
+  "contract-audit": {
+    mode: "chain",
+    steps: [
+      { slug: "contract-source", mapInput: (a) => ({ address: a.address, network: a.network || "base" }) },
+      { slug: "solidity-scan",   mapInput: (_a, p) => ({
+          source: Object.values(p["contract-source"]?.sources ?? {}).join("\n\n"),
+      }) },
+      // Resolve the selector of the calldata the agent intends to send.
+      // Default probe is balanceOf(address) — succeeds on any ERC-20.
+      { slug: "selector-lookup", mapInput: (a) => ({
+          selector: String(a.data || "0x70a08231").slice(0, 10),
+      }) },
+      { slug: "address-label",   mapInput: (a) => ({ address: a.address }) },
+      { slug: "tx-simulate",     mapInput: (a) => ({
+          to: a.address,
+          data: a.data || "0x70a08231000000000000000000000000abf4fabd7c416fb67202e5f9002389fc75e2a9d0",
+          network: a.network || "base",
+      }) },
+    ],
+  },
+
+  // Transaction post-mortem: status → raw tx → decoded calldata → selector →
+  // counterparty label. Chain mode so calldata-decode / selector-lookup /
+  // address-label read the input calldata and `to` address from the
+  // eth_getTransactionByHash result. A pending/unknown hash surfaces as
+  // per-step partial failures — the envelope still tells the whole story.
+  "tx-forensics": {
+    mode: "chain",
+    steps: [
+      { slug: "tx-status",       mapInput: (a) => ({ hash: a.hash, network: a.network || "base" }) },
+      { slug: "evm-rpc",         mapInput: (a) => ({
+          network: a.network || "base",
+          method: "eth_getTransactionByHash",
+          params: [a.hash],
+      }) },
+      { slug: "calldata-decode", mapInput: (_a, p) => ({
+          data: p["evm-rpc"]?.result?.input ?? "0x",
+      }) },
+      { slug: "selector-lookup", mapInput: (_a, p) => ({
+          selector: String(p["evm-rpc"]?.result?.input ?? "").slice(0, 10),
+      }) },
+      { slug: "address-label",   mapInput: (_a, p) => ({
+          address: p["evm-rpc"]?.result?.to ?? p["tx-status"]?.to ?? "",
+      }) },
+    ],
+  },
+
+  // Pre-open trading snapshot: four ticker reads + today's market-wide
+  // earnings calendar. The earnings step deliberately does NOT filter by the
+  // ticker — earnings-calendar returns companies reporting on ONE date
+  // (defaults today; symbol is only a filter), so a ticker filter comes back
+  // empty on almost every day and always for ETFs. The market-wide list
+  // ("which prints hit the tape today") is the useful pre-open context.
+  "market-open": {
+    mode: "fanout",
+    steps: [
+      { slug: "stock-quote",       mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "premarket-quote",   mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "options-chain",     mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "stock-dividends",   mapInput: (a) => ({ symbol: a.ticker }) },
+      { slug: "earnings-calendar", mapInput: () => ({}) },
+    ],
+  },
+
+  // KYB-style identity dossier: six independent lookups keyed off the
+  // company name / domain / ticker. Private companies fail the EDGAR step
+  // cleanly (partial-success) — the absence is part of the dossier.
+  "entity-enrich": {
+    mode: "fanout",
+    steps: [
+      { slug: "wikidata-entity",      mapInput: (a) => ({ name: a.name }) },
+      { slug: "lei-lookup",           mapInput: (a) => ({ name: a.name }) },
+      { slug: "edgar-company-lookup", mapInput: (a) => ({ ticker: a.ticker || a.name }) },
+      { slug: "whois",                mapInput: (a) => ({ domain: a.domain || "" }) },
+      { slug: "tech-stack",           mapInput: (a) => ({ url: `https://${a.domain || ""}` }) },
+      { slug: "favicon-grab",         mapInput: (a) => ({ url: `https://${a.domain || ""}` }) },
+    ],
+  },
+
+  // Feed monitoring loop: parse → read the top story → keyword the cycle →
+  // diff against the previous run's snapshot. Chain mode so extract /
+  // keywords / text-diff all read the parsed items from prior["feed-parse"].
+  "feed-watch": {
+    mode: "chain",
+    steps: [
+      { slug: "feed-parse", mapInput: (a) => ({ url: a.url, limit: 10 }) },
+      { slug: "extract",    mapInput: (_a, p) => ({
+          url: p["feed-parse"]?.items?.[0]?.link ?? "",
+      }) },
+      { slug: "keywords",   mapInput: (_a, p) => ({
+          text: (p["feed-parse"]?.items ?? [])
+            .map((it) => [it?.title, it?.summary].filter(Boolean).join(" — "))
+            .join("\n"),
+          limit: 10,
+      }) },
+      // Added lines in the diff = items that appeared since the last run.
+      // First run: pass no `previous` — everything shows as new.
+      { slug: "text-diff",  mapInput: (a, p) => ({
+          a: typeof a.previous === "string" ? a.previous : "",
+          b: (p["feed-parse"]?.items ?? []).map((it) => String(it?.title ?? "")).join("\n"),
+      }) },
+    ],
+  },
+
+  // JSON contract test: validate → infer → drift-diff → normalize. Pure CPU.
+  // Chain mode so json-diff compares the caller's expected schema against
+  // the schema inferred from the live payload in prior["json-schema-infer"].
+  "schema-guard": {
+    mode: "chain",
+    steps: [
+      { slug: "json-validate",     mapInput: (a) => {
+          let data = a.payload;
+          if (typeof data === "string") try { data = JSON.parse(data); } catch {}
+          let schema = a.schema ?? {};
+          if (typeof schema === "string") try { schema = JSON.parse(schema); } catch {}
+          return { data, schema };
+      } },
+      { slug: "json-schema-infer", mapInput: (a) => {
+          let json = a.payload;
+          if (typeof json === "string") try { json = JSON.parse(json); } catch {}
+          return { json };
+      } },
+      { slug: "json-diff",         mapInput: (a, p) => {
+          let schema = a.schema ?? {};
+          if (typeof schema === "string") try { schema = JSON.parse(schema); } catch {}
+          return { a: schema, b: p["json-schema-infer"]?.schema ?? {} };
+      } },
+      { slug: "json-format",       mapInput: (a) => ({
+          json: typeof a.payload === "string" ? a.payload : JSON.stringify(a.payload ?? null),
+          indent: 2,
+      }) },
+    ],
+  },
+
+  // Audio → subtitles → stats. Chain mode: srt-convert and text-stats both
+  // consume the transcript from prior["transcribe"]. The transcript arrives
+  // untimed (text + total duration), so it becomes a single full-length cue —
+  // agents needing per-line timing re-call srt-convert with their own cues.
+  "subtitle-pipeline": {
+    mode: "chain",
+    steps: [
+      { slug: "transcribe",  mapInput: (a) => ({ url: a.url }) },
+      { slug: "srt-convert", mapInput: (a, p) => {
+          const t = p["transcribe"] ?? {};
+          const ms = Math.max(1000, Math.round((Number(t.duration) || 1) * 1000));
+          return {
+            cues: [{ start: 0, end: ms, text: String(t.text ?? "") }],
+            to: a.format || "vtt",
+          };
+      } },
+      { slug: "text-stats",  mapInput: (_a, p) => ({
+          text: String(p["transcribe"]?.text ?? ""),
+      }) },
+    ],
+  },
+
+  // "Can I reach this counterparty this week?" — chain mode so the holiday
+  // and timezone steps key off the country code / primary timezone resolved
+  // by country-info.
+  "locale-brief": {
+    mode: "chain",
+    steps: [
+      { slug: "country-info",     mapInput: (a) => ({ name: a.country }) },
+      { slug: "public-holidays",  mapInput: (_a, p) => ({
+          country: p["country-info"]?.country?.code2 ?? "US",
+          year: new Date().getUTCFullYear(),
+      }) },
+      { slug: "business-days",    mapInput: () => {
+          const from = new Date();
+          const to = new Date(from.getTime() + 7 * 86400_000);
+          return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
+      } },
+      { slug: "timezone-convert", mapInput: (_a, p) => ({
+          datetime: new Date().toISOString().slice(0, 19),
+          from: "UTC",
+          to: p["country-info"]?.country?.timezones?.[0] ?? "UTC",
+      }) },
+    ],
+  },
+
+  // ──────────────────────────────────────────────────────────────────────
+  // End of PACK_STEPS. getStepConfig auto-stubs any SKILL_PACKS entry that
+  // lands here without a matching PACK_STEPS row.
   // ──────────────────────────────────────────────────────────────────────
 };
 

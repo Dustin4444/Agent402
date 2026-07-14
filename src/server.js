@@ -52,7 +52,7 @@ import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankB
 import { buildPaymentMiddleware, enabledNetworks } from "./payments.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
-import { CONVERSIONS } from "./tools/convert-gen.js";
+import { UNIT_CATEGORIES } from "./tools/convert-gen.js";
 import { SEARCH_TOOLS } from "./tools/search.js";
 import { PDF_TOOLS } from "./tools/pdf-kit.js";
 import { DEMAND_TOOLS } from "./tools/demand-kit.js";
@@ -82,6 +82,9 @@ import { FORECAST_TOOLS } from "./tools/forecast-kit.js";
 import { FINANCE_MATH_TOOLS } from "./tools/finance-math-kit.js";
 import { COLOR_TOOLS } from "./tools/color-kit.js";
 import { CHAIN_TOOLS } from "./tools/chain-kit.js";
+import { CONTRACT_TOOLS } from "./tools/contract-kit.js";
+import { ENRICH_TOOLS } from "./tools/enrich-kit.js";
+import { WEB_TOOLS } from "./tools/web-kit.js";
 import { PRICE_FEED_TOOLS } from "./tools/price-feed-kit.js";
 import { DEX_TOOLS } from "./tools/dex-kit.js";
 import { PREDICTION_MARKET_TOOLS } from "./tools/prediction-market-kit.js";
@@ -155,7 +158,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...CONVERSIONS, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool } from "./tools/route-execute.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
@@ -608,6 +611,16 @@ const ROUTE_EXECUTE_TOOL = buildRouteExecuteTool({ getCatalog: () => CATALOG, ba
 if (CATALOG[ROUTE_EXECUTE_TOOL.route]) throw new Error(`Duplicate route: ${ROUTE_EXECUTE_TOOL.route}`);
 CATALOG[ROUTE_EXECUTE_TOOL.route] = ROUTE_EXECUTE_TOOL;
 ALL_KIT.push(ROUTE_EXECUTE_TOOL);
+
+// Boot-time guard: the retired pairwise-converter 410 handler (see the
+// RETIRED_CONVERT_API_RE block below) owns both /api/convert-…-to-… and
+// /api/convert/…-to-… — a future catalog tool on either shape would be
+// silently shadowed by it, so fail the boot instead.
+for (const route of Object.keys(CATALOG)) {
+  if (/^(POST|GET) \/api\/convert[-/][a-z0-9-]+-to-[a-z0-9-]+$/.test(route)) {
+    throw new Error(`Catalog route "${route}" matches the retired convert-*-to-* pattern and would be shadowed by the 410 handler`);
+  }
+}
 
 // Routes that accept proof-of-work in lieu of payment: the pure-CPU tools.
 // Map "METHOD /path" -> tool slug, for the gate and the challenge endpoint.
@@ -1243,8 +1256,9 @@ function logToolError(slug, status, message, shape, synthetic, probe) {
   const klass = status >= 500 ? "5xx" : status >= 400 ? "4xx" : "err";
   // Probe 4xx = an empty-input scanner sweeping the catalog and every tool
   // correctly rejecting it — expected behavior, not an error. An indexer sweep
-  // of all 1,431 tools emitted 1,431 [err] lines in ~10s (2026-07-13), tripping
-  // Railway's 500 logs/sec cap and DROPPING real log lines. Skip the console
+  // of the full catalog (1,432 entries at the time) emitted 1,432 [err] lines
+  // in ~10s (2026-07-13), tripping Railway's 500 logs/sec cap and DROPPING
+  // real log lines. Skip the console
   // line for those (PostHog still captures the probe-tagged event for
   // dashboards); probe 5xx still logs — a server bug is our bug no matter who
   // triggered it.
@@ -1375,7 +1389,7 @@ const indexCtx = () => ({
   toolCount: Object.keys(CATALOG).length,
   walletName: WALLET_ENS,
 });
-// Snapshot memo. indexSnapshot iterates the full CATALOG (~1100 tools) and the
+// Snapshot memo. indexSnapshot iterates the full CATALOG (500 endpoints) and the
 // crawler's seller cache; building it costs hundreds of ms and was being done
 // on every request. Cache for 30s with a sync read + background refresh so the
 // hot path is a property lookup. Crawler refreshes still propagate within 30s.
@@ -2039,6 +2053,64 @@ app.get("/shop", (_req, res) => htmlCache(res, 300, 900).send(shopPage(BASE_URL,
 // there; the top-10 list duplicated /leaderboard and was dropped). Redirect
 // straight to /marketplace - never chain through the /index 301.
 app.get("/economy", (_req, res) => res.redirect(301, "/marketplace#economy"));
+// The ~970 pairwise convert-<from>-to-<to> endpoints are retired — the single
+// parametric POST /api/unit-convert serves every pair with the same unit ids
+// and the same math (src/tools/convert-gen.js). API calls get a 410 that
+// TEACHES the replacement — never a 301, because agents must not silently
+// re-POST paid calls across routes; the body hands them the exact new call
+// instead. Pattern safety: every retired slug starts with "convert-", so
+// surviving routes like /api/base-convert, /api/unit-convert and
+// /api/timezone-convert can never match ^/api/convert-…-to-…$.
+const RETIRED_CONVERT_UNIT_IDS = new Set(
+  Object.values(UNIT_CATEGORIES).flatMap((cat) => Object.keys(cat.units))
+);
+// Unit ids can themselves contain hyphens (nautical-miles, light-years), so
+// the "<from>-to-<to>" middle segment can't be split on the first "-to-":
+// try every "-to-" split point and keep the one where BOTH sides are real
+// unit ids (temperature ids included). No valid split → nulls; the 410 body
+// still teaches the generic replacement. Both retired prefixes —
+// "/api/convert/" (the shape the live routes actually had) and
+// "/api/convert-" (the slug shape) — are exactly 13 chars, so one slice
+// handles either.
+const parseRetiredConvertPath = (path) => {
+  const middle = path.slice("/api/convert-".length);
+  for (let i = middle.indexOf("-to-"); i !== -1; i = middle.indexOf("-to-", i + 1)) {
+    const from = middle.slice(0, i);
+    const to = middle.slice(i + 4);
+    if (RETIRED_CONVERT_UNIT_IDS.has(from) && RETIRED_CONVERT_UNIT_IDS.has(to)) return { from, to };
+  }
+  return { from: null, to: null };
+};
+// The old tools accepted both POST {value} and GET ?value=N — the 410 handler
+// covers both verbs and echoes the caller's numeric value into the taught
+// input (null when absent or non-numeric — never NaN in a JSON body).
+const RETIRED_CONVERT_API_RE = /^\/api\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/;
+const retiredConvertHandler = (req, res) => {
+  const { from, to } = parseRetiredConvertPath(req.path);
+  const raw = req.body && req.body.value !== undefined ? req.body.value : req.query.value;
+  const num = raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
+  res.status(410).json({
+    error: "This pairwise conversion endpoint is retired. Use POST /api/unit-convert with { value, from, to } — the same unit ids and the same math, one route for every pair. Discovery: GET /api/find?q=unit+convert.",
+    replacement: {
+      route: "POST /api/unit-convert",
+      input: { value: Number.isFinite(num) ? num : null, from, to },
+    },
+  });
+};
+app.post(RETIRED_CONVERT_API_RE, retiredConvertHandler);
+app.get(RETIRED_CONVERT_API_RE, retiredConvertHandler);
+// The routes that were ACTUALLY mounted (and documented in the wiki / cited by
+// buyers) were the slash form — GET /api/convert/<from>-to-<to>?value=N. Those
+// must get the same teaching 410, not a bare 404. The slug form above stays
+// covered too since agents commonly guess a route from a slug.
+const RETIRED_CONVERT_API_SLASH_RE = /^\/api\/convert\/[a-z0-9-]+-to-[a-z0-9-]+$/;
+app.post(RETIRED_CONVERT_API_SLASH_RE, retiredConvertHandler);
+app.get(RETIRED_CONVERT_API_SLASH_RE, retiredConvertHandler);
+// The retired tool PAGES carry inbound links + SEO equity — those 301 to the
+// survivor's page (a page visit has no re-POST hazard, unlike the API).
+app.get(/^\/tools\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/, (_req, res) => res.redirect(301, "/tools/unit-convert"));
+// The whole "convert" category page retired with its tools — same SEO-equity 301.
+app.get("/tools/category/convert", (_req, res) => res.redirect(301, "/tools/unit-convert"));
 app.get("/tools/category/:cat", (req, res) => {
   const html = categoryPage(BASE_URL, CATALOG, req.params.cat);
   if (!html) return res.status(404).type("html").send('<p>Category not found. <a href="/tools">All tools</a></p>');
@@ -2190,7 +2262,26 @@ app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
     name: "Agent402.Tools",
-    description: `Pay-per-call tools for AI agents via the x402 payment protocol — ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory) plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    description: `Pay-per-call tools for AI agents via the x402 payment protocol — ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images — no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    // The LLM gateway is the highest-frequency product agents buy — surface its
+    // tiers at the top level instead of burying them among ${endpointCount}
+    // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows
+    // the worst case before sending.
+    llmGateway: {
+      wire: "OpenAI-compatible",
+      base: `${BASE_URL}/v1`,
+      pricing: "flat per call — never token-metered",
+      tiers: [
+        { path: "/v1/nano/chat/completions", price: "$0.003", note: "cheap fast models" },
+        { path: "/v1/auto/chat/completions", price: "$0.01", note: "model optional — deterministic eval-ranked routing" },
+        { path: "/v1/chat/completions", price: "$0.02", note: "base tier" },
+        { path: "/v1/pro/chat/completions", price: "$0.10", note: "frontier models" },
+        { path: "/v1/premium/chat/completions", price: "$0.50", note: "largest models" },
+        { path: "/v1/embeddings", price: "$0.002", note: "batch ≤64, cached by default" },
+        { path: "/v1/images/generations", price: "$0.08", note: "b64_json out" },
+      ],
+      docs: `${BASE_URL}/tools/category/llm`,
+    },
     payment: { protocol: "x402", version: 2, network: NETWORK, currency: "USDC", networks: enabledNetworks(NETWORK) },
     altPayment: {
       protocol: "proof-of-work",
@@ -2364,6 +2455,26 @@ if (FREE_MODE) {
   app.use((req, res, next) => {
     const def = CATALOG[`${req.method} ${req.path}`];
     if (def) {
+      // Make the free tier DISCOVERABLE at the moment of rejection: PostHog
+      // showed 2.1M 402 challenges vs 235 PoW challenges issued in 14 days —
+      // the on-ramp exists but nothing at the paywall points to it. For
+      // PoW-eligible tools, append an `altPayment` hint to the 402 JSON body
+      // (additive — x402 clients read `accepts` and ignore unknown fields) so
+      // an unfunded agent learns it can compute instead of pay.
+      if (POW_SLUGS.has(def.slug)) {
+        const origJson = res.json.bind(res);
+        res.json = (body) => {
+          if (res.statusCode === 402 && body && typeof body === "object" && !Array.isArray(body) && !body.altPayment) {
+            body.altPayment = {
+              protocol: "proof-of-work",
+              summary: "No wallet? This tool is also payable with a few ms of CPU: solve a sha256 puzzle instead — no money, no tokens.",
+              challengeUrl: `${BASE_URL}/api/pow/challenge?slug=${encodeURIComponent(def.slug)}`,
+              info: `${BASE_URL}/api/pow`,
+            };
+          }
+          return origJson(body);
+        };
+      }
       res.on("finish", () => {
         if (res.statusCode === 402) {
           // Classify the bounce by what the caller tried. A payment header that
@@ -2546,7 +2657,12 @@ app.use((req, res, next) => {
           // facilitator-verified payer in the settle receipt — otherwise every
           // Solana/Stellar buyer records as null in PostHog and the sales ledger.
           const payer = payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
-          capturePostHogSettlement({ slug: def.slug, rail, network, priceUsd, synthetic, payer });
+          // Client attribution: the User-Agent PRODUCT TOKEN only (first
+          // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
+          // "node") so payment_settled can answer "which SDK/client do paying
+          // wallets use?". Never the full UA string, never an IP.
+          const clientUa = String(req.headers["user-agent"] || "").trim().split(/\s+/)[0].slice(0, 40) || null;
+          capturePostHogSettlement({ slug: def.slug, rail, network, priceUsd, synthetic, payer, clientUa });
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
           // buy" is answerable forever (the question the odometer can't).

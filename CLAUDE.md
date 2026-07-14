@@ -1,6 +1,6 @@
 # Agent402.Tools — project memory for Claude Code
 
-Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 1,431 deterministic
+Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 500 deterministic
 web tools an AI agent can call and pay for per request (USDC on Base via the x402
 protocol, or free via proof-of-work). It's two-sided — it also ships
 `agent402-tollbooth` (pay-per-crawl for site owners) and `agent402-client` (a buyer SDK).
@@ -31,6 +31,7 @@ Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
 - **Deterministic only — no LLM in the serving path.** Every tool is covered by the
   "answers its own example" CI check (`scripts/test-all.js`).
 - Pure-CPU tools are PoW-eligible (free tier) automatically unless in `WALLET_ONLY_SLUGS`.
+- **The catalog is hard-capped at 500 (400 tools + 100 skill packs), CI-enforced by `sync-count.js --check`.** Adding a tool requires removing one (same for packs) — the check derives both halves live from the booted server and fails on any other split.
 - **After adding/removing tools, run `node scripts/sync-count.js`** to update the total-count string across the ~60 static surfaces (README, wiki, docs, adapters). CI runs `sync-count.js --check` and fails on drift. Runtime surfaces (`/api/pricing`, `/openapi.json`, `docs.js`) already derive the count — leave those.
 - Memory tools (`/api/memory*`) are wallet-keyed (payment = identity), routed via `memHandler`, and must be in `WALLET_ONLY_SLUGS` + excluded from the marketplace bridge. Per-namespace
   quotas: 10k keys AND a 32MB total-value byte budget (`MEMORY_MAX_NS_BYTES`, call-time read;
@@ -155,7 +156,7 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   (`.github/workflows/openrouter-tts-probe.yml` is dispatchable from main and probes
   candidate model ids); on a 200, set `OPENROUTER_TTS_ENABLED=true` on Railway, re-add the
   llm-speech canary leg in `scripts/paid-canary.js`, run `node scripts/sync-count.js`
-  (count goes 1,431 → 1,431), and re-run `[bazaar-register]`.
+  (count +1), and re-run `[bazaar-register]`.
 - OpenRouter account top-up is manual (their programmatic top-up API is deprecated). If a
   "Gateway credits LOW" issue opens, top up the account; the alarm auto-closes the issue
   once `/api/gateway-status` reports `ok` again.

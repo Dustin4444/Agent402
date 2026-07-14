@@ -4,7 +4,7 @@
 // proof-of-work eligible). Requires BRAVE_API_KEY; without it the endpoints
 // report themselves unconfigured instead of failing opaquely.
 //
-// Four endpoints share one upstream (api.search.brave.com), one auth header
+// The GET endpoints share one upstream (api.search.brave.com), one auth header
 // (X-Subscription-Token), and one error vocabulary. `braveGet` factors that
 // out — the handlers below only differ in path + result shape.
 
@@ -324,6 +324,60 @@ export const SEARCH_TOOLS = [
         thumbnail: r.thumbnail?.src ?? null,
         width: r.properties?.width ?? null,
         height: r.properties?.height ?? null,
+      }));
+      return { query: q, count: results.length, results };
+    },
+  },
+
+  {
+    route: "GET /api/search-videos",
+    name: "Video search",
+    slug: "search-videos",
+    category: "web",
+    price: "$0.02",
+    description:
+      "Live video search: ranked video results (title, video page URL, description, duration, creator, publisher, thumbnail, age) from an independent search index as clean JSON. Completes the web/news/images search family. Same freshness filter (pd/pw/pm/py); strict safe-search is on by default.",
+    tags: ["search", "videos", "video-search", "youtube", "research"],
+    discovery: {
+      input: { q: "agent payments", count: 5 },
+      inputSchema: {
+        properties: {
+          q: { type: "string", description: "Search query (max 400 chars)" },
+          count: { type: "number", description: "Results to return, 1-50 (default 10)" },
+          freshness: { type: "string", description: "Optional: pd, pw, pm, or py (past day/week/month/year)" },
+          safesearch: { type: "string", description: "Optional: 'strict' (default) or 'off'" },
+          country: { type: "string", description: "Optional 2-letter country code (default US)" },
+        },
+        required: ["q"],
+      },
+      output: {
+        example: {
+          query: "agent payments",
+          count: 2,
+          results: [
+            { title: "The future of agentic payments", url: "https://www.youtube.com/watch?v=example", description: "How payment infrastructure for AI agents is built…", age: "March 23, 2026", duration: "14:58", creator: "Example Channel", publisher: "YouTube", thumbnail: "https://imgs.search.brave.com/..." },
+          ],
+        },
+      },
+    },
+    handler: async (i) => {
+      const q = takeQuery(i.q);
+      const count = Math.min(Math.max(parseInt(i.count, 10) || 10, 1), 50);
+      const safesearch = i.safesearch === "off" ? "off" : "strict";
+      const country = typeof i.country === "string" && /^[A-Za-z]{2}$/.test(i.country) ? i.country.toUpperCase() : undefined;
+      const data = await braveGet("/videos/search", {
+        q, count, safesearch, country,
+        freshness: FRESHNESS.has(i.freshness) ? i.freshness : undefined,
+      });
+      const results = (data.results ?? []).slice(0, count).map((r) => ({
+        title: r.title ?? null,
+        url: r.url ?? null,
+        description: r.description ?? null,
+        age: r.age ?? null,
+        duration: r.video?.duration ?? null,
+        creator: r.video?.creator ?? null,
+        publisher: r.video?.publisher ?? null,
+        thumbnail: r.thumbnail?.src ?? null,
       }));
       return { query: q, count: results.length, results };
     },
