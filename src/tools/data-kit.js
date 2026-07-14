@@ -4,11 +4,17 @@
 //   fx-rate           Frankfurter (European Central Bank reference rates)
 //   weather-forecast  api.weather.gov (US gov, public domain) — US only
 //   public-holidays   Nager.Date (open source, MIT) — holidays by country+year
-//   country-info      world-countries dataset (ODbL, the open data behind the
-//                     retired restcountries API) + IANA tz country map, both
-//                     served version-pinned from jsDelivr and cached in-process
-// All keyless. Network tools (wallet-only); covered by scripts/test-data-kit.js.
+//   country-info      committed world-countries dataset (ODbL) + IANA tz
+//                     country map — src/data/countries.json, pure CPU
+// All keyless. Network tools are wallet-only (country-info is pure CPU and
+// PoW-eligible); covered by scripts/test-data-kit.js.
+import { readFileSync } from "node:fs";
 import { safeFetch } from "./fetch-guard.js";
+
+// Committed open dataset (see src/data/LICENSE.md — ODbL attribution).
+// Regenerate with scripts/build-countries-data.js. Loaded once at module load;
+// records carry exactly the fields the country-info response returns.
+const COUNTRIES = JSON.parse(readFileSync(new URL("../data/countries.json", import.meta.url), "utf8"));
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -197,7 +203,7 @@ export const DATA_TOOLS = [
   {
     route: "GET /api/country-info", name: "Country info", slug: "country-info", category: "data", price: "$0.002",
     description:
-      "Country facts by name or ISO code: official name, capital, region, currencies, languages, timezones, dialing code, TLD, and more. Open data (the world-countries dataset behind the retired restcountries API, plus the IANA timezone country map), version-pinned and cached. ?name=Japan or ?code=JP",
+      "Country facts by name or ISO code: official name, capital, region, currencies, languages, timezones, dialing code, TLD, and more. Committed open dataset (world-countries, ODbL, plus the IANA timezone country map) — offline and deterministic. ?name=Japan or ?code=JP",
     tags: ["country", "geography", "currency", "language", "timezone", "dialing-code", "iso-3166"],
     discovery: {
       input: { name: "Japan" },
@@ -227,70 +233,20 @@ export const DATA_TOOLS = [
       if (!code && !name) throw bad('provide "name" (e.g. Japan) or "code" (ISO 3166-1 alpha-2/3, e.g. JP)');
       if (code && !/^[A-Z]{2,3}$/.test(code)) throw bad("code must be a 2- or 3-letter ISO 3166-1 code (e.g. JP or JPN)");
       if (!code && (name.length < 2 || name.length > 80)) throw bad("name must be 2-80 characters");
-      const countries = await loadCountriesDataset();
       let matches;
       if (code) {
-        matches = countries.filter((c) => c.cca2 === code || c.cca3 === code);
+        matches = COUNTRIES.filter((c) => c.code2 === code || c.code3 === code);
       } else {
         const q = name.toLowerCase();
-        const exact = countries.filter((c) => c.name?.common?.toLowerCase() === q || c.name?.official?.toLowerCase() === q);
-        matches = exact.length ? exact : countries.filter(
-          (c) => c.name?.common?.toLowerCase().includes(q) || c.name?.official?.toLowerCase().includes(q)
+        const exact = COUNTRIES.filter((c) => c.name?.toLowerCase() === q || c.officialName?.toLowerCase() === q);
+        matches = exact.length ? exact : COUNTRIES.filter(
+          (c) => c.name?.toLowerCase().includes(q) || c.officialName?.toLowerCase().includes(q)
         );
       }
       const query = code || name;
       if (!matches.length) return { query, found: false, matches: 0, country: null };
-      const c = matches[0];
-      let timezones = null;
-      try {
-        const tz = await loadTimezoneMap();
-        timezones = tz?.countries?.[c.cca2]?.zones ?? null;
-      } catch { /* tz map unavailable — return the rest of the facts */ }
-      const idd = c.idd || {};
-      const callingCode = idd.root ? idd.root + ((idd.suffixes || []).length === 1 ? idd.suffixes[0] : "") : null;
-      return {
-        query, found: true, matches: matches.length,
-        country: {
-          name: c.name?.common ?? null, officialName: c.name?.official ?? null,
-          code2: c.cca2 ?? null, code3: c.cca3 ?? null,
-          capital: Array.isArray(c.capital) ? c.capital[0] ?? null : c.capital ?? null,
-          region: c.region ?? null, subregion: c.subregion ?? null,
-          currencies: Object.entries(c.currencies || {}).map(([cc, v]) => ({ code: cc, name: v?.name ?? null, symbol: v?.symbol ?? null })),
-          languages: Object.values(c.languages || {}),
-          timezones, callingCode,
-          tld: Array.isArray(c.tld) ? c.tld[0] ?? null : c.tld ?? null,
-          demonym: c.demonyms?.eng?.m ?? null, flag: c.flag ?? null,
-          latlng: c.latlng ?? null, area: c.area ?? null,
-          landlocked: c.landlocked === true, borders: c.borders ?? [], unMember: c.unMember === true,
-        },
-      };
+      // Shallow-copy so callers can never mutate the module-level dataset.
+      return { query, found: true, matches: matches.length, country: { ...matches[0] } };
     },
   },
 ];
-
-// --- country-info dataset loaders -------------------------------------------
-// Version-pinned jsDelivr URLs are immutable, so a successful fetch is cached
-// for the process lifetime (~1.4MB once, then pure lookups). A failed fetch
-// clears the slot so the next call retries. Promise-cached to keep concurrent
-// first calls from double-fetching.
-const COUNTRIES_DATASET_URL = "https://cdn.jsdelivr.net/npm/world-countries@5.1.0/countries.json";
-const TZ_COUNTRY_MAP_URL = "https://cdn.jsdelivr.net/npm/moment-timezone@0.6.2/data/meta/latest.json";
-let countriesPromise = null;
-let tzPromise = null;
-
-function loadCountriesDataset() {
-  if (!countriesPromise) {
-    countriesPromise = getJson(COUNTRIES_DATASET_URL).then((j) => {
-      if (!Array.isArray(j) || j.length < 100) throw bad("country dataset unavailable (unexpected shape)", 502);
-      return j;
-    }).catch((e) => { countriesPromise = null; throw e; });
-  }
-  return countriesPromise;
-}
-
-function loadTimezoneMap() {
-  if (!tzPromise) {
-    tzPromise = getJson(TZ_COUNTRY_MAP_URL).catch((e) => { tzPromise = null; throw e; });
-  }
-  return tzPromise;
-}

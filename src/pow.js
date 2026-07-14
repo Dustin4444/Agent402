@@ -61,9 +61,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   "device-recalls", "college-lookup", "fec-candidates",
   "federal-awards", "geo-lookup", "fema-disasters",
   "barcode-lookup", "fx-rate", "weather-forecast",
-  // Locale/time reference (data-kit): Nager.Date (public-holidays) and the
-  // jsDelivr-hosted country dataset (country-info). Egress → wallet-only.
-  "public-holidays", "country-info",
+  // Locale/time reference (data-kit): Nager.Date egress → wallet-only.
+  // (country-info is a committed in-repo dataset now — pure CPU, PoW-eligible.)
+  "public-holidays",
   // Image tools that can fetch a caller-supplied URL (safeFetch egress).
   "image-exif", "image-dominant-color", "image-crop",
   "treasury-yield-curve", "treasury-yield-history", "yield-curve-spread",

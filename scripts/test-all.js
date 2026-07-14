@@ -41,7 +41,7 @@ const NETWORK = new Set([
   // raw.githubusercontent.com — live egress, tolerate transient upstream flaps.
   "/api/image-exif", "/api/image-dominant-color", "/api/image-crop",
   "/api/barcode-lookup", "/api/fx-rate", "/api/weather-forecast",
-  "/api/public-holidays", "/api/country-info",
+  "/api/public-holidays",
   // Weather-kit: live open-meteo forecasts — same upstream class as
   // weather-forecast above (was misfiled as pure-CPU; an open-meteo outage
   // must not hard-block the deploy gate).
