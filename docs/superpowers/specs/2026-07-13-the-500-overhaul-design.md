@@ -2,7 +2,7 @@
 
 **Status:** Draft for owner review.
 **Date:** 2026-07-13
-**Owner:** Mike Petrillo
+**Owner:** Havok Holdings LLC
 
 ## Thesis
 

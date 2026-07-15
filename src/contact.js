@@ -20,11 +20,6 @@ export function contactPage(baseUrl) {
         "https://github.com/MikeyPetrillo/Agent402",
         "https://x.com/Agent402Tools",
       ],
-      founder: {
-        "@type": "Person",
-        name: "Mike Petrillo",
-        url: "https://github.com/MikeyPetrillo",
-      },
     },
   };
 
@@ -77,8 +72,8 @@ export function contactPage(baseUrl) {
     </div>
     <div class="ct-card">
       <div class="ct-card-label">built by</div>
-      <a href="https://github.com/MikeyPetrillo" rel="noopener">Mike Petrillo</a>
-      <p>Independent developer. Open source, open book.</p>
+      <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">Havok Holdings LLC</a>
+      <p>Open source, open book.</p>
     </div>
   </div>
 

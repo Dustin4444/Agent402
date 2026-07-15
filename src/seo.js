@@ -257,6 +257,6 @@ ${toolSections}
 - [agent402-tollbooth](${baseUrl}/tollbooth): open-source, self-hostable x402 pay-per-crawl gate for your own site
 - [Skill packs JSON](${baseUrl}/api/skill-packs.json): machine-readable pack index
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool
-- [Maintainer](https://github.com/MikeyPetrillo): Mike Petrillo, mike@agent402.tools
+- [Maintainer](https://github.com/MikeyPetrillo/Agent402): Havok Holdings LLC, mike@agent402.tools
 `;
 }

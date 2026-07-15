@@ -6,8 +6,8 @@
  * Version:           0.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
- * Author:            Mikey Petrillo
- * Author URI:        https://github.com/MikeyPetrillo
+ * Author:            Havok Holdings LLC
+ * Author URI:        https://github.com/MikeyPetrillo/Agent402
  * License:           MIT
  * License URI:       https://opensource.org/licenses/MIT
  * Text Domain:       agent402-tollbooth
