@@ -20,7 +20,7 @@ import { SKILL_PACKS } from "./skills.js";
 import { RAIL_CHAIN_NAMES, RAILS_NOTE } from "./rails.js";
 
 const REPO = "https://github.com/MikeyPetrillo/Agent402";
-const MAINTAINER = { name: "Mike Petrillo", email: "mike@agent402.tools", url: "https://github.com/MikeyPetrillo" };
+const MAINTAINER = { name: "Havok Holdings LLC", email: "mike@agent402.tools", url: REPO };
 
 function priceRange(prices) {
   const nums = prices.filter((n) => n > 0);

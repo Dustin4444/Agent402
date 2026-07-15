@@ -116,7 +116,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       alternateName: "Agent402.Tools",
       url: baseUrl,
       logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` },
-      founder: { "@type": "Person", name: "Mike Petrillo", url: "https://github.com/MikeyPetrillo" },
       sameAs: [
         "https://github.com/MikeyPetrillo/Agent402",
         "https://x.com/Agent402Tools",

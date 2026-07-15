@@ -169,7 +169,7 @@ that takes a GitHub repo URL; no PR, no fork.
 
    - **Category / tags (pick what's offered):** `aggregator`, `payments`,
      `web-search`, `browser-automation`, `finance`, `developer-tools`
-   - **Author:** `Mike Petrillo / MikeyPetrillo`
+   - **Author:** `Havok Holdings LLC / MikeyPetrillo`
    - **License:** MIT
    - **Logo URL:** `https://raw.githubusercontent.com/MikeyPetrillo/Agent402/main/docs/logo-400.png`
 

@@ -2,7 +2,7 @@
 
 **Status:** Approved (design). Ready for implementation planning.
 **Date:** 2026-07-13
-**Owner:** Mike Petrillo
+**Owner:** Havok Holdings LLC
 
 ## Problem
 
