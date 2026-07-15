@@ -105,6 +105,9 @@ and these are the receipts:</p>
   Nothing about this project, including the token described here, represents anyone but the project itself.</li>
   <li><strong>Not an official token.</strong> $AGENT402 is not a product of Agent402.Tools or Havok Holdings LLC.
   We have <strong>no roadmap, no expectations, and no commitments</strong> regarding the token or any use of it.</li>
+  <li><strong>Our role: equal member, not owner.</strong> We support this community initiative and participate
+  in it as <strong>an equal member of the community, nothing more</strong>. We do not own, operate, or control
+  the token, its liquidity, or its market, and we claim no authority over what the community does with it.</li>
   <li><strong>No expectation of growth.</strong> There should be <strong>no expectation of token growth</strong>,
   in price, liquidity, adoption, or anything else. The token's market activity is entirely community-driven
   and outside our control.</li>
@@ -131,12 +134,13 @@ claimed unit goes.</p>
 
 <h3>Possible future experiments</h3>
 
-<p>We leave this deliberately open-ended: at any given time we may explore additional utilities around the
-token. One example: testing whether a portion of x402 tool purchases could automatically flow into it.
-Anything of that kind would be an <strong>experiment</strong>: tested first, subject to change, and possibly
-discontinued at any time without notice. Nothing we try, announce, or ship should create any expectation of
-further development, token growth, or value. If an experiment does move funds, it will be visible from the
-claiming wallet above.</p>
+<p>We leave this deliberately open-ended: as a member of the community, we may at any given time help
+explore utilities around the token. One example: testing whether a portion of x402 tool purchases could
+automatically flow into it. Anything of that kind would be an <strong>experiment</strong>: tested first,
+subject to change, and possibly discontinued at any time without notice. This is <strong>not the project's
+main purpose</strong>, and nothing we try, announce, or ship should create any expectation of further
+development, token growth, or value. If an experiment does move funds, it will be visible from the claiming
+wallet above.</p>
 
 <h2>Questions</h2>
 <p>Contact <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a> for further details.</p>
