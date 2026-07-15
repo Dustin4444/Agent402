@@ -323,6 +323,24 @@ export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthe
   });
 }
 
+// The worst event in the system: USDC settled on-chain but the handler
+// returned non-200 — the buyer paid for nothing. Mirrors the local
+// charged_failures SQLite tally (src/stats.js) so PostHog can alert on a
+// spike in near-real-time and attribute it to a payer wallet, which the
+// local table can't (it keeps only slug/status/ts). Volume is intrinsically
+// low (this firing at all is an incident), so no rate cap.
+export function capturePostHogChargedFailure({ slug, status, network, priceUsd, synthetic, payer }) {
+  if (!active()) return;
+  capture("charged_but_failed", {
+    slug: String(slug || "unknown"),
+    status: Number(status) || 0,
+    network: network ? String(network) : null,
+    priceUsd: Number(priceUsd) || 0,
+    synthetic: !!synthetic,
+    ...(payer ? { payer } : {}),
+  });
+}
+
 // Retired routes — the teaching 410s (the pruned convert-* pairs). Residual
 // demand for a dead route is a product signal (someone's playbook or agent
 // prompt still cites it), and without an event that demand is invisible.

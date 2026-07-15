@@ -34,7 +34,7 @@ import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCa
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -2611,6 +2611,17 @@ app.use((req, res, next) => {
         // succeeded. A non-200 with this header set means we charged the buyer
         // on-chain but the handler errored — they paid for nothing. Track it.
         recordChargedFailure(def.slug, res.statusCode);
+        // Mirror to PostHog with payer attribution so a spike is alertable in
+        // near-real-time and traceable to a wallet (the local table keeps only
+        // slug/status/ts, and the 30-min GitHub alert can't say WHO was hurt).
+        capturePostHogChargedFailure({
+          slug: def.slug,
+          status: res.statusCode,
+          network: networkFromPaymentResponse(settleReceipt),
+          priceUsd: Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0,
+          synthetic: isSyntheticRequest(req),
+          payer: payerFromRequest(req) || payerFromPaymentResponse(settleReceipt),
+        });
       }
     });
   }
