@@ -65,8 +65,8 @@ incidental, or consequential damages, or for any losses arising from use of the 
 on-chain payments. Total liability for any claim will not exceed the amount you paid for the call at issue.</p>
 
 <h2>Operator &amp; contact</h2>
-<p>Agent402.Tools is operated by <strong>Havok Holdings LLC</strong>. Contact: Mike Petrillo — <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,
-<a href="https://github.com/MikeyPetrillo" rel="noopener">github.com/MikeyPetrillo</a>,
+<p>Agent402.Tools is operated by <strong>Havok Holdings LLC</strong>. Contact: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,
+<a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">github.com/MikeyPetrillo/Agent402</a>,
 or <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a>.</p>
 </div>
 </div>

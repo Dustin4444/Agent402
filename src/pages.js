@@ -439,7 +439,7 @@ const FAQ_ITEMS = [
   { q: "How do I list my own API?", a: 'For free, three ways: your origin is auto-discovered from public x402 registries (Coinbase CDP Bazaar, GoPlausible) once it&rsquo;s live and settling; paste it on <a href="/sell">/sell</a> for an immediate probe; or call <code>POST /api/index/register</code> directly. A listed seller is routable by the Smart Order Router and ranked on <a href="/leaderboard">/leaderboard</a> by real on-chain USDC volume — 0% take, settlement lands straight in your wallet.' },
   { q: "How do I see which x402 sellers are most used?", a: '<code>GET <a href="/api/leaderboard">/api/leaderboard</a></code> returns the live on-chain ranking of every x402 seller by Base USDC settled volume — callsSettled, totalUsd, and uniqueBuyers per seller. The pipeline walks every page of the Coinbase CDP Bazaar discovery endpoint, queries <code>eth_getLogs</code> on Base USDC for each seller&rsquo;s payTo, filters per-call settlements within a $0.50 ceiling (larger inbound is funding/swaps, not buys), and aggregates. The snapshot refreshes hourly server-side. Free, like <code>/api/find</code> and <code>/api/route</code>. Use <code>?include=external</code> to exclude Agent402 itself and rank only the rest of the ecosystem.' },
   { q: "How does the Smart Order Router decide which seller to route to?", a: "It scores tools by lexical match against your query, then ranks by seller health (computed from the last five crawl outcomes), then by price. Sellers whose recent crawls errored are excluded entirely — a buyer routed to a dead seller wastes money. Brand-new sellers with no history yet are still routable: benefit of the doubt for newcomers." },
-  { q: "Who runs Agent402?", a: 'Mike Petrillo — a named, public maintainer reachable at <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>, on <a href="https://github.com/MikeyPetrillo">GitHub</a>, and on <a href="https://x.com/Agent402Tools">X</a>.' },
+  { q: "Who runs Agent402?", a: 'Havok Holdings LLC — a public, contactable maintainer reachable at <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>, on <a href="https://github.com/MikeyPetrillo/Agent402">GitHub</a>, and on <a href="https://x.com/Agent402Tools">X</a>.' },
 ];
 
 export function faqPage(baseUrl) {
@@ -602,7 +602,7 @@ export function openapiSpec(baseUrl, catalog) {
         "The open-source, self-hostable x402 server: hundreds of machine-payable web tools for AI agents in one place (browser, search, PDFs, images, live data, payment helpers) — the whole catalog is open and runnable yourself. Every endpoint is paid per call in ${RAILS_OR} — via x402 (no signup, no API keys — the first request returns HTTP 402, an x402 client pays and retries) or free with proof-of-work. Free discovery: GET /api/pricing, GET /llms.txt. Multi-tool workflows: GET /api/skill-packs.json.",
       // Email doubles as x402scan's ownership-verification signal; it is the
       // same public maintainer contact the /.well-known/x402 manifest names.
-      contact: { name: "Mike Petrillo", email: "mike@agent402.tools", url: baseUrl },
+      contact: { name: "Havok Holdings LLC", email: "mike@agent402.tools", url: baseUrl },
     },
     servers: [{ url: baseUrl }],
     tags: [

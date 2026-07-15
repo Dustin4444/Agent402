@@ -79,7 +79,7 @@ process memory only. Memory-tool data persists until deleted by its owner or TTL
 non-personal counters (total calls served per tool) are kept for the public <a href="/api/stats">/api/stats</a> page.</p>
 
 <h2>Operator &amp; contact</h2>
-<p>Agent402.Tools is operated by <strong>Havok Holdings LLC</strong>. Contact: Mike Petrillo — <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,
+<p>Agent402.Tools is operated by <strong>Havok Holdings LLC</strong>. Contact: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,
 <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">GitHub issues</a>,
 or <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a>.</p>
 </div>

@@ -396,4 +396,4 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 
 PRs that add useful tools, fix bugs, or improve docs are very welcome — see
 [CONTRIBUTING.md](CONTRIBUTING.md). MIT licensed. Maintained by
-[Mike Petrillo](https://github.com/MikeyPetrillo).
+[Havok Holdings LLC](https://github.com/MikeyPetrillo/Agent402).

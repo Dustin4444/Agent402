@@ -4,7 +4,7 @@ Agent402.Tools is an **open-source, self-hostable x402 + MCP server**: 500+ dete
 web tools an AI agent can call and pay for per request (USDC on Base via the x402
 protocol, or free via proof-of-work). It's two-sided — it also ships
 `agent402-tollbooth` (pay-per-crawl for site owners) and `agent402-client` (a buyer SDK).
-Hosted at https://agent402.tools. Maintained by Mike Petrillo (public).
+Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operating entity — use it, never a personal name, anywhere a maintainer is credited).
 
 > This file is technical project memory. Do **not** put conversation content,
 > personal info, secrets, or marketing/strategy in any committed file. Private

@@ -606,7 +606,7 @@ export function guidePage(baseUrl, slug) {
     description: g.description,
     url: canonical,
     image: `${baseUrl}/card.png`,
-    author: { "@type": "Person", name: "Mike Petrillo", url: "https://github.com/MikeyPetrillo" },
+    author: { "@type": "Organization", name: "Agent402.Tools", url: baseUrl },
     publisher: { "@type": "Organization", name: "Agent402.Tools", url: baseUrl },
   };
 
