@@ -152,6 +152,7 @@ export function sitemapPages(baseUrl, catalog) {
     ...ADAPTERS.map((a) => ({ loc: `${baseUrl}/docs/adapters/${a.slug}`, priority: "0.7" })),
     { loc: `${baseUrl}/privacy`, priority: "0.4" },
     { loc: `${baseUrl}/terms`, priority: "0.4" },
+    { loc: `${baseUrl}/transparency`, priority: "0.4" },
     { loc: `${baseUrl}/contact`, priority: "0.5" },
   ];
   return subSitemap(urls, lastmod);
