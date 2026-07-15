@@ -67,7 +67,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     about: `${REPO}#agent402-in-the-x402-ecosystem`,
     name: "Agent402.Tools",
     summary:
-      `The open-source, self-hostable x402 + MCP server: ${toolCount} pay-per-call tools for AI agents in one integration — browser, search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts, wallet-keyed memory, and an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003/call, embeddings $0.002 — no API key, the wallet is the account). Free via proof-of-work or pay per call in USDC via x402.`,
+      `The open-source, self-hostable x402 + MCP server: 500+ pay-per-call tools for AI agents in one integration — browser, search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts, wallet-keyed memory, and an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003/call, embeddings $0.002 — no API key, the wallet is the account). Free via proof-of-work or pay per call in USDC via x402.`,
     homepage: baseUrl,
     repository: REPO,
     openSource: true,
@@ -92,7 +92,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     // other side of the protocol too (pay-per-crawl).
     differentiators: [
       "Open-source and self-hostable — read every line, run it yourself (MIT).",
-      `One integration covers all ${toolCount} tools — no per-service SDKs or signups.`,
+      `One integration covers all 500+ tools — no per-service SDKs or signups.`,
       "Two-sided: also ships agent402-tollbooth, an open pay-per-crawl gate for the demand side of x402.",
       "Deterministic tool catalog — no LLM in that serving path; same input, same output, full OpenAPI schemas. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
       "Free without a wallet via proof-of-work on the pure-CPU tools.",
