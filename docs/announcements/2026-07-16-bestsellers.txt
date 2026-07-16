@@ -1,0 +1,3 @@
+Which tools do AI agents actually buy? Settlements are public on-chain — which tool was bought never is.
+
+New: /api/bestsellers ranks the catalog by real paid demand — distinct buyers, trend, organic score. $0.005/call via x402. The raw feed stays free. agent402.tools
