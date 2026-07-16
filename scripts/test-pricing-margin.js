@@ -295,8 +295,10 @@ console.log("\n# tool_gone — retired-route telemetry");
     ok(up, "free-mode server booted");
 
     // Retired routes we CAN answer are transparently served (200 + shim
-    // markers) — the tool_gone event must STILL fire for them (residual
-    // demand is the signal, served or taught).
+    // markers) and emit NO event — tool_gone is reserved for the teaching
+    // 410s, so it means "a caller we could not serve". (A marketplace crawler
+    // sweeping the ~650 cached converter listings hourly was burning ~425k
+    // served-fine events/mo before this split, 2026-07-16.)
     const res = await fetch(`${B}/api/convert-meters-to-feet?value=5`);
     const body = await res.json();
     ok(res.status === 200, `retired convert route transparently serves 200 (got ${res.status})`);
@@ -306,6 +308,9 @@ console.log("\n# tool_gone — retired-route telemetry");
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ value: 2 }),
     });
     ok(res2.status === 200, `slash-form retired route transparently serves 200 (got ${res2.status})`);
+    // A valueless hit can't be served — the teaching 410 path, which DOES emit.
+    const res410 = await fetch(`${B}/api/convert/kilograms-to-pounds`);
+    ok(res410.status === 410, `valueless retired route teaches with a 410 (got ${res410.status})`);
 
     await sleep(500); // let stdout drain
     const captured = serverLog.split("\n")
@@ -313,8 +318,8 @@ console.log("\n# tool_gone — retired-route telemetry");
       .map((l) => { try { return JSON.parse(l.slice(l.indexOf("{"))); } catch { return null; } })
       .filter((e) => e && e.event === "tool_gone");
     const routes = captured.map((e) => e.properties.route);
-    ok(routes.includes("/api/convert-meters-to-feet"), `server fired tool_gone for the slug-form route (got: ${routes.join(", ") || "none"})`);
-    ok(routes.includes("/api/convert/kilograms-to-pounds"), "server fired tool_gone for the slash-form route");
+    ok(!routes.includes("/api/convert-meters-to-feet"), `served slug-form hit emits NO tool_gone (got: ${routes.join(", ") || "none"})`);
+    ok(routes.filter((r) => r === "/api/convert/kilograms-to-pounds").length === 1, "only the unservable (410) hit emits tool_gone");
     ok(captured.every((e) => e.properties.replacement === "POST /api/unit-convert"), "every tool_gone names the replacement route");
   } catch (e) {
     ok(false, `tool_gone integration leg threw: ${e.message}`);

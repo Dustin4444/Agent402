@@ -1,12 +1,16 @@
 name: OpenRouter TTS model probe
 
 # One-shot diagnostic (workflow_dispatch only): the /v1/audio/speech tier
-# needs OpenRouter's LIVE TTS model ids — their docs and skill examples have
-# gone stale (2026-07-09: both the undated alias and the documented dated
-# snapshot were rejected with "Model does not exist"). GitHub runners are the
-# egress path the dev sandbox doesn't have. Read-only against the public
-# models API; the optional authenticated leg buys NOTHING (a rejected model id
-# costs $0 — it errors before generation).
+# needs OpenRouter's LIVE TTS model ids — their docs have burned us twice
+# (2026-07-09: every documented OpenAI TTS id rejected with "Model does not
+# exist"; 2026-07-15: docs still advertise openai/gpt-4o-mini-tts-2025-12-15
+# while the live speech-model list carries no OpenAI id at all). So this
+# probe hardcodes NOTHING: it pulls the live list from
+# /api/v1/models?output_modalities=speech and buys one "ping" from each
+# model with that model's own first supported voice. GitHub runners are the
+# egress path the dev sandbox doesn't have. A rejected model id costs $0
+# (errors before generation); a working one costs ~4 chars of input
+# (fractions of a cent).
 
 on:
   workflow_dispatch: {}
@@ -17,32 +21,136 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      # Gates the paid + E2E steps: without the key they'd all no-op anyway,
+      # so skip them visibly instead of running gray half-steps.
+      HAVE_KEY: ${{ secrets.OPENROUTER_API_KEY != '' }}
     steps:
-      - name: TTS/audio ids in the public models list
+      - name: Live speech models (public list, no key)
         run: |
-          curl -sS --max-time 30 https://openrouter.ai/api/v1/models -o /tmp/models.json
-          echo "total models: $(jq '.data | length' /tmp/models.json)"
-          echo "--- ids matching tts/speech/voxtral/chirp/audio:"
-          jq -r '.data[].id' /tmp/models.json | grep -iE 'tts|speech|voxtral|chirp|audio' || echo "(none in /api/v1/models)"
-          echo "--- output_modalities containing audio:"
-          jq -r '.data[] | select(.architecture.output_modalities != null and (.architecture.output_modalities | index("audio"))) | .id' /tmp/models.json || true
+          curl -sS --max-time 30 "https://openrouter.ai/api/v1/models?output_modalities=speech" -o /tmp/speech-models.json
+          COUNT=$(jq '.data | length' /tmp/speech-models.json)
+          echo "live speech models: $COUNT"
+          [ "$COUNT" -gt 0 ] || { echo "::error::speech model list is empty"; exit 1; }
+          # id | first voice | $/char | worst-case $ at the 2000-char cap (tier price is $0.06)
+          jq -r '.data[] | [.id, (.supported_voices[0] // "MISSING"), .pricing.prompt, ((.pricing.prompt | tonumber) * 2000 * 1000 | round / 1000)] | @tsv' /tmp/speech-models.json \
+            | column -t -s $'\t'
 
       - name: Authenticated probe of /v1/audio/speech (skips without secret)
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           [ -n "$OPENROUTER_API_KEY" ] || { echo "no OPENROUTER_API_KEY secret — skipping the endpoint probe"; exit 0; }
-          for M in "openai/gpt-4o-mini-tts" "openai/gpt-4o-mini-tts-2025-12-15" "openai/gpt-4o-mini-tts-2026-06-01" "mistralai/voxtral-mini-tts-2603" "google/gemini-2.5-flash-tts"; do
-            CODE=$(curl -sS --max-time 30 -o /tmp/tts-probe.out -w '%{http_code}' \
+          jq -r '.data[] | [.id, (.supported_voices[0] // "")] | @tsv' /tmp/speech-models.json |
+          while IFS=$'\t' read -r M V; do
+            [ -n "$V" ] || { echo "PROBE $M → SKIPPED (no supported_voices in the models API)"; continue; }
+            BODY=$(jq -cn --arg m "$M" --arg v "$V" '{model:$m, input:"ping", voice:$v, response_format:"mp3"}')
+            CODE=$(curl -sS --max-time 60 -o /tmp/tts-probe.out -w '%{http_code}' \
               -X POST https://openrouter.ai/api/v1/audio/speech \
               -H "Authorization: Bearer $OPENROUTER_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "{\"model\":\"$M\",\"input\":\"ping\",\"voice\":\"alloy\",\"response_format\":\"mp3\"}")
+              -d "$BODY")
             SIZE=$(wc -c < /tmp/tts-probe.out)
-            if [ "$CODE" = "200" ]; then
-              echo "PROBE $M → 200 (${SIZE} bytes of audio) ✅"
+            TYPE=$(file -b --mime-type /tmp/tts-probe.out)
+            if [ "$CODE" = "200" ] && [ "$SIZE" -gt 1000 ]; then
+              echo "PROBE $M (voice=$V) → 200 (${SIZE} bytes, ${TYPE}) ✅"
             else
-              echo "PROBE $M → $CODE $(head -c 200 /tmp/tts-probe.out)"
+              echo "PROBE $M (voice=$V) → $CODE (${SIZE} bytes, ${TYPE}) $(head -c 200 /tmp/tts-probe.out)"
             fi
           done
+
+      # ------------------------------------------------------------------
+      # The steps below verify the REPO'S OWN chain config with real buys:
+      # every (model, voice) pair SPEECH_MODELS actually maps to, then a
+      # full E2E through our booted server (route binder, __binary sentinel,
+      # failover chain head) — the part unit tests can only mock.
+      # ------------------------------------------------------------------
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        if: env.HAVE_KEY == 'true'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: env.HAVE_KEY == 'true'
+        with:
+          node-version: 22
+      - name: Install production deps
+        if: env.HAVE_KEY == 'true'
+        run: npm ci --omit=dev
+
+      - name: Mapped-voice matrix — buy every (model, voice) pair the code ships
+        if: env.HAVE_KEY == 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          # Pairs come from the CODE, not a hand-copied list — this step can
+          # never drift from what buyers are actually served.
+          node --input-type=module -e '
+            const { SPEECH_MODELS } = await import("./src/tools/llm-gateway-kit.js");
+            for (const m of SPEECH_MODELS)
+              for (const v of new Set(Object.values(m.map)))
+                console.log(`${m.id}\t${v}`);
+          ' > /tmp/pairs.tsv
+          echo "distinct mapped pairs: $(wc -l < /tmp/pairs.tsv)"
+          FAILS=0
+          while IFS=$'\t' read -r M V; do
+            BODY=$(jq -cn --arg m "$M" --arg v "$V" '{model:$m, input:"ping", voice:$v, response_format:"mp3"}')
+            CODE=$(curl -sS --max-time 60 -o /tmp/pair.out -w '%{http_code}' \
+              -X POST https://openrouter.ai/api/v1/audio/speech \
+              -H "Authorization: Bearer $OPENROUTER_API_KEY" -H "Content-Type: application/json" -d "$BODY")
+            SIZE=$(wc -c < /tmp/pair.out)
+            if [ "$CODE" = "200" ] && [ "$SIZE" -gt 1000 ]; then
+              echo "PAIR $M $V → 200 (${SIZE}b) ✅"
+            else
+              echo "PAIR $M $V → $CODE (${SIZE}b) ❌ $(head -c 150 /tmp/pair.out)"
+              FAILS=$((FAILS+1))
+            fi
+          done < /tmp/pairs.tsv
+          [ "$FAILS" = "0" ] || { echo "::error::$FAILS mapped (model, voice) pairs failed a real buy"; exit 1; }
+
+      - name: E2E — boot OUR server, buy through the real route binder
+        if: env.HAVE_KEY == 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+        run: |
+          FREE_MODE=true OPENROUTER_TTS_ENABLED=true PORT=3000 node src/server.js > /tmp/server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf localhost:3000/health >/dev/null && break; sleep 1; done
+          curl -sf localhost:3000/health >/dev/null || { echo "::error::server never came up"; tail -50 /tmp/server.log; exit 1; }
+
+          echo "--- /v1/models lists all 5 chain models (flag on):"
+          N=$(curl -s localhost:3000/v1/models | jq '[.data[] | select(.x402.tier == "v1-audio-speech")] | length')
+          echo "speech models listed: $N"
+          [ "$N" = "5" ] || { echo "::error::expected 5 speech models on /v1/models, got $N"; exit 1; }
+
+          echo "--- real TTS buy through OUR endpoint (OpenAI voice name):"
+          CODE=$(curl -sS --max-time 90 -o /tmp/e2e1.mp3 -w '%{http_code}' -X POST localhost:3000/v1/audio/speech \
+            -H 'content-type: application/json' -d '{"input":"Agent402 end to end test.","voice":"nova"}')
+          echo "nova → $CODE ($(wc -c < /tmp/e2e1.mp3) bytes, $(file -b --mime-type /tmp/e2e1.mp3))"
+          [ "$CODE" = "200" ] && [ "$(file -b --mime-type /tmp/e2e1.mp3)" = "audio/mpeg" ] && [ "$(wc -c < /tmp/e2e1.mp3)" -gt 1000 ] \
+            || { echo "::error::E2E OpenAI-voice buy failed"; head -c 300 /tmp/e2e1.mp3; exit 1; }
+
+          echo "--- real TTS buy through OUR endpoint (native voice id):"
+          CODE=$(curl -sS --max-time 90 -o /tmp/e2e2.mp3 -w '%{http_code}' -X POST localhost:3000/v1/audio/speech \
+            -H 'content-type: application/json' -d '{"input":"Native voice test.","voice":"en_paul_cheerful"}')
+          echo "en_paul_cheerful → $CODE ($(wc -c < /tmp/e2e2.mp3) bytes)"
+          [ "$CODE" = "200" ] && [ "$(wc -c < /tmp/e2e2.mp3)" -gt 1000 ] || { echo "::error::E2E native-voice buy failed"; exit 1; }
+
+          echo "--- FRED release-calendar with the real v2 key (retry + timeout path):"
+          if [ -n "$FRED_API_KEY_V2" ]; then
+            CODE=$(curl -sS --max-time 60 -o /tmp/fred.json -w '%{http_code}' "localhost:3000/api/fred-release-calendar?days=7")
+            echo "fred-release-calendar → $CODE ($(head -c 120 /tmp/fred.json))"
+            [ "$CODE" = "200" ] || { echo "::error::fred-release-calendar failed live"; exit 1; }
+          else
+            echo "(no FRED_API_KEY_V2 secret — skipped)"
+          fi
+
+          echo "--- treasury endpoints x10 each (FISCAL_FETCH retry wiring):"
+          FAILS=0
+          for i in $(seq 1 10); do
+            for EP in treasury-debt treasury-avg-rates; do
+              CODE=$(curl -sS --max-time 40 -o /dev/null -w '%{http_code}' "localhost:3000/api/$EP")
+              [ "$CODE" = "200" ] || { echo "$EP attempt $i → $CODE"; FAILS=$((FAILS+1)); }
+            done
+          done
+          echo "treasury: $((20-FAILS))/20 succeeded"
+          [ "$FAILS" -le 2 ] || { echo "::error::treasury failed $FAILS/20 live calls"; exit 1; }

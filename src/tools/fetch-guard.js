@@ -196,11 +196,11 @@ export async function assertPublicUrl(rawUrl) {
  * Fetch a public http(s) URL with SSRF protection, size cap, and timeout.
  * Returns { finalUrl, html } — or { finalUrl, buffer } with `binary: true`.
  */
-export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, headers = {}, method = "GET", body } = {}) {
+export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, headers = {}, method = "GET", body, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
   const url = await assertPublicUrl(rawUrl);
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
     response = await fetch(url, {
@@ -220,11 +220,16 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
   } catch (err) {
     if (isSsrfBlock(err)) throw badRequest("URL resolves to a private address");
     const timedOut = err.name === "AbortError";
+    // undici's generic "fetch failed" hides the real transport error — walk
+    // the cause chain for a code (ECONNRESET, UND_ERR_CONNECT_TIMEOUT, …) so
+    // telemetry can tell egress problems from slow upstreams.
+    let code = null;
+    for (let e = err.cause; e && !code; e = e.cause) code = e.code || null;
     throw Object.assign(
       new Error(
         timedOut
-          ? `Source URL did not respond within ${Math.round(FETCH_TIMEOUT_MS / 1000)}s — host may be slow or unreachable`
-          : `Could not connect to source URL: ${err.message}`
+          ? `Source URL did not respond within ${Math.round(timeoutMs / 1000)}s — host may be slow or unreachable`
+          : `Could not connect to source URL: ${err.message}${code ? ` (${code})` : ""}`
       ),
       { statusCode: 504 }
     );

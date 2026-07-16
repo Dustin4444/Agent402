@@ -75,6 +75,14 @@ export function initPostHog() {
   if (initialized) return { ok: enabled, reason: enabled ? undefined : "no-key" };
   initialized = true;
   if (!API_KEY) return { ok: false, reason: "no-key" };
+  // A dev/test boot with a copied .env must not stream into the production
+  // project (2026-07-13: a local sweep against an unconfigured instance put a
+  // burst of 503 "not configured" tool_errors in prod telemetry). Docker sets
+  // NODE_ENV=production (Dockerfile line 4), so every real deployment passes;
+  // POSTHOG_FORCE=true is the escape hatch for bare-metal prod runs.
+  if (process.env.NODE_ENV !== "production" && process.env.POSTHOG_FORCE !== "true") {
+    return { ok: false, reason: "non-production (NODE_ENV != production; set POSTHOG_FORCE=true to override)" };
+  }
   try {
     client = new PostHog(API_KEY, {
       host: HOST,

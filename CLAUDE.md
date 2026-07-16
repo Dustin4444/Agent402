@@ -83,15 +83,23 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
   n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →
   `b64_json`, no cache/stream, imageless upstream → 502),
-  plus **`/v1/audio/speech` `$0.06`** (`v1-audio-speech` — DELISTED, code complete:
-  OpenRouter's audio API rejected every documented TTS model id on real buys 2026-07-09
-  ("Model does not exist" — docs stale or account not enabled). Route is filtered from the
-  catalog unless `OPENROUTER_TTS_ENABLED=true` (server.js `GATEWAY_TOOLS_ENABLED`) so buyers
-  can't be charged for 502s; verify with one curl from a keyed machine, then set the flag
-  AND re-add the llm-speech canary leg. OpenAI TTS wire on OpenRouter's
-  audio API, model locked `openai/gpt-4o-mini-tts-2025-12-15`, 2k-char cap incl. `instructions`,
-  `speed<1` rejected (more metered audio), raw mp3/pcm bytes via the route binder's
-  `{__binary, contentType}` sentinel — no cache/usage accounting on binary). Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
+  plus **`/v1/audio/speech` `$0.06`** (`v1-audio-speech` — OpenAI TTS wire on
+  OpenRouter's audio API. OpenRouter has NO OpenAI TTS models (their docs still say
+  otherwise — burned us 2026-07-09); serves a FIVE-model failover chain instead
+  (`SPEECH_MODELS`: Voxtral Mini TTS → Grok Voice → Kokoro-82M → Zonos → MAI-Voice-2,
+  all proven by real buys 2026-07-16 via the dispatchable
+  `.github/workflows/openrouter-tts-probe.yml`, which probes the live
+  `?output_modalities=speech` list — never hardcoded ids). Chain walks on ANY
+  upstream failure incl. empty audio — payment settles pre-handler, so a provider
+  outage must never be the buyer's 502. OpenAI voice names map per-model; native ids
+  (e.g. `en_paul_cheerful`) accepted, listed per model on `/v1/models`. 2k-char cap;
+  TTS bills per INPUT char so worst-case/link is deterministic ($0.032 Voxtral … $0.044
+  MAI, all under price). `instructions` rejected (self-explaining 400 — no serving model
+  supports it); `speed` 0.25–4 accepted (cost-neutral, ignored by most). Raw mp3/pcm
+  bytes via the route binder's `{__binary, contentType}` sentinel — no cache/usage
+  accounting on binary. Listing still gated on `OPENROUTER_TTS_ENABLED=true`
+  (server.js `GATEWAY_TOOLS_ENABLED`) as the rollout switch — flip it on Railway after
+  deploy, then run the paid canary (llm-speech leg re-added)). Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
   the chain on upstream 502/503/504 only — every chain ends in the canary-proven model.
   **Streaming** (`stream:true`): handler returns `{__sse}` sentinel, route binder pipes SSE
   after settlement. **Prompt cache** (`cache:true`, opt-in): byte-identical repeat served
@@ -151,13 +159,13 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   identical unpaid repeat must be 200 + `X-Cache: hit`). Trigger via workflow_dispatch on
   `paid-canary.yml` (ref main) after a deploy; verdict is the job log tail.
 
-## Open follow-ups (as of 2026-07-09)
-- **/v1/audio/speech is DELISTED** (code complete, filtered from the catalog). Re-enable
-  procedure: verify OpenRouter's audio API with one curl from a keyed machine
-  (`.github/workflows/openrouter-tts-probe.yml` is dispatchable from main and probes
-  candidate model ids); on a 200, set `OPENROUTER_TTS_ENABLED=true` on Railway, re-add the
-  llm-speech canary leg in `scripts/paid-canary.js` (marketing counts are evergreen
-  “500+” — no count sweep needed), and re-run `[bazaar-register]`.
+## Open follow-ups (as of 2026-07-15)
+- **/v1/audio/speech re-enable in flight** (upstream verified 2026-07-16: the probe
+  workflow bought real audio from all five `SPEECH_MODELS`; code moved to the failover
+  chain; canary leg re-added). Remaining: merge + `[deploy]`, set
+  `OPENROUTER_TTS_ENABLED=true` on Railway, run `paid-canary.yml` (llm-speech leg must
+  go green), then re-run `[bazaar-register]`. `OPENROUTER_API_KEY` now also lives in
+  GitHub Actions secrets (added 2026-07-15 for the probe).
 - OpenRouter account top-up is manual (their programmatic top-up API is deprecated). If a
   "Gateway credits LOW" issue opens, top up the account; the alarm auto-closes the issue
   once `/api/gateway-status` reports `ok` again.

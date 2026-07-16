@@ -595,45 +595,75 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 }
 
 // /v1/audio/speech — OpenAI TTS wire over OpenRouter, raw bytes out via the
-// route binder's __binary sentinel. Cost is bounded by the locked model plus
-// the char cap; speed<1 is rejected (same text → more metered audio).
+// route binder's __binary sentinel. Payment settles before the handler, so
+// the tier serves a five-model failover chain (every link canary-proven);
+// OpenAI voice names map per-model, native ids pass through.
 {
-  const { validateSpeechRequest, SPEECH_PATH, LLM_GATEWAY_TOOLS: tools } = await import("../src/tools/llm-gateway-kit.js");
+  const { validateSpeechRequest, SPEECH_PATH, SPEECH_MODELS, LLM_GATEWAY_TOOLS: tools } = await import("../src/tools/llm-gateway-kit.js");
   ok(SPEECH_PATH === "/v1/audio/speech", "speech path constant");
   const speechTool = tools.find((t) => t.slug === "v1-audio-speech");
   ok(speechTool && speechTool.route === "POST /v1/audio/speech" && speechTool.price === "$0.060", "speech tool registered at the OpenAI wire path");
+  ok(SPEECH_MODELS.length === 5 && SPEECH_MODELS[0].id === "mistralai/voxtral-mini-tts-2603", "five-model chain, Voxtral primary");
+  ok(SPEECH_MODELS.every((e) => e.map.alloy && Object.values(e.map).every((voice) => e.voices.has(voice))), "every chain link maps each OpenAI voice name to one of its own native voices");
 
   const v = validateSpeechRequest({ input: "hello world" });
-  ok(v.body.model === "openai/gpt-4o-mini-tts-2025-12-15" && v.body.voice === "alloy" && v.body.response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: dated upstream slug (undated alias 502s on OpenRouter), alloy, mp3");
-  ok(validateSpeechRequest({ input: "hi", model: "gpt-4o-mini-tts" }).body.model === "openai/gpt-4o-mini-tts-2025-12-15", "bare family id accepted, dated slug sent upstream");
-  ok(validateSpeechRequest({ input: "hi", model: "openai/gpt-4o-mini-tts-2025-12-15" }).body.model === "openai/gpt-4o-mini-tts-2025-12-15", "the dated slug itself is accepted (echoed from /v1/models)");
+  ok(v.bodies.length === 5 && v.bodies[0].model === "mistralai/voxtral-mini-tts-2603" && v.bodies[0].voice === "en_paul_neutral" && v.bodies[0].response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: full chain, alloy maps to the primary's neutral voice, mp3");
+  ok(v.bodies.map((b) => b.model).join() === SPEECH_MODELS.map((e) => e.id).join(), "default chain order = SPEECH_MODELS order");
+  const pinned = validateSpeechRequest({ input: "hi", model: "kokoro" });
+  ok(pinned.bodies[0].model === "hexgrad/kokoro-82m" && pinned.bodies.length === 5, "explicit model pins that link first — the rest stay as fallbacks");
+  ok(validateSpeechRequest({ input: "hi", model: "voxtral-mini-tts" }).bodies[0].model === "mistralai/voxtral-mini-tts-2603", "bare family alias accepted");
+  const nova = validateSpeechRequest({ input: "hi", voice: "nova" });
+  ok(nova.bodies[0].voice === "gb_jane_confident" && nova.bodies[2].voice === "af_nova", "OpenAI voice name maps per-model down the chain");
+  const native = validateSpeechRequest({ input: "hi", voice: "en_paul_cheerful" });
+  ok(native.bodies[0].voice === "en_paul_cheerful" && native.bodies[2].voice === "af_alloy", "native voice id passes through on its model, remaps to alloy elsewhere");
   ok(validateSpeechRequest({ input: "hi", response_format: "pcm" }).contentType === "audio/pcm", "pcm supported");
+  ok(validateSpeechRequest({ input: "hi", speed: 0.5 }).bodies[0].speed === 0.5, "speed 0.25-4 accepted — upstream bills per input char, so speed is cost-neutral");
   throws(() => validateSpeechRequest({}), '"input" is required', "missing input rejected");
-  throws(() => validateSpeechRequest({ input: "x".repeat(1500), instructions: "y".repeat(600) }), "Input too long", "instructions count against the char cap");
-  throws(() => validateSpeechRequest({ input: "hi", model: "tts-1-hd" }), "fixed to", "other models rejected");
-  throws(() => validateSpeechRequest({ input: "hi", voice: "morgan-freeman" }), '"voice" must be one of', "unknown voice rejected");
+  throws(() => validateSpeechRequest({ input: "x".repeat(2100) }), "Input too long", "char cap enforced");
+  throws(() => validateSpeechRequest({ input: "hi", instructions: "warm tone" }), "not supported", "instructions rejected — serving models have no instructions channel");
+  throws(() => validateSpeechRequest({ input: "hi", model: "tts-1-hd" }), '"model" must be one of', "unknown models rejected");
+  throws(() => validateSpeechRequest({ input: "hi", voice: "morgan-freeman" }), '"voice" must be', "unknown voice rejected");
   throws(() => validateSpeechRequest({ input: "hi", response_format: "flac" }), "response_format", "unsupported format rejected");
-  throws(() => validateSpeechRequest({ input: "hi", speed: 0.5 }), "more metered audio", "speed<1 rejected — it multiplies audio output");
-  ok(validateSpeechRequest({ input: "hi", zdr: true }).body.provider?.zdr === true, "zdr folds into provider prefs");
+  throws(() => validateSpeechRequest({ input: "hi", speed: 5 }), '"speed"', "speed above 4 rejected");
+  ok(validateSpeechRequest({ input: "hi", zdr: true }).bodies.every((b) => b.provider?.zdr === true), "zdr folds into every chain link");
 
   process.env.OPENROUTER_API_KEY = "test-key";
   const realFetch = globalThis.fetch;
   const FAKE_MP3 = Buffer.from("ID3fake-mp3-bytes".repeat(50));
+  const audioRes = { ok: true, status: 200, arrayBuffer: async () => FAKE_MP3.buffer.slice(FAKE_MP3.byteOffset, FAKE_MP3.byteOffset + FAKE_MP3.byteLength) };
   let seen = null, seenUrl = null;
   globalThis.fetch = async (url, init) => {
     seenUrl = String(url);
     seen = JSON.parse(init.body);
-    return { ok: true, status: 200, arrayBuffer: async () => FAKE_MP3.buffer.slice(FAKE_MP3.byteOffset, FAKE_MP3.byteOffset + FAKE_MP3.byteLength) };
+    return audioRes;
   };
   const out = await speechTool.handler({ input: "hello", voice: "nova" });
   ok(seenUrl.includes("openrouter.ai/api/v1/audio/speech"), "hits OpenRouter's audio speech endpoint");
-  ok(seen.model === "openai/gpt-4o-mini-tts-2025-12-15" && seen.voice === "nova", "upstream body carries the dated slug and chosen voice");
+  ok(seen.model === "mistralai/voxtral-mini-tts-2603" && seen.voice === "gb_jane_confident", "upstream body carries the primary model and mapped voice");
   ok(Buffer.isBuffer(out.__binary) && out.__binary.length === FAKE_MP3.length && out.contentType === "audio/mpeg", "raw bytes returned via the __binary sentinel");
 
-  globalThis.fetch = async () => ({ ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) });
+  // A provider outage never becomes the buyer's failure: 502 on the primary
+  // walks to the next link; empty audio walks too.
+  let calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push(JSON.parse(init.body).model);
+    if (calls.length === 1) return { ok: false, status: 502, text: async () => "provider down" };
+    if (calls.length === 2) return { ok: true, status: 200, arrayBuffer: async () => new ArrayBuffer(0) };
+    return audioRes;
+  };
+  const walked = await speechTool.handler({ input: "hello", voice: "nova" });
+  ok(calls.length === 3 && calls[1] === "x-ai/grok-voice-tts-1.0" && calls[2] === "hexgrad/kokoro-82m", "chain walks past a 502 AND past empty audio");
+  ok(Buffer.isBuffer(walked.__binary) && walked.__binary.length === FAKE_MP3.length, "fallback link serves the bytes");
+
+  // Only exhausting every link surfaces an error.
+  calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push(JSON.parse(init.body).model);
+    return { ok: false, status: 503, text: async () => "everything is down" };
+  };
   await speechTool.handler({ input: "hello" }).then(
-    () => ok(false, "empty audio must not serve"),
-    (e) => ok(e.statusCode === 502 && /no audio/i.test(e.message), "empty upstream audio → 502")
+    () => ok(false, "all links down must not serve"),
+    (e) => ok(calls.length === 5 && [502, 503].includes(e.statusCode), "all five links tried before the buyer sees an error")
   );
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
