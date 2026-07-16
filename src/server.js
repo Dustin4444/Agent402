@@ -2025,14 +2025,16 @@ const retiredConvertHandler = (req, res) => {
   const { from, to } = parseRetiredConvertPath(req.path);
   const raw = req.body && req.body.value !== undefined ? req.body.value : req.query.value;
   const num = raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
-  // Residual demand for a retired route is a product signal — without this
-  // event the retired routes are a telemetry blind spot (served or taught).
-  // Fire-and-forget, rate-capped in posthog.js; env-gated no-op like every capture.
-  capturePostHogToolGone({ route: req.path, replacement: "POST /api/unit-convert" });
   if (from && to && Number.isFinite(num)) {
     try {
+      const result = +convertAnyUnit(num, from, to).toPrecision(12);
+      // Served hits emit NO event: tool_gone is reserved for the teaching
+      // 410s, so the event means "a caller we could NOT serve". A marketplace
+      // crawler sweeping all ~650 cached converter listings hourly since
+      // 2026-07-14 was pushing ~590 served-fine tool_gone/hr — ~425k
+      // events/mo of pure PostHog quota burn saying nothing.
       return res.json({
-        result: +convertAnyUnit(num, from, to).toPrecision(12),
+        result,
         from,
         to,
         _retired: true,
@@ -2043,6 +2045,9 @@ const retiredConvertHandler = (req, res) => {
       // fall through to the teaching 410 below.
     }
   }
+  // Residual demand we can't serve is the product signal worth an event.
+  // Fire-and-forget, rate-capped in posthog.js; env-gated no-op like every capture.
+  capturePostHogToolGone({ route: req.path, replacement: "POST /api/unit-convert" });
   res.status(410).json({
     error: "This pairwise conversion endpoint is retired. Use POST /api/unit-convert with { value, from, to } — the same unit ids and the same math, one route for every pair. Discovery: GET /api/find?q=unit+convert.",
     replacement: {

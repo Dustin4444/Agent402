@@ -62,11 +62,22 @@ export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) 
 }
 
 async function safeFetchRetry(url, opts = {}) {
-  return retryTransient(() => safeFetch(url, opts));
+  const { retries, backoffMs, ...fetchOpts } = opts;
+  return retryTransient(() => safeFetch(url, fetchOpts), {
+    ...(retries !== undefined ? { retries } : {}),
+    ...(backoffMs !== undefined ? { backoffMs } : {}),
+  });
 }
 
-async function getJson(url) {
-  const { html } = await safeFetchRetry(url, { maxBytes: 5 * 1024 * 1024 });
+// api.fiscaldata.treasury.gov blips arrive in back-to-back pairs (PostHog
+// tool_error data, July 2026: the single default retry still lost ~2-4% of
+// real calls daily). Three attempts with a shorter per-attempt timeout beat
+// one-retry-at-15s on BOTH axes: worst case 3×8s+backoffs ≈ 25s vs 30s, and
+// two extra chances at a feed that answers in <1s when it answers at all.
+const FISCAL_FETCH = { retries: 2, backoffMs: 400, timeoutMs: 8_000 };
+
+async function getJson(url, opts = {}) {
+  const { html } = await safeFetchRetry(url, { maxBytes: 5 * 1024 * 1024, ...opts });
   try {
     return JSON.parse(html);
   } catch {
@@ -210,7 +221,7 @@ export const MACRO_TOOLS = [
     },
     handler: async () => {
       const url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/debt_to_penny?sort=-record_date&page[size]=1";
-      const j = await getJson(url);
+      const j = await getJson(url, FISCAL_FETCH);
       const row = j?.data?.[0];
       if (!row) throw bad("Treasury debt feed unavailable", 502);
       return {
@@ -234,7 +245,7 @@ export const MACRO_TOOLS = [
     },
     handler: async () => {
       const url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=20";
-      const j = await getJson(url);
+      const j = await getJson(url, FISCAL_FETCH);
       const rows = Array.isArray(j?.data) ? j.data : [];
       if (!rows.length) throw bad("Treasury avg-rates feed unavailable", 502);
       // The endpoint returns multiple security-type rows per recordDate; keep
@@ -472,9 +483,22 @@ function requireFredV2Key() {
 //
 // `extraHeaders` lets v2 callsites pass `Authorization: Bearer <key>` — v2 dropped
 // query-param auth in favor of headers.
+// One retry on transient upstream failures: FRED's own gateway 504s in short
+// bursts (four on 2026-07-15 alone, per tool_error telemetry) and the raw
+// fetch previously had no second chance — and no timeout, so a hung FRED
+// connection held the caller's request open indefinitely.
 async function fredGetJson(url, extraHeaders = {}) {
+  return retryTransient(() => fredGetJsonOnce(url, extraHeaders));
+}
+
+async function fredGetJsonOnce(url, extraHeaders = {}) {
   const safeUrl = await assertPublicUrl(url);
-  const res = await fetch(safeUrl, { headers: { Accept: "application/json", ...extraHeaders } });
+  let res;
+  try {
+    res = await fetch(safeUrl, { headers: { Accept: "application/json", ...extraHeaders }, signal: AbortSignal.timeout(15_000) });
+  } catch (e) {
+    throw bad(`FRED unreachable: ${e.name === "TimeoutError" ? "no response within 15s" : e.message}`, 504);
+  }
   const text = await res.text();
   let body = null;
   try { body = JSON.parse(text); } catch {}
