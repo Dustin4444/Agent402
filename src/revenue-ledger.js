@@ -23,6 +23,7 @@ import { join } from "node:path";
 import {
   EVM, SOLANA_RPCS, rpcCall, pad, TRANSFER_TOPIC, USDC_SOL_MINT,
   MAX_CALL_USD, OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS, USDC_ISSUER,
+  getJsonAcross, ALGORAND_INDEXER_BASES,
 } from "./revenue-live.js";
 import { usdcDeltaForOwner, payerFromMeta, isExternalPayment } from "../scripts/revenue-scan-solana.js";
 
@@ -264,7 +265,12 @@ export async function syncStellar(wallet, { maxPages = 5 } = {}) {
  *  indexer's internal sort order. Classification mirrors algorandRail: a
  *  per-record asset-id re-check even though the URL already filters —
  *  defense in depth against a filter regression/typo. */
-const ALGORAND_INDEXER = process.env.ALGORAND_INDEXER_URL || "https://mainnet-idx.algonode.cloud";
+// ALGORAND_INDEXER_URL pins a single indexer; otherwise walk the shared base
+// list from revenue-live (Cloudflare relay first when configured — Nodely
+// 403s Railway's egress IP, see workers/algorand-relay/).
+const ALGORAND_INDEXER_LIST = process.env.ALGORAND_INDEXER_URL
+  ? [process.env.ALGORAND_INDEXER_URL.trim().replace(/\/+$/, "")]
+  : ALGORAND_INDEXER_BASES;
 const ALGORAND_USDC_ASA = 31566704;
 export async function syncAlgorand(wallet, { maxPages = 5 } = {}) {
   const chain = "algorand";
@@ -273,14 +279,12 @@ export async function syncAlgorand(wallet, { maxPages = 5 } = {}) {
   const ours = new Set([...OUR_ALGORAND_WALLETS, wallet]);
   let sawEnd = false;
   for (let pages = 0; pages < maxPages && !sawEnd; pages++) {
-    const url = new URL(`${ALGORAND_INDEXER}/v2/accounts/${wallet}/transactions`);
-    url.searchParams.set("asset-id", String(ALGORAND_USDC_ASA));
-    url.searchParams.set("tx-type", "axfer");
-    url.searchParams.set("min-round", String(minRound));
-    url.searchParams.set("limit", "1000");
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error(`indexer HTTP ${res.status}`);
-    const txns = (await res.json())?.transactions || [];
+    const path =
+      `/v2/accounts/${wallet}/transactions?asset-id=${ALGORAND_USDC_ASA}` +
+      `&tx-type=axfer&min-round=${minRound}&limit=1000`;
+    const res = await getJsonAcross(ALGORAND_INDEXER_LIST, path, { timeoutMs: 8000 });
+    if (!res.ok) throw new Error(res.error || `indexer HTTP ${res.status}`);
+    const txns = res.json?.transactions || [];
     if (!txns.length) { sawEnd = true; break; }
     let highestRound = minRound - 1;
     for (const t of txns) {
