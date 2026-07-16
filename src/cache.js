@@ -99,8 +99,9 @@ export const CACHEABLE_ROUTES = {
   "/api/weather-alerts":   { ttl:   300, keyFields: ["state"] },
   "/api/earthquakes":      { ttl:   300, keyFields: ["min_magnitude", "hours"] },
   // Release dates are scheduled weeks ahead; FRED's /releases/dates endpoint
-  // is its flakiest (8h+ of 504s on 2026-07-16) and agents poll this route on
-  // fixed schedules — an hour of caching cuts most of that exposure.
+  // is its slowest (15-60s under load, per the 2026-07-16 incident) and agents
+  // poll this route on fixed schedules — an hour of caching means most polls
+  // never wait on FRED at all.
   "/api/fred-release-calendar": { ttl: 3600, keyFields: ["days"] },
 
   // Product/code lookups — effectively static.

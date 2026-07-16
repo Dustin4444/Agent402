@@ -62,15 +62,16 @@ export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) 
 }
 
 // Serve-stale-on-error for slow-moving datasets. FRED's /releases/dates
-// endpoint went dark for 8+ hours on 2026-07-16 (every call a 504 while
-// /series/observations kept answering), and each poll of fred-release-calendar
-// surfaced the outage as a buyer-facing 504. A release calendar barely moves
-// intra-day, so the last successful payload is a strictly better answer than
-// an error: on a TRANSIENT upstream failure (502/503/504 — the same set
-// retryTransient covers) serve the last-good response for the same key,
-// marked `stale: true` + `staleAsOf`, for up to maxStaleMs. A deterministic
-// 4xx still throws — a caller mistake must never be masked by a cached
-// success. Exported so the policy is unit-locked (test-macro-kit.js).
+// endpoint runs 15-60s under load and sometimes blows FRED's own 60s gateway
+// limit (2026-07-15/16: our then-15s fetch ceiling turned that slowness into
+// an 8-hour manufactured outage of fred-release-calendar — every 30-min poll
+// a buyer-facing 504). A release calendar barely moves intra-day, so even
+// with the fetch budget fixed, the last successful payload is a strictly
+// better answer than an error: on a TRANSIENT upstream failure (502/503/504 —
+// the same set retryTransient covers) serve the last-good response for the
+// same key, marked `stale: true` + `staleAsOf`, for up to maxStaleMs. A
+// deterministic 4xx still throws — a caller mistake must never be masked by a
+// cached success. Exported so the policy is unit-locked (test-macro-kit.js).
 export async function withStaleFallback(lastGood, key, fn, { maxStaleMs, now = Date.now } = {}) {
   try {
     const payload = await fn();
@@ -523,17 +524,26 @@ function requireFredV2Key() {
 // bursts (four on 2026-07-15 alone, per tool_error telemetry) and the raw
 // fetch previously had no second chance — and no timeout, so a hung FRED
 // connection held the caller's request open indefinitely.
-async function fredGetJson(url, extraHeaders = {}) {
-  return retryTransient(() => fredGetJsonOnce(url, extraHeaders));
+// `timeoutMs`/`retries` exist because FRED endpoints have wildly different
+// latency profiles: /series/observations answers in well under a second, but
+// /releases/dates runs 15-60s under load. The blanket 15s ceiling added in the
+// 2026-07-15 resilience pass MANUFACTURED a full outage of
+// fred-release-calendar the morning it deployed (every >15s response became a
+// guaranteed 504 at 2×15s, while the old un-timed-out fetch had been quietly
+// succeeding at 30-60s). Per FRED's error docs the API fails fast with real
+// codes (400/404/423/429/500) — a slow response is a response in progress,
+// not an outage, so slow endpoints get a budget that matches, not a retry.
+async function fredGetJson(url, extraHeaders = {}, { timeoutMs, retries } = {}) {
+  return retryTransient(() => fredGetJsonOnce(url, extraHeaders, timeoutMs), retries !== undefined ? { retries } : {});
 }
 
-async function fredGetJsonOnce(url, extraHeaders = {}) {
+async function fredGetJsonOnce(url, extraHeaders = {}, timeoutMs = 15_000) {
   const safeUrl = await assertPublicUrl(url);
   let res;
   try {
-    res = await fetch(safeUrl, { headers: { Accept: "application/json", ...extraHeaders }, signal: AbortSignal.timeout(15_000) });
+    res = await fetch(safeUrl, { headers: { Accept: "application/json", ...extraHeaders }, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
-    throw bad(`FRED unreachable: ${e.name === "TimeoutError" ? "no response within 15s" : e.message}`, 504);
+    throw bad(`FRED unreachable: ${e.name === "TimeoutError" ? `no response within ${Math.round(timeoutMs / 1000)}s` : e.message}`, 504);
   }
   const text = await res.text();
   let body = null;
@@ -718,7 +728,11 @@ MACRO_TOOLS.push(
           order_by: "release_date", sort_order: "asc",
           limit: "1000",
         });
-        const j = await fredGetJson(`${FRED_BASE}/releases/dates?${qs}`);
+        // /releases/dates is FRED's slowest query — 15-60s under load (observed
+        // 2026-07-15/16). One attempt with a budget that fits: slow is a state,
+        // not a blip, so a retry only doubles the wait for the same answer —
+        // the stale fallback covers a miss instead.
+        const j = await fredGetJson(`${FRED_BASE}/releases/dates?${qs}`, {}, { timeoutMs: 45_000, retries: 0 });
         if (j?.error_code) throw bad(`FRED upstream error: ${j.error_message || "unknown"}`, 502);
         const releases = (j?.release_dates ?? []).map((r) => ({
           releaseId: r.release_id,
