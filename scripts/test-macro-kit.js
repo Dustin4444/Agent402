@@ -3,7 +3,7 @@
 // (Treasury Fiscal Data, Frankfurter/ECB, or World Bank). Fails only if an
 // assertion breaks or if EVERY live call fails (which would mean our
 // integration is broken, not one upstream).
-import { MACRO_TOOLS, retryTransient } from "../src/tools/macro-kit.js";
+import { MACRO_TOOLS, retryTransient, withStaleFallback } from "../src/tools/macro-kit.js";
 
 const h = (slug) => MACRO_TOOLS.find((t) => t.slug === slug).handler;
 let assertFail = 0, liveOk = 0, liveErr = 0;
@@ -24,6 +24,29 @@ const ok = (c, m) => { if (c) console.log(`ok - ${m}`); else { assertFail++; con
   let onceCount = 0;
   try { await retryTransient(async () => { onceCount++; throw Object.assign(new Error("x"), { statusCode: 400 }); }, { retries: 2, backoffMs: 0 }); } catch { /* expected */ }
   ok(onceCount === 1, `a deterministic 4xx is never retried (called ${onceCount}× of a possible 3)`);
+}
+
+// --- stale fallback (offline, deterministic) — locks the fix for the
+// 2026-07-16 FRED /releases/dates outage: a transient upstream failure serves
+// the last-good snapshot (marked stale), a deterministic 4xx never does, and
+// snapshots expire. ---
+{
+  const boom = (sc) => async () => { throw Object.assign(new Error("boom"), { statusCode: sc }); };
+  const m = new Map();
+  let t = 1_000_000;
+  const now = () => t;
+  const fresh = await withStaleFallback(m, 14, async () => ({ days: 14, count: 2 }), { maxStaleMs: 1_000, now });
+  ok(fresh.count === 2 && fresh.stale === undefined, "success path returns the fresh payload and caches it");
+  const stale = await withStaleFallback(m, 14, boom(504), { maxStaleMs: 1_000, now });
+  ok(stale.count === 2 && stale.stale === true && typeof stale.staleAsOf === "string", "504 within the window serves last-good marked stale");
+  ok(m.get(14).payload.stale === undefined, "the stale flag never contaminates the cached copy");
+  try { await withStaleFallback(m, 14, boom(400), { maxStaleMs: 1_000, now }); ok(false, "deterministic 400 must throw, never serve stale"); }
+  catch (e) { ok(e.statusCode === 400, `deterministic 400 throws (got ${e.statusCode})`); }
+  t += 2_000; // step past maxStaleMs
+  try { await withStaleFallback(m, 14, boom(504), { maxStaleMs: 1_000, now }); ok(false, "an expired snapshot must not be served"); }
+  catch (e) { ok(e.statusCode === 504, `504 past the stale window rethrows (got ${e.statusCode})`); }
+  try { await withStaleFallback(m, 99, boom(504), { maxStaleMs: 1_000, now }); ok(false, "a key with no snapshot must throw"); }
+  catch (e) { ok(e.statusCode === 504, `504 with no snapshot rethrows (got ${e.statusCode})`); }
 }
 
 // --- deterministic validation (no network) ---

@@ -61,6 +61,42 @@ export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) 
   throw lastErr;
 }
 
+// Serve-stale-on-error for slow-moving datasets. FRED's /releases/dates
+// endpoint went dark for 8+ hours on 2026-07-16 (every call a 504 while
+// /series/observations kept answering), and each poll of fred-release-calendar
+// surfaced the outage as a buyer-facing 504. A release calendar barely moves
+// intra-day, so the last successful payload is a strictly better answer than
+// an error: on a TRANSIENT upstream failure (502/503/504 — the same set
+// retryTransient covers) serve the last-good response for the same key,
+// marked `stale: true` + `staleAsOf`, for up to maxStaleMs. A deterministic
+// 4xx still throws — a caller mistake must never be masked by a cached
+// success. Exported so the policy is unit-locked (test-macro-kit.js).
+export async function withStaleFallback(lastGood, key, fn, { maxStaleMs, now = Date.now } = {}) {
+  try {
+    const payload = await fn();
+    lastGood.set(key, { payload, at: now() });
+    return payload;
+  } catch (e) {
+    const sc = e?.statusCode;
+    const prev = lastGood.get(key);
+    if ((sc === 502 || sc === 503 || sc === 504) && prev && now() - prev.at <= maxStaleMs) {
+      return {
+        ...prev.payload,
+        stale: true,
+        staleAsOf: new Date(prev.at).toISOString(),
+        staleReason: `FRED upstream failed (${sc}) — serving the last successful snapshot`,
+      };
+    }
+    throw e;
+  }
+}
+
+// Last-good release-calendar payloads, keyed by the `days` window (1-90, so
+// the map is bounded). 24h of staleness is acceptable for a calendar whose
+// entries are scheduled weeks ahead; past that an error is more honest.
+const RELEASE_CAL_MAX_STALE_MS = 24 * 3600 * 1000;
+const releaseCalLastGood = new Map();
+
 async function safeFetchRetry(url, opts = {}) {
   const { retries, backoffMs, ...fetchOpts } = opts;
   return retryTransient(() => safeFetch(url, fetchOpts), {
@@ -665,28 +701,32 @@ MACRO_TOOLS.push(
     },
     handler: async (i) => {
       const days = Math.min(Math.max(parseInt(i.days, 10) || 14, 1), 90);
+      // Key check stays OUTSIDE the stale wrapper: an unconfigured deployment
+      // must keep 503ing, never serve a snapshot it couldn't have fetched.
       const key = requireFredKey();
-      const today = new Date();
-      const end = new Date(today.getTime() + days * 86400 * 1000);
-      const fmt = (d) => d.toISOString().slice(0, 10);
-      // include_release_dates_with_no_data=true is essential — without it FRED
-      // hides scheduled-but-not-yet-published releases, which is exactly the
-      // forward-looking calendar callers want.
-      const qs = new URLSearchParams({
-        api_key: key, file_type: "json",
-        realtime_start: fmt(today), realtime_end: fmt(end),
-        include_release_dates_with_no_data: "true",
-        order_by: "release_date", sort_order: "asc",
-        limit: "1000",
-      });
-      const j = await fredGetJson(`${FRED_BASE}/releases/dates?${qs}`);
-      if (j?.error_code) throw bad(`FRED upstream error: ${j.error_message || "unknown"}`, 502);
-      const releases = (j?.release_dates ?? []).map((r) => ({
-        releaseId: r.release_id,
-        releaseName: r.release_name,
-        date: r.date,
-      }));
-      return { days, count: releases.length, releases, source: "FRED (St. Louis Fed)" };
+      return withStaleFallback(releaseCalLastGood, days, async () => {
+        const today = new Date();
+        const end = new Date(today.getTime() + days * 86400 * 1000);
+        const fmt = (d) => d.toISOString().slice(0, 10);
+        // include_release_dates_with_no_data=true is essential — without it FRED
+        // hides scheduled-but-not-yet-published releases, which is exactly the
+        // forward-looking calendar callers want.
+        const qs = new URLSearchParams({
+          api_key: key, file_type: "json",
+          realtime_start: fmt(today), realtime_end: fmt(end),
+          include_release_dates_with_no_data: "true",
+          order_by: "release_date", sort_order: "asc",
+          limit: "1000",
+        });
+        const j = await fredGetJson(`${FRED_BASE}/releases/dates?${qs}`);
+        if (j?.error_code) throw bad(`FRED upstream error: ${j.error_message || "unknown"}`, 502);
+        const releases = (j?.release_dates ?? []).map((r) => ({
+          releaseId: r.release_id,
+          releaseName: r.release_name,
+          date: r.date,
+        }));
+        return { days, count: releases.length, releases, source: "FRED (St. Louis Fed)" };
+      }, { maxStaleMs: RELEASE_CAL_MAX_STALE_MS });
     },
   },
   {
