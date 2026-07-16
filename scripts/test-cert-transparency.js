@@ -55,7 +55,11 @@ try {
   r = await tool.handler({ domain: "example.com" });
   const elapsed = Date.now() - t0;
   ok(r.source === "certspotter", "crt.sh hangs → hedge falls to certspotter");
-  ok(elapsed >= 1500 && elapsed < 4000, "crt.sh hangs → returns ~hedge-delay, not the 10s crt.sh timeout (" + elapsed + "ms)");
+  // Lower bound 1400, not 1500: setTimeout + Date.now() rounding can land a
+  // hair under the nominal 1.5s hedge delay (a CI run measured 1499ms and
+  // failed the exact bound). The assertion's point is "waited ~the hedge
+  // delay instead of answering immediately or stalling to crt.sh's 10s".
+  ok(elapsed >= 1400 && elapsed < 4000, "crt.sh hangs → returns ~hedge-delay, not the 10s crt.sh timeout (" + elapsed + "ms)");
   ok(r.subdomains.includes("c.example.com"), "certspotter dns_names → subdomains");
 
   // 3. crt.sh fails FAST (502) → certspotter serves immediately (no hedge wait).
