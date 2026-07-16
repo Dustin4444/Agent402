@@ -92,11 +92,17 @@ export async function withStaleFallback(lastGood, key, fn, { maxStaleMs, now = D
   }
 }
 
+// 24h of staleness is acceptable for both wrapped datasets — release dates
+// are scheduled weeks ahead and Treasury average rates are monthly; past a
+// day, an error is more honest than a snapshot.
+const MACRO_STALE_MAX_MS = 24 * 3600 * 1000;
 // Last-good release-calendar payloads, keyed by the `days` window (1-90, so
-// the map is bounded). 24h of staleness is acceptable for a calendar whose
-// entries are scheduled weeks ahead; past that an error is more honest.
-const RELEASE_CAL_MAX_STALE_MS = 24 * 3600 * 1000;
+// the map is bounded).
 const releaseCalLastGood = new Map();
+// Last-good Treasury average-rates payload (no params — one fixed key).
+// fiscaldata.treasury.gov still flakes ~1/day past the 3-attempt FISCAL_FETCH
+// retry profile; monthly data deserves a snapshot, not a 504.
+const treasuryAvgLastGood = new Map();
 
 async function safeFetchRetry(url, opts = {}) {
   const { retries, backoffMs, ...fetchOpts } = opts;
@@ -281,23 +287,25 @@ export const MACRO_TOOLS = [
       output: { example: { recordDate: "2026-05-31", rates: [{ securityType: "Marketable", security: "Treasury Notes", avgInterestRatePct: 2.85 }] } },
     },
     handler: async () => {
-      const url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=20";
-      const j = await getJson(url, FISCAL_FETCH);
-      const rows = Array.isArray(j?.data) ? j.data : [];
-      if (!rows.length) throw bad("Treasury avg-rates feed unavailable", 502);
-      // The endpoint returns multiple security-type rows per recordDate; keep
-      // only the most recent date so the response is a single snapshot.
-      const latest = rows[0].record_date;
-      const filtered = rows.filter((r) => r.record_date === latest);
-      return {
-        recordDate: latest,
-        rates: filtered.map((r) => ({
-          securityType: r.security_type_desc ?? null,
-          security: r.security_desc ?? null,
-          avgInterestRatePct: r.avg_interest_rate_amt != null ? Number(r.avg_interest_rate_amt) : null,
-        })),
-        source: "Treasury Fiscal Data API (public domain)",
-      };
+      return withStaleFallback(treasuryAvgLastGood, "latest", async () => {
+        const url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=20";
+        const j = await getJson(url, FISCAL_FETCH);
+        const rows = Array.isArray(j?.data) ? j.data : [];
+        if (!rows.length) throw bad("Treasury avg-rates feed unavailable", 502);
+        // The endpoint returns multiple security-type rows per recordDate; keep
+        // only the most recent date so the response is a single snapshot.
+        const latest = rows[0].record_date;
+        const filtered = rows.filter((r) => r.record_date === latest);
+        return {
+          recordDate: latest,
+          rates: filtered.map((r) => ({
+            securityType: r.security_type_desc ?? null,
+            security: r.security_desc ?? null,
+            avgInterestRatePct: r.avg_interest_rate_amt != null ? Number(r.avg_interest_rate_amt) : null,
+          })),
+          source: "Treasury Fiscal Data API (public domain)",
+        };
+      }, { maxStaleMs: MACRO_STALE_MAX_MS });
     },
   },
   {
@@ -740,7 +748,7 @@ MACRO_TOOLS.push(
           date: r.date,
         }));
         return { days, count: releases.length, releases, source: "FRED (St. Louis Fed)" };
-      }, { maxStaleMs: RELEASE_CAL_MAX_STALE_MS });
+      }, { maxStaleMs: MACRO_STALE_MAX_MS });
     },
   },
   {
