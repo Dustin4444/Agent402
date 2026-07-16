@@ -237,5 +237,32 @@ try {
   facilitator.close();
 }
 
+// 3. ENV GUARD — initPostHog must refuse a dev/test boot even with a key
+// present (the 2026-07-13 incident: a local sweep with a copied .env put a
+// burst of "not configured" tool_errors in prod telemetry). Docker sets
+// NODE_ENV=production (verified: railway.toml builder=DOCKERFILE →
+// Dockerfile ENV), so every real deployment activates; POSTHOG_FORCE=true is
+// the bare-metal escape hatch. Fresh subprocess per combo — module state
+// caches the decision.
+{
+  const initWith = (env) => new Promise((resolve) => {
+    const p = spawn(process.execPath, ["--input-type=module", "-e",
+      'const m = await import(new URL("../src/posthog.js", "file://" + process.cwd() + "/scripts/").href); console.log(JSON.stringify(m.initPostHog()))'],
+      { env: { PATH: process.env.PATH, ...env }, cwd: process.cwd(), stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    p.stdout.on("data", (d) => { out += d; });
+    p.on("close", () => { try { resolve(JSON.parse(out.trim().split("\n").pop())); } catch { resolve({ ok: null, raw: out }); } });
+  });
+  const FAKE = { POSTHOG_API_KEY: "phc_test_not_a_real_key" };
+  const dev = await initWith({ ...FAKE });
+  ok(dev.ok === false && /non-production/.test(dev.reason || ""), `key present but NODE_ENV unset → disabled (got ${JSON.stringify(dev)})`);
+  const prod = await initWith({ ...FAKE, NODE_ENV: "production" });
+  ok(prod.ok === true, `key + NODE_ENV=production → enabled (got ${JSON.stringify(prod)})`);
+  const forced = await initWith({ ...FAKE, POSTHOG_FORCE: "true" });
+  ok(forced.ok === true, `key + POSTHOG_FORCE=true overrides a non-prod NODE_ENV (got ${JSON.stringify(forced)})`);
+  const nokey = await initWith({ NODE_ENV: "production" });
+  ok(nokey.ok === false && nokey.reason === "no-key", `no key stays a no-op regardless of NODE_ENV (got ${JSON.stringify(nokey)})`);
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
