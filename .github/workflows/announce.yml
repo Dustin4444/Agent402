@@ -16,6 +16,10 @@ on:
         description: "Optional demo card to render live and attach: 'bestsellers' (buys one /api/bestsellers response with the canary burner, renders the brand card, posts it as media). Leave empty for text-only."
         required: false
         default: ""
+      delete_id:
+        description: "Optional id of a previous post to delete BEFORE posting (replace-a-bad-post flow). Deleting an already-gone id is a no-op."
+        required: false
+        default: ""
   push:
     branches: ["claude/sweet-brown-i99jl3"]
     paths: [".github/trigger-announce"]
@@ -54,6 +58,14 @@ jobs:
       - name: Render the demo card from the live response
         if: github.event.inputs.card == 'bestsellers'
         run: node scripts/bestsellers-card.js --from /tmp/bestsellers.json --out /tmp/announce-card.png
+      - name: Delete the previous post (replace flow)
+        if: github.event.inputs.delete_id != ''
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: node scripts/tweet.js --delete "${{ github.event.inputs.delete_id }}"
       - name: Post the announcement
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
