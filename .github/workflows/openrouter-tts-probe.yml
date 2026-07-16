@@ -13,7 +13,13 @@ name: OpenRouter TTS model probe
 # (fractions of a cent).
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "probe = model sweep + E2E · capture = one real paid buy, waveform artifact for launch cards"
+        type: choice
+        options: [probe, capture]
+        default: probe
 
 permissions:
   contents: read
@@ -38,6 +44,7 @@ jobs:
             | column -t -s $'\t'
 
       - name: Authenticated probe of /v1/audio/speech (skips without secret)
+        if: github.event.inputs.mode != 'capture'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
@@ -77,7 +84,7 @@ jobs:
         run: npm ci --omit=dev
 
       - name: Mapped-voice matrix — buy every (model, voice) pair the code ships
-        if: env.HAVE_KEY == 'true'
+        if: env.HAVE_KEY == 'true' && github.event.inputs.mode != 'capture'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
@@ -107,7 +114,7 @@ jobs:
           [ "$FAILS" = "0" ] || { echo "::error::$FAILS mapped (model, voice) pairs failed a real buy"; exit 1; }
 
       - name: E2E — boot OUR server, buy through the real route binder
-        if: env.HAVE_KEY == 'true'
+        if: env.HAVE_KEY == 'true' && github.event.inputs.mode != 'capture'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -154,3 +161,82 @@ jobs:
           done
           echo "treasury: $((20-FAILS))/20 succeeded"
           [ "$FAILS" -le 2 ] || { echo "::error::treasury failed $FAILS/20 live calls"; exit 1; }
+
+      # ------------------------------------------------------------------
+      # mode=capture: buy ONE real /v1/audio/speech call from prod with the
+      # canary burner (a genuine $0.06 x402 settlement, heartbeat-marked so
+      # it records as internal), render the actual audio's waveform, and
+      # upload mp3 + waveform + stats artifacts. Feeds the launch-card
+      # pipeline: cards must show REAL output from a REAL paid call.
+      # ------------------------------------------------------------------
+      - name: Capture — one real paid speech buy from prod
+        if: github.event.inputs.mode == 'capture'
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+        run: |
+          [ -n "$BURNER_KEY" ] || { echo "::error::no BURNER_KEY secret"; exit 1; }
+          node --input-type=module -e '
+            import { createHmac } from "node:crypto";
+            import { writeFileSync } from "node:fs";
+            const [{ privateKeyToAccount }, { x402Client }, { registerExactEvmScheme }, { wrapFetchWithPayment }] = await Promise.all([
+              import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"), import("@x402/fetch"),
+            ]);
+            const account = privateKeyToAccount(process.env.BURNER_KEY.trim());
+            const client = new x402Client();
+            registerExactEvmScheme(client, { signer: account });
+            const secret = (process.env.POW_SECRET || "").trim();
+            const synthFetch = !secret ? fetch : (input, init) => {
+              const minute = Math.floor(Date.now() / 60_000);
+              const token = createHmac("sha256", secret).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32);
+              const req = new Request(input, init);
+              req.headers.set("X-Heartbeat-Token", token);
+              return fetch(req);
+            };
+            const payFetch = wrapFetchWithPayment(synthFetch, client);
+            const body = { input: "Hello from Agent 402. Five text to speech models, one endpoint, paid per call over x 4 0 2. No A P I key, no signup.", voice: "nova" };
+            const t0 = Date.now();
+            const res = await payFetch("https://agent402.tools/v1/audio/speech", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const ms = Date.now() - t0;
+            const buf = Buffer.from(await res.arrayBuffer());
+            if (res.status !== 200 || buf.length < 1000) {
+              console.error("buy failed:", res.status, buf.slice(0, 300).toString());
+              process.exit(1);
+            }
+            writeFileSync("/tmp/demo.mp3", buf);
+            writeFileSync("/tmp/stats.json", JSON.stringify({
+              status: res.status,
+              contentType: res.headers.get("content-type"),
+              bytes: buf.length,
+              ms,
+              chars: body.input.length,
+              voice: body.voice,
+            }, null, 2));
+            console.log("bought:", res.status, res.headers.get("content-type"), buf.length, "bytes in", ms, "ms");
+          '
+
+      - name: Capture — waveform + duration via ffmpeg
+        if: github.event.inputs.mode == 'capture'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null 2>&1
+          DUR=$(ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 /tmp/demo.mp3)
+          echo "duration: ${DUR}s"
+          echo "{\"durationSec\": $DUR}" > /tmp/duration.json
+          # Cream bars on transparency; the card composer lays this over the
+          # dark terminal panel.
+          ffmpeg -v error -i /tmp/demo.mp3 -filter_complex "aformat=channel_layouts=mono,compand=gain=3,showwavespic=s=880x200:colors=#F2EAD8" -frames:v 1 /tmp/waveform.png
+          ls -la /tmp/demo.mp3 /tmp/waveform.png
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.event.inputs.mode == 'capture'
+        with:
+          name: tts-demo
+          path: |
+            /tmp/demo.mp3
+            /tmp/waveform.png
+            /tmp/stats.json
+            /tmp/duration.json
