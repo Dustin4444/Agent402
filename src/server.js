@@ -34,7 +34,7 @@ import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCa
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
-import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
+import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
 import { operatorPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
@@ -170,7 +170,7 @@ import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } 
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
 // per-IP bucket. PoW redemption on the direct HTTP path goes through here.
 const powHttpLimiter = createRateLimiter("pow-http");
-import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, getStats, getOperatorBreakdown, dbHealthy, statsPersistent } from "./stats.js";
+import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID } from "node:crypto";
 
 const PORT = process.env.PORT || 3000;
@@ -2616,21 +2616,47 @@ app.use((req, res, next) => {
           });
         }
       } else if (settleReceipt) {
-        // The middleware sets the settle receipt only after USDC settlement
-        // succeeded. A non-200 with this header set means we charged the buyer
-        // on-chain but the handler errored — they paid for nothing. Track it.
-        recordChargedFailure(def.slug, res.statusCode);
-        // Mirror to PostHog with payer attribution so a spike is alertable in
-        // near-real-time and traceable to a wallet (the local table keeps only
-        // slug/status/ts, and the 30-min GitHub alert can't say WHO was hurt).
-        capturePostHogChargedFailure({
-          slug: def.slug,
-          status: res.statusCode,
-          network: networkFromPaymentResponse(settleReceipt),
-          priceUsd: Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0,
-          synthetic: isSyntheticRequest(req),
-          payer: payerFromRequest(req) || payerFromPaymentResponse(settleReceipt),
-        });
+        // A non-200 carrying the settle-receipt header. The receipt's `success`
+        // field decides which incident this is: the middleware attaches the
+        // header to settle FAILURES too (a facilitator rejection produces a 402
+        // whose receipt is { success:false, errorReason }), so header presence
+        // alone never means "charged" — a Robinhood settle rejection was
+        // miscounted as charged-but-failed on 2026-07-16 (no USDG ever moved).
+        const receipt = decodeSettleReceipt(settleReceipt);
+        const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+        const network = networkFromPaymentResponse(settleReceipt);
+        const synthetic = isSyntheticRequest(req);
+        const payer = payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+        if (receipt?.success === false) {
+          // Settlement REJECTED — the buyer kept their money; we lost the
+          // sale. A rail-health signal, not buyer harm: PostHog only, never
+          // the local charged-failure odometer.
+          capturePostHogSettleFailed({
+            slug: def.slug,
+            status: res.statusCode,
+            network,
+            priceUsd,
+            synthetic,
+            payer,
+            errorReason: receipt.errorReason || receipt.errorMessage || null,
+          });
+        } else {
+          // success:true — or an unreadable/legacy receipt without the field,
+          // kept in this bucket ON PURPOSE: the buyer-was-charged alarm must
+          // fail loud, so only an explicit success:false downgrades it.
+          recordChargedFailure(def.slug, res.statusCode);
+          // Mirror to PostHog with payer attribution so a spike is alertable in
+          // near-real-time and traceable to a wallet (the local table keeps only
+          // slug/status/ts, and the 30-min GitHub alert can't say WHO was hurt).
+          capturePostHogChargedFailure({
+            slug: def.slug,
+            status: res.statusCode,
+            network,
+            priceUsd,
+            synthetic,
+            payer,
+          });
+        }
       }
     });
   }

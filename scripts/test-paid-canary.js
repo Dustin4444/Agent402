@@ -1,7 +1,7 @@
 // Unit tests for the paid-canary's decision logic — proves the canary pages on
 // real BUYING failures and only warns on upstream/data hiccups (the chronic
 // false-alarm fix). Pure, no network, no wallet.
-import { classifyResult, decideCanary } from "./paid-canary.js";
+import { classifyResult, decideCanary, settleRejectReason } from "./paid-canary.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -57,6 +57,41 @@ ok(d.broken === false, "3 upstream 5xx (payment settled) → NOT broken");
 // All good → not broken, no warnings.
 d = decideCanary(run());
 ok(d.broken === false && d.warnings.length === 0, "all settled → not broken, no warnings");
+
+// --- settleRejectReason ---
+// A settle-failure 402 carries the FAILED receipt in PAYMENT-RESPONSE; the
+// payment-required header is just a fresh challenge. The helper must read the
+// receipt first (the 2026-07-16 Robinhood rejection printed "reason: null"
+// because only the challenge was decoded).
+const b64 = (obj) => Buffer.from(JSON.stringify(obj)).toString("base64");
+const hdrs = (map) => ({ get: (n) => map[n] ?? null });
+
+ok(
+  settleRejectReason(hdrs({ "payment-response": b64({ success: false, errorReason: "insufficient_funds", network: "eip155:4663" }) })) === "insufficient_funds",
+  "failed receipt → errorReason"
+);
+ok(
+  settleRejectReason(hdrs({ "payment-response": b64({ success: false, errorMessage: "balance too low" }) })) === "balance too low",
+  "failed receipt without errorReason → errorMessage"
+);
+ok(
+  settleRejectReason(hdrs({ "x-payment-response": b64({ success: false, errorReason: "expired_authorization" }) })) === "expired_authorization",
+  "v1 header name also read"
+);
+// A SUCCESS receipt on a 402 is not a settle rejection — fall through to the challenge.
+ok(
+  settleRejectReason(hdrs({
+    "payment-response": b64({ success: true, transaction: "0xabc" }),
+    "payment-required": b64({ error: "verify failed: bad signature" }),
+  })) === "verify failed: bad signature",
+  "success receipt → falls through to the challenge error"
+);
+ok(
+  settleRejectReason(hdrs({ "payment-required": b64({ error: "no payment attached" }) })) === "no payment attached",
+  "no receipt → challenge error"
+);
+ok(settleRejectReason(hdrs({ "payment-response": "!!!garbage!!!" })) === null, "malformed receipt, no challenge → null");
+ok(settleRejectReason(hdrs({})) === null, "no headers → null");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

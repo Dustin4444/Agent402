@@ -120,22 +120,35 @@ const CAIP2_NAMES = {
 };
 
 /**
- * Which chain a settled x402 call was paid on, from the settle-receipt header
- * the middleware sets after settlement (PAYMENT-RESPONSE in x402 v2,
- * X-PAYMENT-RESPONSE in v1): base64-encoded JSON with a `network` field —
- * CAIP-2 in v2, short name in v1. Pure and defensive: any shape surprise →
- * null, never a throw.
+ * Decode the settle-receipt header (PAYMENT-RESPONSE in x402 v2,
+ * X-PAYMENT-RESPONSE in v1) into its JSON object, or null.
+ *
+ * SEMANTICS THAT MATTER (verified against @x402/core, 2026-07-16): the
+ * middleware attaches this header to settle FAILURES too — a facilitator
+ * rejection produces a 402 whose receipt is { success:false, errorReason, … }.
+ * So the header's PRESENCE never proves the buyer was charged; only the
+ * receipt's `success` field does. Pure and defensive: any shape surprise →
+ * null, never a throw (this runs in the tally middleware on every response).
  */
-export function networkFromPaymentResponse(headerValue) {
+export function decodeSettleReceipt(headerValue) {
   if (typeof headerValue !== "string" || !headerValue) return null;
   try {
     const receipt = JSON.parse(Buffer.from(headerValue, "base64").toString("utf8"));
-    const net = receipt?.network;
-    if (typeof net !== "string" || !net) return null;
-    return CAIP2_NAMES[net] || net;
+    return receipt && typeof receipt === "object" && !Array.isArray(receipt) ? receipt : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * Which chain a settled x402 call was paid on, from the settle receipt:
+ * `network` is CAIP-2 in v2, a short name in v1. Same defensive contract as
+ * the decoder above.
+ */
+export function networkFromPaymentResponse(headerValue) {
+  const net = decodeSettleReceipt(headerValue)?.network;
+  if (typeof net !== "string" || !net) return null;
+  return CAIP2_NAMES[net] || net;
 }
 
 /**

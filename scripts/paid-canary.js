@@ -319,6 +319,30 @@ export const TOOLS = [
   },
 ];
 
+// Why a paid request 402'd. On a settle FAILURE the middleware attaches the
+// FAILED receipt to the 402's PAYMENT-RESPONSE header ({ success:false,
+// errorReason, errorMessage }) — THAT is where the facilitator's actual
+// rejection reason lives. The payment-required header on the same response is
+// just a fresh challenge (its `error` names a verify failure, if any), which
+// is why reading only it printed "facilitator reason: null" for the
+// 2026-07-16 Robinhood rejection and discarded the only copy of the reason.
+// Pure (takes anything with .get(name)) — unit-tested in test-paid-canary.js.
+export function settleRejectReason(headers) {
+  for (const name of ["payment-response", "x-payment-response"]) {
+    const h = headers.get(name);
+    if (!h) continue;
+    try {
+      const receipt = JSON.parse(Buffer.from(h, "base64").toString("utf8"));
+      if (receipt?.success === false) return receipt.errorReason || receipt.errorMessage || null;
+    } catch { /* malformed receipt — fall through to the challenge */ }
+  }
+  const h = headers.get("payment-required");
+  if (h) {
+    try { return JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ }
+  }
+  return null;
+}
+
 // Classify one tool result. Pure — unit-tested in scripts/test-paid-canary.js.
 //   settled | bad-shape | unsettled | upstream | request-error | unreachable
 export function classifyResult({ status, shapeOk, transportError } = {}) {
@@ -468,10 +492,11 @@ async function main() {
         console.log(`\nOK    solana     /api/skill/decode-blob  → settled $0.05 USDC on Solana (payer ${signer.address})${tx ? `\n      tx: https://solscan.io/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
       } else if (res.status === 402) {
         console.warn(`\nWARN  solana leg did NOT settle (HTTP 402, payer ${signer.address}) — decoding diagnostics:`);
-        // The rejection reason lives in the PAYMENT-REQUIRED header of the
-        // response that came back AFTER the client attached payment — decode
-        // it verbatim so the log names the actual verify/settle failure
-        // (wrong mint, missing feePayer, insufficient funds, version skew)
+        // A settle rejection's reason rides the PAYMENT-RESPONSE header
+        // (settleRejectReason reads it); the PAYMENT-REQUIRED header on the
+        // same response is the re-issued challenge whose `error` names a
+        // VERIFY failure (wrong mint, missing feePayer, insufficient funds,
+        // version skew). Decode both so the log names the actual failure
         // instead of guessing.
         const decode402 = (r) => {
           const h = r.headers.get("payment-required");
@@ -479,6 +504,7 @@ async function main() {
           try { return JSON.parse(Buffer.from(h, "base64").toString("utf8")); } catch { return null; }
         };
         const failReq = decode402(res);
+        console.warn(`      settle rejection reason: ${JSON.stringify(settleRejectReason(res.headers))}`);
         console.warn(`      post-payment challenge: error=${JSON.stringify(failReq?.error ?? null)} x402Version=${failReq?.x402Version ?? "?"}`);
         try {
           // Fresh unpaid request → what a Solana buyer is actually offered.
@@ -550,9 +576,7 @@ async function main() {
         }
         console.log(`\nOK    robinhood  /api/hash  → settled $0.001 USDG on Robinhood Chain (payer ${account.address}${net ? `, network ${net}` : ""})${tx ? `\n      tx: https://robinhoodchain.blockscout.com/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
       } else if (paid.status === 402) {
-        const h = paid.headers.get("payment-required");
-        let reason = null;
-        if (h) { try { reason = JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ } }
+        const reason = settleRejectReason(paid.headers);
         console.warn(`\nWARN  robinhood leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded USDG burner, facilitator outage, or EIP-712 domain drift)`);
       } else {
         console.warn(`\nWARN  robinhood leg: HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
@@ -614,9 +638,7 @@ async function main() {
         }
         console.log(`\nOK    ${leg.key.padEnd(9)} /api/hash  → settled $0.001 ${leg.sym} on ${leg.chainLabel} (payer ${account.address}${net ? `, network ${net}` : ""})${tx ? `\n      tx: ${leg.tx(tx)}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
       } else if (paid.status === 402) {
-        const h = paid.headers.get("payment-required");
-        let reason = null;
-        if (h) { try { reason = JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ } }
+        const reason = settleRejectReason(paid.headers);
         console.warn(`\nWARN  ${leg.key} leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded ${leg.sym} burner on ${leg.chainLabel}, facilitator outage, or EIP-712 domain drift)`);
       } else {
         console.warn(`\nWARN  ${leg.key} leg: HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
@@ -665,9 +687,7 @@ async function main() {
         }
         console.log(`\nOK    stellar    /api/hash  → settled $0.001 USDC on Stellar (payer ${keypair.publicKey()})${tx ? `\n      tx: https://stellar.expert/explorer/public/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
       } else if (res.status === 402) {
-        const h = res.headers.get("payment-required");
-        let reason = null;
-        if (h) { try { reason = JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ } }
+        const reason = settleRejectReason(res.headers);
         console.warn(`\nWARN  stellar leg did NOT settle (HTTP 402, payer ${keypair.publicKey()}) — facilitator reason: ${JSON.stringify(reason)} (missing USDC trustline/funds, facilitator outage, or stellar missing from the live accepts)`);
       } else {
         console.warn(`\nWARN  stellar leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
@@ -717,9 +737,7 @@ async function main() {
         }
         console.log(`\nOK    algorand   /api/hash  → settled $0.001 USDC on Algorand (payer ${address})${tx ? `\n      tx: https://allo.info/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
       } else if (res.status === 402) {
-        const h = res.headers.get("payment-required");
-        let reason = null;
-        if (h) { try { reason = JSON.parse(Buffer.from(h, "base64").toString("utf8"))?.error ?? null; } catch { /* ignore */ } }
+        const reason = settleRejectReason(res.headers);
         console.warn(`\nWARN  algorand leg did NOT settle (HTTP 402, payer ${address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded or not-opted-in USDC burner, facilitator outage, or algorand missing from the live accepts)`);
       } else {
         console.warn(`\nWARN  algorand leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
