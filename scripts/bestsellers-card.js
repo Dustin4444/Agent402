@@ -38,9 +38,11 @@ const FONT_STYLE = `<style>
 @font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}
 @font-face{font-family:'Archivo';font-weight:800;src:url(data:font/woff2;base64,${fontB64("archivo-800.woff2")}) format('woff2')}
 </style>`;
-// Same tokens as server.js BRAND — the card must be indistinguishable from the
-// served brand surfaces.
-const B = { paper: "#F5F5F5", card: "#FFFFFF", ink: "#0b0b0b", muted: "#4A4A4A", hairline: "#E0E0DE", accent: "#D63C1A", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
+// Dark announcement palette — matches the accepted announcement-card look
+// (docs/card-1280.png): near-black ground, subtle border, green accent,
+// light type. The LIGHT ledger tokens stay on the served site cards; the
+// dark set is the announcement/social identity.
+const B = { paper: "#0A0E14", card: "#0D1117", ink: "#E6EDF3", muted: "#8B949E", hairline: "#232A33", accent: "#3FE081", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 async function loadJson(from) {
@@ -77,13 +79,13 @@ function cardSvg(data) {
     : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">${FONT_STYLE}
   <rect width="1200" height="630" fill="${B.paper}"/>
-  <rect x="36" y="36" width="1128" height="558" fill="${B.card}" stroke="${B.ink}" stroke-width="3"/>
-  <rect x="84" y="84" width="64" height="64" fill="none" stroke="${B.ink}" stroke-width="5"/>
-  <text x="116" y="126" font-size="26" font-weight="700" font-family=${mono} text-anchor="middle" fill="${B.ink}">402</text>
+  <rect x="36" y="36" width="1128" height="558" rx="18" fill="${B.card}" stroke="${B.hairline}" stroke-width="1.5"/>
+  <rect x="84" y="84" width="64" height="64" rx="14" fill="none" stroke="${B.accent}" stroke-width="2.5"/>
+  <text x="116" y="126" font-size="26" font-weight="700" font-family=${mono} text-anchor="middle" fill="${B.accent}">402</text>
   <text x="170" y="118" font-size="26" font-weight="800" font-family=${display} fill="${B.ink}">AGENT402<tspan fill="${B.accent}">.</tspan>TOOLS</text>
   <text x="170" y="146" font-size="20" font-family=${mono} fill="${B.muted}">new tool · market intelligence</text>
   <text x="1116" y="127" font-size="24" font-weight="700" font-family=${mono} text-anchor="end" fill="${B.accent}">agent402.tools</text>
-  <line x1="84" y1="172" x2="1116" y2="172" stroke="${B.ink}" stroke-width="2.5"/>
+  <line x1="84" y1="172" x2="1116" y2="172" stroke="${B.hairline}" stroke-width="1.5"/>
   <text x="84" y="248" font-size="54" font-weight="800" font-family=${display} letter-spacing="-1" fill="${B.ink}">What agents actually buy<tspan fill="${B.accent}">.</tspan></text>
   <text x="84" y="296" font-size="24" font-weight="700" font-family=${mono} fill="${B.accent}">$ GET /api/bestsellers?sort=buyers</text>
   ${rowSvg}${empty}

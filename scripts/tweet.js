@@ -44,7 +44,7 @@ const DRY = process.env.DRY_RUN === "1";
 
 // ---- args -----------------------------------------------------------------
 function parseArgs(argv) {
-  const out = { force: false, replyTo: null, quote: null, media: null, text: null, file: null, dryRun: false, verify: false };
+  const out = { force: false, replyTo: null, quote: null, media: null, text: null, file: null, dryRun: false, verify: false, delete: null };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--text" || a === "-t") out.text = argv[++i];
@@ -52,6 +52,7 @@ function parseArgs(argv) {
     else if (a === "--reply-to" || a === "-r") out.replyTo = argv[++i];
     else if (a === "--quote" || a === "-q") out.quote = argv[++i];
     else if (a === "--media" || a === "-m") out.media = argv[++i];
+    else if (a === "--delete") out.delete = argv[++i];
     else if (a === "--force") out.force = true;
     else if (a === "--dry-run") out.dryRun = true;
     else if (a === "--verify") out.verify = true;
@@ -159,11 +160,37 @@ async function verifyCredentials() {
   console.log("Note: /2/users/me proves the keys sign correctly; posting additionally requires the App's Read-and-write permission.");
 }
 
+// Delete a post by id (DELETE /2/tweets/:id, same OAuth 1.0a user context).
+// Only the authenticated account's own posts can be deleted; deleting an
+// already-deleted id returns deleted:false, reported as a non-error no-op.
+async function deleteTweet(id) {
+  const url = `https://api.twitter.com/2/tweets/${String(id)}`;
+  if (DRY) {
+    console.log("DRY RUN — would DELETE", url);
+    return;
+  }
+  requireCredentials();
+  let res, json;
+  try {
+    res = await fetch(url, { method: "DELETE", headers: { Authorization: authHeader("DELETE", url) } });
+    json = await res.json().catch(() => ({}));
+  } catch (e) {
+    console.error("Network error reaching X:", e.message);
+    process.exit(2);
+  }
+  if (!res.ok) {
+    console.error(`X API ${res.status}:`, JSON.stringify(json).slice(0, 300));
+    process.exit(2);
+  }
+  console.log(json?.data?.deleted ? `Deleted ✓ post ${id}` : `Post ${id} was already gone (deleted:false) — nothing to do`);
+}
+
 // ---- main -----------------------------------------------------------------
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (args.verify) return verifyCredentials();
+  if (args.delete) return deleteTweet(args.delete);
 
   const text = resolveText(args).replace(/\s+$/, "");
 
