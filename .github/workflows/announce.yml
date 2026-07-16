@@ -2,16 +2,22 @@ name: Announce
 
 # Post a release note to X via scripts/tweet.js. The trigger file
 # (.github/trigger-announce) contains the repo path of the announcement
-# text to post — bump it with a new path to announce something else.
-# Credentials are Actions secrets (X_API_KEY / X_API_SECRET /
-# X_ACCESS_TOKEN / X_ACCESS_SECRET); the script exits 1 without posting
-# if any are missing, and enforces the 280-char limit itself.
+# text to post — bump it with a new path to announce something else. An
+# optional SECOND line is an image to attach (a URL — e.g. a live
+# /tools/<slug>/card.png — or a repo path); tweet.js uploads it via the
+# v1.1 media endpoint. Credentials are Actions secrets (X_API_KEY /
+# X_API_SECRET / X_ACCESS_TOKEN / X_ACCESS_SECRET); the script exits 1
+# without posting if any are missing, and enforces the 280-char limit
+# itself.
 on:
   workflow_dispatch:
     inputs:
       file:
         description: "Repo path of the announcement text file"
         required: true
+      media:
+        description: "Optional image to attach (URL or repo path)"
+        required: false
   push:
     branches: ["claude/sweet-brown-i99jl3"]
     paths: [".github/trigger-announce"]
@@ -33,7 +39,19 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
         run: |
           FILE="${{ github.event.inputs.file }}"
-          [ -n "$FILE" ] || FILE=$(cat .github/trigger-announce)
-          echo "Posting: $FILE"
+          MEDIA="${{ github.event.inputs.media }}"
+          if [ -z "$FILE" ]; then
+            FILE=$(sed -n 1p .github/trigger-announce)
+            MEDIA=$(sed -n 2p .github/trigger-announce)
+          fi
+          echo "Posting: $FILE${MEDIA:+ (media: $MEDIA)}"
           [ -f "$FILE" ] || { echo "announcement file not found: $FILE"; exit 1; }
-          node scripts/tweet.js --file "$FILE"
+          ARGS=(--file "$FILE")
+          if [ -n "$MEDIA" ]; then
+            case "$MEDIA" in
+              http*) curl -fsSL --max-time 30 -o /tmp/announce-media.png "$MEDIA" && MEDIA=/tmp/announce-media.png ;;
+            esac
+            [ -f "$MEDIA" ] || { echo "media not found: $MEDIA"; exit 1; }
+            ARGS+=(--media "$MEDIA")
+          fi
+          node scripts/tweet.js "${ARGS[@]}"
