@@ -1,23 +1,45 @@
 name: Announce
 
-# Post a release note to X via scripts/tweet.js. The trigger file
-# (.github/trigger-announce) contains the repo path of the announcement
-# text to post — bump it with a new path to announce something else.
-# Credentials are Actions secrets (X_API_KEY / X_API_SECRET /
-# X_ACCESS_TOKEN / X_ACCESS_SECRET); the script exits 1 without posting
-# if any are missing, and enforces the 280-char limit itself.
+# Post a release note to X via scripts/tweet.js — reconciled superset of the
+# dev-branch (generic media) and main (live card + replace) flows.
+#
+# Media, three mutually exclusive ways:
+#   media    — an image to attach: a URL (e.g. a live /tools/<slug>/card.png,
+#              fetched with curl) or a repo path. tweet.js uploads it via the
+#              v1.1 media endpoint.
+#   card     — a demo card rendered LIVE at post time: 'bestsellers' buys one
+#              /api/bestsellers response with the canary burner (x402,
+#              internal-marked via POW_SECRET) and renders the terminal-style
+#              card from it. Real numbers only — never a fixture.
+#   (neither) — text-only post.
+#
+# delete_id — optional id of a previous post to delete BEFORE posting (the
+# replace-a-bad-post flow); deleting an already-gone id is a no-op. The delete
+# runs only after any card/media is ready, so a failed render can never leave
+# no post at all.
+#
+# Push trigger (.github/trigger-announce): line 1 is the repo path of the
+# announcement text, an optional line 2 is a media URL/repo path — bump the
+# file to announce on push from the dev branch. Credentials are Actions
+# secrets (X_API_KEY / X_API_SECRET / X_ACCESS_TOKEN / X_ACCESS_SECRET); the
+# script exits 1 without posting if any are missing, and enforces the
+# 280-char limit itself.
 on:
   workflow_dispatch:
     inputs:
       file:
         description: "Repo path of the announcement text file"
         required: true
+      media:
+        description: "Optional image to attach (URL or repo path). Mutually exclusive with card."
+        required: false
+        default: ""
       card:
-        description: "Optional demo card to render live and attach: 'bestsellers' (buys one /api/bestsellers response with the canary burner, renders the brand card, posts it as media). Leave empty for text-only."
+        description: "Optional demo card to render live and attach: 'bestsellers'. Mutually exclusive with media."
         required: false
         default: ""
       delete_id:
-        description: "Optional id of a previous post to delete BEFORE posting (replace-a-bad-post flow). Deleting an already-gone id is a no-op."
+        description: "Optional id of a previous post to delete BEFORE posting (replace-a-bad-post flow)."
         required: false
         default: ""
   push:
@@ -33,12 +55,17 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      - name: Refuse ambiguous media (card AND media both set)
+        if: github.event.inputs.card != '' && github.event.inputs.media != ''
+        run: |
+          echo "Pass card OR media, not both — card renders its own image live."
+          exit 1
       # Card path only (dispatch input card=bestsellers): the REAL-numbers
       # doctrine — the attached card renders from a live paid response, never
       # from fixture data. The buy is marked internal via POW_SECRET so an
       # operational render never records as external demand in the very
-      # ledger it pictures. Text-only posts (and every push-triggered post)
-      # skip all of this — tweet.js is dependency-free.
+      # ledger it pictures. Text-only and media-path posts (and every
+      # push-triggered post) skip all of this — tweet.js is dependency-free.
       - name: Set up node deps for the card render
         if: github.event.inputs.card == 'bestsellers'
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
@@ -74,11 +101,22 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
         run: |
           FILE="${{ github.event.inputs.file }}"
-          [ -n "$FILE" ] || FILE=$(cat .github/trigger-announce)
-          echo "Posting: $FILE"
-          [ -f "$FILE" ] || { echo "announcement file not found: $FILE"; exit 1; }
-          if [ -f /tmp/announce-card.png ]; then
-            node scripts/tweet.js --file "$FILE" --media /tmp/announce-card.png
-          else
-            node scripts/tweet.js --file "$FILE"
+          MEDIA="${{ github.event.inputs.media }}"
+          if [ -z "$FILE" ]; then
+            FILE=$(sed -n 1p .github/trigger-announce)
+            MEDIA=$(sed -n 2p .github/trigger-announce)
           fi
+          # A live-rendered card wins the media slot (mutual exclusion with a
+          # user-supplied media input is enforced above).
+          [ -f /tmp/announce-card.png ] && MEDIA=/tmp/announce-card.png
+          echo "Posting: $FILE${MEDIA:+ (media: $MEDIA)}"
+          [ -f "$FILE" ] || { echo "announcement file not found: $FILE"; exit 1; }
+          ARGS=(--file "$FILE")
+          if [ -n "$MEDIA" ]; then
+            case "$MEDIA" in
+              http*) curl -fsSL --max-time 30 -o /tmp/announce-media.png "$MEDIA" && MEDIA=/tmp/announce-media.png ;;
+            esac
+            [ -f "$MEDIA" ] || { echo "media not found: $MEDIA"; exit 1; }
+            ARGS+=(--media "$MEDIA")
+          fi
+          node scripts/tweet.js "${ARGS[@]}"
