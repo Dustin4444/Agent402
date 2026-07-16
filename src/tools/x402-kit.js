@@ -568,6 +568,49 @@ export const X402_TOOLS = [
       return computeDemandRadar(getWishesAggregate({ limit: 500 }), i);
     },
   },
+  {
+    route: "GET /api/bestsellers", name: "Agent402 bestsellers", slug: "bestsellers", category: "research", price: "$0.005",
+    description:
+      "What agents actually pay for on a 500+ tool x402 catalog — the paid intelligence layer over Agent402's own sales ledger, the one demand signal that never reaches the chain (settlements are on-chain; WHICH tool was bought is not). The raw merchant feed stays free at /api/sales; this adds the analysis it doesn't have: pick the window (days 1-90) and the ranking lens with sort: 'buyers' (distinct paying wallets, default — the whale/wash-resistant read), 'sales' (volume), 'usd' (revenue), or 'organic' (buyers-per-sale diversity grade, same metric as x402-trending); every row carries all lenses plus organicScore, avgTicketUsd, revenueShare, and a trend vs the previous same-length window (deltaSales + rising/flat/cooling/new — never faked: a row with no prior-window sales says 'new'). Canary/burner/heartbeat traffic is excluded at the source, and if this tool ranks in its own chart the row is flagged isSelf:true rather than hidden — buying the chart puts you on the chart. ?sort=buyers&days=30&limit=10",
+    tags: ["bestsellers", "demand", "market-intelligence", "sales", "x402", "catalog", "trending", "discovery"],
+    discovery: {
+      input: { days: 30, sort: "buyers", limit: 10 },
+      inputSchema: {
+        properties: {
+          days: { type: "integer", description: "Aggregation window in days, 1-90 (default 30). The trend compares against the same-length window immediately before it." },
+          sort: { type: "string", enum: ["buyers", "sales", "usd", "organic"], description: "Ranking lens: buyers=distinct paying wallets (default, whale-resistant), sales=volume, usd=revenue, organic=organicScore (buyer diversity)" },
+          limit: { type: "integer", description: "How many tools to return (1-50, default 10)" },
+        },
+      },
+      output: {
+        example: {
+          days: 30, sort: "buyers", limit: 10,
+          recordingSince: "2026-07-04T00:00:00.000Z", persistent: true,
+          totals: { sales: 63, revenueUsd: 0.58, distinctTools: 12 },
+          bestsellers: [{
+            rank: 1, slug: "vin-decode", sales: 14, revenueUsd: 0.056, revenueShare: 0.0966,
+            buyers: 6, organicScore: 0.4286, avgTicketUsd: 0.004,
+            firstAt: "2026-07-05T11:00:00.000Z", lastAt: "2026-07-14T09:30:00.000Z",
+            prevSales: 3, deltaSales: 11, trend: "rising",
+          }],
+          note: "External paid demand only — canary/burner/heartbeat traffic excluded at the source.",
+          generatedAt: "2026-07-16T00:00:05.000Z",
+        },
+      },
+    },
+    handler: async (i) => {
+      const { externalSlugWindow, firstRecordedTs, salesPersistent } = await import("../sales-ledger.js");
+      const days = clampBestsellerDays(i?.days);
+      const now = Date.now();
+      const since = now - days * 86400000;
+      return computeBestsellers(
+        externalSlugWindow(since, now + 1),
+        externalSlugWindow(since - days * 86400000, since),
+        i,
+        { recordingSince: firstRecordedTs(), persistent: salesPersistent, now }
+      );
+    },
+  },
 ];
 
 /**
@@ -900,5 +943,95 @@ export function gradeX402Response({ href, protocol, status, cacheControl, bodyTe
     summary:
       `${grade} (${score}/100) — ${nPass} passed, ${nWarn} warning${nWarn === 1 ? "" : "s"}, ${nFail} failed. ` +
       "Note: replay/idempotency (Attack II) and router Sybil resistance (Attack IV) can't be graded from a black-box probe — they need insider or active testing.",
+  };
+}
+
+// Bestsellers window: 1-90 days, default 30. Shared by the handler (which
+// derives the SQL windows from it) and computeBestsellers (which echoes it) so
+// the two can never disagree about what window the response describes.
+export function clampBestsellerDays(v) {
+  return Math.min(Math.max(parseInt(v, 10) || 30, 1), 90);
+}
+
+/**
+ * Compute the bestsellers response from two externalSlugWindow() row sets —
+ * the current window and the same-length window immediately before it. Pure
+ * and deterministic given its inputs — no I/O, no env reads — so it is
+ * unit-testable in isolation (scripts/test-bestsellers.js).
+ *
+ * Analysis the free raw feed (/api/sales) doesn't carry:
+ *   - ranking lenses: buyers (default — distinct paying wallets, the
+ *     whale/wash-resistant read), sales, usd, organic.
+ *   - organicScore = buyers / sales clamped to [0,1] — the same buyer-diversity
+ *     grade x402-trending applies to sellers, applied to our own tools. SVM/
+ *     Stellar settlements carry no server-visible payer, so they count toward
+ *     sales but never buyers; the score understates (never overstates) on
+ *     mixed-chain rows.
+ *   - trend vs the previous same-length window: deltaSales and
+ *     rising/flat/cooling (±5%-of-prev band, min 1 sale — same convention as
+ *     x402-trending) or "new" when the prior window had no sales. Never faked:
+ *     an empty prior window is exactly what "new" says.
+ *   - revenueShare: the row's slice of the window's external revenue.
+ *
+ * Honesty: if this tool ranks in its own chart, the row is flagged isSelf:true
+ * rather than hidden — buying the chart puts you on the chart.
+ */
+export function computeBestsellers(rows, prevRows, input = {}, { recordingSince = null, persistent = false, now = Date.now() } = {}) {
+  const SORTS = new Set(["buyers", "sales", "usd", "organic"]);
+  const sort = SORTS.has(String(input?.sort || "").toLowerCase()) ? String(input.sort).toLowerCase() : "buyers";
+  const limit = Math.min(Math.max(parseInt(input?.limit, 10) || 10, 1), 50);
+  const days = clampBestsellerDays(input?.days);
+
+  const prevBySlug = new Map((prevRows || []).map((r) => [r?.slug, Number(r?.sales) || 0]));
+  const totalRevenue = (rows || []).reduce((s, r) => s + (Number(r?.revenue) || 0), 0);
+
+  const list = (rows || []).map((r) => {
+    const sales = Number(r?.sales) || 0;
+    const revenue = Number(r?.revenue) || 0;
+    const buyers = Number(r?.buyers) || 0;
+    const prevSales = prevBySlug.get(r?.slug) || 0;
+    const delta = sales - prevSales;
+    const band = Math.max(1, prevSales * 0.05);
+    return {
+      slug: String(r?.slug || "unknown"),
+      sales,
+      revenueUsd: Number(revenue.toFixed(4)),
+      revenueShare: totalRevenue > 0 ? Number((revenue / totalRevenue).toFixed(4)) : 0,
+      buyers,
+      organicScore: sales > 0 ? Number(Math.min(1, buyers / sales).toFixed(4)) : 0,
+      avgTicketUsd: sales > 0 ? Number((revenue / sales).toFixed(6)) : 0,
+      firstAt: r?.first_ts ? new Date(r.first_ts).toISOString() : null,
+      lastAt: r?.last_ts ? new Date(r.last_ts).toISOString() : null,
+      prevSales,
+      deltaSales: delta,
+      trend: prevSales === 0 ? "new" : delta > band ? "rising" : delta < -band ? "cooling" : "flat",
+      ...(r?.slug === "bestsellers" ? { isSelf: true } : {}),
+    };
+  });
+
+  const metric = { buyers: (r) => r.buyers, sales: (r) => r.sales, usd: (r) => r.revenueUsd, organic: (r) => r.organicScore }[sort];
+  list.sort(
+    (a, b) =>
+      metric(b) - metric(a) ||
+      b.sales - a.sales ||
+      b.revenueUsd - a.revenueUsd ||
+      a.slug.localeCompare(b.slug)
+  );
+
+  return {
+    days,
+    sort,
+    limit,
+    recordingSince: recordingSince ? new Date(recordingSince).toISOString() : null,
+    persistent,
+    totals: {
+      sales: list.reduce((s, r) => s + r.sales, 0),
+      revenueUsd: Number(totalRevenue.toFixed(4)),
+      distinctTools: list.length,
+    },
+    bestsellers: list.slice(0, limit).map((r, i2) => ({ rank: i2 + 1, ...r })),
+    note:
+      "External paid demand on Agent402's own catalog — canary/burner/heartbeat traffic excluded at the source (sales ledger internal=0, money rails only). buyers counts distinct verified payers; Solana/Stellar settlements carry no server-visible payer, so they count toward sales but never buyers. trend compares this window to the same-length window immediately before it. The raw merchant feed is free at /api/sales; per-tool purchase counts never reach the chain, so this ledger is where tool-level x402 demand lives.",
+    generatedAt: new Date(now).toISOString(),
   };
 }

@@ -983,6 +983,9 @@ jobs:
       - name: Demand-radar seller intel (signalType, near-threshold, noise flag, wallet-only — offline)
         run: node scripts/test-demand-radar.js
 
+      - name: Bestsellers catalog-demand tool (lenses, trend windows, organic score, window-query filters, wallet-only — offline)
+        run: node scripts/test-bestsellers.js
+
       - name: Util-kit tests (jwt-sign, uuid-v5, group-by, json-to-xml, geo-distance, color-contrast)
         run: node scripts/test-util-kit.js
 
