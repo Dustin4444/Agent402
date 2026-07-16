@@ -8,6 +8,8 @@
 // instant and public RPCs see at most one scan a minute; a flaky chain shows
 // "unavailable" for that rail instead of breaking the page. Balances and
 // transfers are public on-chain data — this page just saves the tab-cycling.
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { RAILS, RAILS_AMP } from "./rails.js";
 // Pure, main-guarded helpers shared with the daily scanners — one
@@ -856,6 +858,29 @@ export async function robinhoodActivity(wallet, { days = 30 } = {}) {
 let cached = null;
 let cachedAt = 0;
 let refreshing = null;
+
+// The per-rail last-good carry-forward below used to live only in process
+// memory, so every deploy wiped it — and the non-EVM rails' public endpoints
+// throttle Railway's datacenter IP often enough that the FIRST read after a
+// boot can fail, leaving that card on "unreachable" until a read succeeds
+// (observed on Algorand after the 2026-07-16 deploys). Persist the last-good
+// rails to the /data volume (same convention as stats.js: /data if mounted,
+// /tmp otherwise) and seed the carry-forward from disk on boot — a redeploy
+// is not evidence a chain went down. Best-effort top to bottom: a read/write
+// failure just falls back to the old in-memory behavior. Carried-forward
+// balances keep their original balanceAsOf, so the card honestly shows
+// "live · cached" rather than a fake-fresh reading.
+const LASTGOOD_PATH = join(existsSync("/data") ? "/data" : "/tmp", "revenue-lastgood.json");
+let diskLastGood = null;
+try { diskLastGood = JSON.parse(readFileSync(LASTGOOD_PATH, "utf8")); } catch { /* first boot or unreadable — in-memory behavior */ }
+function persistLastGood(rails) {
+  try {
+    const keep = rails
+      .filter((r) => Number.isFinite(r.balance))
+      .map((r) => ({ rail: r.rail, balance: r.balance, balanceAsOf: r.balanceAsOf || null, recent: (r.recent || []).slice(0, 10) }));
+    if (keep.length) writeFileSync(LASTGOOD_PATH, JSON.stringify({ asOf: new Date().toISOString(), rails: keep }));
+  } catch { /* persistence must never break the snapshot */ }
+}
 export async function revenueSnapshot(opts) {
   if (cached && Date.now() - cachedAt < 60_000) return cached;
   if (!refreshing) {
@@ -889,7 +914,10 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
   // balance for the same rail, keep it and flag it stale (honest: it's the last
   // verified reading, timestamped). The next clean refresh replaces it. A rail
   // we've never read successfully stays null -> genuinely unreachable.
-  const prevRails = cached?.rails || [];
+  // In-memory snapshot first (freshest), then the on-disk last-good from a
+  // previous boot — so a redeploy doesn't demote a healthy rail to
+  // "unreachable" just because its first post-boot read hit a throttled RPC.
+  const prevRails = (cached?.rails?.length ? cached.rails : diskLastGood?.rails) || [];
   const now = new Date().toISOString();
   for (const r of rails) {
     if (r.balance == null || r.error) {
@@ -897,13 +925,14 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
       if (prev && Number.isFinite(prev.balance)) {
         r.balance = prev.balance;
         r.staleBalance = true;
-        r.balanceAsOf = prev.balanceAsOf || cached?.asOf || null;
+        r.balanceAsOf = prev.balanceAsOf || cached?.asOf || diskLastGood?.asOf || null;
         if (!(r.recent && r.recent.length) && prev.recent) r.recent = prev.recent;
       }
     } else {
       r.balanceAsOf = now;
     }
   }
+  persistLastGood(rails);
   const totalUsd = rails.reduce((s, r) => s + (Number.isFinite(r.balance) ? r.balance : 0), 0);
   const windowExternalUsd = rails.reduce((s, r) => s + (Number.isFinite(r.externalUsd) ? r.externalUsd : 0), 0);
   cached = {

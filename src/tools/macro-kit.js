@@ -61,6 +61,49 @@ export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) 
   throw lastErr;
 }
 
+// Serve-stale-on-error for slow-moving datasets. FRED's /releases/dates
+// endpoint runs 15-60s under load and sometimes blows FRED's own 60s gateway
+// limit (2026-07-15/16: our then-15s fetch ceiling turned that slowness into
+// an 8-hour manufactured outage of fred-release-calendar — every 30-min poll
+// a buyer-facing 504). A release calendar barely moves intra-day, so even
+// with the fetch budget fixed, the last successful payload is a strictly
+// better answer than an error: on a TRANSIENT upstream failure (502/503/504 —
+// the same set retryTransient covers) serve the last-good response for the
+// same key, marked `stale: true` + `staleAsOf`, for up to maxStaleMs. A
+// deterministic 4xx still throws — a caller mistake must never be masked by a
+// cached success. Exported so the policy is unit-locked (test-macro-kit.js).
+export async function withStaleFallback(lastGood, key, fn, { maxStaleMs, now = Date.now } = {}) {
+  try {
+    const payload = await fn();
+    lastGood.set(key, { payload, at: now() });
+    return payload;
+  } catch (e) {
+    const sc = e?.statusCode;
+    const prev = lastGood.get(key);
+    if ((sc === 502 || sc === 503 || sc === 504) && prev && now() - prev.at <= maxStaleMs) {
+      return {
+        ...prev.payload,
+        stale: true,
+        staleAsOf: new Date(prev.at).toISOString(),
+        staleReason: `FRED upstream failed (${sc}) — serving the last successful snapshot`,
+      };
+    }
+    throw e;
+  }
+}
+
+// 24h of staleness is acceptable for both wrapped datasets — release dates
+// are scheduled weeks ahead and Treasury average rates are monthly; past a
+// day, an error is more honest than a snapshot.
+const MACRO_STALE_MAX_MS = 24 * 3600 * 1000;
+// Last-good release-calendar payloads, keyed by the `days` window (1-90, so
+// the map is bounded).
+const releaseCalLastGood = new Map();
+// Last-good Treasury average-rates payload (no params — one fixed key).
+// fiscaldata.treasury.gov still flakes ~1/day past the 3-attempt FISCAL_FETCH
+// retry profile; monthly data deserves a snapshot, not a 504.
+const treasuryAvgLastGood = new Map();
+
 async function safeFetchRetry(url, opts = {}) {
   const { retries, backoffMs, ...fetchOpts } = opts;
   return retryTransient(() => safeFetch(url, fetchOpts), {
@@ -244,23 +287,25 @@ export const MACRO_TOOLS = [
       output: { example: { recordDate: "2026-05-31", rates: [{ securityType: "Marketable", security: "Treasury Notes", avgInterestRatePct: 2.85 }] } },
     },
     handler: async () => {
-      const url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=20";
-      const j = await getJson(url, FISCAL_FETCH);
-      const rows = Array.isArray(j?.data) ? j.data : [];
-      if (!rows.length) throw bad("Treasury avg-rates feed unavailable", 502);
-      // The endpoint returns multiple security-type rows per recordDate; keep
-      // only the most recent date so the response is a single snapshot.
-      const latest = rows[0].record_date;
-      const filtered = rows.filter((r) => r.record_date === latest);
-      return {
-        recordDate: latest,
-        rates: filtered.map((r) => ({
-          securityType: r.security_type_desc ?? null,
-          security: r.security_desc ?? null,
-          avgInterestRatePct: r.avg_interest_rate_amt != null ? Number(r.avg_interest_rate_amt) : null,
-        })),
-        source: "Treasury Fiscal Data API (public domain)",
-      };
+      return withStaleFallback(treasuryAvgLastGood, "latest", async () => {
+        const url = "https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=20";
+        const j = await getJson(url, FISCAL_FETCH);
+        const rows = Array.isArray(j?.data) ? j.data : [];
+        if (!rows.length) throw bad("Treasury avg-rates feed unavailable", 502);
+        // The endpoint returns multiple security-type rows per recordDate; keep
+        // only the most recent date so the response is a single snapshot.
+        const latest = rows[0].record_date;
+        const filtered = rows.filter((r) => r.record_date === latest);
+        return {
+          recordDate: latest,
+          rates: filtered.map((r) => ({
+            securityType: r.security_type_desc ?? null,
+            security: r.security_desc ?? null,
+            avgInterestRatePct: r.avg_interest_rate_amt != null ? Number(r.avg_interest_rate_amt) : null,
+          })),
+          source: "Treasury Fiscal Data API (public domain)",
+        };
+      }, { maxStaleMs: MACRO_STALE_MAX_MS });
     },
   },
   {
@@ -487,17 +532,26 @@ function requireFredV2Key() {
 // bursts (four on 2026-07-15 alone, per tool_error telemetry) and the raw
 // fetch previously had no second chance — and no timeout, so a hung FRED
 // connection held the caller's request open indefinitely.
-async function fredGetJson(url, extraHeaders = {}) {
-  return retryTransient(() => fredGetJsonOnce(url, extraHeaders));
+// `timeoutMs`/`retries` exist because FRED endpoints have wildly different
+// latency profiles: /series/observations answers in well under a second, but
+// /releases/dates runs 15-60s under load. The blanket 15s ceiling added in the
+// 2026-07-15 resilience pass MANUFACTURED a full outage of
+// fred-release-calendar the morning it deployed (every >15s response became a
+// guaranteed 504 at 2×15s, while the old un-timed-out fetch had been quietly
+// succeeding at 30-60s). Per FRED's error docs the API fails fast with real
+// codes (400/404/423/429/500) — a slow response is a response in progress,
+// not an outage, so slow endpoints get a budget that matches, not a retry.
+async function fredGetJson(url, extraHeaders = {}, { timeoutMs, retries } = {}) {
+  return retryTransient(() => fredGetJsonOnce(url, extraHeaders, timeoutMs), retries !== undefined ? { retries } : {});
 }
 
-async function fredGetJsonOnce(url, extraHeaders = {}) {
+async function fredGetJsonOnce(url, extraHeaders = {}, timeoutMs = 15_000) {
   const safeUrl = await assertPublicUrl(url);
   let res;
   try {
-    res = await fetch(safeUrl, { headers: { Accept: "application/json", ...extraHeaders }, signal: AbortSignal.timeout(15_000) });
+    res = await fetch(safeUrl, { headers: { Accept: "application/json", ...extraHeaders }, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
-    throw bad(`FRED unreachable: ${e.name === "TimeoutError" ? "no response within 15s" : e.message}`, 504);
+    throw bad(`FRED unreachable: ${e.name === "TimeoutError" ? `no response within ${Math.round(timeoutMs / 1000)}s` : e.message}`, 504);
   }
   const text = await res.text();
   let body = null;
@@ -665,28 +719,36 @@ MACRO_TOOLS.push(
     },
     handler: async (i) => {
       const days = Math.min(Math.max(parseInt(i.days, 10) || 14, 1), 90);
+      // Key check stays OUTSIDE the stale wrapper: an unconfigured deployment
+      // must keep 503ing, never serve a snapshot it couldn't have fetched.
       const key = requireFredKey();
-      const today = new Date();
-      const end = new Date(today.getTime() + days * 86400 * 1000);
-      const fmt = (d) => d.toISOString().slice(0, 10);
-      // include_release_dates_with_no_data=true is essential — without it FRED
-      // hides scheduled-but-not-yet-published releases, which is exactly the
-      // forward-looking calendar callers want.
-      const qs = new URLSearchParams({
-        api_key: key, file_type: "json",
-        realtime_start: fmt(today), realtime_end: fmt(end),
-        include_release_dates_with_no_data: "true",
-        order_by: "release_date", sort_order: "asc",
-        limit: "1000",
-      });
-      const j = await fredGetJson(`${FRED_BASE}/releases/dates?${qs}`);
-      if (j?.error_code) throw bad(`FRED upstream error: ${j.error_message || "unknown"}`, 502);
-      const releases = (j?.release_dates ?? []).map((r) => ({
-        releaseId: r.release_id,
-        releaseName: r.release_name,
-        date: r.date,
-      }));
-      return { days, count: releases.length, releases, source: "FRED (St. Louis Fed)" };
+      return withStaleFallback(releaseCalLastGood, days, async () => {
+        const today = new Date();
+        const end = new Date(today.getTime() + days * 86400 * 1000);
+        const fmt = (d) => d.toISOString().slice(0, 10);
+        // include_release_dates_with_no_data=true is essential — without it FRED
+        // hides scheduled-but-not-yet-published releases, which is exactly the
+        // forward-looking calendar callers want.
+        const qs = new URLSearchParams({
+          api_key: key, file_type: "json",
+          realtime_start: fmt(today), realtime_end: fmt(end),
+          include_release_dates_with_no_data: "true",
+          order_by: "release_date", sort_order: "asc",
+          limit: "1000",
+        });
+        // /releases/dates is FRED's slowest query — 15-60s under load (observed
+        // 2026-07-15/16). One attempt with a budget that fits: slow is a state,
+        // not a blip, so a retry only doubles the wait for the same answer —
+        // the stale fallback covers a miss instead.
+        const j = await fredGetJson(`${FRED_BASE}/releases/dates?${qs}`, {}, { timeoutMs: 45_000, retries: 0 });
+        if (j?.error_code) throw bad(`FRED upstream error: ${j.error_message || "unknown"}`, 502);
+        const releases = (j?.release_dates ?? []).map((r) => ({
+          releaseId: r.release_id,
+          releaseName: r.release_name,
+          date: r.date,
+        }));
+        return { days, count: releases.length, releases, source: "FRED (St. Louis Fed)" };
+      }, { maxStaleMs: MACRO_STALE_MAX_MS });
     },
   },
   {
