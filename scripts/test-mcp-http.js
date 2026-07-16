@@ -39,9 +39,12 @@ const names = (list.result?.tools ?? []).map((t) => t.name).sort();
 // The connector exposes a deliberately TIGHT, curated 15-tool surface: MCP
 // directories (Glama) score a well-scoped server at 3-15 tools, and the full
 // 500-tool catalog lives behind search_tools/find_tool/call_tool by design.
+// Names are uniformly two-word snake_case (Glama's naming-consistency rubric
+// dinged the old base64/qr/uuid single-word mix); timezone_convert replaced
+// markdown_to_html to cover the called-out date/time gap at the same count.
 const EXPECTED_15 = [
   "search_tools", "find_tool", "call_tool", "payment_info",
-  "hash", "unit_convert", "qr", "json_format", "jwt_decode", "base64", "uuid", "csv_to_json", "markdown_to_html",
+  "hash_generate", "unit_convert", "qr_generate", "json_format", "jwt_decode", "base64_convert", "uuid_generate", "csv_to_json", "timezone_convert",
   "wallet_balances", "wallet_transactions",
 ].sort();
 assert(
@@ -52,6 +55,16 @@ assert(
   (list.result?.tools ?? []).every((t) => t.title && t.annotations?.readOnlyHint === true),
   "every tool carries a title + read-only safety annotations (directory requirement)"
 );
+
+// The 2026-07-16 renames must never break an existing caller: the new name,
+// the legacy pre-rename name, and the raw kebab slug all route to the tool.
+for (const alias of ["base64_convert", "base64"]) {
+  const enc = await rpc("tools/call", { name: alias, arguments: { text: "hi", mode: "encode" } });
+  const encText = enc.result?.content?.[0]?.text ?? "";
+  assert(!enc.result?.isError && encText.includes("aGk="), `curated tool routes via "${alias}" (got ${encText.slice(0, 80)})`);
+}
+const tz = await rpc("tools/call", { name: "timezone_convert", arguments: { datetime: "2026-06-23T14:00:00", from: "America/New_York", to: "Asia/Tokyo" } });
+assert(!tz.result?.isError && (tz.result?.content?.[0]?.text ?? "").includes("Tokyo"), "timezone_convert answers its documented example");
 
 const privacy = await fetch(`${BASE}/privacy`);
 assert(privacy.ok && (await privacy.text()).includes("Privacy policy"), "/privacy serves the policy (directory requirement)");

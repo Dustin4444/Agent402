@@ -69,10 +69,15 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // TIGHT (the full 500-tool catalog lives behind search_tools/find_tool/call_tool
   // by design): MCP directories score a well-scoped server at ~3-15 tools, and
   // every entry here rides in each client's context on every turn. So this is a
-  // 9-tool legibility sample of universally-recognized dev utilities, not a dump.
+  // small legibility sample of universally-recognized dev utilities, not a dump.
+  // Exactly 15 tools listed in total: Glama's tool-count rubric scores a
+  // well-scoped server at 3-15, so curated changes here must SWAP, not add.
+  // timezone-convert replaced markdown-to-html 2026-07-16: the completeness
+  // rubric called out "no date/time manipulation beyond unit conversion",
+  // and document rendering was the weakest fit for an agent utility sample.
   const CURATED_SLUGS = [
     "hash", "unit-convert", "qr", "json-format", "jwt-decode",
-    "base64", "uuid", "csv-to-json", "markdown-to-html",
+    "base64", "uuid", "csv-to-json", "timezone-convert",
   ];
   const curatedSet = new Set();
   for (const slug of CURATED_SLUGS) {
@@ -101,6 +106,25 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // consistent convention (the meta-tools are already snake_case; the curated
   // tools' slugs are kebab). CallTool accepts either form, so no caller breaks.
   const toSnake = (slug) => String(slug).replace(/-/g, "_");
+  // Single-word slugs get a two-word noun_verb MCP name so the whole listing
+  // follows ONE naming pattern (Glama's naming-consistency rubric dinged the
+  // `base64`/`qr`/`uuid` vs `csv_to_json` mix). The call router still accepts
+  // the raw slug and the legacy snake name, so no existing caller breaks.
+  const MCP_NAME_OVERRIDES = {
+    base64: "base64_convert",
+    qr: "qr_generate",
+    uuid: "uuid_generate",
+    hash: "hash_generate",
+  };
+  const mcpNameOf = (slug) => MCP_NAME_OVERRIDES[slug] || toSnake(slug);
+  // Every accepted spelling of a first-class tool name -> its catalog slug
+  // (exposed name, legacy snake form, raw kebab slug).
+  const namedToolSlugs = new Map();
+  for (const slug of [...curatedSet, ...walletMgmtSet]) {
+    namedToolSlugs.set(mcpNameOf(slug), slug);
+    namedToolSlugs.set(toSnake(slug), slug);
+    namedToolSlugs.set(slug, slug);
+  }
   // A concise "Returns { … }" clause from a tool's documented example so every
   // curated tool advertises its output shape, not just its input.
   const returnsHint = (def) => {
@@ -186,7 +210,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Search the Agent402 tool catalog",
           annotations: { title: "Search the Agent402 tool catalog", ...SAFE },
           description:
-            `Keyword search over Agent402's ${tools.size} pay-per-call web tools (live market data like stock-quote at $0.003, encoding, crypto, text, time, math, validation, unit conversions, network, browser, PDF, search, memory). Use this to BROWSE several candidates by keyword; use find_tool instead when you want the single best tool for a described task. ${freeCount} pure-CPU tools run free here (proof-of-work — no wallet needed); the rest need a USDC wallet. There is also an OpenAI-compatible LLM gateway at ${baseUrl}/v1 — flat per-call (chat nano $0.003, auto $0.01, embeddings $0.002), no API key: a funded wallet is the account. Returns { results, workflows } — each result has slug, price, access, description, inputSchema; run one with call_tool.`,
+            `BROWSE the catalog: keyword search over Agent402's ${tools.size} pay-per-call web tools, returning a LIST of candidates to compare (its counterpart find_tool resolves a task to ONE ready-to-run pick — search explores, find decides). Categories: live market data (stock-quote at $0.003), encoding, crypto, text, time, math, validation, unit conversions, network, browser, PDF, search, memory. ${freeCount} pure-CPU tools run free here (proof-of-work — no wallet needed); the rest need a USDC wallet. There is also an OpenAI-compatible LLM gateway at ${baseUrl}/v1 — flat per-call (chat nano $0.003, auto $0.01, embeddings $0.002), no API key: a funded wallet is the account. Returns { results, workflows } — each result has slug, price, access, description, inputSchema; run one with call_tool.`,
           inputSchema: {
             type: "object",
             properties: {
@@ -198,10 +222,10 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         },
         {
           name: "find_tool",
-          title: "Find the right Agent402 tool for a task",
-          annotations: { title: "Find the right Agent402 tool for a task", ...SAFE },
+          title: "Resolve a task to the one best Agent402 tool",
+          annotations: { title: "Resolve a task to the one best Agent402 tool", ...SAFE },
           description:
-            "Describe a task in plain language and get the single best-matching Agent402 tool(s) ready to call: slug, price, input schema, and a worked example. Use this when you know the task and want the top pick (vs search_tools, which browses many candidates by keyword). Returns { task, matches } — each match is call-ready; then run call_tool with the chosen slug + params.",
+            "DECIDE, don't browse: resolve a plain-language task to the single best-matching Agent402 tool, returned call-ready — slug, price, input schema, and a worked example (its counterpart search_tools returns a list of candidates to compare — search explores, find decides). Returns { task, matches } with the top pick first; then run call_tool with the chosen slug + params.",
           inputSchema: {
             type: "object",
             properties: {
@@ -216,7 +240,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Run an Agent402 tool",
           annotations: { title: "Run an Agent402 tool", ...SAFE },
           description:
-            `Run an Agent402 tool by slug (find slugs with search_tools). The ${freeCount} pure-CPU tools execute free on this hosted connector (rate-limited, no wallet — proof-of-work covers them). Wallet-only tools (live market data like stock-quote at $0.003, live search, browser rendering, PDFs, durable memory) return instructions for paid access instead.`,
+            `Run an Agent402 tool by slug (discover slugs with search_tools or find_tool; params must match that tool's inputSchema). The ${freeCount} pure-CPU tools execute free on this hosted connector (rate-limited, no wallet — proof-of-work covers them) and return the tool's JSON result. Wallet-only tools (live market data like stock-quote at $0.003, live search, browser rendering, PDFs, durable memory) return a paid-access setup guide instead — this connector holds no wallet. An unknown slug returns an error pointing back to search_tools.`,
           inputSchema: {
             type: "object",
             properties: {
@@ -243,7 +267,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         ...[...curatedSet].map((slug) => {
           const { def } = tools.get(slug);
           return {
-            name: toSnake(slug),
+            name: mcpNameOf(slug),
             title: def.name,
             annotations: { title: def.name, ...SAFE },
             description: `[free, no wallet] ${def.description}${returnsHint(def)}`,
@@ -256,7 +280,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         ...[...walletMgmtSet].map((slug) => {
           const { def } = tools.get(slug);
           return {
-            name: toSnake(slug),
+            name: mcpNameOf(slug),
             title: def.name,
             annotations: { title: def.name, ...SAFE },
             description: `[wallet-required, ${def.price}/call] ${def.description}${returnsHint(def)} This hosted connector holds no wallet, so calling it here returns paid-access setup; run it with a funded wallet via npx agent402-mcp or any x402 client.`,
@@ -467,17 +491,13 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             }, null, 2) }],
           };
         }
-        // First-class tools are exposed snake_case but their real slug is kebab;
-        // accept either the exposed name or the raw slug so no caller breaks.
-        // Curated tools are free; wallet-management tools are wallet-only and
-        // fall through to the paid-access response below (same as any wallet
-        // tool reached via call_tool), so both just need name -> slug resolution.
-        const kebab = name.replace(/_/g, "-");
-        const namedSlug = curatedSet.has(name) ? name
-          : curatedSet.has(kebab) ? kebab
-          : walletMgmtSet.has(name) ? name
-          : walletMgmtSet.has(kebab) ? kebab
-          : null;
+        // First-class tools are exposed under their MCP name (mcpNameOf), but
+        // the router accepts every historical spelling — exposed name, legacy
+        // snake form, raw kebab slug — so no existing caller breaks across
+        // renames. Curated tools are free; wallet-management tools are
+        // wallet-only and fall through to the paid-access response below (same
+        // as any wallet tool reached via call_tool).
+        const namedSlug = namedToolSlugs.get(name) ?? namedToolSlugs.get(name.replace(/_/g, "-")) ?? null;
         const isNamed = namedSlug !== null;
         const isCurated = isNamed && curatedSet.has(namedSlug);
         if (name !== "call_tool" && !isNamed) {
