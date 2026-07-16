@@ -12,6 +12,10 @@ on:
       file:
         description: "Repo path of the announcement text file"
         required: true
+      card:
+        description: "Optional demo card to render live and attach: 'bestsellers' (buys one /api/bestsellers response with the canary burner, renders the brand card, posts it as media). Leave empty for text-only."
+        required: false
+        default: ""
   push:
     branches: ["claude/sweet-brown-i99jl3"]
     paths: [".github/trigger-announce"]
@@ -22,9 +26,34 @@ permissions:
 jobs:
   post:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+      # Card path only (dispatch input card=bestsellers): the REAL-numbers
+      # doctrine — the attached card renders from a live paid response, never
+      # from fixture data. The buy is marked internal via POW_SECRET so an
+      # operational render never records as external demand in the very
+      # ledger it pictures. Text-only posts (and every push-triggered post)
+      # skip all of this — tweet.js is dependency-free.
+      - name: Set up node deps for the card render
+        if: github.event.inputs.card == 'bestsellers'
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22
+      - name: Install deps + Chromium (card render)
+        if: github.event.inputs.card == 'bestsellers'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Buy the live bestsellers response (internal-marked)
+        if: github.event.inputs.card == 'bestsellers'
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+        run: node scripts/capture-bestsellers.js --out /tmp/bestsellers.json
+      - name: Render the demo card from the live response
+        if: github.event.inputs.card == 'bestsellers'
+        run: node scripts/bestsellers-card.js --from /tmp/bestsellers.json --out /tmp/announce-card.png
       - name: Post the announcement
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
@@ -36,4 +65,8 @@ jobs:
           [ -n "$FILE" ] || FILE=$(cat .github/trigger-announce)
           echo "Posting: $FILE"
           [ -f "$FILE" ] || { echo "announcement file not found: $FILE"; exit 1; }
-          node scripts/tweet.js --file "$FILE"
+          if [ -f /tmp/announce-card.png ]; then
+            node scripts/tweet.js --file "$FILE" --media /tmp/announce-card.png
+          else
+            node scripts/tweet.js --file "$FILE"
+          fi
