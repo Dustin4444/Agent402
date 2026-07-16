@@ -875,82 +875,178 @@ async function imagesHandler(input) {
 // /v1/audio/speech — OpenAI wire-path text-to-speech over OpenRouter's audio
 // API (raw audio bytes out, exactly like OpenAI's endpoint, so any SDK's
 // audio.speech.create() works by changing base_url — served via the route
-// binder's { __binary } sentinel). Cost knobs are server-owned: the model is
-// locked and the input is char-capped, which bounds the audio-output bill
-// deterministically (~2k chars ≈ 2.4 min ≈ $0.036 at OpenAI-direct parity —
-// ≤60% of the price even if OpenRouter bills at parity, and their listed TTS
-// rates are lower). speed < 1 is rejected — it stretches the same text into
-// MORE audio. Binary responses carry no usage accounting and are never
-// cached (sampled output).
+// binder's { __binary } sentinel). OpenRouter's TTS catalog carries NO
+// OpenAI models (their docs still advertise openai/gpt-4o-mini-tts-2025-12-15;
+// the live ?output_modalities=speech list — and a real paid probe of every
+// entry, 2026-07-16 — says otherwise), so the tier serves a FIVE-model
+// failover chain across five independent providers, every link proven with
+// a real buy. Payment settles BEFORE this handler runs, so a provider
+// outage must never become the buyer's 502: the chain walks on ANY upstream
+// failure (5xx, network error, empty audio), and only exhausting all five
+// links surfaces an error. Buyers keep the OpenAI wire: the 11 OpenAI voice
+// names map per-model to each provider's own voice ids, and any native id
+// (en_paul_cheerful…) is accepted too — remapped to its OpenAI-name
+// equivalent (or the link's alloy) if the chain walks past its model.
+// TTS bills per INPUT character upstream, so the char cap bounds the
+// worst-case bill deterministically per link — see costPerChar below:
+// $0.032 (53% of the $0.06 price) on Voxtral down to $0.0012 (2%) on
+// Kokoro; even the deepest fallback (MAI-Voice-2, $0.044 = 73%) clears the
+// price. Binary responses carry no usage accounting and are never cached
+// (sampled output).
 export const SPEECH_PATH = "/v1/audio/speech";
 const OPENROUTER_SPEECH_URL = "https://openrouter.ai/api/v1/audio/speech";
-// Buyers send the friendly family id (or nothing); OpenRouter's live slug is
-// DATED and the undated alias 502s upstream ("Model does not exist" —
-// discovered by the first real register buy, 2026-07-09). Accept the family,
-// send the dated slug.
-const SPEECH_MODEL = "openai/gpt-4o-mini-tts";
-const SPEECH_UPSTREAM_MODEL = "openai/gpt-4o-mini-tts-2025-12-15";
 const SPEECH_PRICE = 0.06;
 const SPEECH_MAX_CHARS = 2_000;
 const SPEECH_FORMATS = { mp3: "audio/mpeg", pcm: "audio/pcm" };
-const SPEECH_VOICES = new Set(["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"]);
+const OPENAI_SPEECH_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer", "verse"];
+// Chain order = failover order. `map` translates the OpenAI wire voice
+// names to the provider's ids (closest gender/accent/tone available);
+// `voices` is the provider's full native set (accepted directly, listed on
+// GET /v1/models); `aliases` are the bare/family spellings accepted in
+// `model`. Voice ids and per-char prices come from OpenRouter's models API
+// (?output_modalities=speech) — the probe workflow re-verifies all of this
+// live (.github/workflows/openrouter-tts-probe.yml).
+export const SPEECH_MODELS = [
+  {
+    id: "mistralai/voxtral-mini-tts-2603",
+    aliases: ["mistralai/voxtral-mini-tts", "voxtral-mini-tts", "voxtral-mini-tts-2603"],
+    costPerChar: 0.000016,
+    map: { alloy: "en_paul_neutral", ash: "en_paul_confident", ballad: "gb_oliver_neutral", coral: "gb_jane_neutral", echo: "en_paul_happy", fable: "gb_oliver_cheerful", onyx: "gb_oliver_confident", nova: "gb_jane_confident", sage: "gb_jane_neutral", shimmer: "gb_jane_curious", verse: "en_paul_cheerful" },
+    voices: new Set([
+      "en_paul_sad", "en_paul_neutral", "en_paul_happy", "en_paul_frustrated", "en_paul_excited", "en_paul_confident", "en_paul_cheerful", "en_paul_angry",
+      "gb_oliver_neutral", "gb_oliver_sad", "gb_oliver_excited", "gb_oliver_curious", "gb_oliver_confident", "gb_oliver_cheerful", "gb_oliver_angry",
+      "gb_jane_sarcasm", "gb_jane_confused", "gb_jane_shameful", "gb_jane_sad", "gb_jane_neutral", "gb_jane_jealousy", "gb_jane_frustrated", "gb_jane_curious", "gb_jane_confident",
+      "fr_marie_sad", "fr_marie_neutral", "fr_marie_happy", "fr_marie_excited", "fr_marie_curious", "fr_marie_angry",
+    ]),
+  },
+  {
+    id: "x-ai/grok-voice-tts-1.0",
+    aliases: ["grok-voice-tts-1.0", "grok-voice-tts"],
+    costPerChar: 0.000015,
+    map: { alloy: "eve", ash: "rex", ballad: "leo", coral: "ara", echo: "rex", fable: "leo", onyx: "rex", nova: "ara", sage: "eve", shimmer: "ara", verse: "sal" },
+    voices: new Set(["eve", "ara", "rex", "sal", "leo"]),
+  },
+  {
+    id: "hexgrad/kokoro-82m",
+    aliases: ["kokoro-82m", "kokoro"],
+    costPerChar: 0.00000062,
+    map: { alloy: "af_alloy", ash: "am_adam", ballad: "bm_george", coral: "af_bella", echo: "am_echo", fable: "bm_fable", onyx: "am_onyx", nova: "af_nova", sage: "af_sarah", shimmer: "af_sky", verse: "am_liam" },
+    voices: new Set([
+      "af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah", "af_sky",
+      "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa",
+      "bf_alice", "bf_emma", "bf_isabella", "bf_lily", "bm_daniel", "bm_fable", "bm_george", "bm_lewis",
+      "ef_dora", "em_alex", "em_santa", "ff_siwis", "hf_alpha", "hf_beta", "hm_omega", "hm_psi", "if_sara", "im_nicola",
+      "jf_alpha", "jf_gongitsune", "jf_nezumi", "jf_tebukuro", "jm_kumo", "pf_dora", "pm_alex", "pm_santa",
+      "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
+    ]),
+  },
+  {
+    id: "zyphra/zonos-v0.1-hybrid",
+    aliases: ["zonos-v0.1-hybrid", "zonos"],
+    costPerChar: 0.000007,
+    map: { alloy: "american_female", ash: "american_male", ballad: "british_male", coral: "american_female", echo: "american_male", fable: "british_male", onyx: "american_male", nova: "american_female", sage: "british_female", shimmer: "american_female", verse: "american_male" },
+    voices: new Set(["american_female", "american_male", "british_female", "british_male", "random"]),
+  },
+  {
+    // Single English voice — every OpenAI name lands on Harper. Priciest
+    // link (73% of the price) and single-voice, hence last.
+    id: "microsoft/mai-voice-2",
+    aliases: ["mai-voice-2"],
+    costPerChar: 0.000022,
+    map: Object.fromEntries(OPENAI_SPEECH_VOICES.map((v) => [v, "en-US-Harper:MAI-Voice-2"])),
+    voices: new Set(["en-US-Harper:MAI-Voice-2", "es-MX-Valeria:MAI-Voice-2", "fr-FR-Soleil:MAI-Voice-2", "de-DE-Klaus:MAI-Voice-2"]),
+  },
+];
+
+/** The provider's voice id for a requested voice on this chain link:
+ *  OpenAI name → mapped; the link's own native id → itself; another link's
+ *  native id (chain walked past its model) → this link's alloy. */
+function speechVoiceFor(entry, requested) {
+  return entry.map[requested] || (entry.voices.has(requested) ? requested : entry.map.alloy);
+}
 
 export function validateSpeechRequest(input) {
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
   const text = typeof input.input === "string" ? input.input : "";
   if (!text.trim()) throw bad('"input" is required — the text to speak');
-  const instructions = typeof input.instructions === "string" ? input.instructions : "";
-  // Instructions are model input too — they count against the same cap.
-  if (text.length + instructions.length > SPEECH_MAX_CHARS) {
-    throw bad(`Input too long (${text.length + instructions.length} chars incl. instructions). /v1/audio/speech allows up to ${SPEECH_MAX_CHARS}`);
+  if (text.length > SPEECH_MAX_CHARS) {
+    throw bad(`Input too long (${text.length} chars). /v1/audio/speech allows up to ${SPEECH_MAX_CHARS}`);
   }
+  if (input.instructions !== undefined) {
+    throw bad('"instructions" is not supported by the serving models — pick an expressive native voice instead (e.g. "en_paul_cheerful"; full list on GET /v1/models)');
+  }
+  // Explicit model pins that link to the FRONT of the chain — the rest stay
+  // as fallbacks (same semantics as the chat tiers: a buyer's pick should
+  // not turn a provider outage into their 502).
+  let chain = SPEECH_MODELS;
   if (input.model !== undefined) {
-    const m = canonicalModel(input.model);
-    if (m !== SPEECH_MODEL && !m.startsWith(`${SPEECH_MODEL}-`)) {
-      throw bad(`"model" is fixed to ${SPEECH_MODEL} on this endpoint (omit it, or send that id)`);
+    const m = canonicalModel(input.model).toLowerCase();
+    const hit = SPEECH_MODELS.find((e) => m === e.id || e.aliases.includes(m));
+    if (!hit) {
+      throw bad(`"model" must be one of: ${SPEECH_MODELS.map((e) => e.id).join(", ")} (or omit it for the default chain)`);
     }
+    chain = [hit, ...SPEECH_MODELS.filter((e) => e !== hit)];
   }
   const voice = input.voice === undefined ? "alloy" : String(input.voice);
-  if (!SPEECH_VOICES.has(voice)) throw bad(`"voice" must be one of: ${[...SPEECH_VOICES].join(", ")}`);
+  if (!OPENAI_SPEECH_VOICES.includes(voice) && !SPEECH_MODELS.some((e) => e.voices.has(voice))) {
+    throw bad(`"voice" must be an OpenAI voice name (${OPENAI_SPEECH_VOICES.join(", ")}) or a native voice id from GET /v1/models`);
+  }
   const format = input.response_format === undefined ? "mp3" : String(input.response_format);
   if (!SPEECH_FORMATS[format]) throw bad(`"response_format" must be one of: ${Object.keys(SPEECH_FORMATS).join(", ")}`);
   if (input.speed !== undefined) {
     const s = Number(input.speed);
-    if (!Number.isFinite(s) || s < 1 || s > 4) {
-      throw bad('"speed" must be between 1 and 4 — values below 1 stretch the same text into more metered audio');
-    }
+    // OpenAI's documented range. Upstream bills per input character, so
+    // speed is cost-neutral; providers that don't support it ignore it.
+    if (!Number.isFinite(s) || s < 0.25 || s > 4) throw bad('"speed" must be between 0.25 and 4');
   }
-  const body = { model: SPEECH_UPSTREAM_MODEL, input: text, voice, response_format: format };
-  if (instructions) body.instructions = instructions;
-  if (input.speed !== undefined) body.speed = Number(input.speed);
-  if (input.zdr === true || input.provider?.zdr === true) body.provider = { zdr: true };
-  return { body, contentType: SPEECH_FORMATS[format] };
+  const zdr = input.zdr === true || input.provider?.zdr === true;
+  const bodies = chain.map((entry) => ({
+    model: entry.id,
+    input: text,
+    voice: speechVoiceFor(entry, voice),
+    response_format: format,
+    ...(input.speed !== undefined ? { speed: Number(input.speed) } : {}),
+    ...(zdr ? { provider: { zdr: true } } : {}),
+  }));
+  return { bodies, contentType: SPEECH_FORMATS[format] };
 }
 
 async function speechHandler(input) {
-  const { body, contentType } = validateSpeechRequest(input);
+  const { bodies, contentType } = validateSpeechRequest(input);
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
-  let res;
-  try {
-    res = await fetch(OPENROUTER_SPEECH_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://agent402.tools",
-        "X-Title": "Agent402.Tools x402 gateway",
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } catch (e) {
-    throw bad(`Upstream request failed: ${e.message}`, 504);
+  let lastErr;
+  for (const body of bodies) {
+    try {
+      let res;
+      try {
+        res = await fetch(OPENROUTER_SPEECH_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://agent402.tools",
+            "X-Title": "Agent402.Tools x402 gateway",
+          },
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(60_000),
+        });
+      } catch (e) {
+        throw bad(`Upstream request failed: ${e.message}`, 504);
+      }
+      if (!res.ok) await throwUpstreamError(res);
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length === 0) throw bad("Upstream returned no audio — retry, or rephrase the input", 502);
+      return { __binary: buffer, contentType };
+    } catch (e) {
+      // Walk on anything upstream-shaped (throwUpstreamError maps every
+      // upstream failure to 502/503; timeouts and network errors are 504).
+      // Our own validation 4xxs were thrown before the loop.
+      if (![502, 503, 504].includes(e?.statusCode)) throw e;
+      lastErr = e;
+    }
   }
-  if (!res.ok) await throwUpstreamError(res);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  if (buffer.length === 0) throw bad("Upstream returned no audio — retry, or rephrase the input", 502);
-  return { __binary: buffer, contentType };
+  throw lastErr;
 }
 
 /** Image blocks in a validated messages array — the margin clamp bills each
@@ -1230,17 +1326,19 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.060",
     description:
-      "OpenAI-compatible text-to-speech over x402 — point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by gpt-4o-mini-tts via OpenRouter; up to 2,000 chars in (instructions included), raw mp3 (default) or pcm bytes out — the same wire shape as OpenAI's endpoint. 11 voices; optional tone instructions; zdr:true routes only to zero-data-retention providers.",
+      "OpenAI-compatible text-to-speech over x402 — point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by Voxtral Mini TTS behind a five-model failover chain (xAI Grok Voice, Kokoro, Zonos, MAI-Voice-2), every link proven by a real paid canary — a provider outage never becomes your failure. Up to 2,000 chars in, raw mp3 (default) or pcm bytes out — the same wire shape as OpenAI's endpoint. OpenAI voice names (alloy, nova, …) map per-model; native voice ids (e.g. en_paul_cheerful) work too. zdr:true routes only to zero-data-retention providers.",
     tags: ["tts", "text-to-speech", "speech", "audio", "voice", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
       input: { input: "Agent402 serves fourteen hundred tools, paid per call.", voice: "alloy" },
       inputSchema: {
         properties: {
-          input: { type: "string", description: "Text to speak (up to 2,000 chars, instructions included)" },
-          voice: { type: "string", description: "Voice — alloy (default), ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse" },
+          input: { type: "string", description: "Text to speak (up to 2,000 chars)" },
+          voice: { type: "string", description: "OpenAI voice name — alloy (default), ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse — or a native voice id from GET /v1/models (e.g. en_paul_cheerful)" },
           response_format: { type: "string", description: '"mp3" (default) or "pcm"' },
-          instructions: { type: "string", description: "Optional tone/style directions (counted against the char cap)" },
+          model: { type: "string", description: "Optional — pin a chain model (e.g. mistralai/voxtral-mini-tts-2603); the rest stay as fallbacks" },
+          speed: { type: "number", description: "Optional 0.25–4 playback speed (providers that don't support it ignore it)" },
+          zdr: { type: "boolean", description: "Optional — true routes only to zero-data-retention providers" },
         },
         required: ["input"],
       },
@@ -1277,11 +1375,13 @@ export function modelsList() {
     owned_by: "google",
     x402: { tier: "v1-images", endpoint: IMAGES_PATH, priceUsd: IMAGES_PRICE, maxPromptChars: IMAGES_MAX_PROMPT_CHARS, imagesPerCall: 1 },
   });
-  data.push({
-    id: SPEECH_UPSTREAM_MODEL,
-    object: "model",
-    owned_by: "openai",
-    x402: { tier: "v1-audio-speech", endpoint: SPEECH_PATH, priceUsd: SPEECH_PRICE, maxInputChars: SPEECH_MAX_CHARS },
-  });
+  for (const m of SPEECH_MODELS) {
+    data.push({
+      id: m.id,
+      object: "model",
+      owned_by: m.id.split("/")[0],
+      x402: { tier: "v1-audio-speech", endpoint: SPEECH_PATH, priceUsd: SPEECH_PRICE, maxInputChars: SPEECH_MAX_CHARS, voices: [...m.voices] },
+    });
+  }
   return { object: "list", data, note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) — no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped." };
 }

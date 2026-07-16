@@ -103,13 +103,15 @@ import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
-// /v1/audio/speech is DELISTED until the OpenRouter audio API is verified
-// against this account's key: on 2026-07-09 every documented TTS model id
-// (undated and dated) came back "Model does not exist" on real buys — x402
-// settles before the handler, so a listed-but-broken route charges buyers
-// for 502s. No route -> no 402 -> no charge. Verify with one curl (the key
-// on Railway) and set OPENROUTER_TTS_ENABLED=true to re-list; re-add the
-// llm-speech canary leg in the same change.
+// /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
+// x402 settles before the handler, so a listed-but-broken route charges
+// buyers for 502s (no route -> no 402 -> no charge). The upstream WAS
+// verified on 2026-07-16 — the dispatchable probe workflow
+// (.github/workflows/openrouter-tts-probe.yml) bought real audio from all
+// five chain models (see SPEECH_MODELS in llm-gateway-kit.js). Flip the
+// Railway var to true after this ships, then run the paid canary — its
+// llm-speech leg is the standing proof. If the flag is ever pulled again,
+// also pull the canary leg, or every canary run goes red.
 const GATEWAY_TOOLS_ENABLED = LLM_GATEWAY_TOOLS.filter(
   (t) => t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true"
 );
