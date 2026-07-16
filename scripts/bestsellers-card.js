@@ -38,11 +38,12 @@ const FONT_STYLE = `<style>
 @font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}
 @font-face{font-family:'Archivo';font-weight:800;src:url(data:font/woff2;base64,${fontB64("archivo-800.woff2")}) format('woff2')}
 </style>`;
-// Dark announcement palette — matches the accepted announcement-card look
-// (docs/card-1280.png): near-black ground, subtle border, green accent,
-// light type. The LIGHT ledger tokens stay on the served site cards; the
-// dark set is the announcement/social identity.
-const B = { paper: "#0A0E14", card: "#0D1117", ink: "#E6EDF3", muted: "#8B949E", hairline: "#232A33", accent: "#3FE081", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
+// Dark announcement palette: near-black ground, subtle border, light type,
+// and the BRAND RED accent (same #D63C1A as the served ledger surfaces) —
+// owner-set identity: dark card, red accent, never green. The LIGHT ledger
+// tokens stay on the served site cards; this dark set is the
+// announcement/social identity.
+const B = { paper: "#0A0E14", card: "#0D1117", ink: "#E6EDF3", muted: "#8B949E", hairline: "#232A33", accent: "#E8542F", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 async function loadJson(from) {
