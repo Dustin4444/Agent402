@@ -434,6 +434,22 @@ function registerFacilitatorFailureHooks(server, payAiClient) {
     );
   });
 
+  // A GRACEFUL settle rejection — the facilitator answers { success:false }
+  // without an HTTP error — never reaches onSettleFailure below: @x402/core
+  // fires that hook only when the facilitator client THROWS. The graceful path
+  // returns normally, the buyer gets a 402 carrying the failed receipt, and
+  // without this hook the server log says NOTHING (the 2026-07-16 Robinhood
+  // rejection left zero trace). afterSettle runs on graceful failures too, so
+  // it closes the gap.
+  server.onAfterSettle((ctx) => {
+    const result = ctx?.result;
+    if (!result || result.success !== false) return;
+    console.warn(
+      `[payments] facilitator settle REJECTED on ${ctx?.requirements?.network} ` +
+        `${ctx?.requirements?.scheme}: ${result.errorReason || result.errorMessage || "no reason given"}`
+    );
+  });
+
   const fallbackEnabled = /^(1|true|yes|on)$/i.test((process.env.PAYMENT_SETTLE_FALLBACK || "").trim());
   server.onSettleFailure(async (ctx) => {
     console.warn(

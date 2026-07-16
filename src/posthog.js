@@ -349,6 +349,27 @@ export function capturePostHogChargedFailure({ slug, status, network, priceUsd, 
   });
 }
 
+// Settlement REJECTED — the facilitator answered { success:false }, the buyer
+// KEPT their money, and we lost the sale. Deliberately distinct from
+// charged_but_failed (buyer harm): this is a rail-health/lost-revenue signal.
+// It exists because a graceful rejection fires no onSettleFailure hook in
+// @x402/core (only thrown errors do), so before this event + the afterSettle
+// log in payments.js, a rejection's only trace was a spurious
+// charged_but_failed (the 2026-07-16 Robinhood canary false alarm).
+// errorReason comes from the decoded failure receipt. Low-volume; no rate cap.
+export function capturePostHogSettleFailed({ slug, status, network, priceUsd, synthetic, payer, errorReason }) {
+  if (!active()) return;
+  capture("settle_failed", {
+    slug: String(slug || "unknown"),
+    status: Number(status) || 0,
+    network: network ? String(network) : null,
+    priceUsd: Number(priceUsd) || 0,
+    synthetic: !!synthetic,
+    ...(payer ? { payer } : {}),
+    ...(errorReason ? { errorReason: String(errorReason).slice(0, 200) } : {}),
+  });
+}
+
 // Retired routes — the teaching 410s (the pruned convert-* pairs). Residual
 // demand for a dead route is a product signal (someone's playbook or agent
 // prompt still cites it), and without an event that demand is invisible.
