@@ -97,9 +97,9 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   MAI, all under price). `instructions` rejected (self-explaining 400 — no serving model
   supports it); `speed` 0.25–4 accepted (cost-neutral, ignored by most). Raw mp3/pcm
   bytes via the route binder's `{__binary, contentType}` sentinel — no cache/usage
-  accounting on binary. Listing still gated on `OPENROUTER_TTS_ENABLED=true`
-  (server.js `GATEWAY_TOOLS_ENABLED`) as the rollout switch — flip it on Railway after
-  deploy, then run the paid canary (llm-speech leg re-added)). Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
+  accounting on binary. Listing gated on `OPENROUTER_TTS_ENABLED=true`
+  (server.js `GATEWAY_TOOLS_ENABLED`) as the rollout switch — ON in prod since
+  2026-07-16; canary llm-speech leg settles green). Upstream OpenRouter (`OPENROUTER_API_KEY`, 503 when unset). Failover walks
   the chain on upstream 502/503/504 only — every chain ends in the canary-proven model.
   **Streaming** (`stream:true`): handler returns `{__sse}` sentinel, route binder pipes SSE
   after settlement. **Prompt cache** (`cache:true`, opt-in): byte-identical repeat served
@@ -159,13 +159,11 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   identical unpaid repeat must be 200 + `X-Cache: hit`). Trigger via workflow_dispatch on
   `paid-canary.yml` (ref main) after a deploy; verdict is the job log tail.
 
-## Open follow-ups (as of 2026-07-15)
-- **/v1/audio/speech re-enable in flight** (upstream verified 2026-07-16: the probe
-  workflow bought real audio from all five `SPEECH_MODELS`; code moved to the failover
-  chain; canary leg re-added). Remaining: merge + `[deploy]`, set
-  `OPENROUTER_TTS_ENABLED=true` on Railway, run `paid-canary.yml` (llm-speech leg must
-  go green), then re-run `[bazaar-register]`. `OPENROUTER_API_KEY` now also lives in
-  GitHub Actions secrets (added 2026-07-15 for the probe).
+## Open follow-ups (as of 2026-07-16)
+- ~~/v1/audio/speech re-enable~~ **DONE 2026-07-16**: merged + deployed,
+  `OPENROUTER_TTS_ENABLED=true` live on Railway, paid canary llm-speech leg settled
+  green ($0.06 real buy, run 29529146243 — 28/28). `OPENROUTER_API_KEY` also lives in
+  GitHub Actions secrets (added 2026-07-15 for the probe workflow).
 - OpenRouter account top-up is manual (their programmatic top-up API is deprecated). If a
   "Gateway credits LOW" issue opens, top up the account; the alarm auto-closes the issue
   once `/api/gateway-status` reports `ok` again.
