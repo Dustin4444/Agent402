@@ -127,6 +127,17 @@ const qTotals = db.prepare(`
   SELECT internal, rail, COUNT(*) AS n, SUM(price_usd) AS usd
   FROM sales WHERE ts >= ? GROUP BY internal, rail`);
 const qFirstTs = db.prepare("SELECT MIN(ts) AS ts FROM sales");
+// Per-slug external paid aggregation over a half-open window [since, until) —
+// the bestsellers tool's data feed. COUNT(DISTINCT payer) skips NULLs, so
+// `buyers` counts only attributable settlements (EVM exposes the signed payer;
+// SVM/Stellar rows carry none and count toward sales but never buyers). No
+// LIMIT: the row count is bounded by the catalog size, and the ranking lens
+// (buyers vs sales vs revenue) is the caller's choice, not the query's.
+const qExtSlugWindow = db.prepare(`
+  SELECT slug, COUNT(*) AS sales, SUM(price_usd) AS revenue,
+         COUNT(DISTINCT payer) AS buyers, MIN(ts) AS first_ts, MAX(ts) AS last_ts
+  FROM sales WHERE internal = 0 AND rail IN ('usdc','marketplace') AND ts >= ? AND ts < ?
+  GROUP BY slug`);
 
 // Payer-scoped view (the /api/my-usage tool). Money rails only — PoW rows
 // carry no payer, so they can never appear in a wallet-keyed report anyway.
@@ -191,6 +202,21 @@ export function topByBuyers({ days = 30, limit = 8 } = {}) {
     sales: r.sales,
     revenueUsd: +(r.revenue || 0).toFixed(4),
   }));
+}
+
+/**
+ * Raw rows for the bestsellers tool: every externally-paid tool's window
+ * aggregate over [sinceMs, untilMs). One row per slug — sales, revenue,
+ * distinct attributable buyers, first/last sale ts. Ranking, lenses, and
+ * trend math live in the tool's pure compute (x402-kit computeBestsellers).
+ */
+export function externalSlugWindow(sinceMs, untilMs) {
+  return qExtSlugWindow.all(sinceMs, untilMs);
+}
+
+/** When the ledger recorded its first row (unix ms), or null when empty. */
+export function firstRecordedTs() {
+  return qFirstTs.get()?.ts ?? null;
 }
 
 /**
