@@ -1,12 +1,16 @@
 name: OpenRouter TTS model probe
 
 # One-shot diagnostic (workflow_dispatch only): the /v1/audio/speech tier
-# needs OpenRouter's LIVE TTS model ids — their docs and skill examples have
-# gone stale (2026-07-09: both the undated alias and the documented dated
-# snapshot were rejected with "Model does not exist"). GitHub runners are the
-# egress path the dev sandbox doesn't have. Read-only against the public
-# models API; the optional authenticated leg buys NOTHING (a rejected model id
-# costs $0 — it errors before generation).
+# needs OpenRouter's LIVE TTS model ids — their docs have burned us twice
+# (2026-07-09: every documented OpenAI TTS id rejected with "Model does not
+# exist"; 2026-07-15: docs still advertise openai/gpt-4o-mini-tts-2025-12-15
+# while the live speech-model list carries no OpenAI id at all). So this
+# probe hardcodes NOTHING: it pulls the live list from
+# /api/v1/models?output_modalities=speech and buys one "ping" from each
+# model with that model's own first supported voice. GitHub runners are the
+# egress path the dev sandbox doesn't have. A rejected model id costs $0
+# (errors before generation); a working one costs ~4 chars of input
+# (fractions of a cent).
 
 on:
   workflow_dispatch: {}
@@ -19,30 +23,35 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: TTS/audio ids in the public models list
+      - name: Live speech models (public list, no key)
         run: |
-          curl -sS --max-time 30 https://openrouter.ai/api/v1/models -o /tmp/models.json
-          echo "total models: $(jq '.data | length' /tmp/models.json)"
-          echo "--- ids matching tts/speech/voxtral/chirp/audio:"
-          jq -r '.data[].id' /tmp/models.json | grep -iE 'tts|speech|voxtral|chirp|audio' || echo "(none in /api/v1/models)"
-          echo "--- output_modalities containing audio:"
-          jq -r '.data[] | select(.architecture.output_modalities != null and (.architecture.output_modalities | index("audio"))) | .id' /tmp/models.json || true
+          curl -sS --max-time 30 "https://openrouter.ai/api/v1/models?output_modalities=speech" -o /tmp/speech-models.json
+          COUNT=$(jq '.data | length' /tmp/speech-models.json)
+          echo "live speech models: $COUNT"
+          [ "$COUNT" -gt 0 ] || { echo "::error::speech model list is empty"; exit 1; }
+          # id | first voice | $/char | worst-case $ at the 2000-char cap (tier price is $0.06)
+          jq -r '.data[] | [.id, (.supported_voices[0] // "MISSING"), .pricing.prompt, ((.pricing.prompt | tonumber) * 2000 * 1000 | round / 1000)] | @tsv' /tmp/speech-models.json \
+            | column -t -s $'\t'
 
       - name: Authenticated probe of /v1/audio/speech (skips without secret)
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           [ -n "$OPENROUTER_API_KEY" ] || { echo "no OPENROUTER_API_KEY secret — skipping the endpoint probe"; exit 0; }
-          for M in "openai/gpt-4o-mini-tts" "openai/gpt-4o-mini-tts-2025-12-15" "openai/gpt-4o-mini-tts-2026-06-01" "mistralai/voxtral-mini-tts-2603" "google/gemini-2.5-flash-tts"; do
-            CODE=$(curl -sS --max-time 30 -o /tmp/tts-probe.out -w '%{http_code}' \
+          jq -r '.data[] | [.id, (.supported_voices[0] // "")] | @tsv' /tmp/speech-models.json |
+          while IFS=$'\t' read -r M V; do
+            [ -n "$V" ] || { echo "PROBE $M → SKIPPED (no supported_voices in the models API)"; continue; }
+            BODY=$(jq -cn --arg m "$M" --arg v "$V" '{model:$m, input:"ping", voice:$v, response_format:"mp3"}')
+            CODE=$(curl -sS --max-time 60 -o /tmp/tts-probe.out -w '%{http_code}' \
               -X POST https://openrouter.ai/api/v1/audio/speech \
               -H "Authorization: Bearer $OPENROUTER_API_KEY" \
               -H "Content-Type: application/json" \
-              -d "{\"model\":\"$M\",\"input\":\"ping\",\"voice\":\"alloy\",\"response_format\":\"mp3\"}")
+              -d "$BODY")
             SIZE=$(wc -c < /tmp/tts-probe.out)
-            if [ "$CODE" = "200" ]; then
-              echo "PROBE $M → 200 (${SIZE} bytes of audio) ✅"
+            TYPE=$(file -b --mime-type /tmp/tts-probe.out)
+            if [ "$CODE" = "200" ] && [ "$SIZE" -gt 1000 ]; then
+              echo "PROBE $M (voice=$V) → 200 (${SIZE} bytes, ${TYPE}) ✅"
             else
-              echo "PROBE $M → $CODE $(head -c 200 /tmp/tts-probe.out)"
+              echo "PROBE $M (voice=$V) → $CODE (${SIZE} bytes, ${TYPE}) $(head -c 200 /tmp/tts-probe.out)"
             fi
           done
