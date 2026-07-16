@@ -138,19 +138,39 @@ export const ALGORAND_INDEXER_URLS = (process.env.ALGORAND_INDEXER_URLS ||
   "https://mainnet-idx.algonode.cloud,https://mainnet-idx.4160.nodely.dev"
 ).split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean);
 
-// GET JSON across a list of base URLs, walking to the next on any failure
-// (network / timeout / non-2xx). Returns the first success (or the last
-// failure) as { ok, status, json, base }. The 10s default deadline (up from
-// 6s) is deliberate: these public endpoints are slow-but-working from Railway's
+// Nodely 403s Railway's shared egress IP outright (verified in-container
+// 2026-07-16: both hostnames, any User-Agent — an IP-level block, and BOTH
+// direct bases above are the same provider, so the walk cannot recover from
+// prod). When the ALGORAND_RELAY_URL + ALGORAND_RELAY_TOKEN pair is set
+// (workers/algorand-relay/ — same CF Worker pattern as the Yahoo/Nasdaq
+// relays), the relay is walked FIRST; the direct bases stay in the list for
+// local/dev runs and as insurance if the block is ever lifted.
+const ALGORAND_RELAY_URL = (process.env.ALGORAND_RELAY_URL || "").trim().replace(/\/+$/, "");
+const ALGORAND_RELAY_TOKEN = (process.env.ALGORAND_RELAY_TOKEN || "").trim();
+const algorandRelayEntry = (kind) =>
+  ALGORAND_RELAY_URL && ALGORAND_RELAY_TOKEN
+    ? [{ url: `${ALGORAND_RELAY_URL}/${kind}`, headers: { Authorization: `Bearer ${ALGORAND_RELAY_TOKEN}` } }]
+    : [];
+export const ALGORAND_ALGOD_BASES = [...algorandRelayEntry("algod"), ...ALGORAND_ALGOD_URLS];
+export const ALGORAND_INDEXER_BASES = [...algorandRelayEntry("idx"), ...ALGORAND_INDEXER_URLS];
+
+// GET JSON across a list of bases, walking to the next on any failure
+// (network / timeout / non-2xx). A base is a plain URL string or
+// { url, headers } — the object form exists for the Cloudflare relay entries,
+// which need a Bearer token. Returns the first success (or the last failure)
+// as { ok, status, json, base }. The 10s default deadline (up from 6s) is
+// deliberate: these public endpoints are slow-but-working from Railway's
 // datacenter IP, not dead, and the short timeout was the main cause of the
 // "unreachable" flapping. okStatuses lets a caller treat e.g. 404 (Algorand
 // fresh-wallet, no ASA opt-in) as a valid non-error response.
 export async function getJsonAcross(bases, path, { timeoutMs = 10000, okStatuses = [] } = {}) {
   let last = { ok: false, status: 0, json: null, base: null, error: "no endpoints" };
-  for (const base of bases) {
+  for (const entry of bases) {
+    const base = typeof entry === "string" ? entry : entry?.url;
+    const headers = typeof entry === "string" ? undefined : entry?.headers;
     if (!base) continue;
     try {
-      const res = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+      const res = await fetch(`${base}${path}`, { headers, signal: AbortSignal.timeout(timeoutMs) });
       if (res.ok || okStatuses.includes(res.status)) {
         let json = null;
         try { json = await res.json(); } catch { /* an ok-status body may be empty (404) */ }
@@ -483,8 +503,9 @@ export async function algorandRail(wallet) {
   const out = { rail: "Algorand", asset: "USDC", wallet: wallet || null, explorer: wallet ? `https://allo.info/account/${wallet}` : null, balance: null, recent: [], error: null };
   if (!wallet) { out.error = "ALGORAND_WALLET_ADDRESS unset"; return out; }
   try {
-    // Balance - walk algod providers (primary + fallback) on timeout/error.
-    const bal = await getJsonAcross(ALGORAND_ALGOD_URLS, `/v2/accounts/${wallet}`, { okStatuses: [404] });
+    // Balance - walk algod providers (relay first when configured, then the
+    // direct Nodely bases) on timeout/error.
+    const bal = await getJsonAcross(ALGORAND_ALGOD_BASES, `/v2/accounts/${wallet}`, { okStatuses: [404] });
     if (bal.status === 404) {
       // A fresh wallet that has never opted in to ASA 31566704 is a valid
       // state, not an error — it just holds no USDC (and can't be paid until
@@ -500,7 +521,7 @@ export async function algorandRail(wallet) {
     }
     // Recent inbound USDC transfers (indexer) - walk indexer providers too.
     try {
-      const tx = await getJsonAcross(ALGORAND_INDEXER_URLS, `/v2/accounts/${wallet}/transactions?asset-id=31566704&tx-type=axfer&limit=10`);
+      const tx = await getJsonAcross(ALGORAND_INDEXER_BASES, `/v2/accounts/${wallet}/transactions?asset-id=31566704&tx-type=axfer&limit=10`);
       if (tx.ok) {
         const txData = tx.json;
         // Internal = the committed canary burner set + this wallet itself
@@ -549,12 +570,15 @@ export async function algorandActivity(wallet, { days = 30, maxPages = 10 } = {}
   try {
     let next = null;
     for (let page = 0; page < maxPages; page++) {
-      const url =
-        `https://mainnet-idx.algonode.cloud/v2/accounts/${wallet}/transactions?asset-id=31566704&tx-type=axfer&limit=1000&after-time=${encodeURIComponent(cutoff)}` +
+      // Walk the indexer bases (relay first when configured) — this loop used
+      // to hardcode the direct Nodely host, silently bypassing both the env
+      // override and the relay.
+      const path =
+        `/v2/accounts/${wallet}/transactions?asset-id=31566704&tx-type=axfer&limit=1000&after-time=${encodeURIComponent(cutoff)}` +
         (next ? `&next=${encodeURIComponent(next)}` : "");
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      if (!res.ok) { out.error = `indexer HTTP ${res.status}`; return out; }
-      const data = await res.json();
+      const res = await getJsonAcross(ALGORAND_INDEXER_BASES, path, { timeoutMs: 8000 });
+      if (!res.ok) { out.error = res.error || `indexer HTTP ${res.status}`; return out; }
+      const data = res.json || {};
       const txs = data?.transactions || [];
       for (const t of txs) {
         const xfer = t["asset-transfer-transaction"];
