@@ -392,6 +392,12 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
           tags: [...new Set(["web", "tools", "agents", "x402", item.category, ...(item.tags ?? [])].filter(Boolean))].slice(0, 10),
           mimeType: "application/json",
           resource: `${baseUrl}${route.split(" ")[1]}`,
+          // Canonical brand icon on every Bazaar/discovery record. Without it,
+          // downstream directories (OpenSea's x402 tools surface, etc.) scrape
+          // the site favicon at index time and cache it forever — which is how
+          // the pre-rebrand logo got frozen on OpenSea. The URL serves the
+          // current 512px PNG mark (image/png despite the .ico name).
+          iconUrl: `${baseUrl}/favicon.ico`,
           extensions: Object.keys(ext).length ? ext : undefined,
         },
       ];
