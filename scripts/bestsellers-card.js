@@ -1,12 +1,15 @@
 // Announcement demo card for the bestsellers tool — renders the tool's actual
-// JSON response as a 1200×630 brand card (same ledger system as the served
-// /card.png and /tools/:slug/card.png: paper, white card, ink border, 402
-// badge, Archivo display + Space Mono, committed first-party fonts).
+// JSON response as a 1200×630 TERMINAL-WINDOW card, the accepted announcement
+// style (reference: docs/announcements/media/2026-07-16-tts-demo-card.png on
+// the dev branch / x.com status 2077707505405448409): warm cream paper, dark
+// charcoal terminal with traffic-light title bar, all Space Mono, green for
+// OK/status semantics, red reserved for the agent402.tools wordmark.
 //
 // The standing announcement flow wants REAL numbers: render the FINAL card
-// from live prod output after the deploy, never from mocked data. A layout
+// from live prod output at post time, never from mocked data. A layout
 // preview from fixture data must carry the on-card "preview data" tag
-// (--preview) so it can never be mistaken for the real render.
+// (--preview), which also REPLACES the "real output" claim — a fixture render
+// can never label itself real.
 //
 // Usage:
 //   node scripts/bestsellers-card.js --from response.json --out card.png
@@ -14,8 +17,8 @@
 //   node scripts/bestsellers-card.js --from fixture.json --out card.png --preview
 //
 // --from accepts a file path or URL returning the /api/bestsellers JSON
-// (the endpoint is paid — capture the JSON once via the buyer SDK or canary,
-// then render from the file). Exit 1 on usage errors, 2 on fetch/render.
+// (the endpoint is paid — capture the JSON once via scripts/capture-bestsellers.js
+// or the buyer SDK, then render from the file). Exit 1 on usage, 2 on render.
 import { readFileSync, writeFileSync } from "node:fs";
 import { rasterizeSvg } from "../src/tools/render.js";
 
@@ -36,20 +39,31 @@ const fontB64 = (f) => readFileSync(new URL(`../assets/fonts/${f}`, import.meta.
 const FONT_STYLE = `<style>
 @font-face{font-family:'Space Mono';font-weight:400;src:url(data:font/woff2;base64,${fontB64("spacemono-400.woff2")}) format('woff2')}
 @font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}
-@font-face{font-family:'Archivo';font-weight:800;src:url(data:font/woff2;base64,${fontB64("archivo-800.woff2")}) format('woff2')}
 </style>`;
-// Dark announcement palette: near-black ground, subtle border, light type,
-// and the BRAND RED accent (same #D63C1A as the served ledger surfaces) —
-// owner-set identity: dark card, red accent, never green. The LIGHT ledger
-// tokens stay on the served site cards; this dark set is the
-// announcement/social identity.
-const B = { paper: "#0A0E14", card: "#0D1117", ink: "#E6EDF3", muted: "#8B949E", hairline: "#232A33", accent: "#E8542F", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
+// Terminal-card palette, sampled from the accepted TTS demo card: warm cream
+// paper, warm charcoal window, cream type, green ONLY for OK/status, red ONLY
+// for the agent402.tools wordmark.
+const B = {
+  paper: "#EFE8DA",
+  window: "#2B2722",
+  titlebar: "#201D19",
+  inset: "#34302A",
+  insetLine: "#4A453D",
+  text: "#EFE7D2",
+  muted: "#9A917F",
+  green: "#8FC46F",
+  red: "#E8542F",
+  dotRed: "#E0533D",
+  dotAmber: "#E0A33D",
+  dotGray: "#8A857D",
+  mono: "'Space Mono',Consolas,monospace",
+};
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 async function loadJson(from) {
   if (/^https?:\/\//.test(from)) {
     const res = await fetch(from, { signal: AbortSignal.timeout(20000) });
-    if (res.status === 402) throw new Error("endpoint is paid (402) — capture the JSON once via the buyer SDK or paid canary, then render with --from <file>");
+    if (res.status === 402) throw new Error("endpoint is paid (402) — capture the JSON once via scripts/capture-bestsellers.js, then render with --from <file>");
     if (!res.ok) throw new Error(`fetch ${res.status}`);
     return await res.json();
   }
@@ -58,43 +72,44 @@ async function loadJson(from) {
 
 function cardSvg(data) {
   const mono = JSON.stringify(B.mono);
-  const display = JSON.stringify(B.display);
-  const rows = (data.bestsellers || []).slice(0, 4);
-  const trendColor = (t) => (t === "rising" || t === "new" ? B.accent : B.muted);
-  const rowSvg = rows
+  const rows = (data.bestsellers || []).slice(0, 3);
+  const days = data.days ?? 30;
+  const liveDate = String(data.generatedAt || "").slice(0, 10);
+  const trendColor = (t) => (t === "rising" || t === "new" ? B.green : B.muted);
+  // OK feature rows: green OK · bold label · muted detail · → bold takeaway.
+  const okRow = (y, label, detail, arrow) =>
+    `<text x="96" y="${y}" font-size="21" font-family=${mono}><tspan font-weight="700" fill="${B.green}">OK</tspan><tspan x="150" font-weight="700" fill="${B.text}">${esc(label)}</tspan><tspan x="300" fill="${B.muted}">${esc(detail)}</tspan><tspan x="740" font-weight="700" fill="${B.text}">→ ${esc(arrow)}</tspan></text>`;
+  const resultRows = rows
     .map((r, i) => {
-      const y = 340 + i * 36;
-      const buyers = r.buyers === 1 ? "1 buyer" : `${r.buyers} buyers`;
-      const sales = r.sales === 1 ? "1 sale" : `${r.sales} sales`;
-      return `<text x="84" y="${y}" font-size="22" font-family=${mono} fill="${B.ink}"><tspan font-weight="700" fill="${B.accent}">#${r.rank}</tspan> ${esc(r.slug)} <tspan fill="${B.muted}">· ${sales} · ${buyers} ·</tspan> <tspan font-weight="700" fill="${trendColor(r.trend)}">${esc(r.trend)}</tspan></text>`;
+      const y = 404 + i * 30;
+      return `<text x="126" y="${y}" font-size="19" font-family=${mono}><tspan font-weight="700" fill="${B.text}">#${r.rank} ${esc(r.slug)}</tspan><tspan fill="${B.muted}"> · ${r.sales} sale${r.sales === 1 ? "" : "s"} · ${r.buyers} buyer${r.buyers === 1 ? "" : "s"} · </tspan><tspan font-weight="700" fill="${trendColor(r.trend)}">${esc(r.trend)}</tspan></text>`;
     })
     .join("");
-  const empty = rows.length
+  const emptyRow = rows.length
     ? ""
-    : `<text x="84" y="340" font-size="22" font-family=${mono} fill="${B.muted}">ledger warming — every external paid call lands here by name</text>`;
-  const windowLabel = `last ${data.days ?? 30} days · ranked by distinct paying wallets`;
-  // Rides the windowLabel baseline, right-aligned — clear of the headline and
-  // the footer block at every row count.
-  const previewTag = PREVIEW
-    ? `<text x="1116" y="${340 + Math.max(rows.length, 1) * 36}" font-size="16" font-family=${mono} text-anchor="end" fill="${B.muted}">preview data — final card renders from live output</text>`
-    : "";
+    : `<text x="126" y="404" font-size="19" font-family=${mono} fill="${B.muted}">ledger warming — every external paid call lands here by name</text>`;
+  // Preview renders may not claim "real output" — the tag replaces the claim.
+  const insetNote = PREVIEW
+    ? `<text x="126" y="500" font-size="16" font-family=${mono} fill="${B.muted}">preview data — final card renders from live output</text>`
+    : `<text x="1074" y="500" font-size="16" font-family=${mono} text-anchor="end" fill="${B.muted}">real output · $0.005 settled on Base</text>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">${FONT_STYLE}
   <rect width="1200" height="630" fill="${B.paper}"/>
-  <rect x="36" y="36" width="1128" height="558" rx="18" fill="${B.card}" stroke="${B.hairline}" stroke-width="1.5"/>
-  <rect x="84" y="84" width="64" height="64" rx="14" fill="none" stroke="${B.accent}" stroke-width="2.5"/>
-  <text x="116" y="126" font-size="26" font-weight="700" font-family=${mono} text-anchor="middle" fill="${B.accent}">402</text>
-  <text x="170" y="118" font-size="26" font-weight="800" font-family=${display} fill="${B.ink}">AGENT402<tspan fill="${B.accent}">.</tspan>TOOLS</text>
-  <text x="170" y="146" font-size="20" font-family=${mono} fill="${B.muted}">new tool · market intelligence</text>
-  <text x="1116" y="127" font-size="24" font-weight="700" font-family=${mono} text-anchor="end" fill="${B.accent}">agent402.tools</text>
-  <line x1="84" y1="172" x2="1116" y2="172" stroke="${B.hairline}" stroke-width="1.5"/>
-  <text x="84" y="248" font-size="54" font-weight="800" font-family=${display} letter-spacing="-1" fill="${B.ink}">What agents actually buy<tspan fill="${B.accent}">.</tspan></text>
-  <text x="84" y="296" font-size="24" font-weight="700" font-family=${mono} fill="${B.accent}">$ GET /api/bestsellers?sort=buyers</text>
-  ${rowSvg}${empty}
-  <text x="84" y="${340 + Math.max(rows.length, 1) * 36}" font-size="18" font-family=${mono} fill="${B.muted}">${esc(windowLabel)}</text>
-  <line x1="84" y1="500" x2="1116" y2="500" stroke="${B.hairline}" stroke-width="2"/>
-  <text x="84" y="546" font-size="27" font-weight="700" font-family=${mono} fill="${B.accent}">$0.005 per call · x402 · USDC on 8 chains</text>
-  <text x="84" y="582" font-size="21" font-family=${mono} fill="${B.muted}">Which tool was bought never reaches the chain · raw feed free at /api/sales</text>
-  ${previewTag}
+  <rect x="36" y="30" width="1128" height="570" rx="18" fill="${B.window}"/>
+  <path d="M36 48 a18 18 0 0 1 18 -18 h1092 a18 18 0 0 1 18 18 v34 h-1128 z" fill="${B.titlebar}"/>
+  <circle cx="72" cy="61" r="8" fill="${B.dotRed}"/><circle cx="98" cy="61" r="8" fill="${B.dotAmber}"/><circle cx="124" cy="61" r="8" fill="${B.dotGray}"/>
+  <text x="152" y="68" font-size="20" font-weight="700" font-family=${mono} fill="${B.text}">no API key · the wallet is the account</text>
+  <text x="96" y="130" font-size="22" font-family=${mono}><tspan font-weight="700" fill="${B.text}">Agent402 GET /api/bestsellers</tspan><tspan fill="${B.muted}"> · catalog demand, ranked${liveDate ? ` · live ${esc(liveDate)} UTC` : ""}</tspan></text>
+  ${okRow(180, "buyers", "distinct paying wallets", "whale-resistant ranking")}
+  ${okRow(214, "trend", `vs the previous ${days}-day window`, "rising / flat / cooling / new")}
+  ${okRow(248, "receipts", "every sale settled on-chain", "canary traffic excluded")}
+  ${okRow(282, "price", "$0.005 per call · USDC over x402", "no signup, no key")}
+  <rect x="96" y="312" width="1008" height="212" rx="12" fill="${B.inset}" stroke="${B.insetLine}" stroke-width="1"/>
+  <text x="126" y="348" font-size="19" font-family=${mono}><tspan fill="${B.muted}">$ </tspan><tspan fill="${B.text}">curl agent402.tools/api/bestsellers?sort=buyers</tspan></text>
+  <text x="126" y="376" font-size="19" font-family=${mono}><tspan fill="${B.text}">→ HTTP </tspan><tspan font-weight="700" fill="${B.green}">200</tspan><tspan fill="${B.text}"> · application/json · </tspan><tspan font-weight="700" fill="${B.text}">top ${rows.length || "-"} by distinct buyers · ${days}d</tspan></text>
+  ${resultRows}${emptyRow}
+  ${insetNote}
+  <text x="96" y="572" font-size="20" font-family=${mono}><tspan fill="${B.muted}">the chain never says which tool · </tspan><tspan font-weight="700" fill="${B.text}">agents buying from agents</tspan></text>
+  <text x="1104" y="572" font-size="20" font-weight="700" font-family=${mono} text-anchor="end" fill="${B.red}">agent402.tools</text>
 </svg>`;
 }
 
