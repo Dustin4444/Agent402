@@ -35,8 +35,11 @@ export function termsPage(baseUrl) {
 <p>Agent402 provides web tools that clients — human-operated or autonomous agents — call over HTTP.
 By using the service, including programmatically via the x402 payment protocol or the MCP connector,
 you agree to these terms. If you operate an agent that uses the service, you are responsible for that
-agent's use. You must be at least 18 and able to form a binding contract. The service is
-<a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>; these terms cover the hosted instance at agent402.tools.</p>
+agent's use. You must be at least 18, able to form a binding contract, not barred from receiving
+services under U.S. or other applicable law, and not located in an embargoed jurisdiction or listed on
+any U.S. government sanctions list. The service is
+<a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>; these terms cover the hosted instance at agent402.tools.
+If you do not agree to these terms, do not use the service.</p>
 
 <h2>The service</h2>
 <ul>
@@ -51,7 +54,9 @@ agent's use. You must be at least 18 and able to form a binding contract. The se
   <li>Don't use the service to break the law, infringe others' rights, or attack the service or third parties (e.g. using the URL-fetching tools against targets you don't control).</li>
   <li>Don't attempt to bypass rate limits, payment, or the proof-of-work gate, or to disrupt availability for others.</li>
   <li><b>Generative paths:</b> don't use the AI gateway or any generative tool to create or attempt to create: child sexual abuse material (zero tolerance — we will block the wallet and report as required by law); non-consensual intimate imagery or sexual content depicting real people; content that impersonates a real person to deceive; material that infringes others' intellectual-property rights; or content whose creation or distribution is otherwise illegal in your jurisdiction or ours.</li>
-  <li>Traffic through the AI gateway is also subject to the <b>usage policies of the upstream model providers</b> (including OpenAI's usage policies and the terms of OpenRouter and the model operators it serves). Those providers apply their own safety filtering and may refuse requests; their policies apply to your use through us.</li>
+  <li>Traffic through the AI gateway is also subject to the <b>usage policies of the upstream model providers</b> (including OpenAI's usage policies and the terms of OpenRouter and the model operators it serves). Those providers apply their own safety filtering and may refuse requests; their policies apply to your use through us. Don't attempt to circumvent, probe, or disable that safety filtering.</li>
+  <li>Don't use the service to create malware or exploits for unauthorized use, to defraud, phish, spam, or deceive, or to process other people's personal data unlawfully.</li>
+  <li><b>High-risk use is prohibited:</b> the service is not designed for, and must not be relied on in, any context where failure or inaccuracy could lead to death, personal injury, or severe damage — including medical treatment, life-safety systems, and operation of critical infrastructure.</li>
   <li>You are responsible for the inputs you send and how you use the outputs.</li>
 </ul>
 
@@ -64,10 +69,19 @@ financial, or medical advice. Your use of generated content, including any oblig
 mark it as AI-generated where the law requires, is your responsibility.</p>
 
 <h2>Enforcement</h2>
-<p>We may refuse service to, rate-limit, or block any wallet at our discretion, including for violations
-of these terms or of upstream provider policies, and may do so without prior notice. To report abuse,
-infringement, or illegal content involving this service, email
+<p>We may refuse service to, rate-limit, or block any wallet at our sole discretion, with or without
+notice, including for violations of these terms or of upstream provider policies. Wallets used for
+repeated violations are blocked permanently. We cooperate with law enforcement and will disclose
+information and preserve records in response to valid legal process, and report content where the law
+requires it. To report abuse, infringement, or illegal content involving this service, email
 <a href="mailto:mike@agent402.tools">mike@agent402.tools</a> — reports are reviewed promptly.</p>
+
+<h2>Copyright complaints</h2>
+<p>If you believe content generated, fetched, or stored through the service infringes your copyright,
+send a notice to <a href="mailto:mike@agent402.tools">mike@agent402.tools</a> identifying the work, the
+material at issue, your contact information, and a good-faith statement that the use is unauthorized.
+We respond to valid notices, including by removing stored material and blocking wallets of repeat
+infringers.</p>
 
 <h2>Payments</h2>
 <p>Paid calls settle on public blockchains via x402 — USDC on Base, Solana, Polygon, Arbitrum, Monad,
@@ -85,11 +99,46 @@ contributors from claims, damages, and reasonable costs (including legal fees) a
 the service, the inputs you send, the outputs you generate, or your violation of these terms or of
 applicable law.</p>
 
+<h2>Disclaimer of warranties</h2>
+<p>THE SERVICE, THE TOOLS, AND ALL OUTPUTS (INCLUDING GENERATED CONTENT) ARE PROVIDED "AS IS" AND
+"AS AVAILABLE", WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, ACCURACY, AND
+UNINTERRUPTED OR ERROR-FREE OPERATION. YOU USE THE SERVICE AT YOUR OWN RISK.</p>
+
 <h2>Liability</h2>
-<p>To the maximum extent permitted by law, Agent402 and its maintainer are not liable for any indirect,
-incidental, or consequential damages, or for any losses arising from use of the service, the tools,
-generated content, or on-chain payments. Total liability for any claim will not exceed the amount you
-paid for the call at issue.</p>
+<p>TO THE MAXIMUM EXTENT PERMITTED BY LAW, HAVOK HOLDINGS LLC, AGENT402, AND THEIR MAINTAINERS AND
+CONTRIBUTORS ARE NOT LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR
+PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, DATA, GOODWILL, OR DIGITAL ASSETS, ARISING FROM OR
+RELATING TO USE OF THE SERVICE, THE TOOLS, GENERATED CONTENT, OR ON-CHAIN PAYMENTS — WHETHER IN
+CONTRACT, TORT, OR OTHERWISE, AND EVEN IF ADVISED OF THE POSSIBILITY. TOTAL AGGREGATE LIABILITY FOR
+ALL CLAIMS WILL NOT EXCEED THE GREATER OF THE AMOUNT YOU PAID FOR THE CALL AT ISSUE OR ONE U.S.
+DOLLAR (US$1). Some jurisdictions do not allow certain limitations; where a limitation is not
+permitted, liability is limited to the smallest amount the law allows.</p>
+
+<h2>Governing law &amp; disputes</h2>
+<p>These terms are governed by the laws of the <b>State of North Carolina</b> and applicable U.S.
+federal law, without regard to conflict-of-laws rules. Before filing any claim, you agree to first
+contact <a href="mailto:mike@agent402.tools">mike@agent402.tools</a> and attempt in good faith to
+resolve the dispute informally for 30 days.</p>
+<p><b>Arbitration and class-action waiver.</b> Any dispute not resolved informally will be settled by
+<b>binding individual arbitration</b> administered by the American Arbitration Association under its
+rules, conducted in English. <b>You and we each waive the right to a jury trial and to participate in
+a class action, class arbitration, or representative proceeding</b> — disputes may be brought only in
+an individual capacity. Either party may instead bring an individual claim in small-claims court, and
+either party may seek injunctive relief in court for intellectual-property infringement, unauthorized
+access, or abuse of the service. For any matter not subject to arbitration, you consent to the
+exclusive jurisdiction and venue of the state and federal courts located in North Carolina. Any claim
+must be filed within one year of when it arose, or it is permanently barred.</p>
+
+<h2>General</h2>
+<p>These terms are the entire agreement between you and Havok Holdings LLC regarding the hosted
+service, superseding any prior understanding. If any provision is found unenforceable, it will be
+limited to the minimum extent necessary and the rest remains in effect. Our not enforcing a provision
+is not a waiver of it. You may not assign these terms; we may assign them in connection with a merger,
+acquisition, or sale of assets. We are not liable for delay or failure caused by events beyond our
+reasonable control (including outages of blockchains, facilitators, or upstream model providers).
+Sections on generated content, payments, indemnification, warranty disclaimer, liability, and disputes
+survive any termination of your use.</p>
 
 <h2>Operator &amp; contact</h2>
 <p>Agent402.Tools is operated by <strong>Havok Holdings LLC</strong>. Contact: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,

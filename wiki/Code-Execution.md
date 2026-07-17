@@ -1,5 +1,8 @@
 # Code Execution Sandbox
 
+> **Acceptable use.** Hosted-instance traffic is governed by the [Terms of Service](https://agent402.tools/terms), including its acceptable-use policy: no unlawful code, no attacks on third parties, no malware. Wallets used for violations are blocked before settlement.
+
+
 Two tiers of sandboxed code execution, paywalled via x402. An agent sends source code and gets back stdout, stderr, and the expression result -- all executed in an isolated cloud VM via [E2B](https://e2b.dev). No API key needed on the caller's side, no signup, no account. The operator's own `E2B_API_KEY` handles upstream auth; per-tier timeout and code-size caps bound compute cost.
 
 ## Tiers
