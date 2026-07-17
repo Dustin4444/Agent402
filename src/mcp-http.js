@@ -106,24 +106,40 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   // consistent convention (the meta-tools are already snake_case; the curated
   // tools' slugs are kebab). CallTool accepts either form, so no caller breaks.
   const toSnake = (slug) => String(slug).replace(/-/g, "_");
-  // Single-word slugs get a two-word noun_verb MCP name so the whole listing
-  // follows ONE naming pattern (Glama's naming-consistency rubric dinged the
-  // `base64`/`qr`/`uuid` vs `csv_to_json` mix). The call router still accepts
-  // the raw slug and the legacy snake name, so no existing caller breaks.
+  // Every MCP tool name follows ONE pattern: verb_noun, action first — the
+  // pattern Glama's naming-consistency rubric names as the target ("many use
+  // verb_noun with underscores"). Slug -> exposed name; the meta tools
+  // (search_tools/find_tool/call_tool) are already verb-first.
   const MCP_NAME_OVERRIDES = {
-    base64: "base64_convert",
-    qr: "qr_generate",
-    uuid: "uuid_generate",
-    hash: "hash_generate",
+    hash: "generate_hash",
+    "unit-convert": "convert_units",
+    qr: "generate_qr",
+    "json-format": "format_json",
+    "jwt-decode": "decode_jwt",
+    base64: "convert_base64",
+    uuid: "generate_uuid",
+    "csv-to-json": "parse_csv",
+    "timezone-convert": "convert_timezone",
+    "wallet-balances": "get_wallet_balances",
+    "wallet-transactions": "get_wallet_transactions",
   };
   const mcpNameOf = (slug) => MCP_NAME_OVERRIDES[slug] || toSnake(slug);
+  // Prior exposed names that must still route so no integration breaks across a
+  // rename: the 2026-07-17 noun_verb pass (base64_convert, qr_generate, …).
+  // The old `payment_info` meta name is aliased in the CallTool dispatch below.
+  const LEGACY_MCP_ALIASES = {
+    base64_convert: "base64", qr_generate: "qr", uuid_generate: "uuid", hash_generate: "hash",
+  };
   // Every accepted spelling of a first-class tool name -> its catalog slug
-  // (exposed name, legacy snake form, raw kebab slug).
+  // (exposed verb_noun name, legacy snake form, raw kebab slug, prior renames).
   const namedToolSlugs = new Map();
   for (const slug of [...curatedSet, ...walletMgmtSet]) {
     namedToolSlugs.set(mcpNameOf(slug), slug);
     namedToolSlugs.set(toSnake(slug), slug);
     namedToolSlugs.set(slug, slug);
+  }
+  for (const [alias, slug] of Object.entries(LEGACY_MCP_ALIASES)) {
+    if (curatedSet.has(slug) || walletMgmtSet.has(slug)) namedToolSlugs.set(alias, slug);
   }
   // A concise "Returns { … }" clause from a tool's documented example so every
   // curated tool advertises its output shape, not just its input.
@@ -254,7 +270,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         // to configure a wallet + spend caps, and points to the on-chain
         // wallet-balances / wallet-transactions tools for balance + history.
         {
-          name: "payment_info",
+          name: "get_payment_info",
           title: "Payment and wallet setup",
           annotations: { title: "Payment and wallet setup", ...SAFE },
           description:
@@ -466,7 +482,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         }
         // Curated tools called by name: route to the same handler as
         // call_tool but use `name` as the slug and `args` as params directly.
-        if (name === "payment_info") {
+        if (name === "get_payment_info" || name === "payment_info") {
           return {
             content: [{ type: "text", text: JSON.stringify({
               connector: "hosted free tier — no wallet is held on this connector (authless)",
