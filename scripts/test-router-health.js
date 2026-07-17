@@ -94,6 +94,30 @@ seed("https://cheap.example", { history: [1, 1, 1], toolSlug: "ocr", price: 0 })
   ok(remote[0].seller === "https://cheap.example", `cheapest wins on equal health (got ${remote[0].seller})`);
 }
 
+// ---- 4b. Known price beats unknown price on equal score + health ----
+cache.clear();
+seed("https://mystery.example", { history: [1, 1, 1], toolSlug: "ocr", price: null }); // no published amount
+seed("https://honest.example", { history: [1, 1, 1], toolSlug: "ocr", price: "$0.005" });
+{
+  const r = routeQuery({ query: "ocr", top: 5, ...ctx });
+  const remote = r.results.filter((x) => x.seller !== "self");
+  ok(remote[0].seller === "https://honest.example", `published price outranks unknown (got ${remote[0].seller})`);
+  ok(remote[1].seller === "https://mystery.example", "unknown-price seller still listed, just after");
+}
+
+// ---- 4c. Explicit free is still genuinely cheapest — beats paid AND unknown ----
+cache.clear();
+seed("https://mystery.example", { history: [1, 1, 1], toolSlug: "ocr", price: null });
+seed("https://freebie.example", { history: [1, 1, 1], toolSlug: "ocr", price: 0 });
+seed("https://paid.example", { history: [1, 1, 1], toolSlug: "ocr", price: "$0.01" });
+{
+  const r = routeQuery({ query: "ocr", top: 5, ...ctx });
+  const remote = r.results.filter((x) => x.seller !== "self").map((x) => x.seller);
+  ok(remote[0] === "https://freebie.example", `explicit $0 first (got ${remote[0]})`);
+  ok(remote[1] === "https://paid.example", `known paid second (got ${remote[1]})`);
+  ok(remote[2] === "https://mystery.example", `unknown last (got ${remote[2]})`);
+}
+
 // ---- 5. indexSnapshot exposes health, routable, history per seller ----
 cache.clear();
 seed("https://healthy.example", { history: [1, 1, 1], toolSlug: "ocr" });
