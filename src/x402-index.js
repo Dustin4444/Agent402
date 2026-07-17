@@ -566,6 +566,15 @@ async function crawlSeller(originUrl) {
       /* manifest-only seller — fine */
     }
 
+    // Same Bazaar merge as the fallback path below: a manifest seller whose
+    // openapi documents only some of its settlement-proven routes (or none —
+    // manifest-only sellers) must not LOSE listings by publishing a manifest.
+    // Observed live: a seller's toolCount dropped 9 → 2 the moment they added
+    // a manifest, because their openapi covered 2 of the 9 routes the Bazaar
+    // had settled. Openapi metadata still wins per-route; Bazaar rows without
+    // an openapi match pass through.
+    tools = mergeOpenapiIntoBazaar(tools, bazaarToolsByOrigin.get(originUrl) || []);
+
     cache.set(originUrl, {
       manifest,
       openapiSummary: openapi ? { paths: Object.keys(openapi.paths || {}).length } : null,
@@ -683,6 +692,46 @@ function isRoutable(entry) {
   const h = entry?.history;
   if (!Array.isArray(h) || h.length === 0) return true; // never-crawled: give benefit of doubt
   return h[h.length - 1] === 1;
+}
+
+// Alias collapse for the router. A retired bootstrap host that permanently
+// redirects to a seller's real domain never dies in the index: safeFetch
+// follows the redirect, lands on the real manifest, and the alias keeps
+// crawling healthy forever. Left alone it (a) duplicates every row in route
+// results and (b) doubles the operator's slots under the per-seller Sybil cap
+// — an alias per redirect is a cheap way to monopolize a shortlist.
+//
+// An origin is an alias when its manifest homepage points at a DIFFERENT
+// origin that is also in the cache, that primary is self-canonical (its own
+// homepage is itself — breaks mutual-pointing pairs, which collapse neither),
+// isn't errored, and the alias's tool slugs are a subset of the primary's.
+// The subset test is what keeps this safe: an api. subdomain whose homepage
+// is the operator's main site but which serves DISTINCT tools is a real
+// seller, not an alias, and must keep ranking.
+export function computeAliasOrigins(cacheMap) {
+  const byHost = new Map(); // canonical host -> { origin, v }
+  for (const [origin, v] of cacheMap) {
+    const h = canonicalHost(origin);
+    if (h && !byHost.has(h)) byHost.set(h, { origin, v });
+  }
+  const slugSet = (v) => new Set((v?.tools || []).map((t) => t.slug));
+  const aliases = new Set();
+  for (const [origin, v] of cacheMap) {
+    const ownHost = canonicalHost(origin);
+    const homeHost = canonicalHost(v?.manifest?.homepage);
+    if (!ownHost || !homeHost || homeHost === ownHost) continue;
+    const primary = byHost.get(homeHost);
+    if (!primary || primary.origin === origin || primary.v?.error) continue;
+    const primaryHome = canonicalHost(primary.v?.manifest?.homepage);
+    if (primaryHome && primaryHome !== homeHost) continue; // primary not self-canonical
+    const mine = slugSet(v);
+    if (!mine.size) continue;
+    const theirs = slugSet(primary.v);
+    let subset = true;
+    for (const s of mine) if (!theirs.has(s)) { subset = false; break; }
+    if (subset) aliases.add(origin);
+  }
+  return aliases;
 }
 
 // Metadata-injection detector (M6, "Five Attacks on x402" Attack IV-E1).
@@ -1097,11 +1146,12 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   const localPool = inc === "external"
     ? []
     : local.tools.map((t) => ({ ...t, sellerHome: baseUrl, sellerName: local.displayName, health: 1 }));
+  const aliasOrigins = inc === "local" ? null : computeAliasOrigins(cache);
   const remotePool = inc === "local"
     ? []
-    : [...cache.values()]
-        .filter(isRoutable)
-        .flatMap((v) =>
+    : [...cache.entries()]
+        .filter(([origin, v]) => isRoutable(v) && !aliasOrigins.has(origin))
+        .flatMap(([, v]) =>
           (v.tools || []).map((t) => ({
             ...t,
             sellerHome: v.manifest?.homepage || t.seller,
