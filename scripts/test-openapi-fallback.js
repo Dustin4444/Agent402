@@ -1,0 +1,172 @@
+// Unit tests for the openapi-fallback crawl path in the x402 Index.
+//
+// Motivating case: a seller with no /.well-known/x402 manifest but a rich
+// openapi.json used to land on the Bazaar fallback, whose path-derived slugs
+// ("md") score near zero in the router for queries like "html to markdown" —
+// while the seller's own openapi carried a term-bearing operationId and
+// summary the router never saw. The crawler now reads openapi.json as a
+// fallback surface and merges its descriptive fields over the Bazaar's
+// payment-proven ones.
+//
+// Offline, no server, no network: pure helpers + the in-memory cache via the
+// _cacheForTests() escape hatch.
+import {
+  mergeOpenapiIntoBazaar,
+  openapiHasPaymentSignal,
+  routeQuery,
+  _cacheForTests,
+} from "../src/x402-index.js";
+
+const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
+const ok = (c, m) => { if (!c) fail(m); };
+
+// ---- 1. openapiHasPaymentSignal gates what counts as an x402 surface ----
+ok(
+  openapiHasPaymentSignal({
+    paths: { "/md": { post: { operationId: "md", "x-payment-info": { price: { amount: "0.005" } } } } },
+  }),
+  "x-payment-info counts as a payment signal",
+);
+ok(
+  openapiHasPaymentSignal({ paths: { "/a": { get: { "x-price": "$0.01" } } } }),
+  "x-price counts as a payment signal",
+);
+ok(
+  !openapiHasPaymentSignal({ paths: { "/pets": { get: { operationId: "listPets" } } } }),
+  "a plain Swagger site is NOT a payment signal",
+);
+ok(!openapiHasPaymentSignal(null) && !openapiHasPaymentSignal({}), "null/empty openapi is not a signal");
+
+// ---- 2. merge: openapi descriptive fields over Bazaar payment truth ----
+const bazaarTools = [
+  {
+    seller: "https://md.example",
+    method: "POST",
+    route: "/md",
+    slug: "md",
+    name: "/md",
+    description: "Scrape any web page: URL to Markdown / HTML to Markdown for LLM context.",
+    category: "other",
+    tags: [],
+    price: 0.005,
+    networks: ["eip155:8453"],
+    payToByNetwork: { "eip155:8453": "0x072F3a2bD93bB75b1Eb84a9E45D17a4F90a6D801" },
+    provenance: "bazaar",
+  },
+];
+const openapiTools = [
+  {
+    seller: "https://md.example",
+    method: "POST",
+    route: "/md",
+    slug: "url-to-markdown",
+    name: "Scrape any web page: URL to Markdown / HTML to Markdown for LLM context",
+    description: "Give it a URL, get back LLM-ready Markdown.",
+    category: "markdown",
+    tags: ["markdown", "scraping"],
+    price: "0.005",
+  },
+  {
+    seller: "https://md.example",
+    method: "POST",
+    route: "/extract",
+    slug: "extract-structured-data",
+    name: "Extract structured JSON from a web page",
+    description: "Schema-guided extraction.",
+    category: "extraction",
+    tags: ["extraction"],
+    price: "0.01",
+  },
+];
+{
+  const merged = mergeOpenapiIntoBazaar(openapiTools, bazaarTools);
+  ok(merged.length === 2, `merge yields both routes (got ${merged.length})`);
+  const md = merged.find((t) => t.route === "/md");
+  ok(md.slug === "url-to-markdown", "openapi operationId wins the slug");
+  ok(md.name.includes("HTML to Markdown"), "openapi summary wins the name");
+  ok(md.price === 0.005, "Bazaar's settlement-proven price is kept");
+  ok(md.payToByNetwork["eip155:8453"], "Bazaar payTo survives the merge");
+  ok(md.networks.length === 1, "Bazaar networks survive the merge");
+  ok(md.tags.includes("markdown"), "openapi tags win when present");
+  const extract = merged.find((t) => t.route === "/extract");
+  ok(extract && extract.slug === "extract-structured-data", "openapi-only route is appended");
+}
+
+// ---- 3. merge matches by route when Bazaar guessed the method wrong ----
+{
+  const guessed = [{ ...bazaarTools[0], method: "POST" }];
+  const real = [{ ...openapiTools[0], method: "GET" }];
+  const merged = mergeOpenapiIntoBazaar(real, guessed);
+  ok(merged.length === 1, "method mismatch still merges by route (no duplicate listing)");
+  ok(merged[0].slug === "url-to-markdown", "route-only match still overlays metadata");
+}
+
+// ---- 4. degenerate inputs pass through ----
+ok(mergeOpenapiIntoBazaar([], bazaarTools).length === 1, "no openapi → Bazaar tools pass through");
+ok(mergeOpenapiIntoBazaar(openapiTools, []).length === 2, "no Bazaar → openapi tools pass through");
+ok(mergeOpenapiIntoBazaar([], []).length === 0, "nothing in, nothing out");
+
+// ---- 5. end-to-end ranking: the merged listing is actually findable ----
+const cache = _cacheForTests();
+cache.clear();
+const ctx = {
+  baseUrl: "https://agent402.tools",
+  catalog: {},
+  prices: {},
+  network: "base",
+  toolCount: 0,
+  walletName: "agent402.base.eth",
+};
+function seed(origin, tools) {
+  cache.set(origin, {
+    manifest: { name: origin.replace(/^https?:\/\//, ""), homepage: origin, synthesized: true },
+    tools,
+    fetchedAt: Date.now(),
+    error: null,
+    history: [1, 1, 1, 1, 1],
+  });
+}
+// A competitor shaped like today's 21-scorers, and the merged seller both ways.
+seed("https://competitor.example", [
+  {
+    seller: "https://competitor.example",
+    method: "POST",
+    route: "/html-to-markdown",
+    slug: "html_to_markdown",
+    name: "Convert HTML to Markdown.",
+    description: "Convert HTML to Markdown. Strips boilerplate.",
+    category: "other",
+    tags: [],
+    price: 0.001,
+  },
+]);
+seed("https://md.example", mergeOpenapiIntoBazaar(openapiTools, bazaarTools));
+{
+  // "url to markdown" is the seller's own operationId phrasing — the merged
+  // slug carries every term and must now WIN outright.
+  const r = routeQuery({ query: "url to markdown", top: 5, include: "external", ...ctx });
+  const md = r.results.find((x) => x.seller === "https://md.example" && x.route === "/md");
+  const comp = r.results.find((x) => x.seller === "https://competitor.example");
+  ok(md && comp, "both sellers listed for 'url to markdown'");
+  ok(md.score > comp.score, `merged listing wins its own phrasing (md ${md.score} vs competitor ${comp.score})`);
+}
+{
+  // "html to markdown" only appears in name/description, not the slug — the
+  // merged listing scores lower than a slug-exact competitor but must still
+  // surface in the shortlist (pre-merge it scored 3 and was cut).
+  const r = routeQuery({ query: "html to markdown", top: 5, include: "external", ...ctx });
+  const md = r.results.find((x) => x.seller === "https://md.example" && x.route === "/md");
+  ok(md, "merged listing surfaces for 'html to markdown'");
+  ok(md.score >= 15, `name/description terms lift the score well above the Bazaar-only 3 (got ${md.score})`);
+}
+// Control: the old Bazaar-only shape stays buried — proves the merge is what fixed it.
+seed("https://md.example", bazaarTools);
+{
+  const r = routeQuery({ query: "html to markdown", top: 5, include: "external", ...ctx });
+  const md = r.results.find((x) => x.seller === "https://md.example");
+  const comp = r.results.find((x) => x.seller === "https://competitor.example");
+  ok(comp && (!md || md.score < comp.score), "Bazaar-only shape scores below the competitor (the pre-fix bug)");
+}
+
+cache.clear();
+console.log("openapi-fallback tests passed");

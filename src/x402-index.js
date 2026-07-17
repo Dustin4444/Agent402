@@ -477,11 +477,62 @@ function normaliseOpenapiTools(openapi, originUrl) {
         description: op.description || "",
         category: tags[0] || "other",
         tags,
-        price: op["x-price"] || op["x-x402-price"] || null,
+        price: op["x-price"] || op["x-x402-price"] || op["x-payment-info"]?.price?.amount || null,
       });
     }
   }
   return out;
+}
+
+// Does this openapi document look like a *paid* x402 service rather than any
+// random Swagger site? True when at least one operation carries a payment
+// extension. Gates the openapi-fallback crawl path: without a manifest AND
+// without a Bazaar settlement record, a payment extension is the only signal
+// that the origin actually sells anything.
+export function openapiHasPaymentSignal(openapi) {
+  if (!openapi || typeof openapi !== "object" || !openapi.paths) return false;
+  for (const methods of Object.values(openapi.paths)) {
+    for (const op of Object.values(methods || {})) {
+      if (op && typeof op === "object" && (op["x-price"] || op["x-x402-price"] || op["x-payment-info"])) return true;
+    }
+  }
+  return false;
+}
+
+// Overlay openapi tool metadata onto Bazaar-derived tools for the same origin.
+// Bazaar entries are payment-proven (price, networks, payTo observed from real
+// 402s) but carry only a path-derived slug and no name — a seller whose routes
+// are short ("/md") is invisible to the router's slug/name scoring even when
+// its openapi.json says exactly what the tool does (operationId → slug,
+// summary → name, tags). Match by method+route (route-only as a fallback,
+// Bazaar guesses POST when the registry omits the method); openapi wins on
+// descriptive fields, Bazaar wins on payment truth. Openapi-only routes are
+// appended as-is; Bazaar-only routes pass through untouched.
+export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
+  if (!openapiTools.length) return bazaarTools.slice();
+  if (!bazaarTools.length) return openapiTools.slice();
+  const exact = new Map();
+  const byRoute = new Map();
+  for (const o of openapiTools) {
+    exact.set(`${o.method} ${o.route}`, o);
+    if (!byRoute.has(o.route)) byRoute.set(o.route, o);
+  }
+  const used = new Set();
+  const merged = bazaarTools.map((b) => {
+    const o = exact.get(`${b.method} ${b.route}`) || byRoute.get(b.route);
+    if (!o) return b;
+    used.add(o);
+    return {
+      ...b,
+      slug: o.slug || b.slug,
+      name: o.name && o.name !== o.route ? o.name : b.name,
+      description: o.description || b.description,
+      tags: o.tags?.length ? o.tags : b.tags,
+      category: o.tags?.length ? o.category : b.category,
+    };
+  });
+  for (const o of openapiTools) if (!used.has(o)) merged.push(o);
+  return merged;
 }
 
 // Record a crawl outcome and roll the per-seller history window. `prev` is the
@@ -524,20 +575,54 @@ async function crawlSeller(originUrl) {
       history: rollHistory(prev, true),
     });
   } catch (e) {
-    // No /.well-known/x402 — but if the Bazaar carries resource entries for
-    // this origin we can still route to them. Many sellers never publish a
-    // manifest at all; the Bazaar IS their public surface. We treat a
-    // Bazaar-only seller as routable (history flips positive) because we
-    // observed real settled payments on those routes.
-    const bazaarTools = bazaarToolsByOrigin.get(originUrl);
-    if (Array.isArray(bazaarTools) && bazaarTools.length) {
+    // No /.well-known/x402 — two fallback surfaces, richest metadata wins:
+    //
+    // 1. The seller's own openapi.json. Some sellers publish no manifest but
+    //    a rich openapi (operationId, summary, tags) — before this path
+    //    existed they landed on the Bazaar fallback below, whose
+    //    path-derived slugs ("md") score near zero in the router. Accepted
+    //    only when the origin is payment-proven: either the Bazaar lists it,
+    //    or the openapi itself carries a payment extension — a plain Swagger
+    //    site is not an x402 seller.
+    // 2. Bazaar resource entries. Many sellers never publish anything else;
+    //    the Bazaar IS their public surface, and its entries are settlement-
+    //    proven (price, networks, payTo from real 402s).
+    //
+    // When both exist we merge: openapi descriptive fields over Bazaar
+    // payment truth. Either way the seller is routable (history flips
+    // positive) — we just observed a live surface.
+    const bazaarTools = bazaarToolsByOrigin.get(originUrl) || [];
+    let openapi = null;
+    let openapiTools = [];
+    try {
+      const openapiRes = await safeFetch(`${originUrl}/openapi.json`, {
+        maxBytes: MAX_OPENAPI_BYTES,
+      });
+      const parsed = JSON.parse(openapiRes.html);
+      if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
+        openapi = parsed;
+        openapiTools = normaliseOpenapiTools(parsed, originUrl);
+      }
+    } catch {
+      /* no openapi either — Bazaar-only seller */
+    }
+    const tools = mergeOpenapiIntoBazaar(openapiTools, bazaarTools);
+    if (tools.length) {
+      // A real (non-synthesized) manifest from a past crawl is kept; a stale
+      // synthesized one is rebuilt so a newly appeared openapi title wins.
+      const keepManifest = prev?.manifest && !prev.manifest.synthesized ? prev.manifest : null;
       cache.set(originUrl, {
         ...(prev || {}),
-        manifest: prev?.manifest || synthManifestFromBazaar(originUrl, bazaarTools),
-        tools: bazaarTools,
+        manifest:
+          keepManifest ||
+          (openapi
+            ? synthManifestFromOpenapi(originUrl, openapi, tools)
+            : synthManifestFromBazaar(originUrl, bazaarTools)),
+        openapiSummary: openapi ? { paths: Object.keys(openapi.paths || {}).length } : prev?.openapiSummary ?? null,
+        tools,
         fetchedAt: Date.now(),
         error: null,
-        source: "bazaar-fallback",
+        source: openapiTools.length ? "openapi-fallback" : "bazaar-fallback",
         history: rollHistory(prev, true),
       });
       return;
@@ -562,6 +647,18 @@ function synthManifestFromBazaar(originUrl, tools) {
   const host = originUrl.replace(/^https?:\/\//, "");
   return {
     name: first.name && first.name !== first.route ? first.name : host,
+    homepage: originUrl,
+    payment: { x402: { primaryNetwork: "base" } },
+    capabilities: { tools: tools.length },
+    synthesized: true,
+  };
+}
+
+// Same idea for an openapi-fallback seller — info.title is the display name.
+function synthManifestFromOpenapi(originUrl, openapi, tools) {
+  const host = originUrl.replace(/^https?:\/\//, "");
+  return {
+    name: openapi?.info?.title || host,
     homepage: originUrl,
     payment: { x402: { primaryNetwork: "base" } },
     capabilities: { tools: tools.length },
@@ -950,6 +1047,7 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
       routable: 1 + remote.filter((s) => s.routable).length, // self always routable
       unhealthy: remote.filter((s) => !s.routable).length,
       bazaarFallback: remote.filter((s) => s.source === "bazaar-fallback").length,
+      openapiFallback: remote.filter((s) => s.source === "openapi-fallback").length,
     },
   };
 }
