@@ -1785,7 +1785,7 @@ jobs:
           // Decode the REAL payer from each tx input. USDC x402 settles via
           // transferWithAuthorization(from, to, value, …) — "from" is the first
           // 32-byte word after the 4-byte selector. That is the actual buyer.
-          const OURS = new Set(["0xfeda7403aabe9a492ed70e810b396d8548a4a022"]); // our test burner
+          const OURS = new Set(["0xfeda7403aabe9a492ed70e810b396d8548a4a022", "0x902dcf34e53695bdea2ffb354b1a2e58bd598256"]); // our canary burners (0xfeda7403 retired 2026-07-17, 0x902dcf34 current)
           for (const r of rows) {
             try {
               const tx = await rpc("eth_getTransactionByHash", [r.tx]);
