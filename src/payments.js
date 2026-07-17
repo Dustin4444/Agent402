@@ -14,6 +14,7 @@ import {
   builderCodeResourceServerExtension,
   declareBuilderCodeExtension,
 } from "@x402/extensions/builder-code";
+import { normalizePayerAddress } from "./payer.js";
 
 // Supported networks. EVM chains use eip155: CAIP-2 IDs; Solana uses the
 // solana: genesis-hash CAIP-2. Adding a chain = register its scheme + list
@@ -327,6 +328,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     );
   }
   registerFacilitatorFailureHooks(server, payAiClient);
+  registerWalletBlocklistHook(server);
   console.log(
     `Accepting USDC on: ${networks.join(", ")} (${caip2List.join(", ")})` +
       (robinhoodEnabled ? " — note: robinhood settles USDG, not USDC" : "")
@@ -408,6 +410,56 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // only for local testing where the facilitator is unreachable.
   const syncOnStart = process.env.X402_SYNC_ON_START !== "false";
   return paymentMiddleware(routes, server, undefined, undefined, syncOnStart);
+}
+
+/**
+ * WALLET_BLOCKLIST enforcement — the teeth behind /terms' "we may refuse
+ * service to any wallet".
+ *
+ * WALLET_BLOCKLIST is a comma-separated list of wallet addresses (EVM 0x…,
+ * Solana base58, Stellar G…, Algorand base32 — same alphabet
+ * normalizePayerAddress accepts). Read at CALL time (same convention as the
+ * memory quotas), so a Railway variable update takes effect on the next
+ * restart with no code change.
+ *
+ * Enforcement point is a beforeSettle abort: the hook runs after verify but
+ * BEFORE the facilitator settles, so a blocked wallet is never charged — the
+ * buyer gets the standard settle-failure 402 whose receipt carries
+ * errorReason "wallet_blocked" (which the tally middleware records as a
+ * settle_failed event, so blocks are visible in PostHog). EVM payers are
+ * matched from the signature-covered EIP-3009 authorization.from; other
+ * schemes match when their payload carries a recognizable payer field.
+ */
+export function blockedPayerFromPayload(paymentPayload) {
+  const raw = (process.env.WALLET_BLOCKLIST || "").trim();
+  if (!raw) return null;
+  const blocklist = new Set(
+    raw.split(",").map((s) => normalizePayerAddress(s.trim())).filter(Boolean)
+  );
+  if (!blocklist.size) return null;
+  const candidates = [
+    paymentPayload?.payload?.authorization?.from, // EVM exact scheme (signature-covered)
+    paymentPayload?.payload?.payer,
+    paymentPayload?.payer,
+  ];
+  for (const c of candidates) {
+    const normalized = normalizePayerAddress(c);
+    if (normalized && blocklist.has(normalized)) return normalized;
+  }
+  return null;
+}
+
+function registerWalletBlocklistHook(server) {
+  server.onBeforeSettle((ctx) => {
+    const blocked = blockedPayerFromPayload(ctx?.paymentPayload);
+    if (!blocked) return;
+    console.warn(`[payments] BLOCKED wallet refused before settlement: ${blocked} (${ctx?.requirements?.network})`);
+    return {
+      abort: true,
+      reason: "wallet_blocked",
+      message: "This wallet is blocked for terms-of-service violations (see https://agent402.tools/terms). Contact mike@agent402.tools.",
+    };
+  });
 }
 
 /**

@@ -340,3 +340,7 @@ npx agent402-tollbooth
 or in code: `createTollbooth({ payTo, network: "eip155:4663", asset: "USDG", verifyX402 })`.
 Wire `verifyX402` to an x402 facilitator that settles chain 4663. Defaults
 are unchanged (USDC on Base).
+
+## Legal
+
+Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). The code is MIT-licensed, provided as-is without warranty; self-hosted deployments are their operator's responsibility.

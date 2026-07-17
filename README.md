@@ -386,6 +386,20 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 | `wiki/` | Source for the [GitHub wiki](https://github.com/MikeyPetrillo/Agent402/wiki) (CI-synced) |
 | `scripts/` | Tests, demos, ops tooling |
 
+## Legal
+
+- The hosted instance at agent402.tools is provided under its
+  [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included — using the
+  service, including programmatically, constitutes acceptance) and
+  [Privacy Policy](https://agent402.tools/privacy).
+- AI-gateway traffic (`/v1` chat, embeddings, images, speech) is additionally subject to the
+  upstream model providers' usage policies. Wallets used for prohibited content are blocked
+  before settlement (`WALLET_BLOCKLIST`).
+- The **code** is MIT-licensed and provided as-is, without warranty (see [LICENSE](LICENSE)).
+  If you self-host, you are the operator: your deployment, your terms, your compliance —
+  Havok Holdings LLC operates only the hosted instance and is not responsible for third-party
+  deployments.
+
 ## Contact
 
 - **Email:** [mike@agent402.tools](mailto:mike@agent402.tools)

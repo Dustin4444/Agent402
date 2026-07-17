@@ -687,6 +687,9 @@ jobs:
       - name: USDC settle-receipt network attribution (viaUSDCByNetwork)
         run: node scripts/test-stats-network.js
 
+      - name: WALLET_BLOCKLIST payer matcher (blocked wallets refused pre-settle)
+        run: node scripts/test-wallet-blocklist.js
+
       - name: Builder Code suffix parser (ERC-8021 round-trip vs @x402/extensions encoder)
         run: node scripts/test-builder-attribution.js
 

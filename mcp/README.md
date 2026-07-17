@@ -82,3 +82,7 @@ $0.001–$0.02 each.
 ## Test
 
 From the repo root: `node mcp/test.js` (boots a local paywalled instance and drives the MCP server with a real client; the proof-of-work path settles real challenges).
+
+## Legal
+
+Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). The code is MIT-licensed, provided as-is without warranty; self-hosted deployments are their operator's responsibility.

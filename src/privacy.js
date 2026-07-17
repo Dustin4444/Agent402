@@ -5,7 +5,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function privacyPage(baseUrl) {
   const title = "Privacy — Agent402";
-  const description = "Agent402's privacy policy: no accounts, no cookies, no analytics. What we process, why, and how long we keep it.";
+  const description = "Agent402's privacy policy: no accounts, no cookies, no browser trackers. What we process, why, and how long we keep it.";
   const canonical = `${baseUrl}/privacy`;
 
   const extraCss = `
@@ -30,11 +30,11 @@ export function privacyPage(baseUrl) {
 <div class="pv-wrap">
 <div class="pv-eyebrow">$ GET /privacy</div>
 <h1 class="pv-h1">Privacy policy</h1>
-<p class="pv-updated">Agent402 (agent402.tools) — last updated 2026-06-12.</p>
+<p class="pv-updated">Agent402 (agent402.tools) — last updated 2026-07-17.</p>
 
 <div class="pv-body">
-<p>Agent402 has no accounts, no signups, no cookies, and no analytics or ad trackers.
-The entire server is <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>,
+<p>Agent402 has no accounts, no signups, no cookies, and no browser trackers or ad trackers on its
+pages. The entire server is <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>,
 so every claim below is verifiable in code.</p>
 
 <h2>What we process, and why</h2>
@@ -44,10 +44,20 @@ so every claim below is verifiable in code.</p>
   <code>/api/memory</code> tools, whose purpose <i>is</i> storage (see below).</li>
   <li><b>IP addresses.</b> Used for free-tier rate limiting (kept in process memory for up to one hour)
   and in standard, short-lived operational logs (request path, status code) for abuse prevention and debugging.</li>
+  <li><b>AI gateway inputs.</b> Prompts and inputs sent to the <code>/v1</code> endpoints (chat,
+  embeddings, images, speech) and other AI-proxy tools are <b>forwarded to the upstream model
+  provider</b> (OpenAI, or the model operator serving the request via OpenRouter) to generate the
+  response, subject to that provider's own privacy terms. We don't store gateway inputs or outputs
+  beyond short-lived caches (minutes) that make repeated identical calls cheaper.</li>
   <li><b>Payments.</b> We never see card numbers, names, or emails — there are none. Payments settle in USDC on
-  the public Base blockchain (or Solana, Polygon, Arbitrum, Robinhood Chain) via the x402 protocol; wallet addresses, amounts, and timestamps are public
+  the public Base blockchain (or Solana, Polygon, Arbitrum, Monad, Stellar, Algorand — or USDG on Robinhood Chain) via the x402 protocol; wallet addresses, amounts, and timestamps are public
   on-chain by the protocol's design, not collected by us. Payment verification is performed by the
-  payment facilitator (Coinbase CDP).</li>
+  payment facilitators (Coinbase CDP and per-chain facilitators).</li>
+  <li><b>Operational telemetry.</b> The server records service events (tool called, payment settled,
+  errors) with metadata — tool name, HTTP status, price, settlement chain, and the paying wallet
+  address (already public on-chain) — in a server-side analytics tool (PostHog). This is used to run
+  the service: reliability, abuse prevention, and knowing what sells. It never includes tool inputs,
+  prompts, outputs, cookies, or browser fingerprints.</li>
   <li><b>Payment metadata.</b> An x402 payment token can carry optional annotation fields (a resource URL, a
   description, a <code>reason</code> string) that some buyers use to label a purchase. Agent402 reads <i>only</i>
   the cryptographically-signed payer wallet address from the token — the exact field the settlement authorization
@@ -77,6 +87,12 @@ HTTP API.</p>
 <p>Operational logs are short-lived (platform default, days not months). Rate-limit counters live in
 process memory only. Memory-tool data persists until deleted by its owner or TTL expiry. Aggregate,
 non-personal counters (total calls served per tool) are kept for the public <a href="/api/stats">/api/stats</a> page.</p>
+
+<h2>Abuse &amp; legal requests</h2>
+<p>Wallet addresses associated with <a href="/terms">terms</a> violations may be blocked and retained
+on a blocklist for as long as needed to enforce the block. We disclose information and preserve
+records in response to valid legal process, and report content where the law requires it. Requests
+and abuse reports: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>.</p>
 
 <h2>Operator &amp; contact</h2>
 <p>Agent402.Tools is operated by <strong>Havok Holdings LLC</strong>. Contact: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>,

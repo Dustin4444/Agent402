@@ -229,6 +229,7 @@ Base URL: ${baseUrl}
 - [/api/pricing](${baseUrl}/api/pricing): machine-readable catalog (every endpoint, price, category, docs URL)
 - [/openapi.json](${baseUrl}/openapi.json): full OpenAPI 3.1 spec with input / output schemas for every tool
 - [/api/wishes](${baseUrl}/api/wishes): request a tool we do not have yet (clustered by demand; repeated asks get built)
+- [/terms](${baseUrl}/terms): terms of service + acceptable-use policy — using the service (including programmatically) constitutes acceptance
 - [/health](${baseUrl}/health): health check
 
 ## Connect via MCP

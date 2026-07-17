@@ -74,6 +74,10 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     selfHostable: true,
     license: "MIT",
     maintainer: MAINTAINER,
+    // Programmatic buyers get their terms notice here, in llms.txt, and on
+    // /v1/models — use of the service constitutes acceptance (see /terms).
+    termsOfService: `${baseUrl}/terms`,
+    privacyPolicy: `${baseUrl}/privacy`,
     // Base ecosystem metadata — the builder code links on-chain settlements to
     // this app in the Base builder program; the app ID is our registered Base
     // MCP plugin identifier. Both are optional (env-gated / static).

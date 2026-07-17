@@ -158,3 +158,7 @@ Short names map to CAIP-2 (`base`, `solana`, `polygon`, `arbitrum`,
 `robinhood`); unknown entries pass through verbatim so future chains work
 without a package update. If the preference matches none of a seller's
 payment options it throws **before** any payment is signed.
+
+## Legal
+
+Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). The code is MIT-licensed, provided as-is without warranty; self-hosted deployments are their operator's responsibility.
