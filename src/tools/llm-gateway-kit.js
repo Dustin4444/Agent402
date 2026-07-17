@@ -1383,5 +1383,5 @@ export function modelsList() {
       x402: { tier: "v1-audio-speech", endpoint: SPEECH_PATH, priceUsd: SPEECH_PRICE, maxInputChars: SPEECH_MAX_CHARS, voices: [...m.voices] },
     });
   }
-  return { object: "list", data, note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) — no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped." };
+  return { object: "list", data, terms_of_service: "https://agent402.tools/terms", note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) — no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped. Use constitutes acceptance of the terms_of_service (acceptable-use policy included)." };
 }
