@@ -1,86 +1,103 @@
-// Drain the burner: spend its entire USDC balance as real paid tool calls
-// against production. Every purchase settles to the revenue wallet, exercises a
-// live tool (extra verification), and bumps the /api/stats odometer — and it
-// empties a wallet whose key has been in git history, so there's nothing left
-// to take. Gas is facilitator-sponsored, so it spends USDC down to ~zero.
+// Drain the burner: spend its USDC/USDG balance to the revenue wallet as real
+// paid x402 tool calls, on EVERY funded EVM chain. Settlement is facilitator-
+// sponsored (gasless), so it works even though the burner holds no native gas —
+// which is why we can't just do a direct transfer. Used to retire a burner
+// (rotation) or empty a wallet whose key has been exposed.
+//
+// Denomination: one $0.50 tool (skill-company-dossier), bought repeatedly. The
+// balance is swept ~$0.50 at a time; whatever is left UNDER $0.50 on each chain
+// is stranded by design (draining the last few cents isn't worth the calls).
+//
+// Multi-chain: forces payment onto ONE chain per call by filtering the live
+// 402's `accepts` down to that chain's CAIP-2 (same technique as the paid
+// canary's pinned EVM legs), so a chain can't silently fall back to Base. No
+// per-chain RPC needed: the stop signal is settlement itself — once the balance
+// drops below $0.50 the facilitator can't settle and returns a 402, and after a
+// few consecutive non-settles the chain is done (also covers a chain whose
+// facilitator is temporarily unavailable — it just gets skipped, not hung).
+// Settlement happens BEFORE the handler, so even a slow/erroring tool response
+// still means the money moved.
 //
 //   KEY_FILE=/path/to/key TARGET_URL=https://agent402.tools node scripts/drain-burner.js
+//
+// Prints the derived burner ADDRESS first, so the CI log confirms WHICH wallet
+// is being drained before any money moves.
 import { privateKeyToAccount } from "viem/accounts";
-import { createPublicClient, http, erc20Abi, formatUnits } from "viem";
-import { base } from "viem/chains";
 import { readFileSync } from "node:fs";
-import { x402Client } from "@x402/core/client";
+import { x402Client, x402HTTPClient } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
-import { wrapFetchWithPayment } from "@x402/fetch";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
-const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const KEY_FILE = process.env.KEY_FILE || "/tmp/agent-key";
-const MAX_CALLS = parseInt(process.env.MAX_CALLS, 10) || 400; // hard ceiling, safety
-const STOP_BELOW = 5000n; // stop when < $0.005 (can't cover the cheapest basket item)
+const MAX_CALLS_PER_CHAIN = parseInt(process.env.MAX_CALLS, 10) || 100; // backstop; the 402 stop ends it first
+const STOP_AFTER_FAILS = 3; // consecutive non-settles = drained (<$0.50) or facilitator unavailable
+const CALL_TIMEOUT_MS = 45000; // a skill pack does real work; don't hang forever on one call
+
+// EVM chains to sweep, by CAIP-2. Robinhood settles USDG (not USDC); the money
+// parser + facilitator are server-side, so the accept carries the right asset
+// and the same signing path works. Monad USDC uses a custom EIP-712 name, also
+// carried in the accept. No RPC/chain object needed — we never read balances.
+const CHAINS = [
+  { key: "base",      caip2: "eip155:8453" },
+  { key: "arbitrum",  caip2: "eip155:42161" },
+  { key: "polygon",   caip2: "eip155:137" },
+  { key: "monad",     caip2: "eip155:143" },
+  { key: "robinhood", caip2: "eip155:4663" },
+];
+const TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM"];
+const DENOM_URL = `${TARGET}/api/skill/company-dossier`; // $0.50, returns 402 with a valid ticker
+const denomInit = (i) => ({
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ ticker: TICKERS[i % TICKERS.length] }),
+  signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
+});
 
 const pk = readFileSync(KEY_FILE, "utf8").trim();
 const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
 console.log(`Burner: ${account.address}`);
-
-const pub = createPublicClient({ chain: base, transport: http("https://mainnet.base.org") });
-const balance = () => pub.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [account.address] });
-
-let bal = await balance();
-console.log(`Starting balance: $${formatUnits(bal, 6)} USDC → draining into the revenue wallet as paid tool calls.\n`);
-if (bal < STOP_BELOW) {
-  console.log("Already empty (< $0.005). Nothing to drain.");
-  process.exit(0);
-}
+console.log(`Draining ~$0.50/call per chain until settlement fails (<$0.50/chain stranded, by design).\n`);
 
 const client = new x402Client();
 registerExactEvmScheme(client, { signer: account });
-const payFetch = wrapFetchWithPayment(fetch, client);
+const httpc = new x402HTTPClient(client);
 
-// A rotating basket of cheap, fast, real tools so the drain doubles as varied
-// live verification. (Prices in USDC.) Mid-priced enough to finish in minutes.
-const basket = [
-  { label: "dns",         get: "/api/dns?name=cloudflare.com&type=A" },
-  { label: "gov-data",    get: "/api/gov-data?q=climate&rows=2" },
-  { label: "earthquakes", get: "/api/earthquakes?minMag=4.5&period=day" },
-  { label: "weather",     get: "/api/weather-alerts?area=TX" },
-  { label: "extract",     post: "/api/extract", body: { url: "https://example.com" } },
-  { label: "meta",        get: "/api/meta?url=https://example.com" },
-  { label: "pdf",         post: "/api/pdf", body: { url: "https://arxiv.org/pdf/1706.03762" } },
-];
-
-const startBal = bal;
-let calls = 0, ok = 0, spent = 0n;
-for (let i = 0; calls < MAX_CALLS; i++) {
-  if (bal < STOP_BELOW) break;
-  const t = basket[i % basket.length];
-  calls++;
-  try {
-    const res = t.post
-      ? await payFetch(`${TARGET}${t.post}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(t.body) })
-      : await payFetch(`${TARGET}${t.get}`);
-    if (res.status === 200) ok++;
-    else { console.log(`  [${t.label}] HTTP ${res.status} (not counted)`); }
-  } catch (e) {
-    console.log(`  [${t.label}] ${String(e.message).slice(0, 90)}`);
-  }
-  // Re-check balance every few calls (each balance read is an RPC call).
-  if (calls % 5 === 0 || calls < 5) {
-    try {
-      const nb = await balance();
-      spent = startBal - nb;
-      bal = nb;
-      console.log(`  ${calls} calls (${ok} ok) · spent $${formatUnits(spent, 6)} · remaining $${formatUnits(bal, 6)}`);
-    } catch { /* rpc hiccup; keep going */ }
-  }
+// One forced-chain paid call. Returns { settled } — settled=false only on an
+// explicit 402 (settlement rejected: drained or facilitator down) or a
+// pre-payment error; a non-402 paid response means the money moved.
+async function payOn(caip2, url, init) {
+  const bare = await fetch(url, init);
+  if (bare.status !== 402) return { settled: false, reason: `no-402 (HTTP ${bare.status})` };
+  const body = await bare.json().catch(() => undefined);
+  const pr = httpc.getPaymentRequiredResponse((n) => bare.headers.get(n), body);
+  const accepts = (pr.accepts || []).filter((a) => String(a.network || "") === caip2);
+  if (!accepts.length) return { settled: false, reason: "chain-not-offered" };
+  const payload = await client.createPaymentPayload({ ...pr, accepts });
+  const payHeaders = httpc.encodePaymentSignatureHeader(payload);
+  const paid = await fetch(url, { ...init, headers: { ...(init.headers || {}), ...payHeaders }, signal: AbortSignal.timeout(CALL_TIMEOUT_MS) });
+  return { settled: paid.status !== 402, status: paid.status };
 }
 
-try { bal = await balance(); } catch {}
-spent = startBal - bal;
-console.log(`\n================ DRAIN COMPLETE ================`);
-console.log(`Paid tool calls made: ${calls} (${ok} returned 200)`);
-console.log(`Moved to revenue wallet: $${formatUnits(spent, 6)} USDC`);
-console.log(`Burner remaining: $${formatUnits(bal, 6)} USDC`);
-console.log(`Revenue verifiable on-chain: https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns`);
+let grandSettled = 0;
+for (const cfg of CHAINS) {
+  process.stdout.write(`[${cfg.key}] draining… `);
+  let calls = 0, settled = 0, fails = 0, i = 0, notOffered = false;
+  while (calls < MAX_CALLS_PER_CHAIN) {
+    calls++;
+    let r;
+    try { r = await payOn(cfg.caip2, DENOM_URL, denomInit(i++)); }
+    catch (e) { r = { settled: false, reason: String(e.message).slice(0, 50) }; }
+    if (r.reason === "chain-not-offered") { notOffered = true; break; }
+    if (r.settled) { settled++; fails = 0; }
+    else if (++fails >= STOP_AFTER_FAILS) break;
+  }
+  grandSettled += settled;
+  if (notOffered) console.log(`chain not in live accepts — skipped.`);
+  else console.log(`~$${(settled * 0.5).toFixed(2)} moved (${settled} settled / ${calls} attempts).`);
+}
+
+console.log(`\n================ SWEEP COMPLETE ================`);
+console.log(`Approx total moved to revenue: ~$${(grandSettled * 0.5).toFixed(2)} USDC/USDG (<$0.50/chain stranded by design).`);
+console.log(`Verify on-chain: https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns`);
 console.log(`Live tally: ${TARGET}/api/stats`);
 process.exit(0);
