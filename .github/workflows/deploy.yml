@@ -1019,6 +1019,9 @@ jobs:
       - name: Index openapi-fallback crawl tests (payment-signal gate, Bazaar merge, ranking — offline)
         run: node scripts/test-openapi-fallback.js
 
+      - name: Router alias-collapse tests (redirect aliases, subset guard, Sybil slots — offline)
+        run: node scripts/test-router-alias.js
+
       - name: Agent wish loop tests (caps, dedup clustering, rate limits, file cap, aggregate shape — offline)
         run: node scripts/test-wish.js
 
