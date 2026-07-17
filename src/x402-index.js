@@ -390,6 +390,22 @@ function parsePrice(p) {
   return isFinite(n) ? n : 0;
 }
 
+// Tie-break rank for price. parsePrice maps unknown (null / unparseable) to 0
+// for display, which is right for priceUsd but wrong for ranking: it let
+// listings with NO published amount masquerade as "free" and outrank sellers
+// honest enough to publish one (observed live: two price-less sellers
+// tie-broke above a $0.005 seller on an equal match score). Known prices
+// compare by value — an explicit $0 is genuinely free and still wins —
+// unknown ranks last among equals.
+function priceRank(p) {
+  if (p == null) return Infinity;
+  if (typeof p === "number") return isFinite(p) ? p : Infinity;
+  const s = String(p).replace(/[^0-9.]/g, "");
+  if (!s) return Infinity;
+  const n = parseFloat(s);
+  return isFinite(n) ? n : Infinity;
+}
+
 // Convert a single Bazaar resource entry into the tool shape used by the rest
 // of the index. Bazaar gives us the resource URL, the accepts array (with
 // per-network price/asset), an optional serviceName, description, and tags.
@@ -1183,14 +1199,15 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
     }
     if (score > 0) scored.push([score, t]);
   }
-  // Highest score first; healthier seller wins on ties; then cheapest; then
-  // shorter slug. Health is the strongest tiebreak after match score because a
+  // Highest score first; healthier seller wins on ties; then cheapest KNOWN
+  // price (unknown ranks last among equals — see priceRank); then shorter
+  // slug. Health is the strongest tiebreak after match score because a
   // cheap-but-flaky seller is worse than a slightly pricier reliable one.
   scored.sort((a, b) => {
     if (b[0] !== a[0]) return b[0] - a[0];
     if (b[1].health !== a[1].health) return b[1].health - a[1].health;
-    const pa = parsePrice(a[1].price);
-    const pb = parsePrice(b[1].price);
+    const pa = priceRank(a[1].price);
+    const pb = priceRank(b[1].price);
     if (pa !== pb) return pa - pb;
     return (a[1].slug || "").length - (b[1].slug || "").length;
   });
