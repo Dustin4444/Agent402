@@ -39,13 +39,12 @@ const names = (list.result?.tools ?? []).map((t) => t.name).sort();
 // The connector exposes a deliberately TIGHT, curated 15-tool surface: MCP
 // directories (Glama) score a well-scoped server at 3-15 tools, and the full
 // 500-tool catalog lives behind search_tools/find_tool/call_tool by design.
-// Names are uniformly two-word snake_case (Glama's naming-consistency rubric
-// dinged the old base64/qr/uuid single-word mix); timezone_convert replaced
-// markdown_to_html to cover the called-out date/time gap at the same count.
+// Names are uniformly verb_noun (action-first) — the pattern Glama's naming-
+// consistency rubric names as the target. Every prior spelling still routes.
 const EXPECTED_15 = [
-  "search_tools", "find_tool", "call_tool", "payment_info",
-  "hash_generate", "unit_convert", "qr_generate", "json_format", "jwt_decode", "base64_convert", "uuid_generate", "csv_to_json", "timezone_convert",
-  "wallet_balances", "wallet_transactions",
+  "search_tools", "find_tool", "call_tool", "get_payment_info",
+  "generate_hash", "convert_units", "generate_qr", "format_json", "decode_jwt", "convert_base64", "generate_uuid", "parse_csv", "convert_timezone",
+  "get_wallet_balances", "get_wallet_transactions",
 ].sort();
 assert(
   names.length === 15 && EXPECTED_15.every((n) => names.includes(n)),
@@ -56,15 +55,21 @@ assert(
   "every tool carries a title + read-only safety annotations (directory requirement)"
 );
 
-// The 2026-07-16 renames must never break an existing caller: the new name,
-// the legacy pre-rename name, and the raw kebab slug all route to the tool.
-for (const alias of ["base64_convert", "base64"]) {
+// Renames must never break an existing caller: the current verb_noun name, the
+// 2026-07-16 noun_verb name, the toSnake form, and the raw kebab slug all route
+// to the same tool. base64: convert_base64 (current) / base64_convert (prior) / base64 (slug).
+for (const alias of ["convert_base64", "base64_convert", "base64"]) {
   const enc = await rpc("tools/call", { name: alias, arguments: { text: "hi", mode: "encode" } });
   const encText = enc.result?.content?.[0]?.text ?? "";
   assert(!enc.result?.isError && encText.includes("aGk="), `curated tool routes via "${alias}" (got ${encText.slice(0, 80)})`);
 }
-const tz = await rpc("tools/call", { name: "timezone_convert", arguments: { datetime: "2026-06-23T14:00:00", from: "America/New_York", to: "Asia/Tokyo" } });
-assert(!tz.result?.isError && (tz.result?.content?.[0]?.text ?? "").includes("Tokyo"), "timezone_convert answers its documented example");
+// get_payment_info accepts its prior name too.
+for (const alias of ["get_payment_info", "payment_info"]) {
+  const pi = await rpc("tools/call", { name: alias, arguments: {} });
+  assert(!pi.result?.isError && (pi.result?.content?.[0]?.text ?? "").includes("freeTier"), `payment info routes via "${alias}"`);
+}
+const tz = await rpc("tools/call", { name: "convert_timezone", arguments: { datetime: "2026-06-23T14:00:00", from: "America/New_York", to: "Asia/Tokyo" } });
+assert(!tz.result?.isError && (tz.result?.content?.[0]?.text ?? "").includes("Tokyo"), "convert_timezone answers its documented example");
 
 const privacy = await fetch(`${BASE}/privacy`);
 assert(privacy.ok && (await privacy.text()).includes("Privacy policy"), "/privacy serves the policy (directory requirement)");
