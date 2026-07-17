@@ -37,7 +37,7 @@ export const USAGE_TOOLS = [
       },
       output: {
         example: {
-          wallet: "0xfeda7403aabe9a492ed70e810b396d8548a4a022",
+          wallet: "0x902dcf34e53695bdea2ffb354b1a2e58bd598256",
           days: 30,
           persistent: true,
           totals: { calls: 42, paidUsd: 1.234, firstAt: "2026-07-01T00:00:00.000Z", lastAt: "2026-07-09T00:00:00.000Z" },
