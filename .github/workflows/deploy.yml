@@ -20,9 +20,6 @@ on:
       mode:
         description: "probe, test, paytest, purl (Stripe client interop), publish (npm), bazaar-refresh, bazaar-register (one-shot: pay missing routes so the Coinbase harvester registers them), demo (run the company one-pager with the funded burner, upload output), or deploy"
         default: "deploy"
-      burner_key:
-        description: "Existing funded burner key for paytest (hex). Leave empty to generate a fresh wallet."
-        default: ""
       demo_ticker:
         description: "Ticker for mode=demo (US symbol)."
         default: "NVDA"
@@ -235,10 +232,12 @@ jobs:
       - name: Load burner key
         env:
           # Provide a throwaway, low-value test wallet key as the BURNER_KEY
-          # repo secret (preferred) or via the workflow_dispatch input. Never
-          # commit a private key to the repo. With neither set, the script
-          # generates a fresh wallet and waits for funding.
-          BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
+          # repo secret only (never a workflow_dispatch input: dispatch inputs
+          # are not masked and would leak the key into run metadata/logs —
+          # security audit A402-04). Never commit a private key to the repo.
+          # With the secret unset, the script generates a fresh wallet and
+          # waits for funding.
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
         run: |
           if [ -n "$BURNER_KEY" ]; then
             echo "::add-mask::$BURNER_KEY"
@@ -414,7 +413,7 @@ jobs:
         run: npm ci && npm install --no-save --ignore-scripts @x402/fetch @x402/core @x402/evm viem
       - name: Refresh stale Bazaar listings
         env:
-          BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
         run: |
           [ -n "$BURNER_KEY" ] || { echo "No BURNER_KEY — cannot refresh paid listings"; exit 1; }
           echo "::add-mask::$BURNER_KEY"
@@ -453,7 +452,7 @@ jobs:
         run: npm ci && npm install --no-save --ignore-scripts @x402/fetch @x402/core @x402/evm viem
       - name: Register missing Bazaar routes
         env:
-          BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
         run: |
           [ -n "$BURNER_KEY" ] || { echo "No BURNER_KEY — cannot pay to register missing routes"; exit 1; }
           echo "::add-mask::$BURNER_KEY"
@@ -488,7 +487,7 @@ jobs:
         run: npm ci && npm install --no-save --ignore-scripts @x402/fetch @x402/core @x402/evm viem
       - name: Sweep the catalog via Base settlement (4 batches)
         env:
-          BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
         run: |
           [ -n "$BURNER_KEY" ] || { echo "No BURNER_KEY — cannot pay the Base sweep"; exit 1; }
           echo "::add-mask::$BURNER_KEY"
@@ -513,7 +512,7 @@ jobs:
         run: npm ci && npm install --no-save --ignore-scripts @x402/fetch @x402/core @x402/evm viem
       - name: Drain the burner into the revenue wallet via paid tool calls
         env:
-          BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
           TARGET_URL: https://agent402.tools
         run: |
           [ -n "$BURNER_KEY" ] || { echo "No BURNER_KEY — nothing to drain"; exit 0; }
@@ -556,7 +555,7 @@ jobs:
           purl wallet add --help || true
       - name: Import burner wallet (non-interactive keystore)
         env:
-          BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
           PURL_PASSWORD: ci-throwaway
         run: |
           [ -n "$BURNER_KEY" ] || { echo "no burner key — skipping wallet import"; exit 0; }
@@ -580,7 +579,7 @@ jobs:
           echo "purl parsed our x402 quote — Stripe-tooling compatible"
       - name: Real paid call via purl (best effort, burner dust)
         env:
-          BURNER_KEY: ${{ secrets.BURNER_KEY || inputs.burner_key }}
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
           PURL_PASSWORD: ci-throwaway
           # $0.001 price = 1000 atomic USDC units; cap at 2000 to also exercise
           # purl's client-side spend control.
