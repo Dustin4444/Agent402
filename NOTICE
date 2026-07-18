@@ -10,12 +10,17 @@ one in the directory tree.
     See ./LICENSE. If you run a modified version of the server as a network
     service, the AGPL requires you to offer that modified source to its users.
 
-  * The following packages are separately licensed under the MIT License, so
+  * The client-side packages are separately licensed under the MIT License, so
     they can be embedded in other software without copyleft obligations. Each
     ships its own LICENSE file:
-      - client/    (agent402-client, the buyer SDK)
-      - mcp/        (agent402-mcp, the MCP connector)
-      - tollbooth/  (agent402-tollbooth, the pay-per-crawl middleware)
+      - client/            (agent402-client, the buyer SDK)
+      - mcp/                (agent402-mcp, the MCP connector)
+      - tollbooth/          (agent402-tollbooth, the pay-per-crawl middleware)
+      - adapters/*          (the framework adapters: agent402-langchain,
+                            agent402-llamaindex, agent402-ai-sdk,
+                            agent402-openai-tools, agent402-openai-agents,
+                            agent402-anthropic-tools, agent402-google-adk,
+                            agent402-strands, and the Python agent402-langchain)
 
 Third-party components retain their own licenses; see src/data/LICENSE.md and
 the notices in individual source files.
