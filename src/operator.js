@@ -1,8 +1,56 @@
 // Operator dashboard — every served tool with its call count, USDC vs PoW
 // split, estimated revenue, and the full retained recent-calls feed. Gated by
-// AGENT402_OPERATOR_TOKEN (query ?token=…). Nothing here is shown publicly;
-// /api/stats remains the safe public surface.
+// AGENT402_OPERATOR_TOKEN via a Secure/HttpOnly/SameSite session cookie set at
+// POST /__operator/login (never a ?token= URL — security audit A402-07).
+// Nothing here is shown publicly; /api/stats remains the safe public surface.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+
+// Minimal, unauthenticated login form. The operator pastes the token; it is
+// POSTed as JSON to /__operator/login (body, not URL) which validates it and
+// sets the session cookie, then this redirects into the dashboard. The token
+// therefore never appears in a URL, access log, browser history, or Referer.
+export function operatorLoginPage(baseUrl) {
+  const extraCss = `
+.opl-wrap{max-width:420px;margin:0 auto;padding:80px 30px}
+.opl-h1{font-family:var(--font-body);font-weight:800;font-size:40px;line-height:1;letter-spacing:-.02em;margin:0 0 8px}
+.opl-sub{color:var(--muted);margin:0 0 24px;font-size:14px}
+.opl-form{display:flex;flex-direction:column;gap:12px}
+.opl-form input{font-family:var(--font-mono);font-size:14px;padding:12px 14px;border:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark)}
+.opl-form button{font-family:var(--font-body);font-weight:700;font-size:15px;padding:12px 14px;border:1.5px solid var(--ink);background:var(--ink);color:var(--surface);cursor:pointer}
+.opl-err{color:#b8842e;font-size:13px;min-height:18px}
+`;
+  const body = `
+<div class="opl-wrap">
+  <h1 class="opl-h1">Operator</h1>
+  <p class="opl-sub">Paste the operator token to start a session.</p>
+  <form class="opl-form" id="f" autocomplete="off">
+    <input id="t" type="password" placeholder="operator token" aria-label="operator token" autocomplete="off">
+    <button type="submit">Sign in</button>
+    <div class="opl-err" id="e"></div>
+  </form>
+</div>
+<script>
+(function(){
+  var f=document.getElementById('f'), t=document.getElementById('t'), e=document.getElementById('e');
+  f.addEventListener('submit', function(ev){
+    ev.preventDefault(); e.textContent='';
+    fetch('/__operator/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t.value})})
+      .then(function(r){ if(r.ok){ location.href='/__operator'; } else { e.textContent='Invalid token.'; } })
+      .catch(function(){ e.textContent='Sign-in failed.'; });
+  });
+})();
+</script>
+${ledgerFooterCompact()}`;
+  return ledgerShell({
+    title: "Operator sign-in — Agent402",
+    description: "Agent402 operator sign-in.",
+    canonical: `${baseUrl}/__operator/login`,
+    baseUrl,
+    activePath: "__none__",
+    extraCss,
+    body,
+  });
+}
 
 export function operatorPage(baseUrl, data) {
   const t = data?.totals || {};
@@ -67,16 +115,15 @@ td a:hover{color:var(--accent)}
 @media(max-width:600px){.op-h1{font-size:36px !important}}
 `;
 
-  // NOTE: The inline <script> preserves the existing operator auth pattern:
-  // token capture from ?token= into sessionStorage, URL stripping via
-  // replaceState, and inter-page navigation via fetch()+document.write() so
-  // the token travels in the Authorization header, never in the URL. The
-  // table/feed refresh uses the same AJAX + DOM update pattern as before.
+  // Auth is the /__operator session cookie (set by the POST login form),
+  // sent automatically with same-origin requests — so nav is plain links and
+  // the table/feed AJAX refresh needs no token handling. No ?token= in the URL,
+  // no sessionStorage, no Authorization header dance (security audit A402-07).
   const body = `
 <div class="op-wrap">
 
 <h1 class="op-h1">Operator dashboard</h1>
-<p class="op-sub">Per-tool usage, settlement split, and live activity. Auto-refreshes every 10s. Not public — gated by <code>AGENT402_OPERATOR_TOKEN</code>. <a href="/__operator/wishes" data-op-link>Agent demand</a> · <a href="/__operator/leads" data-op-link>Tollbooth leads</a></p>
+<p class="op-sub">Per-tool usage, settlement split, and live activity. Auto-refreshes every 10s. Not public — gated by <code>AGENT402_OPERATOR_TOKEN</code>. <a href="/__operator/wishes">Agent demand</a> · <a href="/__operator/leads">Tollbooth leads</a> · <a href="/__operator/logout">Log out</a></p>
 
 <div class="op-grid">
   <div class="op-stat"><div class="op-k">Total calls</div><div class="op-v" id="t-total">${esc(t.total ?? 0)}</div><div class="op-s">all tools, all rails</div></div>
@@ -105,28 +152,8 @@ td a:hover{color:var(--accent)}
 
 <script>
 (function(){
-  var qs = new URLSearchParams(location.search);
-  if (qs.has('token')) {
-    try { sessionStorage.setItem('agent402-op-token', qs.get('token') || ''); } catch(_) {}
-    qs.delete('token');
-    var clean = location.pathname + (qs.toString() ? '?' + qs.toString() : '');
-    history.replaceState({}, document.title, clean);
-  }
-  var TOKEN = '';
-  try { TOKEN = sessionStorage.getItem('agent402-op-token') || ''; } catch(_) {}
-  var authHeader = function(){ return TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {}; };
-  document.querySelectorAll('a[data-op-link]').forEach(function(a){
-    a.addEventListener('click', function(e){
-      e.preventDefault();
-      fetch(a.getAttribute('href'), { headers: authHeader(), cache: 'no-store' })
-        .then(function(r){ return r.text(); })
-        .then(function(t){
-          document.open(); document.write(t); document.close();
-          history.pushState({}, '', a.getAttribute('href'));
-        })
-        .catch(function(){});
-    });
-  });
+  // The session cookie authenticates same-origin requests automatically; nav is
+  // plain links and the refresh below needs no token handling.
   function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];}); }
   var tbody=document.getElementById('tbody');
   var feed=document.getElementById('feed');
@@ -166,7 +193,7 @@ td a:hover{color:var(--accent)}
 
   async function tick(){
     try {
-      var r=await fetch('/__operator/stats',{cache:'no-store', headers: authHeader()});
+      var r=await fetch('/__operator/stats',{cache:'no-store'});
       if(!r.ok) return;
       var d=await r.json();
       var tt=d.totals||{};
