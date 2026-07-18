@@ -9,3 +9,4 @@
 2026-07-18T07:15:00Z deploy A402-10 fatal + ocr containment
 2026-07-18T08:15:00Z deploy A402-07 operator session cookie
 2026-07-18T09:00:00Z deploy A402-09 dep advisory fixes
+2026-07-18T10:00:00Z deploy A402-08 bounded browser queue
