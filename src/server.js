@@ -3009,15 +3009,18 @@ startLeaderboardRefresh();
 // drain never runs). The hard deadline below stays under that grace and
 // above the slowest single-call upstream timeout (transcribe: 60s OpenAI).
 let shuttingDown = false;
-function shutdown(signal) {
+// `code`/`deadlineMs` default to the graceful-redeploy values (exit 0, 75s to
+// cover the slowest upstream). The fatal path below reuses this with a non-zero
+// code and a short deadline — same drain machinery, different exit semantics.
+function shutdown(signal, { code = 0, deadlineMs = 75_000 } = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`${signal} received — draining in-flight requests`);
+  console.log(`${signal} received — draining in-flight requests (exit ${code})`);
   // Drain the PostHog paywall_402 rollup + client queue so a redeploy doesn't
   // drop up to a flush window of funnel counts. Fire-and-forget (no-op when
   // PostHog is disabled); the drain deadline below still governs exit.
   shutdownPostHog().catch(() => {});
-  httpServer.close(() => process.exit(0));
+  httpServer.close(() => process.exit(code));
   // server.close() waits for ALL connections, including idle keep-alive
   // sockets agents hold open between calls. Sweep those now and every few
   // seconds (a socket goes idle the moment its in-flight response finishes),
@@ -3025,17 +3028,31 @@ function shutdown(signal) {
   httpServer.closeIdleConnections();
   setInterval(() => httpServer.closeIdleConnections(), 5_000).unref();
   // Hard deadline so a stuck request can't block the redeploy.
-  setTimeout(() => process.exit(0), 75_000).unref();
+  setTimeout(() => process.exit(code), deadlineMs).unref();
 }
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
 
-// Safety net: a stray unhandled rejection/exception in some request path must not
-// take down a process that's handling real payments. Log and keep serving; every
-// request path is already try/caught, so this only catches the unexpected.
+// An unhandled promise rejection doesn't corrupt synchronous global state the
+// way an uncaught exception does — and in this async-heavy, fire-and-forget
+// codebase (telemetry, cache warmers) a rejection is usually a stray background
+// task, not a poisoned process. Log and keep serving; the request path is
+// already try/caught, so a rejection here is the unexpected tail.
 process.on("unhandledRejection", (reason) => {
   console.error("[unhandledRejection]", reason instanceof Error ? reason.stack : reason);
 });
+// An uncaught exception leaves the process in an UNDEFINED state (Node's own
+// guidance), so continuing to serve payments from it is unsafe (security audit
+// A402-10). Make it fatal: drain in-flight, already-paid requests briefly, then
+// force a NON-ZERO exit so Railway restarts a clean process. The deadline is
+// short and the path is deliberately simple — we do not trust global state
+// after the exception, so we neither linger the full redeploy grace nor depend
+// on complex teardown. If the drain setup itself throws, exit immediately.
 process.on("uncaughtException", (err) => {
-  console.error("[uncaughtException]", err?.stack || err);
+  console.error("[uncaughtException] fatal — draining then exiting non-zero:", err?.stack || err);
+  try {
+    shutdown("uncaughtException", { code: 1, deadlineMs: 10_000 });
+  } catch {
+    process.exit(1);
+  }
 });

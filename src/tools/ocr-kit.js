@@ -33,7 +33,19 @@ async function getWorker(lang) {
   // hits in the common case.)
   if (!workerPromise || workerLang !== lang) {
     workerLang = lang;
-    workerPromise = createWorker(lang).catch((e) => {
+    workerPromise = createWorker(lang, undefined, {
+      // CRITICAL: on a worker 'reject' (e.g. a malformed image tesseract can't
+      // decode) tesseract.js rejects the recognize() promise AND, when no
+      // errorHandler is set, `throw`s inside its own message handler — which
+      // escapes as an uncaughtException and, with the A402-10 fatal handler,
+      // would let one bad image crash the whole server (a DoS). Providing a
+      // handler routes that error here instead of throwing; the same error
+      // still rejects recognize(), which the caller below try/catches into a
+      // clean 500. So this contains the stray throw without hiding the failure.
+      errorHandler: (e) => {
+        console.error("[ocr] tesseract worker error (contained):", (e && e.message) || e);
+      },
+    }).catch((e) => {
       // Reset so the next request retries instead of permanently failing.
       workerPromise = null;
       workerLang = null;

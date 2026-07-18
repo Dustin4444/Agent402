@@ -788,6 +788,12 @@ jobs:
       - name: Payment rail scoping (A402-03 identity routes EVM-only; every other tool keeps all chains — offline)
         run: node scripts/test-payment-identity-rails.js
 
+      - name: Process lifecycle (A402-10 SIGTERM drains + exits 0; uncaught exception is fatal + exits non-zero — spawns child)
+        run: node scripts/test-shutdown.js
+
+      - name: OCR crash containment (A402-10 malformed image returns clean error, no uncaughtException — tesseract worker)
+        run: node scripts/test-ocr-crash.js
+
       - name: Safe-regex guard (rejects ReDoS patterns for caller-supplied regexes — DoS lock — offline)
         run: node scripts/test-safe-regex.js
 
