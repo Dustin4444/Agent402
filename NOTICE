@@ -1,0 +1,21 @@
+Agent402
+Copyright (C) 2026 Havok Holdings LLC
+
+This repository is licensed under more than one license. Check the LICENSE
+file nearest to the code you are using; the applicable license is the closest
+one in the directory tree.
+
+  * The server and everything at the repository root are licensed under the
+    GNU Affero General Public License, version 3 or later (AGPL-3.0-or-later).
+    See ./LICENSE. If you run a modified version of the server as a network
+    service, the AGPL requires you to offer that modified source to its users.
+
+  * The following packages are separately licensed under the MIT License, so
+    they can be embedded in other software without copyleft obligations. Each
+    ships its own LICENSE file:
+      - client/    (agent402-client, the buyer SDK)
+      - mcp/        (agent402-mcp, the MCP connector)
+      - tollbooth/  (agent402-tollbooth, the pay-per-crawl middleware)
+
+Third-party components retain their own licenses; see src/data/LICENSE.md and
+the notices in individual source files.

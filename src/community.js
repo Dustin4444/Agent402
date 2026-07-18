@@ -39,7 +39,7 @@ export function communityPage(baseUrl) {
   const statCards = [
     { value: "500+", label: "tools" },
     { value: "8", label: "framework adapters" },
-    { value: "Open source", label: "MIT licensed" },
+    { value: "Open source", label: "AGPL-3.0 licensed" },
     { value: "x402", label: "protocol" },
   ];
 

@@ -31,7 +31,7 @@ export const BLOG_POSTS = [
 
 <h2>Open source, self-hostable</h2>
 
-<p>Agent402 is MIT-licensed. You can run your own instance, add your own tools, set your own prices. The hosted version at <code>agent402.tools</code> is just one deployment of the same codebase that's on GitHub.</p>
+<p>Agent402 is AGPL-3.0-licensed (the buyer SDK, MCP connector, and tollbooth stay MIT). You can run your own instance, add your own tools, set your own prices. The hosted version at <code>agent402.tools</code> is just one deployment of the same codebase that's on GitHub.</p>
 
 <p>We think the future of agent infrastructure is open protocols, not walled gardens. x402 is the payment layer, MCP is the discovery layer, and Agent402 is the tool layer that ties them together.</p>`,
   },

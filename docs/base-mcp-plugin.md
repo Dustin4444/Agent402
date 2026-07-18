@@ -305,5 +305,5 @@ Then call `complete_x402_request` with the returned `requestId` to get the resul
 - **Price range.** Most single tools cost $0.001--$0.02, but premium AI/media tools run up to $0.50, and multi-tool skill packs up to $1.50. **Don't hardcode a `maxPayment` cap** — read the exact price from `/api/pricing` (or the `402` quote) before paying, so you never under-cap and fail a legitimate call.
 - **Free discovery.** The endpoints `/api/find`, `/api/pricing`, `/api/route`, `/api/leaderboard`, `/.well-known/x402`, and `/api/reliability` are all free and require no payment.
 - **MCP connector.** For direct MCP access (outside Base MCP), paste `https://agent402.tools/mcp` into any MCP client. Pure-CPU tools run free there (rate-limited); paid tools require the `agent402-mcp` npm package with a funded wallet.
-- **Open source.** The full server is MIT-licensed at https://github.com/MikeyPetrillo/Agent402 -- read every line, self-host, or fork.
+- **Open source.** The full server is AGPL-3.0-licensed at https://github.com/MikeyPetrillo/Agent402 -- read every line, self-host, or fork.
 - **Settlement.** All payments settle on-chain to `agent402.base.eth` on Base mainnet, verifiable on Basescan.

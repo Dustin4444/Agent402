@@ -163,14 +163,14 @@ that takes a GitHub repo URL; no PR, no fork.
      The catalog is 500+ strong — 400+ tools + 100 curated multi-tool skill packs
      (published as MCP prompts); every one is tested against its own example on
      every deploy. One config block, no per-tool signups, no API keys.
-     Self-hostable (open source MIT) or use the hosted remote at
+     Self-hostable (open source AGPL-3.0) or use the hosted remote at
      https://agent402.tools/mcp.
      ```
 
    - **Category / tags (pick what's offered):** `aggregator`, `payments`,
      `web-search`, `browser-automation`, `finance`, `developer-tools`
    - **Author:** `Havok Holdings LLC / MikeyPetrillo`
-   - **License:** MIT
+   - **License:** AGPL-3.0 (server); MIT (client SDK, MCP, tollbooth)
    - **Logo URL:** `https://raw.githubusercontent.com/MikeyPetrillo/Agent402/main/docs/logo-400.png`
 
 3. Submit. mcpservers.org auto-reviews; turnaround is usually a few days.
