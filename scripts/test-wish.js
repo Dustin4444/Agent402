@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   recordWish, getWishesAggregate, WISH_THRESHOLD,
+  clusterQualifies, QUALIFY_MIN_SPAN_MS,
   __testSetFilePath, __testSetLineCap, __testState,
 } from "../src/wish.js";
 
@@ -107,6 +108,57 @@ function freshFile(tag) {
   ok(row && row.issueOpened === true, `cluster carries issueOpened:true after crossing the threshold (got ${JSON.stringify(row)})`);
 }
 
+// --- qualification gate: raw count is necessary but not sufficient ---
+// clusterQualifies is the exact predicate the wish-issues workflow selects on.
+// Tested directly with synthetic clusters so timestamps are controllable.
+{
+  const T = 1_700_000_000_000;
+  const src = (o) => ({ api: 0, mcp: 0, "find-miss": 0, ...o });
+  // Below threshold never qualifies, regardless of shape.
+  ok(!clusterQualifies({ count: WISH_THRESHOLD - 1, sources: src({ api: 2, mcp: 2 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS }),
+    "below count threshold never qualifies");
+  // Single-source short burst (the synthora spam shape) does NOT qualify.
+  ok(!clusterQualifies({ count: 103, sources: src({ api: 103 }), firstSeen: T, lastSeen: T + 5 * 3_600_000 }),
+    "single-source burst (103 hits, 5h) does not qualify");
+  ok(!clusterQualifies({ count: 18, sources: src({ "find-miss": 18 }), firstSeen: T, lastSeen: T + 5 * 3_600_000 }),
+    "single-source find-miss burst does not qualify");
+  // Corroboration across two sources qualifies at threshold.
+  ok(clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 3, mcp: 2 }), firstSeen: T, lastSeen: T + 60_000 }),
+    "two distinct sources qualifies even in a short window");
+  // Sustained single-source demand over the span window qualifies.
+  ok(clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 5 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS }),
+    "single source sustained past the span window qualifies");
+  ok(!clusterQualifies({ count: WISH_THRESHOLD, sources: src({ api: 5 }), firstSeen: T, lastSeen: T + QUALIFY_MIN_SPAN_MS - 1 }),
+    "single source just under the span window does not qualify");
+}
+
+// --- qualification, end-to-end through recordWish + getWishesAggregate ---
+{
+  // A single-source burst to the threshold in one sitting: recorded and
+  // counted, but the aggregate marks it unqualified so the workflow skips it.
+  freshFile("qualify-burst");
+  for (let i = 0; i < WISH_THRESHOLD; i++) {
+    recordWish({ need: "synthora mesh 962 m2m services", source: "api", ip: `10.0.9.${i}` });
+  }
+  let agg = getWishesAggregate();
+  let row = agg.clusters.find((c) => c.text.includes("synthora"));
+  ok(row && row.count >= WISH_THRESHOLD && row.qualified === false,
+    `single-source burst is recorded but unqualified (got ${JSON.stringify(row)})`);
+  ok(agg.qualifyMinSpanHours === QUALIFY_MIN_SPAN_MS / 3_600_000, "aggregate advertises the span window in hours");
+
+  // The same count spread across two surfaces qualifies.
+  freshFile("qualify-multisource");
+  recordWish({ need: "real gap tool", source: "api", ip: "10.0.10.1" });
+  recordWish({ need: "real gap tool", source: "api", ip: "10.0.10.2" });
+  recordWish({ need: "real gap tool", source: "mcp", ip: "10.0.10.3" });
+  recordWish({ need: "real gap tool", source: "find-miss", ip: "10.0.10.4" });
+  recordWish({ need: "real gap tool", source: "find-miss", ip: "10.0.10.5" });
+  agg = getWishesAggregate();
+  row = agg.clusters.find((c) => c.text.includes("real gap tool"));
+  ok(row && row.count === WISH_THRESHOLD && row.qualified === true,
+    `multi-source demand at threshold qualifies (got ${JSON.stringify(row)})`);
+}
+
 // --- file-line cap: accept + count clusters, stop appending raw lines, never crash ---
 {
   freshFile("filecap");
@@ -132,7 +184,7 @@ function freshFile(tag) {
   const agg = getWishesAggregate();
   const row = agg.clusters[0];
   const keys = Object.keys(row).sort();
-  ok(JSON.stringify(keys) === JSON.stringify(["count", "firstSeen", "issueOpened", "lastSeen", "sources", "text"]), `aggregate row has exactly the documented keys, no raw context (got ${keys.join(",")})`);
+  ok(JSON.stringify(keys) === JSON.stringify(["count", "firstSeen", "issueOpened", "lastSeen", "qualified", "sources", "text"]), `aggregate row has exactly the documented keys, no raw context (got ${keys.join(",")})`);
   ok(!("context" in row), "aggregate row never carries a raw context field");
   ok(row.text.includes("&lt;script&gt;") && !row.text.includes("<script>"), `aggregate text is esc()'d (got ${row.text})`);
   ok(typeof row.firstSeen === "string" && typeof row.lastSeen === "string" && !Number.isNaN(Date.parse(row.firstSeen)), "firstSeen/lastSeen are ISO timestamps");

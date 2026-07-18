@@ -47,6 +47,30 @@ let capReached = false;
 // the aggregate so a scheduled workflow can poll it and open the issue.
 export const WISH_THRESHOLD = 5;
 
+// A raw count is not enough to auto-open a public GitHub issue: one script can
+// POST the same string 5 times in a minute (observed 2026-07-17: a single
+// source drove a cluster to 100+ identical hits in a few hours, minting three
+// junk issues). A cluster QUALIFIES only when it also shows independence —
+// either corroboration across ≥2 distinct sources (api / mcp / find-miss), or
+// demand sustained past QUALIFY_MIN_SPAN_MS. A genuine gap is hit by different
+// agents across different surfaces, or recurs over days; a scripted burst is
+// one source in one sitting and clears neither bar. Honest limit (same framing
+// as the router's per-seller Sybil cap): a patient spammer can still drip over
+// 24h or add a decoy hit on a second surface — this raises the cost from "5
+// curls" to "sustained or multi-surface", it doesn't make gaming impossible.
+// The wish is always recorded and visible on /api/wishes regardless; this gate
+// only governs which clusters auto-open an issue.
+export const QUALIFY_MIN_SPAN_MS = 24 * 3_600_000; // 24h
+
+// Does a cluster's shape clear the anti-spam bar described above? Exported so
+// the wish-issues workflow's gate and the unit tests share one definition.
+export function clusterQualifies(c) {
+  if (!c || c.count < WISH_THRESHOLD) return false;
+  const distinctSources = ["api", "mcp", "find-miss"].filter((s) => (c.sources?.[s] || 0) > 0).length;
+  const spanMs = (c.lastSeen || 0) - (c.firstSeen || 0);
+  return distinctSources >= 2 || spanMs >= QUALIFY_MIN_SPAN_MS;
+}
+
 const esc = (s) => String(s ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
   .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -233,11 +257,15 @@ export function getWishesAggregate({ limit = 200 } = {}) {
       firstSeen: new Date(c.firstSeen).toISOString(),
       lastSeen: new Date(c.lastSeen).toISOString(),
       issueOpened: !!c.issueOpened,
+      // The gate the wish-issues workflow selects on. count >= threshold is
+      // necessary but not sufficient — see clusterQualifies / QUALIFY_MIN_SPAN_MS.
+      qualified: clusterQualifies(c),
     }));
   return {
     distinctClusters: clusters.size,
     totalWishes: [...clusters.values()].reduce((s, c) => s + c.count, 0),
     threshold: WISH_THRESHOLD,
+    qualifyMinSpanHours: QUALIFY_MIN_SPAN_MS / 3_600_000,
     clusters: rows,
   };
 }

@@ -4,6 +4,12 @@
 # GitHub token, so THIS workflow closes the loop: it polls the public
 # aggregate and opens one issue per qualifying cluster.
 #
+# The gate is the server-computed `qualified` flag, NOT raw count: a cluster
+# qualifies only when it clears the count threshold AND shows independence
+# (≥2 distinct sources, or demand sustained past the span window). This stops
+# a single script minting issues by POSTing the same string 5 times — see
+# clusterQualifies in src/wish.js.
+#
 # Dedup is GitHub-side (label `tool-wish` + exact title match), so the server
 # needs no writable "issueOpened" state and re-runs are idempotent. At most
 # MAX_NEW issues per run — a spam wave can never flood the tracker.
@@ -35,7 +41,10 @@ jobs:
           # "handled or rejected"; never re-open the same demand automatically).
           EXISTING=$(gh issue list --repo "$REPO" --label tool-wish --state all --limit 200 --json title --jq '.[].title')
           CREATED=0
-          echo "$WISHES" | jq -c --argjson th "$THRESHOLD" '.clusters[] | select(.count >= $th)' | while read -r c; do
+          # Gate on the server-computed `qualified` flag (count + independence),
+          # not raw count. A cached response from before the flag shipped lacks
+          # the field, so `== true` fails closed and opens nothing — safe.
+          echo "$WISHES" | jq -c '.clusters[] | select(.qualified == true)' | while read -r c; do
             [ "$CREATED" -ge "$MAX_NEW" ] && { echo "cap reached ($MAX_NEW) — remaining clusters wait for the next run"; break; }
             TEXT=$(echo "$c" | jq -r '.text')
             COUNT=$(echo "$c" | jq -r '.count')
@@ -47,7 +56,7 @@ jobs:
               echo "already tracked: $TITLE"
               continue
             fi
-            BODY=$(printf 'Agents asked for this **%s** times (sources: %s; first seen %s).\n\nNormalized request:\n\n> %s\n\nLive demand board: https://agent402.tools/api/wishes\n\nOpened automatically by the wish-issues bridge when a cluster crosses the signal threshold (%s).' "$COUNT" "$SOURCES" "$FIRST" "$TEXT" "$THRESHOLD")
+            BODY=$(printf 'Agents asked for this **%s** times (sources: %s; first seen %s).\n\nNormalized request:\n\n> %s\n\nLive demand board: https://agent402.tools/api/wishes\n\nOpened automatically by the wish-issues bridge: this cluster cleared the signal threshold (%s) and qualified as independent demand (multiple sources or sustained over time), not a single-source burst.' "$COUNT" "$SOURCES" "$FIRST" "$TEXT" "$THRESHOLD")
             gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY" --label tool-wish
             CREATED=$((CREATED+1))
             echo "opened: $TITLE"
