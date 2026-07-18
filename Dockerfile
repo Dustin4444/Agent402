@@ -1,9 +1,10 @@
-# SECURITY REVIEW / VERIFY-BEFORE-DEPLOY — this Dockerfile is part of the infra
-# hardening PR (audit A402-01/06 + mutable-artifacts). It could not be
-# build-tested in the authoring sandbox (no Docker) and changes the runtime
-# user, so it MUST be built and verified on a Railway preview before it reaches
-# the deploy path. See docs/security-infra-hardening.md for the verification
-# checklist and the platform-level follow-ups this does NOT cover.
+# SECURITY REVIEW / VERIFY-BEFORE-DEPLOY — infra hardening PR (audit A402-01/06
+# + mutable-artifacts). Still needs a Railway PREVIEW build before the deploy
+# path (the image isn't built in CI), but the /data volume behaviour this design
+# hinges on was VERIFIED against the live Railway deployment on 2026-07-18:
+# agent402-volume mounts at /data owned by root:root, so the non-root switch is
+# done via a root entrypoint that chowns /data then drops to node (below), NOT a
+# Dockerfile USER. See docs/security-infra-hardening.md for the full checklist.
 #
 # Base image pinned by DIGEST for reproducible builds and CVE traceability
 # (audit: "mutable deployment artifacts"). node:22-slim as of 2026-07-18. Re-pin
@@ -17,11 +18,13 @@ ENV NODE_ENV=production
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 COPY package.json package-lock.json ./
-# ffmpeg powers the audio tools (normalize/convert/info); installed alongside
-# Chromium's deps in one layer. Both need root and run BEFORE the USER switch.
+# ffmpeg powers the audio tools (normalize/convert/info); gosu drops privileges
+# at startup (see the entrypoint). Installed alongside Chromium's deps.
 RUN npm ci --omit=dev && npx playwright install --with-deps chromium \
-  && apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+  && apt-get update && apt-get install -y --no-install-recommends ffmpeg gosu \
   && rm -rf /var/lib/apt/lists/* \
+  # sanity-check gosu works (it silently no-ops on a broken install)
+  && gosu node true \
   # A402-06 / CVE-2026-8461 (FFmpeg MagicYUV): record the exact ffmpeg build and
   # whether the vulnerable decoder is even present, so the live image is
   # auditable without guessing. scripts/check-ffmpeg-cve.sh reads this.
@@ -38,29 +41,32 @@ COPY wiki ./wiki
 # a boot crash, not a degraded render.
 COPY assets ./assets
 
-# A402-01: run as the unprivileged `node` user (UID 1000, ships with the node
-# image) instead of root. A renderer or media-parser compromise then lands as
-# UID 1000 — unable to touch root-owned files or escalate — instead of as root
-# inside the app container. This is the safe, in-place first step.
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# A402-01: run the server as the unprivileged `node` user, NOT root. A renderer
+# or media-parser compromise then lands as UID 1000 — unable to touch root-owned
+# files or escalate — instead of as root in the container.
 #
-# NOTE 1 (--no-sandbox stays): src/tools/render.js still launches Chromium with
+# We do NOT use a Dockerfile `USER node`, on purpose: VERIFIED on the live
+# Railway deployment (2026-07-18) that the persistent volume `agent402-volume`
+# mounts at /data owned by root:root at RUNTIME, and it holds the memory/stats
+# SQLite (~1GB). A `USER node` container could not write it and the memory
+# boot-fail-loud would fire on deploy. Instead docker-entrypoint.sh runs as root
+# JUST long enough to chown /data to node, then execs the server via gosu so the
+# process itself is non-root. `exec` keeps node as PID 1 so it receives SIGTERM
+# for the graceful drain.
+#
+# NOTE (--no-sandbox stays): src/tools/render.js still launches Chromium with
 # --no-sandbox because this container has no user-namespace / seccomp profile
-# for Chromium's own sandbox. Removing --no-sandbox REQUIRES enabling that at
-# the platform level first (see the doc) — do NOT drop it here blindly or
-# Chromium fails to launch and every browser tool 503s. Non-root already removes
-# the "escape == root" impact that made A402-01 High.
+# for Chromium's own sandbox. Removing it REQUIRES enabling that at the platform
+# level first (see docs/security-infra-hardening.md) — dropping it here blindly
+# 503s every browser tool. Non-root already removes the "escape == root" impact.
 #
-# NOTE 2 (/data): the Railway persistent volume mounts at /data at RUNTIME and
-# MUST be writable by UID 1000. If not, the memory/stats SQLite boot check fails
-# LOUD on deploy (a safe, immediate failure — not silent corruption), so a
-# permission miss is caught before buyers are affected. Verify on the preview.
-#
-# NOTE 3 (full isolation is a follow-up): the browser and media parsers still
+# NOTE (full isolation is a follow-up): the browser and media parsers still
 # share this container with the payment/DB/operator env. True A402-01/02/06
 # isolation is a separate browser/media worker service with no secrets — see
-# the design in docs/security-infra-hardening.md. This PR does not implement it.
-RUN chown -R node:node /app
-USER node
-
+# the design doc. This PR does not implement it.
+ENTRYPOINT ["docker-entrypoint.sh"]
 EXPOSE 3000
 CMD ["node", "src/server.js"]

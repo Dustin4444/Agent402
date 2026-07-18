@@ -13,7 +13,20 @@ preview environment.
 | A402-05 | Pin the floating `@x402/*` + `viem` + `@solana/kit` installs in secret-bearing CI jobs to exact versions | Low | Yes — CI runs the pinned installs |
 | mutable-artifacts | Pin the base image by digest | Low | No (built by Railway) |
 | A402-06 | Record `ffmpeg -version` + MagicYUV presence into the image; add `scripts/check-ffmpeg-cve.sh` | Low | No |
-| A402-01 | Run the app as the non-root `node` user (UID 1000) | **Medium** | No |
+| A402-01 | Run the app as the non-root `node` user (UID 1000) via a root entrypoint that chowns `/data` then drops privileges with `gosu` | **Medium** | No |
+
+### Live finding (2026-07-18) — why a `USER node` Dockerfile would have broken prod
+
+Verified against the live Railway deployment: the persistent volume
+`agent402-volume` mounts at **`/data` owned by `root:root`** and holds the
+memory/stats SQLite (~1 GB). Railway mounts volumes as root at RUNTIME, and a
+build-time `RUN chown` cannot touch a volume that does not exist at build. So a
+plain Dockerfile `USER node` container could **not** write `/data`, and the
+memory boot-fail-loud check would fire on the next deploy — taking down a *paid*
+tool. The fix is `docker-entrypoint.sh`: it runs as root only long enough to
+`chown /data` to `node`, then `exec gosu node …` so the server itself is
+non-root. (Railway ref: volumes are root-owned; use an entrypoint to fix
+permissions for non-root images.)
 
 ## What this PR deliberately does NOT do
 
