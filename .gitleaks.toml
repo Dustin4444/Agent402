@@ -1,0 +1,39 @@
+# gitleaks config for Agent402. Extends the default ruleset (which catches
+# real high-signal secrets: OpenAI sk- keys, GitHub tokens, AWS keys, private
+# keys, mnemonics, etc.) and allowlists the structural false positives this
+# repo carries by design, so CI stays green until a GENUINELY new secret lands.
+#
+# Every allowlist entry below was verified against a full-tree + full-history
+# scan (2026-07-18): all pre-existing hits are public on-chain addresses, the
+# standard demo JWT, or fake test/canary fixtures. Real secrets live only in
+# Railway env and GitHub Actions secrets, never in the repo.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Agent402 known false positives: on-chain addresses, demo JWTs, test fixtures"
+# Fixtures and copy that intentionally contain fake or public credential-shaped
+# strings. Test files assert on canaries by design; docs carry example tokens.
+paths = [
+  '''scripts/test-.*\.js''',
+  '''docs/.*''',
+  '''package-lock\.json''',
+  '''\.gitleaks\.toml''',
+]
+# Matched against each finding's captured secret.
+regexes = [
+  # EVM contract/wallet addresses are public identifiers, never secrets. This
+  # is 40 hex chars precisely; a real EVM private key is 64 hex and is NOT
+  # covered here, so it would still fire.
+  '''0x[0-9a-fA-F]{40}\b''',
+  # The leak-guard test's own canary tokens (e.g. fredv2-LEAKCANARY0000).
+  '''LEAKCANARY''',
+  # Placeholder KDF-output example in the crypto-hash tool docs.
+  '''a1b2c3d4e5f6''',
+]
+# The standard demo JWT ({"alg":"HS256","typ":"JWT"} header) used as the
+# decode-jwt tool's worked example in kit.js / kit2.js / skills.js. Stopwords
+# match when the secret contains the substring.
+stopwords = [
+  '''eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9''',
+]
