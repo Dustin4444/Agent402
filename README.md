@@ -18,7 +18,7 @@
 [![npm](https://img.shields.io/npm/v/agent402-client?label=agent402-client)](https://www.npmjs.com/package/agent402-client)
 [![npm](https://img.shields.io/npm/v/agent402-tollbooth?label=agent402-tollbooth)](https://www.npmjs.com/package/agent402-tollbooth)
 [![CI](https://github.com/MikeyPetrillo/Agent402/actions/workflows/deploy.yml/badge.svg)](https://github.com/MikeyPetrillo/Agent402/actions/workflows/deploy.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-green.svg)](LICENSE)
 
 **Framework adapters** (drop-in tools for the major agent stacks — auto-payment underneath):
 [![npm](https://img.shields.io/npm/v/agent402-openai-tools?label=openai-tools)](https://www.npmjs.com/package/agent402-openai-tools)
@@ -331,7 +331,7 @@ sha256 proof-of-work (sub-second; the MCP servers do it automatically). Details:
   [`agent402.base.eth`](https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns)
   (a Base name resolving to the public receiving wallet) — verifiable by anyone
   on Basescan; live counts at [`/api/stats`](https://agent402.tools/api/stats).
-- **MIT licensed, fork-friendly** — clone it, strip what you don't need, add
+- **AGPL-3.0 licensed, self-host-friendly** — clone it, strip what you don't need, add
   what you do.
 
 ## Agent402 in the x402 ecosystem
@@ -395,7 +395,7 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 - AI-gateway traffic (`/v1` chat, embeddings, images, speech) is additionally subject to the
   upstream model providers' usage policies. Wallets used for prohibited content are blocked
   before settlement (`WALLET_BLOCKLIST`).
-- The **code** is MIT-licensed and provided as-is, without warranty (see [LICENSE](LICENSE)).
+- The **server code** is AGPL-3.0-licensed (the client SDK, MCP connector, and tollbooth packages are MIT) and provided as-is, without warranty (see [LICENSE](LICENSE)).
   If you self-host, you are the operator: your deployment, your terms, your compliance —
   Havok Holdings LLC operates only the hosted instance and is not responsible for third-party
   deployments.
@@ -409,5 +409,5 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 ## Contributing
 
 PRs that add useful tools, fix bugs, or improve docs are very welcome — see
-[CONTRIBUTING.md](CONTRIBUTING.md). MIT licensed. Maintained by
+[CONTRIBUTING.md](CONTRIBUTING.md). AGPL-3.0 licensed (packages MIT). Maintained by
 [Havok Holdings LLC](https://github.com/MikeyPetrillo/Agent402).

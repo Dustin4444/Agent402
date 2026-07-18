@@ -23,7 +23,7 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
 | Privacy policy | https://agent402.tools/privacy |
 | Support contact | https://github.com/MikeyPetrillo/Agent402/issues |
 | Maintainer | Havok Holdings LLC — https://github.com/MikeyPetrillo/Agent402 |
-| Source code | https://github.com/MikeyPetrillo/Agent402 (MIT, fully open source) |
+| Source code | https://github.com/MikeyPetrillo/Agent402 (AGPL-3.0 server, MIT packages; fully open source) |
 
 ## Tagline (short)
 

@@ -257,7 +257,7 @@ ${chainItems}
 ${toolSections}
 
 ## Optional
-- [GitHub repository](https://github.com/MikeyPetrillo/Agent402): full source, MIT, self-hostable
+- [GitHub repository](https://github.com/MikeyPetrillo/Agent402): full source, AGPL-3.0, self-hostable
 - [agent402-tollbooth](${baseUrl}/tollbooth): open-source, self-hostable x402 pay-per-crawl gate for your own site
 - [Skill packs JSON](${baseUrl}/api/skill-packs.json): machine-readable pack index
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool

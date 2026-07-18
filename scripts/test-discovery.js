@@ -28,7 +28,7 @@ const m = serviceManifest({
 
 ok(m.spec === "agent402-service-manifest/1", "manifest spec tag");
 ok(m.name === "Agent402.Tools", "manifest name");
-ok(m.openSource === true && m.selfHostable === true && m.license === "MIT", "wedge flags");
+ok(m.openSource === true && m.selfHostable === true && m.license === "AGPL-3.0-or-later", "wedge flags");
 ok(Array.isArray(m.differentiators) && m.differentiators.length >= 3, "differentiators present");
 ok(m.twoSided?.tollbooth?.npm === "agent402-tollbooth", "tollbooth advertised");
 

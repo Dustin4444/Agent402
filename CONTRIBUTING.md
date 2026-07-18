@@ -6,9 +6,11 @@ useful to every agent that connects. Bug fixes and docs are just as welcome.
 
 Issues and tool ideas: [open an issue](https://github.com/MikeyPetrillo/Agent402/issues).
 For anything that doesn't fit a public issue, email **mike@agent402.tools**.
-MIT licensed — by contributing you agree your contribution is too (standard
-"inbound = outbound": you keep the copyright on your code, shared under MIT like
-the rest of the project).
+Licensing (inbound = outbound): by contributing you agree your contribution is
+licensed under the same license as the component you're changing — AGPL-3.0 for
+the server (the repository root, where most tool contributions land) and MIT for
+the `client/`, `mcp/`, and `tollbooth/` packages. You keep the copyright on your
+code.
 
 ## List your x402 seller
 

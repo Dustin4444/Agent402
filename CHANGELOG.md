@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Relicensed the server to AGPL-3.0** (the `client/`, `mcp/`, and `tollbooth/` npm packages
+  stay MIT). The root `LICENSE` is now the GNU Affero GPL v3, and a new `NOTICE` documents the
+  split: the self-hostable server is copyleft (run a modified version as a network service and you
+  must offer its source to users), while the buyer SDK, MCP connector, and pay-per-crawl middleware
+  remain permissively licensed so they can be embedded without obligation. The public promise that
+  `agent402-tollbooth` stays MIT is unchanged. Served copy, the README badge, docs, and the
+  machine-readable `/.well-known/x402` `license` field updated to match; `agent402-tollbooth`
+  marketing continues to read MIT. Secret-scanning (gitleaks) now runs on every push and PR.
+
 - **Conversion funnel: diagnose the 402→settle drop-off** (`paywall_402` + new `pow_challenge`).
   The funnel could show *that* agents bounce at the paywall but not *why*. Two privacy-preserving
   dimensions fix that (still counts-only — no IP/UA/wallet): (1) `paywall_402` gains `attempt`,

@@ -49,7 +49,7 @@
     "stellar"
   ],
   "author": "Havok Holdings LLC <mike@agent402.tools> (https://agent402.tools)",
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "dependencies": {
     "@coinbase/x402": "^2.1.0",

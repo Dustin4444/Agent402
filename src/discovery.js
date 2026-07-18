@@ -72,7 +72,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     repository: REPO,
     openSource: true,
     selfHostable: true,
-    license: "MIT",
+    license: "AGPL-3.0-or-later",
     maintainer: MAINTAINER,
     // Programmatic buyers get their terms notice here, in llms.txt, and on
     // /v1/models — use of the service constitutes acceptance (see /terms).
@@ -95,7 +95,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     // self-hostable, the whole catalog in one integration, and it owns the
     // other side of the protocol too (pay-per-crawl).
     differentiators: [
-      "Open-source and self-hostable — read every line, run it yourself (MIT).",
+      "Open-source and self-hostable — read every line, run it yourself (AGPL-3.0).",
       `One integration covers all 500+ tools — no per-service SDKs or signups.`,
       "Two-sided: also ships agent402-tollbooth, an open pay-per-crawl gate for the demand side of x402.",
       "Deterministic tool catalog — no LLM in that serving path; same input, same output, full OpenAPI schemas. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
