@@ -786,6 +786,9 @@ jobs:
       - name: Payer identity (reads X-PAYMENT + legacy header; rejects unsigned/invalid — money-path regression lock — offline)
         run: node scripts/test-payer.js
 
+      - name: Payment rail scoping (A402-03 identity routes EVM-only; every other tool keeps all chains — offline)
+        run: node scripts/test-payment-identity-rails.js
+
       - name: Safe-regex guard (rejects ReDoS patterns for caller-supplied regexes — DoS lock — offline)
         run: node scripts/test-safe-regex.js
 
