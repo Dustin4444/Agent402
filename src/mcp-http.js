@@ -610,8 +610,15 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     return server;
   }
 
-  // Permissive CORS so browser-based MCP clients (inspector, web agents) work;
-  // claude.ai connects server-side and ignores this.
+  // Wildcard CORS so browser-based MCP clients (inspector, web agents) work;
+  // claude.ai connects server-side and ignores this. This is a deliberate
+  // product requirement for a PUBLIC MCP connector (security audit A402-12).
+  // It is safe because it is CREDENTIAL-FREE: Access-Control-Allow-Credentials
+  // is never set, so browsers won't attach cookies, and the wildcard origin +
+  // credentials combination is rejected by the browser anyway. There is no
+  // cookie/session authority on /mcp; abuse is bounded by the per-IP/per-minute
+  // and per-hour rate limits (AGENT402_MCP_MAX_PER_MIN / _PER_HOUR), not by
+  // origin. DO NOT add Access-Control-Allow-Credentials here.
   app.use("/mcp", (req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS");

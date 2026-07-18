@@ -19,6 +19,10 @@ import { dirname, join } from "node:path";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3096;
 const BASE = `http://localhost:${PORT}`;
+// The detailed flags are operator-gated now (A402-11); boot with a known token
+// so this test can still verify the full flag contract, and separately assert
+// the public response hides it.
+const TOKEN = "healthtest-operator-token";
 
 let pass = 0;
 const fail = (m) => { console.error("FAIL:", m); proc.kill("SIGKILL"); process.exit(1); };
@@ -27,18 +31,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
   cwd: ROOT,
-  env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false" },
+  env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false", AGENT402_OPERATOR_TOKEN: TOKEN },
   stdio: "ignore",
 });
 
 try {
   for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
 
-  const res = await fetch(`${BASE}/health`);
-  ok(res.ok, `/health returns 200 in FREE_MODE (got ${res.status})`);
+  // Public (unauthenticated) /health is a generic liveness result only — the
+  // internal wiring (flags/checks/meta) is not disclosed (security audit A402-11).
+  const pub = await fetch(`${BASE}/health`);
+  ok(pub.status === 200, `public /health → 200 (got ${pub.status})`);
+  const pubBody = await pub.json();
+  ok(pubBody.ok === true, "public body.ok is true");
+  ok(!("flags" in pubBody) && !("checks" in pubBody), "public /health hides flags+checks (meta stays public)");
+
+  // The full diagnostics require the operator token.
+  const res = await fetch(`${BASE}/health`, { headers: { Authorization: `Bearer ${TOKEN}` } });
+  ok(res.ok, `authed /health returns 200 in FREE_MODE (got ${res.status})`);
   const body = await res.json();
 
-  // Top-level shape.
+  // Top-level shape (authed).
   ok(body.ok === true, `body.ok is true in FREE_MODE (got ${JSON.stringify(body.ok)})`);
   ok(typeof body.checks === "object" && body.checks !== null, "body.checks is an object");
   ok(typeof body.flags === "object" && body.flags !== null, "body.flags is an object");

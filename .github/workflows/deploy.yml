@@ -872,6 +872,9 @@ jobs:
       - name: /health envelope + .flags shape (boolean discipline locks the Yahoo-relay-flap class)
         run: node scripts/test-health-envelope.js
 
+      - name: Exposure hardening (A402-11/12/13 no X-Powered-By; security.txt; health gates flags; credential-free MCP CORS — spawns child)
+        run: node scripts/test-security-headers.js
+
       - name: Skill-pack invariants (toolSlugs resolve in catalog; substitution renders)
         run: node scripts/test-skill-packs.js
 
