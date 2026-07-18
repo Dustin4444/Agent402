@@ -29,6 +29,7 @@ import { tollboothLandingPage } from "./tollbooth-landing.js";
 import { tollboothCloudPage } from "./tollbooth-cloud.js";
 import { tollboothWaitlistPage } from "./tollbooth-waitlist.js";
 import { operatorLeadsPage } from "./operator-leads.js";
+import { operatorWishesPage } from "./operator-wishes.js";
 import { initLeadsDb, insertLead, listLeads, countLeads, leadsDbEnabled } from "./leads-db.js";
 import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCacheOutcome, cacheCounters } from "./cache.js";
 import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
@@ -1013,6 +1014,10 @@ app.get("/__operator", (req, res) => {
 app.get("/__operator/stats", (req, res) => {
   if (!operatorTokenOk(getOperatorToken(req))) return res.status(404).json({ error: "Not found" });
   res.json(getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS }));
+});
+app.get("/__operator/wishes", (req, res) => {
+  if (!operatorTokenOk(getOperatorToken(req))) return res.status(404).type("html").send("<p>Not found.</p>");
+  res.type("html").send(operatorWishesPage(BASE_URL, getWishesAggregate({ limit: 500 })));
 });
 app.get("/__operator/leads", async (req, res) => {
   if (!operatorTokenOk(getOperatorToken(req))) return res.status(404).type("html").send("<p>Not found.</p>");

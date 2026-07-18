@@ -9,7 +9,9 @@ import { CHAIN_PAGES } from "./market-page.js";
 
 export function robotsTxt(baseUrl) {
   // Explicitly welcome AI/agent crawlers and search engines; point them at the
-  // machine-readable surfaces. Disallow only the wallet-scoped memory endpoints.
+  // machine-readable surfaces. Disallow the wallet-scoped memory endpoints and
+  // the token-gated operator dashboard (already 404 without the token — this
+  // just keeps well-behaved crawlers from probing the path at all).
   const agents = [
     "GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "anthropic-ai",
     "PerplexityBot", "Google-Extended", "Googlebot", "Bingbot", "Applebot", "Applebot-Extended",
@@ -21,6 +23,7 @@ export function robotsTxt(baseUrl) {
 User-agent: *
 Allow: /
 Disallow: /api/memory
+Disallow: /__operator
 
 # Machine-readable catalogs for agents: ${baseUrl}/llms.txt , ${baseUrl}/openapi.json , ${baseUrl}/api/pricing , ${baseUrl}/api/cacheable , ${baseUrl}/.well-known/x402 , ${baseUrl}/api/reliability , ${baseUrl}/api/find?q={task} , ${baseUrl}/api/route , ${baseUrl}/api/leaderboard
 Sitemap: ${baseUrl}/sitemap.xml
