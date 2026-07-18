@@ -166,6 +166,35 @@ export function enabledNetworks(network) {
   return out;
 }
 
+// An identity-bound route derives the caller's namespace / usage identity from
+// the SIGNED EVM authorization field (payerFromRequest), which is EVM-only by
+// construction (EIP-3009 `authorization.from`). Non-EVM schemes (SVM/Stellar/
+// AVM) don't sign an authorization.from, so a buyer who paid one of those rails
+// would settle on-chain and THEN get an identity error — a charged failure
+// (security audit A402-03). The wallet-scoped memory family and the
+// wallet-keyed my-usage report are the only such routes. Marked centrally where
+// the catalog is assembled; keyed here so code and tests share one definition.
+export const isIdentityBoundRoute = (def) =>
+  def?.category === "memory" || def?.slug === "my-usage";
+
+// Build the `accepts` list for one catalog item. EVM rails always apply. For an
+// identity-bound route that is ALL it advertises, so a buyer can never settle on
+// a rail whose identity the handler can't derive. EVERY other tool keeps all
+// configured chains — restricting is scoped strictly to identity routes, so all
+// rails keep selling the rest of the catalog. Behavior for non-identity items is
+// byte-identical to the previous inline builder.
+export function acceptsForItem(item, rails) {
+  const { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet } = rails;
+  const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: walletAddress, price: item.price, network: caip2 }));
+  if (item.identityBound) return evm;
+  return [
+    ...evm,
+    ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: item.price, network: caip2 })) : []),
+    ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: item.price, network: caip2 })) : []),
+    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: algorandWallet, price: item.price, network: caip2 })) : []),
+  ];
+}
+
 /**
  * Build the x402 v2 payment middleware: an "exact" USDC payment scheme,
  * paywalling the routes in `catalog`, with Bazaar discovery metadata so agents
@@ -352,12 +381,9 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   }
 
   // One payment option per enabled chain — agents pick the chain they hold funds on.
-  const acceptsFor = (item) => [
-    ...evmCaip2.map((caip2) => ({ scheme: "exact", payTo: walletAddress, price: item.price, network: caip2 })),
-    ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: item.price, network: caip2 })) : []),
-    ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: item.price, network: caip2 })) : []),
-    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: algorandWallet, price: item.price, network: caip2 })) : []),
-  ];
+  // Identity-bound routes are the exception (EVM-only) — see acceptsForItem.
+  const acceptsFor = (item) =>
+    acceptsForItem(item, { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet });
 
   // The payment-required header is one base64-encoded JSON blob carrying
   // description + discovery extensions.  Skill packs and tools with rich

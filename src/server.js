@@ -51,7 +51,7 @@ import { findTools } from "./find.js";
 import { recordWish, getWishesAggregate } from "./wish.js";
 import { indexSnapshot, routeQuery, startCrawler, validateOriginInput, registerOrigin } from "./x402-index.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks } from "./payments.js";
+import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute } from "./payments.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
 import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
@@ -587,6 +587,17 @@ const ROUTE_EXECUTE_TOOL = buildRouteExecuteTool({ getCatalog: () => CATALOG, ba
 if (CATALOG[ROUTE_EXECUTE_TOOL.route]) throw new Error(`Duplicate route: ${ROUTE_EXECUTE_TOOL.route}`);
 CATALOG[ROUTE_EXECUTE_TOOL.route] = ROUTE_EXECUTE_TOOL;
 ALL_KIT.push(ROUTE_EXECUTE_TOOL);
+
+// Security audit A402-03: the wallet-scoped memory family and the wallet-keyed
+// my-usage report derive the caller's identity from the SIGNED EVM
+// authorization (payerFromRequest, EVM-only). Advertising a non-EVM rail on
+// them would let a buyer settle on Solana/Stellar/Algorand and THEN hit an
+// identity error — a charged failure. Flag them here, in one place over the
+// fully-assembled catalog, so the paywall offers EVM rails only for these
+// routes. Every other tool is untouched and keeps all configured chains.
+for (const def of Object.values(CATALOG)) {
+  if (isIdentityBoundRoute(def)) def.identityBound = true;
+}
 
 // Boot-time guard: the retired pairwise-converter 410 handler (see the
 // RETIRED_CONVERT_API_RE block below) owns both /api/convert-…-to-… and
