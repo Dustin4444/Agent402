@@ -88,5 +88,9 @@
     "redis": "^4.7.0",
     "tesseract.js": "^5.1.1",
     "turndown": "^7.2.4"
+  },
+  "overrides": {
+    "form-data": "4.0.6",
+    "ws": "8.21.0"
   }
 }
