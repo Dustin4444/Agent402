@@ -427,8 +427,12 @@ async function main() {
   // payments outage, so it must not page.
   try {
     const health = await (await fetch(`${TARGET}/health`)).json();
-    if (health?.flags?.yahooRelay !== true) console.warn(`WARN  preflight: /health.flags.yahooRelay=${health?.flags?.yahooRelay} (set YAHOO_RELAY_URL/TOKEN) — finance tool may warn`);
-    else console.log("OK    preflight /health.flags.yahooRelay=true");
+    // /health.flags is operator-gated now (security audit A402-11); the canary
+    // has no operator token, so flags is usually absent here. Only assert when
+    // it IS present (e.g. a token-carrying run); otherwise skip the preflight.
+    const yr = health?.flags?.yahooRelay;
+    if (yr === true) console.log("OK    preflight /health.flags.yahooRelay=true");
+    else if (health?.flags) console.warn(`WARN  preflight: /health.flags.yahooRelay=${yr} (set YAHOO_RELAY_URL/TOKEN) — finance tool may warn`);
   } catch (e) {
     console.warn(`WARN  preflight: GET ${TARGET}/health failed: ${(e?.message || String(e)).slice(0, 120)}`);
   }

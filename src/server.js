@@ -625,6 +625,9 @@ for (const [route, def] of Object.entries(CATALOG)) {
 }
 
 const app = express();
+// Drop the Express fingerprint header (security audit A402-13): no reason to
+// advertise the stack to every caller.
+app.disable("x-powered-by");
 // Behind Railway's single edge proxy: trust exactly that hop so req.ip is the
 // real client IP (the X-Forwarded-For entry the edge appends), not an
 // attacker-supplied XFF value. This is what the per-IP rate limiters key on,
@@ -776,11 +779,29 @@ app.get("/marketplaces", (_req, res) => res.redirect(301, "/marketplace"));
 // route around this instance. Verifies the stats DB is readable and that the
 // payment configuration is intact (wallet present unless we're explicitly in
 // FREE_MODE). Kept O(1) so a flood of probes can't degrade the service.
-app.get("/health", (_req, res) => {
+app.get("/health", (req, res) => {
   const checks = {
     db: dbHealthy(),
     wallet: FREE_MODE || Boolean(WALLET_ADDRESS),
   };
+  const ok = checks.db && checks.wallet;
+  // `meta` stays public: toolCount is already published on /api/pricing,
+  // /openapi.json, and /api/stats, and sync-count.js reads it here. uptime and
+  // freeMode are non-sensitive.
+  const meta = {
+    toolCount: Object.keys(CATALOG).length,
+    uptime: Math.floor(process.uptime()),
+    freeMode: FREE_MODE,
+  };
+  // The sensitive disclosure is the enabled-integration flags (which upstreams
+  // are wired, whether the operator token is configured) and the health checks
+  // — that internal wiring is returned ONLY to an authenticated operator
+  // (security audit A402-11). Monitoring (Railway healthcheck, heartbeat.yml)
+  // needs just the 200 + ok. operatorTokenOk / getOperatorToken are module
+  // consts defined below; this handler runs at request time, after they init.
+  if (!operatorTokenOk(getOperatorToken(req))) {
+    return res.status(ok ? 200 : 503).json({ ok, meta });
+  }
   // Non-fatal flags — surface tollbooth-leads wiring so we can verify the
   // Railway DATABASE_URL / AGENT402_OPERATOR_TOKEN env without poking either.
   // These don't affect overall ok status; the tollbooth waitlist is optional.
@@ -813,13 +834,23 @@ app.get("/health", (_req, res) => {
     llmGateway: Boolean((process.env.OPENROUTER_API_KEY || "").trim()),
     baseNotifications: baseNotificationsEnabled(),
   };
-  const ok = checks.db && checks.wallet;
-  const meta = {
-    toolCount: Object.keys(CATALOG).length,
-    uptime: Math.floor(process.uptime()),
-    freeMode: FREE_MODE,
-  };
   res.status(ok ? 200 : 503).json({ ok, checks, flags, meta });
+});
+// Security disclosure contact (RFC 9116, security audit A402-13). Expires is
+// computed ~1 year out on each request so the file is never stale. Contact
+// override via SECURITY_CONTACT_EMAIL; defaults to the maintainer address.
+app.get("/.well-known/security.txt", (_req, res) => {
+  const contact = (process.env.SECURITY_CONTACT_EMAIL || "").trim() || "mike@agent402.tools";
+  const expires = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+  const body = [
+    `Contact: mailto:${contact}`,
+    `Expires: ${expires}`,
+    "Preferred-Languages: en",
+    `Canonical: ${BASE_URL}/.well-known/security.txt`,
+    `Policy: ${BASE_URL}/terms`,
+    "",
+  ].join("\n");
+  res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(body);
 });
 // Glama connector ownership verification: claims our listing at
 // glama.ai/mcp/connectors/io.github.MikeyPetrillo/agent402. The maintainer email

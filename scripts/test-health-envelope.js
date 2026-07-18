@@ -29,6 +29,8 @@ import { dirname, join } from "node:path";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3098;
 const BASE = `http://localhost:${PORT}`;
+// Full envelope is operator-gated now (A402-11); boot with a token to verify it.
+const TOKEN = "healthtest-operator-token";
 
 let pass = 0;
 const fail = (m) => { console.error("FAIL:", m); try { proc.kill("SIGKILL"); } catch {} process.exit(1); };
@@ -37,17 +39,23 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
   cwd: ROOT,
-  env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false" },
+  env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false", AGENT402_OPERATOR_TOKEN: TOKEN },
   stdio: "ignore",
 });
 
 try {
   for (let i = 0; i < 40; i++) { try { if ((await fetch(`${BASE}/health`)).ok) break; } catch {} await sleep(500); }
 
+  // Public /health is generic liveness only (A402-11): 200 + ok, no wiring.
+  const pub = await fetch(`${BASE}/health`);
+  const pubBody = await pub.json();
+  ok(pub.status === 200 && pubBody.ok === true, `public /health → 200 ok (got ${pub.status})`);
+  ok(!("flags" in pubBody) && !("checks" in pubBody), "public /health hides flags/checks");
+
   const t0 = Date.now();
-  const res = await fetch(`${BASE}/health`);
+  const res = await fetch(`${BASE}/health`, { headers: { Authorization: `Bearer ${TOKEN}` } });
   const latencyMs = Date.now() - t0;
-  ok(res.status === 200, `/health → 200 (got ${res.status})`);
+  ok(res.status === 200, `authed /health → 200 (got ${res.status})`);
   ok((res.headers.get("content-type") || "").includes("application/json"), `content-type is application/json`);
   ok(latencyMs < 1000, `/health responds in well under a second (got ${latencyMs}ms)`);
   const body = await res.json();

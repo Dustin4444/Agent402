@@ -108,7 +108,7 @@ export function uptimePage(baseUrl) {
 <ul class="monitor-list">
   <li>
     <span class="check-icon">&#10003;</span>
-    <span><strong>Heartbeat probe every 15 minutes</strong> &mdash; a GitHub Actions workflow hits <code>/health</code> around the clock and verifies the response includes all expected feature flags.</span>
+    <span><strong>Heartbeat probe every 15 minutes</strong> &mdash; a GitHub Actions workflow hits <code>/health</code> around the clock and verifies the service responds healthy.</span>
   </li>
   <li>
     <span class="check-icon">&#10003;</span>
