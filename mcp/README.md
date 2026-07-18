@@ -85,4 +85,4 @@ From the repo root: `node mcp/test.js` (boots a local paywalled instance and dri
 
 ## Legal
 
-Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). The code is MIT-licensed, provided as-is without warranty; self-hosted deployments are their operator's responsibility.
+Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). This package is MIT-licensed; the hosted server is AGPL-3.0. Both are provided as-is without warranty, and self-hosted deployments are their operator's responsibility.
