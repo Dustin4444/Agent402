@@ -1,8 +1,8 @@
 // Token-gated /__operator/wishes dashboard — the full agent demand board,
 // including single-source and below-threshold clusters the public never sees
 // ranked. Same auth model and visual language as operator-leads.js:
-// AGENT402_OPERATOR_TOKEN via Authorization: Bearer / X-Operator-Token header
-// (preferred) or ?token= query (legacy, stripped from the URL on load).
+// AGENT402_OPERATOR_TOKEN via Authorization / X-Operator-Token header or the
+// /__operator/login session cookie (never a ?token= URL — audit A402-07).
 //
 // Why operator-only: the raw feed at /api/wishes is deliberately public (a
 // demand beacon that pulls sellers in), and the paid demand-radar tool sells
@@ -90,44 +90,16 @@ tr:last-child td{border-bottom:0}
 @media(max-width:600px){.ow-h1{font-size:36px !important}}
 `;
 
-  // Same operator auth script as the other __operator pages: capture ?token=
-  // into sessionStorage, strip it from the URL, and navigate between operator
-  // pages via fetch() so the token rides the Authorization header, never a URL.
+  // Auth is the /__operator session cookie (set at POST /__operator/login),
+  // sent automatically with same-origin requests — so nav is plain links, no
+  // token in the URL or sessionStorage (audit A402-07).
   const body = `
 <div class="ow-wrap">
   <h1 class="ow-h1">Agent demand</h1>
-  <p class="ow-sub">The full wish board, ranked — every cluster including single-source and below-threshold, which the public feed never shows ranked. A cluster auto-opens a GitHub issue only when <b>qualified</b> (count &ge; ${esc(threshold)} and either &ge;2 sources or sustained past ${esc(qualifyMinSpanHours)}h). Not public — gated by <code>AGENT402_OPERATOR_TOKEN</code>. <a href="/__operator" data-op-link>Back to operator</a></p>
+  <p class="ow-sub">The full wish board, ranked — every cluster including single-source and below-threshold, which the public feed never shows ranked. A cluster auto-opens a GitHub issue only when <b>qualified</b> (count &ge; ${esc(threshold)} and either &ge;2 sources or sustained past ${esc(qualifyMinSpanHours)}h). Not public — gated by <code>AGENT402_OPERATOR_TOKEN</code>. <a href="/__operator">Back to operator</a> &middot; <a href="/__operator/logout">Log out</a></p>
   ${summary}
   ${table}
 </div>
-<script>
-(function(){
-  var qs = new URLSearchParams(location.search);
-  if (qs.has('token')) {
-    try { sessionStorage.setItem('agent402-op-token', qs.get('token') || ''); } catch(_) {}
-    qs.delete('token');
-    var clean = location.pathname + (qs.toString() ? '?' + qs.toString() : '');
-    history.replaceState({}, document.title, clean);
-  }
-  var TOKEN = '';
-  try { TOKEN = sessionStorage.getItem('agent402-op-token') || ''; } catch(_) {}
-  document.querySelectorAll('a[data-op-link]').forEach(function(a){
-    a.addEventListener('click', function(e){
-      e.preventDefault();
-      fetch(a.getAttribute('href'), {
-        headers: TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {},
-        cache: 'no-store',
-      })
-        .then(function(r){ return r.text(); })
-        .then(function(t){
-          document.open(); document.write(t); document.close();
-          history.pushState({}, '', a.getAttribute('href'));
-        })
-        .catch(function(){});
-    });
-  });
-})();
-</script>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({

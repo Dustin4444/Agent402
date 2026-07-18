@@ -37,7 +37,7 @@ import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
 import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
 import { analyticsPage } from "./analytics-page.js";
-import { operatorPage } from "./operator.js";
+import { operatorPage, operatorLoginPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
 import { termsPage } from "./terms.js";
 import { transparencyPage } from "./transparency.js";
@@ -998,26 +998,64 @@ app.post("/api/tollbooth/waitlist", async (req, res) => {
 // Operator dashboard — full per-tool usage + recent calls feed, gated by
 // AGENT402_OPERATOR_TOKEN. Off unless the env var is set. Timing-safe compare
 // (constant-time byte equality) so token presence/length isn't probeable.
-// Token is accepted via Authorization: Bearer or X-Operator-Token header
-// (preferred — keeps the secret out of access logs, browser history, Referer)
-// or ?token= query (legacy, for the initial magic-link click — the dashboard
-// HTML strips it from the URL on load and uses header auth for everything
-// else, so the secret only ever appears in one access-log line per session).
+//
+// Auth is via a header (Authorization: Bearer / X-Operator-Token — for curl and
+// API), or a Secure + HttpOnly + SameSite=Strict session cookie set by the
+// POST /__operator/login form below. The token is NEVER read from the query
+// string (security audit A402-07): a ?token= in a URL leaks into access logs,
+// browser history, and Referer headers. The login form takes the token in a
+// POST body (never a URL) and exchanges it for the cookie, so the secret never
+// appears in a logged URL.
 const OPERATOR_TOKEN = process.env.AGENT402_OPERATOR_TOKEN || "";
+const OPERATOR_COOKIE = "a402_op";
 const operatorTokenOk = (t) => {
   if (!OPERATOR_TOKEN || typeof t !== "string") return false;
   const a = Buffer.from(t);
   const b = Buffer.from(OPERATOR_TOKEN);
   return a.length === b.length && timingSafeEqual(a, b);
 };
+// Minimal cookie reader (no cookie-parser dependency): pull one named cookie
+// out of the raw Cookie header.
+function readCookie(req, name) {
+  const raw = req.headers.cookie;
+  if (typeof raw !== "string") return "";
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq === -1) continue;
+    if (part.slice(0, eq).trim() === name) {
+      try { return decodeURIComponent(part.slice(eq + 1).trim()); } catch { return ""; }
+    }
+  }
+  return "";
+}
 const getOperatorToken = (req) => {
   const auth = req.headers["authorization"];
   if (typeof auth === "string" && auth.startsWith("Bearer ")) return auth.slice(7);
   const hdr = req.headers["x-operator-token"];
   if (typeof hdr === "string") return hdr;
-  if (typeof req.query.token === "string") return req.query.token;
-  return "";
+  return readCookie(req, OPERATOR_COOKIE);
 };
+const reqIsHttps = (req) =>
+  req.secure || (req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https";
+// Operator session bootstrap. GET serves a minimal paste-the-token form; POST
+// validates the token from the BODY (never a URL) and sets the session cookie.
+// Scoped to /__operator, HttpOnly (no JS/XSS read), SameSite=Strict (no CSRF),
+// Secure on HTTPS, and an 8h absolute expiry.
+app.get("/__operator/login", (_req, res) => {
+  res.type("html").send(operatorLoginPage(BASE_URL));
+});
+app.post("/__operator/login", (req, res) => {
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  if (!operatorTokenOk(token)) return res.status(401).json({ ok: false, error: "invalid token" });
+  const attrs = `Path=/__operator; HttpOnly; SameSite=Strict; Max-Age=${8 * 3600}${reqIsHttps(req) ? "; Secure" : ""}`;
+  res.setHeader("Set-Cookie", `${OPERATOR_COOKIE}=${encodeURIComponent(token)}; ${attrs}`);
+  res.json({ ok: true });
+});
+app.get("/__operator/logout", (req, res) => {
+  const attrs = `Path=/__operator; HttpOnly; SameSite=Strict; Max-Age=0${reqIsHttps(req) ? "; Secure" : ""}`;
+  res.setHeader("Set-Cookie", `${OPERATOR_COOKIE}=; ${attrs}`);
+  res.redirect("/__operator/login");
+});
 app.get("/__operator", (req, res) => {
   if (!operatorTokenOk(getOperatorToken(req))) return res.status(404).type("html").send("<p>Not found.</p>");
   res.type("html").send(operatorPage(BASE_URL, getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS })));

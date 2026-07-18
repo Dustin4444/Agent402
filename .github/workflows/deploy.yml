@@ -1024,6 +1024,9 @@ jobs:
       - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
         run: node scripts/test-operator-wishes.js
 
+      - name: Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
+        run: node scripts/test-operator-auth.js
+
       - name: Index self-serve registration tests (offline)
         run: node scripts/test-index-register.js
 

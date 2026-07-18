@@ -103,46 +103,17 @@ tr:last-child td{border-bottom:0}
 @media(max-width:600px){.ol-h1{font-size:36px !important}}
 `;
 
-  // NOTE: The inline <script> preserves the existing operator auth pattern:
-  // token capture from ?token= into sessionStorage, URL stripping via
-  // replaceState, and inter-page navigation via fetch()+document.write() so
-  // the token travels in the Authorization header, never in the URL.
+  // Auth is the /__operator session cookie (set at POST /__operator/login),
+  // sent automatically with same-origin requests — so nav is plain links, no
+  // token in the URL or sessionStorage (audit A402-07).
   const body = `
 <div class="ol-wrap">
   <h1 class="ol-h1">Tollbooth leads</h1>
-  <p class="ol-sub">Submissions from <a href="/tollbooth/waitlist">/tollbooth/waitlist</a>. <a href="/__operator" data-op-link>Back to operator</a></p>
+  <p class="ol-sub">Submissions from <a href="/tollbooth/waitlist">/tollbooth/waitlist</a>. <a href="/__operator">Back to operator</a> &middot; <a href="/__operator/logout">Log out</a></p>
   ${banner}
   ${summary}
   ${table}
 </div>
-<script>
-(function(){
-  var qs = new URLSearchParams(location.search);
-  if (qs.has('token')) {
-    try { sessionStorage.setItem('agent402-op-token', qs.get('token') || ''); } catch(_) {}
-    qs.delete('token');
-    var clean = location.pathname + (qs.toString() ? '?' + qs.toString() : '');
-    history.replaceState({}, document.title, clean);
-  }
-  var TOKEN = '';
-  try { TOKEN = sessionStorage.getItem('agent402-op-token') || ''; } catch(_) {}
-  document.querySelectorAll('a[data-op-link]').forEach(function(a){
-    a.addEventListener('click', function(e){
-      e.preventDefault();
-      fetch(a.getAttribute('href'), {
-        headers: TOKEN ? { 'Authorization': 'Bearer ' + TOKEN } : {},
-        cache: 'no-store',
-      })
-        .then(function(r){ return r.text(); })
-        .then(function(t){
-          document.open(); document.write(t); document.close();
-          history.pushState({}, '', a.getAttribute('href'));
-        })
-        .catch(function(){});
-    });
-  });
-})();
-</script>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
