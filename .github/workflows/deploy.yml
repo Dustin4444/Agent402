@@ -794,6 +794,9 @@ jobs:
       - name: OCR crash containment (A402-10 malformed image returns clean error, no uncaughtException — tesseract worker)
         run: node scripts/test-ocr-crash.js
 
+      - name: Browser pool admission (A402-08 bounded queue, deadline, disconnect-abort — offline)
+        run: node scripts/test-render-queue.js
+
       - name: Safe-regex guard (rejects ReDoS patterns for caller-supplied regexes — DoS lock — offline)
         run: node scripts/test-safe-regex.js
 
