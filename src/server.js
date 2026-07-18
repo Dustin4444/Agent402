@@ -2751,21 +2751,30 @@ app.get("/api/dns", async (req, res) => {
 app.post("/api/render", async (req, res) => {
   const { url } = req.body ?? {};
   if (!url) return res.status(400).json({ error: 'Missing "url" in JSON body' });
+  // Abort a QUEUED render if the client hangs up, so it can't hold a browser
+  // slot for work no one is waiting on (security audit A402-08). res 'close'
+  // fires on disconnect OR normal completion — the writableEnded guard aborts
+  // only on a real early disconnect. (req 'close' is wrong here: express.json
+  // already consumed the body, so it fires immediately.)
+  const ac = new AbortController();
+  res.on("close", () => { if (!res.writableEnded) ac.abort(); });
   try {
-    res.json(await renderArticle(url));
+    res.json(await renderArticle(url, { signal: ac.signal }));
   } catch (err) {
-    res.status(err.statusCode || 502).json({ error: err.message });
+    if (!res.headersSent) res.status(err.statusCode || 502).json({ error: err.message });
   }
 });
 
 app.get("/api/screenshot", async (req, res) => {
   const { url, fullPage } = req.query;
   if (!url) return res.status(400).json({ error: 'Missing "url" query parameter' });
+  const ac = new AbortController();
+  res.on("close", () => { if (!res.writableEnded) ac.abort(); });
   try {
-    const png = await screenshotPage(url, { fullPage: fullPage === "true" });
+    const png = await screenshotPage(url, { fullPage: fullPage === "true", signal: ac.signal });
     res.type("png").send(png);
   } catch (err) {
-    res.status(err.statusCode || 502).json({ error: err.message });
+    if (!res.headersSent) res.status(err.statusCode || 502).json({ error: err.message });
   }
 });
 
