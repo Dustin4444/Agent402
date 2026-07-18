@@ -27,4 +27,5 @@ fi
 
 # Drop root and run the app as node. exec so node becomes PID 1 and receives
 # SIGTERM directly (the graceful-drain path in src/server.js depends on it).
+echo "[entrypoint] started as $(id -un) ($(id -u)); dropping to $TARGET_USER and exec: $*"
 exec gosu "$TARGET_USER" "$@"

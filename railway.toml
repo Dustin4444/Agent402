@@ -3,7 +3,12 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node src/server.js"
+# No startCommand on purpose (security audit A402-01): a startCommand overrides
+# the Docker ENTRYPOINT, which would bypass docker-entrypoint.sh (the root->node
+# privilege drop that chowns the /data volume). The Dockerfile's ENTRYPOINT
+# ["docker-entrypoint.sh"] + CMD ["node","src/server.js"] now drive startup, so
+# the server runs non-root. (Behaviourally identical to the old startCommand for
+# the plain-CMD image, verified on a Railway preview 2026-07-18.)
 healthcheckPath = "/health"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
