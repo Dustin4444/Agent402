@@ -1013,6 +1013,9 @@ jobs:
       - name: Sell hub page tests (offline, fixture snapshot)
         run: node scripts/test-sell-page.js
 
+      - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
+        run: node scripts/test-operator-wishes.js
+
       - name: Index self-serve registration tests (offline)
         run: node scripts/test-index-register.js
 
