@@ -1416,6 +1416,9 @@ jobs:
     needs: [markers, test]
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    # F01: publishing packages mutates a production artifact — gate it behind the
+    # same protected environment as deploy (see the deploy job comment).
+    environment: "agent402 / production"
     permissions:
       contents: read
       id-token: write   # GitHub OIDC → authorize the io.github.mikeypetrillo/* MCP Registry namespace
@@ -1964,6 +1967,12 @@ jobs:
     needs: [markers, test]
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
     runs-on: ubuntu-latest
+    # F01: bind the production-mutating job to the protected GitHub environment.
+    # Today this just associates the job; once the owner configures the
+    # environment with a required reviewer + deploy-branch policy, every deploy
+    # pauses for human approval and can read environment-scoped secrets. Repo
+    # secrets keep working until they are migrated to the environment.
+    environment: "agent402 / production"
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       # The key ID and wallet address are not sensitive (the wallet address is
