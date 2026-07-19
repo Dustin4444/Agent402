@@ -88,19 +88,32 @@ the flag is set:
 - `src/worker-client.js` — `workerEnabled()` / `runOnWorker()`. When
   `RENDER_WORKER_URL` is set, `src/server.js`'s render/screenshot routes and the
   media tool handlers dispatch to the worker; unset → in-process (default).
-- `Dockerfile.worker` — the hardened base (non-root, digest-pinned, ffmpeg +
-  Chromium, setuid stripped) running `worker/server.js`.
+- `start.js` — the **shared-image dispatcher**. Both the API and the worker run
+  the SAME image (the root `railway.toml` pins every service to `Dockerfile`);
+  `start.js` boots `worker/server.js` when `WORKER_MODE=true`, else
+  `src/server.js`. It `import`s (never spawns), so the gosu privilege-drop
+  entrypoint still owns PID 1. This replaces the per-service "config file path"
+  pointer, which proved fragile: a worker service whose pointer wasn't set fell
+  back to `railway.toml` and silently built the MAIN server (which then failed
+  its healthcheck for lack of a wallet). `Dockerfile.worker` +
+  `railway.worker.json` remain as a valid alternative path (a service whose
+  config-file pointer IS set to `railway.worker.json` builds `Dockerfile.worker`
+  and runs `worker/server.js` directly, no `WORKER_MODE` needed) but are no
+  longer required.
 - `scripts/test-worker-isolation.js` — auth/dispatch, client round-trip (incl.
-  binary decode + error propagation), and the boot-guard refusal (13 cases).
+  binary decode + error propagation), the boot-guard refusal, and the
+  `WORKER_MODE` dispatch decision.
 
-**To turn it on (owner, on Railway):**
-1. Create a new Railway service from `Dockerfile.worker`, on the private network,
-   with **no** payment/DB/operator/provider env and **no** `/data` volume. Set
-   `RENDER_WORKER_TOKEN` (a fresh random value) on it.
-2. On the main service, set `RENDER_WORKER_URL` to the worker's
-   `*.railway.internal` address and the same `RENDER_WORKER_TOKEN`.
-3. Verify: a paid render + screenshot + a media tool still return correct output
-   (the `smoke-buy` workflow), and the worker's env dump contains no app secret.
+**To turn it on (owner, on Railway) — one env var:**
+1. On the **worker service** (already created, secretless, private network, no
+   `/data` volume, `RENDER_WORKER_TOKEN` set): add **`WORKER_MODE=true`**. It
+   builds the same `Dockerfile` as main but `start.js` boots the worker;
+   `/health` goes green (`{"ok":true,"tools":[...]}`).
+2. On the **main service**, set `RENDER_WORKER_URL` to the worker's
+   `<service>.railway.internal` address and the same `RENDER_WORKER_TOKEN`.
+3. Verify: a paid render + screenshot + a media tool still return correct output,
+   and the worker's env dump contains no app secret. Rollback = unset
+   `RENDER_WORKER_URL` on main (render falls back in-process).
 
 **F04 (DNS rebinding) is now closed in code** — not via a Railway egress firewall
 (Railway has none; `railway outbound-network` only manages the *source* IP), but

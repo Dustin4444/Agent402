@@ -69,8 +69,11 @@ app.post("/call", async (req, res) => {
   }
 });
 
-// Only start listening when run directly (not when imported by a test).
-const isMain = process.argv[1] && process.argv[1].endsWith("worker/server.js");
+// Start listening when run directly (`node worker/server.js`) OR when the shared
+// image's start.js dispatcher selected worker mode via WORKER_MODE. Imports by a
+// test (argv is the test file, WORKER_MODE unset) still just read the exports.
+const isMain = (process.argv[1] && process.argv[1].endsWith("worker/server.js"))
+  || /^(1|true|yes|on)$/i.test((process.env.WORKER_MODE || "").trim());
 if (isMain) {
   // F04: start the validating + pinning egress proxy and point Chromium at it,
   // so the browser can't resolve/connect to a private/metadata/railway.internal

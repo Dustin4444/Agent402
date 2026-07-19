@@ -54,6 +54,11 @@ RUN npm ci --omit=dev && npx playwright install --with-deps chromium \
 RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + 2>/dev/null || true
 
 COPY src ./src
+# start.js is the shared-image dispatcher; worker/ is the secretless browser+media
+# worker it boots when WORKER_MODE=true. Both services run THIS image (railway.toml
+# pins every service to Dockerfile); WORKER_MODE unset → the main API server.
+COPY start.js ./
+COPY worker ./worker
 # scripts/demo-payment.js is served at /demo.js (the runnable buyer demo)
 COPY scripts ./scripts
 # wiki/ is the source of truth for /docs (server-rendered) and is CI-synced
@@ -91,4 +96,6 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 # the design doc. This PR does not implement it.
 ENTRYPOINT ["docker-entrypoint.sh"]
 EXPOSE 3000
-CMD ["node", "src/server.js"]
+# start.js dispatches: WORKER_MODE=true → the secretless worker, else the API.
+# Still `node <script>` so the gosu entrypoint keeps dropping to the node user.
+CMD ["node", "start.js"]

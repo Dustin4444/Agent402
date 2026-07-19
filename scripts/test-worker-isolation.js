@@ -6,6 +6,7 @@
 //
 //   node scripts/test-worker-isolation.js
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
@@ -80,6 +81,22 @@ const listen = (app) => new Promise((res) => { const s = app.listen(0, () => res
   const code = await new Promise((res) => child.on("exit", res));
   ok(code === 1, `worker REFUSES to boot with a payment secret in env (exit ${code})`);
   ok(/secret env present in the SECRETLESS worker/i.test(out) && /WALLET_ADDRESS/.test(out), "boot guard names the offending secret and fails loud");
+}
+
+// --- 4. Shared-image dispatcher: WORKER_MODE selects the worker, else the API -
+// start.js boots worker/server.js when WORKER_MODE is truthy (the worker service
+// runs the SAME image as main, distinguished only by this env). Assert the exact
+// dispatch decision the file uses so a regression can't silently boot the wrong
+// server on the worker service.
+{
+  const src = readFileSync(join(ROOT, "start.js"), "utf8");
+  const m = src.match(/\/\^\([^)]*\)\$\/i/);
+  ok(Boolean(m), "start.js gates worker mode on a WORKER_MODE regex");
+  const re = m ? new RegExp(m[0].slice(1, -2), "i") : /$^/;
+  const decide = (v) => (re.test((v || "").trim()) ? "worker" : "api");
+  ok(decide("true") === "worker" && decide("1") === "worker" && decide("on") === "worker", "WORKER_MODE=true/1/on -> worker/server.js");
+  ok(decide("") === "api" && decide(undefined) === "api" && decide("false") === "api", "WORKER_MODE unset/false -> src/server.js (main byte-identical)");
+  ok(/import\(\s*workerMode\s*\?\s*["']\.\/worker\/server\.js["']\s*:\s*["']\.\/src\/server\.js["']\s*\)/.test(src), "start.js imports (not spawns) the selected server so the gosu entrypoint keeps PID 1");
 }
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
