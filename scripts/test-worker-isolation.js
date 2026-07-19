@@ -99,5 +99,29 @@ const listen = (app) => new Promise((res) => { const s = app.listen(0, () => res
   ok(/import\(\s*workerMode\s*\?\s*["']\.\/worker\/server\.js["']\s*:\s*["']\.\/src\/server\.js["']\s*\)/.test(src), "start.js imports (not spawns) the selected server so the gosu entrypoint keeps PID 1");
 }
 
+// --- 5. Boot-guard secret detection: catches real secrets, not infra vars ---
+{
+  const { forbiddenSecretsIn } = await import("../worker/server.js");
+  // The real secretless worker env on Railway must pass (no false positive) —
+  // this is the RAILWAY_PRIVATE_DOMAIN regression that took a deploy down.
+  const cleanWorkerEnv = {
+    PORT: "3999", WORKER_MODE: "true", RENDER_WORKER_TOKEN: "abc",
+    RAILWAY_PRIVATE_DOMAIN: "agent402-worker.railway.internal",
+    RAILWAY_ENVIRONMENT_NAME: "production", RAILWAY_PROJECT_ID: "x",
+    RAILWAY_SERVICE_ID: "y", RAILWAY_SERVICE_AGENT402_URL: "z",
+    RAILWAY_DOCKERFILE_PATH: "Dockerfile.worker", PATH: "/usr/bin", HOME: "/home/node",
+    RENDER_EGRESS_PROXY_URL: "http://127.0.0.1:5",
+  };
+  ok(forbiddenSecretsIn(cleanWorkerEnv).length === 0, "the secretless worker env (incl. RAILWAY_PRIVATE_DOMAIN + its own token) does NOT trip the guard");
+  // Real secrets the OLD denylist missed must now trip it.
+  for (const k of ["GITHUB_TOKEN", "E2B_API_KEY", "STELLAR_FACILITATOR_KEY", "ALGORAND_BURNER_MNEMONIC", "OPENROUTER_API_KEY", "CDP_API_KEY_SECRET"]) {
+    ok(forbiddenSecretsIn({ [k]: "v", RENDER_WORKER_TOKEN: "t" }).includes(k), `guard catches ${k} (pattern-based, not the old 12-name denylist)`);
+  }
+  // Non-pattern secrets stay covered; the worker's own token stays allowed.
+  ok(forbiddenSecretsIn({ WALLET_ADDRESS: "0x", DATABASE_URL: "postgres://x" }).length === 2, "non-pattern secrets (WALLET_ADDRESS, DATABASE_URL) still caught");
+  ok(forbiddenSecretsIn({ RENDER_WORKER_TOKEN: "t" }).length === 0, "the worker's OWN inbound-auth token is allowed");
+  ok(forbiddenSecretsIn({ FOO_KEY: "" }).length === 0, "an empty secret var is ignored (only set values count)");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

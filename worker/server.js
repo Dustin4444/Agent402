@@ -40,13 +40,20 @@ for (const t of MEDIA_TOOLS) HANDLERS[t.slug] = (input) => t.handler(input || {}
 // GITHUB_TOKEN etc. — can import the exports without tripping it. Because Railway
 // gates a deploy on the healthcheck, a false positive fails the new deploy
 // visibly while the old worker keeps serving, rather than causing an outage.
-const SECRET_NAME_RE = /(KEY|SECRET|TOKEN|MNEMONIC|PRIVATE|PASSWORD|CREDENTIAL)/i;
+// NB: no bare "PRIVATE" — Railway injects RAILWAY_PRIVATE_DOMAIN (the worker's
+// own private-network hostname, not a secret), and a private KEY is already
+// caught by "KEY". Matching "PRIVATE" alone would false-positive and refuse to
+// boot on a benign infra var.
+const SECRET_NAME_RE = /(KEY|SECRET|TOKEN|MNEMONIC|PASSWORD|CREDENTIAL)/i;
 const SECRET_NAME_ALLOW = new Set(["RENDER_WORKER_TOKEN"]);
 const FORBIDDEN_ENV = ["WALLET_ADDRESS", "WALLET_ENS", "DATABASE_URL", "ANALYTICS_DATABASE_URL"];
-const secretsPresent = () =>
-  Object.keys(process.env).filter(
-    (k) => (process.env[k] || "").trim() && !SECRET_NAME_ALLOW.has(k) && (SECRET_NAME_RE.test(k) || FORBIDDEN_ENV.includes(k))
+// Pure + exported for tests: the secret-bearing env var names present in `env`.
+export function forbiddenSecretsIn(env) {
+  return Object.keys(env).filter(
+    (k) => (env[k] || "").trim() && !SECRET_NAME_ALLOW.has(k) && (SECRET_NAME_RE.test(k) || FORBIDDEN_ENV.includes(k))
   );
+}
+const secretsPresent = () => forbiddenSecretsIn(process.env);
 
 // Fail CLOSED: a request is authorized only if it presents the exact configured
 // token. An empty/unset TOKEN denies everything (and the boot guard below also
