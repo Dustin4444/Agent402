@@ -162,7 +162,7 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
-- **Paid canary (`scripts/paid-canary.js`):** 27 legs — tools across chains
+- **Paid canary (`scripts/paid-canary.js`):** 29 legs — tools across chains
   (Base/Solana/Polygon/Arbitrum/Stellar/Robinhood), incl. two federal-data legs
   (vin-decode / geo-lookup) whose Base settlements also seed the gov tools into
   settlement-driven indexes like x402scan, plus llm-nano (failover), llm-stream
@@ -170,7 +170,11 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   `agent402_router` disclosure), llm-embed + embed-cache (default-on free repeat,
   per-run nonce input), llm-image (real b64_json payload >10k chars), my-usage
   (self-referential history), route-exec (receipt + digest), prompt-cache (pays once,
-  identical unpaid repeat must be 200 + `X-Cache: hit`). Trigger via workflow_dispatch on
+  identical unpaid repeat must be 200 + `X-Cache: hit`), and **render** (the only leg
+  that exercises the secretless browser/media worker — a paid `example.com` render must
+  return `rendered:true` + a stable "Example Domain" title, proving the live main→worker
+  hop + Chromium + F04 egress proxy end-to-end; new-leg coverage locked by
+  `scripts/test-canary-coverage.js`). Trigger via workflow_dispatch on
   `paid-canary.yml` (ref main) after a deploy; verdict is the job log tail.
 
 ## Open follow-ups (as of 2026-07-16)
