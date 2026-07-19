@@ -73,7 +73,43 @@ or a different platform can close.
 
 ---
 
-## Phase 2 — Browser worker service (secretless, sandbox-on)
+## Phase 2 + 3 — Secretless worker: BUILT (flagged off), 2026-07-19
+
+The secretless browser + media worker is implemented in-repo and shipped
+DISABLED by default, so production is byte-identical until it is deployed and
+the flag is set:
+
+- `worker/server.js` — a minimal service exposing `POST /call {slug, input}` for
+  `render` / `screenshot` / `media-info` / `audio-convert` / `audio-normalize`,
+  reusing the exact in-process implementations. Bearer-token auth
+  (`RENDER_WORKER_TOKEN`, constant-time). A BOOT GUARD refuses to start if any
+  payment/DB/operator/provider secret is present in its env — the isolation
+  can't be silently undone.
+- `src/worker-client.js` — `workerEnabled()` / `runOnWorker()`. When
+  `RENDER_WORKER_URL` is set, `src/server.js`'s render/screenshot routes and the
+  media tool handlers dispatch to the worker; unset → in-process (default).
+- `Dockerfile.worker` — the hardened base (non-root, digest-pinned, ffmpeg +
+  Chromium, setuid stripped) running `worker/server.js`.
+- `scripts/test-worker-isolation.js` — auth/dispatch, client round-trip (incl.
+  binary decode + error propagation), and the boot-guard refusal (13 cases).
+
+**To turn it on (owner, on Railway):**
+1. Create a new Railway service from `Dockerfile.worker`, on the private network,
+   with **no** payment/DB/operator/provider env and **no** `/data` volume. Set
+   `RENDER_WORKER_TOKEN` (a fresh random value) on it.
+2. On the main service, set `RENDER_WORKER_URL` to the worker's
+   `*.railway.internal` address and the same `RENDER_WORKER_TOKEN`.
+3. Verify: a paid render + screenshot + a media tool still return correct output
+   (the `smoke-buy` workflow), and the worker's env dump contains no app secret.
+
+**What this closes and what it does NOT:** it removes the payment/DB/operator/
+provider secrets from the blast radius of a Chromium or ffmpeg RCE (F02/F06's
+core). It does NOT enable the Chromium sandbox or a network egress firewall —
+Railway exposes neither (see Phase 1). Those remain the platform gap; DNS
+rebinding (F04) is still bounded only by the app-layer SSRF guard that moves into
+the worker.
+
+## Phase 2 — Browser worker service (secretless, sandbox-on) — original design
 
 Move Chromium off the API container. This is the real R-04 fix.
 

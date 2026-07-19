@@ -822,6 +822,9 @@ jobs:
       - name: Render actual-byte budget (F03 — chunked/streamed/headerless/WebSocket bytes counted via CDP, cap not bypassable — offline)
         run: node scripts/test-render-bytebudget.js
 
+      - name: Secretless worker isolation (F02/F04/F06 — worker auth/dispatch, client round-trip, secret-guard refuses to boot with a payment secret — offline)
+        run: node scripts/test-worker-isolation.js
+
       - name: E2B cost/output caps (F12 — aggregate UTF-8 output truncation + global sandbox concurrency ceiling — offline)
         run: node scripts/test-code-run-caps.js
 

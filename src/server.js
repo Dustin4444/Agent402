@@ -16,6 +16,7 @@ import { extractArticle, fetchPageMeta } from "./tools/extract.js";
 import { dnsLookup } from "./tools/dns.js";
 import { pdfToText } from "./tools/pdf.js";
 import { renderArticle, screenshotPage, rasterizeSvg } from "./tools/render.js";
+import { workerEnabled, runOnWorker } from "./worker-client.js";
 import {
   memoryPut, memoryGet, memoryDelete, memoryIncr, memoryCas,
   grant, revoke, listGrants, getLog, remember, recall, forget,
@@ -58,7 +59,14 @@ import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
 import { SEARCH_TOOLS } from "./tools/search.js";
 import { PDF_TOOLS } from "./tools/pdf-kit.js";
 import { DEMAND_TOOLS } from "./tools/demand-kit.js";
-import { MEDIA_TOOLS } from "./tools/media-kit.js";
+import { MEDIA_TOOLS as MEDIA_TOOLS_RAW } from "./tools/media-kit.js";
+// F06: route ffmpeg/ffprobe media parsing through the secretless worker when
+// configured, so a native-parser compromise on attacker media never sits next
+// to this process's secrets. Default (worker unset) runs in-process, unchanged.
+const MEDIA_TOOLS = MEDIA_TOOLS_RAW.map((t) => ({
+  ...t,
+  handler: async (input, ctx) => (workerEnabled() ? runOnWorker(t.slug, input) : t.handler(input, ctx)),
+}));
 import { GOV_TOOLS } from "./tools/gov-kit.js";
 import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
@@ -2889,7 +2897,12 @@ app.post("/api/render", async (req, res) => {
   const ac = new AbortController();
   res.on("close", () => { if (!res.writableEnded) ac.abort(); });
   try {
-    res.json(await renderArticle(url, { signal: ac.signal }));
+    // F02/F04: when a secretless browser worker is configured, render there so a
+    // Chromium compromise never sits next to this process's secrets. Default
+    // (unset) runs in-process, unchanged.
+    res.json(workerEnabled()
+      ? await runOnWorker("render", { url }, { signal: ac.signal })
+      : await renderArticle(url, { signal: ac.signal }));
   } catch (err) {
     if (!res.headersSent) res.status(err.statusCode || 502).json({ error: err.message });
   }
@@ -2901,7 +2914,9 @@ app.get("/api/screenshot", async (req, res) => {
   const ac = new AbortController();
   res.on("close", () => { if (!res.writableEnded) ac.abort(); });
   try {
-    const png = await screenshotPage(url, { fullPage: fullPage === "true", signal: ac.signal });
+    const png = workerEnabled()
+      ? (await runOnWorker("screenshot", { url, fullPage: fullPage === "true" }, { signal: ac.signal })).__binary
+      : await screenshotPage(url, { fullPage: fullPage === "true", signal: ac.signal });
     res.type("png").send(png);
   } catch (err) {
     if (!res.headersSent) res.status(err.statusCode || 502).json({ error: err.message });
