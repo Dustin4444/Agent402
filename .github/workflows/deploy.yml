@@ -638,28 +638,35 @@ jobs:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    # F07: NO provider secrets at job scope. They would otherwise be in the
-    # environment of `npm ci` (below), where a malicious dependency lifecycle
-    # script could read them. The live-tool keys are scoped to the server-boot
-    # step only; the booted server reads them, and the test steps just hit
-    # localhost, so they never need the keys in their own environment.
+    # F07: provider keys stay at job scope so every TEST step gates its
+    # expectations on the SAME config the booted server has. But the ONE step
+    # that runs untrusted third-party code — the dependency install, where npm
+    # lifecycle scripts execute — SHADOWS them to empty (below), so a malicious
+    # package cannot read them. That is the real F07 exposure; our own test
+    # steps are trusted code from this repo.
+    env:
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
       - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
         run: |
           npm ci
           npx playwright install --with-deps chromium
       - name: Start server in free mode
-        # The only step that needs the live-tool provider keys (F07). The
-        # backgrounded server inherits them; later steps hit it over localhost.
-        env:
-          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
-          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-          FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
-          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
         run: |
           # Raise the MCP rate limit so the full-catalog connector test can sweep
           # every tool (production keeps the default 20/min, 120/hr).
@@ -811,6 +818,12 @@ jobs:
 
       - name: Render deadline cancellation (R-09 — timed-out contexts close before the slot frees; live contexts never exceed the limit — offline)
         run: node scripts/test-render-cancel.js
+
+      - name: Render actual-byte budget (F03 — chunked/streamed/headerless/WebSocket bytes counted via CDP, cap not bypassable — offline)
+        run: node scripts/test-render-bytebudget.js
+
+      - name: E2B cost/output caps (F12 — aggregate UTF-8 output truncation + global sandbox concurrency ceiling — offline)
+        run: node scripts/test-code-run-caps.js
 
       - name: Safe-regex guard (rejects ReDoS patterns for caller-supplied regexes — DoS lock — offline)
         run: node scripts/test-safe-regex.js

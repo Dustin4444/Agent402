@@ -653,30 +653,52 @@ const PH_INGEST_HOST = "https://us.i.posthog.com";
 const PH_METHODS = new Set(["GET", "HEAD", "POST", "OPTIONS"]);
 const PH_MAX_PER_MIN = Number(process.env.POSTHOG_PROXY_MAX_PER_MIN) || 240;
 const PH_MAX_RESPONSE_BYTES = Number(process.env.POSTHOG_PROXY_MAX_BYTES) || 8 * 1024 * 1024;
+// F15: an upstream timeout so a slow/hung posthog response can't pin the
+// connection, and a global in-flight ceiling so a distributed slow-loris can't
+// hold unbounded upstream sockets/memory at once.
+const PH_UPSTREAM_TIMEOUT_MS = Number(process.env.POSTHOG_PROXY_TIMEOUT_MS) || 10_000;
+const PH_MAX_CONCURRENT = Number(process.env.POSTHOG_PROXY_MAX_CONCURRENT) || 64;
+let phInFlight = 0;
 const phProxyLimiter = createRateLimiter("posthog-proxy", { perMin: PH_MAX_PER_MIN, perHour: PH_MAX_PER_MIN * 30 });
 app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (req, res) => {
   if (!PH_METHODS.has(req.method)) return res.status(405).end();
   const ip = (req.ip || req.socket.remoteAddress || "?").trim();
   if (phProxyLimiter.check(ip).limited) return res.status(429).end();
+  if (phInFlight >= PH_MAX_CONCURRENT) return res.status(503).end(); // F15 global ceiling
+  phInFlight++;
   try {
     const sub = req.params[0] || "";
     const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
     const upstream = `${sub.startsWith("static/") ? PH_ASSETS_HOST : PH_INGEST_HOST}/${sub}${qs}`;
     const headers = {};
     for (const h of ["content-type", "accept"]) if (req.headers[h]) headers[h] = req.headers[h];
-    const init = { method: req.method, headers };
+    // F15: bound the upstream call so a hung posthog response can't pin us.
+    const init = { method: req.method, headers, signal: AbortSignal.timeout(PH_UPSTREAM_TIMEOUT_MS) };
     if (req.method !== "GET" && req.method !== "HEAD" && req.body?.length) init.body = req.body;
     const up = await fetch(upstream, init);
-    // Reject an oversized upstream body by its declared length before buffering it.
+    // Reject an oversized upstream body by its declared length up front.
     const clen = Number(up.headers.get("content-length") || 0);
     if (clen && clen > PH_MAX_RESPONSE_BYTES) return res.status(502).end();
-    const body = Buffer.from(await up.arrayBuffer()); // undici already decompressed
-    if (body.length > PH_MAX_RESPONSE_BYTES) return res.status(502).end();
     res.status(up.status);
     for (const h of ["content-type", "cache-control"]) { const v = up.headers.get(h); if (v) res.setHeader(h, v); }
-    res.end(body);
+    // F15: STREAM with a running byte counter instead of buffering the whole
+    // body — a chunked / no-Content-Length response can no longer force us to
+    // buffer megabytes. Abort the moment the cap is crossed.
+    if (!up.body) return void res.end();
+    let sent = 0;
+    const reader = up.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      sent += value.length;
+      if (sent > PH_MAX_RESPONSE_BYTES) { try { await reader.cancel(); } catch { /* */ } res.destroy(); return; }
+      if (!res.write(Buffer.from(value))) await new Promise((r) => res.once("drain", r));
+    }
+    res.end();
   } catch {
-    res.status(502).end();
+    if (!res.headersSent) res.status(502).end(); else res.destroy();
+  } finally {
+    phInFlight--;
   }
 });
 // gzip/deflate every response EXCEPT: (1) /v1/* and /mcp — the LLM gateway's
