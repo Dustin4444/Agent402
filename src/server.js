@@ -176,6 +176,7 @@ import { buildRouteExecuteTool } from "./tools/route-execute.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
+import { bodyHashFor, createRenderCreditLedger } from "./render-credit.js";
 
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
 // per-IP bucket. PoW redemption on the direct HTTP path goes through here.
@@ -2702,6 +2703,63 @@ if (FREE_MODE) {
     next();
   });
 
+  // F13: idempotent durable credit for capacity-refused paid renders. x402
+  // settles BEFORE the handler, so a paid render/screenshot that then hits the
+  // bounded Chromium pool (503) was charged but not served — and the single-use
+  // nonce means a naive retry pays again. On such a refusal we mint a one-time
+  // credit TOKEN (256-bit bearer secret) returned only in that buyer's own 503
+  // response and bound to the exact request (route+body); a retry presenting the
+  // token via `X-Render-Credit` skips the gate below (served without a second
+  // charge) and the credit is consumed only on a successful delivery. The token
+  // is unguessable and handed only to the payer, so knowing a (public) wallet
+  // can't forge or steal it. Flagged OFF by default → billing is byte-identical
+  // until RENDER_CREDIT_ENABLED is set.
+  const RENDER_CREDIT_ENABLED = /^(1|true|yes|on)$/i.test((process.env.RENDER_CREDIT_ENABLED || "").trim());
+  const RENDER_CREDIT_SLUGS = new Set(["render", "screenshot"]); // the A402-08 bounded-pool tools
+  const renderCredits = createRenderCreditLedger();
+  if (RENDER_CREDIT_ENABLED) {
+    setInterval(() => renderCredits.prune(), 60_000).unref();
+    app.use((req, res, next) => {
+      const def = CATALOG[`${req.method} ${req.path}`];
+      if (!def || !RENDER_CREDIT_SLUGS.has(def.slug)) return next();
+      const meta = { route: `${req.method} ${req.originalUrl}`, bodyHash: bodyHashFor(req.body) };
+      // Retry path: a valid token for THIS exact request bypasses the gate.
+      const token = req.header("x-render-credit");
+      if (token && renderCredits.valid(token, meta)) {
+        req.__renderCreditToken = token;
+        res.setHeader("X-Render-Credit-Replay", "true");
+      }
+      // A capacity 503 only reaches the handler AFTER the paywall passed, so a
+      // 503 on a request that carried a payment header means the buyer settled
+      // and was not served. Mint the token INTO that 503 response (headers not
+      // yet flushed) so only the paying caller receives it. res.json is the
+      // error path for both render and screenshot.
+      const paid = !!(req.header("x-payment") || req.header("payment-signature"));
+      if (paid && !req.__renderCreditToken) {
+        const origJson = res.json.bind(res);
+        res.json = (body) => {
+          if (res.statusCode === 503 && !res.headersSent) {
+            const t = renderCredits.issue(meta);
+            res.setHeader("X-Render-Credit", t);
+            if (body && typeof body === "object" && !Array.isArray(body)) {
+              body = { ...body, renderCredit: t, renderCreditHint: "retry this exact request with header 'X-Render-Credit: <token>' to be served without paying again" };
+            }
+          }
+          return origJson(body);
+        };
+      }
+      res.on("finish", () => {
+        // Consume a used credit only on successful delivery; a repeated 503 keeps
+        // it for another retry.
+        if (req.__renderCreditToken && res.statusCode >= 200 && res.statusCode < 300) {
+          renderCredits.consume(req.__renderCreditToken);
+        }
+      });
+      next();
+    });
+    console.log("F13 render-credit ENABLED: a capacity-refused paid render returns an X-Render-Credit token; retry with it is served without a second charge");
+  }
+
   // Gate: for a compute-payable route, a valid proof-of-work bypasses the x402
   // paywall; otherwise the normal USDC paywall applies (and we advertise the
   // PoW alternative via a response header on its 402). PoW redemption is
@@ -2709,6 +2767,9 @@ if (FREE_MODE) {
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
   // on /mcp could keep hammering /api/* with fresh PoW solutions for free.
   app.use((req, res, next) => {
+    // F13: a valid pre-paid render credit token skips the whole gate (PoW, replay
+    // guard, and USDC paywall) — the buyer already paid for this exact render.
+    if (req.__renderCreditToken) return next();
     const slug = POW_ROUTES.get(`${req.method} ${req.path}`);
     if (slug) {
       const solution = req.header("x-pow-solution");

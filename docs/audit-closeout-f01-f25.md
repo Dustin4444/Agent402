@@ -5,7 +5,7 @@ is one of: **Fixed** (shipped in code, live), **Accepted** (won't-fix with
 rationale), or **Owner action** (cannot be closed from this repo — needs a
 GitHub-admin, DNS/registrar, or product decision; exact steps below).
 
-As of this writing, 21 of 25 are Fixed, 1 is Accepted, and 3 need owner action
+As of this writing, 22 of 25 are Fixed (F13 flag-gated OFF), 1 is Accepted, and 2 need owner action
 (plus the owner half of F01).
 
 ## Ledger
@@ -24,7 +24,7 @@ As of this writing, 21 of 25 are Fixed, 1 is Accepted, and 3 need owner action
 | F10 | Med | Fixed | waitlist drops PII fallback, fails closed |
 | F11 | Med | Fixed | route-aware Postgres TLS (`src/db-ssl.js`) |
 | F12 | Med | Fixed | E2B output cap + concurrency ceiling |
-| F13 | Med | **Owner action** (decision, then code) | see below + `docs/f13-capacity-options.md` |
+| F13 | Med | Fixed (code, flag-gated OFF) | idempotent render credit (`src/render-credit.js`); enable with `RENDER_CREDIT_ENABLED` |
 | F14 | Med | Fixed | MCP abort + await-before-release |
 | F15 | Med | Fixed | PostHog proxy timeout + concurrency + byte cap |
 | F16 | Med | Fixed | `Dockerfile.mcp` digest-pinned + non-root |
@@ -42,7 +42,10 @@ As of this writing, 21 of 25 are Fixed, 1 is Accepted, and 3 need owner action
 
 ## Owner-action items — exact steps
 
-These four cannot be closed from the repo. Each is copy-paste ready.
+These need an owner action from outside the repo (GitHub-admin, DNS/registrar, or
+flipping a reviewed prod flag). Each is copy-paste ready. F13 is fully built and
+only needs its flag enabled; F01 (owner half), F17, and F25 are the genuine
+external actions.
 
 ### F01 (owner half) — GitHub branch rulesets + protected environment
 
@@ -64,21 +67,30 @@ jobs): add a required reviewer (yourself is fine), set the deployment-branch
 policy to allow `main` **and** `claude/sweet-brown-i99jl3`, and move the
 deploy/publish secrets to env scope.
 
-### F13 — render capacity refused after settlement (a paid call can 503)
+### F13 — render capacity refused after settlement — BUILT (approach B), flag-gated OFF
 
-This is the one remaining engineering item and it touches payment settlement, so
-it needs an owner decision before code. Two approaches (full writeup in
-`docs/f13-capacity-options.md`):
+Approach **B (idempotent durable credit)** is implemented in `src/render-credit.js`
+and wired into the paywall in `src/server.js`, **flagged OFF by default** so
+billing is byte-identical until enabled. On a capacity refusal (503) of a
+*settled* paid render/screenshot, the server mints a one-time **credit token** (a
+256-bit bearer secret) returned only in that buyer's own 503 response
+(`X-Render-Credit` header + JSON `renderCredit`), bound to the exact request
+(route + body). A retry presenting the token via `X-Render-Credit` skips the gate
+(PoW + replay guard + USDC paywall) and is served without a second charge; the
+credit is consumed only on successful delivery and survives repeated 503s for
+another retry. 10-minute TTL, FIFO-capped.
 
-- **A — reserve-before-settle:** check/hold a render slot *before* the x402
-  settle, bind the reservation to the payment attempt with a short expiry,
-  release on failure. Most correct; changes the payment ordering.
-- **B — idempotent durable credit (recommended, lower-risk):** keep settling
-  first, but on a capacity refusal record a durable per-payer credit so the
-  retry (same `Idempotency-Key`) is served without charging again. No settlement
-  reorder; builds on the existing idempotency store.
+Security: the token is unguessable and is delivered only to the paying caller, so
+knowing a (public) wallet cannot forge or steal it; it is bound to route+body so
+it can't be spent on a different or costlier render. Verified live that a forged
+token still 402s (no free bypass). Unit-tested (`scripts/test-render-credit.js`,
+21 cases: single-use, forgery/cross-request rejection, TTL expiry,
+capacity-refusal persistence, eviction).
 
-Pick one and I will build it. Recommended: **B**.
+**To turn it on (owner, after review):** set `RENDER_CREDIT_ENABLED=true` on the
+main Railway service. Rollback = unset it (billing reverts, no data). Approach A
+(reserve-before-settle) writeup remains in `docs/f13-capacity-options.md` if the
+ordering-change route is ever preferred.
 
 ### F17 — publish DMARC (DNS)
 
