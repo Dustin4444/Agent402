@@ -151,29 +151,28 @@ server stack (`@x402/express` / your facilitator) rather than reinventing
 settlement:
 
 ```js
+import { createTollbooth, x402VerifierFromExpress } from "agent402-tollbooth";
 import { paymentMiddleware } from "x402-express"; // or @x402/express
 const x402 = paymentMiddleware(/* your wallet + facilitator config */);
 
 app.use(createTollbooth({
   payTo: "0xYourWallet",
   network: "base",
-  // Reuse the standard middleware to verify the X-PAYMENT header. HONOR the
-  // AbortSignal the gate passes: if the gate's timeout fires it has already
-  // returned 402 to the client, so your verifier MUST stop and NOT let a late
-  // settlement complete — otherwise you create a charged-then-denied result.
-  verifyX402: (req, _reqs, signal) => new Promise((resolve, reject) => {
-    if (signal?.aborted) return reject(new Error("verify aborted"));
-    signal?.addEventListener("abort", () => reject(new Error("verify aborted")), { once: true });
-    x402(req, { setHeader() {}, status() { return this; }, json() { resolve(false); } }, () => resolve(true));
-  }),
+  // First-party verifier that OWNS timeout + cancellation: it honors the
+  // AbortSignal the gate passes on the SECOND argument (opts.signal), so a slow
+  // middleware can't hang the gate or settle after the gate already returned 402.
+  verifyX402: x402VerifierFromExpress(x402, { timeoutMs: 9000 }),
 }));
 ```
 
-The gate passes `signal` as the third argument to `verifyX402` and enforces its
-own timeout; a verifier that ignores the signal and settles late can still charge
-a buyer who already received a 402. If your facilitator can't cancel an in-flight
-settlement, gate it behind your own pre-check so no settlement starts after the
-deadline. (PoW is checked first, so an agent without a wallet always has a free path.)
+The gate calls `verifyX402(req, opts)` and puts an `AbortSignal` on `opts.signal`
+(aborted when its `TOLLBOOTH_VERIFY_TIMEOUT_MS` fires). `x402VerifierFromExpress`
+honors it and stops treating a late result as valid. Note @x402/express settles
+by broadcasting and has no cancel hook, so keep the timeout above your settle
+latency (the abort is a backstop); a verifier that ignores the signal entirely
+can still charge a buyer who already received a 402. If you write your own
+verifier instead of using the helper, destructure `opts.signal` and reject/stop
+on abort. (PoW is checked first, so an agent without a wallet always has a free path.)
 
 ## Configuration
 

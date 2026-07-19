@@ -24,15 +24,23 @@ const WORKER_MAX_BYTES = Number(process.env.RENDER_WORKER_MAX_BYTES) || 40 * 102
 // (fail-closed) worker 401s, silently breaking every paid render.
 export function workerEnabled() { return Boolean(workerUrl() && workerToken()); }
 
-// FR4-06: fail LOUD on a partial worker config (exactly one of URL/token set) so
-// a deployment that intends isolation can't silently fall back to in-process
-// Chromium (or 401 every call). Call once at boot.
+// FR4-06 / P1.1: fail LOUD at boot on a partial worker config (exactly one of
+// URL/token set), and — when isolation is REQUIRED (RENDER_WORKER_REQUIRED
+// truthy, e.g. in prod) — on a missing worker config, so browser/media tools can
+// never silently run in-process in a deployment that intends isolation. Call once
+// at boot.
 export function assertWorkerConfig() {
   const hasUrl = Boolean(workerUrl());
   const hasToken = Boolean(workerToken());
   if (hasUrl !== hasToken) {
     throw new Error(
       `Incomplete render-worker config: RENDER_WORKER_URL is ${hasUrl ? "set" : "unset"} but RENDER_WORKER_TOKEN is ${hasToken ? "set" : "unset"}. Set BOTH (worker isolation) or NEITHER (in-process).`
+    );
+  }
+  const required = /^(1|true|yes|on)$/i.test((process.env.RENDER_WORKER_REQUIRED || "").trim());
+  if (required && !(hasUrl && hasToken)) {
+    throw new Error(
+      "RENDER_WORKER_REQUIRED is set but the render worker is not configured (need RENDER_WORKER_URL + RENDER_WORKER_TOKEN). Refusing to boot so browser/media tools cannot run in-process and defeat the isolation."
     );
   }
 }

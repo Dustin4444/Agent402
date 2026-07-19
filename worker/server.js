@@ -31,36 +31,53 @@ const HANDLERS = {
 };
 for (const t of MEDIA_TOOLS) HANDLERS[t.slug] = (input) => t.handler(input || {});
 
-// Boot guard: this worker must be SECRETLESS by construction. It refuses to boot
-// (see the isMain block) if any secret-bearing env var is present — a
-// misconfigured deployment that would defeat the isolation. The check is
-// PATTERN-based (KEY/SECRET/TOKEN/…) so it catches current AND future secrets by
-// name, not a hand-kept denylist that drifts behind the app's 30+ secret env
-// vars; plus a few secret vars whose names don't match the pattern. The worker's
-// OWN inbound-auth token is the sole allowed pattern match. Enforced ONLY at boot
-// (not at module import) so a test/CI process — which legitimately has its own
-// GITHUB_TOKEN etc. — can import the exports without tripping it. Because Railway
-// gates a deploy on the healthcheck, a false positive fails the new deploy
-// visibly while the old worker keeps serving, rather than causing an outage.
-// NB: no bare "PRIVATE" — Railway injects RAILWAY_PRIVATE_DOMAIN (the worker's
-// own private-network hostname, not a secret), and a private KEY is already
-// caught by "KEY". Matching "PRIVATE" alone would false-positive and refuse to
-// boot on a benign infra var.
-const SECRET_NAME_RE = /(KEY|SECRET|TOKEN|MNEMONIC|PASSWORD|CREDENTIAL|DSN|LEDGER|DATABASE|REDIS|POSTGRES|MONGO|MYSQL|CONNECTION)/i;
-// FR4-05: connection strings carry credentials but their NAMES may only say
-// URL/URI (e.g. REDIS_URL, a DSN). Block those too — except the handful of
-// benign non-secret URLs the worker legitimately receives, and Railway's own
-// service-metadata URLs (RAILWAY_*_URL), which are not credentials.
-const URLISH_RE = /(URL|URI)/i;
-const NAME_ALLOW = new Set(["RENDER_WORKER_TOKEN", "RENDER_WORKER_URL", "RENDER_EGRESS_PROXY_URL"]);
-const FORBIDDEN_ENV = ["WALLET_ADDRESS", "WALLET_ENS", "DATABASE_URL", "ANALYTICS_DATABASE_URL"];
-// Pure + exported for tests: the secret-bearing env var names present in `env`.
+// Boot guard: this worker must be SECRETLESS by construction. Enforced ONLY at
+// boot (see the isMain block), not at module import — so a test/CI process, which
+// legitimately has its own GITHUB_TOKEN etc., can import the exports without
+// tripping it.
+// FR4-05 (strict allowlist, P1.2): the worker boots ONLY if every set env var is
+// explicitly allowed or a known non-secret system/Railway var. Anything
+// unrecognized — or anything that looks secret-bearing — refuses boot. This is
+// the strict form: an unknown var is denied, not just secret-shaped ones. A
+// genuinely-new benign var must be added to ALLOWED_EXACT/ALLOWED_SYSTEM. Because
+// Railway health-gates the deploy, a false positive fails the NEW deploy (the old
+// worker keeps serving) rather than causing an outage.
+const ALLOWED_EXACT = new Set([
+  "PORT", "NODE_ENV", "WORKER_MODE", "TZ",
+  "RENDER_WORKER_TOKEN", "RENDER_WORKER_URL", "RENDER_WORKER_TIMEOUT_MS",
+  "RENDER_WORKER_MAX_BYTES", "RENDER_EGRESS_PROXY_URL", "RENDER_WORKER_REQUIRED",
+]);
+// Non-secret vars injected by Docker / Node / the shell / Playwright — plus the
+// macOS/dev/editor runtime noise a developer would have when running the worker
+// locally. Broad on purpose: it's SAFE because secret-shaped names are blocked
+// first (SECRET_SHAPE_RE below), so nothing sensitive can slip through here.
+const ALLOWED_SYSTEM = /^(PATH|HOME|HOSTNAME|PWD|OLDPWD|SHLVL|SHELL|TERM|COLORTERM|COLORFGBG|LANG|LANGUAGE|LC_[A-Z]+|LS_COLORS|LSCOLORS|USER|LOGNAME|MAIL|EDITOR|PAGER|LESS|TMPDIR|TMP|TEMP|DISPLAY|HISTFILE|HISTSIZE|INFOPATH|MANPATH|COMMAND_MODE|MallocNanoZone|SECURITYSESSIONID|_|NODE_[A-Z_]*|npm_[a-z_0-9]*|YARN_[A-Z_]*|PLAYWRIGHT[_A-Z]*|CHROME[_A-Z]*|CHROMIUM[_A-Z]*|PUPPETEER[_A-Z]*|LD_LIBRARY_PATH|LD_PRELOAD|SSL_CERT_[A-Z]+|NODE_EXTRA_CA_CERTS|DEBIAN_FRONTEND|GPG_[A-Z_]*|container|__CF[A-Za-z_]*|XPC_[A-Z_]*|Apple[A-Za-z_]*|SSH_[A-Z]+|TERM_[A-Z_]*|ITERM_[A-Z_]*|VSCODE_[A-Z_]*|CURSOR_[A-Z_]*|ZSH[A-Z_]*|BASH[A-Z_]*)$/;
+// Secret-shaped names are ALWAYS blocked (in every environment), except the
+// worker's own inbound-auth token — this is the auditor's URL/DSN/DB/ledger
+// concern (those carry credentials) plus keys, tokens, mnemonics, passwords.
+// NB: no bare "PRIVATE" — it false-positives on Railway's benign
+// RAILWAY_PRIVATE_DOMAIN (took a deploy down once); a private KEY is caught by "KEY".
+const SECRET_SHAPE_RE = /(KEY|SECRET|TOKEN|MNEMONIC|PASSWORD|PASSWD|CREDENTIAL|DSN|LEDGER|DATABASE|REDIS|POSTGRES|MONGO|MYSQL|CONN(ECTION)?_?STR(ING)?)/i;
+const SECRET_ALLOW = new Set(["RENDER_WORKER_TOKEN"]);
+// Pure + exported for tests: env var names that BLOCK a secretless boot.
+//
+// The STRICT allowlist ("deny anything not explicitly allowed") is enforced only
+// in the controlled deployment — on Railway (RAILWAY_ENVIRONMENT present) or when
+// forced with WORKER_STRICT_ENV — where the container env is minimal and known.
+// In dev/CI the process env is full of benign editor/OS/tooling noise (a real
+// run here surfaced 25+ such vars), so applying deny-unknown there just refuses
+// to boot on harmless names; instead we enforce the secret-SHAPE denylist, which
+// still blocks every credential-shaped name. Railway health-gates the deploy, so
+// a strict-mode false positive fails the NEW deploy (old worker keeps serving).
 export function forbiddenSecretsIn(env) {
+  const strict = Boolean((env.RAILWAY_ENVIRONMENT || "").trim())
+    || /^(1|true|yes|on)$/i.test((env.WORKER_STRICT_ENV || "").trim());
   return Object.keys(env).filter((k) => {
-    if (!(env[k] || "").trim() || NAME_ALLOW.has(k)) return false;
-    if (SECRET_NAME_RE.test(k) || FORBIDDEN_ENV.includes(k)) return true;       // KEY/SECRET/TOKEN/DSN/DB/redis/... (incl. RAILWAY_TOKEN)
-    if (URLISH_RE.test(k) && !/^RAILWAY_/.test(k)) return true;                 // a credential-bearing URL/URI (Railway metadata URLs exempt)
-    return false;
+    if (!(env[k] || "").trim()) return false;                          // unset/empty → ignore
+    if (SECRET_SHAPE_RE.test(k) && !SECRET_ALLOW.has(k)) return true;  // secret-shaped: always block
+    if (!strict) return false;                                         // dev/CI: shape denylist only
+    if (ALLOWED_EXACT.has(k) || ALLOWED_SYSTEM.test(k) || /^RAILWAY_/.test(k)) return false;
+    return true;                                                       // Railway strict: unrecognized → deny
   });
 }
 const secretsPresent = () => forbiddenSecretsIn(process.env);
@@ -128,4 +145,4 @@ if (isMain) {
   app.listen(PORT, "::", () => console.log(`[worker] secretless browser/media worker on :${PORT} — tools: ${Object.keys(HANDLERS).join(", ")}`));
 }
 
-export { app, HANDLERS, tokenOk, FORBIDDEN_ENV };
+export { app, HANDLERS, tokenOk };
