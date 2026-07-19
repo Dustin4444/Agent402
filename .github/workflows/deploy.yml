@@ -924,6 +924,9 @@ jobs:
       - name: Postgres TLS policy by route (F11 — verified cert on public hosts, relaxed only on the private railway.internal mesh — offline)
         run: node scripts/test-db-ssl.js
 
+      - name: Bounded rate-limit maps + global waitlist ceiling (F21 — stale one-time-IP keys swept, distributed flood capped — offline)
+        run: node scripts/test-rate-sweep.js
+
       - name: /health envelope + .flags shape (boolean discipline locks the Yahoo-relay-flap class)
         run: node scripts/test-health-envelope.js
 

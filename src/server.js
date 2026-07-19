@@ -175,6 +175,7 @@ import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool } from "./tools/route-execute.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
+import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
 
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
 // per-IP bucket. PoW redemption on the direct HTTP path goes through here.
@@ -1028,8 +1029,16 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const waitlistHits = new Map(); // ip -> [timestamps]
 const WAITLIST_LIMIT = 5; // per IP per window
 const WAITLIST_WINDOW_MS = 60_000;
+// F21: an aggregate ceiling across ALL IPs — a distributed source (many
+// one-time IPs, each under the per-IP limit) must not mass-insert leads.
+const WAITLIST_GLOBAL_LIMIT = 60; // per WAITLIST_WINDOW_MS, across every IP
+const waitlistGlobal = makeWindowCounter(WAITLIST_WINDOW_MS, WAITLIST_GLOBAL_LIMIT);
+// F21: keep the per-IP map from growing without bound between the periodic
+// sweeps below when a burst of unique IPs arrives.
+const RL_MAP_MAX_KEYS = 5000;
 function waitlistRateOk(ip) {
   const now = Date.now();
+  if (waitlistHits.size > RL_MAP_MAX_KEYS) sweepStaleTsMap(waitlistHits, WAITLIST_WINDOW_MS, now);
   const arr = (waitlistHits.get(ip) || []).filter((t) => now - t < WAITLIST_WINDOW_MS);
   if (arr.length >= WAITLIST_LIMIT) {
     waitlistHits.set(ip, arr);
@@ -1050,6 +1059,11 @@ app.post("/api/tollbooth/waitlist", async (req, res) => {
   const ip = req.ip || "unknown";
   if (!waitlistRateOk(ip)) {
     return res.status(429).json({ ok: false, error: "rate-limited" });
+  }
+  // F21: aggregate ceiling — checked after the per-IP gate so a distributed
+  // flood of one-time IPs can't slip past the per-IP limit and mass-insert.
+  if (!waitlistGlobal.allow()) {
+    return res.status(429).json({ ok: false, error: "waitlist-busy" });
   }
   const b = req.body || {};
   // Honeypot: real form leaves `website` empty; bots fill every field.
@@ -1946,11 +1960,21 @@ app.get("/api/index", (_req, res) =>
 // per-route parser here would be a no-op — the global one already parsed the
 // body by the time this handler runs).
 const REG_WINDOW_MS = 3600_000;
-const regByIp = new Map();
+const regByIp = new Map(); // ip -> [timestamps]; global cap is regGlobal below
 let regGlobal = [];
+// F21: evict stale keys from the one-time-IP rate maps so distributed input
+// can't grow them without bound (the per-IP prune only fires when the SAME IP
+// returns). Mirrors the powChallengeHits / operatorSessions sweeps; the inline
+// size backstops above cover bursts between ticks.
+setInterval(() => {
+  const now = Date.now();
+  sweepStaleTsMap(waitlistHits, WAITLIST_WINDOW_MS, now);
+  sweepStaleTsMap(regByIp, REG_WINDOW_MS, now);
+}, 60_000);
 app.post("/api/index/register", async (req, res) => {
   const now = Date.now();
   const ip = req.ip || "?";
+  if (regByIp.size > RL_MAP_MAX_KEYS) sweepStaleTsMap(regByIp, REG_WINDOW_MS, now);
   const mine = (regByIp.get(ip) || []).filter((t) => now - t < REG_WINDOW_MS);
   if (mine.length >= 5) return res.status(429).json({ error: "rate limit: 5 submissions per hour per IP" });
   const v = validateOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
