@@ -50,6 +50,16 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
   ok(mcp.headers.get("access-control-allow-origin") === "*", "/mcp CORS allows any origin (public connector)");
   ok(!mcp.headers.get("access-control-allow-credentials"), "/mcp never sets Allow-Credentials (credential-free wildcard)");
 
+  // F20: operator responses forbid caching (PII/revenue/session).
+  const opLogin = await fetch(`${base}/__operator/login`);
+  const cc = (opLogin.headers.get("cache-control") || "").toLowerCase();
+  ok(cc.includes("no-store") && cc.includes("private"), `operator response is no-store, private (got "${cc}")`);
+  ok((opLogin.headers.get("vary") || "").toLowerCase().includes("cookie"), "operator response Vary includes Cookie");
+
+  // F10: the waitlist page never builds a GitHub issue URL with lead PII.
+  const wl = await (await fetch(`${base}/tollbooth/waitlist`)).text();
+  ok(!/issues\/new/.test(wl) && !/window\.open/.test(wl), "waitlist page has no GitHub issue-URL / window.open PII fallback");
+
   console.log(`\n${pass} passed, ${fail} failed`);
   done(fail ? 1 : 0);
 })().catch((e) => { console.error(e); done(1); });

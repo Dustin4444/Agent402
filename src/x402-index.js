@@ -24,6 +24,11 @@
 //     are consistent whether a buyer searches local-only or cross-seller.
 import { readFileSync, writeFileSync } from "node:fs";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+// F23: seller-manifest homepages are external, attacker-controlled URLs. esc()
+// escapes HTML but does NOT constrain the scheme, so a `javascript:`/`data:`
+// homepage would become a clickable link if the legacy indexPage renderer is
+// ever re-enabled. Only http(s) becomes a link; anything else renders inert.
+const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 import { safeFetch } from "./tools/fetch-guard.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
@@ -1243,8 +1248,16 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   }
 
   const sellersSeen = new Set();
+  let anyExternal = false;
   const results = picked.map(([score, t]) => {
     sellersSeen.add(t.seller);
+    // F09: name/description/sellerName on an EXTERNAL result are seller-
+    // controlled text. Regex filtering + the diversity cap above are secondary
+    // controls; the primary control is an explicit machine-readable marker so a
+    // downstream selecting agent treats the copy as data to rank, never as an
+    // instruction. Our own local catalog is trusted and unmarked.
+    const external = t.seller !== LOCAL_SELLER;
+    if (external) anyExternal = true;
     return {
       seller: t.seller,
       sellerHome: t.sellerHome,
@@ -1261,9 +1274,14 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       score,
       health: t.health,
       ...(Array.isArray(t.networks) && t.networks.length ? { networks: t.networks } : {}),
+      ...(external ? { untrustedContent: true, source: t.seller } : {}),
     };
   });
-  return { query: q, include: inc, count: results.length, sellers: sellersSeen.size, results, ...(wantNet ? { network: wantNet } : {}) };
+  return {
+    query: q, include: inc, count: results.length, sellers: sellersSeen.size, results,
+    ...(anyExternal ? { containsUntrustedContent: true } : {}),
+    ...(wantNet ? { network: wantNet } : {}),
+  };
 }
 
 // "The economy, over time" — folded in from the two old standalone economy
@@ -1519,7 +1537,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
       const usdCell = s._lb ? esc(fmtUsd(s._lb.totalUsd)) : dash;
       const callsCell = s._lb ? esc(econFmt(s._lb.callsSettled)) : dash;
       return `<tr>
-        <td><a href="${esc(s.homepage || s.origin)}" target="_blank" rel="noopener">${esc(s.displayName)}</a>${healthBadge(s)}</td>
+        <td><a href="${safeHref(s.homepage || s.origin)}" target="_blank" rel="noopener">${esc(s.displayName)}</a>${healthBadge(s)}</td>
         <td class="num">${esc(s.toolCount)}</td>
         <td>${esc(s.network || "-")}</td>
         <td class="num">${usdCell}</td>

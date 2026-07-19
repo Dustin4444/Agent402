@@ -25,6 +25,27 @@ const PAGE_BYTE_BUDGET = 50 * 1024 * 1024;
 // 10-GB zip into the renderer.
 const PER_RESOURCE_MAX = 25 * 1024 * 1024;
 
+// F03: ACTUAL-byte budget. Content-Length lies (chunked / streamed / headerless
+// responses report zero), so we feed this the real transferred size per request
+// from CDP Network.dataReceived (+ WebSocket frames) instead. Pure and testable:
+// account(id, bytes) sums per-resource and per-page and calls onTrip() exactly
+// once, the first time either cap is crossed.
+export function makeByteBudget(perResourceMax, pageBudget, onTrip) {
+  let total = 0, tripped = false;
+  const perReq = new Map();
+  return {
+    account(id, n) {
+      if (!n || n <= 0 || tripped) return;
+      total += n;
+      const r = (perReq.get(id) || 0) + n;
+      perReq.set(id, r);
+      if (r > perResourceMax || total > pageBudget) { tripped = true; try { onTrip(); } catch { /* */ } }
+    },
+    get tripped() { return tripped; },
+    get total() { return total; },
+  };
+}
+
 let browserPromise = null;
 let active = 0;
 // Each queued entry is a waiter { resolve, reject, timer, signal, onAbort }.
@@ -83,7 +104,14 @@ async function getBrowser() {
   if (!browserPromise) {
     browserPromise = import("playwright")
       .then(async ({ chromium }) => {
-        const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+        // F04: when the worker starts a validating egress proxy (RENDER_EGRESS_
+        // PROXY_URL), route ALL Chromium traffic through it so DNS resolution +
+        // destination pinning happen in ONE place Chromium can't bypass. Unset
+        // (in-process) => no proxy; the render.js route guard still applies.
+        const launchArgs = ["--no-sandbox", "--disable-dev-shm-usage"];
+        const egressProxy = (process.env.RENDER_EGRESS_PROXY_URL || "").trim();
+        if (egressProxy) launchArgs.push(`--proxy-server=${egressProxy}`);
+        const browser = await chromium.launch({ args: launchArgs });
         // Self-heal: if Chromium dies (OOM, crash), the next call relaunches
         // instead of serving errors until the process restarts.
         browser.on("disconnected", () => {
@@ -121,11 +149,10 @@ async function withPage(rawUrl, fn, { signal } = {}) {
         // The browser does its own DNS resolution, so the upfront assertPublicUrl
         // is not enough (rebinding, redirects, subresources). Re-validate every
         // request the page makes at request time with the same public-IP policy.
-        let bytesSeen = 0;
-        let budgetBlown = false;
+        let overBudget = false;
         await context.route("**/*", async (route) => {
           try {
-            if (budgetBlown) return await route.abort("blockedbyclient");
+            if (overBudget) return await route.abort("blockedbyclient");
             const u = new URL(route.request().url());
             if ((u.protocol === "http:" || u.protocol === "https:") && !(await hostIsPublic(u.hostname))) {
               return await route.abort("blockedbyclient");
@@ -135,18 +162,24 @@ async function withPage(rawUrl, fn, { signal } = {}) {
             await route.abort("blockedbyclient").catch(() => {});
           }
         });
-        // Track per-page byte budget. Aborts the next route hop once the cap
-        // trips so we don't unbound Chromium's RSS on a hostile origin.
-        context.on("response", async (response) => {
-          try {
-            const lenHdr = response.headers()["content-length"];
-            const len = lenHdr ? Number(lenHdr) : 0;
-            if (len && len > PER_RESOURCE_MAX) { budgetBlown = true; return; }
-            bytesSeen += len || 0;
-            if (bytesSeen > PAGE_BYTE_BUDGET) budgetBlown = true;
-          } catch { /* ignore */ }
-        });
         const page = await context.newPage();
+        // F03: count ACTUAL transferred bytes via CDP, not Content-Length. A
+        // chunked / streamed / no-Content-Length response reports zero to the
+        // old header-based accounting and bypasses the cap; WebSocket/EventSource
+        // frames aren't responses at all. On either cap we trip the budget —
+        // aborting further route hops AND closing the context — so a hostile
+        // origin can't grow Chromium's RSS unbounded past the deadline.
+        const budget = makeByteBudget(PER_RESOURCE_MAX, PAGE_BYTE_BUDGET, () => {
+          overBudget = true;
+          context?.close().catch(() => {}); // aborts the in-flight navigation / fn
+        });
+        try {
+          const cdp = await context.newCDPSession(page);
+          await cdp.send("Network.enable");
+          cdp.on("Network.dataReceived", (e) => budget.account(e.requestId, e.encodedDataLength || e.dataLength || 0));
+          cdp.on("Network.webSocketFrameReceived", (e) => budget.account(`ws:${e.requestId}`, e.response?.payloadData?.length || 0));
+          cdp.on("Network.webSocketFrameSent", (e) => budget.account(`ws:${e.requestId}`, e.response?.payloadData?.length || 0));
+        } catch { /* CDP unavailable (non-Chromium engine) — route guard + exec deadline still bound the render */ }
         try {
           await page.goto(url.href, { waitUntil: "networkidle", timeout: NAV_TIMEOUT_MS });
         } catch {

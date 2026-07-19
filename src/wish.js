@@ -13,6 +13,7 @@ import {
   openSync, readSync, closeSync,
 } from "node:fs";
 import { join } from "node:path";
+import { logSafe } from "./log-safe.js";
 
 const HAS_DATA_DIR = existsSync("/data");
 const DATA_DIR = HAS_DATA_DIR ? "/data" : "/tmp";
@@ -231,7 +232,7 @@ export function recordWish({ need, context, source, ip } = {}) {
 
   if (!exempt && !cluster.__overflow && cluster.count === WISH_THRESHOLD && !cluster.issueOpened) {
     cluster.issueOpened = true;
-    console.warn(`[wish-threshold] cluster "${key}" hit ${WISH_THRESHOLD} signals`);
+    console.warn(`[wish-threshold] cluster "${logSafe(key)}" hit ${WISH_THRESHOLD} signals`);
     appendLine({ type: "threshold", key, ts: now });
   }
 

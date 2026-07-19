@@ -30,20 +30,28 @@ keywords = ["private", "burner", "privkey", "secretkey", "pk"]
 
 [allowlist]
 description = "Agent402 known false positives: on-chain addresses, demo JWTs, test fixtures"
-# Fixtures and copy that intentionally contain fake or public credential-shaped
-# strings. Test files assert on canaries by design; docs carry example tokens.
+# F08: the broad `docs/.*` and `scripts/test-.*\.js` path excludes are REMOVED —
+# they would hide a real credential pasted into a doc or test fixture. Instead
+# each intentional fake/public value is allowlisted EXACTLY (regexes/stopwords
+# below), so those paths are now fully scanned and a genuinely new secret there
+# fails the job. Only two narrow paths remain excluded, for structural reasons:
+#   - package-lock.json: npm integrity `sha512-…` hashes look like base64 secrets
+#     to the entropy rules but are not secrets.
+#   - .gitleaks.toml: this file literally contains the demo JWT + secret-shaped
+#     patterns it allowlists; scanning it would flag its own allowlist entries.
 paths = [
-  '''scripts/test-.*\.js''',
-  '''docs/.*''',
   '''package-lock\.json''',
   '''\.gitleaks\.toml''',
-  # TRACKED INCIDENT R-01 (not a false positive): a Stellar facilitator bearer
-  # credential was committed to this gitignored scratch dir in history. The real
-  # fix is provider rotation + history purge (owner action); scanning cannot
-  # un-expose it. .remember/ is gitignored, so nothing new can ever land here —
-  # allowlisting the path only suppresses the known incident so history scanning
-  # of every OTHER path stays green. REMOVE this entry once history is purged.
-  '''\.remember/.*''',
+]
+# TRACKED INCIDENT R-01 (not a false positive): a now-ROTATED (dead) Stellar
+# facilitator bearer credential sits in the gitignored .remember/ scratch dir in
+# history at commit 70fcc5171d8b1d4d8170933db665974f1ce91bbf. Scanning cannot
+# un-expose it and the value is dead; we allowlist that EXACT historical commit
+# (not the whole path — .remember is gitignored, so no NEW content can land, and
+# scoping to the commit keeps every other path/commit scanned). Remove after a
+# history purge.
+commits = [
+  '''70fcc5171d8b1d4d8170933db665974f1ce91bbf''',
 ]
 # Matched against each finding's captured secret.
 regexes = [

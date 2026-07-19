@@ -20,6 +20,7 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { findTools } from "./find.js";
+import { logSafe } from "./log-safe.js";
 import { recordWish } from "./wish.js";
 import { capturePostHogDiscovery } from "./posthog.js";
 import { rankBy as rankLeaderboard } from "./leaderboard.js";
@@ -61,6 +62,11 @@ const MCP_REQ_PER_HOUR = Number(process.env.AGENT402_MCP_REQ_PER_HOUR) || Math.m
 const mcpReqLimiter = createLimiter("mcp-transport", { perMin: MCP_REQ_PER_MIN, perHour: MCP_REQ_PER_HOUR });
 const MCP_MAX_CONCURRENT = Number(process.env.AGENT402_MCP_MAX_CONCURRENT) || 64;
 const MCP_REQ_DEADLINE_MS = Number(process.env.AGENT402_MCP_REQ_DEADLINE_MS) || 30_000;
+// After the deadline fires (or the client disconnects) we abort + close the
+// transport, then wait up to this long for the underlying handler to actually
+// terminate before releasing its in-flight slot (audit F14). Bounds a wedged
+// handler so it can't hold a slot forever.
+const MCP_DRAIN_MS = Number(process.env.AGENT402_MCP_DRAIN_MS) || 5_000;
 let mcpInFlight = 0;
 
 /**
@@ -203,7 +209,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     ].join(" ");
   }
 
-  function buildServer(ip) {
+  function buildServer(ip, signal) {
     const server = new Server({ name: "agent402", version: VERSION }, { capabilities: { tools: {}, prompts: {} } });
 
     // Skill packs are exposed as MCP prompts: each pack becomes a discoverable
@@ -471,16 +477,25 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // etc.) is at /api/leaderboard for agents that want it. Round USDC
           // to 4dp to match the HTML page's display precision and keep the
           // JSON compact.
-          const rows = board.map((r) => ({
-            rank: r.rank,
-            name: r.name,
-            network: r.network,
-            wallet: r.wallet,
-            homepage: r.homepage || null,
-            callsSettled: r.callsSettled || 0,
-            totalUsd: Math.round((r.totalUsd || 0) * 10000) / 10000,
-            uniqueBuyers: r.uniqueBuyers || 0,
-          }));
+          // F09: a seller's name/homepage is self-reported, external content.
+          // Mark every non-self row as untrusted data so a downstream selecting
+          // agent never treats seller copy as an instruction. Our own row
+          // (matching WALLET_ADDRESS) is trusted and unmarked.
+          const rows = board.map((r) => {
+            const isSelf = self && (r.wallet || "").toLowerCase() === self;
+            return {
+              rank: r.rank,
+              name: r.name,
+              network: r.network,
+              wallet: r.wallet,
+              homepage: r.homepage || null,
+              callsSettled: r.callsSettled || 0,
+              totalUsd: Math.round((r.totalUsd || 0) * 10000) / 10000,
+              uniqueBuyers: r.uniqueBuyers || 0,
+              ...(isSelf ? {} : { untrustedContent: true }),
+            };
+          });
+          const anyExternal = rows.some((r) => r.untrustedContent);
           return {
             content: [{
               type: "text",
@@ -491,6 +506,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 include,
                 totalSellers: (snap.leaderboard || []).length,
                 results: rows,
+                ...(anyExternal ? { containsUntrustedContent: true } : {}),
                 ...(snap.warming || snap.scanSkipped ? { note: "Cache is warming — results may be partial. Retry in ~60s." } : {}),
                 source: `${baseUrl}/api/leaderboard`,
               }, null, 2),
@@ -584,7 +600,13 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         const startedAt = Date.now();
         let result;
         try {
-          result = await entry.def.handler(params, { headers: {}, query: params, body: params, ip });
+          // F14: don't start work for a request already aborted (deadline/
+          // disconnect), and hand the signal to the handler so a signal-aware
+          // one (or a fetch inside it) can bail early. CPU-bound handlers still
+          // run to completion, but the transport is closed and the slot is only
+          // released after this promise settles (see the POST /mcp handler).
+          if (signal?.aborted) throw Object.assign(new Error("request aborted"), { statusCode: 499 });
+          result = await entry.def.handler(params, { headers: {}, query: params, body: params, ip, signal });
         } catch (handlerErr) {
           // statusCode lets the analytics dispatcher split 4xx (bad input) from
           // 5xx (handler/upstream broke). errorMessage flows into the diagnostic
@@ -667,28 +689,45 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     // initialize (e.g. "claude-ai", "claude-code"). In-memory since boot.
     const ci = req.body?.method === "initialize" ? req.body?.params?.clientInfo : null;
     if (ci?.name && mcpClients.size < 500) {
-      const key = `${ci.name}@${ci.version || "?"}`.slice(0, 80);
+      // clientInfo is attacker-controlled — sanitize before it lands in the log
+      // line OR the in-memory telemetry map (audit F24).
+      const key = logSafe(`${ci.name}@${ci.version || "?"}`, 80);
       mcpClients.set(key, (mcpClients.get(key) || 0) + 1);
       console.log(`[mcp] initialize from ${key}`);
     }
     mcpInFlight++;
     let deadlineTimer = null;
+    const ac = new AbortController();
+    let transport = null;
+    let run = null;
     try {
-      const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
-      res.on("close", () => transport.close());
-      await buildServer(ip).connect(transport);
-      // R-11 outer gate #3: per-request deadline — a stalled request can't pin
-      // a transport (and its slot) forever.
+      transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+      // Client disconnect: abort in-flight handler work AND close the transport
+      // (F14) — not just close the transport while the handler keeps running.
+      res.on("close", () => { ac.abort(); try { transport.close(); } catch { /* already closing */ } });
+      await buildServer(ip, ac.signal).connect(transport);
+      run = transport.handleRequest(req, res, req.body);
+      // R-11/F14: per-request deadline. On fire, abort the handler and close the
+      // transport so it settles, then (in finally) await that settle before the
+      // slot is released — mcpInFlight never undercounts truly-live work.
       const deadline = new Promise((_, reject) => {
-        deadlineTimer = setTimeout(() => reject(Object.assign(new Error("mcp request deadline exceeded"), { __deadline: true })), MCP_REQ_DEADLINE_MS);
+        deadlineTimer = setTimeout(() => {
+          ac.abort();
+          try { transport.close(); } catch { /* already closing */ }
+          reject(Object.assign(new Error("mcp request deadline exceeded"), { __deadline: true }));
+        }, MCP_REQ_DEADLINE_MS);
       });
-      await Promise.race([transport.handleRequest(req, res, req.body), deadline]);
+      await Promise.race([run, deadline]);
     } catch (err) {
       if (!res.headersSent) {
         res.status(err.__deadline ? 504 : 500).json({ jsonrpc: "2.0", error: { code: -32603, message: err.message }, id: req.body?.id ?? null });
       }
     } finally {
       if (deadlineTimer) clearTimeout(deadlineTimer);
+      // F14: release the slot only AFTER the underlying handler has actually
+      // terminated (bounded by MCP_DRAIN_MS), not merely when the deadline won
+      // the race. Aborting + closing the transport above makes it settle fast.
+      if (run) await Promise.race([run.catch(() => {}), new Promise((r) => setTimeout(r, MCP_DRAIN_MS))]);
       mcpInFlight--;
     }
   });

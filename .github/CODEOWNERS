@@ -1,0 +1,29 @@
+# CODEOWNERS — require code-owner review on security-sensitive paths (audit F01).
+#
+# @MikeyPetrillo is the operating maintainer (Havok Holdings LLC). This file only
+# DECLARES the owners; enforcement (required code-owner review, no direct push)
+# is configured in a repository ruleset on the default branch and the deploy
+# branch. Keep this list tight: it should cover the CI/CD control plane, the
+# container/deploy surface, and the payment/replay/idempotency code — the paths
+# where an unreviewed change could take over production or move money.
+
+# CI/CD control plane
+/.github/workflows/            @MikeyPetrillo
+/.github/CODEOWNERS            @MikeyPetrillo
+
+# Container + deploy surface
+/Dockerfile                    @MikeyPetrillo
+/Dockerfile.mcp                @MikeyPetrillo
+/docker-entrypoint.sh          @MikeyPetrillo
+/railway.toml                  @MikeyPetrillo
+/scripts/deploy-quiet-gate.js  @MikeyPetrillo
+
+# Payment middleware, settlement identity, replay + idempotency
+/src/payments.js               @MikeyPetrillo
+/src/payer.js                  @MikeyPetrillo
+/src/pow.js                    @MikeyPetrillo
+/src/replay-guard.js           @MikeyPetrillo
+/src/cache.js                  @MikeyPetrillo
+
+# Tollbooth payment gate + proof-of-work replay
+/tollbooth/                    @MikeyPetrillo

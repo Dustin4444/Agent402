@@ -5,10 +5,21 @@
 # responds even if the live catalog endpoint is briefly unreachable.
 #
 #   docker build -f Dockerfile.mcp -t agent402-mcp .
-FROM node:22-slim
+#
+# Base pinned by DIGEST (audit F16 / mutable-artifacts) to match the main image;
+# re-pin after a deliberate bump with `docker inspect --format='{{index
+# .RepoDigests 0}}' node:22-slim`.
+FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3
 WORKDIR /app
 COPY mcp/package.json mcp/package-lock.json ./
-RUN npm ci --omit=dev --no-audit --no-fund
+# --ignore-scripts: the mcp deps are pure JS (@modelcontextprotocol/sdk, viem,
+# @solana/kit, @x402/*), so no dependency lifecycle script needs to run during
+# install and none can execute during it (audit F16 / R-07).
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 COPY mcp/index.js ./
+# F16: run as the built-in unprivileged `node` user (UID 1000), not root. The
+# stdio server writes nothing to disk and has no volume, so the copied files
+# stay root-owned and world-readable and no ownership fixup is needed.
+USER node
 # stdio transport: the MCP client speaks JSON-RPC over stdin/stdout.
 ENTRYPOINT ["node", "index.js"]

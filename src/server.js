@@ -16,6 +16,7 @@ import { extractArticle, fetchPageMeta } from "./tools/extract.js";
 import { dnsLookup } from "./tools/dns.js";
 import { pdfToText } from "./tools/pdf.js";
 import { renderArticle, screenshotPage, rasterizeSvg } from "./tools/render.js";
+import { workerEnabled, runOnWorker } from "./worker-client.js";
 import {
   memoryPut, memoryGet, memoryDelete, memoryIncr, memoryCas,
   grant, revoke, listGrants, getLog, remember, recall, forget,
@@ -58,7 +59,14 @@ import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
 import { SEARCH_TOOLS } from "./tools/search.js";
 import { PDF_TOOLS } from "./tools/pdf-kit.js";
 import { DEMAND_TOOLS } from "./tools/demand-kit.js";
-import { MEDIA_TOOLS } from "./tools/media-kit.js";
+import { MEDIA_TOOLS as MEDIA_TOOLS_RAW } from "./tools/media-kit.js";
+// F06: route ffmpeg/ffprobe media parsing through the secretless worker when
+// configured, so a native-parser compromise on attacker media never sits next
+// to this process's secrets. Default (worker unset) runs in-process, unchanged.
+const MEDIA_TOOLS = MEDIA_TOOLS_RAW.map((t) => ({
+  ...t,
+  handler: async (input, ctx) => (workerEnabled() ? runOnWorker(t.slug, input) : t.handler(input, ctx)),
+}));
 import { GOV_TOOLS } from "./tools/gov-kit.js";
 import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
@@ -653,30 +661,52 @@ const PH_INGEST_HOST = "https://us.i.posthog.com";
 const PH_METHODS = new Set(["GET", "HEAD", "POST", "OPTIONS"]);
 const PH_MAX_PER_MIN = Number(process.env.POSTHOG_PROXY_MAX_PER_MIN) || 240;
 const PH_MAX_RESPONSE_BYTES = Number(process.env.POSTHOG_PROXY_MAX_BYTES) || 8 * 1024 * 1024;
+// F15: an upstream timeout so a slow/hung posthog response can't pin the
+// connection, and a global in-flight ceiling so a distributed slow-loris can't
+// hold unbounded upstream sockets/memory at once.
+const PH_UPSTREAM_TIMEOUT_MS = Number(process.env.POSTHOG_PROXY_TIMEOUT_MS) || 10_000;
+const PH_MAX_CONCURRENT = Number(process.env.POSTHOG_PROXY_MAX_CONCURRENT) || 64;
+let phInFlight = 0;
 const phProxyLimiter = createRateLimiter("posthog-proxy", { perMin: PH_MAX_PER_MIN, perHour: PH_MAX_PER_MIN * 30 });
 app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (req, res) => {
   if (!PH_METHODS.has(req.method)) return res.status(405).end();
   const ip = (req.ip || req.socket.remoteAddress || "?").trim();
   if (phProxyLimiter.check(ip).limited) return res.status(429).end();
+  if (phInFlight >= PH_MAX_CONCURRENT) return res.status(503).end(); // F15 global ceiling
+  phInFlight++;
   try {
     const sub = req.params[0] || "";
     const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
     const upstream = `${sub.startsWith("static/") ? PH_ASSETS_HOST : PH_INGEST_HOST}/${sub}${qs}`;
     const headers = {};
     for (const h of ["content-type", "accept"]) if (req.headers[h]) headers[h] = req.headers[h];
-    const init = { method: req.method, headers };
+    // F15: bound the upstream call so a hung posthog response can't pin us.
+    const init = { method: req.method, headers, signal: AbortSignal.timeout(PH_UPSTREAM_TIMEOUT_MS) };
     if (req.method !== "GET" && req.method !== "HEAD" && req.body?.length) init.body = req.body;
     const up = await fetch(upstream, init);
-    // Reject an oversized upstream body by its declared length before buffering it.
+    // Reject an oversized upstream body by its declared length up front.
     const clen = Number(up.headers.get("content-length") || 0);
     if (clen && clen > PH_MAX_RESPONSE_BYTES) return res.status(502).end();
-    const body = Buffer.from(await up.arrayBuffer()); // undici already decompressed
-    if (body.length > PH_MAX_RESPONSE_BYTES) return res.status(502).end();
     res.status(up.status);
     for (const h of ["content-type", "cache-control"]) { const v = up.headers.get(h); if (v) res.setHeader(h, v); }
-    res.end(body);
+    // F15: STREAM with a running byte counter instead of buffering the whole
+    // body — a chunked / no-Content-Length response can no longer force us to
+    // buffer megabytes. Abort the moment the cap is crossed.
+    if (!up.body) return void res.end();
+    let sent = 0;
+    const reader = up.body.getReader();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      sent += value.length;
+      if (sent > PH_MAX_RESPONSE_BYTES) { try { await reader.cancel(); } catch { /* */ } res.destroy(); return; }
+      if (!res.write(Buffer.from(value))) await new Promise((r) => res.once("drain", r));
+    }
+    res.end();
   } catch {
-    res.status(502).end();
+    if (!res.headersSent) res.status(502).end(); else res.destroy();
+  } finally {
+    phInFlight--;
   }
 });
 // gzip/deflate every response EXCEPT: (1) /v1/* and /mcp — the LLM gateway's
@@ -1129,6 +1159,16 @@ const operatorLoginLimiter = createRateLimiter("operator-login", { perMin: 5, pe
 // validates the token from the BODY (never a URL) and sets the session cookie.
 // Scoped to /__operator, HttpOnly (no JS/XSS read), SameSite=Strict (no CSRF),
 // Secure on HTTPS, and an 8h absolute expiry.
+// F20: operator pages carry lead PII, revenue figures, and session state.
+// Forbid any browser-history cache, shared proxy, or future CDN from retaining
+// them. Registered before the routes so it runs on every /__operator response
+// (login form, dashboard, stats, wishes, leads, logout).
+app.use("/__operator", (_req, res, next) => {
+  res.set("Cache-Control", "no-store, private");
+  res.set("Pragma", "no-cache");
+  res.set("Vary", "Cookie, Authorization");
+  next();
+});
 app.get("/__operator/login", (_req, res) => {
   res.type("html").send(operatorLoginPage(BASE_URL));
 });
@@ -2857,7 +2897,12 @@ app.post("/api/render", async (req, res) => {
   const ac = new AbortController();
   res.on("close", () => { if (!res.writableEnded) ac.abort(); });
   try {
-    res.json(await renderArticle(url, { signal: ac.signal }));
+    // F02/F04: when a secretless browser worker is configured, render there so a
+    // Chromium compromise never sits next to this process's secrets. Default
+    // (unset) runs in-process, unchanged.
+    res.json(workerEnabled()
+      ? await runOnWorker("render", { url }, { signal: ac.signal })
+      : await renderArticle(url, { signal: ac.signal }));
   } catch (err) {
     if (!res.headersSent) res.status(err.statusCode || 502).json({ error: err.message });
   }
@@ -2869,7 +2914,9 @@ app.get("/api/screenshot", async (req, res) => {
   const ac = new AbortController();
   res.on("close", () => { if (!res.writableEnded) ac.abort(); });
   try {
-    const png = await screenshotPage(url, { fullPage: fullPage === "true", signal: ac.signal });
+    const png = workerEnabled()
+      ? (await runOnWorker("screenshot", { url, fullPage: fullPage === "true" }, { signal: ac.signal })).__binary
+      : await screenshotPage(url, { fullPage: fullPage === "true", signal: ac.signal });
     res.type("png").send(png);
   } catch (err) {
     if (!res.headersSent) res.status(err.statusCode || 502).json({ error: err.message });

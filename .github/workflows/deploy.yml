@@ -638,6 +638,12 @@ jobs:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    # F07: provider keys stay at job scope so every TEST step gates its
+    # expectations on the SAME config the booted server has. But the ONE step
+    # that runs untrusted third-party code — the dependency install, where npm
+    # lifecycle scripts execute — SHADOWS them to empty (below), so a malicious
+    # package cannot read them. That is the real F07 exposure; our own test
+    # steps are trusted code from this repo.
     env:
       BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
       FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
@@ -648,10 +654,20 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
-      - name: Install and start in free mode
+      - name: Install dependencies (secretless)
+        # F07: shadow the job-scope provider keys to EMPTY for this step only, so
+        # a malicious dependency lifecycle script running during `npm ci` cannot
+        # read them. No server or tool runs here, so empty keys are harmless.
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      - name: Start server in free mode
+        run: |
           # Raise the MCP rate limit so the full-catalog connector test can sweep
           # every tool (production keeps the default 20/min, 120/hr).
           AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
@@ -803,6 +819,18 @@ jobs:
       - name: Render deadline cancellation (R-09 — timed-out contexts close before the slot frees; live contexts never exceed the limit — offline)
         run: node scripts/test-render-cancel.js
 
+      - name: Render actual-byte budget (F03 — chunked/streamed/headerless/WebSocket bytes counted via CDP, cap not bypassable — offline)
+        run: node scripts/test-render-bytebudget.js
+
+      - name: Secretless worker isolation (F02/F04/F06 — worker auth/dispatch, client round-trip, secret-guard refuses to boot with a payment secret — offline)
+        run: node scripts/test-worker-isolation.js
+
+      - name: Egress proxy validate+pin (F04 — proxy refuses CONNECT to loopback/RFC1918/metadata/ULA; Chromium can't rebind to a private dest — offline)
+        run: node scripts/test-egress-proxy.js
+
+      - name: E2B cost/output caps (F12 — aggregate UTF-8 output truncation + global sandbox concurrency ceiling — offline)
+        run: node scripts/test-code-run-caps.js
+
       - name: Safe-regex guard (rejects ReDoS patterns for caller-supplied regexes — DoS lock — offline)
         run: node scripts/test-safe-regex.js
 
@@ -886,6 +914,15 @@ jobs:
 
       - name: FFmpeg video-decode lockout (R-06 — every ffmpeg call is -vn/audio-only; CVE-2026-8461 MagicYUV video decoder unreachable — offline)
         run: node scripts/test-ffmpeg-novideo.js
+
+      - name: Marketplace external-seller provenance (F09 — every external result marked untrustedContent + response-level flag; semantic-injection bypass regression — offline)
+        run: node scripts/test-marketplace-provenance.js
+
+      - name: Log-injection guard (F24 — CR/LF + ANSI + control chars stripped from attacker-controlled log text — offline)
+        run: node scripts/test-log-safe.js
+
+      - name: Postgres TLS policy by route (F11 — verified cert on public hosts, relaxed only on the private railway.internal mesh — offline)
+        run: node scripts/test-db-ssl.js
 
       - name: /health envelope + .flags shape (boolean discipline locks the Yahoo-relay-flap class)
         run: node scripts/test-health-envelope.js
@@ -1086,6 +1123,9 @@ jobs:
 
       - name: Tollbooth tests (pay-per-crawl gate — node + edge/Web-Crypto)
         run: node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js
+
+      - name: Tollbooth atomic replay + origin binding (F05/F18 — Durable Object single-use claim + PoW origin/method binding — offline)
+        run: node scripts/test-tollbooth-replay.js
 
       - name: Tollbooth dashboard runtime smoke (boots CLI, hits /__tollbooth + /__tollbooth/stats over HTTP)
         run: node scripts/test-tollbooth-runtime.js
@@ -1385,6 +1425,9 @@ jobs:
     needs: [markers, test]
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'publish' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    # F01: publishing packages mutates a production artifact — gate it behind the
+    # same protected environment as deploy (see the deploy job comment).
+    environment: "agent402 / production"
     permissions:
       contents: read
       id-token: write   # GitHub OIDC → authorize the io.github.mikeypetrillo/* MCP Registry namespace
@@ -1933,6 +1976,12 @@ jobs:
     needs: [markers, test]
     if: github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
     runs-on: ubuntu-latest
+    # F01: bind the production-mutating job to the protected GitHub environment.
+    # Today this just associates the job; once the owner configures the
+    # environment with a required reviewer + deploy-branch policy, every deploy
+    # pauses for human approval and can read environment-scoped secrets. Repo
+    # secrets keep working until they are migrated to the environment.
+    environment: "agent402 / production"
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       # The key ID and wallet address are not sensitive (the wallet address is

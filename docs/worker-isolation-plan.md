@@ -73,7 +73,65 @@ or a different platform can close.
 
 ---
 
-## Phase 2 — Browser worker service (secretless, sandbox-on)
+## Phase 2 + 3 — Secretless worker: BUILT (flagged off), 2026-07-19
+
+The secretless browser + media worker is implemented in-repo and shipped
+DISABLED by default, so production is byte-identical until it is deployed and
+the flag is set:
+
+- `worker/server.js` — a minimal service exposing `POST /call {slug, input}` for
+  `render` / `screenshot` / `media-info` / `audio-convert` / `audio-normalize`,
+  reusing the exact in-process implementations. Bearer-token auth
+  (`RENDER_WORKER_TOKEN`, constant-time). A BOOT GUARD refuses to start if any
+  payment/DB/operator/provider secret is present in its env — the isolation
+  can't be silently undone.
+- `src/worker-client.js` — `workerEnabled()` / `runOnWorker()`. When
+  `RENDER_WORKER_URL` is set, `src/server.js`'s render/screenshot routes and the
+  media tool handlers dispatch to the worker; unset → in-process (default).
+- `start.js` — the **shared-image dispatcher**. Both the API and the worker run
+  the SAME image (the root `railway.toml` pins every service to `Dockerfile`);
+  `start.js` boots `worker/server.js` when `WORKER_MODE=true`, else
+  `src/server.js`. It `import`s (never spawns), so the gosu privilege-drop
+  entrypoint still owns PID 1. This replaces the per-service "config file path"
+  pointer, which proved fragile: a worker service whose pointer wasn't set fell
+  back to `railway.toml` and silently built the MAIN server (which then failed
+  its healthcheck for lack of a wallet). `Dockerfile.worker` +
+  `railway.worker.json` remain as a valid alternative path (a service whose
+  config-file pointer IS set to `railway.worker.json` builds `Dockerfile.worker`
+  and runs `worker/server.js` directly, no `WORKER_MODE` needed) but are no
+  longer required.
+- `scripts/test-worker-isolation.js` — auth/dispatch, client round-trip (incl.
+  binary decode + error propagation), the boot-guard refusal, and the
+  `WORKER_MODE` dispatch decision.
+
+**To turn it on (owner, on Railway) — one env var:**
+1. On the **worker service** (already created, secretless, private network, no
+   `/data` volume, `RENDER_WORKER_TOKEN` set): add **`WORKER_MODE=true`**. It
+   builds the same `Dockerfile` as main but `start.js` boots the worker;
+   `/health` goes green (`{"ok":true,"tools":[...]}`).
+2. On the **main service**, set `RENDER_WORKER_URL` to the worker's
+   `<service>.railway.internal` address and the same `RENDER_WORKER_TOKEN`.
+3. Verify: a paid render + screenshot + a media tool still return correct output,
+   and the worker's env dump contains no app secret. Rollback = unset
+   `RENDER_WORKER_URL` on main (render falls back in-process).
+
+**F04 (DNS rebinding) is now closed in code** — not via a Railway egress firewall
+(Railway has none; `railway outbound-network` only manages the *source* IP), but
+via a validating + pinning proxy inside the worker (`worker/egress-proxy.js`).
+Chromium is launched with `--proxy-server` pointed at it, so the proxy is the
+ONLY resolver + connector: it resolves each destination once, refuses if any
+resolved IP is private/reserved/metadata or the `fc00::/7` ULA that
+`*.railway.internal` uses, and connects to that exact pinned IP. Chromium can no
+longer do its own resolution, so the validate-then-rebind TOCTOU is gone.
+Verified by `scripts/test-egress-proxy.js` (blocks loopback / RFC1918 / metadata
+/ ULA at both the resolver and the live CONNECT).
+
+**What remains the platform gap:** the Chromium **sandbox** (`--no-sandbox`) —
+that needs userns/seccomp Railway doesn't expose. Non-root + secretless + the
+egress proxy already remove the secret-theft and internal-pivot impact of a
+renderer compromise; the sandbox would add depth against the RCE itself.
+
+## Phase 2 — Browser worker service (secretless, sandbox-on) — original design
 
 Move Chromium off the API container. This is the real R-04 fix.
 
