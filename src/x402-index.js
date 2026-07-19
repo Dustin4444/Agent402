@@ -1243,8 +1243,16 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   }
 
   const sellersSeen = new Set();
+  let anyExternal = false;
   const results = picked.map(([score, t]) => {
     sellersSeen.add(t.seller);
+    // F09: name/description/sellerName on an EXTERNAL result are seller-
+    // controlled text. Regex filtering + the diversity cap above are secondary
+    // controls; the primary control is an explicit machine-readable marker so a
+    // downstream selecting agent treats the copy as data to rank, never as an
+    // instruction. Our own local catalog is trusted and unmarked.
+    const external = t.seller !== LOCAL_SELLER;
+    if (external) anyExternal = true;
     return {
       seller: t.seller,
       sellerHome: t.sellerHome,
@@ -1261,9 +1269,14 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       score,
       health: t.health,
       ...(Array.isArray(t.networks) && t.networks.length ? { networks: t.networks } : {}),
+      ...(external ? { untrustedContent: true, source: t.seller } : {}),
     };
   });
-  return { query: q, include: inc, count: results.length, sellers: sellersSeen.size, results, ...(wantNet ? { network: wantNet } : {}) };
+  return {
+    query: q, include: inc, count: results.length, sellers: sellersSeen.size, results,
+    ...(anyExternal ? { containsUntrustedContent: true } : {}),
+    ...(wantNet ? { network: wantNet } : {}),
+  };
 }
 
 // "The economy, over time" — folded in from the two old standalone economy

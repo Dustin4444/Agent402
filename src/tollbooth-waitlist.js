@@ -10,13 +10,11 @@
 //   ?plan=solo|team|agency|enterprise|partner   pre-selects the plan radio
 //   ?kind=enterprise|partner                    swaps copy/CTA wording
 //
-// The form has no server endpoint — submission is client-side JS that builds a
-// GitHub issues/new URL with title + labels + body params and opens it in a
-// new tab. No PII ever touches our server. (If/when we run a Tally/Typeform or
-// an `/api/tollbooth/waitlist` route, the form action swaps in one place.)
+// Submission POSTs to /api/tollbooth/waitlist and is stored privately in
+// Postgres. On any failure the form fails CLOSED with a retry message (audit
+// F10): the lead's PII is NEVER placed in a URL or an external fallback, so it
+// cannot leak into browser history, referrers, or a public issue.
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
-
-const REPO = "https://github.com/MikeyPetrillo/Agent402";
 
 const PLAN_COPY = {
   solo: { label: "Cloud Solo · $19/mo", h: "Join the Cloud Solo waitlist", lead: "One domain, hosted dashboard, weekly digest, spike alerts." },
@@ -38,12 +36,6 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
   const p = PLAN_COPY[plan];
   const isPartner = plan === "partner" || kind === "partner";
   const isEnterprise = plan === "enterprise" || kind === "enterprise";
-  const ghLabel = isPartner ? "tollbooth-partner" : "tollbooth-cloud";
-  const ghTitle = isPartner
-    ? "Tollbooth Cloud partner application"
-    : isEnterprise
-      ? "Tollbooth Cloud enterprise inquiry"
-      : `Tollbooth Cloud waitlist — ${p.label}`;
 
   const title = `${p.h} — Agent402 Tollbooth Cloud`;
   const description = `${p.lead} Hosted on top of open-source agent402-tollbooth. Non-custodial — your wallet collects USDC directly.`;
@@ -134,23 +126,6 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
       website: (document.getElementById('f_hp').value||'')
     };
   }
-  function ghBody(f){
-    return [
-      'Name: ' + (f.name||'-'),
-      'Email: ' + (f.email||'-'),
-      (f.org ? 'Org: ' + f.org : ''),
-      'Plan: ' + f.plan,
-      (f.sites ? 'Sites: ' + f.sites : ''),
-      '',
-      (f.message || '-')
-    ].filter(Boolean).join('\\n');
-  }
-  function ghUrl(f){
-    var title = ${JSON.stringify(ghTitle)};
-    var label = ${JSON.stringify(ghLabel)};
-    var q = new URLSearchParams({ title: title, labels: label, body: ghBody(f) });
-    return ${JSON.stringify(REPO)} + '/issues/new?' + q.toString();
-  }
   function showError(msg){
     errEl.textContent = msg;
     errEl.style.display = 'block';
@@ -172,21 +147,18 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
         doneEl.style.display = 'block';
         return;
       }
-      if (r.status === 503) {
-        // DB not configured — fall back to GitHub pre-fill so the lead is not lost.
-        window.open(ghUrl(f), '_blank', 'noopener');
-        form.style.display = 'none';
-        doneEl.style.display = 'block';
-        return;
-      }
-      if (r.status === 429) { showError('Too many submissions — please try again in a minute.'); }
+      // F10 (privacy): fail CLOSED. We never place the lead's name/email/org/
+      // message in a URL (GitHub issue pre-fill, or anything else) — that would
+      // leak PII into browser history, referrers, and endpoint logs and break
+      // the private-storage promise above. On any failure we show an honest
+      // retry error and keep the form so the user can resubmit; no success is
+      // shown and no data leaves the page.
+      if (r.status === 503) { showError('Our signup service is briefly unavailable. Please try again in a few minutes.'); }
+      else if (r.status === 429) { showError('Too many submissions — please try again in a minute.'); }
       else if (r.status === 400) { showError('Please double-check your name and email.'); }
       else { showError('Something went wrong. Please try again.'); }
     } catch (_) {
-      // Network failed — let them at least file via GitHub rather than lose the submission.
-      window.open(ghUrl(f), '_blank', 'noopener');
-      form.style.display = 'none';
-      doneEl.style.display = 'block';
+      showError('Could not reach the server. Please check your connection and try again.');
     } finally {
       btn.disabled = false;
       btn.textContent = ${JSON.stringify(isPartner ? "Apply as partner →" : isEnterprise ? "Request a call →" : "Join waitlist →")};

@@ -638,20 +638,29 @@ jobs:
     needs: markers
     if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
-    env:
-      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
-      FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
-      FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
-      E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+    # F07: NO provider secrets at job scope. They would otherwise be in the
+    # environment of `npm ci` (below), where a malicious dependency lifecycle
+    # script could read them. The live-tool keys are scoped to the server-boot
+    # step only; the booted server reads them, and the test steps just hit
+    # localhost, so they never need the keys in their own environment.
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
-      - name: Install and start in free mode
+      - name: Install dependencies (secretless)
         run: |
           npm ci
           npx playwright install --with-deps chromium
+      - name: Start server in free mode
+        # The only step that needs the live-tool provider keys (F07). The
+        # backgrounded server inherits them; later steps hit it over localhost.
+        env:
+          BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          FRED_API_KEY_V2: ${{ secrets.FRED_API_KEY_V2 }}
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+        run: |
           # Raise the MCP rate limit so the full-catalog connector test can sweep
           # every tool (production keeps the default 20/min, 120/hr).
           AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 \
@@ -886,6 +895,12 @@ jobs:
 
       - name: FFmpeg video-decode lockout (R-06 — every ffmpeg call is -vn/audio-only; CVE-2026-8461 MagicYUV video decoder unreachable — offline)
         run: node scripts/test-ffmpeg-novideo.js
+
+      - name: Marketplace external-seller provenance (F09 — every external result marked untrustedContent + response-level flag; semantic-injection bypass regression — offline)
+        run: node scripts/test-marketplace-provenance.js
+
+      - name: Log-injection guard (F24 — CR/LF + ANSI + control chars stripped from attacker-controlled log text — offline)
+        run: node scripts/test-log-safe.js
 
       - name: /health envelope + .flags shape (boolean discipline locks the Yahoo-relay-flap class)
         run: node scripts/test-health-envelope.js

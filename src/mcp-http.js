@@ -20,6 +20,7 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { findTools } from "./find.js";
+import { logSafe } from "./log-safe.js";
 import { recordWish } from "./wish.js";
 import { capturePostHogDiscovery } from "./posthog.js";
 import { rankBy as rankLeaderboard } from "./leaderboard.js";
@@ -471,16 +472,25 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // etc.) is at /api/leaderboard for agents that want it. Round USDC
           // to 4dp to match the HTML page's display precision and keep the
           // JSON compact.
-          const rows = board.map((r) => ({
-            rank: r.rank,
-            name: r.name,
-            network: r.network,
-            wallet: r.wallet,
-            homepage: r.homepage || null,
-            callsSettled: r.callsSettled || 0,
-            totalUsd: Math.round((r.totalUsd || 0) * 10000) / 10000,
-            uniqueBuyers: r.uniqueBuyers || 0,
-          }));
+          // F09: a seller's name/homepage is self-reported, external content.
+          // Mark every non-self row as untrusted data so a downstream selecting
+          // agent never treats seller copy as an instruction. Our own row
+          // (matching WALLET_ADDRESS) is trusted and unmarked.
+          const rows = board.map((r) => {
+            const isSelf = self && (r.wallet || "").toLowerCase() === self;
+            return {
+              rank: r.rank,
+              name: r.name,
+              network: r.network,
+              wallet: r.wallet,
+              homepage: r.homepage || null,
+              callsSettled: r.callsSettled || 0,
+              totalUsd: Math.round((r.totalUsd || 0) * 10000) / 10000,
+              uniqueBuyers: r.uniqueBuyers || 0,
+              ...(isSelf ? {} : { untrustedContent: true }),
+            };
+          });
+          const anyExternal = rows.some((r) => r.untrustedContent);
           return {
             content: [{
               type: "text",
@@ -491,6 +501,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 include,
                 totalSellers: (snap.leaderboard || []).length,
                 results: rows,
+                ...(anyExternal ? { containsUntrustedContent: true } : {}),
                 ...(snap.warming || snap.scanSkipped ? { note: "Cache is warming — results may be partial. Retry in ~60s." } : {}),
                 source: `${baseUrl}/api/leaderboard`,
               }, null, 2),
@@ -667,7 +678,9 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     // initialize (e.g. "claude-ai", "claude-code"). In-memory since boot.
     const ci = req.body?.method === "initialize" ? req.body?.params?.clientInfo : null;
     if (ci?.name && mcpClients.size < 500) {
-      const key = `${ci.name}@${ci.version || "?"}`.slice(0, 80);
+      // clientInfo is attacker-controlled — sanitize before it lands in the log
+      // line OR the in-memory telemetry map (audit F24).
+      const key = logSafe(`${ci.name}@${ci.version || "?"}`, 80);
       mcpClients.set(key, (mcpClients.get(key) || 0) + 1);
       console.log(`[mcp] initialize from ${key}`);
     }

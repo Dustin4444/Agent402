@@ -1129,6 +1129,16 @@ const operatorLoginLimiter = createRateLimiter("operator-login", { perMin: 5, pe
 // validates the token from the BODY (never a URL) and sets the session cookie.
 // Scoped to /__operator, HttpOnly (no JS/XSS read), SameSite=Strict (no CSRF),
 // Secure on HTTPS, and an 8h absolute expiry.
+// F20: operator pages carry lead PII, revenue figures, and session state.
+// Forbid any browser-history cache, shared proxy, or future CDN from retaining
+// them. Registered before the routes so it runs on every /__operator response
+// (login form, dashboard, stats, wishes, leads, logout).
+app.use("/__operator", (_req, res, next) => {
+  res.set("Cache-Control", "no-store, private");
+  res.set("Pragma", "no-cache");
+  res.set("Vary", "Cookie, Authorization");
+  next();
+});
 app.get("/__operator/login", (_req, res) => {
   res.type("html").send(operatorLoginPage(BASE_URL));
 });
