@@ -139,7 +139,15 @@ export function createTollbooth(config = {}) {
     const raw = req.originalUrl || req.url || "/";
     let pathAndSearch = raw;
     try { const u = new URL(raw, "http://internal.invalid"); pathAndSearch = u.pathname + u.search; } catch { /* keep raw */ }
-    return (resourceBaseUrl ? resourceBaseUrl.replace(/\/$/, "") : "") + pathAndSearch;
+    // F18: bind the canonical ORIGIN, not just path+query, so a proof minted for
+    // /x on site A cannot be replayed on site B. Prefer a configured
+    // resourceBaseUrl; otherwise derive the origin from the request host (same
+    // site => same origin; a different host => a different resource). Reusing one
+    // TOLLBOOTH_SECRET across sites should ALSO use a unique secret per site.
+    const origin = resourceBaseUrl
+      ? resourceBaseUrl.replace(/\/$/, "")
+      : `${req.protocol || "https"}://${String(req.headers?.host || (req.get && req.get("host")) || "").toLowerCase()}`;
+    return origin + pathAndSearch;
   };
 
   function tollbooth(req, res, next) {
@@ -149,6 +157,10 @@ export function createTollbooth(config = {}) {
     // measure bot traffic on a live site before turning on enforcement.
     if (observe) { incr("wouldCharge"); res.setHeader("X-Tollbooth-Observed", "would-charge"); return next(); }
     const resource = resourceOf(req);
+    // F18: the PoW challenge additionally binds the HTTP METHOD, so a proof
+    // solved for GET /x can't be replayed against POST /x. The x402 `resource`
+    // stays a plain URL (below) for wire compatibility.
+    const powResource = `${(req.method || "GET").toUpperCase()} ${resource}`;
 
     const send402 = (extra = {}) => {
       incr("charged");
@@ -161,14 +173,14 @@ export function createTollbooth(config = {}) {
           : [],
         ...extra,
       };
-      if (powEngine) body.proofOfWork = powEngine.challenge(resource, difficultyNow());
+      if (powEngine) body.proofOfWork = powEngine.challenge(powResource, difficultyNow());
       res.status(402).json(body);
     };
 
     // Free rail: proof-of-work.
     const powHeader = req.headers["x-pow-solution"];
     if (powEngine && powHeader) {
-      const r = powEngine.verify(powHeader, resource);
+      const r = powEngine.verify(powHeader, powResource);
       if (r.ok) { incr("powSolved"); res.setHeader("X-Tollbooth-Paid", "pow"); return next(); }
       res.setHeader("X-Pow-Error", r.reason);
     }
@@ -178,13 +190,19 @@ export function createTollbooth(config = {}) {
     const payHeader = req.headers["x-payment"] || req.headers["payment-signature"];
     if (payTo && typeof verifyX402 === "function" && payHeader) {
       // Bound verification time so a slow/hung verifier can't exhaust resources.
-      const timeout = new Promise((resolve) => setTimeout(() => resolve(false), VERIFY_TIMEOUT_MS));
-      return Promise.race([Promise.resolve(verifyX402(req, { price, network, asset, payTo, resource })), timeout])
+      // F19: pass an AbortSignal and ABORT it on timeout, so a slow verifier that
+      // also SETTLES cannot move money after we have already returned 402 (a
+      // charged denial). A pure-verification callback may ignore the signal; a
+      // settling one MUST cancel/drain in-flight work on it before returning.
+      const ac = new AbortController();
+      const timeout = new Promise((resolve) => setTimeout(() => { ac.abort(); resolve(false); }, VERIFY_TIMEOUT_MS));
+      return Promise.race([Promise.resolve(verifyX402(req, { price, network, asset, payTo, resource, signal: ac.signal })), timeout])
         .then((ok) => {
+          ac.abort(); // verification resolved: cancel anything still in flight
           if (ok) { incr("x402Paid"); res.setHeader("X-Tollbooth-Paid", "x402"); return next(); }
           send402();
         })
-        .catch(() => { res.setHeader("X-Tollbooth-Error", "x402-verify-failed"); send402(); });
+        .catch(() => { ac.abort(); res.setHeader("X-Tollbooth-Error", "x402-verify-failed"); send402(); });
     }
 
     return send402();

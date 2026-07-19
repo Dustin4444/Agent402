@@ -101,7 +101,14 @@ export function createEdgePow({ secret, difficulty = 18, ttlMs = 5 * 60 * 1000, 
     if (leadingZeroBits(h) < Number(diffStr)) return { ok: false, reason: "insufficient work" };
     // Atomically claim single-use only AFTER the work is validated, so an invalid
     // attempt never consumes the token and concurrent dupes can't both pass.
-    if (!(await used.claim(token, Number(expStr)))) return { ok: false, reason: "already used" };
+    // F05: FAIL CLOSED — if the claim store is unavailable, deny rather than let
+    // the exception propagate (or, worse, grant). Strict single-use needs an
+    // atomic store (Durable Object); see worker.js durableObjectStore + the
+    // wrangler template. A get-then-put KV store is best-effort only.
+    let claimed;
+    try { claimed = await used.claim(token, Number(expStr)); }
+    catch { return { ok: false, reason: "replay store unavailable" }; }
+    if (!claimed) return { ok: false, reason: "already used" };
     return { ok: true };
   }
 
@@ -177,11 +184,19 @@ export function createEdgeTollbooth(config = {}) {
     if (!shouldCharge(request)) { incr("freeAllowed"); return null; }
     if (observe) { incr("wouldCharge"); return null; }
     const u = new URL(request.url);
-    const resource = (resourceBaseUrl ? resourceBaseUrl.replace(/\/$/, "") : "") + u.pathname + u.search;
+    // F18: bind the canonical ORIGIN, not just path+query — otherwise a proof
+    // for /x transfers to any other site sharing the secret. On the edge the
+    // request URL already carries the real origin; prefer an explicit
+    // resourceBaseUrl when configured.
+    const origin = resourceBaseUrl ? resourceBaseUrl.replace(/\/$/, "") : u.origin;
+    const resource = origin + u.pathname + u.search;
+    // Additionally bind the HTTP METHOD in the PoW challenge (x402 `resource`
+    // stays a plain URL for wire compatibility).
+    const powResource = `${request.method || "GET"} ${resource}`;
 
     const sol = request.headers.get("x-pow-solution");
     if (powEngine && sol) {
-      const r = await powEngine.verify(sol, resource);
+      const r = await powEngine.verify(sol, powResource);
       if (r.ok) { incr("powSolved"); return null; }
     }
 
@@ -191,7 +206,7 @@ export function createEdgeTollbooth(config = {}) {
       message,
       accepts: payTo ? [{ scheme: "exact", network, maxAmountRequired: String(price), asset, payTo, resource }] : [],
     };
-    if (powEngine) body.proofOfWork = await powEngine.challenge(resource);
+    if (powEngine) body.proofOfWork = await powEngine.challenge(powResource);
     return new Response(JSON.stringify(body), {
       status: 402,
       headers: { "content-type": "application/json", "x-tollbooth": "pay-per-crawl" },

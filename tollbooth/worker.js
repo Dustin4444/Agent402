@@ -28,13 +28,44 @@ function constEq(a, b) {
 }
 
 const kvStore = (kv) => ({
-  // Best-effort atomic claim. KV has no native compare-and-set, so this is
-  // get-then-put (eventually consistent); for strict single-use, back it with a
-  // Durable Object. Returns true only the first time a token is seen.
+  // Best-effort claim. KV has no native compare-and-set, so this is get-then-put
+  // (eventually consistent) — concurrent dupes across isolates/locations can
+  // both observe "unseen" and both pass. For STRICT single-use use the Durable
+  // Object store below. Returns true only the first time a token is seen.
   claim: async (k, expMs) => {
     if ((await kv.get(k)) != null) return false;
     await kv.put(k, "1", { expiration: Math.ceil(expMs / 1000) });
     return true;
+  },
+});
+
+// F05: strict single-use replay claim via a Durable Object. A DO instance is
+// single-threaded — every request addressed to one DO id is serialized — so the
+// get-then-put INSIDE it is ATOMIC across all isolates and locations (KV is
+// eventually consistent and has no compare-and-set). Each token is routed to its
+// own DO id, so claims only ever contend on the exact token they concern.
+export class TollboothReplay {
+  constructor(state) { this.state = state; }
+  async fetch(request) {
+    let expMs = 0;
+    try { expMs = Number((await request.json()).expMs) || 0; } catch { /* */ }
+    const already = await this.state.storage.get("claimed");
+    if (already != null) return Response.json({ granted: false });
+    await this.state.storage.put("claimed", 1);
+    // Auto-expire the DO storage at the token's expiry — the token is worthless
+    // after that, so the claim record can be dropped and storage stays bounded.
+    if (expMs > Date.now()) { try { await this.state.storage.setAlarm(expMs); } catch { /* */ } }
+    return Response.json({ granted: true });
+  }
+  async alarm() { try { await this.state.storage.deleteAll(); } catch { /* */ } }
+}
+
+export const durableObjectStore = (namespace) => ({
+  claim: async (k, expMs) => {
+    const stub = namespace.get(namespace.idFromName(k));
+    const resp = await stub.fetch("https://tollbooth-replay/claim", { method: "POST", body: JSON.stringify({ expMs }) });
+    const { granted } = await resp.json();
+    return granted === true;
   },
 });
 
@@ -43,10 +74,19 @@ export default {
     if (!env.TOLLBOOTH_SECRET) {
       return new Response("Tollbooth misconfigured: set TOLLBOOTH_SECRET (wrangler secret put TOLLBOOTH_SECRET)", { status: 500 });
     }
-    if (!env.TOLLBOOTH_KV) {
-      // No durable store → replay protection is per-isolate only; a solved token
-      // can be reused across isolates within its TTL. Bind a KV namespace for prod.
-      console.warn("agent402-tollbooth: no TOLLBOOTH_KV bound — proof-of-work replay protection is per-isolate only. Bind a KV namespace for production.");
+    // F05: pick the replay store, strongest first. A Durable Object
+    // (TOLLBOOTH_REPLAY) gives ATOMIC, strict single-use across isolates and
+    // locations. KV is a best-effort fallback (eventually consistent; concurrent
+    // dupes can both pass). With neither, protection is per-isolate only.
+    const enforcing = env.TOLLBOOTH_OBSERVE !== "true";
+    let replayStore;
+    if (env.TOLLBOOTH_REPLAY) {
+      replayStore = durableObjectStore(env.TOLLBOOTH_REPLAY);
+    } else if (env.TOLLBOOTH_KV) {
+      replayStore = kvStore(env.TOLLBOOTH_KV);
+      if (enforcing) console.warn("agent402-tollbooth: replay protection is on eventually-consistent KV (get-then-put, NOT atomic) — concurrent duplicate solutions across isolates/locations can both pass. Bind a Durable Object as TOLLBOOTH_REPLAY for strict single-use in enforcement (see wrangler.toml).");
+    } else if (enforcing) {
+      console.warn("agent402-tollbooth: no replay store bound (TOLLBOOTH_REPLAY Durable Object or TOLLBOOTH_KV) — proof-of-work replay protection is per-isolate only. Bind one for production enforcement.");
     }
     // Durable stats live in KV if a namespace is bound. Without it, the dashboard
     // is per-isolate (dies on cold start) — fine for dev, useless for prod.
@@ -60,7 +100,7 @@ export default {
       network: env.TOLLBOOTH_NETWORK || "base",
       asset: env.TOLLBOOTH_ASSET || "USDC",
       powDifficulty: env.TOLLBOOTH_POW_BITS ? Number(env.TOLLBOOTH_POW_BITS) : undefined,
-      store: env.TOLLBOOTH_KV ? kvStore(env.TOLLBOOTH_KV) : undefined,
+      store: replayStore,
       observe: env.TOLLBOOTH_OBSERVE === "true",
       statsSink,
     });

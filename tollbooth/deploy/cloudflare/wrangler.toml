@@ -32,10 +32,24 @@ TOLLBOOTH_NETWORK  = "base"                             # optional: x402 network
 # When set, /__tollbooth/stats requires `Authorization: Bearer <token>`.
 # The HTML dashboard at /__tollbooth stays public (shareable read-only URL).
 
-# Strongly recommended for production: bind a KV namespace. It serves TWO purposes:
-#   1. Single-use replay store for proof-of-work tokens (cross-isolate).
-#   2. Durable stats — without KV, the dashboard resets on every cold start,
-#      so observe-mode data is useless.
+# STRICT single-use replay protection (recommended for enforcement): bind a
+# Durable Object (audit F05). Unlike KV — which is eventually consistent and has
+# no compare-and-set, so concurrent duplicate solutions across isolates/locations
+# can BOTH pass — a Durable Object claims each token atomically. The Worker
+# prefers TOLLBOOTH_REPLAY when bound; if only KV is bound, it warns in
+# enforcement that replay protection is best-effort.
+# [[durable_objects.bindings]]
+# name = "TOLLBOOTH_REPLAY"
+# class_name = "TollboothReplay"
+#
+# [[migrations]]
+# tag = "v1"
+# new_classes = ["TollboothReplay"]
+
+# Recommended for production: bind a KV namespace for DURABLE STATS — without it
+# the dashboard resets on every cold start, so observe-mode data is useless. (KV
+# can also serve as a best-effort replay store when no Durable Object is bound,
+# but the Durable Object above is the correct store for strict single-use.)
 #   npx wrangler kv namespace create TOLLBOOTH_KV
 # then paste the returned id below and redeploy. The Worker auto-detects it.
 # [[kv_namespaces]]
