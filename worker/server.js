@@ -12,6 +12,8 @@
 // in this process's env — the worker must be secretless by construction.
 import express from "express";
 import { timingSafeEqual } from "node:crypto";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderArticle, screenshotPage } from "../src/tools/render.js";
 import { MEDIA_TOOLS } from "../src/tools/media-kit.js";
 import { startEgressProxy } from "./egress-proxy.js";
@@ -44,14 +46,22 @@ for (const t of MEDIA_TOOLS) HANDLERS[t.slug] = (input) => t.handler(input || {}
 // own private-network hostname, not a secret), and a private KEY is already
 // caught by "KEY". Matching "PRIVATE" alone would false-positive and refuse to
 // boot on a benign infra var.
-const SECRET_NAME_RE = /(KEY|SECRET|TOKEN|MNEMONIC|PASSWORD|CREDENTIAL)/i;
-const SECRET_NAME_ALLOW = new Set(["RENDER_WORKER_TOKEN"]);
+const SECRET_NAME_RE = /(KEY|SECRET|TOKEN|MNEMONIC|PASSWORD|CREDENTIAL|DSN|LEDGER|DATABASE|REDIS|POSTGRES|MONGO|MYSQL|CONNECTION)/i;
+// FR4-05: connection strings carry credentials but their NAMES may only say
+// URL/URI (e.g. REDIS_URL, a DSN). Block those too — except the handful of
+// benign non-secret URLs the worker legitimately receives, and Railway's own
+// service-metadata URLs (RAILWAY_*_URL), which are not credentials.
+const URLISH_RE = /(URL|URI)/i;
+const NAME_ALLOW = new Set(["RENDER_WORKER_TOKEN", "RENDER_WORKER_URL", "RENDER_EGRESS_PROXY_URL"]);
 const FORBIDDEN_ENV = ["WALLET_ADDRESS", "WALLET_ENS", "DATABASE_URL", "ANALYTICS_DATABASE_URL"];
 // Pure + exported for tests: the secret-bearing env var names present in `env`.
 export function forbiddenSecretsIn(env) {
-  return Object.keys(env).filter(
-    (k) => (env[k] || "").trim() && !SECRET_NAME_ALLOW.has(k) && (SECRET_NAME_RE.test(k) || FORBIDDEN_ENV.includes(k))
-  );
+  return Object.keys(env).filter((k) => {
+    if (!(env[k] || "").trim() || NAME_ALLOW.has(k)) return false;
+    if (SECRET_NAME_RE.test(k) || FORBIDDEN_ENV.includes(k)) return true;       // KEY/SECRET/TOKEN/DSN/DB/redis/... (incl. RAILWAY_TOKEN)
+    if (URLISH_RE.test(k) && !/^RAILWAY_/.test(k)) return true;                 // a credential-bearing URL/URI (Railway metadata URLs exempt)
+    return false;
+  });
 }
 const secretsPresent = () => forbiddenSecretsIn(process.env);
 
@@ -90,7 +100,9 @@ app.post("/call", async (req, res) => {
 // Start listening when run directly (`node worker/server.js`) OR when the shared
 // image's start.js dispatcher selected worker mode via WORKER_MODE. Imports by a
 // test (argv is the test file, WORKER_MODE unset) still just read the exports.
-const isMain = (process.argv[1] && process.argv[1].endsWith("worker/server.js"))
+// FR4-12: compare resolved paths (not a forward-slash suffix) so `node
+// worker\server.js` on Windows also triggers the boot guard, not only WORKER_MODE.
+const isMain = (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))
   || /^(1|true|yes|on)$/i.test((process.env.WORKER_MODE || "").trim());
 if (isMain) {
   // Enforce the secretless invariant and the auth requirement ONLY when actually

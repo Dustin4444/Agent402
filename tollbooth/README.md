@@ -157,13 +157,23 @@ const x402 = paymentMiddleware(/* your wallet + facilitator config */);
 app.use(createTollbooth({
   payTo: "0xYourWallet",
   network: "base",
-  // Reuse the standard middleware to verify the X-PAYMENT header:
-  verifyX402: (req) => new Promise((resolve) =>
-    x402(req, { setHeader() {}, status() { return this; }, json() { resolve(false); } }, () => resolve(true))),
+  // Reuse the standard middleware to verify the X-PAYMENT header. HONOR the
+  // AbortSignal the gate passes: if the gate's timeout fires it has already
+  // returned 402 to the client, so your verifier MUST stop and NOT let a late
+  // settlement complete — otherwise you create a charged-then-denied result.
+  verifyX402: (req, _reqs, signal) => new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error("verify aborted"));
+    signal?.addEventListener("abort", () => reject(new Error("verify aborted")), { once: true });
+    x402(req, { setHeader() {}, status() { return this; }, json() { resolve(false); } }, () => resolve(true));
+  }),
 }));
 ```
 
-(PoW is checked first, so an agent without a wallet always has a free path.)
+The gate passes `signal` as the third argument to `verifyX402` and enforces its
+own timeout; a verifier that ignores the signal and settles late can still charge
+a buyer who already received a 402. If your facilitator can't cancel an in-flight
+settlement, gate it behind your own pre-check so no settlement starts after the
+deadline. (PoW is checked first, so an agent without a wallet always has a free path.)
 
 ## Configuration
 

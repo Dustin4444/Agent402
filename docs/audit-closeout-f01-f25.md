@@ -5,8 +5,9 @@ is one of: **Fixed** (shipped in code, live), **Accepted** (won't-fix with
 rationale), or **Owner action** (cannot be closed from this repo — needs a
 GitHub-admin, DNS/registrar, or product decision; exact steps below).
 
-As of this writing, 22 of 25 are Fixed (F13 flag-gated OFF), 1 is Accepted, and 2 need owner action
-(plus the owner half of F01).
+As of this writing (post 4th review): 22 of 25 Fixed, F13 REMOVED (its premise was
+wrong — see the 4th-review section below), F22 Accepted, and F17/F25 + the owner
+half of F01 need owner action.
 
 ## Ledger
 
@@ -24,7 +25,7 @@ As of this writing, 22 of 25 are Fixed (F13 flag-gated OFF), 1 is Accepted, and 
 | F10 | Med | Fixed | waitlist drops PII fallback, fails closed |
 | F11 | Med | Fixed | route-aware Postgres TLS (`src/db-ssl.js`) |
 | F12 | Med | Fixed | E2B output cap + concurrency ceiling |
-| F13 | Med | Fixed (code, flag-gated OFF) | idempotent render credit (`src/render-credit.js`); enable with `RENDER_CREDIT_ENABLED` |
+| F13 | Med | **REMOVED (was wrong)** — see §4th-review FR4-02 | the render-credit premise (a charged 503) can't occur under `@x402/express`; feature deleted |
 | F14 | Med | Fixed | MCP abort + await-before-release |
 | F15 | Med | Fixed | PostHog proxy timeout + concurrency + byte cap |
 | F16 | Med | Fixed | `Dockerfile.mcp` digest-pinned + non-root |
@@ -42,10 +43,9 @@ As of this writing, 22 of 25 are Fixed (F13 flag-gated OFF), 1 is Accepted, and 
 
 ## Owner-action items — exact steps
 
-These need an owner action from outside the repo (GitHub-admin, DNS/registrar, or
-flipping a reviewed prod flag). Each is copy-paste ready. F13 is fully built and
-only needs its flag enabled; F01 (owner half), F17, and F25 are the genuine
-external actions.
+These need an owner action from outside the repo (GitHub-admin, DNS/registrar).
+Each is copy-paste ready. (F13 is no longer here — it was removed; see the
+4th-review section.)
 
 ### F01 (owner half) — GitHub branch rulesets + protected environment
 
@@ -66,35 +66,6 @@ Protected environment `agent402 / production` (referenced by deploy/publish
 jobs): add a required reviewer (yourself is fine), set the deployment-branch
 policy to allow `main` **and** `claude/sweet-brown-i99jl3`, and move the
 deploy/publish secrets to env scope.
-
-### F13 — render capacity refused after settlement — BUILT (approach B), flag-gated OFF
-
-Approach **B (idempotent durable credit)** is implemented in `src/render-credit.js`
-and wired into the paywall in `src/server.js`, **flagged OFF by default** so
-billing is byte-identical until enabled. On a capacity refusal (503) of a
-*settled* paid render/screenshot, the server mints a one-time **credit token** (a
-256-bit bearer secret) returned only in that buyer's own 503 response
-(`X-Render-Credit` header + JSON `renderCredit`), bound to the exact request
-(route + body). A retry presenting the token via `X-Render-Credit` skips the gate
-(PoW + replay guard + USDC paywall) and is served once; if that retry also fails,
-a fresh token is re-issued so the paid credit is never lost. 10-minute TTL,
-FIFO-capped.
-
-Security (adversarially reviewed): the token is unguessable and delivered only to
-the paying caller, so knowing a (public) wallet cannot forge or steal it; it is
-bound to route+body so it can't be spent on a different or costlier render;
-verified live that a forged token still 402s. **Single-use is enforced atomically
-at admission** via `claim()` (validate-and-remove in one synchronous step), NOT a
-validate-now/consume-on-finish pattern — so a burst of concurrent retries with
-the same token can't each be served (the earlier draft had that double-spend; the
-test now asserts exactly one of 100 concurrent claims wins). Unit-tested
-(`scripts/test-render-credit.js`, 24 cases: atomic single-use / no double-spend,
-forgery + cross-request rejection, TTL, re-issue on failed delivery, eviction).
-
-**To turn it on (owner, after review):** set `RENDER_CREDIT_ENABLED=true` on the
-main Railway service. Rollback = unset it (billing reverts, no data). Approach A
-(reserve-before-settle) writeup remains in `docs/f13-capacity-options.md` if the
-ordering-change route is ever preferred.
 
 ### F17 — publish DMARC (DNS)
 
@@ -143,3 +114,28 @@ finding.
 If we later choose to close it: add a per-request nonce, remove `'unsafe-inline'`
 from `script-src` first (styles second), and roll out behind
 `Content-Security-Policy-Report-Only` to catch misses before enforcing.
+
+---
+
+## 4th review (A402-FR4-01..14) — dispositions
+
+The 4th review's key correction: **`@x402/express` v2.16 settles AFTER the handler
+and CANCELS settlement for any `>=400` response** (see CLAUDE.md "x402 settlement
+ordering"). Several fixes below follow from that.
+
+| ID | Sev | Disposition | Where |
+|---|---|---|---|
+| FR4-01 | High | **Fixed** — idempotency is settlement-aware: cache commits on `finish` only when final status is 200 | `src/server.js` idempotency middleware; `scripts/test-idempotency-settlement.js` |
+| FR4-02 | High | **Fixed** — render-credit REMOVED (a 503 is never charged, so a credit was a free-render bypass); `RENDER_CREDIT_ENABLED=false` in prod + code deleted | `src/server.js` (F13 block/import gone), `src/render-credit.js` + test deleted |
+| FR4-03 | High | **Fixed** — skill-pack inline `render` now routes through the worker | `src/server.js` `SKILL_INLINE_HANDLERS.render` |
+| FR4-04 | High | **Fixed** — Tollbooth enforcing mode FAILS CLOSED without an atomic replay store (unless `TOLLBOOTH_ALLOW_NON_ATOMIC_REPLAY=true`) | `tollbooth/worker.js` |
+| FR4-05 | Med | **Fixed** — worker guard also blocks URL/DSN/DB/LEDGER/redis/mongo names (Railway metadata URLs exempt) | `worker/server.js` `forbiddenSecretsIn` |
+| FR4-06 | Med | **Fixed** — `workerEnabled()` requires BOTH url+token; `assertWorkerConfig()` fails boot on partial config; bounded worker response read | `src/worker-client.js`, `src/server.js` boot |
+| FR4-07 | Med | **Fixed** — `httpHeadersHandler` cancels the body instead of draining it | `src/tools/network-kit2.js` |
+| FR4-08 | Med | **Fixed** — x402 quote/audit/RPC reads are byte-capped (`boundedText`) | `src/tools/x402-kit.js` |
+| FR4-09 | Med | **Fixed** — code-run error name+value go through the aggregate output budget | `src/tools/code-run-kit.js`; `scripts/test-code-run-caps.js` |
+| FR4-10 | Med | **Fixed** — Tollbooth README verifier example honors the `AbortSignal` | `tollbooth/README.md` |
+| FR4-11 | Med | **Residual (platform)** — Chromium `--no-sandbox` + no egress firewall after RCE; secretless worker + egress proxy bound impact. Owner/platform work (`docs/worker-isolation-plan.md`). |
+| FR4-12 | Low | **Fixed** — worker `isMain` uses resolved-path compare (Windows-safe) | `worker/server.js` |
+| FR4-13 | Low | **Accepted** — CSP `unsafe-inline` (see F22). |
+| FR4-14 | Low | **Owner action** — GitHub ruleset / env / DNS evidence (see F01/F17/F25). |

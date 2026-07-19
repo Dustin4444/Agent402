@@ -79,14 +79,27 @@ export default {
     // locations. KV is a best-effort fallback (eventually consistent; concurrent
     // dupes can both pass). With neither, protection is per-isolate only.
     const enforcing = env.TOLLBOOTH_OBSERVE !== "true";
+    // FR4-04: FAIL CLOSED in enforcing mode without an ATOMIC replay store. A
+    // Durable Object (TOLLBOOTH_REPLAY) gives strict single-use across isolates
+    // and locations. KV is eventually consistent (get-then-put, NOT atomic), so
+    // concurrent duplicate PoW solutions can both pass — a warning does not
+    // protect a production deployment. Refuse to enforce on a non-atomic (or
+    // absent) store unless the operator sets an explicit, loud insecure override.
+    const allowNonAtomic = env.TOLLBOOTH_ALLOW_NON_ATOMIC_REPLAY === "true";
+    if (enforcing && !env.TOLLBOOTH_REPLAY && !allowNonAtomic) {
+      return new Response(
+        "Tollbooth misconfigured: enforcing mode requires an ATOMIC replay store. Bind a Durable Object as TOLLBOOTH_REPLAY (see deploy/cloudflare/wrangler.toml), run in observe mode (TOLLBOOTH_OBSERVE=true), or accept non-atomic replay explicitly with TOLLBOOTH_ALLOW_NON_ATOMIC_REPLAY=true.",
+        { status: 500 }
+      );
+    }
     let replayStore;
     if (env.TOLLBOOTH_REPLAY) {
       replayStore = durableObjectStore(env.TOLLBOOTH_REPLAY);
     } else if (env.TOLLBOOTH_KV) {
       replayStore = kvStore(env.TOLLBOOTH_KV);
-      if (enforcing) console.warn("agent402-tollbooth: replay protection is on eventually-consistent KV (get-then-put, NOT atomic) — concurrent duplicate solutions across isolates/locations can both pass. Bind a Durable Object as TOLLBOOTH_REPLAY for strict single-use in enforcement (see wrangler.toml).");
+      if (enforcing) console.warn("agent402-tollbooth: ENFORCING on eventually-consistent KV via explicit TOLLBOOTH_ALLOW_NON_ATOMIC_REPLAY override (get-then-put is NOT atomic — concurrent duplicate solutions across isolates/locations can both pass). Bind a Durable Object as TOLLBOOTH_REPLAY for strict single-use.");
     } else if (enforcing) {
-      console.warn("agent402-tollbooth: no replay store bound (TOLLBOOTH_REPLAY Durable Object or TOLLBOOTH_KV) — proof-of-work replay protection is per-isolate only. Bind one for production enforcement.");
+      console.warn("agent402-tollbooth: ENFORCING with NO replay store via explicit TOLLBOOTH_ALLOW_NON_ATOMIC_REPLAY override — proof-of-work replay protection is per-isolate only. Bind a Durable Object for production.");
     }
     // Durable stats live in KV if a namespace is bound. Without it, the dashboard
     // is per-isolate (dies on cold start) — fine for dev, useless for prod.

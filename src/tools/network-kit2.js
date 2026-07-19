@@ -240,8 +240,10 @@ async function httpHeadersHandler(body) {
   } finally {
     clearTimeout(timer);
   }
-  // Drain to free the socket (we only care about headers).
-  try { await response.arrayBuffer(); } catch {}
+  // FR4-07: we only want headers — CANCEL the body, don't drain it. Draining
+  // (arrayBuffer) after the timeout was cleared would buffer an unbounded /
+  // slow-streamed body from a user-controlled URL with no cap or deadline.
+  try { await response.body?.cancel(); } catch { /* ignore */ }
 
   const headers = {};
   for (const [k, v] of response.headers.entries()) headers[k.toLowerCase()] = v;

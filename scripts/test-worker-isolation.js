@@ -121,6 +121,34 @@ const listen = (app) => new Promise((res) => { const s = app.listen(0, () => res
   ok(forbiddenSecretsIn({ WALLET_ADDRESS: "0x", DATABASE_URL: "postgres://x" }).length === 2, "non-pattern secrets (WALLET_ADDRESS, DATABASE_URL) still caught");
   ok(forbiddenSecretsIn({ RENDER_WORKER_TOKEN: "t" }).length === 0, "the worker's OWN inbound-auth token is allowed");
   ok(forbiddenSecretsIn({ FOO_KEY: "" }).length === 0, "an empty secret var is ignored (only set values count)");
+  // FR4-05: credential-bearing URL/DSN/DB/ledger names (which don't contain
+  // KEY/SECRET/TOKEN) must now trip the guard too.
+  for (const k of ["REDIS_URL", "SENTRY_DSN", "REVENUE_LEDGER_URL", "ECONOMY_DATABASE_URL", "MONGO_URI", "SALES_LEDGER"]) {
+    ok(forbiddenSecretsIn({ [k]: "v", RENDER_WORKER_TOKEN: "t" }).includes(k), `guard catches credential-bearing ${k}`);
+  }
+  ok(forbiddenSecretsIn({ RAILWAY_SERVICE_AGENT402_URL: "http://x", RENDER_WORKER_TOKEN: "t" }).length === 0, "benign Railway service-metadata URL is allowed (RAILWAY_* URLs exempt)");
+  ok(forbiddenSecretsIn({ RAILWAY_TOKEN: "secret" }).includes("RAILWAY_TOKEN"), "but RAILWAY_TOKEN (a real secret) is still caught");
+}
+
+// --- 6. FR4-06: render-worker config is atomic (both URL+token or neither) ----
+{
+  const { workerEnabled, assertWorkerConfig } = await import("../src/worker-client.js");
+  const save = { u: process.env.RENDER_WORKER_URL, t: process.env.RENDER_WORKER_TOKEN };
+  const set = (u, t) => { u == null ? delete process.env.RENDER_WORKER_URL : process.env.RENDER_WORKER_URL = u; t == null ? delete process.env.RENDER_WORKER_TOKEN : process.env.RENDER_WORKER_TOKEN = t; };
+  const threw = (fn) => { try { fn(); return false; } catch { return true; } };
+
+  set("http://w.internal:3999", "tok");
+  ok(workerEnabled() === true, "workerEnabled() true only when BOTH url and token are set");
+  ok(!threw(assertWorkerConfig), "assertWorkerConfig passes when both are set");
+  set("http://w.internal:3999", null);
+  ok(workerEnabled() === false, "workerEnabled() false when the token is missing (would 401 every paid call)");
+  ok(threw(assertWorkerConfig), "assertWorkerConfig THROWS on a partial config (url without token)");
+  set(null, "tok");
+  ok(threw(assertWorkerConfig), "assertWorkerConfig THROWS on a partial config (token without url)");
+  set(null, null);
+  ok(workerEnabled() === false && !threw(assertWorkerConfig), "neither set -> in-process, no throw");
+  // restore
+  set(save.u, save.t);
 }
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);

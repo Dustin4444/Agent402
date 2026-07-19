@@ -66,8 +66,21 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
 - Unit/offline: `scripts/test-memory.js`, `test-find.js`, `test-revenue-scan.js`, `test-util-kit.js`, `test-discovery.js`, `tollbooth/test.js`+`edge.test.js`+`features.test.js`.
 - Raise the MCP free-tier limit for sweeps: `AGENT402_MCP_MAX_PER_MIN=999999 AGENT402_MCP_MAX_PER_HOUR=9999999`.
 
+## x402 settlement ordering (CRITICAL — get this right)
+The installed **`@x402/express` v2.16 runs the handler FIRST, then settles**, and
+ONLY settles a `<400` response — for any handler `statusCode >= 400` it CANCELS
+settlement (`reason: "handler_failed"`) so the buyer is **NOT charged**; if
+settlement of a `<400` response fails, it discards the buffered body and returns a
+402. So: **a 4xx/5xx (incl. a capacity 503 or an upstream 502) is never charged**,
+and a 200 is only charged if settlement then succeeds. Do NOT assume "settles
+before the handler" (an earlier, wrong belief that produced the F13 free-render
+bypass and the pre-settlement idempotency cache — both since fixed). Anything that
+caches, credits, or bills based on handler status BEFORE settlement is unsafe;
+key such logic off the FINAL (post-settlement) response, e.g. `res.on("finish")`
+with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.)
+
 ## Notable features (current)
-- **Idempotency:** opt-in `Idempotency-Key` header; cache key = `sha256(METHOD /path + key + gate-credential)`; replays a paid result without re-charging; no-op without the header. Hooks `res.json` only — streamed responses are never replayable.
+- **Idempotency:** opt-in `Idempotency-Key` header; cache key = `sha256(METHOD /path + key + gate-credential)`. **Settlement-aware (FR4-01):** the body is captured at `res.json` but COMMITTED to the cache only on `res.on("finish")` when the FINAL `statusCode === 200` — i.e. after `@x402/express` has settled — so an unsettled 200 (settlement-failure → 402) is never cached/replayed. No-op without the header; streamed responses are never replayable. `scripts/test-idempotency-settlement.js`.
 - **Tollbooth:** charge modes (`bots`/`all`/`strict`), adaptive PoW, analytics (`gate.stats()` + `/__tollbooth/stats` + `/__tollbooth` dashboard), deploy templates (Cloudflare/Next.js/Docker). Defaults preserve original behavior.
 - **Buyer SDK (`agent402-client`):** `find()` + `call()` with auto-payment (PoW free / x402 paid), caching, idempotent retries, non-custodial.
 - **LLM gateway (`src/tools/llm-gateway-kit.js`, OpenAI wire paths):** five tiers —
