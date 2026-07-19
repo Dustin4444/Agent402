@@ -16,6 +16,29 @@
 import { randomBytes } from "node:crypto";
 import sha3 from "js-sha3"; // CommonJS — default import, then destructure
 const { keccak256 } = sha3;
+
+// FR4-08: read a response body with a hard byte cap. `AbortSignal.timeout`
+// bounds elapsed time, not memory — a fast large response from a user-controlled
+// URL would still buffer unbounded via res.json()/res.text(). Cancels the stream
+// and throws (502) past the cap. x402 quote/audit metadata is small.
+const X402_MAX_BODY_BYTES = 256 * 1024;
+async function boundedText(res, maxBytes = X402_MAX_BODY_BYTES) {
+  const reader = res.body?.getReader?.();
+  if (!reader) return await res.text();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      try { await reader.cancel(); } catch { /* ignore */ }
+      throw Object.assign(new Error(`response body exceeded ${maxBytes} bytes`), { statusCode: 502 });
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 import { assertPublicUrl, ssrfDispatcher } from "./fetch-guard.js";
 import { redactSecrets } from "./redact.js";
 
@@ -130,7 +153,7 @@ async function rpc(net, method, params, { passes = 2 } = {}) {
           signal: AbortSignal.timeout(15000),
           dispatcher: ssrfDispatcher,
         });
-        const text = await r.text();
+        const text = await boundedText(r);
         let j; try { j = JSON.parse(text); } catch { lastErr = new Error(`${url}: non-JSON`); continue; }
         if (j.result !== undefined) return j.result;
         lastErr = new Error(`${url}: ${JSON.stringify(j.error ?? j).slice(0, 120)}`);
@@ -254,7 +277,7 @@ export const X402_TOOLS = [
       }
       const paymentRequired = res.status === 402;
       let body = null;
-      try { body = await res.json(); } catch { /* may be empty/non-JSON */ }
+      try { const t = await boundedText(res); body = t ? JSON.parse(t) : null; } catch { /* may be empty/non-JSON/oversized */ }
       // x402 v1 put the payment requirements in the 402 body; v2 moved them to
       // the base64-encoded PAYMENT-REQUIRED header (the body is `{}`). Decode
       // whichever the seller speaks — without the header path this tool returns
@@ -494,7 +517,7 @@ export const X402_TOOLS = [
 
       const cacheControl = res.headers.get("cache-control") || "";
       let bodyText = "";
-      try { bodyText = await res.text(); } catch { /* empty/unreadable body */ }
+      try { bodyText = await boundedText(res); } catch { /* empty/unreadable/oversized body */ }
       const paymentRequiredHeader = res.headers.get("payment-required") || null;
       return gradeX402Response({ href: url.href, protocol: url.protocol, status: res.status, cacheControl, bodyText, paymentRequiredHeader });
     },

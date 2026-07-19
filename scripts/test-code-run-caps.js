@@ -4,6 +4,9 @@
 // before creation. Offline unit test of the cap logic + config.
 //
 //   node scripts/test-code-run-caps.js
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { __test } from "../src/tools/code-run-kit.js";
 
 const { capUtf8, TIERS, E2B_MAX_CONCURRENT } = __test;
@@ -40,6 +43,24 @@ const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - 
   ok(!a.truncated && a.used === 600, "first field fits");
   ok(b.truncated && b.used === 400, "second field truncated to the REMAINING budget (aggregate cap)");
   ok(budget === 0, "aggregate budget fully consumed, never negative");
+}
+
+// FR4-09: the thrown-error name + value (execution.error.value) go through the
+// SAME aggregate budget as stdout/stderr/result/traceback — a multi-megabyte
+// error message must not bypass the cap.
+{
+  let budget = 1000;
+  const take = (v) => { const c = capUtf8(v, Math.max(0, budget)); budget -= c.used; return c; };
+  const stdout = take("s".repeat(300));
+  const errName = take("Error");
+  const errMsg = take("E".repeat(5_000_000)); // huge thrown error value
+  const traceback = take("t".repeat(5_000_000));
+  const total = stdout.used + errName.used + errMsg.used + traceback.used;
+  ok(errMsg.truncated, "a multi-megabyte error message is truncated");
+  ok(total <= 1000, `error name+message+traceback stay inside the aggregate cap (used ${total} <= 1000)`);
+  // The handler wires these fields through take() (guards against regression).
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "tools", "code-run-kit.js"), "utf8");
+  ok(/const errMsg = execution\.error \? take\(execution\.error\.value/.test(src), "handler routes execution.error.value through take() (budgeted)");
 }
 
 // Config sanity.

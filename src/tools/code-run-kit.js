@@ -108,8 +108,13 @@ async function runInSandbox(code, language, tierSlug) {
       const stdout = take(execution.logs?.stdout?.join("") ?? "");
       const stderr = take(execution.logs?.stderr?.join("") ?? "");
       const result = execution.text != null ? take(execution.text) : { text: null, truncated: false };
+      // FR4-09: the error name AND message (execution.error.value) go through the
+      // SAME aggregate budget — a multi-megabyte thrown error must not bypass the
+      // output cap.
+      const errName = execution.error ? take(execution.error.name ?? "Error") : { text: "Error", truncated: false };
+      const errMsg = execution.error ? take(execution.error.value ?? "") : { text: "", truncated: false };
       const traceback = execution.error ? take(execution.error.traceback ?? "") : { text: "", truncated: false };
-      const truncated = stdout.truncated || stderr.truncated || result.truncated || traceback.truncated;
+      const truncated = stdout.truncated || stderr.truncated || result.truncated || errName.truncated || errMsg.truncated || traceback.truncated;
 
       return {
         language,
@@ -117,7 +122,7 @@ async function runInSandbox(code, language, tierSlug) {
         stderr: stderr.text,
         result: result.text,
         error: execution.error
-          ? { name: execution.error.name ?? "Error", message: execution.error.value ?? "", traceback: traceback.text }
+          ? { name: errName.text ?? "Error", message: errMsg.text ?? "", traceback: traceback.text }
           : null,
         ...(truncated ? { truncated: true } : {}),
       };

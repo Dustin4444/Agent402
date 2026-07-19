@@ -16,7 +16,7 @@ import { extractArticle, fetchPageMeta } from "./tools/extract.js";
 import { dnsLookup } from "./tools/dns.js";
 import { pdfToText } from "./tools/pdf.js";
 import { renderArticle, screenshotPage, rasterizeSvg } from "./tools/render.js";
-import { workerEnabled, runOnWorker } from "./worker-client.js";
+import { workerEnabled, runOnWorker, assertWorkerConfig } from "./worker-client.js";
 import {
   memoryPut, memoryGet, memoryDelete, memoryIncr, memoryCas,
   grant, revoke, listGrants, getLog, remember, recall, forget,
@@ -111,7 +111,7 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // x402 settles before the handler, so a listed-but-broken route charges
 // buyers for 502s (no route -> no 402 -> no charge). The upstream WAS
@@ -176,7 +176,6 @@ import { buildRouteExecuteTool } from "./tools/route-execute.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
-import { bodyHashFor, createRenderCreditLedger } from "./render-credit.js";
 
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
 // per-IP bucket. PoW redemption on the direct HTTP path goes through here.
@@ -191,6 +190,8 @@ const WALLET_ADDRESS = process.env.WALLET_ADDRESS;
 const WALLET_ENS = process.env.WALLET_ENS || "agent402.base.eth";
 const NETWORK = process.env.NETWORK || "base";
 const FREE_MODE = process.env.FREE_MODE === "true";
+// FR4-06: fail fast on a partial render-worker config (one of URL/token set).
+assertWorkerConfig();
 const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 const CATALOG = {
@@ -579,7 +580,11 @@ const SKILL_INLINE_HANDLERS = {
   },
   meta:    async ({ url } = {}) => fetchPageMeta(url),
   dns:     async ({ name, type } = {}) => dnsLookup(name, type),
-  render:  async ({ url } = {}) => renderArticle(url),
+  // FR4-03: route the skill-pack render through the secretless worker too — the
+  // runner prefers this inline map, so calling renderArticle() directly here ran
+  // Chromium in the main secret-bearing process for packs like content-extraction
+  // / structured-scrape, defeating the worker isolation the /api/render route has.
+  render:  async ({ url } = {}) => (workerEnabled() ? runOnWorker("render", { url }) : renderArticle(url)),
   pdf:     async ({ url } = {}) => pdfToText(url),
 };
 const SKILL_TOOLS = buildSkillTools({
@@ -2566,29 +2571,37 @@ app.use((req, res, next) => {
     res.setHeader("X-Idempotent-Replay", "true");
     return res.status(200).json(hit.body);
   }
+  // Settlement-aware caching (FR4-01). @x402/express (v2.16) runs the handler
+  // FIRST, then settles, and ONLY on a <400 response; on settlement FAILURE it
+  // replaces the buffered 200 with a 402. So committing to the cache at
+  // res.json() time (handler completion, BEFORE settlement) would store a result
+  // whose payment never settled, and a retry could replay it for free. Capture
+  // the body at res.json() but COMMIT only on 'finish', when res.statusCode is
+  // the post-settlement reality: a final 200 means settlement succeeded (the
+  // paywall would have written a 402 otherwise). PoW (free) requests never enter
+  // the settle path, so their 200 is final at finish too — cached correctly.
+  let captured;
   const origJson = res.json.bind(res);
-  res.json = (body) => {
-    if (res.statusCode === 200) {
-      let bytes = 0;
-      try { bytes = Buffer.byteLength(JSON.stringify(body), "utf8"); } catch { bytes = 0; }
-      if (bytes && bytes <= IDEM_MAX_BODY_BYTES) {
-        // Evict oldest entries (Map preserves insertion order → FIFO ≈ LRU
-        // for write-heavy access) until we fit by entries AND by bytes.
-        while (
-          (idemStore.size >= IDEM_MAX_ENTRIES || idemBytes + bytes > IDEM_MAX_BYTES)
-          && idemStore.size > 0
-        ) {
-          const firstKey = idemStore.keys().next().value;
-          const ev = idemStore.get(firstKey);
-          if (ev) idemBytes -= ev.bytes;
-          idemStore.delete(firstKey);
-        }
-        idemStore.set(key, { at: Date.now(), body, bytes });
-        idemBytes += bytes;
-      }
+  res.json = (body) => { captured = body; return origJson(body); };
+  res.on("finish", () => {
+    if (res.statusCode !== 200 || captured === undefined) return;
+    let bytes = 0;
+    try { bytes = Buffer.byteLength(JSON.stringify(captured), "utf8"); } catch { bytes = 0; }
+    if (!bytes || bytes > IDEM_MAX_BODY_BYTES) return;
+    // Evict oldest entries (Map preserves insertion order → FIFO ≈ LRU for
+    // write-heavy access) until we fit by entries AND by bytes.
+    while (
+      (idemStore.size >= IDEM_MAX_ENTRIES || idemBytes + bytes > IDEM_MAX_BYTES)
+      && idemStore.size > 0
+    ) {
+      const firstKey = idemStore.keys().next().value;
+      const ev = idemStore.get(firstKey);
+      if (ev) idemBytes -= ev.bytes;
+      idemStore.delete(firstKey);
     }
-    return origJson(body);
-  };
+    idemStore.set(key, { at: Date.now(), body: captured, bytes });
+    idemBytes += bytes;
+  });
   next();
 });
 
@@ -2703,66 +2716,15 @@ if (FREE_MODE) {
     next();
   });
 
-  // F13: idempotent durable credit for capacity-refused paid renders. x402
-  // settles BEFORE the handler, so a paid render/screenshot that then hits the
-  // bounded Chromium pool (503) was charged but not served — and the single-use
-  // nonce means a naive retry pays again. On such a refusal we mint a one-time
-  // credit TOKEN (256-bit bearer secret) returned only in that buyer's own 503
-  // response and bound to the exact request (route+body); a retry presenting the
-  // token via `X-Render-Credit` skips the gate below (served without a second
-  // charge) and the credit is consumed only on a successful delivery. The token
-  // is unguessable and handed only to the payer, so knowing a (public) wallet
-  // can't forge or steal it. Flagged OFF by default → billing is byte-identical
-  // until RENDER_CREDIT_ENABLED is set.
-  const RENDER_CREDIT_ENABLED = /^(1|true|yes|on)$/i.test((process.env.RENDER_CREDIT_ENABLED || "").trim());
-  const RENDER_CREDIT_SLUGS = new Set(["render", "screenshot"]); // the A402-08 bounded-pool tools
-  const renderCredits = createRenderCreditLedger();
-  if (RENDER_CREDIT_ENABLED) {
-    setInterval(() => renderCredits.prune(), 60_000).unref();
-    app.use((req, res, next) => {
-      const def = CATALOG[`${req.method} ${req.path}`];
-      if (!def || !RENDER_CREDIT_SLUGS.has(def.slug)) return next();
-      const meta = { route: `${req.method} ${req.originalUrl}`, bodyHash: bodyHashFor(req.body) };
-      // Retry path — ATOMIC single-use admission. claim() validates AND removes
-      // the token in one synchronous step, so a burst of concurrent retries with
-      // the same token can't each be served: only the first claim wins, the rest
-      // get false and fall through to the paywall. (A validate-then-consume-on-
-      // finish pattern would let N concurrent retries all pass before any one
-      // finished — the double-spend this closes.)
-      const token = req.header("x-render-credit");
-      const claimed = !!(token && renderCredits.claim(token, meta));
-      if (claimed) {
-        req.__renderCreditToken = token;
-        res.setHeader("X-Render-Credit-Replay", "true");
-      }
-      // A capacity 503 only reaches the handler AFTER the paywall passed, so a
-      // 503 on a request that carried a payment header means the buyer settled
-      // and was not served → mint a token. And if a CLAIMED credit didn't deliver
-      // (any non-2xx), give a fresh token BACK so the consumed-but-undelivered
-      // credit is never lost. The token rides the response headers (not yet
-      // flushed) so only the paying caller receives it. res.json is the error
-      // path for both render and screenshot; a screenshot SUCCESS uses res.send,
-      // so a delivered credit is never re-issued.
-      const paid = !!(req.header("x-payment") || req.header("payment-signature"));
-      if (paid || claimed) {
-        const origJson = res.json.bind(res);
-        res.json = (body) => {
-          const delivered = res.statusCode >= 200 && res.statusCode < 300;
-          const owe = !delivered && (claimed || (paid && res.statusCode === 503));
-          if (owe && !res.headersSent) {
-            const t = renderCredits.issue(meta);
-            res.setHeader("X-Render-Credit", t);
-            if (body && typeof body === "object" && !Array.isArray(body)) {
-              body = { ...body, renderCredit: t, renderCreditHint: "retry this exact request with header 'X-Render-Credit: <token>' to be served without paying again" };
-            }
-          }
-          return origJson(body);
-        };
-      }
-      next();
-    });
-    console.log("F13 render-credit ENABLED: a capacity-refused paid render returns an X-Render-Credit token; retry with it is served without a second charge");
-  }
+  // NB (FR4-02): the former "render-credit" feature (F13/R-10) was REMOVED. It
+  // assumed x402 settled BEFORE the handler, so a capacity 503 meant
+  // charged-but-not-served and warranted a retry credit. The installed
+  // @x402/express (v2.16) does the opposite — it runs the handler first and
+  // CANCELS settlement for any >=400 response (`reason: "handler_failed"`), so a
+  // capacity 503 is NEVER charged and no credit is ever owed. Issuing a bearer
+  // credit on a 503 was therefore a free-render bypass. If a future facilitator
+  // ever charges before delivery, reintroduce credits from a settlement-CONFIRMED
+  // hook, never from payment-header presence or handler status.
 
   // Gate: for a compute-payable route, a valid proof-of-work bypasses the x402
   // paywall; otherwise the normal USDC paywall applies (and we advertise the
@@ -2771,9 +2733,6 @@ if (FREE_MODE) {
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
   // on /mcp could keep hammering /api/* with fresh PoW solutions for free.
   app.use((req, res, next) => {
-    // F13: a valid pre-paid render credit token skips the whole gate (PoW, replay
-    // guard, and USDC paywall) — the buyer already paid for this exact render.
-    if (req.__renderCreditToken) return next();
     const slug = POW_ROUTES.get(`${req.method} ${req.path}`);
     if (slug) {
       const solution = req.header("x-pow-solution");
@@ -3145,11 +3104,20 @@ for (const tool of ALL_KIT) {
       // paywall settled; never cached (idempotency hooks res.json only).
       if (result && typeof result.__sse === "function") { await result.__sse(res); return; }
 
-      // Cache successful, non-error JSON responses. Errors are never cached —
-      // an upstream blip shouldn't poison the key for the whole TTL.
-      if (cacheKey && result && typeof result === "object" && !result.error) {
-        cacheSet(cacheKey, result, cachePolicy.ttl || 300).catch(() => {});
-      }
+      // Cache successful, non-error JSON responses — but ONLY after settlement.
+      // @x402/express settles AFTER the handler and rewrites a settlement-failure
+      // into a 402, so committing here (pre-settlement) would let an UNSETTLED
+      // response be served free on a byte-identical repeat (same class as
+      // FR4-01). Commit on res.on("finish") when the FINAL status is 200. This
+      // covers both the generic route cache AND the LLM-gateway prompt/embeddings
+      // cache (handlers stash their write on req.__deferredCache).
+      res.on("finish", () => {
+        if (res.statusCode !== 200) return;
+        if (cacheKey && result && typeof result === "object" && !result.error) {
+          cacheSet(cacheKey, result, cachePolicy.ttl || 300).catch(() => {});
+        }
+        for (const w of req.__deferredCache || []) { try { promptCacheStore(w.key, w.body); } catch { /* cache is best-effort */ } }
+      });
       res.json(result);
     } catch (err) {
       errored = true;

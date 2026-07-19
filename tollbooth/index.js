@@ -23,6 +23,53 @@ export { createPow, leadingZeroBits } from "./pow.js";
 export { memorySink, kvStatsSink, httpStatsSink } from "./sinks.js";
 
 const VERIFY_TIMEOUT_MS = Number(process.env.TOLLBOOTH_VERIFY_TIMEOUT_MS) || 10_000;
+
+// P1.5 / FR4-10: a first-party `verifyX402` built from a standard @x402/express
+// payment middleware, that OWNS timeout + cancellation. The gate calls
+// verifyX402(req, opts) and puts an AbortSignal on `opts.signal` (aborted when
+// the gate's own verify timeout fires); this wrapper honors it — once the signal
+// aborts (or its own optional backstop timeout fires) it settles the verify
+// promise immediately and reports NOT-verified, so a slow middleware can't leave
+// the gate hanging or produce a charged-then-denied result after the gate has
+// returned 402. Grants on next(); denies when the middleware writes a 402.
+//
+// LIMITATION (documented): @x402/express settles by BROADCASTING and exposes no
+// cancel hook, so this wrapper cannot abort an on-chain settle already in flight.
+// Keep TOLLBOOTH_VERIFY_TIMEOUT_MS comfortably above your settle latency so the
+// abort is a backstop, not the normal path; or front it with a facilitator that
+// supports cancellation.
+export function x402VerifierFromExpress(paymentMiddleware, { timeoutMs } = {}) {
+  if (typeof paymentMiddleware !== "function") {
+    throw new TypeError("x402VerifierFromExpress: paymentMiddleware must be a function");
+  }
+  return (req, opts = {}) => new Promise((resolve, reject) => {
+    const signal = opts?.signal;
+    let done = false;
+    let timer = null;
+    const finish = (fn, v) => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      signal?.removeEventListener?.("abort", onAbort);
+      fn(v);
+    };
+    const onAbort = () => finish(resolve, false); // gate timed out → treat as not verified
+    if (signal?.aborted) return finish(resolve, false);
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+    if (timeoutMs > 0) timer = setTimeout(() => finish(resolve, false), timeoutMs);
+    // Minimal response shim: the middleware calls next() to GRANT, or writes a
+    // 402 via status/json/send/end to DENY.
+    const res = {
+      setHeader() { return this; }, getHeader() {}, removeHeader() { return this; }, getHeaders() { return {}; },
+      status() { return this; }, json() { finish(resolve, false); return this; },
+      send() { finish(resolve, false); return this; }, end() { finish(resolve, false); return this; },
+      writeHead() { return this; }, write() { return true; }, flushHeaders() {},
+    };
+    try {
+      Promise.resolve(paymentMiddleware(req, res, () => finish(resolve, true))).catch((e) => finish(reject, e));
+    } catch (e) { finish(reject, e); }
+  });
+}
 // Headers a client must never be able to forge through the proxy: the gate's own
 // trust signals and forwarding/hop-by-hop headers.
 const STRIP_INBOUND = new Set([

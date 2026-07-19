@@ -737,7 +737,7 @@ export function embeddingsCacheKey(input) {
   return createHash("sha256").update(`v1-embeddings\n${stableStringify(body)}`).digest("hex");
 }
 
-async function embeddingsHandler(input) {
+async function embeddingsHandler(input, req) {
   const body = validateEmbeddingsRequest(input);
   const key = OPENAI_KEY();
   if (!key) throw bad("Embeddings gateway not configured (OPENAI_API_KEY unset)", 503);
@@ -758,8 +758,13 @@ async function embeddingsHandler(input) {
   try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
   // Full OpenAI wire shape passes through untouched (object, data[], model,
   // usage). Store unless the buyer opted out; oversized batches are skipped
-  // by the store's own per-entry byte cap.
-  try { promptCacheStore(embeddingsCacheKey(input), data); } catch { /* never fail a served response over the cache */ }
+  // by the store's own per-entry byte cap. FR4-01 class: defer the write to
+  // AFTER settlement (the route binder commits on a final 200) so an unsettled
+  // 200 isn't cached and served free on a repeat; direct write for non-HTTP.
+  try {
+    const w = { key: embeddingsCacheKey(input), body: data };
+    if (req) (req.__deferredCache ??= []).push(w); else promptCacheStore(w.key, w.body);
+  } catch { /* never fail a served response over the cache */ }
   return data;
 }
 
@@ -1060,12 +1065,14 @@ function countImages(messages) {
 }
 
 function makeHandler(tierSlug) {
-  return async (input) => {
+  return async (input, req) => {
     const body = validateRequest(input, tierSlug);
-    // Payment settles BEFORE this handler runs, so an upstream provider
-    // failure must not become the buyer's problem when an equivalent model
-    // can serve: walk the tier's fallback chain on upstream errors
-    // (502/503/504) only — our own validation 4xxs pass through untouched.
+    // NB: @x402/express settles AFTER this handler and cancels settlement for a
+    // >=400 response, so an upstream failure that we let surface as a 5xx is NOT
+    // charged. We still walk the tier's fallback chain on upstream errors
+    // (502/503/504) so an equivalent model can serve rather than fail — better
+    // UX, and a served 200 only bills if it then settles. Our own validation
+    // 4xxs pass through untouched.
     // The response's `model` field discloses which model actually served.
     // (Origin: openai/gpt-4.1-nano returned persistent provider errors on
     // 2026-07-08 — two independent paid runs — and buyers were charged $0.003
@@ -1166,7 +1173,14 @@ function makeHandler(tierSlug) {
           data.agent402_router = { category: routedCategory, quality: routedQuality, served: data.model || model };
         }
         if (input.cache === true) {
-          try { promptCacheStore(promptCacheKey(tierSlug, input), data); } catch { /* never fail a served response over the cache */ }
+          // FR4-01 class: defer the cache write to AFTER settlement. @x402/express
+          // settles after this handler, so writing now would cache an
+          // unsettled 200. Stash on req; the route binder commits on a final 200.
+          // Fall back to a direct write for non-HTTP callers (no settlement).
+          try {
+            const w = { key: promptCacheKey(tierSlug, input), body: data };
+            if (req) (req.__deferredCache ??= []).push(w); else promptCacheStore(w.key, w.body);
+          } catch { /* never fail a served response over the cache */ }
         }
         return data;
       } catch (e) {

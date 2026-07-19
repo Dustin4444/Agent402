@@ -14,8 +14,56 @@
 const workerUrl = () => (process.env.RENDER_WORKER_URL || "").trim().replace(/\/$/, "");
 const workerToken = () => (process.env.RENDER_WORKER_TOKEN || "").trim();
 const WORKER_TIMEOUT_MS = Number(process.env.RENDER_WORKER_TIMEOUT_MS) || 75_000;
+// FR4-06: cap the response a (compromised/malfunctioning) worker can make the
+// main service buffer. Renders (markdown) and screenshots (base64 PNG) are
+// already bounded by render.js's byte budget; this is the belt-and-suspenders.
+const WORKER_MAX_BYTES = Number(process.env.RENDER_WORKER_MAX_BYTES) || 40 * 1024 * 1024;
 
-export function workerEnabled() { return Boolean(workerUrl()); }
+// FR4-06: config is ATOMIC — the worker is used only when BOTH the URL and the
+// token are set. A URL without a token would send unauthenticated calls that the
+// (fail-closed) worker 401s, silently breaking every paid render.
+export function workerEnabled() { return Boolean(workerUrl() && workerToken()); }
+
+// FR4-06 / P1.1: fail LOUD at boot on a partial worker config (exactly one of
+// URL/token set), and — when isolation is REQUIRED (RENDER_WORKER_REQUIRED
+// truthy, e.g. in prod) — on a missing worker config, so browser/media tools can
+// never silently run in-process in a deployment that intends isolation. Call once
+// at boot.
+export function assertWorkerConfig() {
+  const hasUrl = Boolean(workerUrl());
+  const hasToken = Boolean(workerToken());
+  if (hasUrl !== hasToken) {
+    throw new Error(
+      `Incomplete render-worker config: RENDER_WORKER_URL is ${hasUrl ? "set" : "unset"} but RENDER_WORKER_TOKEN is ${hasToken ? "set" : "unset"}. Set BOTH (worker isolation) or NEITHER (in-process).`
+    );
+  }
+  const required = /^(1|true|yes|on)$/i.test((process.env.RENDER_WORKER_REQUIRED || "").trim());
+  if (required && !(hasUrl && hasToken)) {
+    throw new Error(
+      "RENDER_WORKER_REQUIRED is set but the render worker is not configured (need RENDER_WORKER_URL + RENDER_WORKER_TOKEN). Refusing to boot so browser/media tools cannot run in-process and defeat the isolation."
+    );
+  }
+}
+
+// Read a fetch Response body as text with a hard byte cap; aborts the stream and
+// throws (502) if the worker returns more than `maxBytes`.
+async function readBounded(res, maxBytes) {
+  const reader = res.body?.getReader?.();
+  if (!reader) return await res.text();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      try { await reader.cancel(); } catch { /* ignore */ }
+      throw Object.assign(new Error(`render worker response exceeded ${maxBytes} bytes`), { statusCode: 502 });
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 // Dispatch one browser/media job to the worker. Returns the tool's JSON result,
 // or `{ __binary: Buffer, contentType }` for a binary result (screenshot PNG).
@@ -37,10 +85,14 @@ export async function runOnWorker(slug, input, { signal } = {}) {
   } catch (e) {
     throw Object.assign(new Error(`render worker unreachable: ${e.name === "AbortError" ? "timeout" : e.message}`), { statusCode: 503 });
   } finally { clearTimeout(timer); }
-  const text = await res.text();
+  const text = await readBounded(res, WORKER_MAX_BYTES);
   let body = null;
   try { body = JSON.parse(text); } catch { /* non-JSON */ }
   if (!res.ok) throw Object.assign(new Error(body?.error || `render worker HTTP ${res.status}`), { statusCode: res.status });
-  if (body && body.__binary) return { __binary: Buffer.from(body.__binary, "base64"), contentType: body.contentType };
+  if (body && body.__binary) {
+    const buf = Buffer.from(body.__binary, "base64");
+    if (buf.byteLength > WORKER_MAX_BYTES) throw Object.assign(new Error("render worker binary too large"), { statusCode: 502 });
+    return { __binary: buf, contentType: body.contentType };
+  }
   return body;
 }

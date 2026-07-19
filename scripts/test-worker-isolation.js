@@ -72,7 +72,9 @@ const listen = (app) => new Promise((res) => { const s = app.listen(0, () => res
 // --- 3. The boot guard: a forbidden secret in the worker's env aborts start ---
 {
   const child = spawn(process.execPath, [join(ROOT, "worker", "server.js")], {
-    env: { ...process.env, WALLET_ADDRESS: "0xdeadbeef", PORT: "0", RENDER_WORKER_URL: "", RENDER_WORKER_TOKEN: "" },
+    // RAILWAY_ENVIRONMENT triggers strict mode (the real runtime): WALLET_ADDRESS
+    // isn't secret-SHAPED, but strict mode refuses any non-allowlisted var.
+    env: { ...process.env, RAILWAY_ENVIRONMENT: "production", WALLET_ADDRESS: "0xdeadbeef", PORT: "0", RENDER_WORKER_URL: "", RENDER_WORKER_TOKEN: "" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let out = "";
@@ -106,21 +108,70 @@ const listen = (app) => new Promise((res) => { const s = app.listen(0, () => res
   // this is the RAILWAY_PRIVATE_DOMAIN regression that took a deploy down.
   const cleanWorkerEnv = {
     PORT: "3999", WORKER_MODE: "true", RENDER_WORKER_TOKEN: "abc",
+    RAILWAY_ENVIRONMENT: "production", // triggers STRICT mode (the real Railway runtime)
     RAILWAY_PRIVATE_DOMAIN: "agent402-worker.railway.internal",
     RAILWAY_ENVIRONMENT_NAME: "production", RAILWAY_PROJECT_ID: "x",
     RAILWAY_SERVICE_ID: "y", RAILWAY_SERVICE_AGENT402_URL: "z",
     RAILWAY_DOCKERFILE_PATH: "Dockerfile.worker", PATH: "/usr/bin", HOME: "/home/node",
+    HOSTNAME: "abc", NODE_VERSION: "22", npm_config_cache: "/tmp",
     RENDER_EGRESS_PROXY_URL: "http://127.0.0.1:5",
   };
-  ok(forbiddenSecretsIn(cleanWorkerEnv).length === 0, "the secretless worker env (incl. RAILWAY_PRIVATE_DOMAIN + its own token) does NOT trip the guard");
+  ok(forbiddenSecretsIn(cleanWorkerEnv).length === 0, "the real (strict-mode) Railway worker env passes: only allowlisted / system / RAILWAY_* vars");
   // Real secrets the OLD denylist missed must now trip it.
   for (const k of ["GITHUB_TOKEN", "E2B_API_KEY", "STELLAR_FACILITATOR_KEY", "ALGORAND_BURNER_MNEMONIC", "OPENROUTER_API_KEY", "CDP_API_KEY_SECRET"]) {
     ok(forbiddenSecretsIn({ [k]: "v", RENDER_WORKER_TOKEN: "t" }).includes(k), `guard catches ${k} (pattern-based, not the old 12-name denylist)`);
   }
   // Non-pattern secrets stay covered; the worker's own token stays allowed.
-  ok(forbiddenSecretsIn({ WALLET_ADDRESS: "0x", DATABASE_URL: "postgres://x" }).length === 2, "non-pattern secrets (WALLET_ADDRESS, DATABASE_URL) still caught");
+  ok(forbiddenSecretsIn({ DATABASE_URL: "postgres://x" }).includes("DATABASE_URL"), "a DB connection string (DATABASE_URL) is caught in every mode (secret-shaped)");
+  ok(forbiddenSecretsIn({ RAILWAY_ENVIRONMENT: "production", WALLET_ADDRESS: "0x" }).includes("WALLET_ADDRESS"), "a non-secret-shaped operator var (WALLET_ADDRESS) is caught in strict (Railway) mode");
   ok(forbiddenSecretsIn({ RENDER_WORKER_TOKEN: "t" }).length === 0, "the worker's OWN inbound-auth token is allowed");
   ok(forbiddenSecretsIn({ FOO_KEY: "" }).length === 0, "an empty secret var is ignored (only set values count)");
+  // FR4-05: credential-bearing URL/DSN/DB/ledger names (which don't contain
+  // KEY/SECRET/TOKEN) must now trip the guard too.
+  for (const k of ["REDIS_URL", "SENTRY_DSN", "REVENUE_LEDGER_URL", "ECONOMY_DATABASE_URL", "MONGO_URI", "SALES_LEDGER"]) {
+    ok(forbiddenSecretsIn({ [k]: "v", RENDER_WORKER_TOKEN: "t" }).includes(k), `guard catches credential-bearing ${k}`);
+  }
+  ok(forbiddenSecretsIn({ RAILWAY_SERVICE_AGENT402_URL: "http://x", RENDER_WORKER_TOKEN: "t" }).length === 0, "benign Railway service-metadata URL is allowed (RAILWAY_* URLs exempt)");
+  ok(forbiddenSecretsIn({ RAILWAY_TOKEN: "secret" }).includes("RAILWAY_TOKEN"), "but RAILWAY_TOKEN (a real secret) is still caught");
+  // STRICT allowlist (P1.2), enforced in the Railway runtime (RAILWAY_ENVIRONMENT
+  // present): an UNRECOGNIZED var — even one with no secret-shaped name — refuses
+  // boot; only explicitly-allowed / system / Railway metadata pass.
+  ok(forbiddenSecretsIn({ RAILWAY_ENVIRONMENT: "production", SOME_RANDOM_CONFIG: "x", RENDER_WORKER_TOKEN: "t" }).includes("SOME_RANDOM_CONFIG"), "strict (Railway) mode: an unrecognized (non-secret-shaped) var refuses boot");
+  ok(forbiddenSecretsIn({ RAILWAY_ENVIRONMENT: "production", PATH: "/usr/bin", NODE_ENV: "production", npm_config_cache: "/tmp", RENDER_WORKER_TIMEOUT_MS: "60000" }).length === 0, "strict mode: known system + exact-allowed vars pass");
+  // Dev/CI (no RAILWAY_ENVIRONMENT): benign unknown noise is tolerated so the
+  // worker still boots locally — but secret-shaped names are STILL blocked.
+  ok(forbiddenSecretsIn({ SOME_EDITOR_VAR: "x", __CF_USER_TEXT_ENCODING: "0x1F5", RENDER_WORKER_TOKEN: "t" }).length === 0, "dev mode: benign unknown vars are tolerated (no false-positive boot failure)");
+  ok(forbiddenSecretsIn({ GITHUB_TOKEN: "ghp_x" }).includes("GITHUB_TOKEN"), "dev mode: a secret-shaped name is STILL blocked (shape denylist applies everywhere)");
+}
+
+// --- 6. FR4-06: render-worker config is atomic (both URL+token or neither) ----
+{
+  const { workerEnabled, assertWorkerConfig } = await import("../src/worker-client.js");
+  const save = { u: process.env.RENDER_WORKER_URL, t: process.env.RENDER_WORKER_TOKEN };
+  const set = (u, t) => { u == null ? delete process.env.RENDER_WORKER_URL : process.env.RENDER_WORKER_URL = u; t == null ? delete process.env.RENDER_WORKER_TOKEN : process.env.RENDER_WORKER_TOKEN = t; };
+  const threw = (fn) => { try { fn(); return false; } catch { return true; } };
+
+  set("http://w.internal:3999", "tok");
+  ok(workerEnabled() === true, "workerEnabled() true only when BOTH url and token are set");
+  ok(!threw(assertWorkerConfig), "assertWorkerConfig passes when both are set");
+  set("http://w.internal:3999", null);
+  ok(workerEnabled() === false, "workerEnabled() false when the token is missing (would 401 every paid call)");
+  ok(threw(assertWorkerConfig), "assertWorkerConfig THROWS on a partial config (url without token)");
+  set(null, "tok");
+  ok(threw(assertWorkerConfig), "assertWorkerConfig THROWS on a partial config (token without url)");
+  set(null, null);
+  ok(workerEnabled() === false && !threw(assertWorkerConfig), "neither set -> in-process, no throw");
+  // P1.1: RENDER_WORKER_REQUIRED makes a missing worker config a HARD boot failure
+  // (prod can demand isolation instead of silently running browser/media in-process).
+  const saveReq = process.env.RENDER_WORKER_REQUIRED;
+  process.env.RENDER_WORKER_REQUIRED = "true";
+  set(null, null);
+  ok(threw(assertWorkerConfig), "RENDER_WORKER_REQUIRED=true + no worker config -> THROWS (fail closed)");
+  set("http://w.internal:3999", "tok");
+  ok(!threw(assertWorkerConfig), "RENDER_WORKER_REQUIRED=true + full config -> ok");
+  if (saveReq == null) delete process.env.RENDER_WORKER_REQUIRED; else process.env.RENDER_WORKER_REQUIRED = saveReq;
+  // restore
+  set(save.u, save.t);
 }
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
