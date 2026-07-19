@@ -16,6 +16,7 @@
 //   - No PII is recorded. No payer wallet, no IP, no request body. Just slug +
 //     timing + flags. The dashboard is meant to be public.
 import pg from "pg";
+import { dbSsl } from "./db-ssl.js";
 
 const { Pool } = pg;
 
@@ -29,7 +30,7 @@ function getPool() {
   if (pool) return pool;
   pool = new Pool({
     connectionString: ANALYTICS_URL,
-    ssl: ANALYTICS_URL.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
+    ssl: dbSsl(ANALYTICS_URL), // F11: verified TLS on public hosts, relaxed only on the private railway.internal mesh
     max: 4,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 8_000,

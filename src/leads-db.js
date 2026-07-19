@@ -17,6 +17,7 @@
 //   - Inputs are length-capped before INSERT so a single bad request can't
 //     blow up disk. IP + UA are recorded for spam triage.
 import pg from "pg";
+import { dbSsl } from "./db-ssl.js";
 
 const { Pool } = pg;
 
@@ -29,10 +30,10 @@ function getPool() {
   if (pool) return pool;
   pool = new Pool({
     connectionString: DATABASE_URL,
-    // Railway's internal proxy already does TLS; for the public proxy URL,
-    // require SSL with a relaxed verify so self-signed certs pass. This
-    // mirrors what every Railway Postgres tutorial recommends.
-    ssl: DATABASE_URL.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
+    // F11: TLS policy by route. Private Railway mesh (*.railway.internal) keeps
+    // the working relaxed setting (no MITM position there); any public/proxied
+    // host verifies the cert and fails closed. See src/db-ssl.js.
+    ssl: dbSsl(DATABASE_URL),
     max: 4,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 8_000,

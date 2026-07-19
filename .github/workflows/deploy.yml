@@ -918,6 +918,9 @@ jobs:
       - name: Log-injection guard (F24 — CR/LF + ANSI + control chars stripped from attacker-controlled log text — offline)
         run: node scripts/test-log-safe.js
 
+      - name: Postgres TLS policy by route (F11 — verified cert on public hosts, relaxed only on the private railway.internal mesh — offline)
+        run: node scripts/test-db-ssl.js
+
       - name: /health envelope + .flags shape (boolean discipline locks the Yahoo-relay-flap class)
         run: node scripts/test-health-envelope.js
 
