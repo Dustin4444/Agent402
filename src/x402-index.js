@@ -24,6 +24,11 @@
 //     are consistent whether a buyer searches local-only or cross-seller.
 import { readFileSync, writeFileSync } from "node:fs";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+// F23: seller-manifest homepages are external, attacker-controlled URLs. esc()
+// escapes HTML but does NOT constrain the scheme, so a `javascript:`/`data:`
+// homepage would become a clickable link if the legacy indexPage renderer is
+// ever re-enabled. Only http(s) becomes a link; anything else renders inert.
+const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 import { safeFetch } from "./tools/fetch-guard.js";
 import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
@@ -1532,7 +1537,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
       const usdCell = s._lb ? esc(fmtUsd(s._lb.totalUsd)) : dash;
       const callsCell = s._lb ? esc(econFmt(s._lb.callsSettled)) : dash;
       return `<tr>
-        <td><a href="${esc(s.homepage || s.origin)}" target="_blank" rel="noopener">${esc(s.displayName)}</a>${healthBadge(s)}</td>
+        <td><a href="${safeHref(s.homepage || s.origin)}" target="_blank" rel="noopener">${esc(s.displayName)}</a>${healthBadge(s)}</td>
         <td class="num">${esc(s.toolCount)}</td>
         <td>${esc(s.network || "-")}</td>
         <td class="num">${usdCell}</td>

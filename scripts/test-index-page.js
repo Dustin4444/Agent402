@@ -155,5 +155,20 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   ok(/the neutral index/.test(html), "homepage: neutral-index positioning survives as prose");
 }
 
+// --- F23: seller homepage href scheme guard (dormant legacy renderer) --------
+// A crafted manifest homepage must never become a javascript:/data: link.
+{
+  const evil = seller(99, { displayName: "Evil Seller", homepage: "javascript:alert(document.cookie)" });
+  const dataUri = seller(98, { displayName: "Data Seller", homepage: "data:text/html,<script>alert(1)</script>" });
+  const snap = { spec: "x402-index/1", asOf: new Date().toISOString(), sellers: [local, evil, dataUri], discoverySources: [], totals: { sellers: 3, tools: 0, crawled: 2, discovered: 2, routable: 3, unhealthy: 0, bazaarFallback: 0 } };
+  const html = indexPage(snap, { baseUrl: BASE_URL, leaderboardSnap });
+  ok(!/href="javascript:/i.test(html), "F23: a javascript: homepage never becomes an href");
+  ok(!/href="data:/i.test(html), "F23: a data: homepage never becomes an href");
+  // The seller still renders (as a row), just with an inert href.
+  ok(html.includes("Evil Seller"), "F23: the seller still lists, its link just rendered inert (#)");
+  const evilRow = html.split("<tr>").find((r) => r.includes("Evil Seller")) || "";
+  ok(/href="#"/.test(evilRow), "F23: the unsafe-scheme homepage renders as href=\"#\"");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
