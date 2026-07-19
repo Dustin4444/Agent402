@@ -102,12 +102,21 @@ the flag is set:
 3. Verify: a paid render + screenshot + a media tool still return correct output
    (the `smoke-buy` workflow), and the worker's env dump contains no app secret.
 
-**What this closes and what it does NOT:** it removes the payment/DB/operator/
-provider secrets from the blast radius of a Chromium or ffmpeg RCE (F02/F06's
-core). It does NOT enable the Chromium sandbox or a network egress firewall —
-Railway exposes neither (see Phase 1). Those remain the platform gap; DNS
-rebinding (F04) is still bounded only by the app-layer SSRF guard that moves into
-the worker.
+**F04 (DNS rebinding) is now closed in code** — not via a Railway egress firewall
+(Railway has none; `railway outbound-network` only manages the *source* IP), but
+via a validating + pinning proxy inside the worker (`worker/egress-proxy.js`).
+Chromium is launched with `--proxy-server` pointed at it, so the proxy is the
+ONLY resolver + connector: it resolves each destination once, refuses if any
+resolved IP is private/reserved/metadata or the `fc00::/7` ULA that
+`*.railway.internal` uses, and connects to that exact pinned IP. Chromium can no
+longer do its own resolution, so the validate-then-rebind TOCTOU is gone.
+Verified by `scripts/test-egress-proxy.js` (blocks loopback / RFC1918 / metadata
+/ ULA at both the resolver and the live CONNECT).
+
+**What remains the platform gap:** the Chromium **sandbox** (`--no-sandbox`) —
+that needs userns/seccomp Railway doesn't expose. Non-root + secretless + the
+egress proxy already remove the secret-theft and internal-pivot impact of a
+renderer compromise; the sandbox would add depth against the RCE itself.
 
 ## Phase 2 — Browser worker service (secretless, sandbox-on) — original design
 

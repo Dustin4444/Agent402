@@ -52,7 +52,7 @@ function expandV6(ip) {
   return out.some(Number.isNaN) ? null : out;
 }
 
-function isPrivateIp(ip) {
+export function isPrivateIp(ip) {
   if (!ip.includes(":")) return isPrivateV4(ip);
   if (ip.includes("%")) return true; // zone-scoped — never a global address
   const g = expandV6(ip.toLowerCase());

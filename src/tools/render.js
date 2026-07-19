@@ -104,7 +104,14 @@ async function getBrowser() {
   if (!browserPromise) {
     browserPromise = import("playwright")
       .then(async ({ chromium }) => {
-        const browser = await chromium.launch({ args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+        // F04: when the worker starts a validating egress proxy (RENDER_EGRESS_
+        // PROXY_URL), route ALL Chromium traffic through it so DNS resolution +
+        // destination pinning happen in ONE place Chromium can't bypass. Unset
+        // (in-process) => no proxy; the render.js route guard still applies.
+        const launchArgs = ["--no-sandbox", "--disable-dev-shm-usage"];
+        const egressProxy = (process.env.RENDER_EGRESS_PROXY_URL || "").trim();
+        if (egressProxy) launchArgs.push(`--proxy-server=${egressProxy}`);
+        const browser = await chromium.launch({ args: launchArgs });
         // Self-heal: if Chromium dies (OOM, crash), the next call relaunches
         // instead of serving errors until the process restarts.
         browser.on("disconnected", () => {

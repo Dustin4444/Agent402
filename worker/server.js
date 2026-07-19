@@ -14,6 +14,7 @@ import express from "express";
 import { timingSafeEqual } from "node:crypto";
 import { renderArticle, screenshotPage } from "../src/tools/render.js";
 import { MEDIA_TOOLS } from "../src/tools/media-kit.js";
+import { startEgressProxy } from "./egress-proxy.js";
 
 const PORT = Number(process.env.PORT) || 3999;
 const TOKEN = (process.env.RENDER_WORKER_TOKEN || "").trim();
@@ -71,6 +72,13 @@ app.post("/call", async (req, res) => {
 // Only start listening when run directly (not when imported by a test).
 const isMain = process.argv[1] && process.argv[1].endsWith("worker/server.js");
 if (isMain) {
+  // F04: start the validating + pinning egress proxy and point Chromium at it,
+  // so the browser can't resolve/connect to a private/metadata/railway.internal
+  // destination even under DNS rebinding. Set before the first render (Chromium
+  // launches lazily and reads RENDER_EGRESS_PROXY_URL then).
+  const proxy = await startEgressProxy();
+  process.env.RENDER_EGRESS_PROXY_URL = proxy.url;
+  console.log(`[worker] egress proxy (F04 validate+pin) on ${proxy.url}`);
   // Bind IPv6 `::` (dual-stack) so Railway PRIVATE networking can reach the
   // worker at <service>.railway.internal (its private mesh is IPv6-only).
   app.listen(PORT, "::", () => console.log(`[worker] secretless browser/media worker on :${PORT} — tools: ${Object.keys(HANDLERS).join(", ")}`));

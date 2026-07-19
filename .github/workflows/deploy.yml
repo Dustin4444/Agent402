@@ -825,6 +825,9 @@ jobs:
       - name: Secretless worker isolation (F02/F04/F06 — worker auth/dispatch, client round-trip, secret-guard refuses to boot with a payment secret — offline)
         run: node scripts/test-worker-isolation.js
 
+      - name: Egress proxy validate+pin (F04 — proxy refuses CONNECT to loopback/RFC1918/metadata/ULA; Chromium can't rebind to a private dest — offline)
+        run: node scripts/test-egress-proxy.js
+
       - name: E2B cost/output caps (F12 — aggregate UTF-8 output truncation + global sandbox concurrency ceiling — offline)
         run: node scripts/test-code-run-caps.js
 
