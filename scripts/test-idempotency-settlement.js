@@ -12,9 +12,24 @@
 //
 //   node scripts/test-idempotency-settlement.js
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log(`${c ? "ok" : "FAIL"} - ${m}`); };
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+// Same-class as FR4-01: the LLM-gateway prompt/embeddings cache must ALSO commit
+// only after settlement. The handlers now stash on req.__deferredCache and the
+// route binder commits on a final 200 (an e2e needs upstream keys; lock the wiring).
+{
+  const gw = readFileSync(join(ROOT, "src", "tools", "llm-gateway-kit.js"), "utf8");
+  const srv = readFileSync(join(ROOT, "src", "server.js"), "utf8");
+  ok(/req\.__deferredCache \?\?= \[\]\)\.push\(w\)/.test(gw) && (gw.match(/__deferredCache/g) || []).length >= 2, "gateway chat+embeddings handlers STASH the cache write on req.__deferredCache (not a direct pre-settlement write)");
+  ok(/res\.on\("finish", \(\) => \{[\s\S]*?if \(res\.statusCode !== 200\) return;[\s\S]*?req\.__deferredCache/.test(srv), "route binder commits req.__deferredCache only on a final 200 (post-settlement)");
+}
+
 const PORT = 3959;
 const BASE = `http://127.0.0.1:${PORT}`;
 

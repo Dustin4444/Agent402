@@ -111,7 +111,7 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // x402 settles before the handler, so a listed-but-broken route charges
 // buyers for 502s (no route -> no 402 -> no charge). The upstream WAS
@@ -3104,11 +3104,20 @@ for (const tool of ALL_KIT) {
       // paywall settled; never cached (idempotency hooks res.json only).
       if (result && typeof result.__sse === "function") { await result.__sse(res); return; }
 
-      // Cache successful, non-error JSON responses. Errors are never cached —
-      // an upstream blip shouldn't poison the key for the whole TTL.
-      if (cacheKey && result && typeof result === "object" && !result.error) {
-        cacheSet(cacheKey, result, cachePolicy.ttl || 300).catch(() => {});
-      }
+      // Cache successful, non-error JSON responses — but ONLY after settlement.
+      // @x402/express settles AFTER the handler and rewrites a settlement-failure
+      // into a 402, so committing here (pre-settlement) would let an UNSETTLED
+      // response be served free on a byte-identical repeat (same class as
+      // FR4-01). Commit on res.on("finish") when the FINAL status is 200. This
+      // covers both the generic route cache AND the LLM-gateway prompt/embeddings
+      // cache (handlers stash their write on req.__deferredCache).
+      res.on("finish", () => {
+        if (res.statusCode !== 200) return;
+        if (cacheKey && result && typeof result === "object" && !result.error) {
+          cacheSet(cacheKey, result, cachePolicy.ttl || 300).catch(() => {});
+        }
+        for (const w of req.__deferredCache || []) { try { promptCacheStore(w.key, w.body); } catch { /* cache is best-effort */ } }
+      });
       res.json(result);
     } catch (err) {
       errored = true;

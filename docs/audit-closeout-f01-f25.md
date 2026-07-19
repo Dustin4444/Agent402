@@ -139,3 +139,4 @@ ordering"). Several fixes below follow from that.
 | FR4-12 | Low | **Fixed** — worker `isMain` uses resolved-path compare (Windows-safe) | `worker/server.js` |
 | FR4-13 | Low | **Accepted** — CSP `unsafe-inline` (see F22). |
 | FR4-14 | Low | **Owner action** — GitHub ruleset / env / DNS evidence (see F01/F17/F25). |
+| FR4-15 | Low | **Fixed (self-found)** — the LLM-gateway prompt/embeddings cache also wrote pre-settlement (same class as FR4-01); now deferred to a final-200 commit via `req.__deferredCache` | `src/server.js` binder, `src/tools/llm-gateway-kit.js` |
