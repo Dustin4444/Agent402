@@ -114,5 +114,19 @@ if (oc) {
   ok(typeof oc.check({ symbol: "AAPL" }) === "string", "options-chain leg check rejects a chain-less response");
 }
 
+// The render leg is the only one that exercises the secretless browser/media
+// worker (F02/F04/F06) on the paid path — lock it so it can't silently drop.
+// Its advertised price ($0.02) lives in src/server.js's catalog (not a *_TOOLS
+// export this test imports), so the price is pinned as a literal here.
+const rn = legFor("/api/render");
+ok(!!rn, "canary has a render leg (exercises the secretless browser/media worker)");
+if (rn) {
+  ok(rn.method === "POST" && !!rn.body?.url, "render leg POSTs a { url } body to /api/render");
+  ok(rn.priceUsd === 0.02, `render leg priceUsd (${rn?.priceUsd}) matches the advertised $0.02`);
+  ok(rn.check({ rendered: true, title: "Example Domain", markdown: "# Example Domain\nThis domain is for use in illustrative examples." }) === true, "render leg check accepts the documented happy-path shape");
+  ok(typeof rn.check({ rendered: false }) === "string", "render leg check rejects a non-rendered response");
+  ok(typeof rn.check({ rendered: true, title: "Something Else", markdown: "x" }) === "string", "render leg check rejects an unexpected page (title mismatch)");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
