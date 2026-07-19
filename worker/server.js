@@ -71,7 +71,9 @@ app.post("/call", async (req, res) => {
 // Only start listening when run directly (not when imported by a test).
 const isMain = process.argv[1] && process.argv[1].endsWith("worker/server.js");
 if (isMain) {
-  app.listen(PORT, () => console.log(`[worker] secretless browser/media worker on :${PORT} — tools: ${Object.keys(HANDLERS).join(", ")}`));
+  // Bind IPv6 `::` (dual-stack) so Railway PRIVATE networking can reach the
+  // worker at <service>.railway.internal (its private mesh is IPv6-only).
+  app.listen(PORT, "::", () => console.log(`[worker] secretless browser/media worker on :${PORT} — tools: ${Object.keys(HANDLERS).join(", ")}`));
 }
 
 export { app, HANDLERS, tokenOk, FORBIDDEN_ENV };
