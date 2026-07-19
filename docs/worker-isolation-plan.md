@@ -126,6 +126,25 @@ longer do its own resolution, so the validate-then-rebind TOCTOU is gone.
 Verified by `scripts/test-egress-proxy.js` (blocks loopback / RFC1918 / metadata
 / ULA at both the resolver and the live CONNECT).
 
+**Hardening from adversarial review (2026-07-19):**
+- The boot guard was an incomplete *denylist* (12 names) while the app reads 30+
+  secret env vars. It is now a **pattern-based fail-closed guard**
+  (`KEY|SECRET|TOKEN|MNEMONIC|PRIVATE|PASSWORD|CREDENTIAL` + a short list of
+  non-pattern secrets), so an unlisted secret like `GITHUB_TOKEN`/`E2B_API_KEY`
+  now blocks boot too. Enforced only at boot (isMain), never on import, so a
+  CI/test process with its own `GITHUB_TOKEN` can still import the module.
+  Railway's health-gated rollout means a false positive fails the *new* deploy
+  while the old worker keeps serving — no outage.
+- `/call` auth now **fails closed**: `tokenOk` denies when no token is
+  configured, and the worker refuses to boot without `RENDER_WORKER_TOKEN`, so a
+  missing-token misconfig can't leave the endpoint open on the private mesh.
+- Tool dispatch uses `Object.hasOwn(HANDLERS, slug)` so a slug like
+  `constructor`/`toString` can't resolve to an inherited prototype function.
+- Chromium is launched with `--proxy-bypass-list=<-loopback>` so loopback and
+  link-local literals (incl. `169.254.169.254`) ALSO traverse the F04 validating
+  proxy, making it the single egress chokepoint rather than leaning on the
+  app-layer route guard for literal-IP metadata reach.
+
 **What remains the platform gap:** the Chromium **sandbox** (`--no-sandbox`) —
 that needs userns/seccomp Railway doesn't expose. Non-root + secretless + the
 egress proxy already remove the secret-theft and internal-pivot impact of a

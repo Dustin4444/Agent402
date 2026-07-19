@@ -175,6 +175,8 @@ import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool } from "./tools/route-execute.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
+import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
+import { bodyHashFor, createRenderCreditLedger } from "./render-credit.js";
 
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
 // per-IP bucket. PoW redemption on the direct HTTP path goes through here.
@@ -1028,8 +1030,16 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const waitlistHits = new Map(); // ip -> [timestamps]
 const WAITLIST_LIMIT = 5; // per IP per window
 const WAITLIST_WINDOW_MS = 60_000;
+// F21: an aggregate ceiling across ALL IPs — a distributed source (many
+// one-time IPs, each under the per-IP limit) must not mass-insert leads.
+const WAITLIST_GLOBAL_LIMIT = 60; // per WAITLIST_WINDOW_MS, across every IP
+const waitlistGlobal = makeWindowCounter(WAITLIST_WINDOW_MS, WAITLIST_GLOBAL_LIMIT);
+// F21: keep the per-IP map from growing without bound between the periodic
+// sweeps below when a burst of unique IPs arrives.
+const RL_MAP_MAX_KEYS = 5000;
 function waitlistRateOk(ip) {
   const now = Date.now();
+  if (waitlistHits.size > RL_MAP_MAX_KEYS) sweepStaleTsMap(waitlistHits, WAITLIST_WINDOW_MS, now);
   const arr = (waitlistHits.get(ip) || []).filter((t) => now - t < WAITLIST_WINDOW_MS);
   if (arr.length >= WAITLIST_LIMIT) {
     waitlistHits.set(ip, arr);
@@ -1050,6 +1060,11 @@ app.post("/api/tollbooth/waitlist", async (req, res) => {
   const ip = req.ip || "unknown";
   if (!waitlistRateOk(ip)) {
     return res.status(429).json({ ok: false, error: "rate-limited" });
+  }
+  // F21: aggregate ceiling — checked after the per-IP gate so a distributed
+  // flood of one-time IPs can't slip past the per-IP limit and mass-insert.
+  if (!waitlistGlobal.allow()) {
+    return res.status(429).json({ ok: false, error: "waitlist-busy" });
   }
   const b = req.body || {};
   // Honeypot: real form leaves `website` empty; bots fill every field.
@@ -1946,11 +1961,21 @@ app.get("/api/index", (_req, res) =>
 // per-route parser here would be a no-op — the global one already parsed the
 // body by the time this handler runs).
 const REG_WINDOW_MS = 3600_000;
-const regByIp = new Map();
+const regByIp = new Map(); // ip -> [timestamps]; global cap is regGlobal below
 let regGlobal = [];
+// F21: evict stale keys from the one-time-IP rate maps so distributed input
+// can't grow them without bound (the per-IP prune only fires when the SAME IP
+// returns). Mirrors the powChallengeHits / operatorSessions sweeps; the inline
+// size backstops above cover bursts between ticks.
+setInterval(() => {
+  const now = Date.now();
+  sweepStaleTsMap(waitlistHits, WAITLIST_WINDOW_MS, now);
+  sweepStaleTsMap(regByIp, REG_WINDOW_MS, now);
+}, 60_000);
 app.post("/api/index/register", async (req, res) => {
   const now = Date.now();
   const ip = req.ip || "?";
+  if (regByIp.size > RL_MAP_MAX_KEYS) sweepStaleTsMap(regByIp, REG_WINDOW_MS, now);
   const mine = (regByIp.get(ip) || []).filter((t) => now - t < REG_WINDOW_MS);
   if (mine.length >= 5) return res.status(429).json({ error: "rate limit: 5 submissions per hour per IP" });
   const v = validateOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
@@ -2678,6 +2703,67 @@ if (FREE_MODE) {
     next();
   });
 
+  // F13: idempotent durable credit for capacity-refused paid renders. x402
+  // settles BEFORE the handler, so a paid render/screenshot that then hits the
+  // bounded Chromium pool (503) was charged but not served — and the single-use
+  // nonce means a naive retry pays again. On such a refusal we mint a one-time
+  // credit TOKEN (256-bit bearer secret) returned only in that buyer's own 503
+  // response and bound to the exact request (route+body); a retry presenting the
+  // token via `X-Render-Credit` skips the gate below (served without a second
+  // charge) and the credit is consumed only on a successful delivery. The token
+  // is unguessable and handed only to the payer, so knowing a (public) wallet
+  // can't forge or steal it. Flagged OFF by default → billing is byte-identical
+  // until RENDER_CREDIT_ENABLED is set.
+  const RENDER_CREDIT_ENABLED = /^(1|true|yes|on)$/i.test((process.env.RENDER_CREDIT_ENABLED || "").trim());
+  const RENDER_CREDIT_SLUGS = new Set(["render", "screenshot"]); // the A402-08 bounded-pool tools
+  const renderCredits = createRenderCreditLedger();
+  if (RENDER_CREDIT_ENABLED) {
+    setInterval(() => renderCredits.prune(), 60_000).unref();
+    app.use((req, res, next) => {
+      const def = CATALOG[`${req.method} ${req.path}`];
+      if (!def || !RENDER_CREDIT_SLUGS.has(def.slug)) return next();
+      const meta = { route: `${req.method} ${req.originalUrl}`, bodyHash: bodyHashFor(req.body) };
+      // Retry path — ATOMIC single-use admission. claim() validates AND removes
+      // the token in one synchronous step, so a burst of concurrent retries with
+      // the same token can't each be served: only the first claim wins, the rest
+      // get false and fall through to the paywall. (A validate-then-consume-on-
+      // finish pattern would let N concurrent retries all pass before any one
+      // finished — the double-spend this closes.)
+      const token = req.header("x-render-credit");
+      const claimed = !!(token && renderCredits.claim(token, meta));
+      if (claimed) {
+        req.__renderCreditToken = token;
+        res.setHeader("X-Render-Credit-Replay", "true");
+      }
+      // A capacity 503 only reaches the handler AFTER the paywall passed, so a
+      // 503 on a request that carried a payment header means the buyer settled
+      // and was not served → mint a token. And if a CLAIMED credit didn't deliver
+      // (any non-2xx), give a fresh token BACK so the consumed-but-undelivered
+      // credit is never lost. The token rides the response headers (not yet
+      // flushed) so only the paying caller receives it. res.json is the error
+      // path for both render and screenshot; a screenshot SUCCESS uses res.send,
+      // so a delivered credit is never re-issued.
+      const paid = !!(req.header("x-payment") || req.header("payment-signature"));
+      if (paid || claimed) {
+        const origJson = res.json.bind(res);
+        res.json = (body) => {
+          const delivered = res.statusCode >= 200 && res.statusCode < 300;
+          const owe = !delivered && (claimed || (paid && res.statusCode === 503));
+          if (owe && !res.headersSent) {
+            const t = renderCredits.issue(meta);
+            res.setHeader("X-Render-Credit", t);
+            if (body && typeof body === "object" && !Array.isArray(body)) {
+              body = { ...body, renderCredit: t, renderCreditHint: "retry this exact request with header 'X-Render-Credit: <token>' to be served without paying again" };
+            }
+          }
+          return origJson(body);
+        };
+      }
+      next();
+    });
+    console.log("F13 render-credit ENABLED: a capacity-refused paid render returns an X-Render-Credit token; retry with it is served without a second charge");
+  }
+
   // Gate: for a compute-payable route, a valid proof-of-work bypasses the x402
   // paywall; otherwise the normal USDC paywall applies (and we advertise the
   // PoW alternative via a response header on its 402). PoW redemption is
@@ -2685,6 +2771,9 @@ if (FREE_MODE) {
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
   // on /mcp could keep hammering /api/* with fresh PoW solutions for free.
   app.use((req, res, next) => {
+    // F13: a valid pre-paid render credit token skips the whole gate (PoW, replay
+    // guard, and USDC paywall) — the buyer already paid for this exact render.
+    if (req.__renderCreditToken) return next();
     const slug = POW_ROUTES.get(`${req.method} ${req.path}`);
     if (slug) {
       const solution = req.header("x-pow-solution");
