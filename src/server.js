@@ -2723,22 +2723,33 @@ if (FREE_MODE) {
       const def = CATALOG[`${req.method} ${req.path}`];
       if (!def || !RENDER_CREDIT_SLUGS.has(def.slug)) return next();
       const meta = { route: `${req.method} ${req.originalUrl}`, bodyHash: bodyHashFor(req.body) };
-      // Retry path: a valid token for THIS exact request bypasses the gate.
+      // Retry path — ATOMIC single-use admission. claim() validates AND removes
+      // the token in one synchronous step, so a burst of concurrent retries with
+      // the same token can't each be served: only the first claim wins, the rest
+      // get false and fall through to the paywall. (A validate-then-consume-on-
+      // finish pattern would let N concurrent retries all pass before any one
+      // finished — the double-spend this closes.)
       const token = req.header("x-render-credit");
-      if (token && renderCredits.valid(token, meta)) {
+      const claimed = !!(token && renderCredits.claim(token, meta));
+      if (claimed) {
         req.__renderCreditToken = token;
         res.setHeader("X-Render-Credit-Replay", "true");
       }
       // A capacity 503 only reaches the handler AFTER the paywall passed, so a
       // 503 on a request that carried a payment header means the buyer settled
-      // and was not served. Mint the token INTO that 503 response (headers not
-      // yet flushed) so only the paying caller receives it. res.json is the
-      // error path for both render and screenshot.
+      // and was not served → mint a token. And if a CLAIMED credit didn't deliver
+      // (any non-2xx), give a fresh token BACK so the consumed-but-undelivered
+      // credit is never lost. The token rides the response headers (not yet
+      // flushed) so only the paying caller receives it. res.json is the error
+      // path for both render and screenshot; a screenshot SUCCESS uses res.send,
+      // so a delivered credit is never re-issued.
       const paid = !!(req.header("x-payment") || req.header("payment-signature"));
-      if (paid && !req.__renderCreditToken) {
+      if (paid || claimed) {
         const origJson = res.json.bind(res);
         res.json = (body) => {
-          if (res.statusCode === 503 && !res.headersSent) {
+          const delivered = res.statusCode >= 200 && res.statusCode < 300;
+          const owe = !delivered && (claimed || (paid && res.statusCode === 503));
+          if (owe && !res.headersSent) {
             const t = renderCredits.issue(meta);
             res.setHeader("X-Render-Credit", t);
             if (body && typeof body === "object" && !Array.isArray(body)) {
@@ -2748,13 +2759,6 @@ if (FREE_MODE) {
           return origJson(body);
         };
       }
-      res.on("finish", () => {
-        // Consume a used credit only on successful delivery; a repeated 503 keeps
-        // it for another retry.
-        if (req.__renderCreditToken && res.statusCode >= 200 && res.statusCode < 300) {
-          renderCredits.consume(req.__renderCreditToken);
-        }
-      });
       next();
     });
     console.log("F13 render-credit ENABLED: a capacity-refused paid render returns an X-Render-Credit token; retry with it is served without a second charge");

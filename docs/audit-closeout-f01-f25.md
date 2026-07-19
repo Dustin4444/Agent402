@@ -76,16 +76,20 @@ billing is byte-identical until enabled. On a capacity refusal (503) of a
 256-bit bearer secret) returned only in that buyer's own 503 response
 (`X-Render-Credit` header + JSON `renderCredit`), bound to the exact request
 (route + body). A retry presenting the token via `X-Render-Credit` skips the gate
-(PoW + replay guard + USDC paywall) and is served without a second charge; the
-credit is consumed only on successful delivery and survives repeated 503s for
-another retry. 10-minute TTL, FIFO-capped.
+(PoW + replay guard + USDC paywall) and is served once; if that retry also fails,
+a fresh token is re-issued so the paid credit is never lost. 10-minute TTL,
+FIFO-capped.
 
-Security: the token is unguessable and is delivered only to the paying caller, so
-knowing a (public) wallet cannot forge or steal it; it is bound to route+body so
-it can't be spent on a different or costlier render. Verified live that a forged
-token still 402s (no free bypass). Unit-tested (`scripts/test-render-credit.js`,
-21 cases: single-use, forgery/cross-request rejection, TTL expiry,
-capacity-refusal persistence, eviction).
+Security (adversarially reviewed): the token is unguessable and delivered only to
+the paying caller, so knowing a (public) wallet cannot forge or steal it; it is
+bound to route+body so it can't be spent on a different or costlier render;
+verified live that a forged token still 402s. **Single-use is enforced atomically
+at admission** via `claim()` (validate-and-remove in one synchronous step), NOT a
+validate-now/consume-on-finish pattern — so a burst of concurrent retries with
+the same token can't each be served (the earlier draft had that double-spend; the
+test now asserts exactly one of 100 concurrent claims wins). Unit-tested
+(`scripts/test-render-credit.js`, 24 cases: atomic single-use / no double-spend,
+forgery + cross-request rejection, TTL, re-issue on failed delivery, eviction).
 
 **To turn it on (owner, after review):** set `RENDER_CREDIT_ENABLED=true` on the
 main Railway service. Rollback = unset it (billing reverts, no data). Approach A

@@ -17,25 +17,41 @@ const OTHER_ROUTE = { route: "GET /api/screenshot?url=x", bodyHash: META.bodyHas
   ok(bodyHashFor(undefined) === "-" && bodyHashFor({}) === "-", "empty/absent body → '-' sentinel");
 }
 
-// --- issue / valid / single-use consume ------------------------------------
+// --- issue / valid (read-only) ---------------------------------------------
 {
   const L = createRenderCreditLedger({ ttlMs: 1000 });
   const tok = L.issue(META, 0);
   ok(typeof tok === "string" && tok.length >= 43, "issue returns the bearer token");
   ok(L.valid(tok, META, 0) === true, "the token is valid for the exact request it was issued for");
-  ok(L.consume(tok, 0) === true, "consume reports the live credit");
-  ok(L.valid(tok, META, 0) === false, "single-use — token is gone after consume");
-  ok(L.consume(tok, 0) === false, "a consumed token cannot be spent again (no double-spend)");
+  ok(L.valid(tok, META, 0) === true, "valid() is read-only — it does NOT consume (so admission must use claim())");
 }
 
-// --- forgery / cross-request resistance ------------------------------------
+// --- ATOMIC claim: this is what closes the double-spend --------------------
+{
+  const L = createRenderCreditLedger({ ttlMs: 10_000 });
+  const tok = L.issue(META, 0);
+  // Simulate a concurrent burst: every retry validates before any finishes, but
+  // admission goes through claim(), which removes the token on the FIRST call.
+  ok(L.claim(tok, META, 0) === true, "first concurrent retry claims the credit");
+  ok(L.claim(tok, META, 0) === false, "a second concurrent retry with the same token is refused (no double-spend)");
+  ok(L.claim(tok, META, 0) === false, "and a third — one paid credit yields exactly one delivery");
+  // 100 racers, one token:
+  const L2 = createRenderCreditLedger({ ttlMs: 10_000 });
+  const t2 = L2.issue(META, 0);
+  let wins = 0;
+  for (let i = 0; i < 100; i++) if (L2.claim(t2, META, 0)) wins++;
+  ok(wins === 1, "exactly ONE of 100 concurrent claims of the same token succeeds");
+}
+
+// --- claim: forgery / cross-request resistance (and no consume on mismatch) -
 {
   const L = createRenderCreditLedger({ ttlMs: 1000 });
   const tok = L.issue(META, 0);
-  ok(L.valid("not-a-real-token", META, 0) === false, "a guessed/forged token is rejected");
-  ok(L.valid(tok, OTHER_BODY, 0) === false, "a valid token cannot be spent on a DIFFERENT body (no upgrade to another render)");
-  ok(L.valid(tok, OTHER_ROUTE, 0) === false, "a valid token cannot be spent on a DIFFERENT route");
-  ok(L.valid(null, META, 0) === false && L.valid(undefined, META, 0) === false, "missing token → not valid");
+  ok(L.claim("not-a-real-token", META, 0) === false, "a guessed/forged token is rejected");
+  ok(L.claim(tok, OTHER_BODY, 0) === false, "a token cannot be claimed for a DIFFERENT body");
+  ok(L.claim(tok, OTHER_ROUTE, 0) === false, "a token cannot be claimed for a DIFFERENT route");
+  ok(L.claim(tok, META, 0) === true, "the mismatched attempts did NOT consume the credit — it is still claimable for its real request");
+  ok(L.claim(null, META, 0) === false && L.claim(undefined, META, 0) === false, "missing token → not claimable");
 }
 
 // --- TTL expiry ------------------------------------------------------------
@@ -43,19 +59,21 @@ const OTHER_ROUTE = { route: "GET /api/screenshot?url=x", bodyHash: META.bodyHas
   const L = createRenderCreditLedger({ ttlMs: 1000 });
   const tok = L.issue(META, 0);
   ok(L.valid(tok, META, 999) === true, "valid within the TTL");
-  ok(L.valid(tok, META, 1000) === false, "expires at the TTL boundary");
-  const tok2 = L.issue(META, 0);
-  ok(L.consume(tok2, 5000) === false, "consuming past the TTL reports false (expired)");
+  ok(L.claim(tok, META, 1000) === false, "cannot claim at/after the TTL boundary (expired)");
+  const tok2 = L.issue(META, 2000);
+  ok(L.claim(tok2, META, 7000) === false, "claiming past the TTL reports false (expired)");
 }
 
-// --- capacity refusal: survives repeated 503, consumed only on success -----
+// --- capacity refusal: a failed pre-paid retry re-issues, success does not --
 {
   const L = createRenderCreditLedger({ ttlMs: 10_000 });
   const tok = L.issue(META, 0);            // paid call 503'd -> token minted
-  ok(L.valid(tok, META, 100) === true, "retry #1 sees the credit (would bypass the paywall)");
-  ok(L.valid(tok, META, 200) === true, "credit persists across a repeated capacity refusal");
-  ok(L.consume(tok, 300) === true, "retry #2 succeeds -> credit consumed exactly once");
-  ok(L.valid(tok, META, 400) === false, "no free renders after the one paid delivery");
+  ok(L.claim(tok, META, 100) === true, "retry #1 claims the credit (bypasses the paywall)");
+  // retry #1 ALSO 503s -> the server re-issues a fresh token; the OLD one is dead
+  ok(L.claim(tok, META, 150) === false, "the claimed token is dead even though delivery failed (server re-issues a new one)");
+  const tok2 = L.issue(META, 200);         // server's re-issue on the failed retry
+  ok(L.claim(tok2, META, 300) === true, "retry #2 with the re-issued token succeeds -> consumed");
+  ok(L.claim(tok2, META, 400) === false, "no free renders after the one paid delivery");
 }
 
 // --- FIFO eviction at capacity ---------------------------------------------

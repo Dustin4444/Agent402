@@ -110,7 +110,15 @@ async function getBrowser() {
         // (in-process) => no proxy; the render.js route guard still applies.
         const launchArgs = ["--no-sandbox", "--disable-dev-shm-usage"];
         const egressProxy = (process.env.RENDER_EGRESS_PROXY_URL || "").trim();
-        if (egressProxy) launchArgs.push(`--proxy-server=${egressProxy}`);
+        if (egressProxy) {
+          launchArgs.push(`--proxy-server=${egressProxy}`);
+          // Chromium implicitly bypasses the proxy for loopback + link-local
+          // literals (incl. the 169.254.169.254 metadata IP). "<-loopback>"
+          // removes that implicit bypass so those ALSO traverse the validating
+          // proxy — making the proxy the single egress chokepoint rather than
+          // relying on the app-layer route guard for literal-IP metadata reach.
+          launchArgs.push('--proxy-bypass-list=<-loopback>');
+        }
         const browser = await chromium.launch({ args: launchArgs });
         // Self-heal: if Chromium dies (OOM, crash), the next call relaunches
         // instead of serving errors until the process restarts.

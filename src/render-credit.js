@@ -30,6 +30,7 @@ export function mintCreditToken() {
 export function createRenderCreditLedger({ ttlMs = 10 * 60 * 1000, maxEntries = 5000 } = {}) {
   const store = new Map(); // token -> { route, bodyHash, at }
   const live = (e, now) => !!e && now - e.at < ttlMs;
+  const matches = (e, meta) => e.route === meta.route && e.bodyHash === meta.bodyHash;
   return {
     // Record a credit for a settled-but-refused render; returns the bearer token.
     // A caller-supplied token is only for deterministic tests.
@@ -39,18 +40,26 @@ export function createRenderCreditLedger({ ttlMs = 10 * 60 * 1000, maxEntries = 
       return token;
     },
     // True iff there is a LIVE credit for this token AND it was issued for this
-    // exact request (route + body). Lazily drops an expired token.
+    // exact request (route + body). Read-only; lazily drops an expired token.
     valid(token, meta, now = Date.now()) {
       if (!token || typeof token !== "string") return false;
       const e = store.get(token);
       if (!live(e, now)) { if (e) store.delete(token); return false; }
-      return e.route === meta.route && e.bodyHash === meta.bodyHash;
+      return matches(e, meta);
     },
-    // Single-use: delete and report whether a LIVE credit was present.
-    consume(token, now = Date.now()) {
+    // ATOMIC single-use admission: validate AND remove in one synchronous step.
+    // Returns true iff a LIVE credit for this exact request existed (now consumed).
+    // This is what closes the double-spend: concurrent retries presenting the same
+    // token race here — only the FIRST claim removes it and returns true; every
+    // other gets false and falls through to the paywall. A non-matching request
+    // does NOT consume the credit. Use this at gate admission, never `valid`.
+    claim(token, meta, now = Date.now()) {
+      if (!token || typeof token !== "string") return false;
       const e = store.get(token);
+      if (!live(e, now)) { if (e) store.delete(token); return false; }
+      if (!matches(e, meta)) return false;
       store.delete(token);
-      return live(e, now);
+      return true;
     },
     prune(now = Date.now()) {
       for (const [t, e] of store) if (!live(e, now)) store.delete(t);
