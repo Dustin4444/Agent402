@@ -63,6 +63,24 @@ export const TOOLS = [
     check: (r) => (typeof r.yr10 === "number" && r.yr10 > 0 && r.yr10 < 25) || `expected yr10 in (0, 25), got ${JSON.stringify(r).slice(0, 80)}`,
   },
   {
+    // Browser render — the ONE canary leg that exercises the secretless
+    // browser/media worker (F02/F04/F06). When RENDER_WORKER_URL is set on the
+    // API service, /api/render dispatches over the private network to the
+    // isolated worker, which runs Chromium behind the F04 validate+pin egress
+    // proxy and returns extracted markdown. A 200 here proves the live
+    // main->worker hop + Chromium render + extraction end-to-end on the paid
+    // path; a worker outage 5xx's, which the canary treats as an upstream
+    // warning (payment settles pre-handler), not a buying break. example.com is
+    // IANA-reserved and renders a stable "Example Domain" title, so the
+    // assertion is deterministic.
+    kit: "render",
+    path: "/api/render",
+    method: "POST",
+    body: { url: "https://example.com" },
+    priceUsd: 0.02,
+    check: (r) => (r.rendered === true && /Example Domain/i.test(r.title || "") && `${r.markdown || ""}${r.excerpt || ""}`.length > 0) || `expected rendered:true + title "Example Domain" + some content, got ${JSON.stringify(r).slice(0, 140)}`,
+  },
+  {
     // Federal-data pack (NHTSA vPIC). Deterministic VIN -> fixed vehicle, the
     // same assertion src/selfcheck.js enforces. A real Base settlement also
     // seeds the new gov tools into settlement-driven indexes (x402scan surfaces
