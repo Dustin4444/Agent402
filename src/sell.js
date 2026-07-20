@@ -133,7 +133,7 @@ export function sellPage(baseUrl, { leaderboardSnapshot, indexSnapshot } = {}) {
 <!-- SETTLEMENT RAILS — chain logo strip -->
 <div style="border-bottom:1.5px solid var(--ink);background:var(--paper);">
   <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
-    ${chainLogoStrip({ label: "List once - settle in your wallet on any of these eight networks" })}
+    ${chainLogoStrip({ label: "List once - settle in your wallet on any of these nine networks" })}
   </div>
 </div>
 

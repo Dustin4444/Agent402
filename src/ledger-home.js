@@ -258,7 +258,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   <!-- SETTLEMENT RAILS — chain logo strip -->
   <div style="border-bottom:1.5px solid var(--ink);background:var(--paper);">
     <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
-      ${chainLogoStrip({ label: "Settles natively on eight networks - USDC on seven chains plus USDG on Robinhood" })}
+      ${chainLogoStrip({ label: "Settles natively on nine networks - USDC on eight chains plus USDG on Robinhood" })}
     </div>
   </div>
 
