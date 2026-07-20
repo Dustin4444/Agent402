@@ -30,15 +30,58 @@ if (!PATH || !PATH.startsWith("/")) {
   console.error('usage: BURNER_KEY=0x… node scripts/paid-demo.js --path "/api/…" [--method GET] [--body json] [--chain eip155:…] [--out file.json]');
   process.exit(1);
 }
-const pk = (process.env.BURNER_KEY || "").trim();
-if (!pk) { console.error("paid-demo: no BURNER_KEY — cannot buy"); process.exit(1); }
-
-const [{ privateKeyToAccount }, { x402Client, x402HTTPClient }, { registerExactEvmScheme }] = await Promise.all([
-  import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"),
-]);
-const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
+// Chain-namespace signer dispatch — same signer setups as the paid canary's
+// per-rail legs, so any chain the canary can prove, a demo can capture.
+// Each rail registers ONLY its own scheme, so the payment can never silently
+// settle on a different accept than the pinned one.
+const { x402Client, x402HTTPClient } = await import("@x402/core/client");
 const client = new x402Client();
-registerExactEvmScheme(client, { signer: account });
+let payerAddress;
+if (CHAIN.startsWith("eip155:")) {
+  const pk = (process.env.BURNER_KEY || "").trim();
+  if (!pk) { console.error("paid-demo: no BURNER_KEY — cannot buy on an EVM chain"); process.exit(1); }
+  const [{ privateKeyToAccount }, { registerExactEvmScheme }] = await Promise.all([
+    import("viem/accounts"), import("@x402/evm/exact/client"),
+  ]);
+  const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
+  registerExactEvmScheme(client, { signer: account });
+  payerAddress = account.address;
+} else if (CHAIN.startsWith("solana:")) {
+  const raw = (process.env.SOLANA_BURNER_KEY || "").trim();
+  if (!raw) { console.error("paid-demo: no SOLANA_BURNER_KEY — cannot buy on Solana"); process.exit(1); }
+  const [{ registerExactSvmScheme }, kit] = await Promise.all([
+    import("@x402/svm/exact/client"), import("@solana/kit"),
+  ]);
+  const bytes = raw.startsWith("[") ? Uint8Array.from(JSON.parse(raw)) : new Uint8Array(kit.getBase58Encoder().encode(raw));
+  const signer = await kit.createKeyPairSignerFromBytes(bytes);
+  registerExactSvmScheme(client, { signer });
+  payerAddress = signer.address;
+} else if (CHAIN.startsWith("stellar:")) {
+  const secret = (process.env.STELLAR_BURNER_SECRET || "").trim();
+  if (!secret) { console.error("paid-demo: no STELLAR_BURNER_SECRET — cannot buy on Stellar"); process.exit(1); }
+  const [{ ExactStellarScheme }, sdk] = await Promise.all([
+    import("@x402/stellar/exact/client"), import("@stellar/stellar-sdk"),
+  ]);
+  const keypair = sdk.Keypair.fromSecret(secret);
+  const signer = { address: keypair.publicKey(), ...sdk.contract.basicNodeSigner(keypair, sdk.Networks.PUBLIC) };
+  const rpcUrl = (process.env.STELLAR_RPC_URL || "https://mainnet.sorobanrpc.com").trim();
+  client.register("stellar:*", new ExactStellarScheme(signer, { url: rpcUrl }));
+  payerAddress = keypair.publicKey();
+} else if (CHAIN.startsWith("algorand:")) {
+  const mnemonic = (process.env.ALGORAND_BURNER_MNEMONIC || "").trim();
+  if (!mnemonic) { console.error("paid-demo: no ALGORAND_BURNER_MNEMONIC — cannot buy on Algorand"); process.exit(1); }
+  const [{ ExactAvmScheme }, { toClientAvmSigner }, algosdk] = await Promise.all([
+    import("@x402/avm/exact/client"), import("@x402/avm"), import("algosdk"),
+  ]);
+  const account = algosdk.mnemonicToSecretKey(mnemonic);
+  const signer = toClientAvmSigner(Buffer.from(account.sk).toString("base64"));
+  const algodUrl = (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim();
+  client.register("algorand:*", new ExactAvmScheme(signer, { algodUrl }));
+  payerAddress = account.addr.toString();
+} else {
+  console.error(`paid-demo: unsupported chain namespace "${CHAIN}"`);
+  process.exit(1);
+}
 const http = new x402HTTPClient(client);
 
 const reqInit = {
@@ -73,7 +116,7 @@ const quote = {
   amount: accepts[0].amount ?? accepts[0].maxAmountRequired,
   usd: Number(accepts[0].amount ?? accepts[0].maxAmountRequired) / 1e6,
 };
-console.log(`→ HTTP 402 · quote $${quote.usd} on ${quote.network} (payer ${account.address})`);
+console.log(`→ HTTP 402 · quote $${quote.usd} on ${quote.network} (payer ${payerAddress})`);
 
 const payload = await client.createPaymentPayload({ ...paymentRequired, accepts });
 const payHeaders = http.encodePaymentSignatureHeader(payload);

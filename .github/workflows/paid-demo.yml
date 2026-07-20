@@ -42,19 +42,24 @@ jobs:
         # Same pinning + lifecycle-script hygiene as the paid canary (audit
         # R-07): no wallet secrets in scope here, --ignore-scripts everywhere,
         # @x402/* pinned to the server's protocol version (2.16).
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/core@2.16.0 @x402/evm@2.16.0 @x402/svm@2.16.0 @x402/stellar@2.17.0 @stellar/stellar-sdk@16.0.1 @solana/kit@5.5.1 viem@2.52.2
       - name: Buy the tool (real funds, pinned chain)
-        # Wallet secret scoped to THIS step only (audit R-07). Inputs ride env
-        # vars, never shell interpolation (same rule as announce.yml's text).
+        # Wallet secrets scoped to THIS step only (audit R-07) — only the one
+        # matching the pinned chain's namespace is read by the script. Inputs
+        # ride env vars, never shell interpolation (same rule as announce.yml).
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          SOLANA_BURNER_KEY: ${{ secrets.SOLANA_BURNER_KEY }}
+          STELLAR_BURNER_SECRET: ${{ secrets.STELLAR_BURNER_SECRET }}
+          ALGORAND_BURNER_MNEMONIC: ${{ secrets.ALGORAND_BURNER_MNEMONIC }}
           DEMO_PATH: ${{ inputs.path }}
           DEMO_METHOD: ${{ inputs.method }}
           DEMO_BODY: ${{ inputs.body }}
           DEMO_CHAIN: ${{ inputs.chain }}
         run: |
-          [ -n "$BURNER_KEY" ] || { echo "No BURNER_KEY secret — cannot run."; exit 1; }
-          echo "::add-mask::$BURNER_KEY"
+          for v in BURNER_KEY SOLANA_BURNER_KEY STELLAR_BURNER_SECRET ALGORAND_BURNER_MNEMONIC; do
+            [ -n "${!v}" ] && echo "::add-mask::${!v}"
+          done
           ARGS=(--path "$DEMO_PATH" --method "$DEMO_METHOD" --chain "$DEMO_CHAIN" --out paid-demo-result.json)
           [ -n "$DEMO_BODY" ] && ARGS+=(--body "$DEMO_BODY")
           node scripts/paid-demo.js "${ARGS[@]}"
