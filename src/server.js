@@ -71,6 +71,7 @@ import { GOV_TOOLS } from "./tools/gov-kit.js";
 import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
 import { AGENT_TOOLS } from "./tools/agent-kit.js";
+import { SAMPLE_AGENT_CARD } from "./tools/a2a-card.js";
 import { BARCODE_TOOLS } from "./tools/barcode-kit.js";
 import { DATA_TOOLS } from "./tools/data-kit.js";
 import { IMAGE_TOOLS } from "./tools/image-kit.js";
@@ -924,6 +925,13 @@ app.get("/v1/models", (_req, res) => {
 // 5-minute in-module cache makes this safe to expose unpaywalled.
 app.get("/api/gateway-status", async (_req, res) => {
   res.set("Cache-Control", "public, max-age=60").json(await gatewayCreditsStatus());
+});
+// Static SAMPLE A2A Agent Card — the self-answering example target for the
+// a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
+// A2A descriptor for this server: Agent402 speaks x402+MCP, and advertising an
+// A2A endpoint we don't serve would be a false discovery surface.
+app.get("/samples/a2a-agent-card.json", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=3600").json(SAMPLE_AGENT_CARD);
 });
 app.get("/.well-known/glama.json", (_req, res) => {
   const email = process.env.GLAMA_MAINTAINER_EMAIL || "mike@agent402.tools";
