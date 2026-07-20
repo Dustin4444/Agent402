@@ -60,6 +60,10 @@ on:
         description: "Optional id of a post to quote (tweet.js --quote). Free-tier X API only allows quoting your own or mentioning posts; otherwise embed the post URL in the text and pass force."
         required: false
         default: ""
+      reply_to:
+        description: "Optional id of a post to reply to (tweet.js --reply-to) - threads the new post under it. Own posts only on the free tier."
+        required: false
+        default: ""
       force:
         description: "Pass tweet.js --force to skip the local 280-char guard (raw length overcounts URLs, which X weights at 23 chars)."
         required: false
@@ -152,6 +156,8 @@ jobs:
           ARGS=(--file "$FILE")
           QUOTE="${{ github.event.inputs.quote }}"
           [ -n "$QUOTE" ] && ARGS+=(--quote "$QUOTE")
+          REPLY_TO="${{ github.event.inputs.reply_to }}"
+          [ -n "$REPLY_TO" ] && ARGS+=(--reply-to "$REPLY_TO")
           [ -n "${{ github.event.inputs.force }}" ] && ARGS+=(--force)
           if [ -n "$MEDIA" ]; then
             case "$MEDIA" in

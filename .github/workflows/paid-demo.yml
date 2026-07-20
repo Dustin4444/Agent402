@@ -1,0 +1,65 @@
+name: Paid demo buy
+
+# One REAL paid buy of a named tool over a pinned chain, for announcement demo
+# cards ("real output, never a fixture" — see scripts/paid-demo.js). Prints the
+# quote, full result JSON, and settle receipt to the job log and uploads the
+# capture as an artifact for the card renderer. Costs whatever the tool costs
+# (dust — from the same funded test burner as the paid canary).
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: "Tool path incl. query, e.g. /api/company-financials?ticker=NVDA"
+        required: true
+      method:
+        description: "HTTP method"
+        required: false
+        default: "GET"
+      body:
+        description: "JSON body for POST tools (empty for GET)"
+        required: false
+        default: ""
+      chain:
+        description: "Pinned CAIP-2 chain to pay on (must be among the live accepts)"
+        required: false
+        default: "eip155:8453"
+
+permissions:
+  contents: read
+
+jobs:
+  buy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_URL: https://agent402.tools
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Install x402 client
+        # Same pinning + lifecycle-script hygiene as the paid canary (audit
+        # R-07): no wallet secrets in scope here, --ignore-scripts everywhere,
+        # @x402/* pinned to the server's protocol version (2.16).
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
+      - name: Buy the tool (real funds, pinned chain)
+        # Wallet secret scoped to THIS step only (audit R-07). Inputs ride env
+        # vars, never shell interpolation (same rule as announce.yml's text).
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          DEMO_PATH: ${{ inputs.path }}
+          DEMO_METHOD: ${{ inputs.method }}
+          DEMO_BODY: ${{ inputs.body }}
+          DEMO_CHAIN: ${{ inputs.chain }}
+        run: |
+          [ -n "$BURNER_KEY" ] || { echo "No BURNER_KEY secret — cannot run."; exit 1; }
+          echo "::add-mask::$BURNER_KEY"
+          ARGS=(--path "$DEMO_PATH" --method "$DEMO_METHOD" --chain "$DEMO_CHAIN" --out paid-demo-result.json)
+          [ -n "$DEMO_BODY" ] && ARGS+=(--body "$DEMO_BODY")
+          node scripts/paid-demo.js "${ARGS[@]}"
+      - name: Upload capture
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: paid-demo-result
+          path: paid-demo-result.json
