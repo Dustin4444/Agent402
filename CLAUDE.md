@@ -175,14 +175,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
-- **Paid canary (`scripts/paid-canary.js`):** 30 legs — tools across chains
+- **Paid canary (`scripts/paid-canary.js`):** 31 legs — tools across chains
   (Base/Solana/Polygon/Arbitrum/Monad/Celo/Stellar/Robinhood), incl. two federal-data legs
   (vin-decode / geo-lookup) whose Base settlements also seed the gov tools into
   settlement-driven indexes like x402scan, plus llm-nano (failover), llm-stream
   (`raw:true`, asserts SSE `data:`…`[DONE]`), llm-auto (model-less request must carry the
   `agent402_router` disclosure), llm-embed + embed-cache (default-on free repeat,
   per-run nonce input), llm-image (real b64_json payload >10k chars), my-usage
-  (self-referential history), route-exec (receipt + digest), prompt-cache (pays once,
+  (self-referential history), supply-chain (address-profile: the daily two-settlement proof — canary pays us, prod's spending wallet pays Blockscout upstream), route-exec (receipt + digest), prompt-cache (pays once,
   identical unpaid repeat must be 200 + `X-Cache: hit`), and **render** (the only leg
   that exercises the secretless browser/media worker — a paid `example.com` render must
   return `rendered:true` + a stable "Example Domain" title, proving the live main→worker

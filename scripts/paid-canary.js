@@ -249,6 +249,20 @@ export const TOOLS = [
     check: (t) => (typeof t === "string" && t.length > 5_000) || `expected raw audio bytes, got ${String(t).length} chars`,
   },
   {
+    // Supply-chain leg — the catalog's first PAID x402 UPSTREAM (blockscout-kit).
+    // One canary buy = two settlements: canary → us on Base, then prod's
+    // spending wallet → Blockscout ($0.002). Proves daily that the upstream
+    // wallet is funded, Blockscout's paywall still interops, and the margin
+    // guard + provenance mark survive on prod. Self-referential input: the
+    // treasury wallet's own Base profile (stable, always a verified contract).
+    kit: "supply-chain",
+    path: "/api/address-profile",
+    method: "POST",
+    body: { chain: "base", address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0" },
+    priceUsd: 0.005,
+    check: (r) => (r.address === "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0" && typeof r.isContract === "boolean" && r.untrustedContent === true) || `expected treasury profile with untrustedContent, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Route-and-execute — the SOR's executing surface. Dispatches internally
     // to /api/hash; a real digest in the receipt-bearing envelope proves the
     // resolve → guard → dispatch → receipt chain on prod.
