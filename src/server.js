@@ -71,6 +71,8 @@ import { GOV_TOOLS } from "./tools/gov-kit.js";
 import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
 import { AGENT_TOOLS } from "./tools/agent-kit.js";
+import { SAMPLE_AGENT_CARD } from "./tools/a2a-card.js";
+import { BLOCKSCOUT_TOOLS, upstreamBuyerStatus } from "./tools/blockscout-kit.js";
 import { BARCODE_TOOLS } from "./tools/barcode-kit.js";
 import { DATA_TOOLS } from "./tools/data-kit.js";
 import { IMAGE_TOOLS } from "./tools/image-kit.js";
@@ -170,7 +172,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool } from "./tools/route-execute.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
@@ -923,7 +925,18 @@ app.get("/v1/models", (_req, res) => {
 // calls into charged-but-failed 503s. Numbers never leave the server; the
 // 5-minute in-module cache makes this safe to expose unpaywalled.
 app.get("/api/gateway-status", async (_req, res) => {
-  res.set("Cache-Control", "public, max-age=60").json(await gatewayCreditsStatus());
+  // Top-level fields stay the OpenRouter gateway status (heartbeat reads
+  // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
+  // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
+  const [gateway, upstreamBuyer] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus()]);
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer });
+});
+// Static SAMPLE A2A Agent Card — the self-answering example target for the
+// a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
+// A2A descriptor for this server: Agent402 speaks x402+MCP, and advertising an
+// A2A endpoint we don't serve would be a false discovery surface.
+app.get("/samples/a2a-agent-card.json", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=3600").json(SAMPLE_AGENT_CARD);
 });
 app.get("/.well-known/glama.json", (_req, res) => {
   const email = process.env.GLAMA_MAINTAINER_EMAIL || "mike@agent402.tools";
@@ -3190,6 +3203,13 @@ app.use((err, req, res, _next) => {
 const httpServer = app.listen(PORT, () =>
   console.log(`Agent402 listening on :${PORT} with ${Object.keys(CATALOG).length} paid tools`)
 );
+
+// Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot is
+// stale-while-revalidate, but a COLD cache makes the first post-deploy visitor
+// await a full 9-rail scan. Pre-warming removes that one latency hole — a
+// failed warmup is harmless (the request path falls back to today's behavior).
+// Skipped in FREE_MODE/CI boots where no wallet is configured.
+if (WALLET_ADDRESS) revenueSnapshot(revenueWallets()).catch(() => { /* warm-up only */ });
 
 // All-time revenue ledger sync loop — self-gates on /data (prod volume) or
 // REVENUE_LEDGER=true, so test/CI boots never touch public RPCs.

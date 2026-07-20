@@ -3,6 +3,7 @@
 // JSONL <-> array conversion. All pure-CPU (proof-of-work eligible), no network,
 // no LLM in the serving path. Covered by scripts/test-agent-kit.js.
 import { compileUserRegex } from "./safe-regex.js";
+import { validateAgentCard, SAMPLE_AGENT_CARD } from "./a2a-card.js";
 
 function bad(message) {
   const err = new Error(message);
@@ -212,6 +213,27 @@ export const AGENT_TOOLS = [
       const errors = [];
       validateNode(i.data, schema, "", errors);
       return { valid: errors.length === 0, errors };
+    },
+  },
+  {
+    route: "POST /api/a2a-card-validate", name: "A2A Agent Card validate", slug: "a2a-card-validate", category: "data", price: "$0.002",
+    description:
+      "Validate an A2A (Agent2Agent protocol) Agent Card: required fields, skill shape, transport names, capability flags — spec v0.3 structural core. Returns errors, interop warnings, and a normalized summary (skills, interfaces, capabilities). Deterministic mini-A2A tooling — check a card before your agent trusts it.",
+    tags: ["a2a", "minia2a", "agent2agent", "agent-card", "validate", "interop", "protocol", "agents"],
+    discovery: {
+      bodyType: "json",
+      input: { card: SAMPLE_AGENT_CARD },
+      inputSchema: {
+        properties: { card: { type: "object", description: "the Agent Card JSON (object or JSON string)" } },
+        required: ["card"],
+      },
+      output: { example: { valid: true, errors: [], warnings: [], summary: { name: "Sample Weather Agent", skillCount: 1 } } },
+    },
+    handler: (i) => {
+      if (!("card" in i)) throw bad('Missing "card"');
+      const card = parseMaybeJson(i.card, "card");
+      if (typeof card === "string") throw bad('"card" must be a JSON object');
+      return validateAgentCard(card);
     },
   },
   {

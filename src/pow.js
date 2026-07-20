@@ -86,6 +86,10 @@ export const WALLET_ONLY_SLUGS = new Set([
   // Network-kit: every tool hits an external resolver (DNS via 1.1.1.1/8.8.8.8/
   // 9.9.9.9) or a paid upstream (crt.sh, target site, Team Cymru). PoW would
   // let one client farm our egress; keep them wallet-only.
+  "a2a-card-fetch",
+  // Blockscout kit: every call BUYS upstream data over x402 with the server's
+  // spending wallet — PoW would let one client drain the upstream buyer.
+  "contract-inspect", "address-profile",
   "dns-lookup", "dns-propagation", "spf-check", "dmarc-check", "dkim-lookup", "email-deliverability",
   "cert-transparency", "http-headers", "tech-stack", "asn-info",
   // x402 payments toolkit — kept off the free connector (paid surface only).

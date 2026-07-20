@@ -28,6 +28,12 @@ const NETWORK = new Set([
   // Web-content kit: archive.org (archive-snapshot), caller feed URLs
   // (feed-parse), caller redirect chains (unshorten-url) — all live egress.
   "/api/archive-snapshot", "/api/feed-parse", "/api/unshorten-url",
+  // a2a-card-fetch: its example fetches the static sample card on PROD, which
+  // 404s on the CI run that first ships the route — lenient until deployed.
+  "/api/a2a-card-fetch",
+  // Blockscout kit: paid x402 upstream — 503 without X402_UPSTREAM_BUYER_KEY
+  // (CI boots keyless; the real path costs $0.002/call and is canary-class).
+  "/api/contract-inspect", "/api/address-profile",
   "/api/pdf-info", "/api/pdf-merge", "/api/pdf-extract-pages", "/api/pdf-rotate", "/api/images-to-pdf",
   "/api/pdf-to-markdown",
   "/api/media-info", "/api/audio-convert", "/api/audio-normalize",

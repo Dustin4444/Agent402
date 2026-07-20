@@ -73,6 +73,16 @@ const EVM_NETWORKS = {
     rpcs: [...alchemy("arb-mainnet"), "https://arb1.arbitrum.io/rpc", "https://arbitrum.llamarpc.com", "https://arbitrum.drpc.org"],
     spanBlocks: 90000, // ~6h at 0.25s blocks (address-filtered getLogs stays cheap)
   },
+  monad: {
+    usdc: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
+    rpcs: [...alchemy("monad-mainnet"), "https://rpc.monad.xyz", "https://rpc2.monad.xyz"],
+    spanBlocks: 43000, // ~6h at 0.5s blocks
+  },
+  celo: {
+    usdc: "0xceba9300f2b948710d2653dd7b07f33a8b32118c",
+    rpcs: [...alchemy("celo-mainnet"), "https://forno.celo.org"],
+    spanBlocks: 21600, // ~6h at 1s blocks
+  },
   // Robinhood Chain settles USDG (Global Dollar), not USDC — same 6 decimals,
   // same ERC-20 Transfer scan, so the field keeps the `usdc` name (it is
   // "the stablecoin contract to scan"); `token` fixes the log labels.

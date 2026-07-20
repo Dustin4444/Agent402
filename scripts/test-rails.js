@@ -49,6 +49,14 @@ ok(RAILS_SHORT.includes("USDG") && RAILS_SHORT.includes("Robinhood"), "RAILS_SHO
 ok(RAIL_CHAIN_NAMES.length === RAILS.length, "RAIL_CHAIN_NAMES covers every rail");
 ok(railsCoveredByLiveView(), "/revenue live view has a read-config for every rail — new rails can't be invisible there");
 
+// --- the daily revenue digest names every rail ----------------------------
+// The digest workflow (issue #199's daily body rewrite) carries its own rail
+// list; Monad and Celo were silently missing from it for days. Lock it to
+// rails.js so a new rail that skips the digest fails CI, not a human's memory.
+import { readFileSync } from "node:fs";
+const digestYml = readFileSync(new URL("../.github/workflows/revenue-digest.yml", import.meta.url), "utf8");
+for (const r of RAILS) ok(digestYml.includes(`"${r.name}"`), `revenue-digest.yml names ${r.name}`);
+
 // --- 2. live pages render the rails (opt-in via TARGET_URL) ---------------
 const TARGET = process.env.TARGET_URL;
 if (TARGET) {
