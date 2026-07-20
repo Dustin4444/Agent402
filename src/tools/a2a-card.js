@@ -91,6 +91,20 @@ export function validateAgentCard(card) {
   }
 
   const valid = errors.length === 0;
+  // Amplification bound: a hostile ~512KB card with thousands of malformed
+  // skills would otherwise emit one error string each. Cap both lists and say
+  // so — validity is judged on the FULL count above, never the capped view.
+  const MAX_REPORTED = 50;
+  if (errors.length > MAX_REPORTED) {
+    const dropped = errors.length - MAX_REPORTED;
+    errors.length = MAX_REPORTED;
+    errors.push(`… ${dropped} more error(s) truncated`);
+  }
+  if (warnings.length > MAX_REPORTED) {
+    const dropped = warnings.length - MAX_REPORTED;
+    warnings.length = MAX_REPORTED;
+    warnings.push(`… ${dropped} more warning(s) truncated`);
+  }
   const summary = {
     name: isStr(card.name) ? card.name : null,
     version: isStr(card.version) ? card.version : null,
