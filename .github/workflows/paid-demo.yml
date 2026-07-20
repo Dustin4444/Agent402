@@ -23,6 +23,10 @@ on:
         description: "Pinned CAIP-2 chain to pay on (must be among the live accepts)"
         required: false
         default: "eip155:8453"
+      target:
+        description: "Seller base URL - defaults to our prod; set to buy from an EXTERNAL x402 seller (ecosystem demos)"
+        required: false
+        default: "https://agent402.tools"
 
 permissions:
   contents: read
@@ -32,7 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TARGET_URL: https://agent402.tools
+      TARGET_URL: ${{ inputs.target || 'https://agent402.tools' }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
