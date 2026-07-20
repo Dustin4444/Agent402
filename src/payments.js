@@ -107,6 +107,13 @@ const MONAD_USDC = {
 // supplies both the asset and the correct signing domain.
 const CELO_CAIP2 = "eip155:42220";
 const CELO_FACILITATOR_URL = (process.env.CELO_FACILITATOR_URL || "https://api.x402.celo.org").trim();
+// The Celo facilitator's /supported and /verify are keyless, but /settle
+// requires an X-API-Key (observed live 2026-07-20: 401 "Missing X-API-Key";
+// their docs don't mention it yet). Keys are free + self-service: sign a
+// no-gas message with any wallet at https://x402.celo.org (POST /api/keys,
+// SIWE-style; key shown once, prefix x402_…; rotate on the same page). The
+// key is rate-limit/account identity only — settle is NOT payTo-bound.
+const CELO_FACILITATOR_KEY = (process.env.CELO_FACILITATOR_KEY || "").trim();
 const CELO_USDC = {
   asset: (process.env.CELO_USDC_ADDRESS || "0xcebA9300f2b948710d2653dD7B07f33A8B32118C").trim(),
   decimals: 6,
@@ -335,18 +342,27 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // added only when `celo` is enabled — PayAI/CDP don't advertise
   // eip155:42220, so without this client an offered Celo accept would make
   // EVERY 402 throw. It advertises only Celo, so it wins that route without
-  // disturbing the other rails. Same safety as Monad/Robinhood: if the URL is
-  // emptied, drop Celo from the offered networks rather than break all payments.
-  const celoEnabled = evmCaip2.includes(CELO_CAIP2) && !!CELO_FACILITATOR_URL;
-  if (evmCaip2.includes(CELO_CAIP2) && !CELO_FACILITATOR_URL) {
+  // disturbing the other rails. Same safety as Monad/Robinhood: if the URL or
+  // API key is missing, drop Celo from the offered networks rather than break
+  // payments — the key gate matters because verify is keyless but settle 401s
+  // without it, so a keyless Celo offer verifies fine and then bounces every
+  // buyer at settlement (never charged, but a dead rail dressed up as live).
+  const celoEnabled = evmCaip2.includes(CELO_CAIP2) && !!CELO_FACILITATOR_URL && !!CELO_FACILITATOR_KEY;
+  if (evmCaip2.includes(CELO_CAIP2) && !celoEnabled) {
     console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `celo` but CELO_FACILITATOR_URL is empty — " +
-        "dropping Celo from the offered networks (other chains unaffected)."
+      "WARNING: PAYMENT_NETWORKS enables `celo` but " +
+        (CELO_FACILITATOR_URL ? "CELO_FACILITATOR_KEY is unset — the facilitator's /settle requires an " +
+          "X-API-Key (free: sign a no-gas message at https://x402.celo.org)" : "CELO_FACILITATOR_URL is empty") +
+        " — dropping Celo from the offered networks (other chains unaffected)."
     );
     evmCaip2 = evmCaip2.filter((c) => c !== CELO_CAIP2);
   }
   if (celoEnabled) {
-    facilitatorClients.push(new HTTPFacilitatorClient({ url: CELO_FACILITATOR_URL }));
+    const celoAuthHeaders = { "X-API-Key": CELO_FACILITATOR_KEY };
+    facilitatorClients.push(new HTTPFacilitatorClient({
+      url: CELO_FACILITATOR_URL,
+      createAuthHeaders: async () => ({ verify: celoAuthHeaders, settle: celoAuthHeaders, supported: celoAuthHeaders }),
+    }));
     console.log(`Celo: settling USDC (${CELO_USDC.asset}) via facilitator ${CELO_FACILITATOR_URL}`);
   }
   let server = new x402ResourceServer(facilitatorClients)
