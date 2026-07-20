@@ -1,5 +1,5 @@
 // Chain logo marks — offline unit tests. No network. Verifies each of the
-// seven rails has a mark, the marks are single-tone (currentColor, no baked
+// nine rails has a mark, the marks are single-tone (currentColor, no baked
 // brand colors), and the trust strip links every chain to its marketplace page.
 //
 //   node scripts/test-chain-logos.js
@@ -11,10 +11,10 @@ const ok = (cond, msg) => {
   else { failed++; console.error(`FAIL - ${msg}`); }
 };
 
-const CHAINS = ["base", "solana", "polygon", "arbitrum", "monad", "stellar", "algorand", "robinhood"];
+const CHAINS = ["base", "solana", "polygon", "arbitrum", "monad", "celo", "stellar", "algorand", "robinhood"];
 
 // --- every rail has a mark, and it renders to an <svg> ---------------------------
-ok(CHAIN_ORDER.length === 8, `eight rails in CHAIN_ORDER (got ${CHAIN_ORDER.length})`);
+ok(CHAIN_ORDER.length === 9, `nine rails in CHAIN_ORDER (got ${CHAIN_ORDER.length})`);
 for (const c of CHAINS) {
   const svg = chainMark(c);
   ok(svg.startsWith("<svg") && svg.includes("viewBox=") && svg.endsWith("</svg>"), `${c}: renders a complete <svg>`);
@@ -40,7 +40,7 @@ for (const [slug, name] of CHAIN_ORDER) {
   ok(strip.includes(`href="/${slug}"`), `strip links /${slug}`);
   ok(strip.includes(`>${name}</span>`), `strip labels ${name}`);
 }
-ok((strip.match(/<svg/g) || []).length === 8, "strip renders exactly eight marks");
+ok((strip.match(/<svg/g) || []).length === 9, "strip renders exactly nine marks");
 ok(chainLogoStrip({ label: "Custom label here" }).includes("Custom label here"), "custom label flows through");
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);

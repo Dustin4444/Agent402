@@ -32,6 +32,13 @@ const EVM_NETWORKS = {
   // wired below) — PayAI/CDP do not advertise eip155:143. OPT-IN: offered only
   // when `monad` is listed in PAYMENT_NETWORKS.
   monad: "eip155:143",
+  // Celo (EVM L2, chain 42220). Native Circle USDC, but NOT in @x402/evm's
+  // built-in asset registry — and like Monad its on-chain EIP-712 name is
+  // "USDC" (verified via forno.celo.org 2026-07-20), so it uses the custom
+  // money parser + the Celo-operated facilitator wired below
+  // (api.x402.celo.org, keyless, advertises exact/eip155:42220). OPT-IN:
+  // offered only when `celo` is listed in PAYMENT_NETWORKS.
+  celo: "eip155:42220",
   "base-sepolia": "eip155:84532",
   // Robinhood Chain (Arbitrum Orbit L2, EVM-equivalent, AI-native RWA chain).
   // NOT in @x402/evm's built-in USDC registry, and settles a non-Circle
@@ -91,6 +98,28 @@ const MONAD_USDC = {
   name: (process.env.MONAD_USDC_EIP712_NAME || "USDC").trim(),
   version: (process.env.MONAD_USDC_EIP712_VERSION || "2").trim(),
 };
+// Celo (chain 42220) settles native Circle USDC via the Celo-operated
+// facilitator at api.x402.celo.org (keyless /supported verified 2026-07-20,
+// advertises exact/eip155:42220 at x402 v2). @x402/evm has no default asset
+// for 42220, and the on-chain EIP-712 name is "USDC" (not "USD Coin") —
+// verified via forno.celo.org: name()="USDC", version()="2", decimals=6,
+// EIP-3009 TRANSFER_WITH_AUTHORIZATION_TYPEHASH present — so a money parser
+// supplies both the asset and the correct signing domain.
+const CELO_CAIP2 = "eip155:42220";
+const CELO_FACILITATOR_URL = (process.env.CELO_FACILITATOR_URL || "https://api.x402.celo.org").trim();
+// The Celo facilitator's /supported and /verify are keyless, but /settle
+// requires an X-API-Key (observed live 2026-07-20: 401 "Missing X-API-Key";
+// their docs don't mention it yet). Keys are free + self-service: sign a
+// no-gas message with any wallet at https://x402.celo.org (POST /api/keys,
+// SIWE-style; key shown once, prefix x402_…; rotate on the same page). The
+// key is rate-limit/account identity only — settle is NOT payTo-bound.
+const CELO_FACILITATOR_KEY = (process.env.CELO_FACILITATOR_KEY || "").trim();
+const CELO_USDC = {
+  asset: (process.env.CELO_USDC_ADDRESS || "0xcebA9300f2b948710d2653dD7B07f33A8B32118C").trim(),
+  decimals: 6,
+  name: (process.env.CELO_USDC_EIP712_NAME || "USDC").trim(),
+  version: (process.env.CELO_USDC_EIP712_VERSION || "2").trim(),
+};
 const USDG = {
   asset: (process.env.ROBINHOOD_USDG_ADDRESS || "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168").trim(),
   decimals: 6,
@@ -125,6 +154,19 @@ function makeMonadUsdcScheme() {
       amount: convertToTokenAmount(numberToDecimalString(amount), MONAD_USDC.decimals),
       asset: MONAD_USDC.asset,
       extra: { name: MONAD_USDC.name, version: MONAD_USDC.version },
+    };
+  });
+}
+
+// Celo USDC with the CORRECT on-chain EIP-712 name ("USDC") and the asset
+// address @x402/evm's registry lacks. Same override mechanism as Monad.
+function makeCeloUsdcScheme() {
+  return new ExactEvmScheme().registerMoneyParser((amount, network) => {
+    if (String(network) !== CELO_CAIP2) return null;
+    return {
+      amount: convertToTokenAmount(numberToDecimalString(amount), CELO_USDC.decimals),
+      asset: CELO_USDC.asset,
+      extra: { name: CELO_USDC.name, version: CELO_USDC.version },
     };
   });
 }
@@ -296,12 +338,40 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     facilitatorClients.push(new HTTPFacilitatorClient({ url: MONAD_FACILITATOR_URL }));
     console.log(`Monad: settling USDC via facilitator ${MONAD_FACILITATOR_URL}`);
   }
+  // Celo (chain 42220 / USDC) settles through the Celo-operated facilitator,
+  // added only when `celo` is enabled — PayAI/CDP don't advertise
+  // eip155:42220, so without this client an offered Celo accept would make
+  // EVERY 402 throw. It advertises only Celo, so it wins that route without
+  // disturbing the other rails. Same safety as Monad/Robinhood: if the URL or
+  // API key is missing, drop Celo from the offered networks rather than break
+  // payments — the key gate matters because verify is keyless but settle 401s
+  // without it, so a keyless Celo offer verifies fine and then bounces every
+  // buyer at settlement (never charged, but a dead rail dressed up as live).
+  const celoEnabled = evmCaip2.includes(CELO_CAIP2) && !!CELO_FACILITATOR_URL && !!CELO_FACILITATOR_KEY;
+  if (evmCaip2.includes(CELO_CAIP2) && !celoEnabled) {
+    console.warn(
+      "WARNING: PAYMENT_NETWORKS enables `celo` but " +
+        (CELO_FACILITATOR_URL ? "CELO_FACILITATOR_KEY is unset — the facilitator's /settle requires an " +
+          "X-API-Key (free: sign a no-gas message at https://x402.celo.org)" : "CELO_FACILITATOR_URL is empty") +
+        " — dropping Celo from the offered networks (other chains unaffected)."
+    );
+    evmCaip2 = evmCaip2.filter((c) => c !== CELO_CAIP2);
+  }
+  if (celoEnabled) {
+    const celoAuthHeaders = { "X-API-Key": CELO_FACILITATOR_KEY };
+    facilitatorClients.push(new HTTPFacilitatorClient({
+      url: CELO_FACILITATOR_URL,
+      createAuthHeaders: async () => ({ verify: celoAuthHeaders, settle: celoAuthHeaders, supported: celoAuthHeaders }),
+    }));
+    console.log(`Celo: settling USDC (${CELO_USDC.asset}) via facilitator ${CELO_FACILITATOR_URL}`);
+  }
   let server = new x402ResourceServer(facilitatorClients)
     .registerExtension(bazaarResourceServerExtension)
     .registerExtension(builderCodeResourceServerExtension);
   for (const caip2 of evmCaip2) {
     const scheme = caip2 === ROBINHOOD_CAIP2 ? makeUsdgScheme()
       : caip2 === MONAD_CAIP2 ? makeMonadUsdcScheme()
+      : caip2 === CELO_CAIP2 ? makeCeloUsdcScheme()
       : new ExactEvmScheme();
     server = server.register(caip2, scheme);
   }

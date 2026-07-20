@@ -35,13 +35,14 @@ const CALL_TIMEOUT_MS = 45000; // a skill pack does real work; don't hang foreve
 
 // EVM chains to sweep, by CAIP-2. Robinhood settles USDG (not USDC); the money
 // parser + facilitator are server-side, so the accept carries the right asset
-// and the same signing path works. Monad USDC uses a custom EIP-712 name, also
-// carried in the accept. No RPC/chain object needed — we never read balances.
+// and the same signing path works. Monad and Celo USDC use a custom EIP-712
+// name, also carried in the accept. No RPC/chain object needed — we never read balances.
 const CHAINS = [
   { key: "base",      caip2: "eip155:8453" },
   { key: "arbitrum",  caip2: "eip155:42161" },
   { key: "polygon",   caip2: "eip155:137" },
   { key: "monad",     caip2: "eip155:143" },
+  { key: "celo",      caip2: "eip155:42220" },
   { key: "robinhood", caip2: "eip155:4663" },
 ];
 const TICKERS = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM"];

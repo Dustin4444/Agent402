@@ -152,6 +152,26 @@ export const CHAIN_PAGES = {
     canaryLine: "A paid canary buys tools over the Monad rail daily (facilitator: molandak) - uptime proven with real settlements, not pings.",
     sellParagraphHtml: `Accept the Monad CAIP-2 network (<code>eip155:143</code>) in your 402 challenge - the molandak facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
   },
+  celo: {
+    chainName: "Celo",
+    ticker: "CELO",
+    tickerLabel: "CELO · MAINNET",
+    caip2: "eip155:42220",
+    asset: "USDC",
+    settleLatency: "~1 second",
+    facilitatorLabel: "Celo",
+    gasNote: "sponsored",
+    explorerUrl: "celoscan.io",
+    explorerWalletUrl: (wallet) => `https://celoscan.io/address/${wallet}#tokentxns`,
+    networkParam: "celo",
+    acceptNetwork: "eip155:42220",
+    // Celo mainnet CAIP-2 is "eip155:42220"; Celo Sepolia is a different chain
+    // id ("eip155:11142220"), so an exact match can't be fooled by a testnet accept.
+    isNetwork: (n) => n === "eip155:42220",
+    honestyNetworkPhrase: "the Celo network",
+    canaryLine: "A paid canary buys tools over the Celo rail daily (facilitator: x402.celo.org) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Celo CAIP-2 network (<code>eip155:42220</code>) in your 402 challenge - the <a href="https://x402.celo.org" rel="noopener">Celo facilitator</a> verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+  },
   stellar: {
     chainName: "Stellar",
     ticker: "XLM",

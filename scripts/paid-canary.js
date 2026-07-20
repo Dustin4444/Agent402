@@ -608,7 +608,7 @@ async function main() {
     }
   })();
 
-  // Pinned EVM legs — Polygon + Arbitrum, same negotiation as the Robinhood
+  // Pinned EVM legs — Polygon, Arbitrum, Monad, Celo: same negotiation as the Robinhood
   // leg above (filter the live 402's accepts down to ONE CAIP-2 chain and pay
   // that, so settlement cannot silently fall back to Base). Same burner
   // address, funded with USDC on each chain. $0.001/day per rail keeps a
@@ -618,6 +618,7 @@ async function main() {
     { key: "polygon", caip2: "eip155:137", sym: "USDC", chainLabel: "Polygon", tx: (h) => `https://polygonscan.com/tx/${h}` },
     { key: "arbitrum", caip2: "eip155:42161", sym: "USDC", chainLabel: "Arbitrum", tx: (h) => `https://arbiscan.io/tx/${h}` },
     { key: "monad", caip2: "eip155:143", sym: "USDC", chainLabel: "Monad", tx: (h) => `https://monadscan.com/tx/${h}` },
+    { key: "celo", caip2: "eip155:42220", sym: "USDC", chainLabel: "Celo", tx: (h) => `https://celoscan.io/tx/${h}` },
   ]) {
     try {
       const { x402HTTPClient } = await import("@x402/core/client");
