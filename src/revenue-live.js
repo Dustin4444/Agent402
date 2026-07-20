@@ -294,9 +294,16 @@ async function evmRail(name, wallet) {
   const out = { rail: c.label, asset: c.asset, wallet: wallet || null, explorer: wallet ? c.explorer(wallet) : null, balance: null, recent: [], error: null, scanNote: null };
   if (!wallet) { out.error = "WALLET_ADDRESS unset"; return out; }
   try {
-    const balHex = await rpcCall(c.rpcs, "eth_call", [{ to: c.token, data: "0x70a08231" + pad(wallet).slice(2) }, "latest"]);
+    // Cheap head-state calls (balance, block number) go publics-first: any free
+    // RPC serves them, so Alchemy compute units are reserved for the chunked
+    // historical eth_getLogs below, where publics genuinely fail (c.rpcs keeps
+    // Alchemy first there). rpcCall walks the list on error, so a flaky public
+    // still falls through to Alchemy — and this all runs in the background
+    // refresh, never on a visitor's request path.
+    const cheapRpcs = [...c.rpcs.filter((u) => !u.includes("alchemy")), ...c.rpcs.filter((u) => u.includes("alchemy"))];
+    const balHex = await rpcCall(cheapRpcs, "eth_call", [{ to: c.token, data: "0x70a08231" + pad(wallet).slice(2) }, "latest"]);
     out.balance = Number(BigInt(balHex && balHex !== "0x" ? balHex : "0x0")) / 1e6;
-    const latest = parseInt(await rpcCall(c.rpcs, "eth_blockNumber", []), 16);
+    const latest = parseInt(await rpcCall(cheapRpcs, "eth_blockNumber", []), 16);
     const { recent, missed, chunks } = await recentInbound(c, wallet, latest);
     out.recent = recent;
     out.externalUsd = Number(recent.filter((t) => t.external).reduce((s, t) => s + t.usd, 0).toFixed(6));
@@ -923,8 +930,17 @@ function persistLastGood(rails) {
     if (keep.length) writeFileSync(LASTGOOD_PATH, JSON.stringify({ asOf: new Date().toISOString(), rails: keep }));
   } catch { /* persistence must never break the snapshot */ }
 }
+// Snapshot freshness. 10 minutes (was 60s): the refresh fans out ~100 chunked
+// eth_getLogs across six EVM rails, and crawler traffic on the marketplace/
+// revenue pages kept the 60s cache permanently warm — ~1,440 full scans/day,
+// the dominant driver of the Alchemy compute-unit bill. Visitor latency is
+// UNAFFECTED (stale-while-revalidate below serves the cached object instantly
+// and refreshes in the background); only the card's freshness changes, on a
+// surface that already labels carried-forward data "live · cached". Env
+// override for ops experiments.
+const SNAPSHOT_TTL_MS = parseInt(process.env.REVENUE_SNAPSHOT_TTL_MS, 10) || 10 * 60_000;
 export async function revenueSnapshot(opts) {
-  if (cached && Date.now() - cachedAt < 60_000) return cached;
+  if (cached && Date.now() - cachedAt < SNAPSHOT_TTL_MS) return cached;
   if (!refreshing) {
     refreshing = refreshSnapshot(opts)
       .catch(() => cached) // a failed scan keeps serving the last snapshot

@@ -3199,6 +3199,13 @@ const httpServer = app.listen(PORT, () =>
   console.log(`Agent402 listening on :${PORT} with ${Object.keys(CATALOG).length} paid tools`)
 );
 
+// Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot is
+// stale-while-revalidate, but a COLD cache makes the first post-deploy visitor
+// await a full 9-rail scan. Pre-warming removes that one latency hole — a
+// failed warmup is harmless (the request path falls back to today's behavior).
+// Skipped in FREE_MODE/CI boots where no wallet is configured.
+if (WALLET_ADDRESS) revenueSnapshot(revenueWallets()).catch(() => { /* warm-up only */ });
+
 // All-time revenue ledger sync loop — self-gates on /data (prod volume) or
 // REVENUE_LEDGER=true, so test/CI boots never touch public RPCs.
 startRevenueLedger({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null, algorandWallet: (process.env.ALGORAND_WALLET_ADDRESS || "").trim() || null });
