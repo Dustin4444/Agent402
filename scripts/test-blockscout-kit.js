@@ -55,5 +55,10 @@ let threw = null;
 try { await profile.handler({ chain: "base", address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0" }); } catch (e) { threw = e; }
 ok(threw?.statusCode === 503 && /X402_UPSTREAM_BUYER_KEY/.test(threw?.message || ""), "keyless → 503 naming the missing config");
 
+// --- upstream buyer status (keyless → unconfigured, never throws) ----------
+const { upstreamBuyerStatus } = await import("../src/tools/blockscout-kit.js");
+const st = await upstreamBuyerStatus();
+ok(st.configured === false && st.status === "unconfigured", "keyless upstreamBuyerStatus → unconfigured");
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

@@ -45,7 +45,7 @@ Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operatin
 `/api/gateway-status` (bucketed OpenRouter-balance status — "ok"/"low"/"unknown"/
 "unconfigured", numbers never exposed, 5-min cache; heartbeat opens a "Gateway
 credits LOW" issue on "low" — threshold `OPENROUTER_LOW_CREDITS_USD`, default $5,
-because /v1 settles before the handler and an empty balance = charged-but-failed).
+because /v1 settles before the handler and an empty balance = charged-but-failed; response also carries `upstreamBuyer` — the x402 spending wallet's bucketed status, heartbeat opens "Upstream buyer wallet LOW (x402)" on low, threshold `UPSTREAM_BUYER_LOW_USD` default $0.50).
 
 ## Dev / CI / deploy workflow
 - **Develop on branch `claude/sweet-brown-i99jl3`.** `main` is protected (PR required, no force-push).

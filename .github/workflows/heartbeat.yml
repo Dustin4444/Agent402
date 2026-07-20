@@ -128,6 +128,28 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
           fi
 
+      # x402 spending-wallet check — same pattern as gateway credits above:
+      # when the upstream buyer wallet (blockscout-kit) runs dry the tools go
+      # dark quietly (502s, buyers never charged), so alarm on "low" first.
+      # "unknown"/"unconfigured" never page.
+      - name: Upstream buyer wallet check (alarm on low x402 spending balance)
+        if: always()
+        continue-on-error: true
+        run: |
+          STATUS=$(curl -s --max-time 15 "$PROD/api/gateway-status" | jq -r '.upstreamBuyer.status // "unknown"' 2>/dev/null || echo unknown)
+          echo "upstream buyer wallet: $STATUS"
+          TITLE="Upstream buyer wallet LOW (x402)"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$STATUS" = "low" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The x402 upstream spending wallet (X402_UPSTREAM_BUYER_KEY) behind the blockscout-kit tools is below the low-water mark (UPSTREAM_BUYER_LOW_USD, default \$0.50). When it empties, contract-inspect/address-profile fail 502 (buyers are never charged, but the tools go dark). Top up: send USDC on Base to the upstream buyer address (see CLAUDE.md env docs)."
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ)."
+            fi
+          elif [ "$STATUS" = "ok" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
+          fi
+
       - name: Alert (open issue) or clear (close issue)
         run: |
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Heartbeat: production DOWN"' --json number --jq '.[0].number // empty')

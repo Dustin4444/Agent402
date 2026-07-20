@@ -208,3 +208,50 @@ export const BLOCKSCOUT_TOOLS = [
     },
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Upstream-buyer balance status — the gateway-credits pattern (llm-gateway-kit
+// gatewayCreditsStatus) applied to the x402 SPENDING wallet: when it runs dry
+// the blockscout tools go dark quietly (buyers get 502s, never charged), so
+// the heartbeat alarms on "low" BEFORE that happens. Bucketed status only —
+// the balance number never leaves the server. 5-min cache; public-RPC read
+// with graceful "unknown" (an RPC flake must never page).
+const BASE_RPCS = ["https://mainnet.base.org", "https://base.llamarpc.com", "https://base.drpc.org"];
+const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const BUYER_LOW_USD = () => Number(process.env.UPSTREAM_BUYER_LOW_USD || "0.5");
+const BUYER_STATUS_CACHE_MS = 5 * 60_000;
+let buyerStatusCache = null;
+export async function upstreamBuyerStatus() {
+  const pk = (process.env.X402_UPSTREAM_BUYER_KEY || "").trim();
+  if (!pk) return { configured: false, status: "unconfigured" };
+  if (buyerStatusCache && Date.now() - buyerStatusCache.at < BUYER_STATUS_CACHE_MS) return buyerStatusCache.result;
+  let result;
+  try {
+    const { privateKeyToAccount } = await import("viem/accounts");
+    const address = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`).address;
+    const data = "0x70a08231" + address.slice(2).toLowerCase().padStart(64, "0");
+    let balance = null;
+    for (const rpc of BASE_RPCS) {
+      try {
+        const res = await fetch(rpc, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: USDC_BASE, data }, "latest"] }),
+          signal: AbortSignal.timeout(6000),
+        });
+        const j = await res.json();
+        if (typeof j.result === "string" && j.result.startsWith("0x")) {
+          balance = Number(BigInt(j.result === "0x" ? "0x0" : j.result)) / 1e6;
+          break;
+        }
+      } catch { /* walk the list */ }
+    }
+    result = balance == null
+      ? { configured: true, status: "unknown" }
+      : { configured: true, status: balance < BUYER_LOW_USD() ? "low" : "ok" };
+  } catch {
+    result = { configured: true, status: "unknown" };
+  }
+  buyerStatusCache = { at: Date.now(), result };
+  return result;
+}

@@ -72,7 +72,7 @@ import { GEO_TOOLS } from "./tools/geo-kit.js";
 import { OCR_TOOLS } from "./tools/ocr-kit.js";
 import { AGENT_TOOLS } from "./tools/agent-kit.js";
 import { SAMPLE_AGENT_CARD } from "./tools/a2a-card.js";
-import { BLOCKSCOUT_TOOLS } from "./tools/blockscout-kit.js";
+import { BLOCKSCOUT_TOOLS, upstreamBuyerStatus } from "./tools/blockscout-kit.js";
 import { BARCODE_TOOLS } from "./tools/barcode-kit.js";
 import { DATA_TOOLS } from "./tools/data-kit.js";
 import { IMAGE_TOOLS } from "./tools/image-kit.js";
@@ -925,7 +925,11 @@ app.get("/v1/models", (_req, res) => {
 // calls into charged-but-failed 503s. Numbers never leave the server; the
 // 5-minute in-module cache makes this safe to expose unpaywalled.
 app.get("/api/gateway-status", async (_req, res) => {
-  res.set("Cache-Control", "public, max-age=60").json(await gatewayCreditsStatus());
+  // Top-level fields stay the OpenRouter gateway status (heartbeat reads
+  // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
+  // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
+  const [gateway, upstreamBuyer] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus()]);
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
