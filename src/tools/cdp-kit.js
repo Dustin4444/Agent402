@@ -84,10 +84,18 @@ async function cdpFetch(method, path, body) {
   if (!keyId() || !keySecret()) {
     throw bad("This tool is temporarily unavailable: the operator has not configured Coinbase Developer Platform credentials (CDP_API_KEY_ID / CDP_API_KEY_SECRET).", 503);
   }
-  const ATTEMPTS = 3;
+  // Ride out a transient CDP-side blip (a 5xx from their indexer, a timeout)
+  // rather than surfacing it to the caller: 5 attempts with exponential +
+  // jittered backoff (~0.4s, 0.8s, 1.6s, 3.2s, capped 4s; ~6s total worst case).
+  // A shallow 3x/~0.9s retry once let a brief indexer hiccup fail a live check.
+  // Our-fault errors (4xx) still fail fast below — only 429/5xx/network retry.
+  const ATTEMPTS = 5;
   let lastErr;
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 300 * 2 ** (attempt - 1))); // 300ms, 600ms
+    if (attempt > 0) {
+      const backoff = Math.min(4000, 400 * 2 ** (attempt - 1));
+      await new Promise((r) => setTimeout(r, backoff + Math.floor(Math.random() * 250)));
+    }
     const jwt = await mintCdpJwt({ method, path });
     let res;
     try {
