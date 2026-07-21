@@ -20,8 +20,26 @@ import { createHash } from "node:crypto";
 import { findTools } from "../find.js";
 import { isIdentityBoundRoute } from "../payments.js";
 
-const EXEC_PRICE_USD = 0.01;
-const UNDERLYING_MAX_USD = 0.005;
+// Two execution tiers, both from buildRouteExecuteTool. The tier a buyer needs
+// is quoted by /api/route (routeExecuteHint below), so there's no guessing:
+//   route-execute      $0.01  — internal + external tools ≤ $0.005 (the cheap
+//                               path; unchanged for existing callers).
+//   route-execute-max  $0.55  — internal + external tools ≤ $0.50, the tier
+//                               that reaches the valuable external catalog.
+// External dispatch is the marketable half: run the task on OUR tool if we have
+// one, else pay the best EXTERNAL seller over x402 and relay — one call either
+// way. Spend is bounded (external only when we lack the tool) and gated on
+// SOR_EXTERNAL_ENABLED until a real external buy proves it.
+export const EXEC_TIERS = [
+  { slug: "route-execute", execPriceUsd: 0.01, underlyingMaxUsd: 0.005 },
+  { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
+];
+/** Which execution tier (if any) can run a tool at `underlyingUsd`, and the
+ *  price to pay it. Used by /api/route to quote the buyer the exact tier. */
+export function routeExecuteHint(underlyingUsd) {
+  const tier = EXEC_TIERS.find((t) => underlyingUsd <= t.underlyingMaxUsd);
+  return tier ? { tool: tier.slug, price: `$${tier.execPriceUsd}`, underlyingPriceUsd: underlyingUsd, routingFeeUsd: Number((tier.execPriceUsd - underlyingUsd).toFixed(6)) } : null;
+}
 
 // Optional recomputable call identity (issue #282): callRef = "sha256:" + hex
 // digest over the canonical preimage JSON.stringify({nonce, slug, ts}) — keys
@@ -74,16 +92,19 @@ function dispatchable(def) {
   return { ok: true };
 }
 
-export function buildRouteExecuteTool({ getCatalog, baseUrl = "" }) {
+export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TIERS[0], resolveExternal = null, payExternal = null, externalEnabled = () => false }) {
+  const EXEC_PRICE_USD = tier.execPriceUsd;
+  const UNDERLYING_MAX_USD = tier.underlyingMaxUsd;
+  const routeSuffix = tier.slug === "route-execute" ? "" : "-max";
   return {
-    route: "POST /api/route/execute",
-    name: "Route and execute",
-    slug: "route-execute",
+    route: `POST /api/route/execute${routeSuffix}`,
+    name: tier.slug === "route-execute" ? "Route and execute" : "Route and execute (max tier)",
+    slug: tier.slug,
     category: "agent",
     price: `$${EXEC_PRICE_USD}`,
     description:
-      `Describe a task (or name a slug) and the Smart Order Router resolves the best-matching tool and RUNS it in the same call — one flat $${EXEC_PRICE_USD} price covering any tool listed at $${UNDERLYING_MAX_USD} or less, receipt included. Skips the find-then-call round trip: one payment, one request, result + receipt. Pricier tools return a self-correcting 409 pointing at their direct route.`,
-    tags: ["router", "sor", "execute", "dispatch", "meta", "agent", "x402"],
+      `Describe a task (or name a slug) and the Smart Order Router resolves the best-matching tool and RUNS it in the same call — flat $${EXEC_PRICE_USD} covering any tool listed at $${UNDERLYING_MAX_USD} or less, from THIS host's catalog or any external x402 seller in the open index (paid over x402 on your behalf, result relayed). One payment, one request, result + receipt. /api/route quotes which tier a task needs; pricier tools return a self-correcting 409 with their direct route.`,
+    tags: ["router", "sor", "execute", "dispatch", "meta", "agent", "x402", ...(routeSuffix ? ["max-tier"] : [])],
     discovery: {
       bodyType: "json",
       input: { slug: "hash", params: { text: "agent402", algo: "sha256" } },
@@ -134,6 +155,49 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "" }) {
           if (toUsd(candidate.price) > cap) continue;
           def = candidate;
           break;
+        }
+        // EXTERNAL fallback: no internal tool matched within budget, so run
+        // the task on the best external x402 seller instead — one call, we pay
+        // them, relay the result. Internal-first bounds the spend (we only pay
+        // out for tools we DON'T have) and keeps trusted tools on the no-spend
+        // path. Gated on SOR_EXTERNAL_ENABLED + a wired resolver/payer until a
+        // real external buy proves it live.
+        if (!def && externalEnabled() && resolveExternal) {
+          const ext = await resolveExternal(input.task, { cap, baseUrl });
+          if (ext) {
+            const extUsd = toUsd(ext.price);
+            if (extUsd > 0 && extUsd <= cap && ext.url && Array.isArray(ext.networks) && ext.networks.includes("eip155:8453")) {
+              let paid;
+              try {
+                paid = await payExternal(ext.url, {
+                  method: (ext.method || "POST").toUpperCase(),
+                  body: params,
+                  maxAtomic: BigInt(Math.round(cap * 1e6)),
+                });
+              } catch (e) {
+                const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
+                throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
+              }
+              const ts = new Date().toISOString();
+              return {
+                receipt: {
+                  slug: ext.slug,
+                  route: `${ext.method || "POST"} ${ext.url}`,
+                  underlyingPriceUsd: paid.quote ? paid.quote.usd : extUsd,
+                  paidUsd: EXEC_PRICE_USD,
+                  routingFeeUsd: Number((EXEC_PRICE_USD - (paid.quote ? paid.quote.usd : extUsd)).toFixed(6)),
+                  seller: ext.seller,
+                  external: true,
+                  settleTx: paid.receipt?.transaction || null,
+                  resolvedBy: "task-external",
+                  ts,
+                  ...(callRefFrom(req, ext.slug, ts) ? { callRef: callRefFrom(req, ext.slug, ts) } : {}),
+                },
+                // External result is attacker-influenceable content — mark it.
+                result: (paid.result && typeof paid.result === "object" && !Array.isArray(paid.result)) ? { ...paid.result, untrustedContent: true } : paid.result,
+              };
+            }
+          }
         }
         if (!def) {
           throw bad(

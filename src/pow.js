@@ -97,6 +97,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "cert-transparency", "http-headers", "tech-stack", "asn-info",
   // x402 payments toolkit — kept off the free connector (paid surface only).
   "x402-quote", "usdc-balance", "tx-status", "gas-estimate", "x402-verify", "transfer-authorization", "ens-resolve", "x402-audit",
+  "route-execute-max", // external tier can spend upstream — wallet-only
   // x402-trending is the PAID ecosystem-analysis layer (momentum + organic-buyer
   // grade + week-over-week growth); the raw seller ranking stays free at
   // /api/leaderboard. Pay-only so the differentiated analysis is monetized.

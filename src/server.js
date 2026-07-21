@@ -176,7 +176,8 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
 const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
-import { buildRouteExecuteTool } from "./tools/route-execute.js";
+import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
+import { payX402 } from "./x402-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
@@ -601,12 +602,34 @@ for (const tool of SKILL_TOOLS) {
   ALL_KIT.push(tool); // so the route-binding loop below picks them up too
 }
 
-// Route-and-execute: the SOR's executing surface (internal dispatch v1).
-// Registered after the skill tools so its runtime catalog getter sees them.
-const ROUTE_EXECUTE_TOOL = buildRouteExecuteTool({ getCatalog: () => CATALOG, baseUrl: BASE_URL });
-if (CATALOG[ROUTE_EXECUTE_TOOL.route]) throw new Error(`Duplicate route: ${ROUTE_EXECUTE_TOOL.route}`);
-CATALOG[ROUTE_EXECUTE_TOOL.route] = ROUTE_EXECUTE_TOOL;
-ALL_KIT.push(ROUTE_EXECUTE_TOOL);
+// Route-and-execute: the SOR's executing surface. Internal dispatch always;
+// EXTERNAL dispatch (pay an indexed x402 seller on the buyer's behalf, relay
+// the result) is gated on SOR_EXTERNAL_ENABLED until a real external buy proves
+// it. resolveExternalSeller ranks the task with the index-aware routeQuery and
+// returns the top EXTERNAL, Base-payable, in-budget candidate (url/method/
+// price/networks) for payX402. Registered after the skill tools so the runtime
+// catalog getter sees them.
+const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL_ENABLED || "").trim());
+async function resolveExternalSeller(task, { cap }) {
+  const { results } = routeQuery({ query: task, top: 10, include: "external", ...indexCtx() });
+  for (const r of results || []) {
+    if (r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453")) {
+      return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks };
+    }
+  }
+  return null;
+}
+for (const tier of EXEC_TIERS) {
+  const tool = buildRouteExecuteTool({
+    getCatalog: () => CATALOG, baseUrl: BASE_URL, tier,
+    resolveExternal: resolveExternalSeller,
+    payExternal: (url, opts) => payX402(url, opts),
+    externalEnabled: () => SOR_EXTERNAL_ENABLED,
+  });
+  if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
+  CATALOG[tool.route] = tool;
+  ALL_KIT.push(tool);
+}
 
 // Security audit A402-03: the wallet-scoped memory family and the wallet-keyed
 // my-usage report derive the caller's identity from the SIGNED EVM

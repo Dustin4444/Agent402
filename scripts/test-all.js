@@ -34,6 +34,8 @@ const NETWORK = new Set([
   // Blockscout kit: paid x402 upstream — 503 without X402_UPSTREAM_BUYER_KEY
   // (CI boots keyless; the real path costs $0.002/call and is canary-class).
   "/api/contract-inspect", "/api/address-profile", "/api/token-info", "/api/token-holders", "/api/tx-inspect",
+  // route-execute-max: external tier may pay an upstream seller — lenient.
+  "/api/route/execute-max",
   // captcha-verify hits a live provider siteverify (egress) — lenient.
   "/api/captcha-verify",
   "/api/pdf-info", "/api/pdf-merge", "/api/pdf-extract-pages", "/api/pdf-rotate", "/api/images-to-pdf",

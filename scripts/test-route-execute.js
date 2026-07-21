@@ -137,5 +137,44 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   await expectErr({ slug: "memory-incr", params: {} }, 409, "memory-category tool refused pre-dispatch", "identity-bound");
 }
 
+// --- external dispatch (SOR external execution, flag-gated) ------------------
+{
+  const EXT = { seller: "https://ext.example", slug: "zk-prove", url: "https://ext.example/api/zk-prove", method: "POST", price: "$0.12", networks: ["eip155:8453"] };
+  let paidWith = null;
+  const payExternal = async (url, opts) => { paidWith = { url, opts }; return { result: { proof: "0xabc" }, quote: { usd: 0.12, network: "eip155:8453" }, receipt: { transaction: "0xTX", network: "eip155:8453" } }; };
+  const resolveExternal = async () => EXT;
+
+  // flag OFF: never resolves/pays external, returns 404 for an unmatched task
+  const off = buildRouteExecuteTool({ getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 }, resolveExternal, payExternal, externalEnabled: () => false });
+  let threw = null;
+  try { await off.handler({ task: "xyzzy nonexistent qqzz gibberish nomatch" }, {}); } catch (e) { threw = e; }
+  ok(threw && threw.statusCode === 404 && paidWith === null, "external OFF: unmatched task 404s, never pays");
+
+  // flag ON: pays the external seller, relays result + receipt, marks untrusted
+  paidWith = null;
+  const on = buildRouteExecuteTool({ getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 }, resolveExternal, payExternal, externalEnabled: () => true });
+  const r = await on.handler({ task: "xyzzy nonexistent qqzz gibberish nomatch", params: { circuit: "c" } }, {});
+  ok(paidWith?.url === EXT.url && paidWith.opts.method === "POST" && paidWith.opts.body.circuit === "c", "external ON: pays the resolved seller url with the params body");
+  ok(paidWith.opts.maxAtomic === 500000n, "external ON: margin cap passed as atomic (cap $0.50 → 500000)");
+  ok(r.receipt.seller === EXT.seller && r.receipt.external === true && r.receipt.settleTx === "0xTX", "external receipt carries seller + external flag + settle tx");
+  ok(r.receipt.underlyingPriceUsd === 0.12 && r.receipt.paidUsd === 0.55, "external receipt shows underlying (from live quote) vs paid tier");
+  ok(r.result.proof === "0xabc" && r.result.untrustedContent === true, "external result relayed + marked untrustedContent");
+
+  // over-cap external is refused (not paid): resolver returns a $0.60 tool > $0.50 cap
+  paidWith = null;
+  const pricey = buildRouteExecuteTool({ getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 }, resolveExternal: async () => ({ ...EXT, price: "$0.60" }), payExternal, externalEnabled: () => true });
+  let t2 = null;
+  try { await pricey.handler({ task: "xyzzy nonexistent qqzz gibberish nomatch" }, {}); } catch (e) { t2 = e; }
+  ok(t2 && t2.statusCode === 404 && paidWith === null, "external over-cap: refused, never pays");
+}
+
+// routeExecuteHint quotes the right tier per underlying price
+{
+  const { routeExecuteHint } = await import("../src/tools/route-execute.js");
+  ok(routeExecuteHint(0.003)?.tool === "route-execute", "$0.003 → route-execute tier");
+  ok(routeExecuteHint(0.12)?.tool === "route-execute-max", "$0.12 → route-execute-max tier");
+  ok(routeExecuteHint(0.9) === null, "$0.90 → no tier (above max)");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
