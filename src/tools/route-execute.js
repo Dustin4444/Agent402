@@ -178,8 +178,15 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // payments (a 4xx cancels their settlement — they are not charged).
           // Internal routing stays available on every chain. Fail-open only when
           // the network can't be read (Base is the default payTo either way).
+          // Fail CLOSED for a PAID request: if a payment header is present but
+          // its network isn't provably Base, refuse (a genuine Base buyer always
+          // has a readable eip155:8453 network; an unreadable one on a paying
+          // request is the only residual bypass of the Base-only rule). No
+          // payment header at all (free/PoW mode) stays allowed — external can't
+          // run there without a wallet anyway.
           const payNet = buyerPaymentNetwork(req);
-          if (payNet && payNet !== "eip155:8453") throw bad(`External routing settles on Base (eip155:8453) — this request paid on ${payNet}. Pay on Base for include:"external", or use internal routing (works on every chain).`, 409);
+          const hasPayment = !!(req?.header?.("x-payment") || req?.header?.("payment-signature"));
+          if (hasPayment && payNet !== "eip155:8453") throw bad(`External routing settles on Base (eip155:8453) — this request paid on ${payNet || "an unreadable network"}. Pay on Base for include:"external", or use internal routing (works on every chain).`, 409);
           const ext = await resolveExternal(input.task, { cap, baseUrl });
           if (!ext) throw bad(`No external x402 seller matched that task. Explore /api/route?q=<task>&include=external.`, 404);
           const extUsd = toUsd(ext.price);
