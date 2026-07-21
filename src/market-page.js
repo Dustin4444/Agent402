@@ -609,6 +609,11 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
     const winner = better(cur, s);
     if (winner !== cur) { rosterSellers[rosterSellers.indexOf(cur)] = winner; primaryByGid.set(gid, winner); }
   }
+  // Pin THIS HOST to the top of the chain roster (same transparency rule as the
+  // all-view): the operator's own listing is always the first, clearly-badged
+  // row; every independent seller stays ranked by its own on-chain volume below.
+  const localIdx = rosterSellers.findIndex((s) => s.local);
+  if (localIdx > 0) { const [loc] = rosterSellers.splice(localIdx, 1); rosterSellers.unshift(loc); }
   // "+N more endpoints" on the surviving row so the collapsed hosts are disclosed, not hidden.
   const endpointsNote = (s) => { const gid = s.local ? null : sellerStat(s)?.gid; const n = gid ? extraByGid.get(gid) || 0 : 0; return n > 0 ? ` &middot; +${n} more endpoint${n === 1 ? "" : "s"}` : ""; };
   const prices = tools.map((t) => Number(t.price)).filter((n) => Number.isFinite(n) && n > 0);
@@ -988,28 +993,28 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
     return ` data-mfb-row data-local="${s.local ? 1 : 0}" data-health="${s.local || s.routable ? 1 : 0}" data-calls="${st?.calls || 0}" data-usd="${st?.usd || 0}" data-buyers="${st?.buyers || 0}" data-tools="${s.toolCount || 0}"`;
   };
 
-  // Row cap (speed): the deduped roster runs 700+ sellers in prod; render the
-  // top ALL_ROW_CAP by the default sort unless ?all=1 asked for everything.
-  // THIS HOST is ranked, not pinned — if its honest rank falls below the cap,
-  // append it after the top-N (visible, at no flattering position) rather than
-  // silently dropping the host page's own row. Totals (the SELLERS LISTED card,
-  // JSON-LD numberOfItems) stay on the FULL roster — the cap truncates the
-  // table, never the honest count.
-  const truncated = !all && rosterSellers.length > ALL_ROW_CAP;
-  let visibleSellers = truncated ? rosterSellers.slice(0, ALL_ROW_CAP) : rosterSellers;
-  if (truncated && !visibleSellers.some((s) => s.local)) {
-    const loc = rosterSellers.find((s) => s.local);
-    if (loc) visibleSellers = [...visibleSellers, loc];
-  }
+  // THIS HOST is PINNED at the top of the roster (transparency: the operator of
+  // the index is clearly marked and always visible, not buried at its
+  // settled-volume rank), then every independent seller ranked by volume below.
+  // This is NOT a ranking claim — the pinned row carries the THIS HOST badge, a
+  // tinted background, and the note under the heading explains it; external
+  // sellers are still ranked purely by their own on-chain numbers. Row cap
+  // applies to the RANKED sellers only (?all=1 opts out). Totals stay on the
+  // full roster — the cap truncates the table, never the honest count.
+  const localSeller = rosterSellers.find((s) => s.local) || null;
+  const ranked = rosterSellers.filter((s) => !s.local);
+  const truncated = !all && ranked.length > ALL_ROW_CAP;
+  const rankedVisible = truncated ? ranked.slice(0, ALL_ROW_CAP) : ranked;
+  const visibleSellers = localSeller ? [localSeller, ...rankedVisible] : rankedVisible;
   const capNote = truncated
-    ? `<p class="chips-note" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:10px 0 0;">showing the top ${ALL_ROW_CAP} of ${rosterSellers.length} sellers &middot; <a href="/marketplace?all=1" style="color:var(--muted);">show all &rarr;</a></p>`
+    ? `<p class="chips-note" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:10px 0 0;">this host pinned · showing the top ${ALL_ROW_CAP} of ${ranked.length} independent sellers &middot; <a href="/marketplace?all=1" style="color:var(--muted);">show all &rarr;</a></p>`
     : "";
 
   const rows = visibleSellers.map((s) => {
     const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
     const good = s.local || s.routable;
     return `
-    <tr${rowData(s)}>
+    <tr${rowData(s)}${s.local ? ' style="background:var(--card-zebra);"' : ""}>
       <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;">${esc(s.displayName)}</a>${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}
         <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
