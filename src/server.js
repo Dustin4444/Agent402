@@ -610,12 +610,32 @@ for (const tool of SKILL_TOOLS) {
 // price/networks) for payX402. Registered after the skill tools so the runtime
 // catalog getter sees them.
 const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL_ENABLED || "").trim());
+// Resolve the best EXTERNAL seller for a task AND confirm it's actually live
+// before we route a buyer to it. The index's crawled (method, route) can drift
+// from a seller's live endpoint (klymax402's /api/news 404s despite being
+// indexed, 2026-07-21), so blindly paying the top rank would fail on dead
+// sellers — bad for the demo AND for real buyers. Instead we walk the ranked,
+// Base-payable, in-budget candidates and pick the FIRST whose live endpoint
+// answers 402 (a real x402 challenge). A cheap bare probe, capped at a few
+// candidates; SSRF-guarded via safeFetch's dispatcher isn't needed here (we
+// only read the status, never a body, and payX402 re-guards before spending).
 async function resolveExternalSeller(task, { cap }) {
-  const { results } = routeQuery({ query: task, top: 10, include: "external", ...indexCtx() });
-  for (const r of results || []) {
-    if (r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453")) {
-      return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks };
-    }
+  const { results } = routeQuery({ query: task, top: 12, include: "external", ...indexCtx() });
+  const candidates = (results || [])
+    .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
+    .slice(0, 5);
+  for (const r of candidates) {
+    let live = false;
+    try {
+      const probe = await fetch(r.url, {
+        method: (r.method || "POST").toUpperCase(),
+        headers: { Accept: "application/json", ...((r.method || "POST").toUpperCase() !== "GET" ? { "Content-Type": "application/json" } : {}) },
+        ...((r.method || "POST").toUpperCase() !== "GET" ? { body: "{}" } : {}),
+        signal: AbortSignal.timeout(6000),
+      });
+      live = probe.status === 402; // a real x402 challenge — payable
+    } catch { live = false; }
+    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks };
   }
   return null;
 }
