@@ -937,7 +937,13 @@ app.get("/health", (req, res) => {
   // here. Process uptime (restart-timing recon) and freeMode (operating mode)
   // are operator-only diagnostics (audit R-15), added to the authenticated
   // response below.
-  const meta = { toolCount: Object.keys(CATALOG).length };
+  // `build` is the deployed commit — public (the repo is open-source, the sha is
+  // already on GitHub) and the answer to "did prod roll a stale build?" A Railway
+  // var-set can trigger a non-SHA-pinned redeploy, so having the live sha on a
+  // free surface makes that verifiable without guessing. Railway injects
+  // RAILWAY_GIT_COMMIT_SHA; short-form, "unknown" off-platform.
+  const build = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "unknown").slice(0, 7);
+  const meta = { toolCount: Object.keys(CATALOG).length, build };
   // The sensitive disclosure is the enabled-integration flags (which upstreams
   // are wired, whether the operator token is configured), the health checks,
   // and now uptime/freeMode — that internal wiring is returned ONLY to an
