@@ -36,6 +36,7 @@ import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost } from "./leaderboard.js";
+import { routeExecuteHint } from "./tools/route-execute.js";
 
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
 // (see ledger-home.js) so /index's own row derives the same way: page
@@ -1276,6 +1277,12 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       score,
       health: t.health,
       ...(Array.isArray(t.networks) && t.networks.length ? { networks: t.networks } : {}),
+      // Quote-guided execution: tell the buyer exactly which route-execute tier
+      // runs this result and what to pay (x402 is fixed-price, so the buyer must
+      // pick the tier that covers the tool's underlying price). null = above the
+      // top tier; call it directly. This is what makes "find then execute" one
+      // obvious step instead of a guess.
+      ...(routeExecuteHint(parsePrice(t.price)) ? { executeVia: routeExecuteHint(parsePrice(t.price)) } : {}),
       ...(external ? { untrustedContent: true, source: t.seller } : {}),
     };
   });
