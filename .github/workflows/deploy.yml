@@ -2033,6 +2033,13 @@ jobs:
       # repo VARIABLE (not secret) so flipping it is one `gh variable set`
       # away and the value is auditable. Injected only when set.
       OPENROUTER_TTS_ENABLED: ${{ vars.OPENROUTER_TTS_ENABLED }}
+      # SOR external-execution rollout gate (server.js SOR_EXTERNAL_ENABLED) — a
+      # repo VARIABLE so the money-moving external router is flipped with one
+      # `gh variable set`, auditable, and set on the CORRECT service atomically
+      # with a SHA-pinned deploy (never an out-of-band `railway variables --set`
+      # that can roll a stale build or land on the wrong service). Injected only
+      # when set; absent → server default (off).
+      SOR_EXTERNAL_ENABLED: ${{ vars.SOR_EXTERNAL_ENABLED }}
       WALLET_ADDRESS: ${{ secrets.WALLET_ADDRESS || '0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0' }}
       NETWORK: ${{ vars.NETWORK || 'base' }}
       # CDP keys take priority in the server's facilitator selection, so this
@@ -2228,6 +2235,9 @@ jobs:
           fi
           if [ -n "$OPENROUTER_TTS_ENABLED" ]; then
             VARS=$(echo "$VARS" | jq --arg v "$OPENROUTER_TTS_ENABLED" '. + {OPENROUTER_TTS_ENABLED:$v}')
+          fi
+          if [ -n "$SOR_EXTERNAL_ENABLED" ]; then
+            VARS=$(echo "$VARS" | jq --arg v "$SOR_EXTERNAL_ENABLED" '. + {SOR_EXTERNAL_ENABLED:$v}')
           fi
           RESP=$(jq -n --arg p '${{ steps.project.outputs.project_id }}' --arg e '${{ steps.project.outputs.env_id }}' --arg s '${{ steps.service.outputs.service_id }}' --argjson v "$VARS" \
             '{query:"mutation($p:String!, $e:String!, $s:String!, $v:EnvironmentVariables!) { variableCollectionUpsert(input: { projectId: $p, environmentId: $e, serviceId: $s, variables: $v }) }", variables:{p:$p,e:$e,s:$s,v:$v}}' | gql)
