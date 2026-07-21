@@ -49,6 +49,18 @@ export function routeExecuteHint(underlyingUsd) {
 // re-derive the same reference offline from the receipt's slug + ts — while
 // outsiders cannot brute-force the caller from the hash. Absent (null) when the
 // call carried no EVM payment authorization (free mode, non-EIP-3009 rails).
+// The CAIP-2 network the buyer signed their payment for (from the X-PAYMENT
+// authorization), or null when unreadable (free/PoW mode, malformed header).
+// Used to keep external routing Base-only. Never throws.
+export function buyerPaymentNetwork(req) {
+  try {
+    const header = req?.header?.("x-payment") || req?.header?.("payment-signature");
+    if (!header) return null;
+    const p = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
+    return typeof p?.network === "string" ? p.network : null;
+  } catch { return null; }
+}
+
 export function callRefFrom(req, slug, ts) {
   try {
     const header = req?.header?.("x-payment") || req?.header?.("payment-signature");
@@ -159,6 +171,15 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
         // SOR_EXTERNAL_ENABLED until a real external buy proves it live.
         if (input.include === "external") {
           if (!externalEnabled() || !resolveExternal) throw bad("External routing is not enabled on this host", 409);
+          // Base-only: external settlement is Base-only (we pay sellers from the
+          // Base spending wallet), and route-execute's Base leg is settled TO that
+          // wallet so external routing pays for itself. A buyer paying on another
+          // chain can't fund the Base float, so refuse external for non-Base
+          // payments (a 4xx cancels their settlement — they are not charged).
+          // Internal routing stays available on every chain. Fail-open only when
+          // the network can't be read (Base is the default payTo either way).
+          const payNet = buyerPaymentNetwork(req);
+          if (payNet && payNet !== "eip155:8453") throw bad(`External routing settles on Base (eip155:8453) — this request paid on ${payNet}. Pay on Base for include:"external", or use internal routing (works on every chain).`, 409);
           const ext = await resolveExternal(input.task, { cap, baseUrl });
           if (!ext) throw bad(`No external x402 seller matched that task. Explore /api/route?q=<task>&include=external.`, 404);
           const extUsd = toUsd(ext.price);

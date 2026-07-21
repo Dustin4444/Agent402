@@ -256,9 +256,23 @@ export const isIdentityBoundRoute = (def) =>
 // configured chains — restricting is scoped strictly to identity routes, so all
 // rails keep selling the rest of the catalog. Behavior for non-identity items is
 // byte-identical to the previous inline builder.
+// The SOR external-router tiers. Their BASE leg is settled to the burner (the
+// x402 spending wallet) instead of the treasury, so the external float pays
+// itself: buyer -> burner -> external seller nets +fee, replacing a one-way
+// drain that needed manual top-ups. Base only, because external settlement is
+// Base-only (x402-buyer.js pins Base USDC); every other chain keeps the treasury
+// payTo. Gated on a configured burner address (X402_UPSTREAM_BUYER_ADDRESS) so a
+// clone without one falls back to the treasury, unchanged. A periodic
+// burner->treasury sweep (scripts/sweep-burner.js) keeps the hot wallet bounded.
+export const SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-max"]);
+const UPSTREAM_BUYER_ADDRESS = (process.env.X402_UPSTREAM_BUYER_ADDRESS || "").trim();
+
 export function acceptsForItem(item, rails) {
   const { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet } = rails;
-  const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: walletAddress, price: item.price, network: caip2 }));
+  const burner = rails.upstreamBuyerAddress ?? UPSTREAM_BUYER_ADDRESS;
+  const payToFor = (caip2) =>
+    burner && caip2 === "eip155:8453" && SELF_FUNDING_SLUGS.has(item.slug) ? burner : walletAddress;
+  const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: item.price, network: caip2 }));
   if (item.identityBound) return evm;
   return [
     ...evm,

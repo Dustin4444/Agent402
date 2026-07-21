@@ -2040,6 +2040,12 @@ jobs:
       # that can roll a stale build or land on the wrong service). Injected only
       # when set; absent → server default (off).
       SOR_EXTERNAL_ENABLED: ${{ vars.SOR_EXTERNAL_ENABLED }}
+      # Public address of the x402 spending wallet (the burner). Set so the SOR
+      # external router settles route-execute's BASE leg to the burner and pays
+      # itself. A repo VARIABLE (public, auditable); unset = falls back to the
+      # treasury payTo (self-funding off). Must match X402_UPSTREAM_BUYER_KEY's
+      # address; a burner->treasury sweep keeps the hot wallet bounded.
+      X402_UPSTREAM_BUYER_ADDRESS: ${{ vars.X402_UPSTREAM_BUYER_ADDRESS }}
       WALLET_ADDRESS: ${{ secrets.WALLET_ADDRESS || '0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0' }}
       NETWORK: ${{ vars.NETWORK || 'base' }}
       # CDP keys take priority in the server's facilitator selection, so this
@@ -2238,6 +2244,9 @@ jobs:
           fi
           if [ -n "$SOR_EXTERNAL_ENABLED" ]; then
             VARS=$(echo "$VARS" | jq --arg v "$SOR_EXTERNAL_ENABLED" '. + {SOR_EXTERNAL_ENABLED:$v}')
+          fi
+          if [ -n "$X402_UPSTREAM_BUYER_ADDRESS" ]; then
+            VARS=$(echo "$VARS" | jq --arg v "$X402_UPSTREAM_BUYER_ADDRESS" '. + {X402_UPSTREAM_BUYER_ADDRESS:$v}')
           fi
           RESP=$(jq -n --arg p '${{ steps.project.outputs.project_id }}' --arg e '${{ steps.project.outputs.env_id }}' --arg s '${{ steps.service.outputs.service_id }}' --argjson v "$VARS" \
             '{query:"mutation($p:String!, $e:String!, $s:String!, $v:EnvironmentVariables!) { variableCollectionUpsert(input: { projectId: $p, environmentId: $e, serviceId: $s, variables: $v }) }", variables:{p:$p,e:$e,s:$s,v:$v}}' | gql)
