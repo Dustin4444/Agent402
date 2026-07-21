@@ -19,8 +19,9 @@ import { normalizePayerAddress } from "./payer.js";
 // Supported networks. EVM chains use eip155: CAIP-2 IDs; Solana uses the
 // solana: genesis-hash CAIP-2. Adding a chain = register its scheme + list
 // it in `accepts`. Only chains a facilitator can settle are safe to add.
-// Only chains whose USDC address is in @x402/evm's built-in asset registry.
-// Avalanche is excluded — getDefaultAsset throws for eip155:43114.
+// Chains missing from @x402/evm's built-in asset registry are fine too —
+// a money parser supplies the asset + on-chain-verified EIP-712 domain
+// (the Monad/Celo mechanism, generalized in TIER1_USDC below).
 const EVM_NETWORKS = {
   base: "eip155:8453",
   polygon: "eip155:137",
@@ -39,6 +40,12 @@ const EVM_NETWORKS = {
   // (api.x402.celo.org, keyless, advertises exact/eip155:42220). OPT-IN:
   // offered only when `celo` is listed in PAYMENT_NETWORKS.
   celo: "eip155:42220",
+  // Tier 1 expansion (2026-07-20, all settled by PayAI — already a client in
+  // multi-chain mode, so routing is automatic; assets + EIP-712 domains
+  // verified on-chain, see TIER1_USDC). OPT-IN via PAYMENT_NETWORKS.
+  avalanche: "eip155:43114",
+  sei: "eip155:1329",
+  xlayer: "eip155:196",
   "base-sepolia": "eip155:84532",
   // Robinhood Chain (Arbitrum Orbit L2, EVM-equivalent, AI-native RWA chain).
   // NOT in @x402/evm's built-in USDC registry, and settles a non-Circle
@@ -154,6 +161,30 @@ function makeMonadUsdcScheme() {
       amount: convertToTokenAmount(numberToDecimalString(amount), MONAD_USDC.decimals),
       asset: MONAD_USDC.asset,
       extra: { name: MONAD_USDC.name, version: MONAD_USDC.version },
+    };
+  });
+}
+
+// Tier 1 chains (Avalanche / Sei / X Layer): USDC deployments @x402/evm's
+// registry lacks, with EIP-712 domains verified on-chain 2026-07-20. Sei's
+// trap: the prominent "USDC" there is Noble's IBC bridge WITHOUT EIP-3009 —
+// the address below is Circle's native deployment (name "USDC", the
+// Monad/Celo-style domain). X Layer's is the Bridged USDC Standard (not
+// Circle-native, EIP-3009 present). One table + one factory replaces three
+// copies of the Monad/Celo parser shape.
+const TIER1_USDC = {
+  "eip155:43114": { asset: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", decimals: 6, name: "USD Coin", version: "2" }, // Avalanche C-Chain, native Circle
+  "eip155:1329": { asset: "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392", decimals: 6, name: "USDC", version: "2" }, // Sei, native Circle (NOT Noble's 0x3894…)
+  "eip155:196": { asset: "0x74b7F16337b8972027F6196A17a631aC6dE26d22", decimals: 6, name: "USD Coin", version: "2" }, // X Layer, Bridged USDC Standard
+};
+function makeTier1UsdcScheme(caip2) {
+  const cfg = TIER1_USDC[caip2];
+  return new ExactEvmScheme().registerMoneyParser((amount, network) => {
+    if (String(network) !== caip2) return null;
+    return {
+      amount: convertToTokenAmount(numberToDecimalString(amount), cfg.decimals),
+      asset: cfg.asset,
+      extra: { name: cfg.name, version: cfg.version },
     };
   });
 }
@@ -372,6 +403,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     const scheme = caip2 === ROBINHOOD_CAIP2 ? makeUsdgScheme()
       : caip2 === MONAD_CAIP2 ? makeMonadUsdcScheme()
       : caip2 === CELO_CAIP2 ? makeCeloUsdcScheme()
+      : TIER1_USDC[caip2] ? makeTier1UsdcScheme(caip2)
       : new ExactEvmScheme();
     server = server.register(caip2, scheme);
   }
