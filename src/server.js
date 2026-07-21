@@ -5,6 +5,7 @@ import { RAILS_OR, RAILS_SHORT } from "./rails.js";
 // payment client and any raw fetch (the SSRF dispatcher forces it separately for
 // the tool fetchers). Nothing is lost — an IPv6-only host is unreachable here anyway.
 import dns from "node:dns";
+import { createGzip } from "node:zlib";
 import { setGlobalDispatcher, Agent as UndiciAgent } from "undici";
 dns.setDefaultResultOrder("ipv4first");
 setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
@@ -698,10 +699,22 @@ app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (r
     if (clen && clen > PH_MAX_RESPONSE_BYTES) return res.status(502).end();
     res.status(up.status);
     for (const h of ["content-type", "cache-control"]) { const v = up.headers.get(h); if (v) res.setHeader(h, v); }
+    // Perf: fetch() transparently DECOMPRESSES posthog's gzip, and this route
+    // mounts before the compression middleware — so the 228KB analytics lib
+    // was reaching phones as plaintext (Lighthouse: 155KB wasted, the top
+    // mobile-score drag). Re-compress the static-lib responses at our edge
+    // when the client accepts gzip. The F15 byte cap keeps counting
+    // UNCOMPRESSED bytes, so the abuse ceiling is unchanged.
+    const gzipOut = req.method === "GET" && sub.startsWith("static/")
+      && /\bgzip\b/.test(String(req.headers["accept-encoding"] || ""))
+      && /javascript|json|text/.test(up.headers.get("content-type") || "");
+    if (gzipOut) { res.setHeader("Content-Encoding", "gzip"); res.setHeader("Vary", "Accept-Encoding"); }
     // F15: STREAM with a running byte counter instead of buffering the whole
     // body — a chunked / no-Content-Length response can no longer force us to
     // buffer megabytes. Abort the moment the cap is crossed.
     if (!up.body) return void res.end();
+    const out = gzipOut ? createGzip() : res;
+    if (gzipOut) out.pipe(res);
     let sent = 0;
     const reader = up.body.getReader();
     for (;;) {
@@ -709,9 +722,9 @@ app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (r
       if (done) break;
       sent += value.length;
       if (sent > PH_MAX_RESPONSE_BYTES) { try { await reader.cancel(); } catch { /* */ } res.destroy(); return; }
-      if (!res.write(Buffer.from(value))) await new Promise((r) => res.once("drain", r));
+      if (!out.write(Buffer.from(value))) await new Promise((r) => out.once("drain", r));
     }
-    res.end();
+    out.end();
   } catch {
     if (!res.headersSent) res.status(502).end(); else res.destroy();
   } finally {
