@@ -418,7 +418,8 @@ function priceRank(p) {
 // per-network price/asset), an optional serviceName, description, and tags.
 // We deliberately keep the price in atomic USDC units → USD here so the router
 // can compare across sellers without a per-network price lookup.
-function bazaarItemToTool(item, originUrl) {
+// Exported for offline merge-contract tests alongside normaliseOpenapiTools.
+export function bazaarItemToTool(item, originUrl) {
   // `resource` = CDP Bazaar; `resourceUrl` = GoPlausible's AVM registry.
   const resource = item.resource || item.resourceUrl || item.url;
   if (typeof resource !== "string" || !resource.startsWith(originUrl)) return null;
@@ -442,11 +443,13 @@ function bazaarItemToTool(item, originUrl) {
     /* keep "/" */
   }
   const tags = Array.isArray(item.tags) ? item.tags : [];
+  const methodInferred = !(typeof item.method === "string" && item.method);
   // Bazaar entries don't always carry a method (GoPlausible's do); assume POST
   // if we can't tell. The router treats this as a hint and respects a 405 retry.
   return {
     seller: originUrl,
-    method: typeof item.method === "string" && item.method ? item.method.toUpperCase() : "POST",
+    method: methodInferred ? "POST" : item.method.toUpperCase(),
+    methodInferred,
     route: pathStr,
     slug: pathStr.replace(/^\//, "").replace(/\//g, "-") || originUrl.replace(/^https?:\/\//, ""),
     name: item.serviceName || pathStr,
@@ -542,18 +545,21 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
   const byRoute = new Map();
   for (const o of openapiTools) {
     exact.set(`${o.method} ${o.route}`, o);
+    // A route-only match is safe only when the document declares exactly one
+    // operation for that path. null marks an ambiguous GET+POST-style path.
     if (!byRoute.has(o.route)) byRoute.set(o.route, o);
+    else byRoute.set(o.route, null);
   }
   const used = new Set();
   const merged = bazaarTools.map((b) => {
-    const o = exact.get(`${b.method} ${b.route}`) || byRoute.get(b.route);
+    const o = (!b.methodInferred && exact.get(`${b.method} ${b.route}`)) || byRoute.get(b.route);
     if (!o) return b;
     used.add(o);
     return {
       ...b,
       // Bazaar defaults missing methods to POST. The OpenAPI operation is the
       // authoritative verb once the route-only fallback finds a match.
-      method: o.method || b.method,
+      method: b.methodInferred ? (o.method || b.method) : b.method,
       slug: o.slug || b.slug,
       name: o.name && o.name !== o.route ? o.name : b.name,
       description: o.description || b.description,

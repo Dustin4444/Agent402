@@ -11,6 +11,7 @@
 // Offline, no server, no network: pure helpers + the in-memory cache via the
 // _cacheForTests() escape hatch.
 import {
+  bazaarItemToTool,
   mergeOpenapiIntoBazaar,
   normaliseOpenapiTools,
   openapiHasPaymentSignal,
@@ -95,7 +96,7 @@ const openapiTools = [
 
 // ---- 3. merge matches by route when Bazaar guessed the method wrong ----
 {
-  const guessed = [{ ...bazaarTools[0], method: "POST" }];
+  const guessed = [{ ...bazaarTools[0], method: "POST", methodInferred: true }];
   const real = [{ ...openapiTools[0], method: "GET" }];
   const merged = mergeOpenapiIntoBazaar(real, guessed);
   ok(merged.length === 1, "method mismatch still merges by route (no duplicate listing)");
@@ -122,18 +123,46 @@ const openapiTools = [
     },
   };
   const [documented] = normaliseOpenapiTools(openapi, "https://seller.example");
-  const guessed = [{
-    ...bazaarTools[0],
-    seller: "https://seller.example",
-    route: "/research",
-    method: "POST",
-    price: null,
-  }];
+  const guessed = [bazaarItemToTool(
+    { resource: "https://seller.example/research", accepts: [] },
+    "https://seller.example",
+  )];
   const [merged] = mergeOpenapiIntoBazaar([documented], guessed);
+  ok(guessed[0].methodInferred === true, "a missing Bazaar method is marked as inferred");
   ok(documented.method === "GET", "OpenAPI normalisation keeps the declared GET method");
   ok(documented.price === "0.003", "x-payment-info amount is normalised as the tool price");
   ok(merged.method === "GET", `OpenAPI method replaces Bazaar's guessed POST (got ${merged.method})`);
   ok(merged.price === "0.003", `OpenAPI price fills an unknown Bazaar amount (got ${merged.price})`);
+}
+
+// ---- 3c. Explicit Bazaar observations remain payment truth ----
+{
+  const documented = [{ ...openapiTools[0], method: "GET", price: "0.003" }];
+  const explicit = bazaarItemToTool({
+    resource: "https://md.example/md",
+    method: "POST",
+    accepts: [{ network: "eip155:8453", amount: "9000", extra: { name: "USDC" } }],
+  }, "https://md.example");
+  const [merged] = mergeOpenapiIntoBazaar(documented, [explicit]);
+  ok(explicit.methodInferred === false, "an explicit Bazaar method is not marked as inferred");
+  ok(merged.method === "POST", `explicit Bazaar method survives (got ${merged.method})`);
+  ok(merged.price === 0.009, `settlement-observed Bazaar price survives (got ${merged.price})`);
+
+  const [free] = mergeOpenapiIntoBazaar(documented, [{ ...explicit, price: 0 }]);
+  ok(free.price === 0, `explicit free Bazaar price survives (got ${free.price})`);
+}
+
+// ---- 3d. Route-only fallback refuses ambiguous OpenAPI paths ----
+{
+  const documented = [
+    { ...openapiTools[0], method: "GET", slug: "read-md" },
+    { ...openapiTools[0], method: "POST", slug: "write-md" },
+  ];
+  const inferred = { ...bazaarTools[0], method: "POST", methodInferred: true };
+  const merged = mergeOpenapiIntoBazaar(documented, [inferred]);
+  const bazaar = merged.find((t) => t.provenance === "bazaar");
+  ok(bazaar.slug === "md", `ambiguous route does not pick an arbitrary operation (got ${bazaar.slug})`);
+  ok(bazaar.method === "POST", "ambiguous route keeps the Bazaar hint unchanged");
 }
 
 // ---- 4. degenerate inputs pass through ----
