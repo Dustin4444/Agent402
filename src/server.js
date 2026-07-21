@@ -671,6 +671,47 @@ async function resolveExternalSeller(task, { cap }) {
   }
   return null;
 }
+// Operator-only diagnostic: run the SAME resolve pipeline as resolveExternalSeller
+// but report why each candidate is kept or dropped (settled count, cap, base,
+// self, probe status), plus the leaderboard-snapshot size — so a prod 404 ("no
+// external seller matched") is explainable without firing a paid buy. No money
+// moves here (probe only). Kept behind operatorAuthed.
+async function diagnoseExternalSeller(task, { cap }) {
+  const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+  const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
+  const settledByOrigin = new Map();
+  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
+    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
+      if (o) settledByOrigin.set(norm(o), Math.max(settledByOrigin.get(norm(o)) || 0, row.callsSettled || 0));
+    }
+  }
+  const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
+  const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+  const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
+  const rows = [];
+  for (const r of (results || []).slice(0, 12)) {
+    const settled = settledByOrigin.get(norm(r.seller)) || 0;
+    const withinCap = r.priceUsd > 0 && r.priceUsd <= cap;
+    const hasBase = Array.isArray(r.networks) && r.networks.includes("eip155:8453");
+    const isSelf = !hostOf(r.url) || hostOf(r.url) === ourHost;
+    const passesFilters = withinCap && hasBase && !isSelf && settled >= SOR_MIN_SETTLED_TX;
+    let probe = null;
+    if (passesFilters) {
+      try {
+        await assertPublicUrl(r.url);
+        const p = await fetch(r.url, {
+          method: (r.method || "POST").toUpperCase(),
+          headers: { Accept: "application/json", ...((r.method || "POST").toUpperCase() !== "GET" ? { "Content-Type": "application/json" } : {}) },
+          ...((r.method || "POST").toUpperCase() !== "GET" ? { body: "{}" } : {}),
+          dispatcher: ssrfDispatcher, redirect: "manual", signal: AbortSignal.timeout(6000),
+        });
+        probe = { status: p.status, live: p.status === 402 };
+      } catch (e) { probe = { error: String(e?.message || e).slice(0, 120) }; }
+    }
+    rows.push({ seller: r.seller, url: r.url, priceUsd: r.priceUsd, networks: r.networks, settled, withinCap, hasBase, isSelf, meetsThreshold: settled >= SOR_MIN_SETTLED_TX, passesFilters, probe });
+  }
+  return { task, cap, threshold: SOR_MIN_SETTLED_TX, snapshotOrigins: settledByOrigin.size, rawResults: (results || []).length, candidates: rows };
+}
 for (const tier of EXEC_TIERS) {
   const tool = buildRouteExecuteTool({
     getCatalog: () => CATALOG, baseUrl: BASE_URL, tier,
@@ -2131,6 +2172,16 @@ app.post("/api/route", (req, res) => {
   const include = req.body?.include;
   const net = req.body?.network;
   return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRoute(q, top, include, net), "_route", req, res);
+});
+// Operator-only: why does the SOR external resolver keep/drop each candidate for
+// a task? Explains a prod "no external seller matched" 404 without a paid buy.
+app.get("/api/route/external-debug", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const task = req.query.q ?? req.query.task;
+  if (!task) return res.status(400).json({ error: "Missing q/task" });
+  const cap = Number(req.query.cap) > 0 ? Number(req.query.cap) : EXEC_TIERS[0].underlyingMaxUsd;
+  try { res.json(await diagnoseExternalSeller(String(task), { cap })); }
+  catch (e) { res.status(500).json({ error: String(e?.message || e).slice(0, 200) }); }
 });
 // x402 Leaderboard — public on-chain ranking of every seller in the Coinbase
 // CDP Bazaar by settled USDC volume on Base. Free, like /api/find + /api/route:
