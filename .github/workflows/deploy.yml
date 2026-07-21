@@ -1,5 +1,16 @@
 name: Deploy to Railway
 
+# Serialize deploy runs per branch to the LATEST push. Without this, two quick
+# [deploy] pushes each trigger a Railway deployment; the second SUPERSEDES the
+# first, and the first push's deploy job — still watching its now-REMOVED
+# deployment — fails with "deployment ended REMOVED", a scary false-failure
+# even though the newer deploy carries its changes (hit 2026-07-21). cancel-in-
+# progress kills the older RUN cleanly the moment a newer push starts, so the
+# only run that survives is the one whose build actually reaches prod.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     branches:
