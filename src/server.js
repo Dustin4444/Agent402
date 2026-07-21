@@ -635,19 +635,34 @@ async function resolveExternalSeller(task, { cap }) {
       if (o) settledByOrigin.set(norm(o), Math.max(settledByOrigin.get(norm(o)) || 0, row.callsSettled || 0));
     }
   }
+  // F4: never route to ourselves (paying our own endpoint over x402 = fee loss
+  // / accidental self-recursion) — exclude our own host from candidates.
+  const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
+  const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
   const candidates = (results || [])
     .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
+    .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
     .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0 }))
     .filter((r) => r.settled >= SOR_MIN_SETTLED_TX) // proven deliverers only
     .sort((a, b) => b.settled - a.settled)
     .slice(0, 5);
+  const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   for (const r of candidates) {
     let live = false;
     try {
+      // SSRF: the seller URL is external, crawled data — a proven seller's
+      // registered origin could still DNS-rebind to a private address between
+      // crawl and now. Guard the PROBE too (payX402 re-guards before spending),
+      // so this blind status-only fetch can't be turned into an internal-port
+      // scanner. assertPublicUrl is TOCTOU-rebindable on its own, so pin the
+      // connection to the validated IP with ssrfDispatcher (parity with payX402).
+      await assertPublicUrl(r.url);
       const probe = await fetch(r.url, {
         method: (r.method || "POST").toUpperCase(),
         headers: { Accept: "application/json", ...((r.method || "POST").toUpperCase() !== "GET" ? { "Content-Type": "application/json" } : {}) },
         ...((r.method || "POST").toUpperCase() !== "GET" ? { body: "{}" } : {}),
+        dispatcher: ssrfDispatcher,
+        redirect: "manual", // never follow a redirect off the validated host
         signal: AbortSignal.timeout(6000),
       });
       live = probe.status === 402;
