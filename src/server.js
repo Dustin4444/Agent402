@@ -610,19 +610,36 @@ for (const tool of SKILL_TOOLS) {
 // price/networks) for payX402. Registered after the skill tools so the runtime
 // catalog getter sees them.
 const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL_ENABLED || "").trim());
-// Resolve the best EXTERNAL seller for a task AND confirm it's actually live
-// before we route a buyer to it. The index's crawled (method, route) can drift
-// from a seller's live endpoint (klymax402's /api/news 404s despite being
-// indexed, 2026-07-21), so blindly paying the top rank would fail on dead
-// sellers — bad for the demo AND for real buyers. Instead we walk the ranked,
-// Base-payable, in-budget candidates and pick the FIRST whose live endpoint
-// answers 402 (a real x402 challenge). A cheap bare probe, capped at a few
-// candidates; SSRF-guarded via safeFetch's dispatcher isn't needed here (we
-// only read the status, never a body, and payX402 re-guards before spending).
+// Resolve the best RELIABLE external seller for a task before routing a buyer
+// (and their money) to it. Two layers, learned the hard way 2026-07-21:
+//   1. RELIABILITY — the open x402 ecosystem is full of sellers that 402 but
+//      don't deliver a paid result (klymax 404s outright; coinstats 402s the
+//      probe then 404s the paid call). So we route ONLY to sellers with proven
+//      settled volume: the leaderboard's callsSettled is real completed paid
+//      deliveries (buyers kept paying because they got results). MIN_SETTLED
+//      gates out the unproven long tail. This is the moat — "route to any
+//      seller THAT ACTUALLY WORKS", not just any seller.
+//   2. LIVENESS — even a proven seller's crawled (method, route) can drift, so
+//      probe the live endpoint for a 402 before committing. Bare status read,
+//      no body; payX402 re-guards SSRF + margin before any spend.
+// Candidates are sorted most-proven first. (A future upgrade: x402scan's uptime
+// feed could sharpen this beyond settled-volume as a reliability proxy.)
+const SOR_MIN_SETTLED_TX = Number(process.env.SOR_MIN_SETTLED_TX || "50");
 async function resolveExternalSeller(task, { cap }) {
-  const { results } = routeQuery({ query: task, top: 12, include: "external", ...indexCtx() });
+  const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+  // origin → proven settled-tx count, straight from the leaderboard rows.
+  const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
+  const settledByOrigin = new Map();
+  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
+    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
+      if (o) settledByOrigin.set(norm(o), Math.max(settledByOrigin.get(norm(o)) || 0, row.callsSettled || 0));
+    }
+  }
   const candidates = (results || [])
     .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
+    .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0 }))
+    .filter((r) => r.settled >= SOR_MIN_SETTLED_TX) // proven deliverers only
+    .sort((a, b) => b.settled - a.settled)
     .slice(0, 5);
   for (const r of candidates) {
     let live = false;
@@ -633,9 +650,9 @@ async function resolveExternalSeller(task, { cap }) {
         ...((r.method || "POST").toUpperCase() !== "GET" ? { body: "{}" } : {}),
         signal: AbortSignal.timeout(6000),
       });
-      live = probe.status === 402; // a real x402 challenge — payable
+      live = probe.status === 402;
     } catch { live = false; }
-    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks };
+    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled };
   }
   return null;
 }
