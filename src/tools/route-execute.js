@@ -113,6 +113,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           task: { type: "string", description: "Plain-language task, e.g. \"sha256 hash of a string\" — resolved via the same ranker as /api/find. Provide task OR slug." },
           slug: { type: "string", description: "Exact tool slug to execute (skips ranking). Provide task OR slug." },
           params: { type: "object", description: "Input for the resolved tool, matching its inputSchema (default {})" },
+          include: { type: "string", description: 'Where to route: default runs a tool from THIS host\'s catalog; "external" routes to the best-matching x402 seller in the OPEN index and pays it on your behalf (result relayed, marked untrustedContent). Requires task (not slug).' },
           maxUsd: { type: "number", description: `Refuse tools listed above this underlying price (default and ceiling: $${UNDERLYING_MAX_USD})` },
         },
       },
@@ -147,6 +148,51 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
         }
       } else if (typeof input.task === "string" && input.task.trim()) {
         resolvedBy = "task";
+
+        // EXPLICIT external routing (include:"external") — the marketable path:
+        // "run this on a tool from the OPEN x402 ecosystem, not our catalog."
+        // First-class, not a fallback: with 500+ internal tools a loose ranker
+        // always matches SOMETHING, so external must be a deliberate buyer
+        // choice to fire reliably. We resolve the best external Base-payable
+        // seller, pay it on the buyer's behalf via x402, and relay the result.
+        // Spend stays bounded to when the buyer asked for it. Gated on
+        // SOR_EXTERNAL_ENABLED until a real external buy proves it live.
+        if (input.include === "external") {
+          if (!externalEnabled() || !resolveExternal) throw bad("External routing is not enabled on this host", 409);
+          const ext = await resolveExternal(input.task, { cap, baseUrl });
+          if (!ext) throw bad(`No external x402 seller matched that task. Explore /api/route?q=<task>&include=external.`, 404);
+          const extUsd = toUsd(ext.price);
+          if (!(extUsd > 0 && extUsd <= cap)) throw bad(`Best external match "${ext.slug}" is ${ext.price} — over this tier's $${cap} cap. Use route-execute-max or raise the tier.`, 409);
+          if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes("eip155:8453"))) throw bad(`External seller "${ext.seller}" does not offer Base settlement — cannot pay it from the Base spending wallet.`, 409);
+          let paid;
+          try {
+            paid = await payExternal(ext.url, { method: (ext.method || "POST").toUpperCase(), body: params, maxAtomic: BigInt(Math.round(cap * 1e6)) });
+          } catch (e) {
+            const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
+            throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
+          }
+          const ts = new Date().toISOString();
+          const underlyingUsd = paid.quote ? paid.quote.usd : extUsd;
+          return {
+            receipt: {
+              slug: ext.slug,
+              route: `${ext.method || "POST"} ${ext.url}`,
+              underlyingPriceUsd: underlyingUsd,
+              paidUsd: EXEC_PRICE_USD,
+              routingFeeUsd: Number((EXEC_PRICE_USD - underlyingUsd).toFixed(6)),
+              seller: ext.seller,
+              external: true,
+              settleTx: paid.receipt?.transaction || null,
+              resolvedBy: "task-external",
+              ts,
+              ...(callRefFrom(req, ext.slug, ts) ? { callRef: callRefFrom(req, ext.slug, ts) } : {}),
+            },
+            // External result is attacker-influenceable content — mark it.
+            result: (paid.result && typeof paid.result === "object" && !Array.isArray(paid.result)) ? { ...paid.result, untrustedContent: true } : paid.result,
+          };
+        }
+
+        // Default: resolve the best in-budget tool from THIS host's catalog.
         const { results } = findTools(catalog, input.task, { k: 10, baseUrl });
         for (const r of results) {
           const candidate = bySlug.get(r.slug);
@@ -156,54 +202,12 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           def = candidate;
           break;
         }
-        // EXTERNAL fallback: no internal tool matched within budget, so run
-        // the task on the best external x402 seller instead — one call, we pay
-        // them, relay the result. Internal-first bounds the spend (we only pay
-        // out for tools we DON'T have) and keeps trusted tools on the no-spend
-        // path. Gated on SOR_EXTERNAL_ENABLED + a wired resolver/payer until a
-        // real external buy proves it live.
-        if (!def && externalEnabled() && resolveExternal) {
-          const ext = await resolveExternal(input.task, { cap, baseUrl });
-          if (ext) {
-            const extUsd = toUsd(ext.price);
-            if (extUsd > 0 && extUsd <= cap && ext.url && Array.isArray(ext.networks) && ext.networks.includes("eip155:8453")) {
-              let paid;
-              try {
-                paid = await payExternal(ext.url, {
-                  method: (ext.method || "POST").toUpperCase(),
-                  body: params,
-                  maxAtomic: BigInt(Math.round(cap * 1e6)),
-                });
-              } catch (e) {
-                const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
-                throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
-              }
-              const ts = new Date().toISOString();
-              return {
-                receipt: {
-                  slug: ext.slug,
-                  route: `${ext.method || "POST"} ${ext.url}`,
-                  underlyingPriceUsd: paid.quote ? paid.quote.usd : extUsd,
-                  paidUsd: EXEC_PRICE_USD,
-                  routingFeeUsd: Number((EXEC_PRICE_USD - (paid.quote ? paid.quote.usd : extUsd)).toFixed(6)),
-                  seller: ext.seller,
-                  external: true,
-                  settleTx: paid.receipt?.transaction || null,
-                  resolvedBy: "task-external",
-                  ts,
-                  ...(callRefFrom(req, ext.slug, ts) ? { callRef: callRefFrom(req, ext.slug, ts) } : {}),
-                },
-                // External result is attacker-influenceable content — mark it.
-                result: (paid.result && typeof paid.result === "object" && !Array.isArray(paid.result)) ? { ...paid.result, untrustedContent: true } : paid.result,
-              };
-            }
-          }
-        }
         if (!def) {
+          const hasExternal = externalEnabled() && !!resolveExternal;
           throw bad(
             results.length
-              ? `No dispatchable match under $${cap} for that task (top hit: "${results[0].slug}" at ${results[0].price}). Call it directly or raise maxUsd.`
-              : "No tool matched that task — try /api/find?q=<task> to explore.",
+              ? `No dispatchable match under $${cap} for that task (top hit: "${results[0].slug}" at ${results[0].price}).${hasExternal ? ' Retry with include:"external" to route to an outside x402 seller,' : ""} or call it directly / raise maxUsd.`
+              : `No internal tool matched that task.${hasExternal ? ' Retry with include:"external" to route to the open x402 ecosystem, or' : ""} try /api/find?q=<task>.`,
             404
           );
         }

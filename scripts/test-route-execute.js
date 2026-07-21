@@ -147,13 +147,18 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   // flag OFF: never resolves/pays external, returns 404 for an unmatched task
   const off = buildRouteExecuteTool({ getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 }, resolveExternal, payExternal, externalEnabled: () => false });
   let threw = null;
-  try { await off.handler({ task: "xyzzy nonexistent qqzz gibberish nomatch" }, {}); } catch (e) { threw = e; }
-  ok(threw && threw.statusCode === 404 && paidWith === null, "external OFF: unmatched task 404s, never pays");
+  try { await off.handler({ task: "summarize a twitter thread", include: "external" }, {}); } catch (e) { threw = e; }
+  ok(threw && threw.statusCode === 409 && paidWith === null, "include:external + flag OFF: 409, never pays");
+  // flag OFF, no include: internal-only, never touches external
+  paidWith = null;
+  let t0 = null;
+  try { await off.handler({ task: "hash a string" }, {}); } catch (e) { t0 = e; }
+  ok(paidWith === null, "no include: external never consulted (internal default)");
 
   // flag ON: pays the external seller, relays result + receipt, marks untrusted
   paidWith = null;
   const on = buildRouteExecuteTool({ getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 }, resolveExternal, payExternal, externalEnabled: () => true });
-  const r = await on.handler({ task: "xyzzy nonexistent qqzz gibberish nomatch", params: { circuit: "c" } }, {});
+  const r = await on.handler({ task: "summarize a twitter thread", include: "external", params: { circuit: "c" } }, {});
   ok(paidWith?.url === EXT.url && paidWith.opts.method === "POST" && paidWith.opts.body.circuit === "c", "external ON: pays the resolved seller url with the params body");
   ok(paidWith.opts.maxAtomic === 500000n, "external ON: margin cap passed as atomic (cap $0.50 → 500000)");
   ok(r.receipt.seller === EXT.seller && r.receipt.external === true && r.receipt.settleTx === "0xTX", "external receipt carries seller + external flag + settle tx");
