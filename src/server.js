@@ -163,7 +163,7 @@ import { ledgerPricingPage } from "./ledger-pricing.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
-import { CHAIN_PAGES, marketSellers, marketPage, marketPanelHtml } from "./market-page.js";
+import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
@@ -824,7 +824,7 @@ app.get("/", (_req, res) => {
   try {
     const snapshot = getIndexSnapshot();
     for (const key of Object.keys(CHAIN_PAGES)) {
-      try { chainSellerCounts[key] = marketSellers(key, snapshot).length; } catch { /* strip cell renders without the count */ }
+      try { chainSellerCounts[key] = marketOperatorCount(key, snapshot, getLeaderboardSnapshot()); } catch { /* strip cell renders without the count */ }
     }
   } catch { /* snapshot unavailable — strip renders rail-only cells */ }
   htmlCache(res, 60, 300).send(
@@ -1631,7 +1631,7 @@ setNavIndexProvider(() => {
   const snapshot = getIndexSnapshot();
   const chain = (label, href, chainKey) => {
     try {
-      return { label, href, sellers: marketSellers(chainKey, snapshot).length, healthy: true };
+      return { label, href, sellers: marketOperatorCount(chainKey, snapshot, getLeaderboardSnapshot()), healthy: true };
     } catch {
       return { label, href, sellers: null, healthy: false };
     }

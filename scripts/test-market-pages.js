@@ -428,5 +428,20 @@ for (const c of NEW_CHAINS) {
   ok(!/id="economy"/.test(noEcon), "all view: no economy snapshot → no strip rendered (honest omission)");
 }
 
+// --- marketOperatorCount: nav dropdown and roster must speak the same unit ---
+// Three sellers on Base, two settling to ONE leaderboard wallet group -> the
+// roster collapses them to one row, so the count must be 2, not 3 (the
+// "dropdown says 1,554, page says 843" regression class).
+{
+  const { marketOperatorCount } = await import("../src/market-page.js");
+  const W1 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const mk = (host, wallet) => ({ origin: `https://${host}`, displayName: host, homepage: `https://${host}`, local: false, toolCount: 1, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": wallet } });
+  const snapshot = { sellers: [mk("a.example", W1), mk("b.example", W1), mk("c.example", "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")] };
+  const lb = { leaderboard: [{ wallet: W1, callsSettled: 5, totalUsd: 1, uniqueBuyers: 2 }] };
+  ok(marketOperatorCount("base", snapshot, lb) === 2, "grouped wallets collapse in the operator count (2, not 3)");
+  ok(marketOperatorCount("base", snapshot, null) === 3, "no leaderboard -> no grouping evidence -> all count");
+  ok(marketOperatorCount(null, snapshot, lb) === 2, "all-chains view collapses the same way");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

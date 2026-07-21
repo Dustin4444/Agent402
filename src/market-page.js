@@ -1092,3 +1092,36 @@ ${ledgerFooterCompact()}`;
     body,
   });
 }
+
+/** Operator-level seller count for a chain page (null = all chains): the same
+ *  leaderboard-group collapse the rosters render, WITHOUT building rows —
+ *  hosts settling to one leaderboard group count once, everything ungrouped
+ *  counts individually. Exists so the nav dropdown and the page's SELLERS
+ *  LISTED card speak the same unit (operators): the dropdown used raw origin
+ *  counts (e.g. Base 1,554) while the page's deduped roster showed 843, which
+ *  read as a bug from the outside. Endpoints stay disclosed on the rows
+ *  ("+N more endpoints"), never hidden. */
+export function marketOperatorCount(chainKey, snapshot, leaderboardSnap) {
+  const sellers = chainKey ? marketSellers(chainKey, snapshot) : marketSellersAll(snapshot);
+  const gidByWallet = new Map();
+  (Array.isArray(leaderboardSnap?.leaderboard) ? leaderboardSnap.leaderboard : []).forEach((r, i) => {
+    for (const w of (r.wallets && r.wallets.length ? r.wallets : [r.wallet])) if (w) gidByWallet.set(String(w).toLowerCase(), `lb${i}`);
+  });
+  const C = chainKey ? CHAIN_PAGES[chainKey] : null;
+  const gidOf = (s) => {
+    if (s.local) return null;
+    const entries = Object.entries(s.payToByNetwork || {});
+    const pay = C
+      ? (entries.find(([net]) => C.isNetwork(net))?.[1] || null)
+      : (entries.map(([, w]) => w).find((w) => w && gidByWallet.has(String(w).toLowerCase())) || null);
+    return pay ? gidByWallet.get(String(pay).toLowerCase()) || null : null;
+  };
+  const seen = new Set();
+  let count = 0;
+  for (const s of sellers) {
+    const gid = gidOf(s);
+    if (!gid) { count++; continue; }
+    if (!seen.has(gid)) { seen.add(gid); count++; }
+  }
+  return count;
+}
