@@ -12,6 +12,7 @@
 // _cacheForTests() escape hatch.
 import {
   mergeOpenapiIntoBazaar,
+  normaliseOpenapiTools,
   openapiHasPaymentSignal,
   routeQuery,
   _cacheForTests,
@@ -99,6 +100,40 @@ const openapiTools = [
   const merged = mergeOpenapiIntoBazaar(real, guessed);
   ok(merged.length === 1, "method mismatch still merges by route (no duplicate listing)");
   ok(merged[0].slug === "url-to-markdown", "route-only match still overlays metadata");
+}
+
+// ---- 3b. OpenAPI keeps the real method and declared price on a weak Bazaar row ----
+// Live regression: Anicca publishes GET /research at $0.003 through
+// x-payment-info. A Bazaar row with no method/accept amount is normalised as
+// POST + null; merging used to keep those guesses and /api/route rendered
+// POST + priceUsd:0 even though the OpenAPI document was authoritative.
+{
+  const openapi = {
+    paths: {
+      "/research": {
+        get: {
+          operationId: "research",
+          summary: "web research digest",
+          "x-payment-info": {
+            price: { mode: "fixed", currency: "USD", amount: "0.003" },
+          },
+        },
+      },
+    },
+  };
+  const [documented] = normaliseOpenapiTools(openapi, "https://seller.example");
+  const guessed = [{
+    ...bazaarTools[0],
+    seller: "https://seller.example",
+    route: "/research",
+    method: "POST",
+    price: null,
+  }];
+  const [merged] = mergeOpenapiIntoBazaar([documented], guessed);
+  ok(documented.method === "GET", "OpenAPI normalisation keeps the declared GET method");
+  ok(documented.price === "0.003", "x-payment-info amount is normalised as the tool price");
+  ok(merged.method === "GET", `OpenAPI method replaces Bazaar's guessed POST (got ${merged.method})`);
+  ok(merged.price === "0.003", `OpenAPI price fills an unknown Bazaar amount (got ${merged.price})`);
 }
 
 // ---- 4. degenerate inputs pass through ----

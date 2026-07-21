@@ -481,7 +481,9 @@ function bazaarItemToTool(item, originUrl) {
   };
 }
 
-function normaliseOpenapiTools(openapi, originUrl) {
+// Exported for the offline crawler contract test. Keeping this pure makes the
+// exact OpenAPI -> index row mapping testable without network I/O.
+export function normaliseOpenapiTools(openapi, originUrl) {
   if (!openapi || typeof openapi !== "object" || !openapi.paths) return [];
   const out = [];
   for (const [pathStr, methods] of Object.entries(openapi.paths)) {
@@ -529,8 +531,10 @@ export function openapiHasPaymentSignal(openapi) {
 // its openapi.json says exactly what the tool does (operationId → slug,
 // summary → name, tags). Match by method+route (route-only as a fallback,
 // Bazaar guesses POST when the registry omits the method); openapi wins on
-// descriptive fields, Bazaar wins on payment truth. Openapi-only routes are
-// appended as-is; Bazaar-only routes pass through untouched.
+// descriptive fields and the declared HTTP method. Bazaar wins on observed
+// payment truth when it has an amount; otherwise the OpenAPI payment extension
+// fills the unknown price. Openapi-only routes are appended as-is;
+// Bazaar-only routes pass through untouched.
 export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
   if (!openapiTools.length) return bazaarTools.slice();
   if (!bazaarTools.length) return openapiTools.slice();
@@ -547,11 +551,17 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
     used.add(o);
     return {
       ...b,
+      // Bazaar defaults missing methods to POST. The OpenAPI operation is the
+      // authoritative verb once the route-only fallback finds a match.
+      method: o.method || b.method,
       slug: o.slug || b.slug,
       name: o.name && o.name !== o.route ? o.name : b.name,
       description: o.description || b.description,
       tags: o.tags?.length ? o.tags : b.tags,
       category: o.tags?.length ? o.category : b.category,
+      // Keep a settlement-observed Bazaar amount (including an explicit free
+      // price of 0); only fill an absent amount from the OpenAPI extension.
+      price: b.price == null ? o.price : b.price,
     };
   });
   for (const o of openapiTools) if (!used.has(o)) merged.push(o);
