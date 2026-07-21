@@ -192,47 +192,6 @@ export const CHAIN_PAGES = {
     canaryLine: "A paid canary buys tools over the Avalanche rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
     sellParagraphHtml: `Accept the Avalanche CAIP-2 network (<code>eip155:43114</code>) in your 402 challenge - the PayAI facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
   },
-  sei: {
-    chainName: "Sei",
-    ticker: "SEI",
-    tickerLabel: "SEI · PACIFIC-1",
-    caip2: "eip155:1329",
-    asset: "USDC",
-    settleLatency: "~1 second",
-    facilitatorLabel: "PayAI",
-    gasNote: "sponsored",
-    explorerUrl: "seitrace.com",
-    explorerWalletUrl: (wallet) => `https://seitrace.com/address/${wallet}?chain=pacific-1`,
-    networkParam: "sei",
-    acceptNetwork: "eip155:1329",
-    // Sei mainnet (pacific-1) CAIP-2 is "eip155:1329"; testnets are different
-    // chain ids, so an exact match can't be fooled.
-    isNetwork: (n) => n === "eip155:1329",
-    honestyNetworkPhrase: "the Sei network",
-    canaryLine: "A paid canary buys tools over the Sei rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the Sei CAIP-2 network (<code>eip155:1329</code>) in your 402 challenge - the PayAI facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
-  },
-  xlayer: {
-    chainName: "X Layer",
-    ticker: "OKB",
-    tickerLabel: "X LAYER · MAINNET",
-    caip2: "eip155:196",
-    asset: "USDC",
-    settleLatency: "~3 seconds",
-    facilitatorLabel: "PayAI",
-    gasNote: "sponsored",
-    explorerUrl: "oklink.com",
-    explorerWalletUrl: (wallet) => `https://www.oklink.com/x-layer/address/${wallet}`,
-    networkParam: "xlayer",
-    acceptNetwork: "eip155:196",
-    // X Layer mainnet CAIP-2 is "eip155:196"; its testnet is a different
-    // chain id ("eip155:195"), so an exact match can't be fooled. Settles the
-    // Bridged USDC Standard deployment (EIP-3009 verified on-chain).
-    isNetwork: (n) => n === "eip155:196",
-    honestyNetworkPhrase: "the X Layer network",
-    canaryLine: "A paid canary buys tools over the X Layer rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
-    sellParagraphHtml: `Accept the X Layer CAIP-2 network (<code>eip155:196</code>) in your 402 challenge - the PayAI facilitator verifies and settles bridged-standard USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
-  },
   stellar: {
     chainName: "Stellar",
     ticker: "XLM",
