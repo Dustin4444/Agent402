@@ -90,6 +90,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   // Blockscout kit: every call BUYS upstream data over x402 with the server's
   // spending wallet — PoW would let one client drain the upstream buyer.
   "contract-inspect", "address-profile",
+  // captcha-verify relays a secret to a provider (egress); captcha-generate
+  // is pure-CPU and stays PoW-eligible (NOT listed here).
+  "captcha-verify",
   "dns-lookup", "dns-propagation", "spf-check", "dmarc-check", "dkim-lookup", "email-deliverability",
   "cert-transparency", "http-headers", "tech-stack", "asn-info",
   // x402 payments toolkit — kept off the free connector (paid surface only).
