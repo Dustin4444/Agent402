@@ -575,6 +575,37 @@ export const LEADERBOARD_HISTORY_FILE =
 const HISTORY_MAX_DAYS = 35; // ~5 weeks — enough for WoW with slack
 const HISTORY_MAX_SELLERS = 300; // per point — bounds file size on /data
 
+// Full-snapshot warm-start (origins included). The daily HISTORY digest above
+// keeps only wallets/totals, so it can't rebuild the origin→settled map the SOR
+// resolver joins on. This file persists the WHOLE latest snapshot to the same
+// /data volume so a fresh boot serves real reliability data immediately instead
+// of the empty "warming" placeholder — otherwise the resolver (and every
+// leaderboard consumer) reads ZERO settled sellers for the minutes the first
+// on-chain scan takes after each deploy, which silently kills SOR external
+// routing during that window. Stale-but-complete is correct for the gate: a
+// seller proven yesterday is still proven today.
+export const LEADERBOARD_SNAPSHOT_FILE =
+  process.env.LEADERBOARD_SNAPSHOT_FILE || "/data/leaderboard-snapshot.json";
+
+/** Best-effort persist of the full snapshot. No-op on a missing /data volume. */
+function persistLeaderboardSnapshot(snapshot, file = LEADERBOARD_SNAPSHOT_FILE) {
+  try {
+    if (!snapshot || snapshot.scanSkipped || !Array.isArray(snapshot.leaderboard) || !snapshot.leaderboard.length) return false;
+    writeFileSync(file, JSON.stringify(snapshot));
+    return true;
+  } catch { return false; }
+}
+
+/** Load the last persisted full snapshot from /data, or null. Structurally
+ *  complete (origins present) but stale — used only to warm the cache at boot. */
+export function loadPersistedLeaderboardSnapshot(file = LEADERBOARD_SNAPSHOT_FILE) {
+  try {
+    const snap = JSON.parse(readFileSync(file, "utf8"));
+    if (snap && Array.isArray(snap.leaderboard) && snap.leaderboard.length) return snap;
+    return null;
+  } catch { return null; }
+}
+
 /** Read the persisted history: array of daily points, oldest first. [] on any error. */
 export function readLeaderboardHistory(file = LEADERBOARD_HISTORY_FILE) {
   try {
@@ -640,6 +671,9 @@ async function refreshOnce(opts) {
     // x402-trending tool) activate automatically once history accrues.
     // No-op when the volume is absent (local dev, CI).
     persistLeaderboardHistoryPoint(snap);
+    // Full-snapshot warm-start file — lets the NEXT boot serve real reliability
+    // data before its own scan lands (closes the post-deploy cold window).
+    persistLeaderboardSnapshot(snap);
   } catch (e) {
     cached.lastError = String(e?.message || e);
     // Keep the previous snapshot — a transient RPC outage shouldn't wipe a
@@ -659,6 +693,15 @@ export function startLeaderboardRefresh(opts = {}) {
   if (refreshTimer) return;
   const intervalMs = opts.intervalMs ?? REFRESH_INTERVAL_MS;
   cached.refreshIntervalMs = intervalMs;
+  // Warm-start from the persisted full snapshot so getLeaderboardSnapshot serves
+  // real rows (origins + settled) from the very first request after a deploy,
+  // instead of the empty "warming" placeholder that made the SOR resolver find
+  // zero proven sellers for ~minutes. Marked staleFromDisk; the refresh below
+  // overwrites it with a fresh scan. No-op when the /data file is absent.
+  if (!cached.snapshot) {
+    const disk = loadPersistedLeaderboardSnapshot();
+    if (disk) cached.snapshot = { ...disk, staleFromDisk: true };
+  }
   // Skip the immediate boot scan when X402_SYNC_ON_START=false — the same flag
   // the facilitator handshake honors ("no upstream network sync at boot"). The
   // 7d scan is ~170 RPC calls plus a large aggregation; running it at boot made
