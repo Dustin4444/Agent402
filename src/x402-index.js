@@ -220,6 +220,7 @@ const DEFAULT_SEEDS = [
   "https://agents.daedalusdevelopmentgroup.com", // DDG Agent-Payable Services (#222)
   "https://jmt-x402-proxy.jmthomasofficial.workers.dev", // JMT x402 server (#221)
   "https://nolawealthfinancial.com", // Still OS Notary Protocol — Ed25519-signed notarization, OFAC/SDN screening, CPI/GDP signals, USDC on Base (#434)
+  "https://x402.evidencesupply.com", // Evidence Supply — corroborated agent-action verification, USDC on Base
 ];
 
 const seedList = () => {
