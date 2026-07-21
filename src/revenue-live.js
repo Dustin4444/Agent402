@@ -125,24 +125,6 @@ export const EVM = {
     explorer: (a) => `https://snowtrace.io/address/${a}`,
     tx: (h) => `https://snowtrace.io/tx/${h}`,
   },
-  sei: {
-    // Sei (pacific-1), native Circle USDC — NOT Noble's IBC token. ~0.4s
-    // blocks → 250k ≈ 28h. No Alchemy lane; the Sei Foundation + publicnode
-    // RPCs both serve getLogs over chunked ranges.
-    label: "Sei", asset: "USDC", span: 250000,
-    token: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392",
-    rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"],
-    explorer: (a) => `https://seitrace.com/address/${a}?chain=pacific-1`,
-    tx: (h) => `https://seitrace.com/tx/${h}?chain=pacific-1`,
-  },
-  xlayer: {
-    // X Layer (OKX, chain 196), Bridged USDC Standard. ~3s blocks → 30k ≈ 25h.
-    label: "X Layer", asset: "USDC", span: 30000,
-    token: "0x74b7f16337b8972027f6196a17a631ac6de26d22",
-    rpcs: ["https://rpc.xlayer.tech", "https://xlayerrpc.okx.com"],
-    explorer: (a) => `https://www.oklink.com/x-layer/address/${a}`,
-    tx: (h) => `https://www.oklink.com/x-layer/tx/${h}`,
-  },
   robinhood: {
     // Measured ~0.15s blocks (not the 2s Orbit default) — 30k blocks was only
     // ~76 real minutes; 600k ≈ 25h so the daily canary settle stays visible.
@@ -982,21 +964,19 @@ export async function revenueSnapshot(opts) {
 async function refreshSnapshot({ walletAddress, solanaWallet }) {
   const stellarWallet = (process.env.STELLAR_WALLET_ADDRESS || "").trim();
   const algorandWallet = (process.env.ALGORAND_WALLET_ADDRESS || "").trim();
-  const [base, polygon, arbitrum, monad, celo, avalanche, sei, xlayer, robinhood, solana, stellar, algorand] = await Promise.all([
+  const [base, polygon, arbitrum, monad, celo, avalanche, robinhood, solana, stellar, algorand] = await Promise.all([
     evmRail("base", walletAddress),
     evmRail("polygon", walletAddress),
     evmRail("arbitrum", walletAddress),
     evmRail("monad", walletAddress),
     evmRail("celo", walletAddress),
     evmRail("avalanche", walletAddress),
-    evmRail("sei", walletAddress),
-    evmRail("xlayer", walletAddress),
     evmRail("robinhood", walletAddress),
     solanaRail(solanaWallet),
     stellarRail(stellarWallet),
     algorandRail(algorandWallet),
   ]);
-  const rails = [base, solana, polygon, arbitrum, monad, celo, avalanche, sei, xlayer, stellar, algorand, robinhood];
+  const rails = [base, solana, polygon, arbitrum, monad, celo, avalanche, stellar, algorand, robinhood];
   // Per-rail last-good balance carry-forward. The non-EVM reads (Solana,
   // Stellar, Algorand) hit public endpoints that throttle Railway's datacenter
   // IP and intermittently time out; a wallet balance barely moves between

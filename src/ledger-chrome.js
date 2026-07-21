@@ -280,9 +280,9 @@ const NAV_ZONES = [
 // Fallback by-chain rows used whenever no live index-snapshot data is wired
 // (offline unit tests, early boot, a throwing/null provider) — the dropdown
 // and footer still get real, crawlable links, just without seller counts.
-// All 12 rails have a live market page (/base, /solana, /polygon, /arbitrum, /monad,
-// /celo, /avalanche, /sei, /xlayer, /stellar, /algorand, /robinhood) — this fallback
-// must list every one, not just the two that got dedicated routes first.
+// All 10 rails have a live market page (/base, /solana, /polygon, /arbitrum, /monad,
+// /celo, /avalanche, /stellar, /algorand, /robinhood) — this fallback must list
+// every one, not just the two that got dedicated routes first.
 const STATIC_CHAINS = [
   { label: "base", href: "/base" },
   { label: "solana", href: "/solana" },
@@ -291,8 +291,6 @@ const STATIC_CHAINS = [
   { label: "monad", href: "/monad" },
   { label: "celo", href: "/celo" },
   { label: "avalanche", href: "/avalanche" },
-  { label: "sei", href: "/sei" },
-  { label: "xlayer", href: "/xlayer" },
   { label: "stellar", href: "/stellar" },
   { label: "algorand", href: "/algorand" },
   { label: "robinhood", href: "/robinhood" },

@@ -1351,8 +1351,21 @@ jobs:
           echo "pricing.payment.networks = $NETS"
           [ "$NETS" = '["base","solana","polygon","arbitrum","stellar"]' ] || { echo "code did not register all chains"; exit 1; }
           echo "--- live 402 against PayAI (informational status; hard gate on the accepts below) ---"
-          curl -s -D /tmp/402.h -o /tmp/402.body -w "status %{http_code}\n" -X POST localhost:3002/api/hash \
-            -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{"text":"x"}' || true
+          # RETRY LOOP, not one shot: @x402/express syncs the facilitator's
+          # /supported lazily — a request that lands before the first sync
+          # completes gets a 500 and the middleware retries the sync on the
+          # NEXT request (verified in node_modules/@x402/express index.mjs,
+          # initPromise reset in initializeHttpServer's catch). A single curl
+          # therefore samples a self-healing system once and flaked for months
+          # as "the PayAI 500"; five attempts 3s apart make the gate
+          # deterministic while still hard-failing a real regression.
+          for i in 1 2 3 4 5; do
+            STATUS=$(curl -s -D /tmp/402.h -o /tmp/402.body -w "%{http_code}" -X POST localhost:3002/api/hash \
+              -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{"text":"x"}' || echo 000)
+            echo "attempt $i: status $STATUS"
+            [ "$STATUS" = "402" ] && break
+            sleep 3
+          done
           # x402 v2 puts the requirements in the base64 PAYMENT-REQUIRED header
           # (the body is {}); v1 kept them in the body. Decode whichever exists.
           HDR=$(tr -d '\r' < /tmp/402.h | awk -F': ' 'tolower($1)=="payment-required"{print $2}' | head -1)
