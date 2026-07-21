@@ -1655,9 +1655,14 @@ setNavIndexProvider(() => {
   const snapshot = getIndexSnapshot();
   const chain = (label, href, chainKey) => {
     try {
-      return { label, href, sellers: marketOperatorCount(chainKey, snapshot, getLeaderboardSnapshot()), healthy: true };
+      // sellers = operator count (matches the roster). tools = catalog depth
+      // on that chain, summed over the chain's sellers (unique origins — tools
+      // are per-endpoint, so no operator-collapse here). Both are the numbers
+      // an agent picks a chain on: how many sellers, how much to buy.
+      const tools = marketSellers(chainKey, snapshot).reduce((s, x) => s + (x.toolCount || 0), 0);
+      return { label, href, sellers: marketOperatorCount(chainKey, snapshot, getLeaderboardSnapshot()), tools, healthy: true };
     } catch {
-      return { label, href, sellers: null, healthy: false };
+      return { label, href, sellers: null, tools: null, healthy: false };
     }
   };
   // Iterates CHAIN_PAGES so a third chain page joins the nav/footer strip
