@@ -47,7 +47,8 @@ const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").
 function cardSvg(cap) {
   const mono = JSON.stringify(B.mono);
   const r = cap.result || {};
-  const chainLabel = cap.chain === "eip155:42220" ? "Celo" : cap.chain;
+  const CHAIN_LABELS = { "eip155:42220": "Celo", "eip155:8453": "Base", "eip155:43114": "Avalanche" };
+  const chainLabel = CHAIN_LABELS[cap.chain] || cap.chain;
   const tx = cap.receipt?.transaction || "";
   const txShort = tx ? `${tx.slice(0, 10)}…${tx.slice(-6)}` : "";
   const liveDate = new Date().toISOString().slice(0, 10);
