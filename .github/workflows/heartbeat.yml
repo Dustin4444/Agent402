@@ -150,6 +150,25 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
           fi
 
+      # Solvador registry watch — their /discovery/resources speaks the
+      # standard Bazaar shape but is EMPTY (total: 0, probed 2026-07-21). The
+      # day it fills, it becomes the only discovery home for x402 sellers on
+      # Optimism/Unichain/World Chain/Linea, and we want to be the first
+      # aggregator to ingest it (one-line DISCOVERY_SOURCES entry, PayAI
+      # shape). One-shot informational signal: opens a single issue the first
+      # time total > 0, never re-opens, never alarms, never fails the run.
+      - name: Solvador registry watch (one-shot signal when it goes non-empty)
+        if: always()
+        continue-on-error: true
+        run: |
+          TOTAL=$(curl -s --max-time 15 "https://api.solvador.com/discovery/resources?limit=1" | jq -r '.pagination.total // 0' 2>/dev/null || echo 0)
+          echo "solvador registry total: $TOTAL"
+          [ "$TOTAL" -gt 0 ] 2>/dev/null || exit 0
+          TITLE="Solvador x402 registry is live (sellers detected)"
+          ANY=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          [ -n "$ANY" ] && exit 0
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "Solvador's discovery registry (https://api.solvador.com/discovery/resources) now reports $TOTAL resource(s) — it was empty when the watch was added (2026-07-21). Their facilitator uniquely covers Optimism, Unichain, World Chain, Linea, NEAR, and XRPL, so this registry is the discovery home for sellers on those chains. Action: add it to DISCOVERY_SOURCES in src/x402-index.js (same shape as the PayAI entry: paginate + synthesizeTools + strict) and consider the Tier 2 facilitator key (see the x402-chain-expansion-research memory)."
+
       - name: Alert (open issue) or clear (close issue)
         run: |
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "Heartbeat: production DOWN"' --json number --jq '.[0].number // empty')
