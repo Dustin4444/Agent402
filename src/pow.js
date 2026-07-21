@@ -89,7 +89,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "a2a-card-fetch",
   // Blockscout kit: every call BUYS upstream data over x402 with the server's
   // spending wallet — PoW would let one client drain the upstream buyer.
-  "contract-inspect", "address-profile",
+  "contract-inspect", "address-profile", "token-info", "token-holders", "tx-inspect",
   // captcha-verify relays a secret to a provider (egress); captcha-generate
   // is pure-CPU and stays PoW-eligible (NOT listed here).
   "captcha-verify",
