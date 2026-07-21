@@ -73,6 +73,21 @@ const EVM_NETWORKS = {
     rpcs: [...alchemy("arb-mainnet"), "https://arb1.arbitrum.io/rpc", "https://arbitrum.llamarpc.com", "https://arbitrum.drpc.org"],
     spanBlocks: 90000, // ~6h at 0.25s blocks (address-filtered getLogs stays cheap)
   },
+  avalanche: {
+    usdc: "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e",
+    rpcs: [...alchemy("avax-mainnet"), "https://api.avax.network/ext/bc/C/rpc", "https://avalanche-c-chain-rpc.publicnode.com"],
+    spanBlocks: 10800, // ~6h at 2s blocks
+  },
+  sei: {
+    usdc: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392",
+    rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"],
+    spanBlocks: 54000, // ~6h at 0.4s blocks
+  },
+  xlayer: {
+    usdc: "0x74b7f16337b8972027f6196a17a631ac6de26d22",
+    rpcs: ["https://rpc.xlayer.tech", "https://xlayerrpc.okx.com"],
+    spanBlocks: 7200, // ~6h at 3s blocks
+  },
   monad: {
     usdc: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
     rpcs: [...alchemy("monad-mainnet"), "https://rpc.monad.xyz", "https://rpc2.monad.xyz"],

@@ -1883,7 +1883,7 @@ async function getActivityForChain(chainKey, wallet) {
 // /robinhood replaces the old dedicated robinhood-page.js landing (folded
 // its unique chain-parameter and tollbooth-config copy into this chain's
 // sellParagraphHtml in market-page.js) — same URL, now the shared template.
-const SNAPSHOT_RAIL_LABEL = { base: "Base", solana: "Solana", polygon: "Polygon", arbitrum: "Arbitrum", monad: "Monad", celo: "Celo", robinhood: "Robinhood Chain" };
+const SNAPSHOT_RAIL_LABEL = { base: "Base", solana: "Solana", polygon: "Polygon", arbitrum: "Arbitrum", monad: "Monad", celo: "Celo", avalanche: "Avalanche", sei: "Sei", xlayer: "X Layer", robinhood: "Robinhood Chain" };
 // Per-chain wallet source: EVM rails (including Robinhood, chain 4663) all
 // settle to the same WALLET_ADDRESS; Solana has its own env.
 const chainWallet = (chainKey) => (chainKey === "solana" ? (process.env.SOLANA_WALLET_ADDRESS || "").trim() : WALLET_ADDRESS);

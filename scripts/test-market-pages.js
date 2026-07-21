@@ -27,11 +27,14 @@ const NEW_CHAINS = [
   { key: "polygon", network: "eip155:137", offNetwork: "eip155:80002", asset: "USDC", explorer: "polygonscan.com", wallet: "0x2222222222222222222222222222222222222222" },
   { key: "arbitrum", network: "eip155:42161", offNetwork: "eip155:421614", asset: "USDC", explorer: "arbiscan.io", wallet: "0x3333333333333333333333333333333333333333" },
   { key: "celo", network: "eip155:42220", offNetwork: "eip155:11142220", asset: "USDC", explorer: "celoscan.io", wallet: "0x5555555555555555555555555555555555555555" },
+  { key: "avalanche", network: "eip155:43114", offNetwork: "eip155:43113", asset: "USDC", explorer: "snowtrace.io", wallet: "0x6666666666666666666666666666666666666666" },
+  { key: "sei", network: "eip155:1329", offNetwork: "eip155:1328", asset: "USDC", explorer: "seitrace.com", wallet: "0x7777777777777777777777777777777777777777" },
+  { key: "xlayer", network: "eip155:196", offNetwork: "eip155:195", asset: "USDC", explorer: "oklink.com", wallet: "0x8888888888888888888888888888888888888888" },
   { key: "robinhood", network: "eip155:4663", offNetwork: "eip155:99999", asset: "USDG", explorer: "robinhoodchain.blockscout.com", wallet: "0x4444444444444444444444444444444444444444" },
 ];
 
-// 1. All 9 chain pages exist in CHAIN_PAGES.
-ok(Object.keys(CHAIN_PAGES).length === 9, `CHAIN_PAGES has 9 entries (got ${Object.keys(CHAIN_PAGES).length})`);
+// 1. All 12 chain pages exist in CHAIN_PAGES.
+ok(Object.keys(CHAIN_PAGES).length === 12, `CHAIN_PAGES has 12 entries (got ${Object.keys(CHAIN_PAGES).length})`);
 for (const c of NEW_CHAINS) ok(!!CHAIN_PAGES[c.key], `CHAIN_PAGES has a "${c.key}" entry`);
 
 for (const c of NEW_CHAINS) {
