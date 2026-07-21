@@ -48,75 +48,19 @@ function needAddress(input) {
   return a;
 }
 
-// Upstream buy: negotiate Blockscout's 402 exactly like scripts/paid-demo.js,
-// pinned to Base. Client is a lazy singleton (viem + @x402 imports only when a
-// call actually happens). Exported cap check so the unit test can pin the
-// margin guard without a live buy.
+// Upstream buy: the negotiation lives in the shared x402-buyer primitive
+// (src/x402-buyer.js, also used by the SOR external executor). Blockscout's
+// api host is a FIXED first-party allowlist, so trusted:true skips the SSRF
+// resolve (it's not a caller-supplied URL). $0.005 margin-guard ceiling.
+import { payX402, quoteWithinCap } from "../x402-buyer.js";
 const BLOCKSCOUT_API = (process.env.BLOCKSCOUT_API_URL || "https://api.blockscout.com").replace(/\/$/, "");
-const UPSTREAM_CHAIN = "eip155:8453";
-export const UPSTREAM_MAX_ATOMIC = 5000n; // $0.005 in 6-decimal USDC — margin guard ceiling
-export function upstreamQuoteAcceptable(amountAtomic) {
-  // Strict digit-string check first: BigInt("") is 0n, so a missing/empty
-  // quote would otherwise sail under the ceiling and sign a malformed payment.
-  if (!/^\d+$/.test(String(amountAtomic ?? ""))) return false;
-  try { return BigInt(amountAtomic) <= UPSTREAM_MAX_ATOMIC; } catch { return false; }
-}
-
-let buyerPromise = null;
-async function getBuyer() {
-  const pk = (process.env.X402_UPSTREAM_BUYER_KEY || "").trim();
-  if (!pk) throw bad("Upstream buyer wallet not configured (X402_UPSTREAM_BUYER_KEY) — this tool resells Blockscout Pro data bought per call over x402 and cannot run without it", 503);
-  buyerPromise ??= (async () => {
-    const [{ privateKeyToAccount }, { x402Client, x402HTTPClient }, { registerExactEvmScheme }] = await Promise.all([
-      import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"),
-    ]);
-    const account = privateKeyToAccount(pk.startsWith("0x") ? pk : `0x${pk}`);
-    const client = new x402Client();
-    registerExactEvmScheme(client, { signer: account });
-    return { client, http: new x402HTTPClient(client), address: account.address };
-  })();
-  return buyerPromise;
-}
-
-const MAX_UPSTREAM_BYTES = 512 * 1024;
-async function readCapped(res) {
-  const text = await res.text();
-  if (text.length > MAX_UPSTREAM_BYTES) throw bad("Upstream response exceeded the size cap", 502);
-  try { return JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
-}
+export const UPSTREAM_MAX_ATOMIC = 5000n; // $0.005 in 6-decimal USDC
+export const upstreamQuoteAcceptable = (amountAtomic) => quoteWithinCap(amountAtomic, UPSTREAM_MAX_ATOMIC);
 
 /** Buy one Blockscout Pro API path over x402. Returns the parsed JSON. */
 async function buyBlockscout(path) {
-  const { client, http } = await getBuyer();
-  const url = `${BLOCKSCOUT_API}${path}`;
-  const init = { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20000) };
-  let bare;
-  try { bare = await fetch(url, init); } catch (e) {
-    throw bad(`Blockscout unreachable: ${String(e?.message || e).slice(0, 80)}`, 502);
-  }
-  if (bare.status === 200) return readCapped(bare); // free/unmetered path — no spend
-  if (bare.status === 404) throw bad("Blockscout does not host this network or resource", 404);
-  if (bare.status !== 402) throw bad(`Blockscout upstream error (HTTP ${bare.status})`, 502);
-  let paymentRequired;
-  try {
-    const bareBody = await bare.json().catch(() => undefined);
-    paymentRequired = http.getPaymentRequiredResponse((n) => bare.headers.get(n), bareBody);
-  } catch {
-    throw bad("Blockscout sent an unparseable 402 challenge", 502);
-  }
-  const accepts = (paymentRequired.accepts || []).filter((a) => String(a.network || "") === UPSTREAM_CHAIN);
-  if (!accepts.length) throw bad("Blockscout no longer offers Base settlement — upstream contract changed", 502);
-  const quoted = accepts[0].amount ?? accepts[0].maxAmountRequired;
-  // Margin guard: never sign for more than the ceiling, no matter what the
-  // live 402 says. A silent upstream repricing must fail loudly, not drain.
-  if (!upstreamQuoteAcceptable(quoted)) {
-    throw bad(`Blockscout repriced above our ceiling (quoted ${quoted} atomic, cap ${UPSTREAM_MAX_ATOMIC}) — refusing to pay`, 502);
-  }
-  const payload = await client.createPaymentPayload({ ...paymentRequired, accepts });
-  const payHeaders = http.encodePaymentSignatureHeader(payload);
-  const paid = await fetch(url, { ...init, headers: { ...init.headers, ...payHeaders } });
-  if (paid.status !== 200) throw bad(`Blockscout rejected the paid retry (HTTP ${paid.status})`, 502);
-  return readCapped(paid);
+  const { result } = await payX402(`${BLOCKSCOUT_API}${path}`, { maxAtomic: UPSTREAM_MAX_ATOMIC, trusted: true });
+  return result;
 }
 
 export const BLOCKSCOUT_TOOLS = [
