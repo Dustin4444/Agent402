@@ -1,18 +1,19 @@
-# Wish → issue bridge. The server's wish loop (/api/wish, MCP request_tool,
-# find-miss capture) aggregates demand at GET /api/wishes and flags clusters
-# that cross the signal threshold — but the server deliberately never holds a
-# GitHub token, so THIS workflow closes the loop: it polls the public
-# aggregate and opens one issue per qualifying cluster.
+# Wish bridge — DISABLED for public-issue creation (2026-07-21, owner call).
 #
-# The gate is the server-computed `qualified` flag, NOT raw count: a cluster
-# qualifies only when it clears the count threshold AND shows independence
-# (≥2 distinct sources, or demand sustained past the span window). This stops
-# a single script minting issues by POSTing the same string 5 times — see
-# clusterQualifies in src/wish.js.
+# The itemized agent-demand board (which unmet needs, how hot each is) is
+# strategic intel. This workflow used to auto-open a PUBLIC GitHub issue per
+# qualifying wish cluster on this PUBLIC repo — i.e. it broadcast our demand
+# signal to anyone watching the issues feed, which a competitor could build
+# against before we do. The confidential board now lives behind the operator
+# token at /__operator/wishes (page) and /__operator/wishes.json (feed); the
+# public /api/wishes returns aggregate totals only (a "real demand exists,
+# come sell" beacon), never per-cluster text/counts.
 #
-# Dedup is GitHub-side (label `tool-wish` + exact title match), so the server
-# needs no writable "issueOpened" state and re-runs are idempotent. At most
-# MAX_NEW issues per run — a spam wave can never flood the tracker.
+# The auto-open path is gated OFF behind the WISH_ISSUES_ENABLED repo variable
+# (default unset = off). If you ever want a demand tracker again, prefer a
+# PRIVATE repo/board over re-enabling public issues here. Historical wish
+# issues (#461, #471, …) are already public and cannot be un-leaked; that is
+# exactly the exposure this change stops going forward.
 name: wish-issues
 on:
   schedule:
@@ -27,38 +28,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Open issues for wish clusters at threshold
+      - name: Open issues for wish clusters at threshold (gated OFF by default)
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          # Off unless the operator explicitly opts back in via repo variable.
+          ENABLED: ${{ vars.WISH_ISSUES_ENABLED }}
+          # Read the TOKEN-GATED detailed feed, never the now-aggregate-only
+          # public /api/wishes. Secret unset -> the fetch 404s -> no-op.
+          OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
         run: |
           set -e
+          if [ "$ENABLED" != "true" ]; then
+            echo "wish-issues auto-open is DISABLED (WISH_ISSUES_ENABLED != true)."
+            echo "Confidential demand board: https://agent402.tools/__operator/wishes (operator token)."
+            exit 0
+          fi
           MAX_NEW=3
-          WISHES=$(curl -sf --max-time 20 "https://agent402.tools/api/wishes") || { echo "wishes endpoint unavailable — nothing to do"; exit 0; }
+          WISHES=$(curl -sf --max-time 20 -H "X-Operator-Token: $OP_TOKEN" "https://agent402.tools/__operator/wishes.json") \
+            || { echo "detailed wishes feed unavailable (token unset or endpoint down) — nothing to do"; exit 0; }
           gh label create tool-wish --repo "$REPO" --description "Agent-requested tool (wish loop)" --color D63C1A --force
           THRESHOLD=$(echo "$WISHES" | jq -r '.threshold // 5')
-          # Existing wish issues (open or closed — a closed wish issue means
-          # "handled or rejected"; never re-open the same demand automatically).
           EXISTING=$(gh issue list --repo "$REPO" --label tool-wish --state all --limit 200 --json title --jq '.[].title')
           CREATED=0
-          # Gate on the server-computed `qualified` flag (count + independence),
-          # not raw count. A cached response from before the flag shipped lacks
-          # the field, so `== true` fails closed and opens nothing — safe.
           echo "$WISHES" | jq -c '.clusters[] | select(.qualified == true)' | while read -r c; do
-            [ "$CREATED" -ge "$MAX_NEW" ] && { echo "cap reached ($MAX_NEW) — remaining clusters wait for the next run"; break; }
+            [ "$CREATED" -ge "$MAX_NEW" ] && { echo "cap reached ($MAX_NEW)"; break; }
             TEXT=$(echo "$c" | jq -r '.text')
             COUNT=$(echo "$c" | jq -r '.count')
             SOURCES=$(echo "$c" | jq -r '.sources | to_entries | map("\(.key): \(.value)") | join(", ")')
             FIRST=$(echo "$c" | jq -r '.firstSeen')
-            # Title = stable function of the normalized text so dedup holds.
             TITLE="Tool wish: ${TEXT:0:80}"
-            if echo "$EXISTING" | grep -Fxq "$TITLE"; then
-              echo "already tracked: $TITLE"
-              continue
-            fi
-            BODY=$(printf 'Agents asked for this **%s** times (sources: %s; first seen %s).\n\nNormalized request:\n\n> %s\n\nLive demand board: https://agent402.tools/api/wishes\n\nOpened automatically by the wish-issues bridge: this cluster cleared the signal threshold (%s) and qualified as independent demand (multiple sources or sustained over time), not a single-source burst.' "$COUNT" "$SOURCES" "$FIRST" "$TEXT" "$THRESHOLD")
+            if echo "$EXISTING" | grep -Fxq "$TITLE"; then echo "already tracked: $TITLE"; continue; fi
+            BODY=$(printf 'Agents asked for this **%s** times (sources: %s; first seen %s).\n\nNormalized request:\n\n> %s\n\nOpened by the wish-issues bridge (WISH_ISSUES_ENABLED=true).' "$COUNT" "$SOURCES" "$FIRST" "$TEXT")
             gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY" --label tool-wish
-            CREATED=$((CREATED+1))
-            echo "opened: $TITLE"
+            CREATED=$((CREATED+1)); echo "opened: $TITLE"
           done
           echo "done"

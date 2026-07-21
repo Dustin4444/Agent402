@@ -1250,7 +1250,16 @@ app.get("/__operator/stats", (req, res) => {
 });
 app.get("/__operator/wishes", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
-  res.type("html").send(operatorWishesPage(BASE_URL, getWishesAggregate({ limit: 500 })));
+  res.type("html").send(operatorWishesPage(BASE_URL, getWishesAggregate({ limit: 500, detailed: true })));
+});
+// Token-gated DETAILED wish feed (per-cluster text/counts/verdicts) — the raw
+// demand board is strategic intel, so the itemized view lives behind the
+// operator token, same as the dashboard. The wish-issues bridge reads THIS
+// (with AGENT402_OPERATOR_TOKEN) instead of the now-aggregate-only /api/wishes.
+app.get("/__operator/wishes.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  res.json(getWishesAggregate({ limit: req.query?.limit, detailed: true }));
 });
 app.get("/__operator/leads", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
@@ -1583,9 +1592,11 @@ app.post("/api/wish", (req, res) => {
     res.status(status).json({ error: err.message });
   }
 });
-// Aggregate view: normalized clusters only (no raw context, no IPs) — a
-// future scheduled workflow polls this to open an issue once a cluster
-// crosses WISH_THRESHOLD (server never calls the GitHub API itself).
+// PUBLIC BEACON: aggregate totals + qualified-cluster COUNT only — never the
+// per-cluster text/counts (that itemized demand board is strategic intel, now
+// behind the operator token at /__operator/wishes.json). "Real demand exists,
+// come sell" stays public to pull sellers in; "which unmet needs, how hot"
+// does not. detailed defaults to false — do NOT add detailed:true here.
 app.get("/api/wishes", (req, res) => {
   res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
   res.json(getWishesAggregate({ limit: req.query?.limit }));

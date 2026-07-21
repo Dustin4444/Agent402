@@ -57,7 +57,7 @@ function freshFile(tag) {
   recordWish({ need: "  Convert   STL to OBJ ", source: "api", ip: "10.0.0.4" });
   const r2 = recordWish({ need: "convert stl to obj", source: "mcp", ip: "10.0.0.5" });
   ok(r2.cluster.count === 2, `case/whitespace variants collapse into one cluster (got count=${r2.cluster.count})`);
-  const agg = getWishesAggregate();
+  const agg = getWishesAggregate({ detailed: true });
   ok(agg.distinctClusters === 1, `dedup: exactly one distinct cluster (got ${agg.distinctClusters})`);
   ok(agg.clusters[0].sources.api === 1 && agg.clusters[0].sources.mcp === 1, `sources breakdown attributes each call correctly (got ${JSON.stringify(agg.clusters[0].sources)})`);
 }
@@ -103,7 +103,7 @@ function freshFile(tag) {
   }
   const hits = logs.filter((l) => l.includes("[wish-threshold]"));
   ok(hits.length === 1, `threshold log fires exactly once at count=${WISH_THRESHOLD} (got ${hits.length} logs: ${JSON.stringify(logs)})`);
-  const agg = getWishesAggregate();
+  const agg = getWishesAggregate({ detailed: true });
   const row = agg.clusters.find((c) => c.text.includes("currency converter"));
   ok(row && row.issueOpened === true, `cluster carries issueOpened:true after crossing the threshold (got ${JSON.stringify(row)})`);
 }
@@ -140,7 +140,7 @@ function freshFile(tag) {
   for (let i = 0; i < WISH_THRESHOLD; i++) {
     recordWish({ need: "synthora mesh 962 m2m services", source: "api", ip: `10.0.9.${i}` });
   }
-  let agg = getWishesAggregate();
+  let agg = getWishesAggregate({ detailed: true });
   let row = agg.clusters.find((c) => c.text.includes("synthora"));
   ok(row && row.count >= WISH_THRESHOLD && row.qualified === false,
     `single-source burst is recorded but unqualified (got ${JSON.stringify(row)})`);
@@ -153,7 +153,7 @@ function freshFile(tag) {
   recordWish({ need: "real gap tool", source: "mcp", ip: "10.0.10.3" });
   recordWish({ need: "real gap tool", source: "find-miss", ip: "10.0.10.4" });
   recordWish({ need: "real gap tool", source: "find-miss", ip: "10.0.10.5" });
-  agg = getWishesAggregate();
+  agg = getWishesAggregate({ detailed: true });
   row = agg.clusters.find((c) => c.text.includes("real gap tool"));
   ok(row && row.count === WISH_THRESHOLD && row.qualified === true,
     `multi-source demand at threshold qualifies (got ${JSON.stringify(row)})`);
@@ -173,7 +173,7 @@ function freshFile(tag) {
   }
   const state = __testState();
   ok(state.lineCount === 3 && state.capReached === true, `file cap stops raw appends at 3 lines (got lineCount=${state.lineCount}, capReached=${state.capReached})`);
-  const agg = getWishesAggregate();
+  const agg = getWishesAggregate({ detailed: true });
   ok(agg.distinctClusters === 5, `clusters still tracked in memory past the file cap (got ${agg.distinctClusters})`);
 }
 
@@ -181,7 +181,7 @@ function freshFile(tag) {
 {
   freshFile("aggregate-shape");
   recordWish({ need: "<script>alert(1)</script> pdf splitter", context: "super secret internal detail", source: "api", ip: "10.0.5.1" });
-  const agg = getWishesAggregate();
+  const agg = getWishesAggregate({ detailed: true });
   const row = agg.clusters[0];
   const keys = Object.keys(row).sort();
   ok(JSON.stringify(keys) === JSON.stringify(["count", "firstSeen", "issueOpened", "lastSeen", "qualified", "sources", "text"]), `aggregate row has exactly the documented keys, no raw context (got ${keys.join(",")})`);
@@ -197,3 +197,18 @@ for (const f of tmpFiles) {
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
+
+// --- confidentiality: the PUBLIC (default) aggregate must be a beacon only,
+// never the itemized board. Regression guard for the 2026-07-21 lockdown.
+{
+  __resetWishes();
+  for (let i = 0; i < 6; i++) recordWish(`secret sauce tool ${i % 2}`, "find-miss");
+  const pub = getWishesAggregate(); // default detailed:false
+  ok(pub.clusters === undefined, "public aggregate exposes NO per-cluster array");
+  ok(typeof pub.qualifiedClusters === "number", "public aggregate exposes qualified COUNT (beacon)");
+  ok(typeof pub.totalWishes === "number" && typeof pub.distinctClusters === "number", "public aggregate keeps headline totals");
+  const raw = JSON.stringify(pub);
+  ok(!raw.includes("secret sauce"), "public aggregate leaks no wish text");
+  const det = getWishesAggregate({ detailed: true });
+  ok(Array.isArray(det.clusters) && det.clusters.length > 0, "detailed aggregate still returns the itemized board");
+}
