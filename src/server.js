@@ -625,16 +625,34 @@ const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL
 // Candidates are sorted most-proven first. (A future upgrade: x402scan's uptime
 // feed could sharpen this beyond settled-volume as a reliability proxy.)
 const SOR_MIN_SETTLED_TX = Number(process.env.SOR_MIN_SETTLED_TX || "50");
-async function resolveExternalSeller(task, { cap }) {
-  const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
-  // origin → proven settled-tx count, straight from the leaderboard rows.
-  const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
-  const settledByOrigin = new Map();
+// Durable proven-seller FLOOR for the reliability gate (scripts/gen-sor-seed.js).
+// The live leaderboard snapshot is empty for the minutes its first on-chain scan
+// takes after a boot, and /data warm-start only helps once a file exists — so on
+// a fresh clone / wiped volume / very first deploy the resolver would still go
+// blind. This committed seed (origin -> callsSettled, from a real scan) is the
+// baseline the live/persisted snapshot is layered onto, so a proven seller is
+// ALWAYS resolvable. Loaded once; empty object if the file is somehow missing.
+const SOR_SEED_ORIGINS = (() => {
+  try { return JSON.parse(readFileSync(new URL("./sor-seed-sellers.json", import.meta.url), "utf8")).origins || {}; }
+  catch { return {}; }
+})();
+const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
+// origin -> proven settled-tx count: committed seed as the floor, then the live
+// (or /data warm-started) leaderboard overlaid, max per origin (counts only
+// grow, so max is the best known and can't be regressed by a stale source).
+function buildSettledByOrigin() {
+  const m = new Map();
+  for (const [o, c] of Object.entries(SOR_SEED_ORIGINS)) m.set(norm(o), Number(c) || 0);
   for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
     for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
-      if (o) settledByOrigin.set(norm(o), Math.max(settledByOrigin.get(norm(o)) || 0, row.callsSettled || 0));
+      if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, row.callsSettled || 0));
     }
   }
+  return m;
+}
+async function resolveExternalSeller(task, { cap }) {
+  const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+  const settledByOrigin = buildSettledByOrigin();
   // F4: never route to ourselves (paying our own endpoint over x402 = fee loss
   // / accidental self-recursion) — exclude our own host from candidates.
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
@@ -678,13 +696,7 @@ async function resolveExternalSeller(task, { cap }) {
 // moves here (probe only). Kept behind operatorAuthed.
 async function diagnoseExternalSeller(task, { cap }) {
   const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
-  const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
-  const settledByOrigin = new Map();
-  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
-    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
-      if (o) settledByOrigin.set(norm(o), Math.max(settledByOrigin.get(norm(o)) || 0, row.callsSettled || 0));
-    }
-  }
+  const settledByOrigin = buildSettledByOrigin();
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
   const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
