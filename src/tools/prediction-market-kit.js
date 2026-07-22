@@ -32,7 +32,38 @@ function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-async function fetchJson(url, label) {
+// Serve-stale safety net: neither venue has an alternative provider, so when
+// an upstream is down/throttled we can serve the last good copy of the SAME
+// request — but only briefly (markets move) and always marked. Handlers spread
+// staleFields(meta) into their response so a degraded answer says so.
+const STALE_MAX_MS = 10 * 60 * 1000; // never serve a copy older than this
+const CACHE_MAX = 500;
+const lastGood = new Map(); // url → { json, at } — last successful body per URL
+
+function cachePut(url, json) {
+  if (!lastGood.has(url) && lastGood.size >= CACHE_MAX) {
+    let oldestKey = null, oldestAt = Infinity;
+    for (const [k, v] of lastGood) if (v.at < oldestAt) { oldestKey = k; oldestAt = v.at; }
+    lastGood.delete(oldestKey);
+  }
+  lastGood.set(url, { json, at: Date.now() });
+}
+
+// Returns the cached body (marking meta stale) or rethrows the original error.
+function serveStale(url, label, meta, err) {
+  const hit = lastGood.get(url);
+  if (!hit || Date.now() - hit.at > STALE_MAX_MS) throw err;
+  const asOf = new Date(hit.at).toISOString();
+  console.warn(`[prediction] ${label} down (${String(err.message).slice(0, 120)}) — serving cached copy from ${asOf}`);
+  if (meta) { meta.stale = true; meta.asOf = asOf; }
+  return hit.json;
+}
+
+function staleFields(meta) {
+  return meta?.stale ? { stale: true, asOf: meta.asOf } : {};
+}
+
+async function fetchJson(url, label, meta = null) {
   async function attempt() {
     try {
       return await fetch(url, {
@@ -46,12 +77,21 @@ async function fetchJson(url, label) {
       throw bad(`${label} upstream unreachable: ${e.message}`, 502);
     }
   }
-  let res = await attempt();
-  // Retry once on 429/5xx after a short backoff — Kalshi burst-limits per IP
-  // (shared egress IPs intermittently 429 a first call) and both venues can
-  // 5xx under load. Same pattern as crypto-kit's CoinGecko 429 retry.
+  let res;
+  try {
+    res = await attempt();
+  } catch (err) {
+    return serveStale(url, label, meta, err);
+  }
+  // Retry once on 429/5xx — Kalshi burst-limits per IP (shared egress IPs
+  // intermittently 429 a first call) and both venues can 5xx under load.
+  // Honor the venue's Retry-After when sent (capped so the route budget
+  // survives), and jitter so a shared-egress thundering herd doesn't re-collide.
   if (res.status === 429 || res.status >= 500) {
-    await new Promise((r) => setTimeout(r, 2500));
+    const ra = Number(res.headers.get("retry-after"));
+    const waitMs = Math.min(Number.isFinite(ra) && ra > 0 ? ra * 1000 : 2500, 5000) + Math.floor(Math.random() * 500);
+    console.warn(`[prediction] ${label} HTTP ${res.status} — retrying once in ${waitMs}ms${Number.isFinite(ra) && ra > 0 ? " (Retry-After honored)" : ""}`);
+    await new Promise((r) => setTimeout(r, waitMs));
     try {
       const retryRes = await attempt();
       if (retryRes.ok || retryRes.status !== res.status) res = retryRes;
@@ -60,12 +100,17 @@ async function fetchJson(url, label) {
   const ct = res.headers.get("content-type") || "";
   if (!res.ok) {
     const body = ct.includes("json") ? JSON.stringify(await res.json().catch(() => null)).slice(0, 240) : (await res.text().catch(() => "")).slice(0, 240);
-    throw bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 500 ? 502 : res.status);
+    const err = bad(`${label} upstream returned HTTP ${res.status}${body ? ": " + body : ""}`, res.status >= 500 ? 502 : res.status);
+    // Only outage classes may serve stale — a 4xx is a real answer.
+    if (res.status === 429 || res.status >= 500) return serveStale(url, label, meta, err);
+    throw err;
   }
   if (!ct.includes("json")) {
-    throw bad(`${label} upstream returned non-JSON content-type: ${ct}`, 502);
+    return serveStale(url, label, meta, bad(`${label} upstream returned non-JSON content-type: ${ct}`, 502));
   }
-  return res.json();
+  const json = await res.json();
+  cachePut(url, json);
+  return json;
 }
 
 // Polymarket Gamma reports prices as strings ("0.45"); CLOB orderbook reports
@@ -156,7 +201,8 @@ async function polymarketSearch({ query, limit, activeOnly } = {}) {
     params.set("active", "true");
     params.set("closed", "false");
   }
-  const raw = await fetchJson(`${POLY_GAMMA}/markets?${params}`, "Polymarket Gamma");
+  const meta = {};
+  const raw = await fetchJson(`${POLY_GAMMA}/markets?${params}`, "Polymarket Gamma", meta);
   const arr = Array.isArray(raw) ? raw : [];
   const q = query.trim().toLowerCase();
   const matched = arr
@@ -171,6 +217,7 @@ async function polymarketSearch({ query, limit, activeOnly } = {}) {
     count: matched.length,
     markets: matched,
     source: "polymarket-gamma",
+    ...staleFields(meta),
   };
 }
 
@@ -181,22 +228,23 @@ async function polymarketMarket({ slug, id } = {}) {
   const s = typeof slug === "string" ? slug.trim() : "";
   const i = typeof id === "string" || typeof id === "number" ? String(id).trim() : "";
   if (!s && !i) throw bad('"slug" or "id" is required');
+  const meta = {};
   let raw;
   if (i) {
-    raw = await fetchJson(`${POLY_GAMMA}/markets/${encodeURIComponent(i)}`, "Polymarket Gamma");
+    raw = await fetchJson(`${POLY_GAMMA}/markets/${encodeURIComponent(i)}`, "Polymarket Gamma", meta);
   } else {
     // Gamma doesn't take ?slug= directly — fetch by slug filter. The filter
     // excludes closed markets by default, so a resolved market "disappears"
     // from ?slug= even though it's still queryable — fall back to closed=true
     // before declaring not-found.
-    let r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}`, "Polymarket Gamma");
+    let r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}`, "Polymarket Gamma", meta);
     if (!Array.isArray(r) || !r.length) {
-      r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}&closed=true`, "Polymarket Gamma");
+      r = await fetchJson(`${POLY_GAMMA}/markets?slug=${encodeURIComponent(s)}&closed=true`, "Polymarket Gamma", meta);
     }
     if (!Array.isArray(r) || !r.length) throw bad(`Market not found for slug "${s}"`, 404);
     raw = r[0];
   }
-  return shapeMarket(raw);
+  return { ...shapeMarket(raw), ...staleFields(meta) };
 }
 
 // ----------------------------------------------------------------------------
@@ -207,9 +255,11 @@ async function polymarketOrderbook({ tokenId, depth } = {}) {
     throw bad('"tokenId" is required (decimal-encoded CLOB token id string — see market.clobTokenIds)');
   }
   const d = Math.max(1, Math.min(50, Number.parseInt(depth, 10) || 10));
+  const meta = {};
   const raw = await fetchJson(
     `${POLY_CLOB}/book?token_id=${encodeURIComponent(tokenId.trim())}`,
     "Polymarket CLOB",
+    meta,
   );
   const bids = Array.isArray(raw.bids) ? raw.bids : [];
   const asks = Array.isArray(raw.asks) ? raw.asks : [];
@@ -231,6 +281,7 @@ async function polymarketOrderbook({ tokenId, depth } = {}) {
     bids: topBids,
     asks: topAsks,
     source: "polymarket-clob",
+    ...staleFields(meta),
   };
 }
 
@@ -245,7 +296,8 @@ async function polymarketPriceHistory({ tokenId, interval, fidelity } = {}) {
   const iv = typeof interval === "string" && intervalAllowed.has(interval) ? interval : "1d";
   const fi = Math.max(1, Math.min(720, Number.parseInt(fidelity, 10) || 60)); // minutes per sample
   const url = `${POLY_CLOB}/prices-history?market=${encodeURIComponent(tokenId.trim())}&interval=${iv}&fidelity=${fi}`;
-  const raw = await fetchJson(url, "Polymarket CLOB");
+  const meta = {};
+  const raw = await fetchJson(url, "Polymarket CLOB", meta);
   const history = Array.isArray(raw.history) ? raw.history : [];
   const points = history.map((p) => ({
     timestamp: p.t ?? null,
@@ -263,6 +315,7 @@ async function polymarketPriceHistory({ tokenId, interval, fidelity } = {}) {
     last: points[points.length - 1]?.price ?? null,
     points,
     source: "polymarket-clob",
+    ...staleFields(meta),
   };
 }
 
@@ -282,13 +335,15 @@ async function kalshiMarkets({ status, eventTicker, limit } = {}) {
   if (typeof eventTicker === "string" && eventTicker.trim()) {
     params.set("event_ticker", eventTicker.trim().toUpperCase());
   }
-  const raw = await fetchJson(`${KALSHI}/markets?${params}`, "Kalshi");
+  const meta = {};
+  const raw = await fetchJson(`${KALSHI}/markets?${params}`, "Kalshi", meta);
   const markets = Array.isArray(raw.markets) ? raw.markets.map(shapeKalshiMarket) : [];
   return {
     count: markets.length,
     cursor: raw.cursor ?? null,
     markets,
     source: "kalshi",
+    ...staleFields(meta),
   };
 }
 
@@ -298,9 +353,11 @@ async function kalshiMarkets({ status, eventTicker, limit } = {}) {
 async function kalshiEvent({ eventTicker } = {}) {
   const t = typeof eventTicker === "string" ? eventTicker.trim().toUpperCase() : "";
   if (!t) throw bad('"eventTicker" is required (Kalshi event ticker, e.g. "PRES-24")');
+  const meta = {};
   const raw = await fetchJson(
     `${KALSHI}/events/${encodeURIComponent(t)}?with_nested_markets=true`,
     "Kalshi",
+    meta,
   );
   const event = raw.event ?? raw;
   const markets = Array.isArray(event.markets) ? event.markets.map(shapeKalshiMarket) : [];
@@ -314,6 +371,7 @@ async function kalshiEvent({ eventTicker } = {}) {
     marketCount: markets.length,
     markets,
     source: "kalshi",
+    ...staleFields(meta),
   };
 }
 

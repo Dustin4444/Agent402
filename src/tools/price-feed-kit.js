@@ -15,13 +15,24 @@ function bad(message, statusCode = 400) {
 }
 
 async function feedFetch(url) {
+  const host = new URL(url).hostname;
+  const headers = { Accept: "application/json" };
+  // CoinGecko demo key rides along when configured (call-time read, same header
+  // as crypto-kit's jsonGet). Keyless CoinGecko is metered per IP — and our
+  // egress IP is shared with every other Railway tenant.
+  if (host === "api.coingecko.com" && process.env.COINGECKO_API_KEY) {
+    headers["x-cg-demo-api-key"] = process.env.COINGECKO_API_KEY;
+  }
   let res;
   try {
     res = await fetch(url, {
-      headers: { Accept: "application/json" },
+      headers,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-  } catch {
+  } catch (err) {
+    // Keep the evidence: the transport cause must reach the server log, not
+    // vanish into a generic 504.
+    console.warn(`[price-feed] upstream unreachable: ${host} → ${err.name ?? err.code ?? err.message}`);
     throw bad("Price feed upstream timed out", 504);
   }
   if (res.status === 429) throw bad("Price feed rate limit reached upstream — retry shortly", 503);

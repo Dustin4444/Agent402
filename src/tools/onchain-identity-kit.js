@@ -79,11 +79,23 @@ async function fetchJson(url, label, init) {
 }
 
 async function gqlFetch(url, query, variables, label) {
-  const json = await fetchJson(url, label, {
+  const init = {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ query, variables }),
-  });
+  };
+  // easscan.org is the only public EAS indexer (no alternative upstream exists),
+  // so absorb a transient 5xx/timeout with ONE retry after a 1s backoff. Never
+  // retry a 4xx — that's a real answer, and hammering a rate limit makes it worse.
+  let json;
+  try {
+    json = await fetchJson(url, label, init);
+  } catch (e) {
+    if (!(e.statusCode >= 500)) throw e; // fetchJson maps upstream 5xx→502, timeout→504
+    console.warn(`[eas] ${new URL(url).host} failed (HTTP ${e.statusCode}: ${e.message}) — retrying once in 1s`);
+    await new Promise((r) => setTimeout(r, 1000));
+    json = await fetchJson(url, label, init);
+  }
   if (json.errors) {
     const msg = json.errors.map((e) => e.message).join("; ").slice(0, 240);
     throw bad(`${label} GraphQL errors: ${msg}`, 502);
@@ -136,10 +148,22 @@ async function ensBulkResolve({ addresses } = {}) {
     });
   }
   const named = results.filter((r) => r.name).length;
+  const failed = results.filter((r) => r.error);
+  if (failed.length) {
+    // Keep the evidence: a throttled upstream must leave a log line, not hide
+    // inside 200-response rows where no one ever sees it.
+    console.warn(`[ens-bulk] ${failed.length}/${results.length} lookups failed upstream (${ENS_API}): ${failed[0].error}`);
+  }
+  if (failed.length === results.length) {
+    // Every lookup failed — that is an upstream outage, not a result set. A
+    // 5xx also cancels the buyer's settlement instead of charging for nulls.
+    throw Object.assign(new Error(`ENS resolver upstream unavailable: ${failed[0].error}`), { statusCode: 502 });
+  }
   return {
     count: results.length,
     namedCount: named,
     namedPct: results.length ? Math.round((named / results.length) * 10000) / 100 : 0,
+    failedCount: failed.length,
     results,
     source: "ensideas",
   };

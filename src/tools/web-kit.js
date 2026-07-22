@@ -11,9 +11,11 @@
 // and every connect (including any transparent hop) goes through
 // ssrfDispatcher's guardedLookup, so a public URL that redirects into a
 // private address is blocked at the hop, not just at the front door.
-// archive-snapshot only ever connects to archive.org (the caller URL rides as
-// a query parameter, it is never fetched) but still parses/validates it and
-// rides the guarded dispatcher by convention.
+// archive-snapshot only ever connects to fixed public archive hosts —
+// archive.org, or its Memento-aggregator fallback memgator.cs.odu.edu (the
+// caller URL rides as a query parameter / path segment, it is never fetched)
+// — but still parses/validates it and rides the guarded dispatcher by
+// convention.
 //
 // Parsing is pure and deterministic (jsdom DOMParser, the same XML path
 // xml-to-json uses in kit.js) — no LLM anywhere.
@@ -48,9 +50,11 @@ function takeUrl(raw) {
 }
 
 // ============================================================================
-// archive-snapshot — Wayback Machine availability API (keyless).
+// archive-snapshot — Wayback Machine availability API (keyless), with ODU's
+// MemGator Memento aggregator as a diverse fallback.
 // ============================================================================
 const WAYBACK_TIMEOUT_MS = 12_000;
+const MEMENTO_TIMEOUT_MS = 20_000;
 
 async function waybackAvailable(url, timestamp) {
   const api = new URL("https://archive.org/wayback/available");
@@ -63,12 +67,47 @@ async function waybackAvailable(url, timestamp) {
       signal: AbortSignal.timeout(WAYBACK_TIMEOUT_MS),
       dispatcher: ssrfDispatcher,
     });
-  } catch {
+  } catch (err) {
+    // Log the real transport cause before mapping to a buyer-facing 504 —
+    // this catch used to be bare and discarded the evidence.
+    console.warn(`[archive-snapshot] archive.org fetch failed: ${err.name}: ${err.message}`);
     throw bad("Wayback Machine did not respond — try again shortly", 504);
   }
   if (res.status === 429) throw bad("Wayback Machine rate limit reached — retry shortly", 503);
   if (!res.ok) throw bad(`Wayback Machine error (HTTP ${res.status})`, 502);
   try { return await res.json(); } catch { throw bad("Wayback Machine returned non-JSON", 502); }
+}
+
+// Fallback: MemGator at memgator.cs.odu.edu — a public Memento aggregator
+// (same API family as the retired timetravel.mementoweb.org, which is NXDOMAIN
+// as of 2026-07 — verified live) fanning out to ~13 web archives
+// (archive.today, arquivo.pt, Perma.cc, several national libraries, and
+// archive.org itself). Diverse infrastructure: even with archive.org fully
+// down it answers from the other archives. Quirks, all verified live
+// 2026-07-21: its front-end merges consecutive slashes so a scheme-carrying
+// URI-R 404s — the scheme must be stripped; a datetime path segment is
+// REQUIRED (current UTC time = "closest to now" = most recent) and must be an
+// even-length YYYY[MM[DD[hh[mm[ss]]]]] prefix; response datetimes are ISO
+// 8601; the archived HTTP status is not exposed (→ snapshot.status null). A
+// MemGator 404 means "no archive holds a memento", not an outage → null.
+async function mementoClosest(url, timestamp) {
+  const ts = timestamp || new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const dt = ts.slice(0, ts.length - (ts.length % 2));
+  const bare = url.replace(/^https?:\/\//i, "");
+  let res;
+  try {
+    res = await fetch(`https://memgator.cs.odu.edu/memento/json/${dt}/${bare}`, {
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT },
+      signal: AbortSignal.timeout(MEMENTO_TIMEOUT_MS),
+      dispatcher: ssrfDispatcher,
+    });
+  } catch (err) {
+    console.warn(`[archive-snapshot] memgator.cs.odu.edu fetch failed: ${err.name}: ${err.message}`);
+    throw bad("Memento aggregator did not respond — try again shortly", 504);
+  }
+  if (res.status === 404) return null;
+  if (!res.ok) throw bad(`Memento aggregator error (HTTP ${res.status})`, 502);
+  try { return await res.json(); } catch { throw bad("Memento aggregator returned non-JSON", 502); }
 }
 
 // ============================================================================
@@ -234,7 +273,36 @@ export const WEB_TOOLS = [
         timestamp = String(i.timestamp).trim();
         if (!/^\d{4,14}$/.test(timestamp)) throw bad('"timestamp" must be 4-14 digits (e.g. 2020, 202001, 20200115)');
       }
-      const data = await waybackAvailable(url, timestamp);
+      let data;
+      try {
+        data = await waybackAvailable(url, timestamp);
+      } catch (err) {
+        console.warn(`[archive-snapshot] archive.org failed (${err.message}) — falling back to memgator.cs.odu.edu`);
+        let m;
+        try {
+          m = await mementoClosest(url, timestamp);
+        } catch (err2) {
+          // Both archives down — keep the Wayback error's status semantics
+          // (504/503/502) but carry both causes in the message.
+          throw bad(`${err.message}; Memento fallback also failed: ${err2.message}`, err.statusCode || 502);
+        }
+        const mClosest = m?.mementos?.closest;
+        const mAvailable = typeof mClosest?.uri === "string" && mClosest.uri.length > 0;
+        return {
+          url,
+          requestedTimestamp: timestamp,
+          available: mAvailable,
+          snapshot: mAvailable
+            ? {
+                url: mClosest.uri,
+                // ISO 8601 → Wayback's 14-digit form, matching the primary path.
+                timestamp: mClosest.datetime ? mClosest.datetime.replace(/\D/g, "").slice(0, 14) : null,
+                status: null,
+              }
+            : null,
+          source: "memgator.cs.odu.edu",
+        };
+      }
       const closest = data?.archived_snapshots?.closest;
       const available = closest?.available === true && typeof closest?.url === "string";
       return {
