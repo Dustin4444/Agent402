@@ -200,9 +200,27 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           const extUsd = toUsd(ext.price);
           if (!(extUsd > 0 && extUsd <= cap)) throw bad(`Best external match "${ext.slug}" is ${ext.price} — over this tier's $${cap} cap. Use route-execute-max or raise the tier.`, 409);
           if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes("eip155:8453"))) throw bad(`External seller "${ext.seller}" does not offer Base settlement — cannot pay it from the Base spending wallet.`, 409);
+          // GET sellers take their input as query params — an HTTP GET cannot
+          // carry a body (undici refuses it outright). Only primitives can ride
+          // a query string; a nested param against a GET seller is the caller's
+          // input mismatch, said plainly instead of a wire error.
+          const extMethod = (ext.method || "POST").toUpperCase();
+          let extUrl = ext.url;
+          let extBody = params;
+          if (extMethod === "GET" || extMethod === "HEAD") {
+            const qp = new URLSearchParams();
+            for (const [k, v] of Object.entries(params || {})) {
+              if (v == null) continue;
+              if (typeof v === "object") throw bad(`External tool "${ext.slug}" is a ${extMethod} endpoint — param "${k}" must be a string, number, or boolean`, 400);
+              qp.set(k, String(v));
+            }
+            const qs = qp.toString();
+            extUrl = qs ? `${ext.url}${ext.url.includes("?") ? "&" : "?"}${qs}` : ext.url;
+            extBody = undefined;
+          }
           let paid;
           try {
-            paid = await payExternal(ext.url, { method: (ext.method || "POST").toUpperCase(), body: params, maxAtomic: BigInt(Math.round(cap * 1e6)) });
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)) });
           } catch (e) {
             const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
             throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);

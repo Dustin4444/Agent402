@@ -124,6 +124,12 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     try { await assertPublicUrl(url); }
     catch { throw bad("Seller URL resolves to a private/blocked address", 400); }
   }
+  // A GET/HEAD with a body is refused by undici with a message that reads as
+  // "seller unreachable" — fail it loudly as OUR bug instead. Callers convert
+  // params to query strings for GET sellers (route-execute does).
+  if (body !== undefined && (method === "GET" || method === "HEAD")) {
+    throw bad(`payX402: ${method} request cannot carry a body — pass params in the URL`, 400);
+  }
   const { client, http } = await getUpstreamBuyer();
   const reqInit = {
     method,
