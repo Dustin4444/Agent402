@@ -552,7 +552,12 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
   }
   const used = new Set();
   const merged = bazaarTools.map((b) => {
-    const o = (!b.methodInferred && exact.get(`${b.method} ${b.route}`)) || byRoute.get(b.route);
+    // Only an inferred Bazaar verb may fall back to a route-only match. An
+    // explicit verb must match exactly: GET and POST on the same path can be
+    // different tools with different descriptions and prices.
+    const o = b.methodInferred
+      ? byRoute.get(b.route)
+      : exact.get(`${b.method} ${b.route}`);
     if (!o) return b;
     used.add(o);
     return {

@@ -165,6 +165,32 @@ const openapiTools = [
   ok(bazaar.method === "POST", "ambiguous route keeps the Bazaar hint unchanged");
 }
 
+// ---- 3e. An explicit Bazaar verb requires an exact OpenAPI verb match ----
+// GET and POST on the same path can be different tools. A route-only merge is
+// permitted only for an inferred Bazaar verb; otherwise GET metadata/price can
+// silently contaminate an explicitly observed POST listing.
+{
+  const documented = [{
+    ...openapiTools[0],
+    method: "GET",
+    slug: "read-md",
+    description: "GET-only metadata",
+    price: "0.003",
+  }];
+  const explicit = bazaarItemToTool({
+    resource: "https://md.example/md",
+    method: "POST",
+    accepts: [],
+  }, "https://md.example");
+  const merged = mergeOpenapiIntoBazaar(documented, [explicit]);
+  const bazaar = merged.find((t) => t.provenance === "bazaar");
+  ok(merged.length === 2, `method mismatch stays as two distinct listings (got ${merged.length})`);
+  ok(bazaar.method === "POST", "explicit POST remains POST");
+  ok(bazaar.slug === "md", `GET slug does not contaminate POST (got ${bazaar.slug})`);
+  ok(bazaar.description !== "GET-only metadata", "GET description does not contaminate POST");
+  ok(bazaar.price === null, `GET price does not contaminate POST (got ${bazaar.price})`);
+}
+
 // ---- 4. degenerate inputs pass through ----
 ok(mergeOpenapiIntoBazaar([], bazaarTools).length === 1, "no openapi → Bazaar tools pass through");
 ok(mergeOpenapiIntoBazaar(openapiTools, []).length === 2, "no Bazaar → openapi tools pass through");
