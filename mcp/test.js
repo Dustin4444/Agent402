@@ -80,7 +80,7 @@ try {
   // kebab slug memory-write); CallTool still accepts the raw slug too.
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
-  for (const required of ["search_tools", "call_tool", "payment_info", "top_x402_sellers", "extract", "render", "hash", "memory_write"]) {
+  for (const required of ["search_tools", "call_tool", "payment_info", "top_x402_sellers", "route_and_execute", "extract", "render", "hash", "memory_write"]) {
     if (!names.includes(required)) fail(`tools/list missing "${required}" (got: ${names.join(", ")})`);
   }
   if (names.some((n) => n.includes("-"))) fail(`tools/list names must be snake_case, found kebab: ${names.filter((n) => n.includes("-")).join(", ")}`);
@@ -136,6 +136,15 @@ try {
   if (!Array.isArray(sellersJson.results) || sellersJson.results.length > 5) fail(`top_x402_sellers should honor limit (got ${sellersJson.results?.length} rows)`);
   if (typeof sellersJson.source !== "string" || !sellersJson.source.endsWith("/api/leaderboard")) fail(`top_x402_sellers should link to /api/leaderboard`);
   console.log("top_x402_sellers proxies the leaderboard with limit/sort/include ✓");
+
+  // route_and_execute: the SOR external router. Without a task it self-explains;
+  // with a task in PoW mode (no wallet) it returns the wallet-required guide
+  // (external routing is wallet-only) rather than a crash. Both are non-throwing.
+  const rNoTask = await client.callTool({ name: "route_and_execute", arguments: {} });
+  if (!rNoTask.isError || !/requires a 'task'/i.test(text(rNoTask))) fail(`route_and_execute without task should self-explain, got: ${text(rNoTask).slice(0, 200)}`);
+  const rTask = await client.callTool({ name: "route_and_execute", arguments: { task: "crypto news headlines" } });
+  if (/Agent402 call failed|is not in the catalog/i.test(text(rTask))) fail(`route_and_execute with a task should reach the endpoint (wallet-required or a result), got: ${text(rTask).slice(0, 240)}`);
+  console.log("route_and_execute self-explains without a task and reaches the SOR endpoint with one ✓");
 
   // prompts/list: every skill pack registered with typed args; prompts/get
   // delegates rendering to the hosted service and substitutes args correctly.

@@ -33,7 +33,7 @@ ok(!upstreamQuoteAcceptable("not-a-number"), "garbage quote refused");
 ok(!upstreamQuoteAcceptable(""), "empty quote refused");
 
 // --- tool shape + keyless refusal -----------------------------------------
-ok(BLOCKSCOUT_TOOLS.length === 2, "two tools exported");
+ok(BLOCKSCOUT_TOOLS.length === 5, "five tools exported");
 for (const t of BLOCKSCOUT_TOOLS) {
   ok(!!t.discovery?.input && !!t.discovery?.inputSchema, `${t.slug}: discovery example present`);
   ok(/untrustedContent/.test(t.description), `${t.slug}: description carries the provenance warning`);
@@ -59,6 +59,23 @@ ok(threw?.statusCode === 503 && /X402_UPSTREAM_BUYER_KEY/.test(threw?.message ||
 const { upstreamBuyerStatus } = await import("../src/tools/blockscout-kit.js");
 const st = await upstreamBuyerStatus();
 ok(st.configured === false && st.status === "unconfigured", "keyless upstreamBuyerStatus → unconfigured");
+
+// --- new Blockscout tools (token-info / token-holders / tx-inspect) ---------
+{
+  const bySlug = (s) => BLOCKSCOUT_TOOLS.find((t) => t.slug === s);
+  for (const slug of ["token-info", "token-holders", "tx-inspect"]) {
+    const t = bySlug(slug);
+    ok(!!t, `${slug} exists`);
+    ok(/x402/.test(t.description) && /untrustedContent/.test(t.description), `${slug}: discloses paid upstream + provenance`);
+    ok(!!t.discovery?.input && !!t.discovery?.inputSchema, `${slug}: has discovery example`);
+  }
+  ok(BLOCKSCOUT_TOOLS.length === 5, `five blockscout tools now (got ${BLOCKSCOUT_TOOLS.length})`);
+  // invalid inputs 400 before any spend
+  const threw = async (fn) => { try { await fn(); return null; } catch (e) { return e; } };
+  ok((await threw(() => bySlug("token-info").handler({ chain: "base", address: "nope" })))?.statusCode === 400, "token-info: bad address → 400");
+  ok((await threw(() => bySlug("token-holders").handler({ chain: "base", address: "0x" })))?.statusCode === 400, "token-holders: bad address → 400");
+  ok((await threw(() => bySlug("tx-inspect").handler({ chain: "base", hash: "0xshort" })))?.statusCode === 400, "tx-inspect: bad hash → 400");
+}
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

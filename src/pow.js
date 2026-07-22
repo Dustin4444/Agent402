@@ -89,11 +89,15 @@ export const WALLET_ONLY_SLUGS = new Set([
   "a2a-card-fetch",
   // Blockscout kit: every call BUYS upstream data over x402 with the server's
   // spending wallet — PoW would let one client drain the upstream buyer.
-  "contract-inspect", "address-profile",
+  "contract-inspect", "address-profile", "token-info", "token-holders", "tx-inspect",
+  // captcha-verify relays a secret to a provider (egress); captcha-generate
+  // is pure-CPU and stays PoW-eligible (NOT listed here).
+  "captcha-verify",
   "dns-lookup", "dns-propagation", "spf-check", "dmarc-check", "dkim-lookup", "email-deliverability",
   "cert-transparency", "http-headers", "tech-stack", "asn-info",
   // x402 payments toolkit — kept off the free connector (paid surface only).
   "x402-quote", "usdc-balance", "tx-status", "gas-estimate", "x402-verify", "transfer-authorization", "ens-resolve", "x402-audit",
+  "route-execute-max", // external tier can spend upstream — wallet-only
   // x402-trending is the PAID ecosystem-analysis layer (momentum + organic-buyer
   // grade + week-over-week growth); the raw seller ranking stays free at
   // /api/leaderboard. Pay-only so the differentiated analysis is monetized.

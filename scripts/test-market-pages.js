@@ -258,11 +258,12 @@ for (const c of NEW_CHAINS) {
   const capped = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] } });
   // Count `<tr data-mfb-row` (not the bare attribute — the filter-bar script
   // legitimately mentions the attribute name once in its querySelectorAll).
-  // THIS HOST is ranked, not pinned: in this fixture it ranks below the cap
-  // (no stats, not routable), so it's APPENDED after the top-100 rather than
-  // silently dropped — 101 rows total, local present at an unflattering spot.
-  ok((capped.match(/<tr data-mfb-row/g) || []).length === 101, `all view: cap renders top 100 + the appended local row (got ${(capped.match(/<tr data-mfb-row/g) || []).length})`);
-  ok(capped.includes("showing the top 100 of 121 sellers"), "all view: cap note discloses the truncation honestly");
+  // THIS HOST is PINNED at the top: the cap applies to the RANKED (non-local)
+  // sellers only, so the roster renders the pinned local row + top-100 ranked =
+  // 101 rows, and the note counts INDEPENDENT sellers (120 of the 121, since
+  // one is the pinned host).
+  ok((capped.match(/<tr data-mfb-row/g) || []).length === 101, `all view: cap renders pinned local + top 100 ranked (got ${(capped.match(/<tr data-mfb-row/g) || []).length})`);
+  ok(capped.includes("this host pinned · showing the top 100 of 120 independent sellers"), "all view: cap note discloses the pin + truncation honestly");
   ok(capped.includes('href="/marketplace?all=1"'), "all view: cap note links the ?all=1 escape hatch");
   ok(/<tr data-mfb-row data-local="1"/.test(capped), "all view: the local seller survives the cap (ranked or appended, never dropped)");
   ok(/SELLERS LISTED<\/div><div[^>]*>121</.test(capped), "all view: SELLERS LISTED card still counts the full roster (121), not the capped table");
@@ -301,8 +302,10 @@ for (const c of NEW_CHAINS) {
   const noWallet = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [LOCAL8, EXT] }, leaderboardSnap: selfLb });
   ok(!/9,876\s*tx/.test(noWallet), "all view: without a route wallet the local row shows no tx (honest omission)");
 
-  // Neutral ranking: THIS HOST is NOT pinned — an external seller with more
-  // settled calls must rank ABOVE us in the rendered roster.
+  // THIS HOST is PINNED at the top (owner call 2026-07-21): even an external
+  // seller with far more settled calls renders BELOW the pinned host row. The
+  // pin is transparency (badge + tint + note), not a volume-ranking claim;
+  // external sellers stay ranked among themselves.
   const BIGEXT = { origin: "https://big.example", displayName: "Big Ext", homepage: "https://big.example", local: false, toolCount: 5, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": "0xb1g0000000000000000000000000000000000b1g" } };
   const bigLb = { leaderboard: [
     { name: "Big Ext", homepage: "https://big.example", wallet: "0xb1g0000000000000000000000000000000000b1g", wallets: ["0xb1g0000000000000000000000000000000000b1g"], callsSettled: 50000, totalUsd: 100, uniqueBuyers: 9 },
@@ -311,7 +314,7 @@ for (const c of NEW_CHAINS) {
   const ranked = marketPage(null, "https://agent402.tools", { snapshot: { sellers: [LOCAL8, BIGEXT] }, leaderboardSnap: bigLb, wallet: OUR_WALLET });
   // Compare ROW positions ("THIS HOST" also appears in the subtitle above the
   // table, so anchor on the local row's data attribute instead).
-  ok(ranked.indexOf("Big Ext") < ranked.indexOf('data-local="1"'), "all view: THIS HOST is ranked by calls, not pinned above a busier seller");
+  ok(ranked.indexOf('data-local="1"') < ranked.indexOf("Big Ext"), "all view: THIS HOST is PINNED above a busier external seller (badge/tint mark it, not a ranking claim)");
 }
 
 // All-view roster dedup — marketPageAll resolves a seller's payTo by walking
@@ -426,6 +429,21 @@ for (const c of NEW_CHAINS) {
   const noEcon = marketPage(null, AT, baseOpts);
   ok(typeof noEcon === "string" && noEcon.length > 0, "all view: no economy snapshot → page still renders (no crash)");
   ok(!/id="economy"/.test(noEcon), "all view: no economy snapshot → no strip rendered (honest omission)");
+}
+
+// --- marketOperatorCount: nav dropdown and roster must speak the same unit ---
+// Three sellers on Base, two settling to ONE leaderboard wallet group -> the
+// roster collapses them to one row, so the count must be 2, not 3 (the
+// "dropdown says 1,554, page says 843" regression class).
+{
+  const { marketOperatorCount } = await import("../src/market-page.js");
+  const W1 = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const mk = (host, wallet) => ({ origin: `https://${host}`, displayName: host, homepage: `https://${host}`, local: false, toolCount: 1, routable: true, networks: ["eip155:8453"], payToByNetwork: { "eip155:8453": wallet } });
+  const snapshot = { sellers: [mk("a.example", W1), mk("b.example", W1), mk("c.example", "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")] };
+  const lb = { leaderboard: [{ wallet: W1, callsSettled: 5, totalUsd: 1, uniqueBuyers: 2 }] };
+  ok(marketOperatorCount("base", snapshot, lb) === 2, "grouped wallets collapse in the operator count (2, not 3)");
+  ok(marketOperatorCount("base", snapshot, null) === 3, "no leaderboard -> no grouping evidence -> all count");
+  ok(marketOperatorCount(null, snapshot, lb) === 2, "all-chains view collapses the same way");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

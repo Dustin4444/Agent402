@@ -246,8 +246,32 @@ export function recordWish({ need, context, source, ip } = {}) {
  * supplied by callers and never belongs on a public surface. `text` is
  * esc()'d in case this ever gets rendered on an HTML surface later.
  */
-export function getWishesAggregate({ limit = 200 } = {}) {
+/**
+ * Wish aggregate. Two modes:
+ *  - detailed:true (operator dashboard + the wish-issues bridge, both
+ *    token-gated) — every cluster's normalized text, per-source counts,
+ *    timestamps, and qualification verdict.
+ *  - detailed:false (DEFAULT, the public /api/wishes) — a BEACON only:
+ *    headline totals plus qualified-cluster COUNT, no per-cluster text or
+ *    counts. The itemized demand board is strategic intel (which unmet
+ *    agent needs to build against, and how hot each is) that a competitor
+ *    should not be able to poll for free — while "there is real demand
+ *    here, come sell" stays public to pull sellers in. The paid demand-radar
+ *    tool sells the analysis layer; this keeps the raw list off the free path.
+ */
+export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
   const cap = Math.min(Math.max(parseInt(limit, 10) || 200, 1), 500);
+  const base = {
+    distinctClusters: clusters.size,
+    totalWishes: [...clusters.values()].reduce((s, c) => s + c.count, 0),
+    threshold: WISH_THRESHOLD,
+    qualifyMinSpanHours: QUALIFY_MIN_SPAN_MS / 3_600_000,
+  };
+  if (!detailed) {
+    // Public beacon: aggregates only. Expose how many clusters are hot enough
+    // to matter, never WHICH — no text, no per-cluster counts, no timestamps.
+    return { ...base, qualifiedClusters: [...clusters.values()].filter(clusterQualifies).length };
+  }
   const rows = [...clusters.entries()]
     .sort((a, b) => b[1].count - a[1].count || b[1].lastSeen - a[1].lastSeen)
     .slice(0, cap)
@@ -262,13 +286,7 @@ export function getWishesAggregate({ limit = 200 } = {}) {
       // necessary but not sufficient — see clusterQualifies / QUALIFY_MIN_SPAN_MS.
       qualified: clusterQualifies(c),
     }));
-  return {
-    distinctClusters: clusters.size,
-    totalWishes: [...clusters.values()].reduce((s, c) => s + c.count, 0),
-    threshold: WISH_THRESHOLD,
-    qualifyMinSpanHours: QUALIFY_MIN_SPAN_MS / 3_600_000,
-    clusters: rows,
-  };
+  return { ...base, clusters: rows };
 }
 
 // --- test-only hooks (mirror the __testResetSubmitted style in x402-index.js) ---

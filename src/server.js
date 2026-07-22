@@ -5,6 +5,7 @@ import { RAILS_OR, RAILS_SHORT } from "./rails.js";
 // payment client and any raw fetch (the SSRF dispatcher forces it separately for
 // the tool fetchers). Nothing is lost — an IPv6-only host is unreachable here anyway.
 import dns from "node:dns";
+import { createGzip } from "node:zlib";
 import { setGlobalDispatcher, Agent as UndiciAgent } from "undici";
 dns.setDefaultResultOrder("ipv4first");
 setGlobalDispatcher(new UndiciAgent({ connect: { family: 4 } }));
@@ -73,6 +74,7 @@ import { OCR_TOOLS } from "./tools/ocr-kit.js";
 import { AGENT_TOOLS } from "./tools/agent-kit.js";
 import { SAMPLE_AGENT_CARD } from "./tools/a2a-card.js";
 import { BLOCKSCOUT_TOOLS, upstreamBuyerStatus } from "./tools/blockscout-kit.js";
+import { CAPTCHA_TOOLS } from "./tools/captcha-kit.js";
 import { BARCODE_TOOLS } from "./tools/barcode-kit.js";
 import { DATA_TOOLS } from "./tools/data-kit.js";
 import { IMAGE_TOOLS } from "./tools/image-kit.js";
@@ -163,7 +165,7 @@ import { ledgerPricingPage } from "./ledger-pricing.js";
 import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
-import { CHAIN_PAGES, marketSellers, marketPage, marketPanelHtml } from "./market-page.js";
+import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
@@ -172,9 +174,10 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
-import { buildRouteExecuteTool } from "./tools/route-execute.js";
+import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
+import { payX402 } from "./x402-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
@@ -599,12 +602,139 @@ for (const tool of SKILL_TOOLS) {
   ALL_KIT.push(tool); // so the route-binding loop below picks them up too
 }
 
-// Route-and-execute: the SOR's executing surface (internal dispatch v1).
-// Registered after the skill tools so its runtime catalog getter sees them.
-const ROUTE_EXECUTE_TOOL = buildRouteExecuteTool({ getCatalog: () => CATALOG, baseUrl: BASE_URL });
-if (CATALOG[ROUTE_EXECUTE_TOOL.route]) throw new Error(`Duplicate route: ${ROUTE_EXECUTE_TOOL.route}`);
-CATALOG[ROUTE_EXECUTE_TOOL.route] = ROUTE_EXECUTE_TOOL;
-ALL_KIT.push(ROUTE_EXECUTE_TOOL);
+// Route-and-execute: the SOR's executing surface. Internal dispatch always;
+// EXTERNAL dispatch (pay an indexed x402 seller on the buyer's behalf, relay
+// the result) is gated on SOR_EXTERNAL_ENABLED until a real external buy proves
+// it. resolveExternalSeller ranks the task with the index-aware routeQuery and
+// returns the top EXTERNAL, Base-payable, in-budget candidate (url/method/
+// price/networks) for payX402. Registered after the skill tools so the runtime
+// catalog getter sees them.
+const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL_ENABLED || "").trim());
+// Resolve the best RELIABLE external seller for a task before routing a buyer
+// (and their money) to it. Two layers, learned the hard way 2026-07-21:
+//   1. RELIABILITY — the open x402 ecosystem is full of sellers that 402 but
+//      don't deliver a paid result (klymax 404s outright; coinstats 402s the
+//      probe then 404s the paid call). So we route ONLY to sellers with proven
+//      settled volume: the leaderboard's callsSettled is real completed paid
+//      deliveries (buyers kept paying because they got results). MIN_SETTLED
+//      gates out the unproven long tail. This is the moat — "route to any
+//      seller THAT ACTUALLY WORKS", not just any seller.
+//   2. LIVENESS — even a proven seller's crawled (method, route) can drift, so
+//      probe the live endpoint for a 402 before committing. Bare status read,
+//      no body; payX402 re-guards SSRF + margin before any spend.
+// Candidates are sorted most-proven first. (A future upgrade: x402scan's uptime
+// feed could sharpen this beyond settled-volume as a reliability proxy.)
+const SOR_MIN_SETTLED_TX = Number(process.env.SOR_MIN_SETTLED_TX || "50");
+// Durable proven-seller FLOOR for the reliability gate (scripts/gen-sor-seed.js).
+// The live leaderboard snapshot is empty for the minutes its first on-chain scan
+// takes after a boot, and /data warm-start only helps once a file exists — so on
+// a fresh clone / wiped volume / very first deploy the resolver would still go
+// blind. This committed seed (origin -> callsSettled, from a real scan) is the
+// baseline the live/persisted snapshot is layered onto, so a proven seller is
+// ALWAYS resolvable. Loaded once; empty object if the file is somehow missing.
+const SOR_SEED_ORIGINS = (() => {
+  try { return JSON.parse(readFileSync(new URL("./sor-seed-sellers.json", import.meta.url), "utf8")).origins || {}; }
+  catch { return {}; }
+})();
+const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
+// origin -> proven settled-tx count: committed seed as the floor, then the live
+// (or /data warm-started) leaderboard overlaid, max per origin (counts only
+// grow, so max is the best known and can't be regressed by a stale source).
+function buildSettledByOrigin() {
+  const m = new Map();
+  for (const [o, c] of Object.entries(SOR_SEED_ORIGINS)) m.set(norm(o), Number(c) || 0);
+  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
+    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
+      if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, row.callsSettled || 0));
+    }
+  }
+  return m;
+}
+async function resolveExternalSeller(task, { cap }) {
+  const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+  const settledByOrigin = buildSettledByOrigin();
+  // F4: never route to ourselves (paying our own endpoint over x402 = fee loss
+  // / accidental self-recursion) — exclude our own host from candidates.
+  const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
+  const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+  const candidates = (results || [])
+    .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
+    .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
+    .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0 }))
+    .filter((r) => r.settled >= SOR_MIN_SETTLED_TX) // proven deliverers only
+    .sort((a, b) => b.settled - a.settled)
+    .slice(0, 5);
+  const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
+  for (const r of candidates) {
+    let live = false;
+    try {
+      // SSRF: the seller URL is external, crawled data — a proven seller's
+      // registered origin could still DNS-rebind to a private address between
+      // crawl and now. Guard the PROBE too (payX402 re-guards before spending),
+      // so this blind status-only fetch can't be turned into an internal-port
+      // scanner. assertPublicUrl is TOCTOU-rebindable on its own, so pin the
+      // connection to the validated IP with ssrfDispatcher (parity with payX402).
+      await assertPublicUrl(r.url);
+      const probe = await fetch(r.url, {
+        method: (r.method || "POST").toUpperCase(),
+        headers: { Accept: "application/json", ...((r.method || "POST").toUpperCase() !== "GET" ? { "Content-Type": "application/json" } : {}) },
+        ...((r.method || "POST").toUpperCase() !== "GET" ? { body: "{}" } : {}),
+        dispatcher: ssrfDispatcher,
+        redirect: "manual", // never follow a redirect off the validated host
+        signal: AbortSignal.timeout(6000),
+      });
+      live = probe.status === 402;
+    } catch { live = false; }
+    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled };
+  }
+  return null;
+}
+// Operator-only diagnostic: run the SAME resolve pipeline as resolveExternalSeller
+// but report why each candidate is kept or dropped (settled count, cap, base,
+// self, probe status), plus the leaderboard-snapshot size — so a prod 404 ("no
+// external seller matched") is explainable without firing a paid buy. No money
+// moves here (probe only). Kept behind operatorAuthed.
+async function diagnoseExternalSeller(task, { cap }) {
+  const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+  const settledByOrigin = buildSettledByOrigin();
+  const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
+  const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+  const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
+  const rows = [];
+  for (const r of (results || []).slice(0, 12)) {
+    const settled = settledByOrigin.get(norm(r.seller)) || 0;
+    const withinCap = r.priceUsd > 0 && r.priceUsd <= cap;
+    const hasBase = Array.isArray(r.networks) && r.networks.includes("eip155:8453");
+    const isSelf = !hostOf(r.url) || hostOf(r.url) === ourHost;
+    const passesFilters = withinCap && hasBase && !isSelf && settled >= SOR_MIN_SETTLED_TX;
+    let probe = null;
+    if (passesFilters) {
+      try {
+        await assertPublicUrl(r.url);
+        const p = await fetch(r.url, {
+          method: (r.method || "POST").toUpperCase(),
+          headers: { Accept: "application/json", ...((r.method || "POST").toUpperCase() !== "GET" ? { "Content-Type": "application/json" } : {}) },
+          ...((r.method || "POST").toUpperCase() !== "GET" ? { body: "{}" } : {}),
+          dispatcher: ssrfDispatcher, redirect: "manual", signal: AbortSignal.timeout(6000),
+        });
+        probe = { status: p.status, live: p.status === 402 };
+      } catch (e) { probe = { error: String(e?.message || e).slice(0, 120) }; }
+    }
+    rows.push({ seller: r.seller, url: r.url, priceUsd: r.priceUsd, networks: r.networks, settled, withinCap, hasBase, isSelf, meetsThreshold: settled >= SOR_MIN_SETTLED_TX, passesFilters, probe });
+  }
+  return { task, cap, threshold: SOR_MIN_SETTLED_TX, snapshotOrigins: settledByOrigin.size, rawResults: (results || []).length, candidates: rows };
+}
+for (const tier of EXEC_TIERS) {
+  const tool = buildRouteExecuteTool({
+    getCatalog: () => CATALOG, baseUrl: BASE_URL, tier,
+    resolveExternal: resolveExternalSeller,
+    payExternal: (url, opts) => payX402(url, opts),
+    externalEnabled: () => SOR_EXTERNAL_ENABLED,
+  });
+  if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
+  CATALOG[tool.route] = tool;
+  ALL_KIT.push(tool);
+}
 
 // Security audit A402-03: the wallet-scoped memory family and the wallet-keyed
 // my-usage report derive the caller's identity from the SIGNED EVM
@@ -698,10 +828,22 @@ app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (r
     if (clen && clen > PH_MAX_RESPONSE_BYTES) return res.status(502).end();
     res.status(up.status);
     for (const h of ["content-type", "cache-control"]) { const v = up.headers.get(h); if (v) res.setHeader(h, v); }
+    // Perf: fetch() transparently DECOMPRESSES posthog's gzip, and this route
+    // mounts before the compression middleware — so the 228KB analytics lib
+    // was reaching phones as plaintext (Lighthouse: 155KB wasted, the top
+    // mobile-score drag). Re-compress the static-lib responses at our edge
+    // when the client accepts gzip. The F15 byte cap keeps counting
+    // UNCOMPRESSED bytes, so the abuse ceiling is unchanged.
+    const gzipOut = req.method === "GET" && sub.startsWith("static/")
+      && /\bgzip\b/.test(String(req.headers["accept-encoding"] || ""))
+      && /javascript|json|text/.test(up.headers.get("content-type") || "");
+    if (gzipOut) { res.setHeader("Content-Encoding", "gzip"); res.setHeader("Vary", "Accept-Encoding"); }
     // F15: STREAM with a running byte counter instead of buffering the whole
     // body — a chunked / no-Content-Length response can no longer force us to
     // buffer megabytes. Abort the moment the cap is crossed.
     if (!up.body) return void res.end();
+    const out = gzipOut ? createGzip() : res;
+    if (gzipOut) out.pipe(res);
     let sent = 0;
     const reader = up.body.getReader();
     for (;;) {
@@ -709,9 +851,9 @@ app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (r
       if (done) break;
       sent += value.length;
       if (sent > PH_MAX_RESPONSE_BYTES) { try { await reader.cancel(); } catch { /* */ } res.destroy(); return; }
-      if (!res.write(Buffer.from(value))) await new Promise((r) => res.once("drain", r));
+      if (!out.write(Buffer.from(value))) await new Promise((r) => out.once("drain", r));
     }
-    res.end();
+    out.end();
   } catch {
     if (!res.headersSent) res.status(502).end(); else res.destroy();
   } finally {
@@ -824,7 +966,7 @@ app.get("/", (_req, res) => {
   try {
     const snapshot = getIndexSnapshot();
     for (const key of Object.keys(CHAIN_PAGES)) {
-      try { chainSellerCounts[key] = marketSellers(key, snapshot).length; } catch { /* strip cell renders without the count */ }
+      try { chainSellerCounts[key] = marketOperatorCount(key, snapshot, getLeaderboardSnapshot()); } catch { /* strip cell renders without the count */ }
     }
   } catch { /* snapshot unavailable — strip renders rail-only cells */ }
   htmlCache(res, 60, 300).send(
@@ -848,7 +990,13 @@ app.get("/health", (req, res) => {
   // here. Process uptime (restart-timing recon) and freeMode (operating mode)
   // are operator-only diagnostics (audit R-15), added to the authenticated
   // response below.
-  const meta = { toolCount: Object.keys(CATALOG).length };
+  // `build` is the deployed commit — public (the repo is open-source, the sha is
+  // already on GitHub) and the answer to "did prod roll a stale build?" A Railway
+  // var-set can trigger a non-SHA-pinned redeploy, so having the live sha on a
+  // free surface makes that verifiable without guessing. Railway injects
+  // RAILWAY_GIT_COMMIT_SHA; short-form, "unknown" off-platform.
+  const build = (process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "unknown").slice(0, 7);
+  const meta = { toolCount: Object.keys(CATALOG).length, build };
   // The sensitive disclosure is the enabled-integration flags (which upstreams
   // are wired, whether the operator token is configured), the health checks,
   // and now uptime/freeMode — that internal wiring is returned ONLY to an
@@ -1237,7 +1385,16 @@ app.get("/__operator/stats", (req, res) => {
 });
 app.get("/__operator/wishes", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
-  res.type("html").send(operatorWishesPage(BASE_URL, getWishesAggregate({ limit: 500 })));
+  res.type("html").send(operatorWishesPage(BASE_URL, getWishesAggregate({ limit: 500, detailed: true })));
+});
+// Token-gated DETAILED wish feed (per-cluster text/counts/verdicts) — the raw
+// demand board is strategic intel, so the itemized view lives behind the
+// operator token, same as the dashboard. The wish-issues bridge reads THIS
+// (with AGENT402_OPERATOR_TOKEN) instead of the now-aggregate-only /api/wishes.
+app.get("/__operator/wishes.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  res.json(getWishesAggregate({ limit: req.query?.limit, detailed: true }));
 });
 app.get("/__operator/leads", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
@@ -1570,9 +1727,11 @@ app.post("/api/wish", (req, res) => {
     res.status(status).json({ error: err.message });
   }
 });
-// Aggregate view: normalized clusters only (no raw context, no IPs) — a
-// future scheduled workflow polls this to open an issue once a cluster
-// crosses WISH_THRESHOLD (server never calls the GitHub API itself).
+// PUBLIC BEACON: aggregate totals + qualified-cluster COUNT only — never the
+// per-cluster text/counts (that itemized demand board is strategic intel, now
+// behind the operator token at /__operator/wishes.json). "Real demand exists,
+// come sell" stays public to pull sellers in; "which unmet needs, how hot"
+// does not. detailed defaults to false — do NOT add detailed:true here.
 app.get("/api/wishes", (req, res) => {
   res.set("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
   res.json(getWishesAggregate({ limit: req.query?.limit }));
@@ -1631,9 +1790,14 @@ setNavIndexProvider(() => {
   const snapshot = getIndexSnapshot();
   const chain = (label, href, chainKey) => {
     try {
-      return { label, href, sellers: marketSellers(chainKey, snapshot).length, healthy: true };
+      // sellers = operator count (matches the roster). tools = catalog depth
+      // on that chain, summed over the chain's sellers (unique origins — tools
+      // are per-endpoint, so no operator-collapse here). Both are the numbers
+      // an agent picks a chain on: how many sellers, how much to buy.
+      const tools = marketSellers(chainKey, snapshot).reduce((s, x) => s + (x.toolCount || 0), 0);
+      return { label, href, sellers: marketOperatorCount(chainKey, snapshot, getLeaderboardSnapshot()), tools, healthy: true };
     } catch {
-      return { label, href, sellers: null, healthy: false };
+      return { label, href, sellers: null, tools: null, healthy: false };
     }
   };
   // Iterates CHAIN_PAGES so a third chain page joins the nav/footer strip
@@ -2020,6 +2184,16 @@ app.post("/api/route", (req, res) => {
   const include = req.body?.include;
   const net = req.body?.network;
   return serveCachedDiscovery(routeCachePath, routeCachePolicy, { q, task: q, query: q, top, k: top, include, network: net }, () => computeRoute(q, top, include, net), "_route", req, res);
+});
+// Operator-only: why does the SOR external resolver keep/drop each candidate for
+// a task? Explains a prod "no external seller matched" 404 without a paid buy.
+app.get("/api/route/external-debug", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const task = req.query.q ?? req.query.task;
+  if (!task) return res.status(400).json({ error: "Missing q/task" });
+  const cap = Number(req.query.cap) > 0 ? Number(req.query.cap) : EXEC_TIERS[0].underlyingMaxUsd;
+  try { res.json(await diagnoseExternalSeller(String(task), { cap })); }
+  catch (e) { res.status(500).json({ error: String(e?.message || e).slice(0, 200) }); }
 });
 // x402 Leaderboard — public on-chain ranking of every seller in the Coinbase
 // CDP Bazaar by settled USDC volume on Base. Free, like /api/find + /api/route:
