@@ -34,10 +34,20 @@ ok(hash.every((a) => a.network.startsWith("eip155:") ? a.payTo === TREASURY : tr
 const noBurner = acceptsForItem({ slug: "route-execute", price: "$0.01" }, { ...rails, upstreamBuyerAddress: "" });
 ok(noBurner.find((a) => a.network === "eip155:8453").payTo === TREASURY, "no burner address -> route-execute Base falls back to treasury");
 
-// buyerPaymentNetwork decodes the CAIP-2 from X-PAYMENT
-const mk = (net) => ({ header: (n) => n === "x-payment" ? Buffer.from(JSON.stringify({ x402Version: 2, scheme: "exact", network: net })).toString("base64") : null });
-ok(buyerPaymentNetwork(mk("eip155:8453")) === "eip155:8453", "buyerPaymentNetwork reads Base");
-ok(buyerPaymentNetwork(mk("eip155:137")) === "eip155:137", "buyerPaymentNetwork reads a non-Base chain");
+// buyerPaymentNetwork decodes the CAIP-2 from X-PAYMENT — in BOTH real wire
+// shapes. v1 carries `network` top-level; v2 carries the chosen accept under
+// `accepted` with the network inside it. The old test here encoded a payload
+// labeled x402Version:2 with a TOP-LEVEL network — a shape no real client
+// sends — which is how the v2 parsing gap passed CI while prod 409'd every
+// real Base buyer out of external routing.
+const mkHdr = (obj) => ({ header: (n) => n === "x-payment" ? Buffer.from(JSON.stringify(obj)).toString("base64") : null });
+const mkV1 = (net) => mkHdr({ x402Version: 1, scheme: "exact", network: net, payload: {} });
+const mkV2 = (net) => mkHdr({ x402Version: 2, accepted: { scheme: "exact", network: net, amount: "10000" }, payload: {} });
+ok(buyerPaymentNetwork(mkV1("eip155:8453")) === "eip155:8453", "v1 payload: reads Base from top-level network");
+ok(buyerPaymentNetwork(mkV1("eip155:137")) === "eip155:137", "v1 payload: reads a non-Base chain");
+ok(buyerPaymentNetwork(mkV2("eip155:8453")) === "eip155:8453", "v2 payload: reads Base from accepted.network");
+ok(buyerPaymentNetwork(mkV2("eip155:137")) === "eip155:137", "v2 payload: reads a non-Base chain from accepted.network");
+ok(buyerPaymentNetwork(mkHdr({ x402Version: 2, payload: {} })) === null, "v2 payload with no accepted -> null (fail-closed upstream)");
 ok(buyerPaymentNetwork({ header: () => null }) === null, "no X-PAYMENT -> null (fail-open)");
 ok(buyerPaymentNetwork({ header: () => "not-base64-json!!" }) === null, "malformed X-PAYMENT -> null, no throw");
 

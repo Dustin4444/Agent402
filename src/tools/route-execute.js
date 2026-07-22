@@ -57,7 +57,15 @@ export function buyerPaymentNetwork(req) {
     const header = req?.header?.("x-payment") || req?.header?.("payment-signature");
     if (!header) return null;
     const p = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
-    return typeof p?.network === "string" ? p.network : null;
+    // v1 payloads carry `network` top-level; v2 payloads carry the CHOSEN
+    // accept under `accepted` (shape: {x402Version:2, accepted, payload}) with
+    // the network inside it. Reading only the v1 spot 409'd every v2 Base
+    // buyer out of external routing (found by the first paid demo after the
+    // fail-closed check shipped — the canary's route-exec leg is internal-only
+    // and never walked this path).
+    if (typeof p?.network === "string") return p.network;
+    if (typeof p?.accepted?.network === "string") return p.accepted.network;
+    return null;
   } catch { return null; }
 }
 
