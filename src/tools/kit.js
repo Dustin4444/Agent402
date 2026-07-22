@@ -1867,6 +1867,53 @@ function robotsAllows(groups, ua, path) {
   return { allowed: best ? best.allow : true, matchedRule: best ? `${best.allow ? "Allow" : "Disallow"}: ${best.path}` : null };
 }
 
+// ── RDAP bootstrap (IANA) ────────────────────────────────────────────────────
+// data.iana.org/rdap/dns.json maps every TLD to its registry's authoritative
+// RDAP base URL. The whois tool queries that registry directly and keeps the
+// rdap.org redirector only as a fallback: rdap.org is volunteer-run, and both
+// its Cloudflare front and the registries behind it rate-limit per client IP —
+// our egress IP is shared with every other tenant of the platform, so the
+// redirector can fail from prod while working from any laptop. Exported for
+// scripts/test-whois-bootstrap.js.
+export function parseRdapBootstrap(json) {
+  const map = new Map();
+  for (const svc of json?.services ?? []) {
+    if (!Array.isArray(svc)) continue;
+    const [tlds, urls] = svc;
+    const base = (urls ?? []).find((u) => typeof u === "string" && u.startsWith("https://"));
+    if (!base) continue;
+    for (const tld of tlds ?? []) {
+      if (typeof tld === "string" && tld) map.set(tld.toLowerCase(), base.endsWith("/") ? base : `${base}/`);
+    }
+  }
+  return map;
+}
+
+const RDAP_BOOTSTRAP_TTL_MS = 24 * 60 * 60 * 1000; // IANA's registry list changes rarely
+const RDAP_BOOTSTRAP_RETRY_MS = 10 * 60 * 1000; // after a failed refresh, back off before asking IANA again
+let rdapBootstrap = { at: 0, map: null };
+
+async function rdapAuthoritativeBase(tld) {
+  const now = Date.now();
+  if (!rdapBootstrap.map || now - rdapBootstrap.at >= RDAP_BOOTSTRAP_TTL_MS) {
+    try {
+      const res = await fetch("https://data.iana.org/rdap/dns.json", {
+        signal: AbortSignal.timeout(10_000),
+        dispatcher: ssrfDispatcher,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      rdapBootstrap = { at: now, map: parseRdapBootstrap(await res.json()) };
+    } catch (err) {
+      // Keep serving the stale map (or none); a failed refresh must not take
+      // the tool down — rdap.org below still answers every TLD.
+      console.warn(`[whois] IANA RDAP bootstrap refresh failed (${err.message}); using ${rdapBootstrap.map ? "stale map" : "rdap.org only"}`);
+      rdapBootstrap = { at: now - RDAP_BOOTSTRAP_TTL_MS + RDAP_BOOTSTRAP_RETRY_MS, map: rdapBootstrap.map };
+    }
+  }
+  return rdapBootstrap.map?.get(tld) ?? null;
+}
+
 const networkTools = [
   {
     route: "POST /api/http-check",
@@ -2013,34 +2060,56 @@ const networkTools = [
       }
       const domain = raw.toLowerCase().replace(/\.$/, "");
       if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain)) throw bad(`Invalid domain "${raw}". Expected a hostname like example.com`);
-      // rdap.org's bootstrap redirect can be flaky — retry once on timeout/5xx.
-      async function rdapFetch() {
+      // Ask the TLD's authoritative registry RDAP first (IANA bootstrap), then
+      // fall back to the rdap.org redirector — two genuinely different paths.
+      // A same-endpoint immediate retry (the old behavior) is useless against
+      // a per-IP rate limit, which is the failure mode on shared egress.
+      const tld = domain.slice(domain.lastIndexOf(".") + 1);
+      const authoritative = await rdapAuthoritativeBase(tld);
+      const endpoints = [
+        ...(authoritative ? [`${authoritative}domain/${domain}`] : []),
+        `https://rdap.org/domain/${domain}`,
+      ];
+      async function rdapFetch(url) {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 12_000);
         try {
-          const res = await fetch(`https://rdap.org/domain/${domain}`, {
+          const res = await fetch(url, {
             signal: controller.signal,
             redirect: "follow",
             dispatcher: ssrfDispatcher,
             headers: { Accept: "application/rdap+json" },
           });
           if (res.status === 404) throw Object.assign(new Error("Domain not found in RDAP"), { statusCode: 404 });
-          if (!res.ok) throw Object.assign(new Error(`RDAP returned HTTP ${res.status}`), { statusCode: 502 });
+          if (!res.ok) throw Object.assign(new Error(`RDAP returned HTTP ${res.status}`), { statusCode: 502, upstreamStatus: res.status });
           return await res.json();
         } finally {
           clearTimeout(timer);
         }
       }
       let data;
-      try {
-        data = await rdapFetch();
-      } catch (err) {
-        if (err.statusCode === 404) throw err;
-        // Single retry on timeout or 5xx — rdap.org flaps transiently.
-        try { data = await rdapFetch(); } catch (err2) {
-          if (err2.statusCode) throw err2;
-          throw Object.assign(new Error(err2.name === "AbortError" ? "RDAP lookup timed out" : `RDAP lookup failed: ${err2.message}`), { statusCode: 502 });
+      let lastErr = null;
+      for (const url of endpoints) {
+        try {
+          data = await rdapFetch(url);
+          lastErr = null;
+          break;
+        } catch (err) {
+          // A 404 is an authoritative "unregistered" — an answer, not an outage.
+          if (err.statusCode === 404) throw err;
+          // Keep the evidence: a failed paid call must leave a log line with
+          // the upstream host and status, not vanish into a bare 502.
+          console.warn(`[whois] RDAP upstream failed for ${domain}: ${new URL(url).host} → ${err.upstreamStatus ?? err.name ?? err.message}`);
+          lastErr = err;
         }
+      }
+      if (!data) {
+        const why =
+          lastErr?.upstreamStatus === 429 ? "RDAP upstreams rate-limited (HTTP 429)"
+          : lastErr?.statusCode ? lastErr.message
+          : lastErr?.name === "AbortError" || lastErr?.name === "TimeoutError" ? "RDAP lookup timed out"
+          : `RDAP lookup failed: ${lastErr?.message}`;
+        throw Object.assign(new Error(why), { statusCode: 502 });
       }
       const event = (name) => data.events?.find((e) => e.eventAction === name)?.eventDate ?? null;
       const registrar = data.entities?.find((e) => e.roles?.includes("registrar"));
