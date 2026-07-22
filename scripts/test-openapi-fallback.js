@@ -39,6 +39,69 @@ ok(
 );
 ok(!openapiHasPaymentSignal(null) && !openapiHasPaymentSignal({}), "null/empty openapi is not a signal");
 
+// ---- 1b. annotated documents retain only current paid operations ----
+{
+  const tools = normaliseOpenapiTools({
+    paths: {
+      "/paid": {
+        post: {
+          operationId: "paid",
+          "x-payment-info": { price: { amount: "0.01" } },
+        },
+      },
+      "/sample": {
+        get: { operationId: "sample" },
+      },
+      "/legacy": {
+        get: {
+          operationId: "legacy",
+          deprecated: true,
+          "x-price": "$0.01",
+        },
+      },
+    },
+  }, "https://seller.example");
+  ok(tools.length === 1, `only one current paid operation is indexed (got ${tools.length})`);
+  ok(tools[0].slug === "paid", "the current paid operation remains indexed");
+}
+
+// ---- 1c. zero-annotation documents stay inclusive but drop obvious junk ----
+{
+  const tools = normaliseOpenapiTools({
+    servers: [{ url: "/api" }],
+    paths: {
+      "/verify": {
+        get: { operationId: "verify", summary: "Verify an artifact" },
+        parameters: [{ name: "trace", in: "header" }],
+      },
+      "/report": {
+        post: { operationId: "report", summary: "Create a report" },
+      },
+      "/legacy": {
+        get: { operationId: "legacy", deprecated: true },
+      },
+      "/logo.png": {
+        get: { operationId: "logo" },
+      },
+      "/assets/mark.SVG": {
+        get: { operationId: "mark" },
+      },
+      "/robots.txt": {
+        get: { operationId: "robots" },
+      },
+      "/healthz": {
+        get: { operationId: "health" },
+      },
+    },
+  }, "https://seller.example");
+  ok(tools.length === 2, `two live API operations remain indexed (got ${tools.length})`);
+  ok(
+    tools.map((tool) => tool.slug).sort().join(",") === "report,verify",
+    "zero-annotation documents retain real operations and exclude metadata, deprecated routes, and static assets",
+  );
+  ok(tools.every((tool) => tool.route.startsWith("/api/")), "base path remains applied");
+}
+
 // ---- 2. merge: openapi descriptive fields over Bazaar payment truth ----
 const bazaarTools = [
   {
