@@ -142,8 +142,15 @@ export const DATA_TOOLS = [
       let point;
       try {
         point = await getJson(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`);
-      } catch {
-        throw bad("location not covered — weather.gov serves US locations only", 400);
+      } catch (err) {
+        // Only an upstream 404 means "outside NWS coverage". A timeout, 5xx,
+        // or throttle is weather.gov failing — blaming the caller's coords for
+        // that destroyed the evidence (and misled the buyer).
+        if (err.upstreamStatus === 404) {
+          throw bad("location not covered — weather.gov serves US locations only", 400);
+        }
+        console.warn(`[weather-forecast] weather.gov /points failed: ${err.message ?? err}`);
+        throw bad(`weather.gov upstream error — ${err.message ?? "unreachable"}`, 502);
       }
       const forecastUrl = point.properties?.forecast;
       if (!forecastUrl) throw bad("no forecast available for this location (US only)", 400);

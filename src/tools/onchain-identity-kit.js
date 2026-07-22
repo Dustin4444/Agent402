@@ -136,10 +136,22 @@ async function ensBulkResolve({ addresses } = {}) {
     });
   }
   const named = results.filter((r) => r.name).length;
+  const failed = results.filter((r) => r.error);
+  if (failed.length) {
+    // Keep the evidence: a throttled upstream must leave a log line, not hide
+    // inside 200-response rows where no one ever sees it.
+    console.warn(`[ens-bulk] ${failed.length}/${results.length} lookups failed upstream (${ENS_API}): ${failed[0].error}`);
+  }
+  if (failed.length === results.length) {
+    // Every lookup failed — that is an upstream outage, not a result set. A
+    // 5xx also cancels the buyer's settlement instead of charging for nulls.
+    throw Object.assign(new Error(`ENS resolver upstream unavailable: ${failed[0].error}`), { statusCode: 502 });
+  }
   return {
     count: results.length,
     namedCount: named,
     namedPct: results.length ? Math.round((named / results.length) * 10000) / 100 : 0,
+    failedCount: failed.length,
     results,
     source: "ensideas",
   };

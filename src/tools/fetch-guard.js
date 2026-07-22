@@ -251,12 +251,12 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
         new Error(
           `Source URL returned HTTP ${upstreamStatus} — check the URL is correct and publicly reachable`
         ),
-        { statusCode: 422 }
+        { statusCode: 422, upstreamStatus }
       );
     }
     throw Object.assign(
       new Error(`Source URL's host returned HTTP ${upstreamStatus} — upstream issue, try again later`),
-      { statusCode: 502 }
+      { statusCode: 502, upstreamStatus }
     );
   }
 

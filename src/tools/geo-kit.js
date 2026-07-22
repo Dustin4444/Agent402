@@ -13,7 +13,24 @@ function bad(message, statusCode = 400) {
 }
 
 async function getJson(url) {
-  const { html } = await safeFetch(url, { maxBytes: 5 * 1024 * 1024 });
+  let html;
+  try {
+    ({ html } = await safeFetch(url, { maxBytes: 5 * 1024 * 1024 }));
+  } catch (err) {
+    // Nominatim enforces the strictest per-IP policy in the catalog (1 req/s,
+    // blocks heavy IPs) and our egress IP is shared platform-wide. A throttle
+    // or block is OUR upstream problem — it must never surface as a 4xx
+    // blaming the caller's query, and it must leave a log line.
+    if (err.upstreamStatus === 403 || err.upstreamStatus === 429) {
+      console.warn(`[geo] nominatim ${err.upstreamStatus} (per-IP throttle/block on shared egress)`);
+      throw bad("Geocoder rate limit reached upstream — retry shortly", 503);
+    }
+    if (err.upstreamStatus) {
+      console.warn(`[geo] nominatim HTTP ${err.upstreamStatus}`);
+      throw bad(`Geocoder upstream error (HTTP ${err.upstreamStatus})`, 502);
+    }
+    throw err; // SSRF-guard 400s, size caps, and timeouts keep their own semantics
+  }
   try {
     return JSON.parse(html);
   } catch {
