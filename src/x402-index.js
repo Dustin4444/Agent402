@@ -420,7 +420,8 @@ function priceRank(p) {
 // per-network price/asset), an optional serviceName, description, and tags.
 // We deliberately keep the price in atomic USDC units → USD here so the router
 // can compare across sellers without a per-network price lookup.
-function bazaarItemToTool(item, originUrl) {
+// Exported for offline merge-contract tests alongside normaliseOpenapiTools.
+export function bazaarItemToTool(item, originUrl) {
   // `resource` = CDP Bazaar; `resourceUrl` = GoPlausible's AVM registry.
   const resource = item.resource || item.resourceUrl || item.url;
   if (typeof resource !== "string" || !resource.startsWith(originUrl)) return null;
@@ -444,11 +445,13 @@ function bazaarItemToTool(item, originUrl) {
     /* keep "/" */
   }
   const tags = Array.isArray(item.tags) ? item.tags : [];
+  const methodInferred = !(typeof item.method === "string" && item.method);
   // Bazaar entries don't always carry a method (GoPlausible's do); assume POST
   // if we can't tell. The router treats this as a hint and respects a 405 retry.
   return {
     seller: originUrl,
-    method: typeof item.method === "string" && item.method ? item.method.toUpperCase() : "POST",
+    method: methodInferred ? "POST" : item.method.toUpperCase(),
+    methodInferred,
     route: pathStr,
     slug: pathStr.replace(/^\//, "").replace(/\//g, "-") || originUrl.replace(/^https?:\/\//, ""),
     name: item.serviceName || pathStr,
@@ -483,7 +486,9 @@ function bazaarItemToTool(item, originUrl) {
   };
 }
 
-function normaliseOpenapiTools(openapi, originUrl) {
+// Exported for the offline crawler contract test. Keeping this pure makes the
+// exact OpenAPI -> index row mapping testable without network I/O.
+export function normaliseOpenapiTools(openapi, originUrl) {
   if (!openapi || typeof openapi !== "object" || !openapi.paths) return [];
   const out = [];
   for (const [pathStr, methods] of Object.entries(openapi.paths)) {
@@ -531,8 +536,10 @@ export function openapiHasPaymentSignal(openapi) {
 // its openapi.json says exactly what the tool does (operationId → slug,
 // summary → name, tags). Match by method+route (route-only as a fallback,
 // Bazaar guesses POST when the registry omits the method); openapi wins on
-// descriptive fields, Bazaar wins on payment truth. Openapi-only routes are
-// appended as-is; Bazaar-only routes pass through untouched.
+// descriptive fields and the declared HTTP method. Bazaar wins on observed
+// payment truth when it has an amount; otherwise the OpenAPI payment extension
+// fills the unknown price. Openapi-only routes are appended as-is;
+// Bazaar-only routes pass through untouched.
 export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
   if (!openapiTools.length) return bazaarTools.slice();
   if (!bazaarTools.length) return openapiTools.slice();
@@ -540,20 +547,34 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
   const byRoute = new Map();
   for (const o of openapiTools) {
     exact.set(`${o.method} ${o.route}`, o);
+    // A route-only match is safe only when the document declares exactly one
+    // operation for that path. null marks an ambiguous GET+POST-style path.
     if (!byRoute.has(o.route)) byRoute.set(o.route, o);
+    else byRoute.set(o.route, null);
   }
   const used = new Set();
   const merged = bazaarTools.map((b) => {
-    const o = exact.get(`${b.method} ${b.route}`) || byRoute.get(b.route);
+    // Only an inferred Bazaar verb may fall back to a route-only match. An
+    // explicit verb must match exactly: GET and POST on the same path can be
+    // different tools with different descriptions and prices.
+    const o = b.methodInferred
+      ? byRoute.get(b.route)
+      : exact.get(`${b.method} ${b.route}`);
     if (!o) return b;
     used.add(o);
     return {
       ...b,
+      // Bazaar defaults missing methods to POST. The OpenAPI operation is the
+      // authoritative verb once the route-only fallback finds a match.
+      method: b.methodInferred ? (o.method || b.method) : b.method,
       slug: o.slug || b.slug,
       name: o.name && o.name !== o.route ? o.name : b.name,
       description: o.description || b.description,
       tags: o.tags?.length ? o.tags : b.tags,
       category: o.tags?.length ? o.category : b.category,
+      // Keep a settlement-observed Bazaar amount (including an explicit free
+      // price of 0); only fill an absent amount from the OpenAPI extension.
+      price: b.price == null ? o.price : b.price,
     };
   });
   for (const o of openapiTools) if (!used.has(o)) merged.push(o);
