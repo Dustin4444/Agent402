@@ -19,7 +19,14 @@ And one **paid** executing surface built on the same resolver:
 
 | Surface | What it does |
 |---|---|
-| `POST /api/route/execute` ($0.01) | Resolve a task description (or explicit slug) to the best-matching **local** catalog tool and run it in the same call. Returns `{result, receipt}` — the receipt names the dispatched slug, its catalog price (capped at $0.005 underlying), and how it was resolved. Underlying tool errors pass through with their own status codes. Wallet-only. |
+| `POST /api/route/execute` ($0.01) | Resolve a task description (or explicit slug) to the best-matching catalog tool and run it in the same call. Returns `{result, receipt}` — the receipt names the dispatched slug, its price (capped at $0.005 underlying), and how it was resolved. Underlying tool errors pass through with their own status codes. Wallet-only. |
+| `POST /api/route/execute-max` ($0.55) | Same contract, higher budget: underlying tools priced up to $0.50. `POST /api/route` quotes which tier a task needs via `executeVia` in its response, and a too-expensive tool returns a self-correcting 409 naming its direct route. |
+
+### External execution: run any proven x402 seller in one call
+
+With `include: "external"`, route-execute goes beyond this host's catalog: it resolves the best **external** x402 seller for the task, pays them from Agent402's own spending wallet over x402, and relays the result. One payment from you, one request, cross-vendor settlement underneath.
+
+The reliability filter is the point. The open x402 ecosystem is full of endpoints that answer a 402 but never deliver a paid result, so route-execute only considers sellers with **proven settled volume** (on-chain completed deliveries on the [[x402-Leaderboard]], most-proven first) and then probes the candidate for a live 402 before committing. External payment happens on Base only; relayed bodies are marked `untrustedContent` (the seller's output, not ours); and if the seller fails to deliver, the 5xx cancels your settlement, so you are not charged for their failure. Default remains local-only: external routing is an explicit opt-in.
 
 ## How a seller gets into the Index
 
