@@ -6,7 +6,10 @@
 //   1. Fully keyless (always works):
 //      • US Treasury constant-maturity yields via FRED CSV download (DGS*
 //        series, St. Louis Fed; the CSV endpoint is keyless even though the
-//        JSON API requires a key)
+//        JSON API requires a key). When FRED_API_KEY is set, an upstream
+//        failure of the CSV scrape falls back to the keyed JSON API — the
+//        keyless endpoint shares prod's Railway egress IP with other tenants
+//        and intermittently throttles it.
 //      • US Treasury Fiscal Data API (api.fiscaldata.treasury.gov) — public
 //        domain, for debt outstanding and average interest rates by security
 //      • ECB reference rates via Frankfurter (api.frankfurter.dev) — open data
@@ -179,11 +182,85 @@ function parseFredYieldsCsv(csv) {
   return rows;
 }
 
+// Keyed-API fallback for the yield-curve tools. fredgraph.csv is a keyless
+// scrape endpoint, and prod shares one Railway egress IP with other tenants —
+// a per-IP throttle or anti-bot block upstream turns into OUR intermittent
+// failure. When the CSV path fails with an upstream error AND FRED_API_KEY is
+// configured, refetch the same DGS* series via the keyed JSON API (one
+// /series/observations call per series, concurrency-bounded) and reassemble
+// the exact row shape parseFredYieldsCsv produces, so the three handlers
+// (latest curve / history / spreads) never notice which path served them.
+// Window: the handlers only ever read the trailing 250 business days
+// (`?days` caps at 250), so ~550 calendar days of lookback covers the worst
+// case (weekends + holidays) with margin — no need to mirror the CSV's
+// full-since-1962 history.
+const FRED_YIELD_FALLBACK_LOOKBACK_DAYS = 550;
+const FRED_YIELD_FALLBACK_CONCURRENCY = 4;
+
+export async function assembleFredYieldRows(observationsBySeries) {
+  // observationsBySeries: array aligned with FRED_YIELD_SERIES, each an array
+  // of {date, value} (missing "." observations already filtered out — the
+  // fredObservations contract). Merge into fredgraph-CSV row shape: one row
+  // per date, every tenor key present, null where a series has no observation.
+  const byDate = new Map();
+  FRED_YIELD_SERIES.forEach(([, dst], j) => {
+    for (const { date, value } of observationsBySeries[j] || []) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(value)) continue;
+      let row = byDate.get(date);
+      if (!row) {
+        row = { recordDate: date };
+        for (const [, d] of FRED_YIELD_SERIES) row[d] = null;
+        byDate.set(date, row);
+      }
+      row[dst] = value;
+    }
+  });
+  // Same trim semantics as the CSV parser: keep only rows with ≥1 observation
+  // (guaranteed by construction here), chronological order.
+  const rows = [...byDate.values()].sort((a, b) => (a.recordDate < b.recordDate ? -1 : 1));
+  if (!rows.length) throw bad("FRED returned no usable yield rows", 502);
+  return rows;
+}
+
+async function fetchFredYieldsViaKeyedApi() {
+  const startDate = new Date(Date.now() - FRED_YIELD_FALLBACK_LOOKBACK_DAYS * 86400_000)
+    .toISOString().slice(0, 10);
+  const results = new Array(FRED_YIELD_SERIES.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < FRED_YIELD_SERIES.length) {
+      const idx = next++;
+      results[idx] = await fredObservations({ seriesId: FRED_YIELD_SERIES[idx][0], startDate });
+    }
+  };
+  await Promise.all(Array.from({ length: FRED_YIELD_FALLBACK_CONCURRENCY }, worker));
+  return assembleFredYieldRows(results);
+}
+
+// Is a fetchFredYields failure an UPSTREAM problem the keyed API could route
+// around? 502/503/504 cover gateway errors, timeouts, and the CSV parser's
+// "no rows / missing columns" throws. `upstreamStatus` covers safeFetch's 4xx
+// mapping: our fredgraph URL is fixed and correct, so an upstream 403/429
+// (per-IP throttle — the exact shared-egress failure mode) is never a caller
+// error here even though safeFetch attributes it as 422.
+function isYieldCsvUpstreamFailure(e) {
+  const sc = e?.statusCode;
+  return sc === 502 || sc === 503 || sc === 504 || e?.upstreamStatus !== undefined;
+}
+
 async function fetchFredYields() {
   const ids = FRED_YIELD_SERIES.map(([id]) => id).join(",");
   const url = `https://fred.stlouisfed.org/graph/fredgraph.csv?id=${ids}`;
-  const csv = await getText(url);
-  return parseFredYieldsCsv(csv);
+  try {
+    const csv = await getText(url);
+    return parseFredYieldsCsv(csv);
+  } catch (e) {
+    // Fall back only on upstream failures, and only when the keyed API is
+    // configured — with no key, behavior is exactly as before.
+    if (!isYieldCsvUpstreamFailure(e) || !(process.env.FRED_API_KEY || "").trim()) throw e;
+    console.warn(`[macro] fredgraph.csv failed (${e.message}) — falling back to keyed FRED API`);
+    return fetchFredYieldsViaKeyedApi();
+  }
 }
 
 async function fetchLatestYieldCurve() {

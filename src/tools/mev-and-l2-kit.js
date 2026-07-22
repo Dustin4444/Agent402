@@ -12,7 +12,9 @@
 // and L2 state. Use chain-kit/dex-kit for executable read paths.
 //
 // Upstreams:
-//   • Flashbots relay (keyless):     https://boost-relay.flashbots.net/relay/v1/data/*
+//   • MEV-Boost relay chain (keyless): Flashbots → Ultrasound → Agnostic — all
+//     major relays serve the SAME data API (/relay/v1/data/bidtraces/*), so a
+//     per-IP limit or outage on one relay walks to the next (see MEV_RELAYS)
 //   • DeFiLlama chains (keyless):    https://api.llama.fi/v2/chains
 //   • Alchemy multichain RPC (key):  eth_gasPrice + eth_blockNumber across L2s
 //
@@ -22,8 +24,17 @@
 import { redactSecrets } from "./redact.js";
 
 const TIMEOUT_MS = 12_000;
-const FB_RELAY = "https://boost-relay.flashbots.net/relay/v1/data";
 const LLAMA = "https://api.llama.fi/v2/chains";
+
+// All major MEV-Boost relays implement the identical data API. Ordered by
+// preference; verified live 2026-07-21 that each answers
+// /relay/v1/data/bidtraces/proposer_payload_delivered (incl. slot/block_number
+// filters) with the same JSON row shape. `name` rides the response `relay` field.
+const MEV_RELAYS = [
+  { name: "flashbots", host: "boost-relay.flashbots.net" },
+  { name: "ultrasound", host: "relay.ultrasound.money" },
+  { name: "agnostic", host: "agnostic-relay.net" },
+];
 
 // Same chain map as chain-kit/dex-kit so an agent can pivot freely between them.
 const NETWORKS = {
@@ -79,6 +90,33 @@ async function fetchJson(url, label, init) {
   return res.json();
 }
 
+// Walk the relay chain: try each relay's bidtraces endpoint in order, moving on
+// when one fails (non-ok, timeout, unreachable, or malformed/non-array JSON) so
+// a single relay's per-IP rate limit never takes the tools down. Returns the
+// rows plus WHICH relay served them; throws 502 only when every relay failed.
+// NB: relays see different (partially overlapping) block sets, so a fallback
+// relay's aggregates (e.g. mev-builder-share) differ slightly from Flashbots' —
+// acceptable: availability over exact parity.
+async function fetchBidtraces(params) {
+  let lastErr = null;
+  for (let i = 0; i < MEV_RELAYS.length; i++) {
+    const { name, host } = MEV_RELAYS[i];
+    try {
+      const raw = await fetchJson(
+        `https://${host}/relay/v1/data/bidtraces/proposer_payload_delivered?${params}`,
+        `MEV relay ${host}`,
+      );
+      if (!Array.isArray(raw)) throw bad(`MEV relay ${host} returned non-array JSON`, 502);
+      return { relay: name, rows: raw };
+    } catch (e) {
+      lastErr = e;
+      const next = MEV_RELAYS[i + 1];
+      if (next) console.warn(`[mev] relay ${host} failed (${e.message}) — trying ${next.host}`);
+    }
+  }
+  throw bad(`All ${MEV_RELAYS.length} MEV-Boost relays failed — last: ${lastErr?.message || "unknown"}`, 502);
+}
+
 async function alchemyRpc(network, method, params) {
   const key = requireAlchemyKey();
   const net = pickNetwork(network);
@@ -130,11 +168,7 @@ function shortPubkey(pk) {
 // ----------------------------------------------------------------------------
 async function mevRecentBlocks({ limit } = {}) {
   const lim = Math.max(1, Math.min(100, Number.parseInt(limit, 10) || 20));
-  const raw = await fetchJson(
-    `${FB_RELAY}/bidtraces/proposer_payload_delivered?limit=${lim}`,
-    "Flashbots relay",
-  );
-  const arr = Array.isArray(raw) ? raw : [];
+  const { relay, rows: arr } = await fetchBidtraces(`limit=${lim}`);
   const blocks = arr.map((b) => ({
     slot: Number.parseInt(b.slot, 10),
     blockNumber: Number.parseInt(b.block_number, 10),
@@ -155,7 +189,7 @@ async function mevRecentBlocks({ limit } = {}) {
     count: blocks.length,
     totalEthToProposers: Math.round(totalEth * 1e6) / 1e6,
     avgEthPerBlock: blocks.length ? Math.round((totalEth / blocks.length) * 1e6) / 1e6 : 0,
-    relay: "flashbots",
+    relay,
     blocks,
   };
 }
@@ -165,13 +199,11 @@ async function mevRecentBlocks({ limit } = {}) {
 // ----------------------------------------------------------------------------
 async function mevBuilderShare({ window } = {}) {
   const w = Math.max(10, Math.min(200, Number.parseInt(window, 10) || 100));
-  const raw = await fetchJson(
-    `${FB_RELAY}/bidtraces/proposer_payload_delivered?limit=${w}`,
-    "Flashbots relay",
-  );
-  const arr = Array.isArray(raw) ? raw : [];
+  const { relay, rows: arr } = await fetchBidtraces(`limit=${w}`);
   // Aggregate by builder pubkey: count blocks + sum ETH paid to proposers
   // (a builder's payment proxy for the value they extracted, minus their cut).
+  // When a fallback relay serves, the aggregate covers THAT relay's block set —
+  // slightly different numbers from Flashbots' view, by design.
   const map = new Map();
   for (const b of arr) {
     const pk = b.builder_pubkey || "unknown";
@@ -194,7 +226,7 @@ async function mevBuilderShare({ window } = {}) {
   return {
     windowBlocks: arr.length,
     uniqueBuilders: rows.length,
-    relay: "flashbots",
+    relay,
     builders: rows,
   };
 }
@@ -211,18 +243,14 @@ async function mevBlockPayment({ slot, blockNumber } = {}) {
   const params = new URLSearchParams();
   if (Number.isFinite(s)) params.set("slot", String(s));
   if (Number.isFinite(b)) params.set("block_number", String(b));
-  const raw = await fetchJson(
-    `${FB_RELAY}/bidtraces/proposer_payload_delivered?${params}`,
-    "Flashbots relay",
-  );
-  const arr = Array.isArray(raw) ? raw : [];
+  const { relay, rows: arr } = await fetchBidtraces(String(params));
   if (!arr.length) {
     return {
       found: false,
       slot: Number.isFinite(s) ? s : null,
       blockNumber: Number.isFinite(b) ? b : null,
-      relay: "flashbots",
-      note: "Slot/block was not built via the Flashbots relay (may have been built locally, or via a different MEV-Boost relay).",
+      relay,
+      note: `Slot/block was not delivered via the ${relay} relay (may have been built locally, or via a different MEV-Boost relay).`,
     };
   }
   const entry = arr[0];
@@ -240,7 +268,7 @@ async function mevBlockPayment({ slot, blockNumber } = {}) {
     gasUsed: Number.parseInt(entry.gas_used, 10),
     gasLimit: Number.parseInt(entry.gas_limit, 10),
     numTx: Number.parseInt(entry.num_tx, 10) || null,
-    relay: "flashbots",
+    relay,
   };
 }
 
@@ -530,6 +558,8 @@ export const MEV_AND_L2_TOOLS = [
 
 // Test-only exports
 export const __test = {
+  MEV_RELAYS,
+  fetchBidtraces,
   weiToEth,
   hexToInt,
   hexToBigNumber,

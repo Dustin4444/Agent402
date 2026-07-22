@@ -1,9 +1,14 @@
 // Data kit — live, keyless, commercial-use-OK public data agents can't get from
 // a frozen training set. Sources chosen so charging is clean:
 //   barcode-lookup    Open Food Facts (open data, ODbL) — UPC/EAN -> product
-//   fx-rate           Frankfurter (European Central Bank reference rates)
+//                     (100 req/min/IP upstream + shared Railway egress IP →
+//                     serve-stale cache below)
+//   fx-rate           Frankfurter (European Central Bank reference rates),
+//                     open.er-api.com as a diverse keyless fallback
 //   weather-forecast  api.weather.gov (US gov, public domain) — US only
 //   public-holidays   Nager.Date (open source, MIT) — holidays by country+year
+//                     (community-run, self-documented flapping → serve-stale
+//                     cache below)
 //   country-info      committed world-countries dataset (ODbL) + IANA tz
 //                     country map — src/data/countries.json, pure CPU
 // All keyless. Network tools are wallet-only (country-info is pure CPU and
@@ -42,6 +47,46 @@ async function getJson(url, { allowEmpty = false } = {}) {
   }
 }
 
+// ── serve-stale cache (barcode-lookup, public-holidays) ──────────────────────
+// Neither upstream has a good diverse free alternative (Open Food Facts is the
+// only open barcode DB of its kind; Nager.Date likewise for holidays), so the
+// single-upstream mitigation here is caching, not a fallback provider. Both
+// datasets are near-static, so each tool keeps its last SUCCESSFUL response per
+// request identity and (a) serves it for 24h without touching the upstream at
+// all — which is also what keeps us under Open Food Facts' 100 req/min/IP cap
+// on Railway's shared egress IP — and (b) on upstream failure serves whatever
+// cached copy exists, however old, marked `stale: true`. Errors are never
+// cached; a fresh fetch always refreshes the entry; only a cold key surfaces
+// the upstream error. Bounded at 500 entries each, oldest fetchedAt evicted.
+const CACHE_FRESH_MS = 24 * 60 * 60 * 1000;
+const CACHE_MAX_ENTRIES = 500;
+const BARCODE_CACHE = new Map(); // code -> { response, fetchedAt }
+const HOLIDAY_CACHE = new Map(); // "CC:YYYY" -> { response, fetchedAt }
+
+function cacheFresh(cache, key) {
+  const e = cache.get(key);
+  return e && Date.now() - e.fetchedAt < CACHE_FRESH_MS ? e : null;
+}
+
+function cachePut(cache, key, response) {
+  if (!cache.has(key) && cache.size >= CACHE_MAX_ENTRIES) {
+    let oldestKey = null, oldestAt = Infinity;
+    for (const [k, v] of cache) if (v.fetchedAt < oldestAt) { oldestAt = v.fetchedAt; oldestKey = k; }
+    if (oldestKey !== null) cache.delete(oldestKey);
+  }
+  cache.set(key, { response, fetchedAt: Date.now() });
+}
+
+// Upstream failed: serve any cached copy (even stale) for this exact key, or
+// rethrow the (already-mapped) error when the key is cold. Shallow-copied so
+// the `stale` flag never leaks into the cached happy-path response.
+function serveStaleOrThrow(cache, key, slug, err) {
+  const e = cache.get(key);
+  if (!e) throw err;
+  console.warn(`[${slug}] upstream failed — serving cached copy from ${new Date(e.fetchedAt).toISOString()}`);
+  return { ...e.response, stale: true };
+}
+
 export const DATA_TOOLS = [
   {
     route: "GET /api/barcode-lookup", name: "Barcode product lookup", slug: "barcode-lookup", category: "data", price: "$0.005",
@@ -64,18 +109,28 @@ export const DATA_TOOLS = [
     handler: async (i) => {
       const code = String(i.code ?? "").trim();
       if (!/^\d{8,14}$/.test(code)) throw bad("code must be 8-14 digits (a UPC/EAN barcode)");
+      const fresh = cacheFresh(BARCODE_CACHE, code);
+      if (fresh) return { ...fresh.response };
       const url = `https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,brands,categories,quantity,nutrition_grades,countries,image_url`;
-      const j = await getJson(url);
-      if (j.status !== 1 || !j.product) return { code, found: false };
-      const p = j.product;
-      return {
-        code, found: true,
-        product: {
-          name: p.product_name || null, brands: p.brands || null, categories: p.categories || null,
-          quantity: p.quantity || null, nutritionGrade: p.nutrition_grades || null,
-          countries: p.countries || null, imageUrl: p.image_url || null,
-        },
-      };
+      let j;
+      try {
+        j = await getJson(url);
+      } catch (e) {
+        return serveStaleOrThrow(BARCODE_CACHE, code, "barcode-lookup", e);
+      }
+      const p = j.status === 1 && j.product ? j.product : null;
+      const response = p
+        ? {
+            code, found: true,
+            product: {
+              name: p.product_name || null, brands: p.brands || null, categories: p.categories || null,
+              quantity: p.quantity || null, nutritionGrade: p.nutrition_grades || null,
+              countries: p.countries || null, imageUrl: p.image_url || null,
+            },
+          }
+        : { code, found: false };
+      cachePut(BARCODE_CACHE, code, response);
+      return response;
     },
   },
   {
@@ -105,14 +160,41 @@ export const DATA_TOOLS = [
       // always sourced from Frankfurter (the authoritative trading day),
       // never `new Date()`. Keeps the tool deterministic w.r.t. its inputs +
       // upstream state, which the catalog contract requires.
-      if (from === to) {
-        const jId = await getJson(`https://api.frankfurter.app/latest?from=USD&to=EUR`);
-        return { from, to, amount, rate: 1, result: amount, date: jId.date };
+      try {
+        if (from === to) {
+          const jId = await getJson(`https://api.frankfurter.app/latest?from=USD&to=EUR`);
+          return { from, to, amount, rate: 1, result: amount, date: jId.date };
+        }
+        const j = await getJson(`https://api.frankfurter.app/latest?from=${from}&to=${to}&amount=${amount}`);
+        const result = j.rates?.[to];
+        if (result == null) throw bad(`unsupported currency pair ${from}/${to}`, 502);
+        return { from, to, amount, rate: Number((result / amount).toFixed(6)), result, date: j.date };
+      } catch (e) {
+        // Diverse fallback: Frankfurter is volunteer-run and shares fate with
+        // nothing we control; open.er-api.com (exchangerate-api.com's keyless
+        // open endpoint) is independent infrastructure. Only a Frankfurter
+        // UPSTREAM failure (502/504 from getJson) falls through — input 4xx
+        // (incl. Frankfurter's 404→422 for a currency it doesn't list) keeps
+        // today's semantics. NB: ER-API rates update once a day vs
+        // Frankfurter's ECB business-day reference — acceptable staleness for
+        // a fallback. ER-API has no from/to conversion params, only a full
+        // rate table per base (/v6/latest/<FROM>), so the cross-rate is
+        // computed client-side from that table. Response shape is identical
+        // to the Frankfurter path; `date` is ER-API's last-update day (UTC).
+        if (e.statusCode !== 502 && e.statusCode !== 504) throw e;
+        console.warn(`[fx-rate] frankfurter failed (${e.message}) — falling back to open.er-api.com`);
+        // Identity branch mirrors the Frankfurter one: touch the upstream (USD
+        // table) purely so `date` is upstream-sourced, never `new Date()`.
+        const j2 = await getJson(`https://open.er-api.com/v6/latest/${from === to ? "USD" : from}`);
+        if (j2?.result !== "success" || !j2.rates || !j2.time_last_update_unix) {
+          throw bad(`fx upstreams unavailable — frankfurter: ${e.message}; er-api: ${j2?.["error-type"] || "unexpected shape"}`, 502);
+        }
+        const date = new Date(j2.time_last_update_unix * 1000).toISOString().slice(0, 10);
+        if (from === to) return { from, to, amount, rate: 1, result: amount, date };
+        const r = j2.rates[to];
+        if (typeof r !== "number" || !(r > 0)) throw bad(`unsupported currency pair ${from}/${to}`, 502);
+        return { from, to, amount, rate: Number(r.toFixed(6)), result: Number((amount * r).toFixed(6)), date };
       }
-      const j = await getJson(`https://api.frankfurter.app/latest?from=${from}&to=${to}&amount=${amount}`);
-      const result = j.rates?.[to];
-      if (result == null) throw bad(`unsupported currency pair ${from}/${to}`, 502);
-      return { from, to, amount, rate: Number((result / amount).toFixed(6)), result, date: j.date };
     },
   },
   {
@@ -189,22 +271,35 @@ export const DATA_TOOLS = [
       if (!/^[A-Z]{2}$/.test(country)) throw bad("country must be a 2-letter ISO 3166-1 code (e.g. US, DE, JP)");
       const year = Number(i.year);
       if (!Number.isInteger(year) || year < 1975 || year > 2099) throw bad("year must be an integer between 1975 and 2099");
+      const key = `${country}:${year}`;
+      const fresh = cacheFresh(HOLIDAY_CACHE, key);
+      if (fresh) return { ...fresh.response };
       let j;
       try {
         // Nager returns 204 (empty body) for a known country with no data for
         // that year, and 404 for an unknown country code.
         j = await getJson(`https://date.nager.at/api/v3/PublicHolidays/${year}/${country}`, { allowEmpty: true });
       } catch (e) {
-        if (e.statusCode === 422) throw bad(`no holiday data for country "${country}" — Nager.Date covers ~110 countries by ISO alpha-2 code`);
-        throw e;
+        const mapped = e.statusCode === 422
+          ? bad(`no holiday data for country "${country}" — Nager.Date covers ~110 countries by ISO alpha-2 code`)
+          : e;
+        return serveStaleOrThrow(HOLIDAY_CACHE, key, "public-holidays", mapped);
       }
-      if (j === null) return { country, year, count: 0, holidays: [] };
-      if (!Array.isArray(j)) throw bad("Upstream returned an unexpected shape", 502);
-      const holidays = j.slice(0, 100).map((h) => ({
-        date: h.date, localName: h.localName ?? null, name: h.name ?? null,
-        global: h.global === true, counties: h.counties ?? null, types: h.types ?? [],
-      }));
-      return { country, year, count: holidays.length, holidays };
+      let response;
+      if (j === null) {
+        response = { country, year, count: 0, holidays: [] };
+      } else {
+        if (!Array.isArray(j)) {
+          return serveStaleOrThrow(HOLIDAY_CACHE, key, "public-holidays", bad("Upstream returned an unexpected shape", 502));
+        }
+        const holidays = j.slice(0, 100).map((h) => ({
+          date: h.date, localName: h.localName ?? null, name: h.name ?? null,
+          global: h.global === true, counties: h.counties ?? null, types: h.types ?? [],
+        }));
+        response = { country, year, count: holidays.length, holidays };
+      }
+      cachePut(HOLIDAY_CACHE, key, response);
+      return response;
     },
   },
   {

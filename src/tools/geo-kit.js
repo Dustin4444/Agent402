@@ -5,14 +5,19 @@
 //   geocode          address → lat/lon, display_name, bbox, place type
 //   reverse-geocode  lat/lon → structured address (road, city, state, country)
 //   place-search     keyword → ranked places, optional bbox/country filter
-// Source: nominatim.openstreetmap.org, ODbL-licensed OpenStreetMap data.
+// Source: nominatim.openstreetmap.org, ODbL-licensed OpenStreetMap data, with
+// photon.komoot.io (Komoot's keyless OSM geocoder — same ODbL data, GeoJSON
+// wire) as an automatic fallback when Nominatim itself fails (see below).
 import { safeFetch } from "./fetch-guard.js";
+
+const NOMINATIM_SOURCE = "nominatim.openstreetmap.org (ODbL)";
+const PHOTON_SOURCE = "photon.komoot.io (ODbL)";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-async function getJson(url) {
+async function getJson(url, provider = "nominatim") {
   let html;
   try {
     ({ html } = await safeFetch(url, { maxBytes: 5 * 1024 * 1024 }));
@@ -22,11 +27,11 @@ async function getJson(url) {
     // or block is OUR upstream problem — it must never surface as a 4xx
     // blaming the caller's query, and it must leave a log line.
     if (err.upstreamStatus === 403 || err.upstreamStatus === 429) {
-      console.warn(`[geo] nominatim ${err.upstreamStatus} (per-IP throttle/block on shared egress)`);
+      console.warn(`[geo] ${provider} ${err.upstreamStatus} (per-IP throttle/block on shared egress)`);
       throw bad("Geocoder rate limit reached upstream — retry shortly", 503);
     }
     if (err.upstreamStatus) {
-      console.warn(`[geo] nominatim HTTP ${err.upstreamStatus}`);
+      console.warn(`[geo] ${provider} HTTP ${err.upstreamStatus}`);
       throw bad(`Geocoder upstream error (HTTP ${err.upstreamStatus})`, 502);
     }
     throw err; // SSRF-guard 400s, size caps, and timeouts keep their own semantics
@@ -36,6 +41,15 @@ async function getJson(url) {
   } catch {
     throw bad("Upstream returned non-JSON", 502);
   }
+}
+
+// Fallback trigger: ONLY the failure classes getJson mints for a broken
+// upstream — 503 (Nominatim's per-IP throttle/block on the shared egress IP)
+// and 502 (other upstream HTTP errors / non-JSON). 400-class input errors
+// would fail identically on any provider and stay the caller's to fix; SSRF
+// 400s, 413 size caps, and 504 timeouts keep their own semantics untouched.
+function nominatimFailed(err) {
+  return err?.statusCode === 502 || err?.statusCode === 503;
 }
 
 function num(v) {
@@ -56,6 +70,64 @@ function shapeHit(h) {
     osm: h.osm_type && h.osm_id ? `${h.osm_type}/${h.osm_id}` : null,
     boundingBox: bb && bb.length === 4 ? { south: bb[0], north: bb[1], west: bb[2], east: bb[3] } : null,
   };
+}
+
+// ── Photon fallback mapping (verified against live responses 2026-07-21) ──
+// Photon speaks GeoJSON: hits are features with the OSM fields under
+// `properties`. osm_type is single-letter (N/W/R); `extent` is
+// [minLon, maxLat, maxLon, minLat] i.e. [west, north, east, south] and is
+// absent on point features; `countrycode` is upper-case ISO alpha-2. Photon
+// has no importance score and no display_name.
+const PHOTON_OSM_TYPE = { N: "node", W: "way", R: "relation" };
+
+// Compose a Nominatim-style displayName from Photon's structured properties
+// (drop empties and repeats — e.g. a street feature has name === street).
+function photonDisplayName(p) {
+  const parts = [];
+  for (const v of [p.name, p.street, p.housenumber, p.city, p.state, p.country]) {
+    const s = v == null ? "" : String(v).trim();
+    if (s && !parts.includes(s)) parts.push(s);
+  }
+  return parts.length ? parts.join(", ") : null;
+}
+
+function photonOsm(p) {
+  return p.osm_type && p.osm_id != null ? `${PHOTON_OSM_TYPE[p.osm_type] ?? p.osm_type}/${p.osm_id}` : null;
+}
+
+// Map one Photon feature onto shapeHit's exact key set.
+function shapePhotonHit(f) {
+  const p = f?.properties ?? {};
+  const coords = Array.isArray(f?.geometry?.coordinates) ? f.geometry.coordinates : [];
+  const ext = Array.isArray(p.extent) && p.extent.length === 4 ? p.extent.map(Number) : null;
+  return {
+    displayName: photonDisplayName(p),
+    lat: num(coords[1]), lon: num(coords[0]),
+    type: p.osm_value ?? null,
+    class: p.osm_key ?? null,
+    importance: null, // Photon does not expose Nominatim's importance score
+    osm: photonOsm(p),
+    boundingBox: ext ? { south: ext[3], north: ext[1], west: ext[0], east: ext[2] } : null,
+  };
+}
+
+// Shared Photon search for the geocode + place-search fallbacks. Photon has no
+// countrycodes param, so when a country filter was requested we over-fetch and
+// filter client-side on properties.countrycode. `bbox` (strict spatial filter,
+// minLon,minLat,maxLon,maxLat) maps place-search's bounded viewbox. lang=en:
+// Photon's default is local-language name matching, which ranks an English
+// query badly (verified live: "Eiffel Tower" put the Paris tower nowhere in
+// the top 30 without it, first with it).
+async function photonSearch({ q, limit, countryCodes = null, bbox = null }) {
+  const params = new URLSearchParams({ q, lang: "en", limit: String(countryCodes ? Math.min(limit * 5, 50) : limit) });
+  if (bbox) params.set("bbox", bbox);
+  const data = await getJson(`https://photon.komoot.io/api/?${params}`, "photon");
+  let features = Array.isArray(data?.features) ? data.features : [];
+  if (countryCodes) {
+    const want = new Set(countryCodes.toLowerCase().split(","));
+    features = features.filter((f) => want.has(String(f?.properties?.countrycode ?? "").toLowerCase()));
+  }
+  return features.slice(0, limit).map(shapePhotonHit);
 }
 
 export const GEO_TOOLS = [
@@ -103,15 +175,22 @@ export const GEO_TOOLS = [
         if (!/^[A-Za-z]{2}(,[A-Za-z]{2})*$/.test(cc)) throw bad('"countryCodes" must be comma-separated ISO-3166-1 alpha-2 codes');
         params.set("countrycodes", cc.toLowerCase());
       }
-      const data = await getJson(`https://nominatim.openstreetmap.org/search?${params}`);
-      if (!Array.isArray(data)) throw bad("Nominatim returned an unexpected response", 502);
-      const results = data.map(shapeHit);
-      return {
-        query: q,
-        count: results.length,
-        results,
-        source: "nominatim.openstreetmap.org (ODbL)",
-      };
+      try {
+        const data = await getJson(`https://nominatim.openstreetmap.org/search?${params}`);
+        if (!Array.isArray(data)) throw bad("Nominatim returned an unexpected response", 502);
+        const results = data.map(shapeHit);
+        return {
+          query: q,
+          count: results.length,
+          results,
+          source: NOMINATIM_SOURCE,
+        };
+      } catch (err) {
+        if (!nominatimFailed(err)) throw err;
+        console.warn(`[geo] nominatim failed (${err.message}) — falling back to photon.komoot.io`);
+        const results = await photonSearch({ q, limit, countryCodes: cc || null });
+        return { query: q, count: results.length, results, source: PHOTON_SOURCE };
+      }
     },
   },
   {
@@ -162,29 +241,59 @@ export const GEO_TOOLS = [
         lat: String(lat), lon: String(lon),
         format: "jsonv2", zoom: String(zoom), addressdetails: "1",
       });
-      const data = await getJson(`https://nominatim.openstreetmap.org/reverse?${params}`);
-      if (!data || typeof data !== "object") throw bad("Nominatim returned an unexpected response", 502);
-      if (data.error) throw bad(`Nominatim: ${data.error}`, 404);
-      const a = data.address ?? {};
-      return {
-        lat, lon,
-        displayName: data.display_name ?? null,
-        address: {
-          houseNumber: a.house_number ?? null,
-          road: a.road ?? null,
-          neighbourhood: a.neighbourhood ?? a.suburb ?? null,
-          city: a.city ?? a.town ?? a.village ?? a.hamlet ?? null,
-          county: a.county ?? null,
-          state: a.state ?? null,
-          postcode: a.postcode ?? null,
-          country: a.country ?? null,
-          countryCode: a.country_code ?? null,
-        },
-        type: data.type ?? null,
-        class: data.class ?? data.category ?? null,
-        osm: data.osm_type && data.osm_id ? `${data.osm_type}/${data.osm_id}` : null,
-        source: "nominatim.openstreetmap.org (ODbL)",
-      };
+      try {
+        const data = await getJson(`https://nominatim.openstreetmap.org/reverse?${params}`);
+        if (!data || typeof data !== "object") throw bad("Nominatim returned an unexpected response", 502);
+        if (data.error) throw bad(`Nominatim: ${data.error}`, 404);
+        const a = data.address ?? {};
+        return {
+          lat, lon,
+          displayName: data.display_name ?? null,
+          address: {
+            houseNumber: a.house_number ?? null,
+            road: a.road ?? null,
+            neighbourhood: a.neighbourhood ?? a.suburb ?? null,
+            city: a.city ?? a.town ?? a.village ?? a.hamlet ?? null,
+            county: a.county ?? null,
+            state: a.state ?? null,
+            postcode: a.postcode ?? null,
+            country: a.country ?? null,
+            countryCode: a.country_code ?? null,
+          },
+          type: data.type ?? null,
+          class: data.class ?? data.category ?? null,
+          osm: data.osm_type && data.osm_id ? `${data.osm_type}/${data.osm_id}` : null,
+          source: NOMINATIM_SOURCE,
+        };
+      } catch (err) {
+        if (!nominatimFailed(err)) throw err;
+        console.warn(`[geo] nominatim failed (${err.message}) — falling back to photon.komoot.io`);
+        // Photon reverse takes lon/lat only — no zoom equivalent, so the
+        // caller's zoom is a best-effort hint we can't honor on fallback.
+        const pdata = await getJson(`https://photon.komoot.io/reverse?${new URLSearchParams({ lon: String(lon), lat: String(lat), lang: "en" })}`, "photon");
+        const f = Array.isArray(pdata?.features) ? pdata.features[0] : null;
+        if (!f) throw bad("Unable to geocode this location", 404); // parity with Nominatim's empty-result 404
+        const p = f.properties ?? {};
+        return {
+          lat, lon,
+          displayName: photonDisplayName(p),
+          address: {
+            houseNumber: p.housenumber ?? null,
+            road: p.street ?? null,
+            neighbourhood: p.district ?? p.locality ?? null,
+            city: p.city ?? null,
+            county: p.county ?? null,
+            state: p.state ?? null,
+            postcode: p.postcode ?? null,
+            country: p.country ?? null,
+            countryCode: p.countrycode ? String(p.countrycode).toLowerCase() : null,
+          },
+          type: p.osm_value ?? null,
+          class: p.osm_key ?? null,
+          osm: photonOsm(p),
+          source: PHOTON_SOURCE,
+        };
+      }
     },
   },
   {
@@ -234,22 +343,35 @@ export const GEO_TOOLS = [
         params.set("countrycodes", cc.toLowerCase());
       }
       const vb = String(i.viewbox ?? "").trim();
+      const bounded = String(i.bounded ?? "") === "1";
+      let vbParts = null;
       if (vb) {
-        const parts = vb.split(",").map(Number);
-        if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) {
+        vbParts = vb.split(",").map(Number);
+        if (vbParts.length !== 4 || vbParts.some((n) => !Number.isFinite(n))) {
           throw bad('"viewbox" must be 4 comma-separated numbers: west,north,east,south');
         }
-        params.set("viewbox", parts.join(","));
-        if (String(i.bounded ?? "") === "1") params.set("bounded", "1");
+        params.set("viewbox", vbParts.join(","));
+        if (bounded) params.set("bounded", "1");
       }
-      const data = await getJson(`https://nominatim.openstreetmap.org/search?${params}`);
-      if (!Array.isArray(data)) throw bad("Nominatim returned an unexpected response", 502);
-      return {
-        query: q,
-        count: data.length,
-        results: data.map(shapeHit),
-        source: "nominatim.openstreetmap.org (ODbL)",
-      };
+      try {
+        const data = await getJson(`https://nominatim.openstreetmap.org/search?${params}`);
+        if (!Array.isArray(data)) throw bad("Nominatim returned an unexpected response", 502);
+        return {
+          query: q,
+          count: data.length,
+          results: data.map(shapeHit),
+          source: NOMINATIM_SOURCE,
+        };
+      } catch (err) {
+        if (!nominatimFailed(err)) throw err;
+        console.warn(`[geo] nominatim failed (${err.message}) — falling back to photon.komoot.io`);
+        // Nominatim's viewbox is only a strict filter with bounded=1 (otherwise
+        // a ranking bias, which Photon can't express) — so map it to Photon's
+        // bbox (minLon,minLat,maxLon,maxLat) in the strict case only.
+        const bbox = vbParts && bounded ? [vbParts[0], vbParts[3], vbParts[2], vbParts[1]].join(",") : null;
+        const results = await photonSearch({ q, limit, countryCodes: cc || null, bbox });
+        return { query: q, count: results.length, results, source: PHOTON_SOURCE };
+      }
     },
   },
 ];

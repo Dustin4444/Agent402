@@ -53,9 +53,119 @@ function pickSourcifyChain(value) {
   return { name: n, chainId };
 }
 
+// Blockscout public instances — a DIVERSE second verification source for
+// contract-source / contract-abi. Sourcify is a single anonymous upstream and
+// prod shares one Railway egress IP with other tenants, so a Sourcify per-IP
+// throttle or outage becomes OUR intermittent failure. Hosts verified live
+// 2026-07-21 against `/api/v2/smart-contracts/<USDC>` on each chain:
+//   eth/base/arbitrum/gnosis/celo answered 200 with is_verified:true;
+//   optimism.blockscout.com 301s to explorer.optimism.io (which answers);
+//   polygon.blockscout.com 500s consistently on this endpoint (dropped);
+//   bsc has no public Blockscout instance (404 default backend — dropped).
+// Chains without an entry simply have no fallback — the Sourcify error
+// surfaces unchanged.
+const BLOCKSCOUT_HOSTS = {
+  1: "eth.blockscout.com",
+  8453: "base.blockscout.com",
+  10: "explorer.optimism.io",
+  42161: "arbitrum.blockscout.com",
+  100: "gnosis.blockscout.com",
+  42220: "celo.blockscout.com",
+};
+
+// Was a getJson failure an upstream problem (unreachable/5xx/rate-limit/
+// non-JSON), as opposed to a clean not-found answer? getJson maps the whole
+// upstream-failure class into 502/503/504; a Sourcify 404 ("never verified")
+// does NOT throw, so it never reaches this.
+function isUpstreamFailure(e) {
+  const sc = e?.statusCode;
+  return sc === 502 || sc === 503 || sc === 504;
+}
+
+// Fetch a contract from the chain's public Blockscout instance.
+// Returns null when the chain has no Blockscout host;
+// { verified: false } on a clean miss (404, or known-but-unverified);
+// { verified: true, host, data } when Blockscout has the verified contract.
+// Upstream failures throw (getJson semantics).
+async function blockscoutContract(chainId, address) {
+  const host = BLOCKSCOUT_HOSTS[chainId];
+  if (!host) return null;
+  const { status, data } = await getJson(
+    `https://${host}/api/v2/smart-contracts/${address}`,
+    `Blockscout (${host})`
+  );
+  if (status === 404 || !data || data.is_verified !== true) return { verified: false, host };
+  return { verified: true, host, data };
+}
+
+// Sourcify failed upstream, so "Blockscout doesn't have it" is NOT "not
+// verified" — Sourcify may have it and we can't tell. Never a false miss.
+function verificationSourcesUnavailable() {
+  return bad(
+    "Verification sources unavailable — Sourcify is unreachable and Blockscout could not confirm this contract. Try again shortly.",
+    502
+  );
+}
+
+// Blockscout's verification-strength flags mapped onto Sourcify's match
+// vocabulary: a full (bytecode + metadata) verification is an exact_match,
+// a partial one is a match.
+const blockscoutMatch = (data) => (data.is_fully_verified === true ? "exact_match" : "match");
+
+// Assemble Blockscout's source layout ({source_code, additional_sources}) into
+// the { path: content } tree the Sourcify path returns.
+function blockscoutSources(data) {
+  const sources = {};
+  const mainPath =
+    typeof data.file_path === "string" && data.file_path.replace(/\.sol$/, "").trim()
+      ? data.file_path
+      : `${data.name || "Contract"}.sol`;
+  sources[mainPath] = typeof data.source_code === "string" ? data.source_code : "";
+  for (const extra of Array.isArray(data.additional_sources) ? data.additional_sources : []) {
+    if (extra && typeof extra.file_path === "string" && typeof extra.source_code === "string") {
+      sources[extra.file_path] = extra.source_code;
+    }
+  }
+  return sources;
+}
+
+// Cap a { path: content } source tree at MAX_SOURCE_BYTES total — trim
+// gigantic trees rather than 500. Shared by the Sourcify and Blockscout paths
+// of contract-source. Entries may be raw strings or Sourcify's {content}.
+const MAX_SOURCE_BYTES = 800_000;
+function capSourceTree(rawSources) {
+  const sources = {};
+  let total = 0, truncated = false;
+  for (const [path, entry] of Object.entries(rawSources || {})) {
+    const content = typeof entry === "string" ? entry : entry?.content || "";
+    if (total + content.length > MAX_SOURCE_BYTES) {
+      const room = Math.max(0, MAX_SOURCE_BYTES - total);
+      sources[path] = content.slice(0, room);
+      truncated = true;
+      break;
+    }
+    sources[path] = content;
+    total += content.length;
+  }
+  return { sources, truncated };
+}
+
+// Derive the human-readable signature lists contract-abi returns from a raw
+// ABI array — same derivation for both providers.
+function deriveAbiViews(abi) {
+  const functions = abi
+    .filter((x) => x.type === "function" && x.name)
+    .map((x) => { const sig = signatureOf(x); return { signature: sig, selector: selectorOf(sig), stateMutability: x.stateMutability ?? null }; });
+  const events = abi
+    .filter((x) => x.type === "event" && x.name)
+    .map((x) => ({ signature: signatureOf(x), topic: "0x" + keccak256(signatureOf(x)) }));
+  return { functions, events };
+}
+
 // Small JSON GET against a fixed keyless upstream (Sourcify / openchain /
-// 4byte). Hosts are hardcoded by the handlers, so this is not an SSRF surface,
-// but every fetch still rides the guarded dispatcher by convention.
+// 4byte / Blockscout). Hosts are hardcoded by the handlers, so this is not an
+// SSRF surface, but every fetch still rides the guarded dispatcher by
+// convention.
 async function getJson(url, upstream) {
   let res;
   try {
@@ -441,10 +551,40 @@ export const CONTRACT_TOOLS = [
     handler: async (i) => {
       const address = takeAddress(i.address);
       const chain = pickSourcifyChain(i.network);
-      const { data } = await getJson(
-        `https://sourcify.dev/server/v2/contract/${chain.chainId}/${address}?fields=compilation,sources`,
-        "Sourcify"
-      );
+      let data;
+      try {
+        ({ data } = await getJson(
+          `https://sourcify.dev/server/v2/contract/${chain.chainId}/${address}?fields=compilation,sources`,
+          "Sourcify"
+        ));
+      } catch (e) {
+        // Sourcify UPSTREAM failure (5xx/timeout/non-JSON — a clean 404 "never
+        // verified" does not throw): serve from the chain's Blockscout instance.
+        if (!isUpstreamFailure(e)) throw e;
+        console.warn(`[contract] Sourcify failed (${e.message}) — falling back to Blockscout for chain ${chain.chainId}`);
+        let bs = null;
+        try { bs = await blockscoutContract(chain.chainId, address); } catch { /* both down → unavailable below */ }
+        if (!bs) throw e; // no Blockscout host for this chain — surface the Sourcify error
+        if (!bs.verified) throw verificationSourcesUnavailable();
+        const { sources, truncated } = capSourceTree(blockscoutSources(bs.data));
+        return {
+          address, network: chain.name, chainId: chain.chainId,
+          verified: true,
+          match: blockscoutMatch(bs.data),
+          verifiedAt: bs.data.verified_at ?? null,
+          compiler: {
+            language: bs.data.language ?? null,
+            version: bs.data.compiler_version ?? null,
+            name: null,
+            contract: bs.data.name ?? null,
+          },
+          sourceCount: Object.keys(sources).length,
+          sources,
+          source: `Blockscout (${bs.host})`,
+          note: `Served from Blockscout (${bs.host}) — Sourcify was unreachable.${truncated ? " Source tree exceeds 800KB — trailing files truncated." : ""}`,
+          ...(truncated ? { truncated: true } : {}),
+        };
+      }
       if (!data || data.match == null) {
         return {
           address, network: chain.name, chainId: chain.chainId,
@@ -453,21 +593,7 @@ export const CONTRACT_TOOLS = [
         };
       }
       // Cap the response: trim gigantic source trees rather than 500.
-      const MAX_TOTAL = 800_000;
-      const sources = {};
-      let total = 0, truncated = false;
-      for (const [path, entry] of Object.entries(data.sources || {})) {
-        const content = typeof entry === "string" ? entry : entry?.content || "";
-        if (total + content.length > MAX_TOTAL) {
-          const room = Math.max(0, MAX_TOTAL - total);
-          sources[path] = content.slice(0, room);
-          truncated = true;
-          total = MAX_TOTAL;
-          break;
-        }
-        sources[path] = content;
-        total += content.length;
-      }
+      const { sources, truncated } = capSourceTree(data.sources);
       const comp = data.compilation || {};
       return {
         address, network: chain.name, chainId: chain.chainId,
@@ -523,10 +649,32 @@ export const CONTRACT_TOOLS = [
     handler: async (i) => {
       const address = takeAddress(i.address);
       const chain = pickSourcifyChain(i.network);
-      const { data } = await getJson(
-        `https://sourcify.dev/server/v2/contract/${chain.chainId}/${address}?fields=abi`,
-        "Sourcify"
-      );
+      let data;
+      try {
+        ({ data } = await getJson(
+          `https://sourcify.dev/server/v2/contract/${chain.chainId}/${address}?fields=abi`,
+          "Sourcify"
+        ));
+      } catch (e) {
+        // Sourcify UPSTREAM failure: serve the ABI from Blockscout instead.
+        if (!isUpstreamFailure(e)) throw e;
+        console.warn(`[contract] Sourcify failed (${e.message}) — falling back to Blockscout for chain ${chain.chainId}`);
+        let bs = null;
+        try { bs = await blockscoutContract(chain.chainId, address); } catch { /* both down → unavailable below */ }
+        if (!bs) throw e; // no Blockscout host for this chain — surface the Sourcify error
+        if (!bs.verified || !Array.isArray(bs.data.abi)) throw verificationSourcesUnavailable();
+        const { functions, events } = deriveAbiViews(bs.data.abi);
+        return {
+          address, network: chain.name, chainId: chain.chainId,
+          verified: true,
+          match: blockscoutMatch(bs.data),
+          abi: bs.data.abi,
+          functions,
+          events,
+          source: `Blockscout (${bs.host})`,
+          note: `Served from Blockscout (${bs.host}) — Sourcify was unreachable.`,
+        };
+      }
       if (!data || !Array.isArray(data.abi)) {
         return {
           address, network: chain.name, chainId: chain.chainId,
@@ -534,12 +682,7 @@ export const CONTRACT_TOOLS = [
           note: "Contract is not verified on Sourcify for this chain — no ABI available.",
         };
       }
-      const functions = data.abi
-        .filter((x) => x.type === "function" && x.name)
-        .map((x) => { const sig = signatureOf(x); return { signature: sig, selector: selectorOf(sig), stateMutability: x.stateMutability ?? null }; });
-      const events = data.abi
-        .filter((x) => x.type === "event" && x.name)
-        .map((x) => ({ signature: signatureOf(x), topic: "0x" + keccak256(signatureOf(x)) }));
+      const { functions, events } = deriveAbiViews(data.abi);
       return {
         address, network: chain.name, chainId: chain.chainId,
         verified: true,

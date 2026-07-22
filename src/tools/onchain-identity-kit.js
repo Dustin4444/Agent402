@@ -79,11 +79,23 @@ async function fetchJson(url, label, init) {
 }
 
 async function gqlFetch(url, query, variables, label) {
-  const json = await fetchJson(url, label, {
+  const init = {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ query, variables }),
-  });
+  };
+  // easscan.org is the only public EAS indexer (no alternative upstream exists),
+  // so absorb a transient 5xx/timeout with ONE retry after a 1s backoff. Never
+  // retry a 4xx — that's a real answer, and hammering a rate limit makes it worse.
+  let json;
+  try {
+    json = await fetchJson(url, label, init);
+  } catch (e) {
+    if (!(e.statusCode >= 500)) throw e; // fetchJson maps upstream 5xx→502, timeout→504
+    console.warn(`[eas] ${new URL(url).host} failed (HTTP ${e.statusCode}: ${e.message}) — retrying once in 1s`);
+    await new Promise((r) => setTimeout(r, 1000));
+    json = await fetchJson(url, label, init);
+  }
   if (json.errors) {
     const msg = json.errors.map((e) => e.message).join("; ").slice(0, 240);
     throw bad(`${label} GraphQL errors: ${msg}`, 502);
