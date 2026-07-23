@@ -46,6 +46,7 @@ import { termsPage } from "./terms.js";
 import { transparencyPage } from "./transparency.js";
 import { contactPage } from "./contact.js";
 import { quickstartPage } from "./quickstart.js";
+import { whatIsX402Page } from "./what-is-x402.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
@@ -1118,6 +1119,7 @@ app.get("/terms", (_req, res) => htmlCache(res, 300, 900).send(termsPage(BASE_UR
 app.get("/transparency", (_req, res) => htmlCache(res, 300, 900).send(transparencyPage(BASE_URL)));
 app.get("/contact", (_req, res) => htmlCache(res, 300, 900).send(contactPage(BASE_URL)));
 app.get("/quickstart", (_req, res) => htmlCache(res, 300, 900).send(quickstartPage(BASE_URL)));
+app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402Page(BASE_URL)));
 app.get("/faq", (_req, res) => htmlCache(res, 300, 900).send(faqPage(BASE_URL)));
 app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerIntegrationsPage(BASE_URL)));
 app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPage(BASE_URL, CATALOG)));
