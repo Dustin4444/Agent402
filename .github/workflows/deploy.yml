@@ -734,6 +734,9 @@ jobs:
       - name: AVM validity guard (short-window Algorand payment rejected pre-handler, no upstream burn — offline)
         run: node scripts/test-avm-validity.js
 
+      - name: Revenue daily series (day bucketing, EVM block estimation, canary-vs-funding split — offline)
+        run: node scripts/test-revenue-daily.js
+
       - name: Algorand external router (chain-matched settlement, accept pinning, catalog ranking, AVM buyer gating — offline)
         run: node scripts/test-algorand-router.js
 

@@ -169,7 +169,7 @@ import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
-import { startRevenueLedger, ledgerSummary } from "./revenue-ledger.js";
+import { startRevenueLedger, ledgerSummary, ledgerDaily } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
 import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -1133,6 +1133,15 @@ app.get("/api/revenue", async (_req, res) => {
     res.set("Cache-Control", "public, max-age=30").json({ ...snap, allTime: ledgerSummary(revenueWallets()), sales: salesSummary() });
   } catch (e) {
     res.status(500).json({ error: "revenue snapshot failed", detail: String(e?.message || e).slice(0, 120) });
+  }
+});
+// Daily revenue series for the /revenue chart — external vs canary-sized
+// internal, per chain per day, straight from the settlement ledger.
+app.get("/api/revenue/daily", (_req, res) => {
+  try {
+    res.set("Cache-Control", "public, max-age=300").json({ asOf: new Date().toISOString(), days: ledgerDaily(revenueWallets()) });
+  } catch (e) {
+    res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
 app.get("/revenue", async (_req, res) => {
