@@ -1,0 +1,50 @@
+name: Challenge sweep (register tools on Algorand)
+
+# x402 Global Challenge: buy each of our tools once on Algorand mainnet so every
+# endpoint appears as a resource in the GoPlausible Bazaar catalog. Self-buys
+# (burner -> our revenue payTo), idempotent (skips already-registered), hard
+# spend cap. See scripts/challenge-sweep.js. Costs recycle to us; the only true
+# cost is per-tool upstream spend (a few dollars).
+on:
+  workflow_dispatch:
+    inputs:
+      max_usd:
+        description: "Hard total-spend cap in USDC (aborts before exceeding)"
+        required: false
+        default: "25"
+      dry:
+        description: "Set to 'true' to preview (report only, no payments)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      TARGET_URL: https://agent402.tools
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Install x402 client
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/core@2.16.0 @x402/avm@2.16.0
+      - name: Run the sweep
+        env:
+          ALGORAND_BURNER_MNEMONIC: ${{ secrets.ALGORAND_BURNER_MNEMONIC }}
+          SWEEP_MAX_USD: ${{ inputs.max_usd }}
+          SWEEP_DRY: ${{ inputs.dry == 'true' && '1' || '0' }}
+        run: |
+          [ -n "$ALGORAND_BURNER_MNEMONIC" ] && echo "::add-mask::$ALGORAND_BURNER_MNEMONIC"
+          node scripts/challenge-sweep.js --out sweep-report.json --max-usd "$SWEEP_MAX_USD"
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sweep-report
+          path: sweep-report.json
+          if-no-files-found: ignore
