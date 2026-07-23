@@ -118,7 +118,11 @@ const quote = {
 };
 console.log(`→ HTTP 402 · quote $${quote.usd} on ${quote.network} (payer ${payerAddress})`);
 
-const payload = await client.createPaymentPayload({ ...paymentRequired, accepts });
+// Normalize v1-style accepts before signing: some sellers (e.g. Stelar) carry
+// the amount ONLY in maxAmountRequired, and the scheme's BigInt(amount) throws
+// on undefined (hit live 2026-07-23 on the Stelar retry buy).
+const normalized = accepts.map((a) => ({ ...a, amount: String(a.amount ?? a.maxAmountRequired) }));
+const payload = await client.createPaymentPayload({ ...paymentRequired, accepts: normalized });
 const payHeaders = http.encodePaymentSignatureHeader(payload);
 const paid = await fetch(url, {
   ...reqInit,

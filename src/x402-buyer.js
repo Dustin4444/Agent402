@@ -290,7 +290,13 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   const spendToken = reserveSpend(quotedAtomic); // F3 belt — before signing (throws 429 if over the window budget)
   let committed = false;
   try {
-    const payload = await client.createPaymentPayload({ ...paymentRequired, accepts: [payable] });
+    // Normalize v1-style accepts before signing: sellers that quote ONLY via
+    // maxAmountRequired (no `amount`) crash the scheme's BigInt(amount) with
+    // "Cannot convert undefined to a BigInt" — hit live 2026-07-23 buying
+    // Stelar's /telemetry. quotedAtomic already read either field; sign the
+    // same value we cap-checked.
+    const signable = { ...payable, amount: String(quotedAtomic) };
+    const payload = await client.createPaymentPayload({ ...paymentRequired, accepts: [signable] });
     const payHeaders = http.encodePaymentSignatureHeader(payload);
     // Fresh timeout for the paid leg — it must not inherit the bare leg's
     // already-spent budget from the shared reqInit.signal.

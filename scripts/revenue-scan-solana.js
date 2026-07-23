@@ -39,7 +39,7 @@ const OUR_WALLETS = new Set(
   (process.env.OUR_SOLANA_WALLETS || "9EMAayAfBR32J5d3ApEAG3NdKArRBtAqN7LA8c2WRM5o")
     .split(",").map((s) => s.trim()).filter(Boolean)
 );
-const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.5");
+const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.75");
 const SIG_LIMIT = Math.min(parseInt(process.env.SIG_LIMIT || "100", 10), 1000);
 
 // Circle's canonical USDC mint on Solana mainnet.

@@ -23,7 +23,7 @@ export const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11
 export const USDC_SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 // Same envs (and defaults) as scripts/revenue-scan{,-solana}.js.
-export const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.5");
+export const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.75");
 export const OUR_EVM_WALLETS = new Set(
   // Canary/burner EVM addresses (public; keys live only in CI). Rotated
   // 2026-07-17: 0xfeda7403… retired (drained), 0x902dcf34… is the current
@@ -48,7 +48,10 @@ export const OUR_STELLAR_WALLETS = new Set(
 // committed; extend via env (comma-separated) if other internal wallets
 // settle here.
 export const OUR_ALGORAND_WALLETS = new Set(
-  (process.env.OUR_ALGORAND_WALLETS || "ZKFACAZATPUUYUXVVVE7QWMMZTSMLGQVA4G4QKW7D2UI7FCIFE3QB2SHRE")
+  // ZKFACA… = the CI canary burner; W4GZHN36… = the AVM SPENDING wallet
+  // (ALGORAND_UPSTREAM_BUYER_MNEMONIC's address, verified on-chain as the
+  // sender of settle 6TLUWU6R…MKAQ — positive provenance, never inferred).
+  (process.env.OUR_ALGORAND_WALLETS || "ZKFACAZATPUUYUXVVVE7QWMMZTSMLGQVA4G4QKW7D2UI7FCIFE3QB2SHRE,W4GZHN36X35LGSJTTLNZNFPGSSBLMJKFLCMZK4NBLQGUS6PYPPCDB67UOE")
     .split(",").map((s) => s.trim()).filter(Boolean)
 );
 

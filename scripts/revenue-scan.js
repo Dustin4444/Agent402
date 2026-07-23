@@ -12,7 +12,7 @@
 // reported them as "external customers".
 //
 // "external" = a transfer from a wallet not in OUR_WALLETS whose amount is within
-// the per-call price range. Agent402 prices are flat $0.001–$0.02 per call, so a
+// the per-call price range. Catalog prices now top out at $0.65 (skill packs, route-execute-max $0.55), so a
 // single real settlement cannot plausibly exceed MAX_CALL_USD; larger inbound
 // (wallet funding, manual tests, swaps) is not a tool purchase and is excluded.
 //
@@ -33,7 +33,7 @@ const OUR_WALLETS = new Set(
 );
 // A genuine per-call settlement can't exceed the max tool price ($0.02); the
 // ceiling is generous headroom. Anything bigger is funding/tests/swaps, not a buy.
-const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.5");
+const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.75");
 
 // Which EVM chain to scan. Default base — the heartbeat's existing behavior.
 // SCAN_NETWORK=polygon|arbitrum reuses the same scan against the other chains
