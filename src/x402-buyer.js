@@ -131,11 +131,24 @@ export async function avmBuyerStatus() {
     const [algosdk, { ALGORAND_ALGOD_BASES, getJsonAcross }] = await Promise.all([
       import("algosdk").then((m) => m.default ?? m), import("./revenue-live.js"),
     ]);
-    const address = algosdk.mnemonicToSecretKey((process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim()).addr.toString();
+    // A bad mnemonic is a CONFIG defect, not an RPC blip — name it so "unknown"
+    // never hides it again (found 2026-07-23: a 24-word paste read as a silent
+    // permanent "unknown", indistinguishable from a relay outage). The word
+    // count is safe to log; the words never are.
+    let address;
+    try {
+      address = algosdk.mnemonicToSecretKey((process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim()).addr.toString();
+    } catch {
+      const words = (process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim().split(/\s+/).filter(Boolean).length;
+      console.error(`[avm-buyer] ALGORAND_UPSTREAM_BUYER_MNEMONIC does not decode (${words} words — Algorand mnemonics are 25)`);
+      result = { configured: true, status: "unknown", reason: "mnemonic-invalid" };
+      avmStatusCache = { at: Date.now(), result };
+      return result;
+    }
     // 404 = fresh unfunded account: real answer, not an error — balance 0.
     const { ok, status, json } = await getJsonAcross(ALGORAND_ALGOD_BASES, `/v2/accounts/${address}`, { okStatuses: [404] });
     if (!ok) {
-      result = { configured: true, status: "unknown" };
+      result = { configured: true, status: "unknown", reason: "rpc-unreachable" };
     } else if (status === 404) {
       result = { configured: true, status: "low", optedIn: false };
     } else {
@@ -147,8 +160,9 @@ export async function avmBuyerStatus() {
         ...(asa ? {} : { optedIn: false }),
       };
     }
-  } catch {
-    result = { configured: true, status: "unknown" };
+  } catch (e) {
+    console.error(`[avm-buyer] status read failed: ${String(e?.message || e).slice(0, 120)}`);
+    result = { configured: true, status: "unknown", reason: "rpc-unreachable" };
   }
   avmStatusCache = { at: Date.now(), result };
   return result;
