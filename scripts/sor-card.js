@@ -51,7 +51,7 @@ function cardSvg(d) {
   const liveDate = new Date().toISOString().slice(0, 10);
   const insetNote = PREVIEW
     ? `<text x="126" y="500" font-size="16" font-family=${mono} fill="${B.muted}">preview data — final card renders from real settlements</text>`
-    : `<text x="1074" y="500" font-size="16" font-family=${mono} text-anchor="end" fill="${B.muted}">real output · two settlements on Base · routing fee \$${d.routingFeeUsd}</text>`;
+    : `<text x="1074" y="500" font-size="16" font-family=${mono} text-anchor="end" fill="${B.muted}">real output · two settlements on ${esc(d.chainLabel || "Base")} · routing fee \$${d.routingFeeUsd}</text>`;
   const okRow = (y, label, detail, arrow) =>
     `<text x="96" y="${y}" font-size="21" font-family=${mono}><tspan font-weight="700" fill="${B.green}">OK</tspan><tspan x="150" font-weight="700" fill="${B.text}">${esc(label)}</tspan><tspan x="300" fill="${B.muted}">${esc(detail)}</tspan><tspan x="740" font-weight="700" fill="${B.text}">→ ${esc(arrow)}</tspan></text>`;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">${FONT_STYLE}
@@ -63,7 +63,7 @@ function cardSvg(d) {
   <text x="96" y="130" font-size="22" font-family=${mono}><tspan font-weight="700" fill="${B.text}">Agent402 /api/route/execute</tspan><tspan fill="${B.muted}"> · cross-vendor Smart Order Router · ${esc(liveDate)}</tspan></text>
   ${okRow(180, "task", `"${esc(d.task)}"`, "resolved across vendors")}
   ${okRow(214, "filter", "proven settled volume only", "live 402 probe, then commit")}
-  ${okRow(248, "pay", `buyer $${d.buyerUsd} · seller $${d.upstreamUsd}`, "both settled on Base")}
+  ${okRow(248, "pay", `buyer $${d.buyerUsd} · seller $${d.upstreamUsd}`, `both settled on ${esc(d.chainLabel || "Base")}`)}
   ${okRow(282, "relay", `${esc(d.resultLabel)}`, "marked untrustedContent")}
   <rect x="96" y="312" width="1008" height="212" rx="12" fill="${B.inset}" stroke="${B.insetLine}" stroke-width="1"/>
   <text x="126" y="348" font-size="19" font-family=${mono}><tspan fill="${B.muted}">buyer ──$${d.buyerUsd} USDC──▶ </tspan><tspan font-weight="700" fill="${B.text}">agent402.tools</tspan><tspan fill="${B.muted}">  · tx ${esc(shortTx(d.buyerTx))}</tspan></text>
