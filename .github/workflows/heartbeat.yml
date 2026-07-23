@@ -150,6 +150,30 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
           fi
 
+      # Algorand spending-wallet check — same pattern as the Base wallet above:
+      # this wallet pays external Algorand sellers for the SOR (route-execute
+      # settles to the TREASURY during the challenge window, so the float is a
+      # one-way drain until self-funding flips on post-October). optedIn:false
+      # also buckets as "low" — an un-opted-in wallet can't pay at all.
+      # "unknown"/"unconfigured" never page.
+      - name: Algorand upstream buyer wallet check (alarm on low AVM spending balance)
+        if: always()
+        continue-on-error: true
+        run: |
+          STATUS=$(curl -s --max-time 15 "$PROD/api/gateway-status" | jq -r '.upstreamBuyerAvm.status // "unknown"' 2>/dev/null || echo unknown)
+          echo "algorand upstream buyer wallet: $STATUS"
+          TITLE="Algorand upstream buyer wallet LOW (x402)"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$STATUS" = "low" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The Algorand x402 spending wallet (ALGORAND_UPSTREAM_BUYER_MNEMONIC) behind the SOR's Algorand external routing is below the low-water mark (ALGORAND_UPSTREAM_BUYER_LOW_USD, default \$0.50) — or not yet opted in to USDC ASA 31566704 (check /api/gateway-status upstreamBuyerAvm.optedIn). When it empties, Algorand external routing fails 502 (buyers are never charged, but the path goes dark). Top up: send USDC on Algorand to the AVM spending wallet address (see CLAUDE.md env docs)."
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ)."
+            fi
+          elif [ "$STATUS" = "ok" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
+          fi
+
       # Solvador registry watch — their /discovery/resources speaks the
       # standard Bazaar shape but is EMPTY (total: 0, probed 2026-07-21). The
       # day it fills, it becomes the only discovery home for x402 sellers on

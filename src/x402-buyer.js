@@ -114,6 +114,46 @@ export async function getUpstreamBuyerAvm() {
   return avmBuyerPromise;
 }
 
+// AVM spending-wallet balance status — the upstreamBuyerStatus pattern
+// (blockscout-kit) applied to the Algorand hot wallet: when it runs dry,
+// Algorand external routing fails 502s (buyers never charged) — the heartbeat
+// alarms on "low" BEFORE that. Bucketed status only; the balance number never
+// leaves the server. Also surfaces optedIn:false when the wallet has not
+// opted in to the USDC ASA (settlement would fail on-chain — needs action).
+const AVM_BUYER_LOW_USD = () => Number(process.env.ALGORAND_UPSTREAM_BUYER_LOW_USD || "0.5");
+const AVM_STATUS_CACHE_MS = 5 * 60_000;
+let avmStatusCache = null;
+export async function avmBuyerStatus() {
+  if (!avmBuyerConfigured()) return { configured: false, status: "unconfigured" };
+  if (avmStatusCache && Date.now() - avmStatusCache.at < AVM_STATUS_CACHE_MS) return avmStatusCache.result;
+  let result;
+  try {
+    const [algosdk, { ALGORAND_ALGOD_BASES, getJsonAcross }] = await Promise.all([
+      import("algosdk").then((m) => m.default ?? m), import("./revenue-live.js"),
+    ]);
+    const address = algosdk.mnemonicToSecretKey((process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim()).addr.toString();
+    // 404 = fresh unfunded account: real answer, not an error — balance 0.
+    const { ok, status, json } = await getJsonAcross(ALGORAND_ALGOD_BASES, `/v2/accounts/${address}`, { okStatuses: [404] });
+    if (!ok) {
+      result = { configured: true, status: "unknown" };
+    } else if (status === 404) {
+      result = { configured: true, status: "low", optedIn: false };
+    } else {
+      const asa = (json?.assets || []).find((a) => Number(a["asset-id"]) === 31566704);
+      const usd = asa ? Number(asa.amount) / 1e6 : 0;
+      result = {
+        configured: true,
+        status: !asa || usd < AVM_BUYER_LOW_USD() ? "low" : "ok",
+        ...(asa ? {} : { optedIn: false }),
+      };
+    }
+  } catch {
+    result = { configured: true, status: "unknown" };
+  }
+  avmStatusCache = { at: Date.now(), result };
+  return result;
+}
+
 // Pre-payment read (bare 200 = free tool, no spend yet): a bad body can throw
 // safely because nothing was paid.
 async function readCapped(res, maxBytes) {
