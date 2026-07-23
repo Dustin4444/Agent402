@@ -1,0 +1,36 @@
+name: Burner recover (ALGO -> revenue wallet)
+
+# One-off / occasional: sweep ALGO off the CI Algorand burner back to OUR
+# revenue wallet. The destination is HARDCODED in scripts/burner-recover.js
+# (the revenue payTo, C7II...2XIE) — it is NOT an input here, so a dispatched
+# run can only ever move funds TO us. The only input is the ALGO amount.
+# USDC on the burner is left untouched; the account keeps its min balance.
+on:
+  workflow_dispatch:
+    inputs:
+      amount:
+        description: "ALGO to sweep to the revenue wallet (max 700; account keeps 0.3 for min-balance + fees)"
+        required: false
+        default: "300"
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Install algosdk
+        run: npm ci --ignore-scripts
+      - name: Sweep ALGO to the revenue wallet
+        env:
+          ALGORAND_BURNER_MNEMONIC: ${{ secrets.ALGORAND_BURNER_MNEMONIC }}
+          RECOVER_AMOUNT: ${{ inputs.amount }}
+        run: |
+          [ -n "$ALGORAND_BURNER_MNEMONIC" ] && echo "::add-mask::$ALGORAND_BURNER_MNEMONIC"
+          node scripts/burner-recover.js "$RECOVER_AMOUNT"
