@@ -144,7 +144,9 @@ Two companion tools close the loop: `POST /api/route/execute` ($0.01, or the
 $0.55 `execute-max` tier for pricier tools) resolves a task description to the
 best tool and runs it in one paid call, including, with `include:"external"`,
 tools sold by **other x402 sellers** (it routes only to sellers with proven
-on-chain settled volume, pays them on your behalf, and relays the result), and
+on-chain settled volume, pays them on your behalf **on the chain you paid on** —
+Base or Algorand — and relays the result; see the
+[Smart Order Router guide](https://agent402.tools/guides/smart-order-router)), and
 `POST /api/my-usage` ($0.005) returns the **paying wallet's own** purchase
 history — no wallet parameter; the x402 payment is the identity, so nobody can
 read another wallet's profile.
