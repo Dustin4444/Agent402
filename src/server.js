@@ -24,6 +24,7 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse } from "./payer.js";
+import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { landingPage } from "./landing.js";
 import { statusPage } from "./status.js";
@@ -3278,6 +3279,13 @@ for (const tool of ALL_KIT) {
           return res.json(hit);
         }
       }
+
+      // Algorand buyers of slow tools: reject BEFORE the handler when the
+      // signed txn's validity window can't outlive the work — settlement runs
+      // post-handler, so a dead txn means buyer refunded but our upstream
+      // spend burned. The thrown 422 cancels settlement (never charged) and
+      // explains the fix. Fail-open: non-AVM and unreadable payments pass.
+      await assertAvmValidityCovers(req, tool.slug);
 
       const result = await tool.handler(input, req);
 
