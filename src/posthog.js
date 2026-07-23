@@ -156,6 +156,21 @@ export function capturePostHogToolCall({ slug, latencyMs, cached, errored, statu
   });
 }
 
+// Capture one internal skill-pack step — a tool handler invoked in-process by
+// the skill runner. These calls NEVER appear in the tool_call stream (the
+// runner bypasses the HTTP route), which made pack-driven upstream spend
+// (Brave answer at ~$0.061/call, measured 2026-07-22) invisible to the
+// PostHog-vs-provider cost reconciliations. Volume/ok/latency only, no inputs.
+export function capturePostHogPackStep({ pack, slug, ok, ms }) {
+  if (!active()) return;
+  capture("pack_internal_call", {
+    pack: String(pack || "unknown"),
+    slug: String(slug || "unknown"),
+    ok: !!ok,
+    latencyMs: Number(ms) || 0,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Conversion funnel: discovery → paywall_402 → payment_settled.
 //

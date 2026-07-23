@@ -398,7 +398,7 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 - AI-gateway traffic (`/v1` chat, embeddings, images, speech) is additionally subject to the
   upstream model providers' usage policies. Wallets used for prohibited content are blocked
   before settlement (`WALLET_BLOCKLIST`).
-- The **server code** is AGPL-3.0-licensed (the client SDK, MCP connector, and tollbooth packages are MIT) and provided as-is, without warranty (see [LICENSE](LICENSE)).
+- The **server code** is AGPL-3.0-licensed (the client SDK, MCP connector, and tollbooth packages are MIT) and provided as-is, without warranty (see [LICENSE](LICENSE) and [NOTICE](NOTICE)). "Agent402" and the logo are trademarks of Havok Holdings LLC — the license covers the code, not the name; forks must rename (see [TRADEMARKS.md](TRADEMARKS.md)).
   If you self-host, you are the operator: your deployment, your terms, your compliance —
   Havok Holdings LLC operates only the hosted instance and is not responsible for third-party
   deployments.

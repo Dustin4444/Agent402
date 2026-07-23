@@ -29,6 +29,7 @@
 //
 import { SKILL_PACKS } from "../skills.js";
 import { safeFetch } from "./fetch-guard.js";
+import { capturePostHogPackStep } from "../posthog.js";
 
 // Cap for the media-pipeline URL→base64 bridge below. Must route through
 // safeFetch (SSRF guard + size cap), never raw fetch — the URL is caller-supplied.
@@ -135,7 +136,10 @@ export const PACK_PRICES = {
   "competitor-scan":       0.15, // 4-tool fanout: tech-stack + http-headers + whois + meta
   "page-audit":            0.12, // 5-tool fanout: extract + meta + http-headers + robots-check + sitemap
   // Standard-tier batch 2 (2026-07): mid-value bundles ($0.05–$0.12)
-  "article-digest":        0.08, // 2-tool fanout: search + answer
+  "article-digest":        0.10, // 2-tool fanout: search + answer. Upstream is ~$0.066
+  // measured (search $0.005 + answer ~$0.061 — the 2026-07-22 Brave reconciliation);
+  // the old $0.08 left ~17% margin after the answer-cost correction, $0.10 clears ~34%
+  // and still matches the $0.10 sum of buying the two tools individually.
   "pdf-pipeline":          0.06, // 3-tool fanout: pdf-info + pdf-to-markdown + pdf-extract-pages
   "url-inspector":         0.06, // 3-tool fanout: url-parse + http-check + meta
   "content-grade":         0.08, // 2-tool chain: extract + keywords (keywords needs extracted text)
@@ -2337,6 +2341,10 @@ async function runPack(packSlug, args, ctx) {
   const prior = {};
 
   const runStep = async (step) => {
+    // Internal steps bypass the HTTP route, so tool_call never sees them —
+    // this event is what lets cost reconciliations attribute upstream spend
+    // (e.g. Brave answer) to pack fan-out. Fire-and-forget, never throws.
+    const startedAt = Date.now();
     try {
       const input = await step.mapInput(args, prior);
       const handler = lookupHandler(step.slug, ctx);
@@ -2348,8 +2356,10 @@ async function runPack(packSlug, args, ctx) {
       }
       const result = await handler(input);
       prior[step.slug] = result;
+      capturePostHogPackStep({ pack: packSlug, slug: step.slug, ok: true, ms: Date.now() - startedAt });
       return { slug: step.slug, ok: true, result };
     } catch (err) {
+      capturePostHogPackStep({ pack: packSlug, slug: step.slug, ok: false, ms: Date.now() - startedAt });
       return {
         slug: step.slug,
         ok: false,
