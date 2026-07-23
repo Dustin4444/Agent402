@@ -48,7 +48,15 @@ if (!DRY) {
   client = new x402Client();
   const signer = toClientAvmSigner(Buffer.from(account.sk).toString("base64"));
   const algodUrl = (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim();
-  client.register("algorand:*", new ExactAvmScheme(signer, { algodUrl }));
+  // Sign with the protocol-max validity window (1000 rounds ≈ 47 min), not
+  // algokit's 10-round (~28s) default: settlement happens AFTER the handler, so
+  // a slow tool (image-gen-premium ~60s of gpt-image-2) outlives the default and
+  // the facilitator rejects the dead txn ("txn dead", buyer refunded, our
+  // upstream spend burned). Proven live: sweep run 29974531159.
+  const { AlgorandClient } = await import("@algorandfoundation/algokit-utils/algorand-client");
+  const algorandClient = AlgorandClient.fromConfig({ algodConfig: { server: algodUrl, token: "" } })
+    .setDefaultValidityWindow(1000);
+  client.register("algorand:*", new ExactAvmScheme(signer, { algorandClient }));
   http = new x402HTTPClient(client);
   payerAddress = account.addr.toString();
 } else {
