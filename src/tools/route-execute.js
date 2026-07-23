@@ -51,7 +51,7 @@ export function routeExecuteHint(underlyingUsd) {
 // call carried no EVM payment authorization (free mode, non-EIP-3009 rails).
 // The CAIP-2 network the buyer signed their payment for (from the X-PAYMENT
 // authorization), or null when unreadable (free/PoW mode, malformed header).
-// Used to keep external routing Base-only. Never throws.
+// Used to CHAIN-MATCH external routing (pay the seller on the chain the buyer paid us on). Never throws.
 export function buyerPaymentNetwork(req) {
   try {
     const header = req?.header?.("x-payment") || req?.header?.("payment-signature");
@@ -112,7 +112,17 @@ function dispatchable(def) {
   return { ok: true };
 }
 
-export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TIERS[0], resolveExternal = null, payExternal = null, externalEnabled = () => false }) {
+// Buyer payment network (CAIP-2) -> the external settlement chain it can fund.
+// External routing is SELF-FUNDING per chain: the buyer's settlement lands on
+// our payTo for that chain, and we pay the seller from the SAME chain's
+// spending wallet — so the chain the buyer paid on decides where we spend.
+export const EXTERNAL_CHAIN_BY_NETWORK = {
+  "eip155:8453": "base",
+  "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "algorand",
+};
+const EXTERNAL_CHAIN_CAIP2 = Object.fromEntries(Object.entries(EXTERNAL_CHAIN_BY_NETWORK).map(([k, v]) => [v, k]));
+
+export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TIERS[0], resolveExternal = null, payExternal = null, externalEnabled = () => false, externalChains = () => ["base"] }) {
   const EXEC_PRICE_USD = tier.execPriceUsd;
   const UNDERLYING_MAX_USD = tier.underlyingMaxUsd;
   const routeSuffix = tier.slug === "route-execute" ? "" : "-max";
@@ -179,27 +189,32 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
         // SOR_EXTERNAL_ENABLED until a real external buy proves it live.
         if (input.include === "external") {
           if (!externalEnabled() || !resolveExternal) throw bad("External routing is not enabled on this host", 409);
-          // Base-only: external settlement is Base-only (we pay sellers from the
-          // Base spending wallet), and route-execute's Base leg is settled TO that
-          // wallet so external routing pays for itself. A buyer paying on another
-          // chain can't fund the Base float, so refuse external for non-Base
-          // payments (a 4xx cancels their settlement — they are not charged).
-          // Internal routing stays available on every chain. Fail-open only when
-          // the network can't be read (Base is the default payTo either way).
+          // CHAIN-MATCHED external settlement: we pay the seller from the same
+          // chain the buyer paid US on, so external routing funds itself per
+          // chain (buyer settles to our payTo on chain X, we spend from the
+          // chain-X spending wallet). Refuse chains without a configured
+          // spending wallet (a 4xx cancels the buyer's settlement — they are
+          // not charged). Internal routing stays available on every chain.
           // Fail CLOSED for a PAID request: if a payment header is present but
-          // its network isn't provably Base, refuse (a genuine Base buyer always
-          // has a readable eip155:8453 network; an unreadable one on a paying
-          // request is the only residual bypass of the Base-only rule). No
-          // payment header at all (free/PoW mode) stays allowed — external can't
-          // run there without a wallet anyway.
+          // its network doesn't map to a supported chain, refuse (a genuine
+          // buyer always has a readable network; an unreadable one on a paying
+          // request is the only residual bypass of the chain-match rule). No
+          // payment header at all (free/PoW mode) defaults to the Base path —
+          // external can't run there without a wallet anyway.
+          const supported = externalChains();
           const payNet = buyerPaymentNetwork(req);
           const hasPayment = !!(req?.header?.("x-payment") || req?.header?.("payment-signature"));
-          if (hasPayment && payNet !== "eip155:8453") throw bad(`External routing settles on Base (eip155:8453) — this request paid on ${payNet || "an unreadable network"}. Pay on Base for include:"external", or use internal routing (works on every chain).`, 409);
-          const ext = await resolveExternal(input.task, { cap, baseUrl });
-          if (!ext) throw bad(`No external x402 seller matched that task. Explore /api/route?q=<task>&include=external.`, 404);
+          const chain = hasPayment ? EXTERNAL_CHAIN_BY_NETWORK[payNet] : "base";
+          if (!chain || !supported.includes(chain)) {
+            const offer = supported.map((c) => `${c} (${EXTERNAL_CHAIN_CAIP2[c]})`).join(" or ");
+            throw bad(`External routing settles on ${offer} — this request paid on ${payNet || "an unreadable network"}. Pay on a supported chain for include:"external", or use internal routing (works on every chain).`, 409);
+          }
+          const chainCaip2 = EXTERNAL_CHAIN_CAIP2[chain];
+          const ext = await resolveExternal(input.task, { cap, baseUrl, chain });
+          if (!ext) throw bad(`No external x402 seller matched that task${chain !== "base" ? ` on ${chain}` : ""}. Explore /api/route?q=<task>&include=external.`, 404);
           const extUsd = toUsd(ext.price);
           if (!(extUsd > 0 && extUsd <= cap)) throw bad(`Best external match "${ext.slug}" is ${ext.price} — over this tier's $${cap} cap. Use route-execute-max or raise the tier.`, 409);
-          if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes("eip155:8453"))) throw bad(`External seller "${ext.seller}" does not offer Base settlement — cannot pay it from the Base spending wallet.`, 409);
+          if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes(chainCaip2))) throw bad(`External seller "${ext.seller}" does not offer ${chain} settlement — cannot pay it from the ${chain} spending wallet.`, 409);
           // GET sellers take their input as query params — an HTTP GET cannot
           // carry a body (undici refuses it outright). Only primitives can ride
           // a query string; a nested param against a GET seller is the caller's
@@ -220,7 +235,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           }
           let paid;
           try {
-            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)) });
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain });
           } catch (e) {
             const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
             throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
@@ -237,6 +252,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
               seller: ext.seller,
               external: true,
               settleTx: paid.receipt?.transaction || null,
+              settleNetwork: chainCaip2,
               resolvedBy: "task-external",
               ts,
               ...(callRefFrom(req, ext.slug, ts) ? { callRef: callRefFrom(req, ext.slug, ts) } : {}),

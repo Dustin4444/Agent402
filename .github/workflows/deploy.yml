@@ -734,6 +734,9 @@ jobs:
       - name: AVM validity guard (short-window Algorand payment rejected pre-handler, no upstream burn — offline)
         run: node scripts/test-avm-validity.js
 
+      - name: Algorand external router (chain-matched settlement, accept pinning, catalog ranking, AVM buyer gating — offline)
+        run: node scripts/test-algorand-router.js
+
       - name: Pricing margin invariant (worst-case upstream < price on every gateway tier, failover links included; cap-before-spend; 410 tool_gone telemetry — offline)
         run: node scripts/test-pricing-margin.js
 
