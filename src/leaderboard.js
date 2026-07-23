@@ -50,7 +50,7 @@ const DEFAULTS = {
   // Free-tier Base RPCs cap eth_getLogs at 10,000 blocks per call; chunk a wide
   // window into ranges no larger than this so it still scans cleanly.
   chunkBlocks: parseInt(process.env.CHUNK_BLOCKS || "9000", 10),
-  maxCallUsd: parseFloat(process.env.MAX_CALL_USD || "0.5"),
+  maxCallUsd: parseFloat(process.env.MAX_CALL_USD || "1"),
   // Public RPCs limit topic-filter array length; chunk the wallet list per call
   // so a corpus with thousands of unique payTo addresses still scans cleanly.
   walletChunk: parseInt(process.env.WALLET_CHUNK || "200", 10),
