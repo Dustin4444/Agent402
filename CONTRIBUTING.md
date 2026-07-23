@@ -10,7 +10,16 @@ Licensing (inbound = outbound): by contributing you agree your contribution is
 licensed under the same license as the component you're changing — AGPL-3.0 for
 the server (the repository root, where most tool contributions land) and MIT for
 the `client/`, `mcp/`, and `tollbooth/` packages. You keep the copyright on your
-code.
+code. The "Agent402" name and logo are trademarks of Havok Holdings LLC — see
+[TRADEMARKS.md](TRADEMARKS.md).
+
+**Developer Certificate of Origin (DCO):** every commit must be signed off
+(`git commit -s`), which adds a `Signed-off-by: Your Name <email>` line
+certifying you wrote the change or otherwise have the right to submit it under
+the project's license — the industry-standard [DCO 1.1](https://developercertificate.org/).
+It is a provenance certification, not a copyright assignment: you still keep
+your copyright. Forgot it? `git commit --amend -s && git push -f` fixes the
+last commit. CI checks this on every PR.
 
 ## List your x402 seller
 

@@ -1,0 +1,40 @@
+name: DCO
+
+# Every PR commit must carry a Signed-off-by line (Developer Certificate of
+# Origin 1.1 — see CONTRIBUTING.md). Provenance certification only; authors
+# keep their copyright. Checks ONLY the PR's own commits, never history.
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    # Outside contributions only: the DCO establishes provenance from third
+    # parties; the repository owner's PRs are first-party by definition.
+    if: github.event.pull_request.user.login != 'MikeyPetrillo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+      - name: Check Signed-off-by on PR commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          while read -r sha; do
+            # Merge commits (e.g. syncing main into the PR branch) are exempt —
+            # they introduce no new authorship.
+            if [ "$(git rev-list --no-walk --count --merges "$sha")" = "1" ]; then continue; fi
+            if ! git log -1 --format=%B "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              echo "::error::Commit $sha is missing a Signed-off-by line (git commit -s). See CONTRIBUTING.md."
+              missing=1
+            fi
+          done < <(git rev-list "$BASE_SHA".."$HEAD_SHA")
+          [ "$missing" = "0" ] && echo "DCO: all commits signed off ✓"
+          exit "$missing"

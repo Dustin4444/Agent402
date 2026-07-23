@@ -145,7 +145,7 @@ that takes a GitHub repo URL; no PR, no fork.
    - **Short description (one line, ~150 chars):**
 
      ```
-     500+ pay-per-call web tools + skill packs for AI agents over x402 on 8 chains, or free via proof-of-work. Browser, search, OCR, finance, EDGAR, durable memory.
+     500+ pay-per-call web tools + skill packs for AI agents over x402 on 10 chains, or free via proof-of-work. Browser, search, OCR, finance, EDGAR, durable memory.
      ```
 
    - **Long description / why (if asked):**
@@ -157,7 +157,7 @@ that takes a GitHub repo URL; no PR, no fork.
      wallet-keyed shared memory, and 216 deterministic utilities (hash, JWT,
      regex, compression, forecasting, statistics, finance math, etc.) — paid per
      call in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Stellar,
-     Algorand) — plus USDG on Robinhood Chain — 8 chains total via the x402
+     Algorand) — plus USDG on Robinhood Chain — 10 chains total via the x402
      protocol, or free via built-in proof-of-work for the 216 pure-CPU tools.
 
      The catalog is 500+ strong — 400+ tools + 100 curated multi-tool skill packs
@@ -182,7 +182,7 @@ that takes a GitHub repo URL; no PR, no fork.
 Merit Systems' x402 ecosystem explorer; solana.com/x402 points buyers here.
 Registration is self-serve and automatic: submit a URL, and if it returns a
 valid x402 payment-required response it is indexed. Our 402s are v2
-(base64 PAYMENT-REQUIRED header) and advertise all eight chains (Base, Solana,
+(base64 PAYMENT-REQUIRED header) and advertise all ten chains (Base, Solana,
 Polygon, Arbitrum, Monad, Celo, Avalanche, Stellar, Algorand, Robinhood Chain), so a re-crawl also refreshes any stale listing.
 
 **Steps**
@@ -212,10 +212,10 @@ We are already listed, but the entry predates the full 8-chain roster and the
 **Steps**
 1. Fork https://github.com/xpaysh/awesome-x402, find the Agent402 entry.
 2. Update the chain list to "USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche,
-   Stellar, Algorand — plus USDG on Robinhood Chain (8 chains)" and, if the
+   Stellar, Algorand — plus USDG on Robinhood Chain (10 chains)" and, if the
    entry cites a tool count, set it to "500+ — 400 pay-per-call tools +
    100 skill packs".
-3. PR title: `Update Agent402 entry — 8-chain settlement (USDC + USDG) + 500+ strong catalog`
+3. PR title: `Update Agent402 entry — 10-chain settlement (USDC + USDG) + 500+ strong catalog`
 
 ---
 
@@ -275,7 +275,7 @@ in the public Bazaar index), Glama, mcp.so
 (verified 2026-06-21: live at mcp.so/server/agent402).
 Pending review: Cline MCP Marketplace (filed 2026-06-21 as
 cline/mcp-marketplace#1849) — any follow-up copy on that issue should use the
-The-500 framing above (500+: 400+ tools + 100 skill packs, 8 chains).
+The-500 framing above (500+: 400+ tools + 100 skill packs, 10 chains).
 Not a submittable directory: Cursor (users add MCP servers to their own
 `~/.cursor/mcp.json`; cursor.directory is a third-party Cursor *rules* site,
 not an MCP listing).
@@ -293,7 +293,7 @@ Next up once submitted: the Anthropic connector directory
   CDP-facilitator payments on Bazaar-discovery-enabled endpoints — our 64
   Bazaar-registered routes should already be present. Action: browse
   agentic.market for the Agent402 entries, confirm metadata quality and that
-  the accepts show all eight chains.
+  the accepts show all ten chains.
 - **Onyx Bazaar** — free public leaderboard of every paid x402 service,
   re-derived from the CDP discovery API every 15 minutes. No submission
   surface; we appear iff the Bazaar entry is healthy.
@@ -304,7 +304,7 @@ Next up once submitted: the Anthropic connector directory
 
 - **402 Index** — no signature, no chain allowlist: non-EVM families (Stellar,
   Robinhood Chain via custom { id, rpcUrl }) are listable and findable. One of
-  the few places the FULL six-chain roster can be first-class.
+  the few places the FULL ten-chain roster can be first-class.
 - **PipRail Discovery (piprail.com/discovery)** — one POST to list, no auth,
   no fee, every chain; probed on submit, domain verification for instant go-live.
 
