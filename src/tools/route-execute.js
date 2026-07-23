@@ -57,7 +57,15 @@ export function buyerPaymentNetwork(req) {
     const header = req?.header?.("x-payment") || req?.header?.("payment-signature");
     if (!header) return null;
     const p = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
-    return typeof p?.network === "string" ? p.network : null;
+    // v1 payloads carry `network` top-level; v2 payloads carry the CHOSEN
+    // accept under `accepted` (shape: {x402Version:2, accepted, payload}) with
+    // the network inside it. Reading only the v1 spot 409'd every v2 Base
+    // buyer out of external routing (found by the first paid demo after the
+    // fail-closed check shipped — the canary's route-exec leg is internal-only
+    // and never walked this path).
+    if (typeof p?.network === "string") return p.network;
+    if (typeof p?.accepted?.network === "string") return p.accepted.network;
+    return null;
   } catch { return null; }
 }
 
@@ -192,9 +200,27 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           const extUsd = toUsd(ext.price);
           if (!(extUsd > 0 && extUsd <= cap)) throw bad(`Best external match "${ext.slug}" is ${ext.price} — over this tier's $${cap} cap. Use route-execute-max or raise the tier.`, 409);
           if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes("eip155:8453"))) throw bad(`External seller "${ext.seller}" does not offer Base settlement — cannot pay it from the Base spending wallet.`, 409);
+          // GET sellers take their input as query params — an HTTP GET cannot
+          // carry a body (undici refuses it outright). Only primitives can ride
+          // a query string; a nested param against a GET seller is the caller's
+          // input mismatch, said plainly instead of a wire error.
+          const extMethod = (ext.method || "POST").toUpperCase();
+          let extUrl = ext.url;
+          let extBody = params;
+          if (extMethod === "GET" || extMethod === "HEAD") {
+            const qp = new URLSearchParams();
+            for (const [k, v] of Object.entries(params || {})) {
+              if (v == null) continue;
+              if (typeof v === "object") throw bad(`External tool "${ext.slug}" is a ${extMethod} endpoint — param "${k}" must be a string, number, or boolean`, 400);
+              qp.set(k, String(v));
+            }
+            const qs = qp.toString();
+            extUrl = qs ? `${ext.url}${ext.url.includes("?") ? "&" : "?"}${qs}` : ext.url;
+            extBody = undefined;
+          }
           let paid;
           try {
-            paid = await payExternal(ext.url, { method: (ext.method || "POST").toUpperCase(), body: params, maxAtomic: BigInt(Math.round(cap * 1e6)) });
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)) });
           } catch (e) {
             const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
             throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);

@@ -55,7 +55,10 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       href: hasPage ? `/${pageKey}` : "/marketplace",
       nameColor: hasPage ? "var(--on-dark2)" : "var(--dk-muted2)",
       statusColor: live ? "var(--green)" : "var(--dk-muted3)",
-      status: hasPage ? (known ? `${fmtNum(sellerCount)} seller${sellerCount === 1 ? "" : "s"} indexed` : "unavailable") : "rail live",
+      // "sellers" not "sellers indexed" — the longer label ellipsized in the
+      // 2-col phone grid, and the strip's caption already says counts derive
+      // at render.
+      status: hasPage ? (known ? `${fmtNum(sellerCount)} seller${sellerCount === 1 ? "" : "s"}` : "unavailable") : "rail live",
     };
   });
   const chainCellHtml = (c) =>
