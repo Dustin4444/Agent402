@@ -759,7 +759,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
         <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0;">The ${esc(C.chainName)} x402 marketplace</h1>
       </div>
       <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">${subheadHtml}</p>
-      <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">An open index of the whole ${esc(C.chainName)} x402 economy - this host plus every independent seller the hourly crawl finds (CDP Bazaar included). Not a walled market: other venues' listings appear here too.</p>
+      <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">An open index of the whole ${esc(C.chainName)} x402 economy - this host plus every independent seller the hourly crawl finds (CDP Bazaar included). Not a walled market: other venues' listings appear here too. Don't want to pick a seller yourself? The <a href="/guides/smart-order-router" style="color:var(--muted);">Smart Order Router</a> resolves your task, pays the best proven seller on your behalf, and relays the result - one payment.</p>
       ${receiptHtml}
       <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">${C.canaryLine}</p>
     </div>
@@ -1057,7 +1057,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   <div>
     <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The x402 marketplace.</h1>
     <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">Pay-per-call tools for AI agents, settled on-chain across every supported rail - no signup, no API keys, the wallet is the account.</p>
-    <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">the neutral x402 index &mdash; every seller, not just ours.</p>
+    <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">the neutral x402 index &mdash; every seller, not just ours. Or skip the picking: the <a href="/guides/smart-order-router" style="color:var(--muted);">Smart Order Router</a> resolves your task, pays the best proven seller for you, and relays the result.</p>
     ${statsHtml}
   </div>`;
 
