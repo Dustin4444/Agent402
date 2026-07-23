@@ -17,7 +17,13 @@
 
 const ALGOD_UPSTREAM = "https://mainnet-api.4160.nodely.dev";
 const INDEXER_UPSTREAM = "https://mainnet-idx.4160.nodely.dev";
-const ALLOWED_PATH = /^\/(algod|idx)\/(v2\/[A-Za-z0-9/._~-]*)$/;
+// Bare /v2/* (no /algod prefix) is ALSO accepted and routed to algod:
+// algokit-utils' generated client resolves paths with `new URL("/v2/…", base)`,
+// which strips any base-path prefix (found 2026-07-23 when the AVM buyer's
+// getSuggestedParams arrived here as /v2/transactions/params and 403'd).
+// algod is the only consumer that hits the relay through algokit; indexer
+// reads go through getJsonAcross, which string-concatenates and keeps /idx.
+const ALLOWED_PATH = /^\/(?:(algod|idx)\/)?(v2\/[A-Za-z0-9/._~-]*)$/;
 
 export default {
   async fetch(request, env) {
@@ -37,10 +43,10 @@ export default {
 
     const url = new URL(request.url);
     const m = ALLOWED_PATH.exec(url.pathname);
-    if (!m) {
+    if (!m || m[2].includes("..")) {
       return new Response("path not allowed (only /algod/v2/* and /idx/v2/*)", { status: 403 });
     }
-    const upstreamHost = m[1] === "algod" ? ALGOD_UPSTREAM : INDEXER_UPSTREAM;
+    const upstreamHost = m[1] === "idx" ? INDEXER_UPSTREAM : ALGOD_UPSTREAM; // bare /v2/* (m[1] undefined) → algod
 
     const upstreamUrl = `${upstreamHost}/${m[2]}${url.search}`;
     let upstream;
