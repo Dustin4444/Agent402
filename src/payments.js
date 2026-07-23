@@ -278,7 +278,12 @@ export function acceptsForItem(item, rails) {
     ...evm,
     ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: item.price, network: caip2 })) : []),
     ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: item.price, network: caip2 })) : []),
-    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: algorandWallet, price: item.price, network: caip2 })) : []),
+    // The Algorand accepts carry the x402 Global Challenge tag (Algorand
+    // Foundation's entry marker, per their 2026-07-21 checklist): GoPlausible's
+    // Bazaar + leaderboard attribute challenge entries by `extra.tag`, and the
+    // challenge-filtered views hide untagged merchants entirely. Scheme-level
+    // fields (decimals/feePayer) are merged in by the facilitator downstream.
+    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: algorandWallet, price: item.price, network: caip2, extra: { tag: "x402-global-challenge" } })) : []),
   ];
 }
 
