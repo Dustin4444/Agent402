@@ -89,7 +89,10 @@ async function braveAnswerPost(query, opts = {}) {
       }),
       signal: AbortSignal.timeout(ANSWER_TIMEOUT_MS),
     });
-  } catch {
+  } catch (err) {
+    // Keep the evidence: the transport cause must reach the server log, not
+    // vanish into a generic 504 (same rule as price-feed-kit).
+    console.warn(`[search] answers upstream unreachable: ${err.name ?? err.code ?? err.message}`);
     throw bad("Web answer upstream timed out", 504);
   }
   if (res.status === 429) throw bad("Web answer rate limit reached upstream — retry shortly", 503);
@@ -175,7 +178,9 @@ async function braveGet(path, params, apiKey) {
       headers: { "X-Subscription-Token": key, Accept: "application/json" },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-  } catch {
+  } catch (err) {
+    // Keep the evidence: log the transport cause (never swallowed into the 504).
+    console.warn(`[search] upstream unreachable: ${(() => { try { return new URL(url).host; } catch { return "?"; } })()} → ${err.name ?? err.code ?? err.message}`);
     throw bad("Search upstream timed out", 504);
   }
   // Controlled messages only — never echo the upstream body to callers, but

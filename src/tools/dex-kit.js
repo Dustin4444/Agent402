@@ -117,7 +117,9 @@ async function alchemyFetch(url, opts = {}) {
       headers: { "Content-Type": "application/json", Accept: "application/json", ...(opts.headers || {}) },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-  } catch {
+  } catch (err) {
+    // Keep the evidence: log the transport cause (price-feed-kit rule).
+    console.warn(`[dex] upstream unreachable: ${(() => { try { return new URL(url).host; } catch { return "?"; } })()} → ${err.name ?? err.code ?? err.message}`);
     throw bad("Chain upstream timed out", 504);
   }
   if (res.status === 429) throw bad("Chain rate limit reached upstream — retry shortly", 503);
@@ -437,7 +439,8 @@ export const DEX_TOOLS = [
       let res;
       try {
         res = await fetch("https://yields.llama.fi/pools", { signal: AbortSignal.timeout(TIMEOUT_MS) });
-      } catch {
+      } catch (err) {
+        console.warn(`[dex] yields.llama.fi unreachable: ${err.name ?? err.code ?? err.message}`);
         throw bad("DeFiLlama upstream timed out", 504);
       }
       if (res.status === 429) throw bad("DeFiLlama rate limit reached upstream — retry shortly", 503);
