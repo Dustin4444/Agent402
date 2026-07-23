@@ -136,6 +136,17 @@ async function checkOne(def, timeoutMs) {
 // retried ONCE after a short backoff before being reported failed, so a single
 // transient upstream blip (Yahoo/Nasdaq hiccup) can't page us — only a tool that
 // fails twice in a row is real.
+// Keyed checks hit PAID upstreams (Brave web search bills ~$0.005/call), and
+// they exist to catch KEY EXPIRY — an hours-scale event. The route's 5-min
+// cache is right for the keyless checks but let monitoring (tool-alert polls
+// every 30 min) plus any stranger hitting the free endpoint burn ~48 real
+// Brave calls/day (2026-07-23 leak audit). Keyed results are therefore reused
+// for 6h; a failing keyed check is NOT cached, so a real key problem still
+// re-tests (and pages) on the next poll.
+const KEYED_TTL_MS = 6 * 60 * 60 * 1000;
+const keyedCache = new Map(); // slug → { at, result }
+const KEYED_SLUG_SET = new Set(KEYED_SELFCHECKS.map((k) => k.slug));
+
 export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutMs = 12000 } = {}) {
   const bySlug = new Map();
   for (const def of Object.values(catalog)) bySlug.set(def.slug, def);
@@ -143,6 +154,12 @@ export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutM
   for (const slug of slugs) {
     const def = bySlug.get(slug);
     if (!def) { results.push({ slug, ok: false, error: "not in catalog" }); continue; }
+    const keyed = KEYED_SLUG_SET.has(slug);
+    const hit = keyed ? keyedCache.get(slug) : null;
+    if (hit && Date.now() - hit.at < KEYED_TTL_MS) {
+      results.push({ ...hit.result, cachedKeyedCheck: true });
+      continue;
+    }
     let r = await checkOne(def, timeoutMs);
     if (!r.ok) {
       await new Promise((res) => setTimeout(res, 500));
@@ -150,6 +167,7 @@ export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutM
       // Keep the retry's verdict; note that it took two tries to fail.
       r = retry.ok ? { ...retry, flaky: true } : retry;
     }
+    if (keyed && r.ok) keyedCache.set(slug, { at: Date.now(), result: r });
     results.push(r);
   }
   const failing = results.filter((r) => !r.ok).map((r) => r.slug);
