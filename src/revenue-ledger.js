@@ -383,7 +383,12 @@ export function ledgerDaily({ walletAddress, solanaWallet, stellarWallet, algora
       byDay.set(key, b);
     }
   }
+  // Chart epoch: the pre-June trickle (ledger backfill of pre-launch dust)
+  // adds a flat month of near-zero bars — start the series at June 1 unless
+  // the operator overrides.
+  const start = process.env.REVENUE_DAILY_START || "2026-06-01";
   return [...byDay.values()]
+    .filter((b) => b.day >= start)
     .map((b) => ({ ...b, extUsd: Number(b.extUsd.toFixed(6)), intUsd: Number(b.intUsd.toFixed(6)) }))
     .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.chain.localeCompare(b.chain)));
 }
