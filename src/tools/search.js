@@ -41,12 +41,16 @@ function takeQuery(raw) {
 // We read BRAVE_ANSWERS_API_KEY here, with a fallback to BRAVE_API_KEY so a
 // deployer who only has one combined subscription token still works.
 //
-// Unit economics (per Brave's published pricing — confirmed on dashboard):
-//   • $0.004 base per query
-//   • $0.005 per 1M input tokens  (we cap input at 400 chars ≈ ~100 tokens)
-//   • $0.005 per 1M output tokens (typical answer ≈ 1000-1500 tokens)
-// Expected cost per call ≈ $0.012; worst-case (long answer) ≈ $0.025.
-// We charge $0.03 → average ~60% margin, still profitable on tail-length cases.
+// Unit economics (per Brave's published pricing — CORRECTED 2026-07-22 against
+// the live dashboard; the prior comment misread the token rate by 1000x):
+//   • $0.004 base per query ($4.00 / 1,000)
+//   • $5.00 per 1M input tokens  (= $0.005 per 1K, NOT per 1M)
+//   • $5.00 per 1M output tokens (= $0.005 per 1K)
+// Brave bills the FULL input it processes — the search-grounding context it
+// injects, thousands of tokens — not just our 400-char query. Measured actual:
+// $6.12 / 101 calls = ~$0.061 per answer. The old $0.03 price sold every answer
+// at a ~$0.03 LOSS (and every skill pack that calls answer internally inherited
+// it). At $0.08 we clear ~24% margin over the measured cost.
 async function braveAnswerPost(query, opts = {}) {
   const token = process.env.BRAVE_ANSWERS_API_KEY || process.env.BRAVE_API_KEY;
   if (!token) {
@@ -435,10 +439,10 @@ export const SEARCH_TOOLS = [
     name: "Web answer",
     slug: "answer",
     category: "web",
-    // $0.03 chosen against Brave's published unit cost (~$0.012 typical /
-    // ~$0.025 long-answer worst case): ~60% margin on the average call,
-    // still profitable at the tail. See braveAnswerPost above for the math.
-    price: "$0.03",
+    // $0.08 against Brave's MEASURED cost of ~$0.061/answer (see braveAnswerPost
+    // above). The prior $0.03 sold at a loss — the cost comment had misread
+    // Brave's token pricing by 1000x. $0.08 clears ~24% margin.
+    price: "$0.08",
     description:
       "AI-generated answer to a natural-language question, grounded in live web search results with source citations. Returns clean prose plus a structured citations array (URL, snippet, favicon) — backed by an independent search index, not the model's training data. Useful when an agent needs a synthesized answer plus the receipts to verify or follow up.",
     tags: ["search", "answer", "ai", "rag", "citations", "research", "fresh-data"],
