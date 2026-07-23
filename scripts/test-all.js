@@ -18,6 +18,13 @@ const TARGET = process.env.TARGET_URL || "http://localhost:3000";
 const BRAVE_ROUTES = new Set([
   "/api/search", "/api/search-news", "/api/search-images", "/api/search-videos", "/api/search-suggest", "/api/answer",
   "/api/multi-search",
+  // Skill packs whose EXECUTABLE steps invoke Brave-backed handlers in-process
+  // (skill-runner bypasses the HTTP route, so the direct-route skip above never
+  // caught them — every [test] run was making ~9 real web-search calls through
+  // pack examples, found in the 2026-07-23 Brave leak audit). Same opt-in.
+  "/api/skill/crypto-research", "/api/skill/search-and-cite", "/api/skill/company-dossier",
+  "/api/skill/crypto-dossier", "/api/skill/earnings-watch", "/api/skill/ipo-watch",
+  "/api/skill/brand-protection", "/api/skill/article-digest",
 ]);
 const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
 
