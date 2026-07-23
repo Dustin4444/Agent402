@@ -23,7 +23,7 @@ export const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11
 export const USDC_SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 // Same envs (and defaults) as scripts/revenue-scan{,-solana}.js.
-export const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "1");
+export const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.75");
 export const OUR_EVM_WALLETS = new Set(
   // Canary/burner EVM addresses (public; keys live only in CI). Rotated
   // 2026-07-17: 0xfeda7403… retired (drained), 0x902dcf34… is the current

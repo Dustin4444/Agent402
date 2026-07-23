@@ -33,7 +33,7 @@ const OUR_WALLETS = new Set(
 );
 // A genuine per-call settlement can't exceed the max tool price ($0.02); the
 // ceiling is generous headroom. Anything bigger is funding/tests/swaps, not a buy.
-const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "1");
+const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.75");
 
 // Which EVM chain to scan. Default base — the heartbeat's existing behavior.
 // SCAN_NETWORK=polygon|arbitrum reuses the same scan against the other chains
