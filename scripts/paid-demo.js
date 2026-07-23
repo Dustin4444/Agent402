@@ -135,7 +135,7 @@ if (receiptHdr) {
   try { receipt = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8")); } catch { /* best-effort */ }
 }
 if (paid.status !== 200) {
-  console.error(`paid-demo: buy did NOT settle — HTTP ${paid.status} ${JSON.stringify(result).slice(0, 200)}`);
+  console.error(`paid-demo: buy did NOT settle — HTTP ${paid.status} error=${JSON.stringify(result?.error ?? null)} body=${JSON.stringify(result).slice(0, 500)}`);
   process.exit(2);
 }
 console.log(`→ HTTP 200 · settled${receipt?.transaction ? ` · tx ${receipt.transaction}` : ""}${receipt?.network ? ` · network ${receipt.network}` : ""}`);
