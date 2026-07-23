@@ -25,11 +25,13 @@ export const USDC_SOL_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 // Same envs (and defaults) as scripts/revenue-scan{,-solana}.js.
 export const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.5");
 export const OUR_EVM_WALLETS = new Set(
-  // Canary/burner EVM addresses (public; keys live only in CI). Rotated
-  // 2026-07-17: 0xfeda7403… retired (drained), 0x902dcf34… is the current
-  // burner. Both listed so historical AND ongoing self-buys stay internal,
-  // never counted as external revenue.
-  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256")
+  // Canary/burner EVM addresses (public; keys live only in CI or operator
+  // wallets, never here). Rotated 2026-07-17: 0xfeda7403… retired (drained),
+  // 0x902dcf34… is the current CI burner. 0xd9c20da8… is the operator
+  // demo-buyer wallet (announcement/SOR demo captures, e.g. the 2026-07-22
+  // cross-vendor card's route-execute buys). All listed so historical AND
+  // ongoing self-buys stay internal, never counted as external revenue.
+  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256,0xd9c20da8c22d62ae67174762e6c045184625d487")
     .toLowerCase().split(",").map((s) => s.trim()).filter(Boolean)
 );
 // Default = the canary's Solana burner (public address; the key lives only
