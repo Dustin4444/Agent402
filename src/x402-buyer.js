@@ -298,6 +298,10 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     const signable = { ...payable, amount: String(quotedAtomic) };
     const payload = await client.createPaymentPayload({ ...paymentRequired, accepts: [signable] });
     const payHeaders = http.encodePaymentSignatureHeader(payload);
+    // Header-name compatibility: @x402/core emits only PAYMENT-SIGNATURE; some
+    // sellers read only the X-PAYMENT name (Stelar, found 2026-07-23). Mirror
+    // the identical value under both so either implementation sees the payment.
+    if (payHeaders["PAYMENT-SIGNATURE"] && !payHeaders["X-PAYMENT"]) payHeaders["X-PAYMENT"] = payHeaders["PAYMENT-SIGNATURE"];
     // Fresh timeout for the paid leg — it must not inherit the bare leg's
     // already-spent budget from the shared reqInit.signal.
     const paid = await fetch(url, { ...reqInit, signal: AbortSignal.timeout(timeoutMs), headers: { ...reqInit.headers, ...payHeaders, "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" } });
