@@ -21,7 +21,7 @@
 import { writeFileSync } from "node:fs";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
-const GP_RESOURCES = "https://facilitator.goplausible.xyz/discovery/resources?limit=500";
+const GP_RESOURCES = "https://facilitator.goplausible.xyz/discovery/resources";
 const AVM_CAIP2_PREFIX = "algorand:";
 const args = process.argv.slice(2);
 const arg = (n, d = null) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
@@ -94,16 +94,22 @@ tools = tools.filter((t) => { const k = `${t.method} ${t.path}`; if (seen.has(k)
 const OUR_HOST = new URL(TARGET).host;
 let registered = new Set();
 try {
-  const gp = await (await fetch(GP_RESOURCES, { signal: AbortSignal.timeout(15000) })).json();
-  for (const r of gp.items || gp.resources || []) {
-    const id = r.id || r.resource;
-    if (typeof id !== "string") continue;
-    let dec;
-    try { dec = Buffer.from(id, "base64").toString("utf8"); } catch { continue; }
-    const m = dec.match(/^([A-Z]+):(https?:\/\/\S+)$/);
-    // Host-scope the skip-set to OUR endpoints — another seller's /api/hash
-    // must never mark ours as already-registered.
-    if (m && new URL(m[2]).host === OUR_HOST) registered.add(`${m[1]} ${new URL(m[2]).pathname}`);
+  // Paginate the full catalog: a single limit=500 page silently dropped our
+  // entries past #500 once the catalog outgrew it, so a re-run re-bought them.
+  for (let offset = 0; offset < 20000; offset += 500) {
+    const gp = await (await fetch(`${GP_RESOURCES}?limit=500&offset=${offset}`, { signal: AbortSignal.timeout(15000) })).json();
+    const items = gp.items || gp.resources || [];
+    for (const r of items) {
+      const id = r.id || r.resource;
+      if (typeof id !== "string") continue;
+      let dec;
+      try { dec = Buffer.from(id, "base64").toString("utf8"); } catch { continue; }
+      const m = dec.match(/^([A-Z]+):(https?:\/\/\S+)$/);
+      // Host-scope the skip-set to OUR endpoints — another seller's /api/hash
+      // must never mark ours as already-registered.
+      if (m && new URL(m[2]).host === OUR_HOST) registered.add(`${m[1]} ${new URL(m[2]).pathname}`);
+    }
+    if (items.length < 500) break;
   }
 } catch (e) { console.warn(`[sweep] could not read GoPlausible catalog (${e.message}) — proceeding without skip-set`); }
 
