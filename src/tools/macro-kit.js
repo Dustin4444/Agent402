@@ -270,6 +270,12 @@ async function fetchLatestYieldCurve() {
 
 // G10 majors quoted vs USD — the standard FX dashboard most callers want.
 const G10 = ["EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD", "SEK", "NOK"];
+// fx-dashboard cache: ECB reference rates change once per business day, so a
+// 30-min fresh window serves identical data cheaper, and a 24h serve-stale
+// (marked stale:true, Tier-3 convention) covers dual-upstream outages.
+const FX_DASH_TTL_MS = 30 * 60 * 1000;
+const FX_DASH_STALE_MS = 24 * 60 * 60 * 1000;
+let fxDashCache = null;
 
 export const MACRO_TOOLS = [
   {
@@ -459,22 +465,54 @@ export const MACRO_TOOLS = [
       output: { example: { base: "USD", date: "2026-06-12", rates: { EUR: 0.91, GBP: 0.78 }, usdStrengthIndex: 1.04, source: "ECB via Frankfurter" } },
     },
     handler: async () => {
-      const j = await getJson(`https://api.frankfurter.dev/v1/latest?from=USD&to=${G10.join(",")}`);
+      // OBSERVED failing from prod (4× 504 on 2026-07-23; sub-second from a
+      // laptop) — the shared-egress-IP pattern. Two remedies, both justified
+      // by the data's own cadence (ECB reference rates update once daily):
+      //   1. serve-stale cache: a same-day snapshot is simply the answer, and
+      //      a stale one (marked) beats a 504 for a dashboard read.
+      //   2. keyless fallback host (open.er-api.com, the fx-rate fallback) —
+      //      different publisher, same quotes to 4dp; source says which served.
+      const fresh = fxDashCache && Date.now() - fxDashCache.at < FX_DASH_TTL_MS;
+      if (fresh) return fxDashCache.value;
+      let j = null, source = "ECB via Frankfurter (open data)";
+      try {
+        j = await getJson(`https://api.frankfurter.dev/v1/latest?from=USD&to=${G10.join(",")}`);
+      } catch (e) {
+        console.warn(`[fx-dashboard] frankfurter failed (${String(e?.message || e).slice(0, 80)}) — walking to open.er-api.com`);
+        try {
+          const alt = await getJson("https://open.er-api.com/v6/latest/USD");
+          if (alt?.result === "success" && alt?.rates) {
+            j = { date: String(alt.time_last_update_utc || "").slice(0, 16) || null, rates: alt.rates };
+            source = "Open ER-API (open data; Frankfurter unavailable)";
+          }
+        } catch (e2) {
+          console.warn(`[fx-dashboard] open.er-api.com also failed (${String(e2?.message || e2).slice(0, 80)})`);
+        }
+      }
+      if (!j) {
+        // Both hosts down: a marked same-day-ish snapshot beats a 504.
+        if (fxDashCache && Date.now() - fxDashCache.at < FX_DASH_STALE_MS) {
+          return { ...fxDashCache.value, stale: true, asOf: new Date(fxDashCache.at).toISOString() };
+        }
+        throw bad("FX upstreams unavailable (Frankfurter and Open ER-API)", 502);
+      }
       const rates = j?.rates ?? {};
       const have = G10.filter((c) => typeof rates[c] === "number");
-      if (!have.length) throw bad("Frankfurter returned no G10 rates", 502);
+      if (!have.length) throw bad("Upstream returned no G10 rates", 502);
       // Geometric mean of (1 / rate) — i.e. how strong is USD vs the basket.
       // Values >1 ⇒ USD has strengthened vs an even-weighted G10 basket since
       // the inverses average above 1; intuitive direction without committing
       // to any commercial DXY weighting.
       const inverseProduct = have.reduce((acc, c) => acc * (1 / rates[c]), 1);
       const usdStrengthIndex = Number(Math.pow(inverseProduct, 1 / have.length).toFixed(4));
-      return {
+      const value = {
         base: "USD", date: j.date ?? null,
         rates: Object.fromEntries(have.map((c) => [c, rates[c]])),
         usdStrengthIndex,
-        source: "ECB via Frankfurter (open data)",
+        source,
       };
+      fxDashCache = { at: Date.now(), value };
+      return value;
     },
   },
   {
