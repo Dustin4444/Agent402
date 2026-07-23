@@ -5,7 +5,7 @@
 //   - AVM buyer gating (503 without the mnemonic, configured flag)
 // No network, no server boot.
 import assert from "node:assert";
-import { pickPayableAccept, avmBuyerConfigured, getUpstreamBuyerAvm, BUYER_CHAINS } from "../src/x402-buyer.js";
+import { pickPayableAccept, avmBuyerConfigured, getUpstreamBuyerAvm, avmBuyerStatus, BUYER_CHAINS } from "../src/x402-buyer.js";
 import { rankAlgorandResources } from "../src/algorand-sellers.js";
 import { buildRouteExecuteTool, EXTERNAL_CHAIN_BY_NETWORK } from "../src/tools/route-execute.js";
 
@@ -104,6 +104,13 @@ const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
   process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC = "x";
   ok(avmBuyerConfigured() === true, "avmBuyerConfigured true when set");
   delete process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC;
+}
+
+// --- AVM buyer balance status ------------------------------------------------
+{
+  delete process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC;
+  const s = await avmBuyerStatus();
+  ok(s.configured === false && s.status === "unconfigured", "avmBuyerStatus unconfigured without mnemonic (never pages)");
 }
 
 console.log(`\ntest-algorand-router: ${passed} passed, ${failed} failed`);
