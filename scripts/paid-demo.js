@@ -124,6 +124,10 @@ console.log(`→ HTTP 402 · quote $${quote.usd} on ${quote.network} (payer ${pa
 const normalized = accepts.map((a) => ({ ...a, amount: String(a.amount ?? a.maxAmountRequired) }));
 const payload = await client.createPaymentPayload({ ...paymentRequired, accepts: normalized });
 const payHeaders = http.encodePaymentSignatureHeader(payload);
+// Header-name compatibility: @x402/core v2.16 emits only PAYMENT-SIGNATURE,
+// but some sellers (Stelar: error "X-PAYMENT header required", 2026-07-23)
+// read only the X-PAYMENT name. Mirror the same value under both.
+if (payHeaders["PAYMENT-SIGNATURE"] && !payHeaders["X-PAYMENT"]) payHeaders["X-PAYMENT"] = payHeaders["PAYMENT-SIGNATURE"];
 const paid = await fetch(url, {
   ...reqInit,
   headers: { ...reqInit.headers, ...payHeaders, "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" },
