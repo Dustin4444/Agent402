@@ -178,7 +178,7 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
-import { payX402 } from "./x402-buyer.js";
+import { payX402, avmBuyerConfigured } from "./x402-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
@@ -651,20 +651,36 @@ function buildSettledByOrigin() {
   }
   return m;
 }
-async function resolveExternalSeller(task, { cap }) {
-  const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
-  const settledByOrigin = buildSettledByOrigin();
+async function resolveExternalSeller(task, { cap, chain = "base" }) {
   // F4: never route to ourselves (paying our own endpoint over x402 = fee loss
   // / accidental self-recursion) — exclude our own host from candidates.
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
   const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
-  const candidates = (results || [])
-    .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
-    .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
-    .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0 }))
-    .filter((r) => r.settled >= SOR_MIN_SETTLED_TX) // proven deliverers only
-    .sort((a, b) => b.settled - a.settled)
-    .slice(0, 5);
+  let candidates;
+  if (chain === "algorand") {
+    // Algorand sellers live in the GoPlausible facilitator catalog, not our
+    // Base-centric index — discovery AND proven-ness both come from there
+    // (src/algorand-sellers.js). Same shape out: url/method/price/networks.
+    const { algorandCatalog, rankAlgorandResources } = await import("./algorand-sellers.js");
+    const ourOrigin = (() => { try { return new URL(BASE_URL).origin.toLowerCase(); } catch { return ""; } })();
+    candidates = rankAlgorandResources(await algorandCatalog(), task, { capUsd: cap, minVerifs: SOR_MIN_SETTLED_TX, excludeOrigin: ourOrigin })
+      .slice(0, 5)
+      .map((r) => ({
+        seller: r.origin, slug: r.path.replace(/^\//, ""), url: r.url, method: r.method,
+        price: `$${r.priceUsd}`, priceUsd: r.priceUsd,
+        networks: ["algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8="], settled: r.verifs,
+      }));
+  } else {
+    const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
+    const settledByOrigin = buildSettledByOrigin();
+    candidates = (results || [])
+      .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
+      .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
+      .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0 }))
+      .filter((r) => r.settled >= SOR_MIN_SETTLED_TX) // proven deliverers only
+      .sort((a, b) => b.settled - a.settled)
+      .slice(0, 5);
+  }
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   for (const r of candidates) {
     let live = false;
@@ -731,6 +747,9 @@ for (const tier of EXEC_TIERS) {
     resolveExternal: resolveExternalSeller,
     payExternal: (url, opts) => payX402(url, opts),
     externalEnabled: () => SOR_EXTERNAL_ENABLED,
+    // Chains external routing can SETTLE on: Base always (the proven path);
+    // Algorand only once the dedicated AVM spending wallet is configured.
+    externalChains: () => (avmBuyerConfigured() ? ["base", "algorand"] : ["base"]),
   });
   if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
   CATALOG[tool.route] = tool;

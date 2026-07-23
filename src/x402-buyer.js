@@ -14,18 +14,42 @@ function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-const UPSTREAM_CHAIN = "eip155:8453"; // Base (CAIP-2) — where our spending wallet holds USDC
-// x402 v1 accepts label the network as a bare string ("base") not CAIP-2, and v2
-// uses "eip155:8453"; a seller may advertise either. Accept both Base labels —
-// the mainnet-USDC asset pin below is what actually enforces the chain (that
-// contract only exists on Base MAINNET, so a testnet/other-chain entry can't
-// match even if it borrows a "base"-ish label).
-const BASE_NETWORK_LABELS = new Set(["eip155:8453", "base", "base-mainnet"]);
-// Circle USDC on Base — the ONLY asset our spending wallet holds and will pay.
-// The margin guard pins the accept to this asset so a seller can't quote a
-// cheap decoy in USDC and get us to sign an expensive one in another token.
-const USDC_BASE = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+// Per-chain buyer config. x402 v1 accepts label the network as a bare string
+// ("base") not CAIP-2, and v2 uses CAIP-2; a seller may advertise either. The
+// mainnet-USDC asset pin is what actually enforces the chain (that asset id
+// only exists on the given MAINNET, so a testnet/other-chain entry can't match
+// even if it borrows the label). Amounts are atomic 6dp on both chains (Circle
+// USDC on Base and the USDC ASA on Algorand both have 6 decimals), so the
+// margin guard and spend-window belt are chain-agnostic.
+export const BUYER_CHAINS = {
+  base: {
+    caip2: "eip155:8453",
+    networkLabels: new Set(["eip155:8453", "base", "base-mainnet"]),
+    // Circle USDC on Base — the ONLY asset the EVM spending wallet holds and
+    // will pay. Pinning the accept to it means a seller can't quote a cheap
+    // decoy in USDC and get us to sign an expensive one in another token.
+    asset: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+  },
+  algorand: {
+    caip2: "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+    networkLabels: new Set(["algorand:wghe2pwdvd7s12bl5faop20egyesn73ktic1qzkkit8=", "algorand", "algorand-mainnet"]),
+    asset: "31566704", // USDC ASA on Algorand mainnet
+  },
+};
 const DEFAULT_MAX_BYTES = 512 * 1024;
+
+/** Pin the exact accept the client will sign for `chain` — right network label,
+ *  scheme "exact", and the chain's mainnet USDC asset — or null. Pure; exported
+ *  for offline tests (decoy-ordering and cross-chain confusion cases). */
+export function pickPayableAccept(accepts, chain) {
+  const cfg = BUYER_CHAINS[chain];
+  if (!cfg) return null;
+  return (accepts || []).find((a) =>
+    cfg.networkLabels.has(String(a.network || "").toLowerCase()) &&
+    String(a.scheme || "exact") === "exact" &&
+    String(a.asset || "").toLowerCase() === cfg.asset.toLowerCase()
+  ) || null;
+}
 
 /** True only for a well-formed atomic-USDC quote at or under `maxAtomic`.
  *  Strict digit-string first: BigInt("") is 0n, so a missing/empty quote would
@@ -52,6 +76,42 @@ export async function getUpstreamBuyer() {
     return { client, http: new x402HTTPClient(client), address: account.address };
   })();
   return buyerPromise;
+}
+
+let avmBuyerPromise = null;
+/** True when the DEDICATED Algorand spending wallet is configured — the gate
+ *  route-execute uses to advertise/refuse Algorand external routing. */
+export function avmBuyerConfigured() {
+  return !!(process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim();
+}
+/** Lazy singleton x402 client signing Algorand payments with the dedicated AVM
+ *  spending wallet (ALGORAND_UPSTREAM_BUYER_MNEMONIC — a low-balance hot wallet
+ *  opted in to the USDC ASA; NEVER the treasury or the CI burner). Signs with
+ *  the protocol-max 1000-round validity window: external sellers settle AFTER
+ *  their handler runs, so algokit's 10-round (~28s) default would make any
+ *  slow seller a guaranteed dead-txn burn (the image-gen-premium lesson,
+ *  sweep run 29974531159). algod rides the CF relay when configured — Nodely
+ *  403s Railway's egress IP outright, so prod cannot reach the public bases. */
+export async function getUpstreamBuyerAvm() {
+  const mnemonic = (process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim();
+  if (!mnemonic) throw bad("Algorand upstream buyer wallet not configured (ALGORAND_UPSTREAM_BUYER_MNEMONIC) — this path pays an Algorand x402 seller and cannot run without a funded AVM spending wallet", 503);
+  avmBuyerPromise ??= (async () => {
+    const [{ x402Client, x402HTTPClient }, { ExactAvmScheme }, { toClientAvmSigner }, algosdk, { AlgorandClient }] = await Promise.all([
+      import("@x402/core/client"), import("@x402/avm/exact/client"), import("@x402/avm"),
+      import("algosdk").then((m) => m.default ?? m), import("@algorandfoundation/algokit-utils/algorand-client"),
+    ]);
+    const account = algosdk.mnemonicToSecretKey(mnemonic);
+    const relayUrl = (process.env.ALGORAND_RELAY_URL || "").trim().replace(/\/+$/, "");
+    const relayToken = (process.env.ALGORAND_RELAY_TOKEN || "").trim();
+    const algodConfig = relayUrl && relayToken
+      ? { server: `${relayUrl}/algod`, token: { Authorization: `Bearer ${relayToken}` } }
+      : { server: (process.env.ALGORAND_ALGOD_URL || "https://mainnet-api.algonode.cloud").trim(), token: "" };
+    const algorandClient = AlgorandClient.fromConfig({ algodConfig }).setDefaultValidityWindow(1000);
+    const client = new x402Client();
+    client.register("algorand:*", new ExactAvmScheme(toClientAvmSigner(Buffer.from(account.sk).toString("base64")), { algorandClient }));
+    return { client, http: new x402HTTPClient(client), address: account.addr.toString() };
+  })();
+  return avmBuyerPromise;
 }
 
 // Pre-payment read (bare 200 = free tool, no spend yet): a bad body can throw
@@ -116,8 +176,10 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base" } = {}) {
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
+  const chainCfg = BUYER_CHAINS[chain];
+  if (!chainCfg) throw bad(`payX402: unknown chain "${chain}" (known: ${Object.keys(BUYER_CHAINS).join(", ")})`, 500);
   if (!trusted) {
     // SSRF: paying an arbitrary URL with a real wallet is the same egress-abuse
     // risk as any fetch — resolve + pin to a public address before spending.
@@ -130,7 +192,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   if (body !== undefined && (method === "GET" || method === "HEAD")) {
     throw bad(`payX402: ${method} request cannot carry a body — pass params in the URL`, 400);
   }
-  const { client, http } = await getUpstreamBuyer();
+  const { client, http } = chain === "algorand" ? await getUpstreamBuyerAvm() : await getUpstreamBuyer();
   const reqInit = {
     method,
     headers: { Accept: "application/json", ...(body !== undefined ? { "Content-Type": "application/json" } : {}), ...headers },
@@ -159,17 +221,14 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     paymentRequired = http.getPaymentRequiredResponse((n) => bare.headers.get(n), bareBody);
   } catch { throw bad("Seller sent an unparseable 402 challenge", 502); }
 
-  // F2: pin to the EXACT accept the client will actually sign — Base + scheme
-  // "exact" + Circle USDC — and cap-check THAT entry, not a decoy accepts[0].
-  // A seller can't slip a cheap non-exact/other-asset decoy first and an
-  // expensive exact/USDC entry behind it: we hand the client a single validated
-  // accept, so what we cap-check is what we sign.
-  const payable = (paymentRequired.accepts || []).find((a) =>
-    BASE_NETWORK_LABELS.has(String(a.network || "").toLowerCase()) &&
-    String(a.scheme || "exact") === "exact" &&
-    String(a.asset || "").toLowerCase() === USDC_BASE
-  );
-  if (!payable) throw bad("Seller offers no Base/exact/USDC accept — cannot pay from the Base USDC spending wallet", 502);
+  // F2: pin to the EXACT accept the client will actually sign — the requested
+  // chain + scheme "exact" + that chain's mainnet USDC asset — and cap-check
+  // THAT entry, not a decoy accepts[0]. A seller can't slip a cheap non-exact/
+  // other-asset decoy first and an expensive exact/USDC entry behind it: we
+  // hand the client a single validated accept, so what we cap-check is what
+  // we sign.
+  const payable = pickPayableAccept(paymentRequired.accepts, chain);
+  if (!payable) throw bad(`Seller offers no ${chain}/exact/USDC accept — cannot pay from the ${chain} spending wallet`, 502);
   const quotedAtomic = payable.amount ?? payable.maxAmountRequired;
   if (!quoteWithinCap(quotedAtomic, maxAtomic)) {
     throw bad(`Seller quote ${quotedAtomic} atomic exceeds the ${maxAtomic} cap — refusing to pay`, 402);
@@ -201,7 +260,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     return {
       // F3: post-spend read never throws — the buyer must be charged (we paid).
       result: await readAfterSpend(paid, maxBytes),
-      quote: { atomic: String(quotedAtomic), usd: Number(quotedAtomic) / 1e6, network: UPSTREAM_CHAIN },
+      quote: { atomic: String(quotedAtomic), usd: Number(quotedAtomic) / 1e6, network: chainCfg.caip2 },
       receipt: { transaction: tx, network: net },
     };
   } finally {
