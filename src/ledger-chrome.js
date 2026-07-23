@@ -308,11 +308,14 @@ function chainRows() {
   try {
     const data = navDataProvider && navDataProvider();
     if (data && Array.isArray(data.chains) && data.chains.length) {
-      // Scale rule: all 7 current rails (RAILS in rails.js) get one row each;
-      // past that, top 7 + the ink footer row ("all chains →") carries the
-      // rest — so adding an 8th rail doesn't silently drop two existing ones
-      // from the dropdown/footer the way a low ceiling here once did.
-      const chains = data.chains.length > 9 ? data.chains.slice(0, 7) : data.chains;
+      // Scale rule: EVERY live rail gets a row while the rail count stays
+      // human-sized (≤12 — we hold at ten, see #469); only past that does the
+      // list truncate to the top 10 with the "all sellers" row carrying the
+      // rest. The previous >9 → slice(0,7) rule silently dropped Stellar,
+      // Algorand, and Robinhood from the dropdown AND the mobile menu the
+      // moment rail #10 shipped — the exact failure its own comment said it
+      // was preventing. A ceiling must sit ABOVE the roster it protects.
+      const chains = data.chains.length > 12 ? data.chains.slice(0, 10) : data.chains;
       return { chains, live: true };
     }
   } catch { /* provider threw — fall back to the static list below */ }

@@ -1081,6 +1081,9 @@ jobs:
       - name: Whois RDAP bootstrap parser (IANA dns.json → TLD map — offline)
         run: node scripts/test-whois-bootstrap.js
 
+      - name: Nav chain roster (every live rail in dropdown + mobile menu — offline)
+        run: node scripts/test-nav-chains.js
+
       - name: Webhook signature verify (per-provider HMAC vectors, replay tolerance, raw-body guard)
         run: node scripts/test-webhook-verify.js
 
