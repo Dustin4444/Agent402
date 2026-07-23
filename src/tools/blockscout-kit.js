@@ -199,11 +199,11 @@ export const BLOCKSCOUT_TOOLS = [
     category: "chain",
     price: "$0.010",
     description:
-      "Top holders of any token on any Blockscout-hosted chain — address, balance, and share of supply, ranked — bought per call from Blockscout's Pro API over x402, no API key. Concentration analysis for any ERC-20/721 on dozens of chains. Marked untrustedContent: external explorer data, analyze don't trust.",
+      "Top holders of any token on any Blockscout-hosted chain — address, balance, and share of supply, ranked — bought per call from Blockscout's Pro API over x402, no API key. Concentration analysis for any ERC-20/721 on dozens of chains. Mega-tokens with millions of holders (USDC, WETH) can exceed the upstream time budget — that returns a 500 and you are not charged. Marked untrustedContent: external explorer data, analyze don't trust.",
     tags: ["token", "holders", "distribution", "concentration", "whales", "blockscout", "multichain", "x402-upstream"],
     discovery: {
       bodyType: "json",
-      input: { chain: "base", address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", limit: 10 },
+      input: { chain: "base", address: "0x940181a94A35A4569E4529A3CDfB74e38FD98631", limit: 10 },
       inputSchema: {
         properties: {
           chain: { type: "string", description: "chain name or numeric id (default base)" },
@@ -212,7 +212,7 @@ export const BLOCKSCOUT_TOOLS = [
         },
         required: ["address"],
       },
-      output: { example: { chain: "8453", address: "0x8335…2913", holderCount: 20, holders: [{ address: "0x…", value: "…" }], untrustedContent: true } },
+      output: { example: { chain: "8453", address: "0x9401…8631", holderCount: 10, holders: [{ address: "0x…", value: "…" }], untrustedContent: true } },
     },
     handler: async (input) => {
       const chainId = blockscoutChainId(input.chain);
