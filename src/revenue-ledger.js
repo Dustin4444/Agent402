@@ -353,6 +353,41 @@ export function ledgerSummary({ walletAddress, solanaWallet, stellarWallet, algo
 let loopStarted = false;
 /** Boot the background sync loop. Fast ticks while backfilling, then a
  *  5-minute tail. Errors back off to the next tick — never crash the app. */
+/** Daily revenue series for the /revenue chart: one row per (day, chain) with
+ *  external vs internal (canary-sized) USD + tx counts. Funding/sweep-sized
+ *  non-external inbound is EXCLUDED — the chart compares revenue-shaped flows.
+ *  EVM rows carry no when_ts; their day is estimated from block height
+ *  anchored to the sync cursor (next_block ≈ chain head at updated_ts) via the
+ *  per-chain block cadence — no network calls, accurate to sync lag, and
+ *  drift over months only ever mis-buckets a row by a day at the boundary. */
+export function ledgerDaily({ walletAddress, solanaWallet, stellarWallet, algorandWallet }) {
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external FROM transfers WHERE wallet = ?");
+  const chains = [...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]), ["solana", solanaWallet], ["stellar", stellarWallet], ["algorand", algorandWallet]];
+  const byDay = new Map(); // "YYYY-MM-DD|chain" -> {extUsd, extTx, intUsd, intTx}
+  for (const [chain, wallet] of chains) {
+    if (!wallet) continue;
+    const cur = getCursor.get(chain, wallet);
+    const anchorBlock = cur?.next_block ?? null;
+    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
+    const cadence = BLOCK_MS[chain] || 2000;
+    for (const t of rows.all(wallet)) {
+      if (t.chain !== chain) continue;
+      let ms = t.when_ts ? t.when_ts * 1000 : null;
+      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
+      if (ms == null) continue; // undateable row — skip rather than guess
+      const day = new Date(ms).toISOString().slice(0, 10);
+      const key = `${day}|${chain}`;
+      const b = byDay.get(key) || { day, chain, extUsd: 0, extTx: 0, intUsd: 0, intTx: 0 };
+      if (t.external) { b.extUsd += t.usd; b.extTx += 1; }
+      else if (t.usd <= MAX_CALL_USD) { b.intUsd += t.usd; b.intTx += 1; } // canary-sized only
+      byDay.set(key, b);
+    }
+  }
+  return [...byDay.values()]
+    .map((b) => ({ ...b, extUsd: Number(b.extUsd.toFixed(6)), intUsd: Number(b.intUsd.toFixed(6)) }))
+    .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.chain.localeCompare(b.chain)));
+}
+
 export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet }) {
   const enabled = HAS_DATA_DIR || process.env.REVENUE_LEDGER === "true";
   if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet && !algorandWallet)) return false;
