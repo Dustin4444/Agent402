@@ -150,6 +150,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   so without it the server's graceful drain never runs. Drain (`src/server.js` shutdown):
   `closeIdleConnections()` sweep every 5s + 75s hard deadline (covers transcribe's 60s
   upstream timeout).
+- **AVM validity guard (`src/avm-validity.js`):** Algorand payments are rejected 422
+  BEFORE the handler when the signed txn's validity window can't outlive the tool
+  (settlement is post-handler, so a dead txn = buyer refunded but our upstream spend
+  burned — proven by image-gen-premium vs algokit's 10-round/~28s default window).
+  Default requirement 20s (under the default window, normal tools unaffected);
+  `SLOW_TOOL_SECONDS` maps the slow slugs (image-gen-premium 90). Round anchor from
+  `ALGORAND_ALGOD_BASES` (5-min cache), fail-open on any decode/algod failure.
+  `scripts/test-avm-validity.js` (offline, in CI).
 - **STT margin cap (`src/tools/stt-kit.js`):** per-tier `maxMinutes` (5/10) is enforced
   locally via a `music-metadata` duration probe BEFORE any OpenAI spend — upstream bills
   per audio minute (~$0.003 mini / ~$0.006 4o), so break-even on the $0.03 tier is ~10 min
