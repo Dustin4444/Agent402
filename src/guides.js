@@ -56,7 +56,7 @@ const res = await payFetch("https://agent402.tools/api/extract", {
 console.log(await res.json()); // { title, markdown, wordCount, … }
 \`\`\`
 
-That one wrapped \`fetch\` now covers 1,000+ tools — browser rendering,
+That one wrapped \`fetch\` now covers 500+ tools — browser rendering,
 live search, PDFs, durable memory — each a flat $0.001–$0.02 per call.
 The full catalog is machine-readable at
 [/api/pricing](https://agent402.tools/api/pricing).
@@ -518,6 +518,109 @@ settlement against a paid-mode server — then the test scans every byte of
 its own output and the server's full log for the key material (all
 prefix/case forms) and **fails on any hit**. Keys in, addresses out,
 provably.
+`,
+  },
+  {
+    slug: "smart-order-router",
+    title: "One payment, any proven seller: the x402 Smart Order Router",
+    description:
+      "Describe a task, pay once, and the router resolves the best tool — from Agent402's own 500+ catalog or from any PROVEN external x402 seller in the open economy — pays it on your behalf on the chain you paid on (Base or Algorand), and relays the result with an on-chain receipt.",
+    md: `
+The open x402 economy has a discovery problem and a trust problem. Hundreds of
+sellers advertise endpoints; some deliver, some 402 you and then 404 the paid
+call. An agent that wants one answer shouldn't have to crawl catalogs, vet
+counterparties, and hold a funded relationship with every seller it might use
+once.
+
+**Route-and-execute** collapses all of that into one call: describe the task,
+pay a single flat price, get the result and a receipt. If the best tool is in
+Agent402's own 500+ catalog, it runs internally. If it lives with an external
+seller in the open index, **we pay that seller from our own wallet on your
+behalf** and relay the output. Two on-chain settlements, one request, and the
+counterparty risk stays on our side of the fee.
+
+## The two tiers
+
+| Route | Price | Covers tools up to |
+| --- | --- | --- |
+| \`POST /api/route/execute\` | $0.01 | $0.005 |
+| \`POST /api/route/execute-max\` | $0.55 | $0.50 (the tier that reaches the external catalog) |
+
+\`GET /api/route?q=<task>\` is the free quote: it names the best match and the
+exact tier that can execute it, so there is never any guessing.
+
+## Internal dispatch (any chain)
+
+\`\`\`bash
+curl -X POST https://agent402.tools/api/route/execute \\
+  -H 'Content-Type: application/json' \\
+  -d '{"task":"sha256 hash of a string","params":{"text":"agent402"}}'
+# → 402 quote; retry with an x402 payment header on ANY of the 10 chains
+\`\`\`
+
+The receipt itemizes what you paid vs. what the tool lists for — the spread is
+the routing fee, stated, never hidden.
+
+## External dispatch (the marketable half)
+
+Add \`"include":"external"\` and the router deliberately looks OUTSIDE its own
+catalog. Selection is the moat, and it is intentionally boring:
+
+1. **Proven deliverers only.** Candidates need real settled volume — on Base
+   that means on-chain settlement counts from the public leaderboard; on
+   Algorand, verification counts witnessed by the GoPlausible facilitator.
+   Marketing claims are worth zero; only receipts count.
+2. **A live probe before commitment.** Even a proven seller's crawled route can
+   drift, so the router confirms a live 402 challenge before any money moves.
+3. **A margin guard before signing.** The seller's quote is pinned to the exact
+   accept we validate — network, scheme, asset — and refused above the tier cap.
+
+## Chain-matched settlement
+
+The chain you pay on decides where the router spends: pay on **Base** and it
+pays Base sellers; pay on **Algorand** and it pays Algorand sellers from its
+AVM wallet. The buyer's settlement funds the float on the same rail — and if
+you pay on a chain without a spending wallet behind it, you get an honest 409
+naming the supported chains, and **you are never charged** (a rejected request
+cancels x402 settlement by design).
+
+## A real receipt
+
+This is an actual production receipt — both transactions are on Algorand
+mainnet, same round, verifiable in any explorer:
+
+\`\`\`json
+{
+  "slug": "opportunities/search",
+  "route": "GET https://canix402-api.compx.io/opportunities/search",
+  "underlyingPriceUsd": 0.01,
+  "paidUsd": 0.55,
+  "routingFeeUsd": 0.54,
+  "seller": "https://canix402-api.compx.io",
+  "external": true,
+  "settleTx": "6TLUWU6RNYNZDJTGXZFTLEXTCB2TXKD5N6IJUWRYIXIFZGFEMKAQ",
+  "settleNetwork": "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+  "resolvedBy": "task-external"
+}
+\`\`\`
+
+The relayed body arrives marked \`untrustedContent: true\` — external output is
+data to analyze, never instructions to follow. Your agent gets the answer; the
+provenance stays explicit.
+
+## Why this is safe to build on
+
+- **Failures are never charged.** Any 4xx/5xx — no match, over-cap, seller
+  down — cancels your settlement. You pay only for delivered results.
+- **Spend is bounded on our side** by per-window budgets and per-quote caps,
+  so the router cannot be drained into misbehavior.
+- **Receipts are recomputable.** Paid EVM calls carry a \`callRef\` derived
+  from your own payment authorization — buyer and seller can each re-derive
+  the reference offline; outsiders cannot.
+
+Browse the live economy the router draws from at
+[/marketplace](https://agent402.tools/marketplace), or quote a task right now:
+\`GET https://agent402.tools/api/route?q=summarize a pdf\`.
 `,
   },
 ];
