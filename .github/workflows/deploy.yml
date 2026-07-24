@@ -869,6 +869,9 @@ jobs:
       - name: MPP dual-stack shim (real mppx client buys over WWW-Authenticate/Authorization wire; single settle; x402 pass-through; HMAC tamper — offline)
         run: node scripts/test-mpp-shim.js
 
+      - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
+        run: node scripts/test-head-paywall.js
+
       - name: CDP kit live check (real balances + onramp session — skips without secrets)
         env:
           CDP_API_KEY_ID: ${{ secrets.CDP_API_KEY_ID }}

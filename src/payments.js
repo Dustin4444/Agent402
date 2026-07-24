@@ -515,7 +515,24 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   const slimDiscovery = (d) => {
     if (!d) return d;
     const slim = { ...d };
-    if (slim.output) slim.output = { type: slim.output.type || "json" };
+    if (slim.output) {
+      // Keep the output EXAMPLE in the bazaar declaration: discovery crawlers
+      // (MPPScan's @agentcash/discovery, which x402scan also consumes) treat a
+      // missing extensions.bazaar.schema.properties.output as an error-level
+      // finding, and the example is what makes a listing invocable-with-
+      // confidence. Catalog examples are small (p50 178B, max ~1.1KB measured
+      // 2026-07-24); the 2KB guard keeps a future oversized example from
+      // bloating every 402 for that route — the full example always lives in
+      // /openapi.json.
+      const example = slim.output.example;
+      const oversized = example !== undefined && JSON.stringify(example).length > 2048;
+      slim.output = {
+        type: slim.output.type || "json",
+        ...(example !== undefined
+          ? { example: oversized ? { truncated: true, note: "full example in /openapi.json" } : example }
+          : {}),
+      };
+    }
     return slim;
   };
 
