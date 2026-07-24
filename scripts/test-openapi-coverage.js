@@ -104,6 +104,31 @@ try {
   }
   ok(mppOffers === 20, `first 20 catalog tools carry an MPP evm charge offer with atomic-USDC amount matching x-price (got ${mppOffers}/20)`);
 
+  // Every $ref anywhere in the spec must resolve against the spec root.
+  // Tool examples may embed specs whose refs point at #/components/... —
+  // naive ecosystem dereferencers (MPPScan's crawler, codegen tools) resolve
+  // from the ROOT and crash on a dangling pointer, killing the whole listing
+  // (2026-07-24: openapi-resolve-refs' example did exactly this).
+  const danglingRefs = [];
+  const resolves = (ref) => {
+    if (typeof ref !== "string" || !ref.startsWith("#/")) return true; // external/relative: not root-resolved here
+    let node = spec;
+    for (const seg of ref.slice(2).split("/")) {
+      node = node?.[seg.replace(/~1/g, "/").replace(/~0/g, "~")];
+      if (node === undefined || node === null) return false;
+    }
+    return true;
+  };
+  (function walk(node, path) {
+    if (Array.isArray(node)) return node.forEach((v, i) => walk(v, `${path}[${i}]`));
+    if (!node || typeof node !== "object") return;
+    for (const [k, v] of Object.entries(node)) {
+      if (k === "$ref" && !resolves(v)) danglingRefs.push(`${path} -> ${v}`);
+      walk(v, `${path}/${k}`);
+    }
+  })(spec, "");
+  ok(danglingRefs.length === 0, `every $ref in the spec resolves from the root (dangling: ${danglingRefs.slice(0, 3).join("; ") || "none"})`);
+
   console.log(`\n${pass} passed (${catalog.length} catalog tools, ${specPaths.length} spec paths)`);
   proc.kill("SIGKILL");
   process.exit(0);

@@ -525,7 +525,16 @@ export function openapiSpec(baseUrl, catalog) {
       //     runtime 402 stays authoritative; the shim (src/mpp-shim.js) is
       //     what actually answers MPP's evm/charge wire.
       "x-payment-info": {
-        protocols: ["x402"],
+        // STRUCTURED protocol objects, not bare strings: @agentcash/discovery
+        // (MPPScan's crawler, whose L3 output x402scan consumes) parses
+        // structured x-payment-info with zod — an object `price` next to
+        // string protocols fails the structured schema AND the legacy
+        // fallback, losing both price and protocols. The mpp entry requires
+        // non-empty method/intent/currency.
+        protocols: [
+          { x402: {} },
+          { mpp: { method: "evm", intent: "charge", currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } },
+        ],
         price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
         offers: [{
           intent: "charge",
@@ -568,6 +577,9 @@ export function openapiSpec(baseUrl, catalog) {
   paths["/api/skill-packs.json"] = {
     get: {
       operationId: "listSkillPacks",
+      // Explicit no-auth marker: discovery crawlers flag operations with
+      // neither x-payment-info nor a security declaration as "no auth mode".
+      security: [],
       summary: "List curated multi-tool workflows (skill packs)",
       description:
         "Curated, ordered sequences of Agent402 tool calls for tasks no single tool covers (e.g. audit a domain, diagnose deliverability). Each pack includes the tool slugs to call in order, a Claude-ready prompt template, and declared prompt arguments. Same data exposed as MCP prompts on the hosted connector. Free.",
@@ -583,6 +595,7 @@ export function openapiSpec(baseUrl, catalog) {
   paths["/api/skill-packs/{slug}/prompt"] = {
     get: {
       operationId: "getSkillPackPrompt",
+      security: [],
       summary: "Get a templated workflow prompt for a single skill pack",
       description:
         "Returns the rendered MCP-style messages for the named skill pack with the given arguments substituted in. Same output as MCP prompts/get on the hosted connector — usable directly with any LLM. Per-pack argument names come from /api/skill-packs.json. Free.",
@@ -616,8 +629,25 @@ export function openapiSpec(baseUrl, catalog) {
       // Email doubles as x402scan's ownership-verification signal; it is the
       // same public maintainer contact the /.well-known/x402 manifest names.
       contact: { name: "Havok Holdings LLC", email: "mike@agent402.tools", url: baseUrl },
+      // Agent-facing quickstart read by MPP/x402 discovery crawlers
+      // (info.x-guidance in MPPScan's audit).
+      "x-guidance":
+        "Every /api/* and /v1/* path is pay-per-call: request it unauthenticated, read the 402 (x402 PAYMENT-REQUIRED or MPP WWW-Authenticate: Payment), pay in USDC and retry. Find the right tool with GET /api/find?q=<task>; prices at GET /api/pricing; many tools also accept free proof-of-work (GET /api/pow).",
     },
     servers: [{ url: baseUrl }],
+    // These exist ONLY so the openapi-resolve-refs tool's example (which
+    // embeds a mini-spec whose `$ref`s point at #/components/...) resolves
+    // against THIS document's root too. Naive ecosystem dereferencers (e.g.
+    // dereference-json-schema, used by MPPScan's @agentcash/discovery crawler)
+    // walk the whole document and resolve every `$ref` from the root — a
+    // dangling pointer CRASHES them and kills our entire listing. The
+    // definitions mirror the example's own components byte-for-byte, so a
+    // resolver that inlines them changes nothing semantically.
+    // test-openapi-coverage locks "every $ref in the spec resolves".
+    components: {
+      schemas: { User: { type: "object", properties: { id: { type: "string" }, name: { type: "string" } } } },
+      parameters: { UserId: { name: "id", in: "path", required: true, schema: { type: "string" } } },
+    },
     // MPP discovery (paymentauth.org draft-payment-discovery) service-level
     // metadata — MPPScan and MPP-aware agents read this from /openapi.json.
     "x-service-info": {
