@@ -1126,7 +1126,17 @@ app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPa
 // Live consolidated revenue view — every rail's wallet on one page instead
 // of one explorer tab per chain. Server-side reads with a 60s module cache;
 // individual rail failures degrade to "unavailable" without a 500.
-const revenueWallets = () => ({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null, algorandWallet: (process.env.ALGORAND_WALLET_ADDRESS || "").trim() || null });
+const revenueWallets = () => ({
+  walletAddress: WALLET_ADDRESS,
+  solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null,
+  stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null,
+  algorandWallet: (process.env.ALGORAND_WALLET_ADDRESS || "").trim() || null,
+  // The SOR spending wallet RECEIVES route-execute's Base leg (self-funding
+  // slugs) — that inbound is revenue the treasury-only scan missed. Scanned
+  // on Base only; its sweeps OUT to the treasury classify internal via
+  // OUR_EVM_WALLETS.
+  baseExtraWallets: [(process.env.X402_UPSTREAM_BUYER_ADDRESS || "").trim() || null].filter(Boolean),
+});
 app.get("/api/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
@@ -3425,7 +3435,7 @@ if (WALLET_ADDRESS) revenueSnapshot(revenueWallets()).catch(() => { /* warm-up o
 
 // All-time revenue ledger sync loop — self-gates on /data (prod volume) or
 // REVENUE_LEDGER=true, so test/CI boots never touch public RPCs.
-startRevenueLedger({ walletAddress: WALLET_ADDRESS, solanaWallet: (process.env.SOLANA_WALLET_ADDRESS || "").trim() || null, stellarWallet: (process.env.STELLAR_WALLET_ADDRESS || "").trim() || null, algorandWallet: (process.env.ALGORAND_WALLET_ADDRESS || "").trim() || null });
+startRevenueLedger(revenueWallets());
 
 // Tollbooth leads — lazy Postgres init. No-op if DATABASE_URL is unset; in
 // that case /api/tollbooth/waitlist returns 503 and the form falls back to the

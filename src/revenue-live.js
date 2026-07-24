@@ -27,9 +27,10 @@ export const MAX_CALL_USD = parseFloat(process.env.MAX_CALL_USD || "0.75");
 export const OUR_EVM_WALLETS = new Set(
   // Canary/burner EVM addresses (public; keys live only in CI). Rotated
   // 2026-07-17: 0xfeda7403… retired (drained), 0x902dcf34… is the current
-  // burner. Both listed so historical AND ongoing self-buys stay internal,
-  // never counted as external revenue.
-  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256")
+  // burner. 0x77065d81… is the Base x402 SPENDING wallet (X402_UPSTREAM_BUYER_ADDRESS
+  // on Railway) — its sweeps to the treasury are internal moves, never revenue.
+  // All listed so historical AND ongoing self-flows stay internal.
+  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256,0x77065d81e18ad403bcd6e9a0616b288e16744121")
     .toLowerCase().split(",").map((s) => s.trim()).filter(Boolean)
 );
 // Default = the canary's Solana burner (public address; the key lives only
@@ -1210,7 +1211,7 @@ export function revenuePage(baseUrl, snap) {
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
       <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
         <span style="font-weight:800;font-size:17px;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· ${esc(r.asset)}</span> ${statusDot}</span>
-        <span style="font-family:var(--font-mono);text-align:right;"><span style="font-size:20px;font-weight:700;color:var(--accent);">${at ? "$" + at.externalUsd + (at.caughtUp ? "" : "↺") : r.balance == null ? "-" : "$" + r.balance.toFixed(4)}</span><span style="display:block;font-size:11px;color:var(--muted);">${at ? "all-time external revenue" : "balance"}${r.balance != null && at ? ` · in wallet now $${r.balance.toFixed(4)}` : ""}${Number.isFinite(r.externalUsd) ? ` · window $${r.externalUsd}` : ""}</span></span>
+        <span style="font-family:var(--font-mono);text-align:right;"><span style="font-size:20px;font-weight:700;color:var(--accent);">${at ? "$" + at.externalUsd + (at.caughtUp ? "" : "↺") : "-"}</span><span style="display:block;font-size:11px;color:var(--muted);">all-time external revenue${Number.isFinite(r.externalUsd) ? ` · window $${r.externalUsd}` : ""}</span></span>
       </div>
       ${!hasBalance
         ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable - public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
@@ -1242,7 +1243,7 @@ export function revenuePage(baseUrl, snap) {
       Machine-readable: <a href="/api/revenue">/api/revenue</a>.
     </p>
     ${snap.allTime ? `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:22px;">${snap.allTime.allTimeExternalCount.toLocaleString()}</strong> verifiable external payment${snap.allTime.allTimeExternalCount === 1 ? "" : "s"} all-time <span style="color:var(--muted);">- $${snap.allTime.allTimeExternalUsd.toFixed(4)} settled on-chain, each linked to its explorer proof${snap.allTime.syncing ? " · ledger backfilling - total still rising" : ""}</span></p>` : ""}
-    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · combined balance <strong style="color:var(--ink);">$${snap.totalUsd.toFixed(4)}</strong> · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>balances include our own canary/test money - only transfers classified <strong style="color:var(--accent);">external</strong> count as revenue</p>
+    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>every figure is <strong style="color:var(--accent);">external</strong> revenue only - our own canary/test/funding money never counts (wallet balances are float, not earnings, and are not shown)</p>
     ${revenueChartSection()}
     <div class="ml-2col" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
       ${snap.rails.map(railCard).join("\n")}

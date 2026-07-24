@@ -76,6 +76,32 @@ const putCursor = db.prepare(`INSERT INTO cursors (chain, wallet, next_block, ne
     next_block = excluded.next_block, newest_sig = excluded.newest_sig,
     backfilled = excluded.backfilled, caught_up = excluded.caught_up, updated_ts = excluded.updated_ts`);
 
+// One-off reclassification (user_version-gated): `external` is stamped at
+// record time, so rule changes (the $0.50→$0.75 ceiling; wallets later added
+// to the OUR_* sets, e.g. the SOR spending wallets) never touched stored
+// rows. Recompute every row under the CURRENT rules whenever the migration
+// version bumps. Idempotent, runs once per version, ~20k rows in well under
+// a second.
+const RECLASS_VERSION = 1;
+function reclassifyAll() {
+  if (db.pragma("user_version", { simple: true }) >= RECLASS_VERSION) return;
+  const sets = { solana: OUR_SOLANA_WALLETS, stellar: OUR_STELLAR_WALLETS, algorand: OUR_ALGORAND_WALLETS };
+  const rows = db.prepare("SELECT rowid, chain, payer, usd, external FROM transfers").all();
+  const upd = db.prepare("UPDATE transfers SET external = ? WHERE rowid = ?");
+  let flipped = 0;
+  const tx = db.transaction(() => {
+    for (const r of rows) {
+      const ours = sets[r.chain] || OUR_EVM_WALLETS;
+      const ext = isExternalPayment({ payer: r.payer, usd: r.usd }, { ourWallets: ours, maxUsd: MAX_CALL_USD }) ? 1 : 0;
+      if (ext !== r.external) { upd.run(ext, r.rowid); flipped++; }
+    }
+    db.pragma(`user_version = ${RECLASS_VERSION}`);
+  });
+  tx();
+  if (flipped) console.log(`revenue-ledger: reclassified ${flipped} rows under current rules (v${RECLASS_VERSION})`);
+}
+reclassifyAll();
+
 /** Record one transfer (idempotent — the PK dedupes replays/rescans). */
 export function recordTransfer(row) {
   upsertTransfer.run({ when_ts: null, payer: null, ...row, external: row.external ? 1 : 0 });
@@ -314,7 +340,21 @@ export async function syncAlgorand(wallet, { maxPages = 5 } = {}) {
 }
 
 /** All-time totals + sync progress — cheap enough to run per request. */
-export function ledgerSummary({ walletAddress, solanaWallet, stellarWallet, algorandWallet }) {
+// One (chain, wallet) pair per scanned wallet. baseExtraWallets are ADDITIONAL
+// revenue wallets on Base only — the SOR spending wallet receives the
+// route-execute Base leg (SELF_FUNDING_SLUGS), which is real revenue that the
+// treasury-only scan missed entirely.
+// EVM rows are stored lowercase (sync normalizes); Solana base58, Stellar
+// G… addresses, and Algorand base32 addresses are all case-exact.
+function walletPairs({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [] }) {
+  return [
+    ...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]),
+    ...baseExtraWallets.filter(Boolean).map((w) => ["base", w.toLowerCase()]),
+    ["solana", solanaWallet], ["stellar", stellarWallet], ["algorand", algorandWallet],
+  ];
+}
+
+export function ledgerSummary(wallets) {
   const per = {};
   let allTimeExternalUsd = 0;
   let allTimeExternalCount = 0;
@@ -323,21 +363,18 @@ export function ledgerSummary({ walletAddress, solanaWallet, stellarWallet, algo
       COALESCE(SUM(CASE WHEN external = 1 THEN usd END), 0) AS extUsd,
       COALESCE(SUM(external), 0) AS extN
     FROM transfers WHERE chain = ? AND wallet = ?`);
-  // EVM rows are stored lowercase (sync normalizes); Solana base58, Stellar
-  // G… addresses, and Algorand base32 addresses are all case-exact.
-  const chains = [...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]), ["solana", solanaWallet], ["stellar", stellarWallet], ["algorand", algorandWallet]];
-  for (const [chain, wallet] of chains) {
+  for (const [chain, wallet] of walletPairs(wallets)) {
     if (!wallet) continue;
     const t = q.get(chain, wallet);
     const cur = getCursor.get(chain, wallet);
-    per[chain] = {
-      externalUsd: Number(t.extUsd.toFixed(6)),
-      externalCount: t.extN,
-      inboundUsd: Number(t.usd.toFixed(6)),
-      inboundCount: t.n,
-      caughtUp: Boolean(cur?.caught_up),
-      syncedAt: cur?.updated_ts ?? null,
-    };
+    // Two wallets on one chain (treasury + spending) ACCUMULATE into one row.
+    const p = per[chain] || (per[chain] = { externalUsd: 0, externalCount: 0, inboundUsd: 0, inboundCount: 0, caughtUp: true, syncedAt: null });
+    p.externalUsd = Number((p.externalUsd + t.extUsd).toFixed(6));
+    p.externalCount += t.extN;
+    p.inboundUsd = Number((p.inboundUsd + t.usd).toFixed(6));
+    p.inboundCount += t.n;
+    p.caughtUp = p.caughtUp && Boolean(cur?.caught_up);
+    p.syncedAt = Math.max(p.syncedAt ?? 0, cur?.updated_ts ?? 0) || null;
     allTimeExternalUsd += t.extUsd;
     allTimeExternalCount += t.extN;
   }
@@ -360,9 +397,9 @@ let loopStarted = false;
  *  anchored to the sync cursor (next_block ≈ chain head at updated_ts) via the
  *  per-chain block cadence — no network calls, accurate to sync lag, and
  *  drift over months only ever mis-buckets a row by a day at the boundary. */
-export function ledgerDaily({ walletAddress, solanaWallet, stellarWallet, algorandWallet }) {
+export function ledgerDaily(wallets) {
   const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external FROM transfers WHERE wallet = ?");
-  const chains = [...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]), ["solana", solanaWallet], ["stellar", stellarWallet], ["algorand", algorandWallet]];
+  const chains = walletPairs(wallets);
   const byDay = new Map(); // "YYYY-MM-DD|chain" -> {extUsd, extTx, intUsd, intTx}
   for (const [chain, wallet] of chains) {
     if (!wallet) continue;
@@ -393,7 +430,7 @@ export function ledgerDaily({ walletAddress, solanaWallet, stellarWallet, algora
     .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.chain.localeCompare(b.chain)));
 }
 
-export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet }) {
+export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [] }) {
   const enabled = HAS_DATA_DIR || process.env.REVENUE_LEDGER === "true";
   if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet && !algorandWallet)) return false;
   loopStarted = true;
@@ -408,6 +445,17 @@ export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet,
           allCaughtUp = false;
           console.warn(`revenue-ledger: ${chain} sync tick failed (will retry): ${String(e?.message || e).slice(0, 100)}`);
         }
+      }
+    }
+    // Extra Base revenue wallets (the SOR spending wallet: route-execute's
+    // Base leg settles here — revenue, not float).
+    for (const w of baseExtraWallets.filter(Boolean)) {
+      try {
+        const r = await syncEvmChain("base", w.toLowerCase());
+        if (!r.caughtUp) allCaughtUp = false;
+      } catch (e) {
+        allCaughtUp = false;
+        console.warn(`revenue-ledger: base extra-wallet sync tick failed (will retry): ${String(e?.message || e).slice(0, 100)}`);
       }
     }
     if (solanaWallet) {
