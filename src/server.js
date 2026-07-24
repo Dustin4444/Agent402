@@ -3106,7 +3106,14 @@ app.use((req, res, next) => {
         // For USDC, also attribute the settlement chain from the settle receipt
         // (multi-chain x402: Base vs Solana vs Polygon…) so /api/stats can
         // answer "did anyone pay on <chain>" without per-chain explorer scans.
-        recordServedCall(def.slug, method, method === "usdc" ? networkFromPaymentResponse(settleReceipt) : null);
+        recordServedCall(
+          def.slug,
+          method,
+          method === "usdc" ? networkFromPaymentResponse(settleReceipt) : null,
+          // Wire attribution: req.mppCredential is set by src/mpp-shim.js when
+          // the credential arrived as MPP Authorization: Payment.
+          method === "usdc" && req.mppCredential ? "mpp" : null
+        );
         // Funnel stage 3 — the gate accepted payment and the tool answered.
         // Mirrors the stats attribution above. Skipped in FREE_MODE — nothing
         // was paid, so a "settlement" event would be a lie.
@@ -3125,7 +3132,10 @@ app.use((req, res, next) => {
           // "node") so payment_settled can answer "which SDK/client do paying
           // wallets use?". Never the full UA string, never an IP.
           const clientUa = String(req.headers["user-agent"] || "").trim().split(/\s+/)[0].slice(0, 40) || null;
-          capturePostHogSettlement({ slug: def.slug, rail, network, priceUsd, synthetic, payer, clientUa });
+          capturePostHogSettlement({
+            slug: def.slug, rail, network, priceUsd, synthetic, payer, clientUa,
+            wire: rail === "usdc" ? (req.mppCredential ? "mpp" : "x402") : null,
+          });
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
           // buy" is answerable forever (the question the odometer can't).

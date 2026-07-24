@@ -333,7 +333,10 @@ function flushPowChallengeRollup() {
 // never the full UA string: it answers "which SDK/client do paying wallets
 // use?" (do agent402-client installs convert?) without carrying device or
 // platform detail. No IP, ever — consistent with the file's privacy posture.
-export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthetic, payer, clientUa }) {
+// `wire` (usdc only): "mpp" when the credential arrived as MPP
+// Authorization: Payment (translated by src/mpp-shim.js), "x402" otherwise —
+// the adoption split for the MPP dual-stack.
+export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthetic, payer, clientUa, wire }) {
   if (!active()) return;
   capture("payment_settled", {
     slug: String(slug || "unknown"),
@@ -343,6 +346,7 @@ export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthe
     synthetic: !!synthetic,
     ...(payer ? { payer } : {}),
     ...(clientUa ? { clientUa: String(clientUa).slice(0, 40) } : {}),
+    ...(wire ? { wire: String(wire) } : {}),
   });
 }
 

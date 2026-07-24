@@ -72,7 +72,7 @@ const getChargedFailures = db.prepare("SELECT slug, status, ts FROM charged_fail
 setMetaIfAbsent.run("firstServed", String(Date.now()));
 const bootedAt = Date.now();
 
-const recordCall = db.transaction((slug, method, network) => {
+const recordCall = db.transaction((slug, method, network, wire) => {
   bumpCounter.run("total");
   // Three rails: USDC (real revenue), external PoW (real free-tier adoption),
   // heartbeat (our own probe — pays via PoW but we track it separately so the
@@ -86,6 +86,11 @@ const recordCall = db.transaction((slug, method, network) => {
   // place that fact exists at serve time. "unknown" = settled before this
   // counter existed or the receipt header didn't decode.
   if (method === "usdc") bumpCounter.run(`usdcNet:${network || "unknown"}`);
+  // Which WIRE carried the credential. Same settlement, same rail, but the
+  // buyer spoke either x402 (PAYMENT-SIGNATURE) or MPP (Authorization:
+  // Payment, translated by src/mpp-shim.js). Counted only for usdc — the MPP
+  // adoption signal after the MPPScan/tempo directory listings.
+  if (method === "usdc" && wire === "mpp") bumpCounter.run("viaMPPWire");
   if (method === "heartbeat") bumpHeartbeatTool.run(slug); // internal probe traffic
   // Privacy-safe activity feed: tool + settlement method + time only — never a
   // payload, wallet, or IP. Only successful (200) served calls reach here.
@@ -95,10 +100,12 @@ const recordCall = db.transaction((slug, method, network) => {
 });
 
 /** Count one successfully served paid-tool call. method: "usdc" | "pow" | "heartbeat".
- *  network (usdc only): short chain name from the settle receipt, e.g. "base" | "solana". */
-export function recordServedCall(slug, method, network = null) {
+ *  network (usdc only): short chain name from the settle receipt, e.g. "base" | "solana".
+ *  wire (usdc only): "mpp" when the credential arrived as MPP Authorization:
+ *  Payment (translated by the shim); anything else counts as plain x402. */
+export function recordServedCall(slug, method, network = null, wire = null) {
   try {
-    recordCall(slug, method, network);
+    recordCall(slug, method, network, wire);
   } catch {
     /* counters are best-effort; never break a response */
   }
@@ -210,6 +217,10 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       viaUSDCByNetwork: Object.fromEntries(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
       viaProofOfWork: num("viaProofOfWork"),
       viaHeartbeat: num("viaHeartbeat"), // internal probe traffic (PoW path, agent402-heartbeat UA)
+      // Subset of viaUSDC whose credential arrived over the MPP wire
+      // (Authorization: Payment, translated by src/mpp-shim.js) instead of
+      // x402's PAYMENT-SIGNATURE. The MPP-adoption signal.
+      viaMPPWire: num("viaMPPWire"),
     },
     // Charged on-chain but handler returned non-200 — should always be 0. Any
     // value here means we billed the buyer and gave them an error. The dashboard
