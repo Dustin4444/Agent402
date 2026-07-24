@@ -981,20 +981,8 @@ app.use((_req, res, next) => {
 const htmlCache = (res, maxAge, swr) =>
   res.set("Cache-Control", `public, max-age=${maxAge}, stale-while-revalidate=${swr}`).type("html");
 app.get("/", (_req, res) => {
-  // By-chain strip cell counts: real seller counts from the same index
-  // snapshot every /<chain> market page renders — never hardcoded. Iterates
-  // CHAIN_PAGES so a new chain page lights up the strip with zero edits
-  // here; a missing count (crawl failure) just leaves that key out — the
-  // strip renders its dimmed "unavailable" state, never a zero.
-  const chainSellerCounts = {};
-  try {
-    const snapshot = getIndexSnapshot();
-    for (const key of Object.keys(CHAIN_PAGES)) {
-      try { chainSellerCounts[key] = marketOperatorCount(key, snapshot, getLeaderboardSnapshot()); } catch { /* strip cell renders without the count */ }
-    }
-  } catch { /* snapshot unavailable — strip renders rail-only cells */ }
   htmlCache(res, 60, 300).send(
-    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS, { chainSellerCounts })
+    ledgerHomePage(BASE_URL, CATALOG, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }), getLeaderboardSnapshot(), SKILL_PACKS)
   );
 });
 // /marketplaces — legacy surface, merged into /marketplace (301 keeps SEO equity).

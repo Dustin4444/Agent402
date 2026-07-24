@@ -1,20 +1,13 @@
 // Machine Ledger — Home page ("Agent402 Ledger")
-// The primary marketing page: hero, receipt, registry manifest, three ways in,
-// catalog index, leaderboard preview, settlement tape, proof, FAQ, CTA, footer.
+// The primary marketing page: hero, skill packs, three ways in, catalog index,
+// leaderboard preview, settlement tape, sell band, proof, FAQ (accordions), CTA, footer.
 
 import { ledgerShell, ledgerFooterFull, ledgerTape, esc } from "./ledger-chrome.js";
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable } from "./pow.js";
-import { RAILS, RAILS_AMP, RAILS_SHORT, RAILS_PAREN, truncateCaip2 } from "./rails.js";
+import { RAILS, RAILS_AMP, RAILS_SHORT, RAILS_PAREN } from "./rails.js";
 import { PACK_PRICES } from "./tools/skill-runner.js";
-import { CHAIN_PAGES } from "./market-page.js";
 import { chainLogoStrip } from "./chain-logos.js";
-
-// RAILS caip2 -> CHAIN_PAGES key, so the by-chain strip can tell which rails
-// have a live market page (stellar, algorand) vs. rail-only cells (no page
-// yet). Adding a chain page later is a CHAIN_PAGES entry — this map, and the
-// strip below, pick it up with zero edits here.
-const CHAIN_PAGE_BY_CAIP2 = new Map(Object.entries(CHAIN_PAGES).map(([key, cfg]) => [cfg.caip2, key]));
 
 // The six packs merchandised on the home page — a deliberate mix: two premium
 // research jobs, two of the newest agent-ops jobs, one security classic, one
@@ -24,7 +17,7 @@ const FLAGSHIP_PACKS = ["financial-research", "search-and-cite", "onchain-analys
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 
-export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks, { chainSellerCounts } = {}) {
+export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks) {
   const tools = toolList(catalog);
   const count = tools.length;
   // The catalog's entries split into plain tools and skill-pack routes — the
@@ -36,37 +29,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const recent = Array.isArray(stats?.recentCalls) ? stats.recentCalls : [];
   const board = Array.isArray(leaderboardSnapshot?.leaderboard) ? leaderboardSnapshot.leaderboard : [];
   const packCount = Array.isArray(skillPacks) ? skillPacks.length : 42;
-
-  // By-chain strip data — one cell per rail from rails.js, joined with
-  // page-availability (CHAIN_PAGES) and live seller counts (chainSellerCounts,
-  // built by server.js from the same index snapshot /stellar and /algorand
-  // render). No opts at all (offline smoke tests) still renders 7 cells —
-  // every rail just falls back to its rail-only or "unavailable" state.
-  const chainCells = RAILS.map((r) => {
-    const pageKey = CHAIN_PAGE_BY_CAIP2.get(r.caip2);
-    const hasPage = !!pageKey;
-    const sellerCount = hasPage ? chainSellerCounts?.[pageKey] : undefined;
-    const known = Number.isFinite(sellerCount);
-    const live = hasPage && known;
-    return {
-      name: r.name.replace(/ Chain$/, "").toUpperCase(),
-      asset: `${r.asset} · ${truncateCaip2(r.caip2)}`,
-      assetFull: `${r.asset} · ${r.caip2}`,
-      href: hasPage ? `/${pageKey}` : "/marketplace",
-      nameColor: hasPage ? "var(--on-dark2)" : "var(--dk-muted2)",
-      statusColor: live ? "var(--green)" : "var(--dk-muted3)",
-      // "sellers" not "sellers indexed" — the longer label ellipsized in the
-      // 2-col phone grid, and the strip's caption already says counts derive
-      // at render.
-      status: hasPage ? (known ? `${fmtNum(sellerCount)} seller${sellerCount === 1 ? "" : "s"}` : "unavailable") : "rail live",
-    };
-  });
-  const chainCellHtml = (c) =>
-    `<a href="${esc(c.href)}" style="display:block;min-width:0;overflow:hidden;padding:14px 16px;border-right:1px solid var(--dark-border);text-decoration:none;">
-        <span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-weight:700;font-size:13px;color:${c.nameColor};margin-bottom:3px;">${esc(c.name)}</span>
-        <span title="${esc(c.assetFull)}" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:10.5px;color:var(--dk-muted3);margin-bottom:9px;">${esc(c.asset)}</span>
-        <span style="display:inline-flex;align-items:center;gap:6px;max-width:100%;overflow:hidden;font-family:var(--font-mono);font-size:11px;color:${c.statusColor};"><span style="width:6px;height:6px;border-radius:50%;background:${c.statusColor};display:inline-block;flex:none;"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(c.status)}</span></span>
-      </a>`;
 
   // Category data for the index
   const catEntries = Object.entries(CATEGORIES);
@@ -161,12 +123,12 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   <!-- HERO -->
   <header style="position:relative;overflow:hidden;border-bottom:1.5px solid var(--ink);background-image:repeating-linear-gradient(#0b0b0b0a 0,#0b0b0b0a 1px,transparent 1px,transparent 34px);">
     <div style="position:absolute;right:-30px;top:10px;font-family:var(--font-body);font-weight:900;font-size:420px;line-height:1;letter-spacing:-.04em;color:transparent;-webkit-text-stroke:2px #0b0b0b14;pointer-events:none;user-select:none;">402</div>
-    <div style="max-width:1180px;margin:0 auto;padding:70px 30px 0;position:relative;">
+    <div style="max-width:1180px;margin:0 auto;padding:70px 30px 60px;position:relative;">
       <div class="ml-hero-grid" style="display:grid;grid-template-columns:1.08fr .92fr;gap:50px;align-items:start;">
         <div class="ml-stagger">
           <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">open source · <span style="color:var(--accent);">x402</span> · mcp-native · settle in seconds</div>
           <h1 class="ml-hero-h1" style="font-family:var(--font-body);font-weight:800;font-size:70px;line-height:.94;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);">Where agents<br><span style="color:var(--accent);">pay</span> agents.</h1>
-          <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 24px;"><strong style="color:var(--ink);font-weight:700;">${fmtNum(count)} strong: ${fmtNum(toolOnlyCount)} tools + ${packCount} skill packs your AI agent calls and pays for by the request.</strong> OpenAI-compatible chat, embeddings &amp; images, live web search, market data, PDF &amp; OCR, on-chain reads. Every one tested, priced, and settled on-chain - every one earns its place. No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
+          <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 24px;"><strong style="color:var(--ink);font-weight:700;">Your AI agent calls and pays for tools by the request.</strong> Web search, market data, PDF &amp; OCR, on-chain reads, an OpenAI-compatible LLM gateway. No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
           <div style="display:flex;flex-wrap:wrap;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);margin:0 0 26px;max-width:560px;">
             ${[[fmtNum(count),"tools"],[String(packCount),"skill packs"],[fmtNum(freeCount),"free · pow"],['<span style="color:var(--accent);">$</span>0.001',"per call"],[String(RAILS.length),"chains"]].map(([n,l])=>`<div class="ml-spec-cell" style="flex:1 1 auto;padding:11px 16px 10px 0;margin-right:16px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:19px;line-height:1;font-variant-numeric:tabular-nums;">${n}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px;">${l}</div></div>`).join("")}
           </div>
@@ -196,66 +158,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           <div style="position:absolute;top:-16px;right:-14px;transform:rotate(9deg);border:2.5px solid var(--accent);color:var(--accent);background:var(--paper);padding:6px 12px 5px;font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.12em;line-height:1.25;text-align:center;box-shadow:2px 2px 0 #0b0b0b14;">PAYMENT REQUIRED<br><span style="font-size:9px;letter-spacing:.18em;opacity:.85;">· 402 · agent402.tools ·</span></div>
         </div>
       </div>
-
-      <!-- LEDGER BAND -->
-      <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:54px;padding-bottom:50px;">
-        <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· RECEIPT ··</span><span>since ${stats?.servingSince ? String(stats.servingSince).slice(0, 10) : "2026-06-12"}</span></div>
-          <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:14px;">
-            <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">skill packs · one payment</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">${packCount}</span></div>
-            <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">x402 tools</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">${fmtNum(count)}</span></div>
-            <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">free · no wallet</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">${fmtNum(freeCount)}</span></div>
-            <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">starting / call</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">$0.001</span></div>
-            <div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);">calls settled</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">${fmtNum(served?.total || 0)}</span></div>
-          </div>
-        </div>
-        <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· REGISTERED ON ··</span><span>verified</span></div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px 18px;font-family:var(--font-mono);font-size:13.5px;">
-            <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Coinbase CDP Bazaar</div>
-            <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> MCP Registry</div>
-            <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> npm</div>
-            <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> GitHub</div>
-            <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Base · USDC</div>
-            <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> Robinhood · USDG</div>
-            <div style="display:flex;gap:8px;"><span style="color:var(--accent);font-weight:700;">✓</span> OpenAPI 3.1</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ROUTING SLIP -->
-    <div style="border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);background:var(--paper);">
-      <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
-        <div class="ml-slip" style="display:grid;grid-template-columns:1fr 1fr 1fr;">
-          <div class="ml-slip-cell" style="padding:20px 24px 20px 0;border-right:1.5px solid var(--ink);">
-            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:8px;">01 / BUILDING AN AGENT?</div>
-            <div style="font-size:14.5px;line-height:1.5;color:var(--muted);margin-bottom:10px;">${fmtNum(count)} tools, ${packCount} packs, an LLM gateway. Free tier, two-minute integration.</div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12.5px;">
-              <a href="/quickstart" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">quickstart →</a>
-              <a href="/skills" style="color:var(--muted);text-decoration:none;">skill packs</a>
-              <a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a>
-            </div>
-          </div>
-          <div class="ml-slip-cell" style="padding:20px 24px;border-right:1.5px solid var(--ink);">
-            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:8px;">02 / HERE FROM A CHAIN?</div>
-            <div style="font-size:14.5px;line-height:1.5;color:var(--muted);margin-bottom:10px;">Your chain's x402 economy - sellers, receipts, rankings. All on-chain, all checkable.</div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12.5px;">
-              <a href="/marketplace" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">the marketplace →</a>
-              <a href="/stellar" style="color:var(--muted);text-decoration:none;">stellar</a>
-              <a href="/algorand" style="color:var(--muted);text-decoration:none;">algorand</a>
-            </div>
-          </div>
-          <div class="ml-slip-cell" style="padding:20px 0 20px 24px;">
-            <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);margin-bottom:8px;">03 / RUN AN API?</div>
-            <div style="font-size:14.5px;line-height:1.5;color:var(--muted);margin-bottom:10px;">Get paid per call. List on the index free, or tollbooth the crawlers already hitting you.</div>
-            <div style="display:flex;gap:16px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12.5px;">
-              <a href="/sell" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">start selling →</a>
-              <a href="/tollbooth" style="color:var(--muted);text-decoration:none;">tollbooth</a>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </header>
 
@@ -273,7 +175,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">A whole job, one payment.</h2>
       <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">${packCount} packs · $0.05–$1.50 · partial-success per step</span>
     </div>
-    <p style="font-size:16px;color:var(--muted);max-width:620px;margin:0 0 30px;">No single tool researches a stock or audits a site. A skill pack orchestrates the right tools in the right order server-side and returns one envelope - every step's result, one x402 payment. Also callable as MCP prompts, so Claude can drive the same workflow itself.</p>
+    <p style="font-size:16px;color:var(--muted);max-width:620px;margin:0 0 30px;">One payment runs a whole job: a pack orchestrates the right tools server-side and returns every step's result in one envelope. Callable as MCP prompts too.</p>
     <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
       ${FLAGSHIP_PACKS.map((slug) => {
         const p = (skillPacks || []).find((x) => x.slug === slug);
@@ -330,7 +232,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">The index - ${fmtNum(count)} tools.</h2>
       <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">deterministic · flat-priced · no LLM in the path</span>
     </div>
-    <p style="font-size:16px;color:var(--muted);max-width:640px;margin:0 0 28px;">The catalog is ${fmtNum(count)} strong (${fmtNum(toolOnlyCount)} tools + ${packCount} skill packs). Every tool earns its place: tested against its own example on every deploy, priced to market, settled on-chain. The catalog grows only when a tool is worth calling.</p>
+    <p style="font-size:16px;color:var(--muted);max-width:640px;margin:0 0 28px;">${fmtNum(toolOnlyCount)} tools + ${packCount} skill packs, each tested against its own example on every deploy and priced to market. It grows only when a tool is worth calling.</p>
     <div style="border:1.5px solid var(--ink);background:var(--card);">
       <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;">
         <div style="border-right:1.5px solid var(--ink);">
@@ -351,7 +253,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1.1fr;gap:50px;align-items:center;">
         <div>
           <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 16px;color:var(--on-dark2);">Not just a seller -<br>the neutral index.</h2>
-          <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;">One marketplace: the open index, the Smart Order Router, and the leaderboard, auto-crawled from the Coinbase CDP Bazaar and ranked by <strong style="color:var(--on-dark2);font-weight:700;">real on-chain USDC volume</strong>. Route a task across every x402 seller - not just ours.</p>
+          <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;">An open index and Smart Order Router, ranked by <strong style="color:var(--on-dark2);font-weight:700;">real on-chain USDC volume</strong>. Route a task across every x402 seller, not just ours.</p>
           <div style="display:flex;gap:20px;flex-wrap:wrap;font-family:var(--font-mono);font-size:13px;">
             <a href="/marketplace" style="color:var(--accent);text-decoration:none;">Explore the marketplace →</a>
           </div>
@@ -367,16 +269,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           </div>
           <div style="padding:10px 18px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">hourly on-chain snapshot · ?include=external</div>
         </div>
-      </div>
-      <!-- BY-CHAIN STRIP -->
-      <div style="margin-top:40px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px;">
-          <span style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);">THE MARKETPLACE, BY CHAIN - ADDING A CHAIN ADDS A CELL, NOT A NAV LINK</span>
-        </div>
-        <div class="ml-mkts" style="display:grid;grid-template-columns:repeat(${chainCells.length},minmax(0,1fr));gap:0;border:1.5px solid var(--dark-border2);background:var(--ink-panel);">
-          ${chainCells.map(chainCellHtml).join("\n          ")}
-        </div>
-        <div style="margin-top:10px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">seller counts + health derive at render · a failed crawl reads "unavailable", never zero</div>
       </div>
     </div>
   </section>
@@ -431,8 +323,9 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /faq</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:40px;line-height:1;letter-spacing:-.02em;margin:0 0 28px;color:var(--ink);">Questions.</h2>
     <div style="display:flex;flex-direction:column;">
-      ${faqs.map(({ q, a }, i) => `<div style="padding:20px 0;border-top:${i === 0 ? "1.5px solid var(--ink)" : "1px solid var(--hairline)"};${i === faqs.length - 1 ? "border-bottom:1.5px solid var(--ink);" : ""}"><h3 style="font-size:16px;font-weight:700;margin:0 0 7px;">${esc(q)}</h3><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;">${esc(a)}</p></div>`).join("\n      ")}
+      ${faqs.map(({ q, a }, i) => `<details${i === 0 ? " open" : ""} style="padding:0;border-top:${i === 0 ? "1.5px solid var(--ink)" : "1px solid var(--hairline)"};${i === faqs.length - 1 ? "border-bottom:1.5px solid var(--ink);" : ""}"><summary style="list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 0;font-size:16px;font-weight:700;color:var(--ink);"><span>${esc(q)}</span><span class="ml-faq-mark" style="font-family:var(--font-mono);font-weight:400;font-size:20px;color:var(--accent);line-height:1;flex:none;">+</span></summary><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;padding:0 0 20px;">${esc(a)}</p></details>`).join("\n      ")}
     </div>
+    <style>section details > summary::-webkit-details-marker{display:none;} section details[open] .ml-faq-mark{transform:rotate(45deg);} .ml-faq-mark{transition:transform .15s ease;display:inline-block;}</style>
   </section>
 
   <!-- CTA -->
