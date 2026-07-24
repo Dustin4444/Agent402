@@ -632,9 +632,11 @@ jobs:
           # Marks the buys as internal traffic in the sales ledger (see the
           # note in scripts/demo-company-onepager.js); on-chain txs stay real.
           POW_SECRET: ${{ secrets.POW_SECRET }}
+          # Dispatch input rides an env var, never shell interpolation (N-03).
+          DEMO_TICKER: ${{ inputs.demo_ticker || 'NVDA' }}
         run: |
           [ -n "$AGENT_KEY" ] || { echo "::error::BURNER_KEY secret is not set"; exit 1; }
-          node scripts/demo-company-onepager.js "${{ inputs.demo_ticker || 'NVDA' }}" | tee demo-output.txt
+          node scripts/demo-company-onepager.js "$DEMO_TICKER" | tee demo-output.txt
       - name: Upload demo output
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

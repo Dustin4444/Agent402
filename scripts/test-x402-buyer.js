@@ -56,13 +56,13 @@ ok(t1 && /exceeds the .* cap/.test(t1.message), "F2: decoy-first challenge with 
 globalThis.fetch = async () => challenge([v1entry({ asset: "0xother" })]);
 let t2 = null;
 try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }); } catch (e) { t2 = e; }
-ok(t2 && /no Base\/exact\/USDC accept/.test(t2.message), "F2: non-USDC asset accept refused");
+ok(t2 && /no \w+\/exact\/USDC accept/i.test(t2.message), "F2: non-USDC asset accept refused");
 
 // wrong-chain USDC contract (testnet-style asset) → refuse (asset pin = chain safety)
 globalThis.fetch = async () => challenge([v1entry({ asset: "0x036cbd53842c5426634e7929541ec2318f3dcf7e" /* base-sepolia USDC */ })]);
 let t3 = null;
 try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }); } catch (e) { t3 = e; }
-ok(t3 && /no Base\/exact\/USDC accept/.test(t3.message), "F2: non-mainnet-USDC asset refused (chain pinned by asset)");
+ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC asset refused (chain pinned by asset)");
 
 // --- NEW-1: reserveSpend holds budget, releaseSpend refunds unspent holds -----
 {

@@ -1,0 +1,20 @@
+# Dependabot — weekly dependency + action update PRs (7th audit N-02).
+# Security-relevant updates surface as PRs against the deploy branch; the
+# normal CI markers gate whether they test/deploy.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "github-actions"

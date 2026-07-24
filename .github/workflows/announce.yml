@@ -126,19 +126,29 @@ jobs:
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
-        run: node scripts/tweet.js --delete "${{ github.event.inputs.delete_id }}"
+          # Dispatch inputs ride env vars, never shell interpolation (N-03):
+          # a crafted id must never reach the shell as source while X
+          # credentials are in this step's env.
+          DELETE_ID: ${{ github.event.inputs.delete_id }}
+        run: node scripts/tweet.js --delete "$DELETE_ID"
       - name: Post the announcement
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
-          # Inline text rides an env var, not shell interpolation — quotes,
-          # backticks, and $(...) in tweet copy must never reach the script.
+          # Every dispatch input rides an env var, not shell interpolation
+          # (N-03) — quotes, backticks, and $(...) in any input must never
+          # reach the script as source while X credentials are in env.
           ANNOUNCE_TEXT: ${{ github.event.inputs.text }}
+          IN_FILE: ${{ github.event.inputs.file }}
+          IN_MEDIA: ${{ github.event.inputs.media }}
+          IN_QUOTE: ${{ github.event.inputs.quote }}
+          IN_REPLY_TO: ${{ github.event.inputs.reply_to }}
+          IN_FORCE: ${{ github.event.inputs.force }}
         run: |
-          FILE="${{ github.event.inputs.file }}"
-          MEDIA="${{ github.event.inputs.media }}"
+          FILE="$IN_FILE"
+          MEDIA="$IN_MEDIA"
           if [ -n "$ANNOUNCE_TEXT" ]; then
             [ -n "$FILE" ] && { echo "Pass text OR file, not both."; exit 1; }
             printf '%s' "$ANNOUNCE_TEXT" > /tmp/announce-text.txt
@@ -154,11 +164,9 @@ jobs:
           echo "Posting: $FILE${MEDIA:+ (media: $MEDIA)}"
           [ -f "$FILE" ] || { echo "announcement file not found: $FILE"; exit 1; }
           ARGS=(--file "$FILE")
-          QUOTE="${{ github.event.inputs.quote }}"
-          [ -n "$QUOTE" ] && ARGS+=(--quote "$QUOTE")
-          REPLY_TO="${{ github.event.inputs.reply_to }}"
-          [ -n "$REPLY_TO" ] && ARGS+=(--reply-to "$REPLY_TO")
-          [ -n "${{ github.event.inputs.force }}" ] && ARGS+=(--force)
+          [ -n "$IN_QUOTE" ] && ARGS+=(--quote "$IN_QUOTE")
+          [ -n "$IN_REPLY_TO" ] && ARGS+=(--reply-to "$IN_REPLY_TO")
+          [ -n "$IN_FORCE" ] && ARGS+=(--force)
           if [ -n "$MEDIA" ]; then
             case "$MEDIA" in
               http*) curl -fsSL --max-time 30 -o /tmp/announce-media.png "$MEDIA" && MEDIA=/tmp/announce-media.png ;;

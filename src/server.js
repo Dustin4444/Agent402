@@ -120,8 +120,10 @@ import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
-// x402 settles before the handler, so a listed-but-broken route charges
-// buyers for 502s (no route -> no 402 -> no charge). The upstream WAS
+// @x402/express (v2.16) runs the handler first and settles only a <400
+// response, so a 502 is never charged — but an UNLISTED route returns no 402
+// at all, so a broken-but-listed route is the risk this gate removes (keep it
+// dark until the upstream is proven). The upstream WAS
 // verified on 2026-07-16 — the dispatchable probe workflow
 // (.github/workflows/openrouter-tts-probe.yml) bought real audio from all
 // five chain models (see SPEECH_MODELS in llm-gateway-kit.js). Flip the
