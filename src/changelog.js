@@ -2,6 +2,61 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 const ENTRIES = [
   {
+    date: "2026-07-24",
+    title: "MPP dual-stack — every endpoint speaks two payment protocols",
+    items: [
+      "Every paid endpoint now answers MPP (Machine Payments Protocol, the IETF-track Payment HTTP auth scheme) alongside x402, from the same URL at the same price",
+      "402 responses carry a WWW-Authenticate: Payment challenge (EIP-3009 USDC on Base and Celo); Authorization: Payment credentials settle identically to x402; settled responses return a signed Payment-Receipt",
+      "Proven live daily: the paid canary buys over the native MPP wire on Base and Celo, receipts on-chain",
+      "Listed on MPPScan; /openapi.json now serves MPP discovery metadata (per-operation offers + service info)",
+      "MPP adoption is public: toolCallsServed.viaMPPWire at /api/stats",
+      "HEAD requests on paid routes now return the same 402 challenges as GET",
+      "Explainer: what-is-x402 now covers how x402 and MPP compare",
+    ],
+  },
+  {
+    date: "2026-07-23",
+    title: "Smart Order Router — Algorand external settlement",
+    items: [
+      "POST /api/route/execute now settles on the buyer's chain: Algorand buyers are routed to proven AVM sellers and pay in USDC on Algorand",
+      "Algorand payment validity windows are checked before execution, so slower tools can't strand a payment",
+    ],
+  },
+  {
+    date: "2026-07-21",
+    title: "Smart Order Router — external execution",
+    items: [
+      "POST /api/route/execute ($0.01) can buy from external x402 sellers on the buyer's behalf: one payment in, result plus receipt out",
+      "Only sellers with verified on-chain settlement history are eligible — unproven or unhealthy sellers are never routed to",
+    ],
+  },
+  {
+    date: "2026-07-20",
+    title: "On-chain intelligence tools + Celo rail",
+    items: [
+      "contract-inspect ($0.005) and address-profile ($0.005): verified contract source, ABI, and address token/transaction profiles across major EVM chains",
+      "USDC on Celo joins the accepted settlement rails",
+    ],
+  },
+  {
+    date: "2026-07-17",
+    title: "More settlement rails — USDG on Robinhood Chain, USDC on Avalanche",
+    items: [
+      "USDG (Global Dollar) on Robinhood Chain accepted for every paid endpoint",
+      "USDC on Avalanche accepted for every paid endpoint",
+      "Every rail is exercised by a daily paid canary with real settlements",
+    ],
+  },
+  {
+    date: "2026-07-16",
+    title: "Text-to-speech returns to the /v1 gateway",
+    items: [
+      "/v1/audio/speech ($0.06): OpenAI TTS wire format, mp3/pcm output, 2k-character cap",
+      "Served by a five-model failover chain — a provider outage never becomes the buyer's error",
+      "OpenAI voice names map automatically; native voice ids listed on /v1/models",
+    ],
+  },
+  {
     date: "2026-06-24",
     title: "LLM vision, structured output, and content moderation",
     items: [
