@@ -1,0 +1,197 @@
+// MPP dual-stack shim round trip, fully offline: boots the real server with
+// the x402 paywall ACTIVE plus a local stub facilitator, then drives a REAL
+// mppx client (the MPP reference implementation) through the native MPP wire:
+//
+//   402 + WWW-Authenticate: Payment  →  client signs EIP-3009  →
+//   Authorization: Payment  →  shim → PAYMENT-SIGNATURE → @x402/express
+//   verify+settle (stub)  →  200 + PAYMENT-RESPONSE → shim → Payment-Receipt
+//
+// The stub facilitator never checks signatures, so the test verifies the
+// client's EIP-712 signature itself (viem verifyTypedData against Base USDC's
+// real domain) — proving a production facilitator would accept the exact same
+// payload. Also locks: pass-through for plain x402 buyers (no receipt), a
+// single verify + single settle per purchase (no double-settle), HMAC tamper
+// and expiry rejection in the translator.
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+import { isDeepStrictEqual } from "node:util";
+import { Challenge, Credential, PaymentRequest, Receipt, x402 } from "mppx";
+import { Fetch, evm } from "mppx/client";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { verifyTypedData } from "viem";
+import { translateCredential, challengeHeaderFromPaymentRequired } from "../src/mpp-shim.js";
+
+const PORT = 3077;
+const FAC_PORT = 3078;
+const B = `http://localhost:${PORT}`;
+const SECRET = "test-mpp-secret";
+const TREASURY = "0x000000000000000000000000000000000000dEaD";
+const TX = `0x${"ab".repeat(32)}`;
+
+let pass = 0;
+let proc = null;
+let facilitator = null;
+const fail = (m) => { console.error("FAIL:", m); proc?.kill("SIGKILL"); facilitator?.close(); process.exit(1); };
+const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// ---- stub facilitator: records every verify/settle body ----
+const facCalls = { verify: [], settle: [] };
+facilitator = createServer((req, res) => {
+  let body = "";
+  req.on("data", (c) => { body += c; });
+  req.on("end", () => {
+    const reply = (obj) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    if (req.url === "/supported") {
+      return reply({ kinds: [{ x402Version: 2, scheme: "exact", network: "eip155:8453" }], extensions: [], signers: {} });
+    }
+    const parsed = body ? JSON.parse(body) : {};
+    if (req.url === "/verify") {
+      facCalls.verify.push(parsed);
+      return reply({ isValid: true, payer: parsed.paymentPayload?.payload?.authorization?.from });
+    }
+    if (req.url === "/settle") {
+      facCalls.settle.push(parsed);
+      return reply({ success: true, transaction: TX, network: "eip155:8453", payer: parsed.paymentPayload?.payload?.authorization?.from });
+    }
+    res.writeHead(404); res.end();
+  });
+});
+await new Promise((r) => facilitator.listen(FAC_PORT, r));
+
+proc = spawn("node", ["src/server.js"], {
+  env: {
+    ...process.env, PORT: String(PORT), FREE_MODE: "",
+    WALLET_ADDRESS: TREASURY, NETWORK: "base",
+    FACILITATOR_URL: `http://127.0.0.1:${FAC_PORT}`,
+    MPP_SECRET_KEY: SECRET,
+    CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", PAYMENT_NETWORKS: "base",
+  },
+  stdio: "ignore",
+});
+
+try {
+  for (let i = 0; i < 40; i++) { try { if ((await fetch(`${B}/health`)).ok) break; } catch {} await sleep(500); }
+
+  // ---- 1. The 402 carries BOTH wires, and the MPP challenge is spec-sound ----
+  const r402 = await fetch(`${B}/api/uuid`);
+  ok(r402.status === 402, "unpaid catalog GET -> 402");
+  const prHeader = r402.headers.get("payment-required");
+  ok(!!prHeader, "402 still carries x402 PAYMENT-REQUIRED (no regression)");
+  const wwwAuth = r402.headers.get("www-authenticate");
+  ok(!!wwwAuth && /^Payment /i.test(wwwAuth.trim()), "402 gains WWW-Authenticate: Payment (MPP challenge)");
+
+  const challenges = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": wwwAuth }));
+  ok(challenges.length >= 1, `WWW-Authenticate parses via mppx (${challenges.length} challenge/s)`);
+  const ch = challenges.find((c) => c.method === "evm" && c.intent === "charge");
+  ok(!!ch, "an evm/charge challenge is offered");
+  ok(Challenge.verify(ch, { secretKey: SECRET }), "challenge id HMAC-verifies (spec challenge binding)");
+  ok(Date.parse(ch.expires) > Date.now(), "challenge carries a future expires");
+  const meta = Challenge.meta(ch) ?? (ch.opaque ? PaymentRequest.deserialize(ch.opaque) : undefined);
+  const advertised = x402.Header.decodePaymentRequiredEnvelope(prHeader).accepts
+    .find((a) => a.network === "eip155:8453");
+  ok(JSON.stringify(JSON.parse(meta.x402)) === JSON.stringify(advertised),
+    "challenge meta carries the advertised accepts entry verbatim");
+  ok(ch.request.amount === advertised.amount && ch.request.recipient === advertised.payTo
+    && ch.request.currency === advertised.asset && ch.request.methodDetails.chainId === 8453,
+    "native ChargeRequest mirrors the accepts entry");
+
+  // ---- 2. A stock mppx client buys the tool over the native MPP wire ----
+  const key = generatePrivateKey();
+  const account = privateKeyToAccount(key);
+  const mppFetch = Fetch.from({
+    methods: [evm.charge({ account, currencies: [evm.assets.base.USDC], maxAmount: "1.00" })],
+  });
+  const paid = await mppFetch(`${B}/api/uuid`);
+  ok(paid.status === 200, `mppx client native buy -> 200 (got ${paid.status})`);
+  const paidBody = await paid.json();
+  ok(Array.isArray(paidBody.uuids) && paidBody.uuids[0]?.length === 36, "tool answered (uuids in body)");
+  ok(!!paid.headers.get("payment-response"), "settled response still carries x402 PAYMENT-RESPONSE");
+  const receiptHeader = paid.headers.get("payment-receipt");
+  ok(!!receiptHeader, "settled response carries MPP Payment-Receipt");
+  const receipt = Receipt.deserialize(receiptHeader);
+  ok(receipt.status === "success" && receipt.method === "evm" && receipt.reference === TX,
+    "Payment-Receipt: status success, method evm, reference = settle tx");
+
+  // ---- 3. Settlement authority: exactly one verify + one settle, payload sound ----
+  ok(facCalls.verify.length === 1 && facCalls.settle.length === 1,
+    `exactly one facilitator verify + settle (got ${facCalls.verify.length}/${facCalls.settle.length})`);
+  const sent = facCalls.settle[0];
+  ok(isDeepStrictEqual(sent.paymentPayload.accepted, sent.paymentRequirements),
+    "payload.accepted deep-equals the server's matched requirements");
+  const auth = sent.paymentPayload.payload.authorization;
+  ok(auth.from.toLowerCase() === account.address.toLowerCase(), "authorization.from is the buyer wallet");
+  ok(auth.to.toLowerCase() === TREASURY.toLowerCase() && auth.value === advertised.amount,
+    "authorization pays the treasury the advertised amount");
+  const sigValid = await verifyTypedData({
+    address: account.address,
+    domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+    types: { TransferWithAuthorization: [
+      { name: "from", type: "address" }, { name: "to", type: "address" },
+      { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" },
+      { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
+    ] },
+    primaryType: "TransferWithAuthorization",
+    message: { from: auth.from, to: auth.to, value: BigInt(auth.value),
+      validAfter: BigInt(auth.validAfter), validBefore: BigInt(auth.validBefore), nonce: auth.nonce },
+    signature: sent.paymentPayload.payload.signature,
+  });
+  ok(sigValid, "EIP-3009 signature verifies against Base USDC's real EIP-712 domain");
+
+  // ---- 4. Plain x402 buyers are untouched: pass-through, no MPP receipt ----
+  const now = Math.floor(Date.now() / 1000);
+  const xAuth = {
+    from: account.address, to: TREASURY,
+    value: advertised.amount, validAfter: String(now - 60), validBefore: String(now + 300),
+    nonce: `0x${"11".repeat(32)}`,
+  };
+  const xSig = await account.signTypedData({
+    domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+    types: { TransferWithAuthorization: [
+      { name: "from", type: "address" }, { name: "to", type: "address" },
+      { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" },
+      { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
+    ] },
+    primaryType: "TransferWithAuthorization",
+    message: { ...xAuth, value: BigInt(xAuth.value), validAfter: BigInt(xAuth.validAfter), validBefore: BigInt(xAuth.validBefore) },
+  });
+  const xHeader = x402.Header.encodePaymentSignature({
+    x402Version: 2, accepted: advertised, payload: { authorization: xAuth, signature: xSig },
+  });
+  const xPaid = await fetch(`${B}/api/uuid`, { headers: { "PAYMENT-SIGNATURE": xHeader } });
+  ok(xPaid.status === 200, `plain x402 buy still works (got ${xPaid.status})`);
+  ok(!xPaid.headers.get("payment-receipt"), "x402 buyer gets NO Payment-Receipt (wire isolation)");
+
+  // ---- 5. Translator rejects tampering, wrong secret, and expiry ----
+  const header402 = challengeHeaderFromPaymentRequired(prHeader, { secretKey: SECRET, realm: `localhost:${PORT}` });
+  const [freshCh] = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": header402 }));
+  const goodCred = Credential.serialize({ challenge: freshCh, payload: {
+    from: account.address, to: TREASURY, value: advertised.amount, validAfter: "0",
+    validBefore: String(now + 300), nonce: `0x${"22".repeat(32)}`, signature: xSig, type: "authorization",
+  } });
+  ok(!!translateCredential(goodCred, { secretKey: SECRET }), "translator accepts a well-formed credential");
+  ok(translateCredential(goodCred, { secretKey: "wrong-secret" }) === null, "wrong HMAC secret -> rejected");
+  const tampered = Credential.serialize({
+    challenge: { ...freshCh, meta: { x402: JSON.stringify({ ...advertised, payTo: account.address }) }, opaque: undefined },
+    payload: { from: account.address, to: TREASURY, value: advertised.amount, validAfter: "0",
+      validBefore: String(now + 300), nonce: `0x${"33".repeat(32)}`, signature: xSig, type: "authorization" },
+  });
+  ok(translateCredential(tampered, { secretKey: SECRET }) === null, "tampered accepts entry (payTo swap) -> HMAC rejects");
+  const expired = Challenge.from({
+    realm: `localhost:${PORT}`, method: "evm", intent: "charge",
+    expires: new Date(Date.now() - 60_000), request: freshCh.request,
+    meta: { x402: JSON.stringify(advertised) }, secretKey: SECRET,
+  });
+  const expiredCred = Credential.serialize({ challenge: expired, payload: {
+    from: account.address, to: TREASURY, value: advertised.amount, validAfter: "0",
+    validBefore: String(now + 300), nonce: `0x${"44".repeat(32)}`, signature: xSig, type: "authorization",
+  } });
+  ok(translateCredential(expiredCred, { secretKey: SECRET }) === null, "expired challenge -> rejected");
+
+  console.log(`\nPASS - ${pass} checks (MPP dual-stack shim round trip)`);
+  proc.kill("SIGKILL");
+  facilitator.close();
+  process.exit(0);
+} catch (e) {
+  fail(e?.stack || String(e));
+}
