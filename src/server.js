@@ -2865,6 +2865,27 @@ if (FREE_MODE) {
   // authorization before it reaches the facilitator and closes the concurrent-
   // replay window. See src/replay-guard.js.
   const replayGuard = createReplayGuard();
+  // HEAD paywall bypass fix: Express serves HEAD through app.get(), but every
+  // gate here keys on `${req.method} ${req.path}` — "HEAD /api/x" matches
+  // nothing, so an unpaid HEAD used to skip the funnel, PoW gate, replay guard
+  // AND the x402 paywall and execute the handler for FREE (no body on the
+  // wire, but upstream-metered GET tools — search, answer, screenshot, market
+  // data — burned real quota/money; found 2026-07-23 when MPPScan's prober
+  // reported our paid routes as unprotected). Fix = RFC 9110 HEAD semantics:
+  // rewrite to GET so the identical gate chain runs (402 + challenges for
+  // unpaid, settle-then-serve for paid) and suppress the response body at
+  // res.end. Content-Length reflecting the would-be body is correct for HEAD.
+  app.use((req, res, next) => {
+    if (req.method !== "HEAD" || !CATALOG[`GET ${req.path}`]) return next();
+    req.method = "GET";
+    const origEnd = res.end;
+    res.end = function headEnd(chunk, encoding, cb) {
+      if (typeof chunk === "function") { cb = chunk; chunk = null; }
+      else if (typeof encoding === "function") { cb = encoding; encoding = undefined; }
+      return origEnd.call(this, null, cb);
+    };
+    next();
+  });
   // MPP dual-stack shim (src/mpp-shim.js): translate MPP "Payment" HTTP-auth
   // headers to/from the paywall's x402 wire. Mounted BEFORE the funnel/PoW/
   // replay middlewares so a translated PAYMENT-SIGNATURE is what every

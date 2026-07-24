@@ -194,6 +194,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   native wire vs a stub facilitator, single verify+settle, EIP-712 sig checked
   against Base USDC's real domain, x402 pass-through untouched, HMAC
   tamper/expiry rejected.
+- **HEAD paywall bypass CLOSED (2026-07-23, found via MPPScan's prober):**
+  Express serves HEAD through app.get() but every gate keyed on
+  "METHOD /path" — an unpaid HEAD skipped funnel/PoW/replay/x402 and executed
+  GET handlers FREE (upstream-metered tools burned quota with no revenue).
+  server.js now rewrites HEAD on catalog GET routes to GET for the gate chain
+  and suppresses the body at res.end (RFC 9110 semantics: 402 + identical
+  headers, empty body). `scripts/test-head-paywall.js` (offline, in CI).
 - **Marketplace latency / snapshot caching (`src/x402-economy.js`):** `GET /marketplace`
   (and `/api/x402-economy`) render from `x402EconomySnapshot()` — a ~500ms on-chain read
   (EIP-3009 USDC settlements on Base via CDP SQL). It is **stale-while-revalidate**: a fresh
