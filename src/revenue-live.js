@@ -1038,6 +1038,29 @@ const SALE_TX_URL = {
   "robinhood (USDG)": (h) => `https://robinhoodchain.blockscout.com/tx/${h}`,
   solana: (h) => `https://solscan.io/tx/${h}`,
 };
+// MPP-wire settlements, revealed by a button (a styled <details> toggle, no JS).
+// Same on-chain USDC settlements as x402 — this just filters to the MPP wire so
+// MPP adoption is visible and independently verifiable on-chain.
+function mppSection(mpp) {
+  const list = (mpp && mpp.settlements) || [];
+  const rowsHtml = list.slice(0, 30).map((s) => {
+    const link = s.tx && SALE_TX_URL[s.network] ? ` · <a href="${esc(SALE_TX_URL[s.network](s.tx))}" rel="noopener">tx</a>` : "";
+    const tag = s.internal ? ' · <span style="color:var(--muted);">canary</span>' : "";
+    return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(s.network || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
+  }).join("");
+  const body = list.length
+    ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;margin-top:12px;">${rowsHtml}</div>`
+    : `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin-top:12px;">No MPP-wire settlements recorded yet - they appear here as MPP clients pay (the daily canary settles Base + Celo native-wire legs).</p>`;
+  return `
+    <details style="margin-top:20px;">
+      <summary style="display:inline-block;cursor:pointer;list-style:none;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font-weight:700;font-size:14px;padding:10px 18px;user-select:none;">MPP transactions${list.length ? ` (${list.length})` : ""} &rsaquo;</summary>
+      <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin-top:10px;">
+        <p style="font-size:13.5px;color:var(--muted);margin:0;">Settlements whose credential arrived over the <strong>MPP</strong> wire (<code>Authorization: Payment</code>) rather than x402's <code>PAYMENT-SIGNATURE</code>. Same on-chain USDC settlement either way - this just filters to the MPP dialect. Machine-readable: <a href="/api/revenue/mpp">/api/revenue/mpp</a>.</p>
+        ${body}
+      </div>
+    </details>`;
+}
+
 function salesSection(sales) {
   if (!sales) return "";
   const rows = sales.topExternal || [];
@@ -1114,7 +1137,7 @@ function revenueChartSection() {
       <a href="/api/revenue/daily" style="font-family:var(--font-mono);font-size:12px;">raw data →</a>
     </div>
     <div class="rvz-controls" style="margin-top:12px">
-      <span class="rvz-seg" id="rvzMode"><button data-v="daily" class="on">Daily</button><button data-v="cum">Cumulative</button></span>
+      <span class="rvz-seg" id="rvzMode"><button data-v="cum" class="on">Cumulative</button><button data-v="daily">Daily</button></span>
       <span class="rvz-seg" id="rvzMetric"><button data-v="usd" class="on">Revenue $</button><button data-v="tx">Transactions</button></span>
       <span class="rvz-seg" id="rvzScope"><button data-v="ext" class="on">External</button><button data-v="int">Internal (canary)</button><button data-v="both">Both</button></span>
     </div>
@@ -1126,7 +1149,7 @@ function revenueChartSection() {
   (function(){
     var SLOTS={base:1,algorand:2,solana:3,polygon:4,stellar:5,arbitrum:6,celo:7};
     var NAMES={1:"Base",2:"Algorand",3:"Solana",4:"Polygon",5:"Stellar",6:"Arbitrum",7:"Celo",8:"Other"};
-    var state={mode:"daily",metric:"usd",scope:"ext",rows:[]};
+    var state={mode:"cum",metric:"usd",scope:"ext",rows:[]};
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
     function val(r){var e=state.metric==="usd"?r.extUsd:r.extTx, i=state.metric==="usd"?r.intUsd:r.intTx;
@@ -1251,6 +1274,7 @@ export function revenuePage(baseUrl, snap) {
     <p style="font-size:13.5px;color:var(--muted);margin-top:26px;">Recent-window transfers are the last few hours of inbound stablecoin on each rail, classified with the same rule as the daily revenue digest: a payment is <strong>external</strong> only if it comes from a wallet that isn't ours (canary/test burners are excluded) and is per-call-sized (≤ $${MAX_CALL_USD}); bigger inbound is funding or tests, not a buy. Rails read best-effort: a flaky public RPC marks that rail unavailable without hiding the others.</p>
     <p style="font-size:13.5px;color:var(--muted);margin-top:10px;">Don't take our word for it: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our on-chain settlements independently →</a> Their totals count <em>all</em> traffic to our wallets - including our own canary and test buys - so they read higher than the external-only figures above. Both are correct; they measure different things.</p>
     ${salesSection(snap.sales)}
+    ${mppSection(snap.mpp)}
   </main>
   ${ledgerFooterCompact(baseUrl)}`;
   return ledgerShell({
