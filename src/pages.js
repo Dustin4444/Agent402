@@ -460,16 +460,20 @@ export function faqPage(baseUrl) {
   };
 
   const FAQ_CSS = `
-  .fq-item { border-bottom:1px solid var(--hairline); padding:24px 0; }
-  .fq-item:last-child { border-bottom:none; }
-  .fq-item h2 { font-family:var(--font-body); font-weight:800; font-size:18px; line-height:1.3; margin:0 0 8px; }
-  .fq-item p { color:var(--muted); font-size:15px; line-height:1.7; margin:0; }
+  .fq-item { border-bottom:1px solid var(--hairline); }
+  .fq-item:first-of-type { border-top:1px solid var(--hairline); }
+  .fq-item > summary { list-style:none; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 0; font-family:var(--font-body); font-weight:800; font-size:18px; line-height:1.3; color:var(--ink); }
+  .fq-item > summary::-webkit-details-marker { display:none; }
+  .fq-mark { font-family:var(--font-mono); font-weight:400; font-size:22px; line-height:1; color:var(--accent); flex:none; transition:transform .15s ease; display:inline-block; }
+  .fq-item[open] .fq-mark { transform:rotate(45deg); }
+  @media (prefers-reduced-motion:reduce){ .fq-mark { transition:none; } }
+  .fq-item p { color:var(--muted); font-size:15px; line-height:1.7; margin:0; padding:0 0 22px; max-width:760px; }
   .fq-item a { color:var(--accent); }
   .fq-item code { background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); padding:2px 6px; font-size:13px; }
   `;
 
   const items = FAQ_ITEMS.map(
-    (it) => `<section class="fq-item"><h2>${e(it.q)}</h2><p>${it.a}</p></section>`
+    (it, i) => `<details class="fq-item"${i === 0 ? " open" : ""}><summary><span>${e(it.q)}</span><span class="fq-mark">+</span></summary><p>${it.a}</p></details>`
   ).join("\n");
 
   const body = `<div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
