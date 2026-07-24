@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { isDeepStrictEqual } from "node:util";
 import { Challenge, Credential, PaymentRequest, Receipt, x402 } from "mppx";
-import { Fetch, evm } from "mppx/client";
+import { Fetch, Mppx as MppClient, evm } from "mppx/client";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { verifyTypedData } from "viem";
 import { translateCredential, challengeHeaderFromPaymentRequired } from "../src/mpp-shim.js";
@@ -161,6 +161,48 @@ try {
   const xPaid = await fetch(`${B}/api/uuid`, { headers: { "PAYMENT-SIGNATURE": xHeader } });
   ok(xPaid.status === 200, `plain x402 buy still works (got ${xPaid.status})`);
   ok(!xPaid.headers.get("payment-receipt"), "x402 buyer gets NO Payment-Receipt (wire isolation)");
+
+  // ---- 4b. Body-bearing POST buy over the native MPP wire ----
+  const settlesBefore = facCalls.settle.length;
+  const paidPost = await mppFetch(`${B}/api/hash`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text: "hello world" }),
+  });
+  ok(paidPost.status === 200, `MPP native buy of a POST tool with body -> 200 (got ${paidPost.status})`);
+  const postBody = await paidPost.json();
+  ok(postBody.hex?.startsWith("b94d27b9"), "POST tool computed over the request body (sha256 of 'hello world')");
+  ok(!!paidPost.headers.get("payment-receipt"), "POST buy carries Payment-Receipt");
+  ok(facCalls.settle.length === settlesBefore + 1, "POST buy settled exactly once");
+
+  // ---- 4c. Idempotency parity: same MPP credential + Idempotency-Key replays ----
+  // The shim mounts BEFORE the idempotency middleware, so the translated
+  // PAYMENT-SIGNATURE is the gate credential the cache binds to — an MPP
+  // buyer who paid but lost the response replays without re-charging,
+  // exactly like an x402 buyer.
+  const idemClient = MppClient.create({
+    methods: [evm.charge({ account, currencies: [evm.assets.base.USDC], maxAmount: "1.00" })],
+    polyfill: false,
+  });
+  const idemBody = JSON.stringify({ text: "idem-mpp" });
+  const idem402 = await idemClient.rawFetch(`${B}/api/hash`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: idemBody,
+  });
+  ok(idem402.status === 402, "idempotency leg: unpaid POST -> 402");
+  const idemCred = await idemClient.createCredential(
+    new Response(null, { status: 402, headers: { "WWW-Authenticate": idem402.headers.get("www-authenticate") } })
+  );
+  const idemHeaders = { "Content-Type": "application/json", Authorization: idemCred, "Idempotency-Key": "mpp-idem-1" };
+  const settlesBeforeIdem = facCalls.settle.length;
+  const first = await idemClient.rawFetch(`${B}/api/hash`, { method: "POST", headers: idemHeaders, body: idemBody });
+  ok(first.status === 200, `idempotency leg: first keyed MPP buy -> 200 (got ${first.status})`);
+  const firstBody = await first.json();
+  const retry = await idemClient.rawFetch(`${B}/api/hash`, { method: "POST", headers: idemHeaders, body: idemBody });
+  ok(retry.status === 200 && retry.headers.get("x-idempotent-replay") === "true",
+    `retry with SAME MPP credential + key replays without re-charging (got ${retry.status}, replay=${retry.headers.get("x-idempotent-replay")})`);
+  const retryBody = await retry.json();
+  ok(typeof firstBody.hex === "string" && retryBody.hex === firstBody.hex, "replay serves the original paid body");
+  ok(facCalls.settle.length === settlesBeforeIdem + 1, "one settle across original + replay (never re-charged)");
 
   // ---- 5. Translator rejects tampering, wrong secret, and expiry ----
   const header402 = challengeHeaderFromPaymentRequired(prHeader, { secretKey: SECRET, realm: `localhost:${PORT}` });

@@ -2748,6 +2748,29 @@ app.get("/api/cacheable", (_req, res) => {
 // survive a fresh boot of a brand-new container with empty keyspace either).
 app.get("/api/cache-stats", (_req, res) => res.json(cacheCounters()));
 
+// MPP dual-stack shim (src/mpp-shim.js): translate MPP "Payment" HTTP-auth
+// headers to/from the paywall's x402 wire. Mounted BEFORE the idempotency
+// middleware below so an MPP buyer's translated PAYMENT-SIGNATURE is the
+// gate credential idemHashKey binds to — giving MPP buyers the same
+// paid-retry protection as x402 buyers (before this ordering, their
+// Idempotency-Key was silently ignored: no leak — idemHashKey refuses to
+// cache without a credential — but a paid-and-lost-the-response MPP retry
+// got a 409 instead of a replay). Every downstream consumer (idempotency,
+// funnel classifier, PoW gate, replay guard, payer attribution,
+// @x402/express) reads the same header it always has — settlement authority
+// stays solely with the paywall. Env-gated: no MPP_SECRET_KEY (or FREE_MODE)
+// → not mounted, server stays pure-x402.
+if (!FREE_MODE) {
+  const mppShim = createMppShim({
+    secretKey: process.env.MPP_SECRET_KEY || "",
+    realm: new URL(BASE_URL).host,
+  });
+  if (mppShim) {
+    app.use(mppShim);
+    console.log("MPP dual-stack shim enabled (WWW-Authenticate/Authorization Payment ↔ x402 headers)");
+  }
+}
+
 // Opt-in idempotency (safe retry for paid/proven calls). If a client sends an
 // `Idempotency-Key`, a successful gated call is cached keyed by that key + the
 // gate credential it presented (the x402 payment authorization or the
@@ -2892,14 +2915,8 @@ if (FREE_MODE) {
   // downstream consumer (funnel classifier, replay guard, payer attribution,
   // @x402/express) reads — settlement authority stays solely with the paywall.
   // Env-gated: no MPP_SECRET_KEY → not mounted, server stays pure-x402.
-  const mppShim = createMppShim({
-    secretKey: process.env.MPP_SECRET_KEY || "",
-    realm: new URL(BASE_URL).host,
-  });
-  if (mppShim) {
-    app.use(mppShim);
-    console.log("MPP dual-stack shim enabled (WWW-Authenticate/Authorization Payment ↔ x402 headers)");
-  }
+  // (MPP shim is mounted earlier — before the idempotency middleware — see
+  // the comment there for the ordering rationale.)
   // Funnel stage 2 — a 402 challenge issued for a catalog route. Mounted
   // BEFORE the paywall because the paywall ends 402 responses without
   // calling next(), so the post-paywall tally middleware never sees them.

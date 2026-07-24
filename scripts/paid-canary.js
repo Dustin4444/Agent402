@@ -635,7 +635,7 @@ async function main() {
   // missing is the early signal the shim (or its secret) dropped out of prod.
   await (async () => {
     try {
-      const [{ Mppx: MppClientNS, evm: mppEvm }, { Receipt: MppReceipt }] = await Promise.all([
+      const [{ Mppx: MppClientNS, evm: mppEvm }, { Challenge: MppChallenge, Receipt: MppReceipt }] = await Promise.all([
         import("mppx/client"), import("mppx"),
       ]);
       const heartbeatHeaders = () => {
@@ -680,6 +680,46 @@ async function main() {
         console.warn(`\nWARN  mpp leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)}`);
       } else {
         console.warn(`\nWARN  mpp leg: HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
+      }
+
+      // Celo variant — same native MPP wire, PINNED to eip155:42220: the 402's
+      // challenge list is filtered down to the Celo challenge before signing,
+      // so settlement can only happen in USDC on Celo through the Celo
+      // facilitator. The Base leg above proves the wire; this proves the
+      // second offered chain end to end (client registry domain "USDC"/"2",
+      // our Celo money parser, Celo facilitator settle with X-API-Key). Same
+      // burner, funded with Celo USDC by the pinned celo x402 leg's budget.
+      const celoClient = MppClientNS.create({
+        methods: [mppEvm.charge({ account, currencies: [mppEvm.assets.celo.USDC], maxAmount: "0.01" })],
+        polyfill: false,
+      });
+      const bareCelo = await celoClient.rawFetch(url, { headers: heartbeatHeaders() });
+      const celoAuth = bareCelo.headers.get("www-authenticate");
+      const celoCh = celoAuth
+        ? MppChallenge.fromHeadersList(new Headers({ "WWW-Authenticate": celoAuth }))
+            .find((c) => c.request?.methodDetails?.chainId === 42220)
+        : null;
+      if (!celoCh) {
+        console.warn(`\nWARN  mpp-celo leg: no eip155:42220 challenge on the live 402 (MPP_CHALLENGE_NETWORKS changed on prod?)`);
+        return;
+      }
+      const celoCred = await celoClient.createCredential(
+        new Response(null, { status: 402, headers: { "WWW-Authenticate": MppChallenge.serialize(celoCh) } })
+      );
+      const celoPaid = await celoClient.rawFetch(url, { headers: { ...heartbeatHeaders(), Authorization: celoCred } });
+      const celoBody = await celoPaid.json().catch(() => ({}));
+      if (celoPaid.status === 200 && Array.isArray(celoBody.uuids)) {
+        const celoReceiptHdr = celoPaid.headers.get("payment-receipt");
+        let celoRef = null;
+        if (celoReceiptHdr) {
+          try { celoRef = MppReceipt.deserialize(celoReceiptHdr)?.reference || null; } catch { /* best-effort */ }
+        }
+        console.log(`\nOK    mpp-celo   /api/uuid  → settled $0.001 over the NATIVE MPP wire on Celo (payer ${account.address})${celoRef ? `\n      Payment-Receipt tx: https://celoscan.io/tx/${celoRef}` : ""}`);
+      } else if (celoPaid.status === 402) {
+        const reason = settleRejectReason(celoPaid.headers);
+        console.warn(`\nWARN  mpp-celo leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded Celo USDC burner, Celo facilitator outage/sequencer nonce hiccup, or domain drift)`);
+      } else {
+        console.warn(`\nWARN  mpp-celo leg: HTTP ${celoPaid.status} ${JSON.stringify(celoBody).slice(0, 120)}`);
       }
     } catch (e) {
       console.warn(`\nWARN  mpp leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
