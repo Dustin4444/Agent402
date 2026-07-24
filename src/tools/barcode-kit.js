@@ -7,9 +7,15 @@
 import { PNG } from "pngjs";
 import jpeg from "jpeg-js";
 import jsQR from "jsqr";
-import {
+// Imported via the default export, not named ESM imports: @zxing/library 0.23
+// ships CJS only, so `import { BarcodeFormat } from …` stops resolving there
+// and the whole server fails to boot. The default export carries every symbol
+// on both 0.21 and 0.23, so this form survives the bump either way.
+import zxing from "@zxing/library";
+
+const {
   RGBLuminanceSource, BinaryBitmap, HybridBinarizer, MultiFormatReader, BarcodeFormat, DecodeHintType,
-} from "@zxing/library";
+} = zxing;
 
 function bad(message) {
   const err = new Error(message);
