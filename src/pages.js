@@ -515,12 +515,25 @@ export function openapiSpec(baseUrl, catalog) {
       },
       "x-price": tool.price,
       "x-payment-protocol": "x402",
-      // x402scan's OpenAPI-first discovery (docs/DISCOVERY.md in
-      // Merit-Systems/x402scan) reads this exact extension shape per paid
-      // operation; amount is a decimal-dollar string.
+      // ONE x-payment-info object serves two advisory readers, each keyed on
+      // its own fields (extra keys are tolerated by both):
+      //   - x402scan (docs/DISCOVERY.md in Merit-Systems/x402scan) reads
+      //     `protocols` + `price` (decimal-dollar amount);
+      //   - MPP discovery (paymentauth.org draft-payment-discovery; MPPScan
+      //     crawls this) reads the multi-offer `offers` array — amount in
+      //     SMALLEST currency units, currency = token contract address. The
+      //     runtime 402 stays authoritative; the shim (src/mpp-shim.js) is
+      //     what actually answers MPP's evm/charge wire.
       "x-payment-info": {
         protocols: ["x402"],
         price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
+        offers: [{
+          intent: "charge",
+          method: "evm",
+          amount: String(Math.round((Number(String(tool.price ?? "").replace(/[^0-9.]/g, "")) || 0) * 1e6)),
+          currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          description: `${tool.price} in USDC on Base (eip155:8453) — MPP evm charge or x402 exact; more chains in the live 402`,
+        }],
       },
     };
     const props = discovery?.inputSchema?.properties ?? {};
@@ -605,6 +618,16 @@ export function openapiSpec(baseUrl, catalog) {
       contact: { name: "Havok Holdings LLC", email: "mike@agent402.tools", url: baseUrl },
     },
     servers: [{ url: baseUrl }],
+    // MPP discovery (paymentauth.org draft-payment-discovery) service-level
+    // metadata — MPPScan and MPP-aware agents read this from /openapi.json.
+    "x-service-info": {
+      categories: ["data", "search", "media", "compute", "developer-tools"],
+      docs: {
+        homepage: baseUrl,
+        llms: `${baseUrl}/llms.txt`,
+        apiReference: `${baseUrl}/openapi.json`,
+      },
+    },
     tags: [
       ...Object.entries(CATEGORIES).map(([k, v]) => ({ name: k, description: v.label })),
       { name: "workflows", description: "Curated multi-tool workflows (skill packs) — task-level templates that compose catalog tools." },

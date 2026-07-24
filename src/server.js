@@ -56,6 +56,7 @@ import { recordWish, getWishesAggregate } from "./wish.js";
 import { indexSnapshot, routeQuery, startCrawler, validateOriginInput, registerOrigin } from "./x402-index.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute } from "./payments.js";
+import { createMppShim } from "./mpp-shim.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
 import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
@@ -2864,6 +2865,20 @@ if (FREE_MODE) {
   // authorization before it reaches the facilitator and closes the concurrent-
   // replay window. See src/replay-guard.js.
   const replayGuard = createReplayGuard();
+  // MPP dual-stack shim (src/mpp-shim.js): translate MPP "Payment" HTTP-auth
+  // headers to/from the paywall's x402 wire. Mounted BEFORE the funnel/PoW/
+  // replay middlewares so a translated PAYMENT-SIGNATURE is what every
+  // downstream consumer (funnel classifier, replay guard, payer attribution,
+  // @x402/express) reads — settlement authority stays solely with the paywall.
+  // Env-gated: no MPP_SECRET_KEY → not mounted, server stays pure-x402.
+  const mppShim = createMppShim({
+    secretKey: process.env.MPP_SECRET_KEY || "",
+    realm: new URL(BASE_URL).host,
+  });
+  if (mppShim) {
+    app.use(mppShim);
+    console.log("MPP dual-stack shim enabled (WWW-Authenticate/Authorization Payment ↔ x402 headers)");
+  }
   // Funnel stage 2 — a 402 challenge issued for a catalog route. Mounted
   // BEFORE the paywall because the paywall ends 402 responses without
   // calling next(), so the post-paywall tally middleware never sees them.

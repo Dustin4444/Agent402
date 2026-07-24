@@ -622,6 +622,70 @@ async function main() {
     }
   })();
 
+  // MPP dual-stack leg — proves the NATIVE MPP wire end to end on prod: the
+  // live 402 must carry WWW-Authenticate: Payment (src/mpp-shim.js minted it,
+  // so MPP_SECRET_KEY is live), a stock mppx client must sign that challenge
+  // (EIP-3009 over Base USDC), the buy goes out as Authorization: Payment —
+  // NOT PAYMENT-SIGNATURE — and the settled 200 must return an MPP
+  // Payment-Receipt. The credential is created from a response containing
+  // ONLY the WWW-Authenticate header, so the client cannot silently fall
+  // back to the x402 wire (which every other leg already proves). Same Base
+  // burner, $0.001. Informational: failures WARN, never page (the EVM
+  // verdict above decides paging) — but a WARN that WWW-Authenticate is
+  // missing is the early signal the shim (or its secret) dropped out of prod.
+  await (async () => {
+    try {
+      const [{ Mppx: MppClientNS, evm: mppEvm }, { Receipt: MppReceipt }] = await Promise.all([
+        import("mppx/client"), import("mppx"),
+      ]);
+      const heartbeatHeaders = () => {
+        if (!secret) return {};
+        const minute = Math.floor(Date.now() / 60_000);
+        return { "X-Heartbeat-Token": createHmac("sha256", secret).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32) };
+      };
+      const mpp = MppClientNS.create({
+        methods: [mppEvm.charge({ account, currencies: [mppEvm.assets.base.USDC], maxAmount: "0.01" })],
+        polyfill: false,
+      });
+      const url = `${TARGET}/api/uuid`;
+      const bare = await mpp.rawFetch(url, { headers: heartbeatHeaders() });
+      if (bare.status !== 402) {
+        console.warn(`\nWARN  mpp leg: expected a 402 challenge from /api/uuid, got HTTP ${bare.status}`);
+        return;
+      }
+      const wwwAuth = bare.headers.get("www-authenticate");
+      if (!wwwAuth) {
+        console.warn(`\nWARN  mpp leg: 402 has NO WWW-Authenticate: Payment header — the MPP shim is not live (MPP_SECRET_KEY unset on prod, or src/mpp-shim.js unmounted)`);
+        return;
+      }
+      const credential = await mpp.createCredential(
+        new Response(null, { status: 402, headers: { "WWW-Authenticate": wwwAuth } })
+      );
+      if (!/^Payment /.test(credential)) {
+        console.warn(`\nWARN  mpp leg: client produced a non-MPP credential (${credential.slice(0, 24)}…) — native path not taken`);
+        return;
+      }
+      const paid = await mpp.rawFetch(url, { headers: { ...heartbeatHeaders(), Authorization: credential } });
+      const body = await paid.json().catch(() => ({}));
+      if (paid.status === 200 && Array.isArray(body.uuids)) {
+        const receiptHdr = paid.headers.get("payment-receipt");
+        let ref = null;
+        if (receiptHdr) {
+          try { ref = MppReceipt.deserialize(receiptHdr)?.reference || null; } catch { /* best-effort */ }
+        }
+        console.log(`\nOK    mpp        /api/uuid  → settled $0.001 over the NATIVE MPP wire (Authorization: Payment, payer ${account.address})${ref ? `\n      Payment-Receipt tx: https://basescan.org/tx/${ref}` : receiptHdr ? "" : "\n      WARN: no Payment-Receipt header on the settled 200"}`);
+        if (!receiptHdr) console.warn(`WARN  mpp leg settled but the 200 carried no Payment-Receipt header`);
+      } else if (paid.status === 402) {
+        const reason = settleRejectReason(paid.headers);
+        console.warn(`\nWARN  mpp leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)}`);
+      } else {
+        console.warn(`\nWARN  mpp leg: HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
+      }
+    } catch (e) {
+      console.warn(`\nWARN  mpp leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
+    }
+  })();
+
   // Pinned EVM legs — Polygon, Arbitrum, Monad, Celo: same negotiation as the Robinhood
   // leg above (filter the live 402's accepts down to ONE CAIP-2 chain and pay
   // that, so settlement cannot silently fall back to Base). Same burner
