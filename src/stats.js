@@ -117,6 +117,9 @@ const CAIP2_NAMES = {
   "eip155:137": "polygon",
   "eip155:42161": "arbitrum",
   "eip155:84532": "base-sepolia",
+  "eip155:42220": "celo",
+  "eip155:43114": "avalanche",
+  "eip155:143": "monad",
   // Settles USDG (Global Dollar), not USDC — shows up as its own bucket in
   // viaUSDCByNetwork so the per-rail split separates the two stablecoins.
   "eip155:4663": "robinhood (USDG)",

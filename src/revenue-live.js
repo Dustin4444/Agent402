@@ -1033,18 +1033,35 @@ const short = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "-");
 // externally-paid call lands (recording started 2026-07-04).
 const SALE_TX_URL = {
   base: (h) => `https://basescan.org/tx/${h}`,
+  celo: (h) => `https://celoscan.io/tx/${h}`,
   polygon: (h) => `https://polygonscan.com/tx/${h}`,
   arbitrum: (h) => `https://arbiscan.io/tx/${h}`,
+  avalanche: (h) => `https://snowtrace.io/tx/${h}`,
   "robinhood (USDG)": (h) => `https://robinhoodchain.blockscout.com/tx/${h}`,
   solana: (h) => `https://solscan.io/tx/${h}`,
+  stellar: (h) => `https://stellar.expert/explorer/public/tx/${h}`,
+  algorand: (h) => `https://allo.info/tx/${h}`,
 };
+// Some ledger rows store the network as a CAIP-2 id (a chain missing from the
+// name map when it settled) rather than the short name — resolve both forms so
+// every rail's tx links render regardless of when the row was recorded.
+const NET_ALIAS = {
+  "eip155:8453": "base", "eip155:42220": "celo", "eip155:137": "polygon",
+  "eip155:42161": "arbitrum", "eip155:43114": "avalanche", "eip155:4663": "robinhood (USDG)",
+  "stellar:pubnet": "stellar", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "algorand",
+};
+function txHref(network, tx) {
+  if (!tx) return null;
+  const key = SALE_TX_URL[network] ? network : (NET_ALIAS[network] || network);
+  return SALE_TX_URL[key] ? SALE_TX_URL[key](tx) : null;
+}
 // MPP-wire settlements, revealed by a button (a styled <details> toggle, no JS).
 // Same on-chain USDC settlements as x402 — this just filters to the MPP wire so
 // MPP adoption is visible and independently verifiable on-chain.
 function mppSection(mpp) {
   const list = (mpp && mpp.settlements) || [];
   const rowsHtml = list.slice(0, 30).map((s) => {
-    const link = s.tx && SALE_TX_URL[s.network] ? ` · <a href="${esc(SALE_TX_URL[s.network](s.tx))}" rel="noopener">tx</a>` : "";
+    const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
     const tag = s.internal ? ' · <span style="color:var(--muted);">canary</span>' : "";
     return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(s.network || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
   }).join("");
@@ -1084,7 +1101,7 @@ function salesSection(sales) {
         <div style="font-weight:800;font-size:15px;border-bottom:1px dashed var(--dash);padding-bottom:8px;margin-bottom:10px;">recent external sales</div>
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
           ${recent.slice(0, 10).map((s) => {
-            const link = s.tx && SALE_TX_URL[s.network] ? ` · <a href="${esc(SALE_TX_URL[s.network](s.tx))}" rel="noopener">tx</a>` : "";
+            const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
             return `<div><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc((s.network || s.rail))}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
           }).join("") || '<div style="color:var(--muted);">-</div>'}
         </div>
@@ -1093,7 +1110,7 @@ function salesSection(sales) {
         <div style="font-weight:800;font-size:15px;border-bottom:1px dashed var(--dash);padding-bottom:8px;margin-bottom:10px;">recent internal (canary/test) - $${(sales.totals?.internal?.revenueUsd ?? 0).toFixed(4)}</div>
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
           ${internal.slice(0, 10).map((s) => {
-            const link = s.tx && SALE_TX_URL[s.network] ? ` · <a href="${esc(SALE_TX_URL[s.network](s.tx))}" rel="noopener">tx</a>` : "";
+            const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
             return `<div style="opacity:.62;"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc((s.network || s.rail))}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
           }).join("") || '<div style="color:var(--muted);">-</div>'}
         </div>

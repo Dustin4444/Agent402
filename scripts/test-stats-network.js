@@ -20,7 +20,7 @@ ok(networkFromPaymentResponse(b64({ network: "eip155:42161" })) === "arbitrum", 
 ok(networkFromPaymentResponse(b64({ network: "base" })) === "base", "short name passes through");
 
 // A chain we don't know yet must still be attributed, not dropped.
-ok(networkFromPaymentResponse(b64({ network: "eip155:43114" })) === "eip155:43114", "unknown CAIP-2 passes through raw");
+ok(networkFromPaymentResponse(b64({ network: "eip155:9999999" })) === "eip155:9999999", "unknown CAIP-2 passes through raw");
 
 // Defensive cases: all null, never a throw.
 ok(networkFromPaymentResponse(b64({ success: true })) === null, "receipt without network → null");
