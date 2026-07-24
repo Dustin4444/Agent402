@@ -174,7 +174,7 @@ import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPane
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
-import { recordSale, salesSummary, mppSales, txFromPaymentResponse } from "./sales-ledger.js";
+import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
@@ -1140,7 +1140,7 @@ app.get("/api/revenue", async (_req, res) => {
 // internal, per chain per day, straight from the settlement ledger.
 app.get("/api/revenue/daily", (_req, res) => {
   try {
-    res.set("Cache-Control", "public, max-age=300").json({ asOf: new Date().toISOString(), days: ledgerDaily(revenueWallets()) });
+    res.set("Cache-Control", "public, max-age=300").json({ asOf: new Date().toISOString(), days: ledgerDaily(revenueWallets(), mppTxHashes()) });
   } catch (e) {
     res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });
   }

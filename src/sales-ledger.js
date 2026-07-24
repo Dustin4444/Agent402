@@ -125,6 +125,10 @@ const qMppRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx, internal
   FROM sales WHERE wire = 'mpp'
   ORDER BY ts DESC LIMIT ?`);
+// Every MPP tx hash, for joining the wire onto the on-chain revenue ledger
+// (separate db) so the chart can filter by wire. Unbounded by design: the
+// series spans the whole chart window, not just the recent list.
+const qMppTx = db.prepare("SELECT tx FROM sales WHERE wire = 'mpp' AND tx IS NOT NULL");
 const qExtByPayer = db.prepare(`
   SELECT payer, COUNT(*) AS sales, SUM(price_usd) AS revenue, MAX(ts) AS last_ts
   FROM sales WHERE internal = 0 AND rail IN ('usdc','marketplace') AND payer IS NOT NULL AND ts >= ?
@@ -240,6 +244,23 @@ export function firstRecordedTs() {
  * repeat buyers, and honest internal/external totals. `days` bounds the
  * by-slug/by-payer aggregations (recent list is always the latest rows).
  */
+// The on-chain ledger (agent402-revenue.db) records settlements scanned from
+// each chain, and an MPP settlement is byte-identical on-chain to an x402 one —
+// the wire is an HTTP-layer fact only this table knows. The tx hash is the join
+// key between the two databases, so the revenue chart can offer a wire filter.
+// EVM hashes are hex (case-insensitive, normalized to lowercase); Solana/Stellar
+// signatures are base58/base32 and case-SENSITIVE, so those are kept verbatim
+// and both forms are carried.
+export function mppTxHashes() {
+  const out = new Set();
+  for (const r of qMppTx.all()) {
+    if (!r.tx) continue;
+    out.add(r.tx);
+    if (/^0x[0-9a-fA-F]+$/.test(r.tx)) out.add(r.tx.toLowerCase());
+  }
+  return out;
+}
+
 /** Recent MPP-wire settlements (Authorization: Payment) with on-chain tx + payer. */
 export function mppSales({ limit = 30 } = {}) {
   const rows = qMppRecent.all(Math.min(Math.max(1, limit | 0), 100));

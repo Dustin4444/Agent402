@@ -53,4 +53,40 @@ const sum = ledgerSummary(wallets);
 ok(sum.perChain.base.externalUsd === Number((0.003 + 0.004 + 0.55).toFixed(6)), "summary aggregates treasury + spending wallet on base");
 ok(sum.allTimeExternalUsd > 0.55, "all-time total includes the spending-wallet revenue");
 
+// --- wire split (the chart's All / x402 / MPP filter) -----------------------
+// On-chain an MPP settlement is identical to an x402 one, so the wire arrives
+// as a Set of tx hashes joined in from the sales db. The invariant the chart
+// depends on: MPP is a SUBSET of the totals, so x402 == all - mpp exactly.
+ok(days.every((d) => d.extMppUsd === 0 && d.extMppTx === 0 && d.intMppUsd === 0 && d.intMppTx === 0),
+  "no mppTx set -> every MPP field is zero and the series is unchanged");
+
+// a2 (external $0.02) and a3 (internal canary $0.05) arrived over the MPP wire.
+const wired = ledgerDaily(wallets, new Set(["a2", "a3"]));
+const w = (day, chain) => wired.find((d) => d.day === day && d.chain === chain);
+ok(w(today, "algorand").extMppUsd === 0.02 && w(today, "algorand").extMppTx === 1,
+  "external MPP settlement lands in the external MPP subset");
+ok(w(today, "algorand").intMppUsd === 0.05 && w(today, "algorand").intMppTx === 1,
+  "internal (canary) MPP settlement lands in the internal MPP subset");
+ok(w(today, "algorand").extUsd === 0.02 && w(today, "algorand").intUsd === 0.05,
+  "the MPP subset does not change the totals it is drawn from");
+ok(w(yesterday, "algorand").extMppUsd === 0 && w(yesterday, "algorand").extTx === 1,
+  "a non-MPP day keeps its total with an empty MPP subset (x402 remainder)");
+ok(wired.every((d) => d.extMppUsd <= d.extUsd && d.intMppUsd <= d.intUsd
+  && d.extMppTx <= d.extTx && d.intMppTx <= d.intTx),
+  "MPP is always a subset -> the chart's x402 remainder can never go negative");
+
+// A funding-sized internal row ($5, excluded from the series) must stay excluded
+// even when its hash is on the MPP list — the wire never resurrects a filtered row.
+const wiredFunding = ledgerDaily(wallets, new Set(["a4"]));
+const wf = wiredFunding.find((d) => d.day === today && d.chain === "algorand");
+ok(wf.intUsd === 0.05 && wf.intMppUsd === 0,
+  "funding-sized row stays excluded even when its tx is on the MPP list");
+
+// EVM hashes are hex and case-insensitive; base58/base32 ids are not, so a
+// checksummed-vs-lowercase mismatch must still join.
+recordTransfer({ chain: "base", wallet: W, txid: "0xAbCdEf", tx_hash: "0xAbCdEf", block: 1000000, when_ts: null, usd: 0.007, asset: "USDC", external: true });
+const wiredCase = ledgerDaily(wallets, new Set(["0xabcdef"]));
+ok(wiredCase.find((d) => d.day === today && d.chain === "base").extMppUsd === 0.007,
+  "EVM tx hash joins case-insensitively (lowercase set vs mixed-case ledger row)");
+
 console.log(`\ntest-revenue-daily: ${passed} passed${process.exitCode ? ", FAILURES" : ""}`);
