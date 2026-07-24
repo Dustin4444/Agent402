@@ -26,6 +26,14 @@ on:
       - ".github/trigger-bazaar-refresh"
       - ".github/trigger-bazaar-register"
       - ".github/trigger-bazaar-solana"
+  # PRs into main run the test + markers jobs so branch-protection required
+  # checks always report (N-04 hardening). SAFE by construction: the markers
+  # job emits ALL markers false on any non-push event, and every deploy/money
+  # job gates on `workflow_dispatch && mode==X || markers.X == 'true'` — so
+  # none of them can fire on a pull_request. Only the test job opts in (via its
+  # own `github.event_name == 'pull_request'` condition below).
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       mode:
@@ -649,7 +657,11 @@ jobs:
     # `needs: test`. This makes "ship without running tests" impossible by
     # design, not by developer discipline.
     needs: markers
-    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+    # Runs on the [test]/[deploy]/[publish] markers, on the matching
+    # workflow_dispatch modes, AND on every PR into main (N-04: so the
+    # required `test` status check always reports). No money/deploy job shares
+    # this pull_request opt-in — they stay marker/dispatch-gated only.
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
     # F07: provider keys stay at job scope so every TEST step gates its
     # expectations on the SAME config the booted server has. But the ONE step
