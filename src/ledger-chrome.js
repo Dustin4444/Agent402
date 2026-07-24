@@ -274,7 +274,10 @@ const NAV_ZONES = [
     { href: "/marketplace", label: "marketplace", panel: "marketplace" },
     { href: "/sell", label: "sell", panel: "sell" },
   ],
-  [{ href: "/docs", label: "docs" }],
+  [
+    { href: "/what-is-x402", label: "what is x402/MPP" },
+    { href: "/docs", label: "docs" },
+  ],
 ];
 
 // Fallback by-chain rows used whenever no live index-snapshot data is wired
@@ -416,6 +419,7 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-group">
       ${mmLink("/sell", "list your API", activePath === "/sell")}
       ${mmLink("/tollbooth", "tollbooth", activePath === "/tollbooth")}
+      ${mmLink("/what-is-x402", "what is x402/MPP", activePath === "/what-is-x402")}
       ${mmLink("/docs", "docs", activePath === "/docs")}
       <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
       ${mmLink("/docs", "ADD TO CLAUDE →", false, " ml-mm-cta")}
@@ -523,7 +527,7 @@ export function ledgerFooterCompact() {
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <span style="display:flex;align-items:center;gap:10px;"><span style="width:24px;height:24px;border:2px solid var(--ink);color:var(--ink);font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center;">402</span><span style="font-weight:700;">Agent402.Tools</span></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">llm gateway</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/guides/smart-order-router" style="color:var(--muted);text-decoration:none;">router</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/what-is-x402" style="color:var(--muted);text-decoration:none;">what is x402?</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">llm gateway</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/guides/smart-order-router" style="color:var(--muted);text-decoration:none;">router</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/what-is-x402" style="color:var(--muted);text-decoration:none;">what is x402/MPP?</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>
