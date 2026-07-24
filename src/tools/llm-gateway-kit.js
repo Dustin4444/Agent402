@@ -20,10 +20,12 @@
 // Pricing is deterministic by design (flat per tier), matching the project's
 // predictability brand: model allowlists + input/output caps keep worst-case
 // upstream cost well under the x402 price. Streaming (stream: true) is
-// supported: payment settles BEFORE the handler runs, so the response can
-// stream out with no credit risk; max_tokens is clamped before the upstream
-// call, so the provider stops the stream at the cap. Streamed responses are
-// not idempotency-replayable (the cache hooks res.json only).
+// supported: max_tokens is clamped before the upstream call, so the provider
+// stops the stream at the cap and worst-case cost stays under the price
+// regardless of settlement timing. (Under @x402/express v2.16 settlement runs
+// AFTER the handler and only for a <400 response — a streamed 200 settles once
+// the stream finishes.) Streamed responses are not idempotency-replayable (the
+// cache hooks res.json only).
 
 import { createHash } from "node:crypto";
 // Static import (not agent-kit's lazy pattern): validateRequest must stay

@@ -25,8 +25,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Fetch post JSON (fxtwitter, vxtwitter fallback)
+        env:
+          # Dispatch input rides an env var, never shell interpolation (N-03).
+          IN_STATUS: ${{ github.event.inputs.status }}
         run: |
-          S="${{ github.event.inputs.status }}"
+          S="$IN_STATUS"
           [ -z "$S" ] && S="2077749647703949603"
           ID=$(echo "$S" | grep -oE '[0-9]{10,}' | head -1)
           [ -n "$ID" ] || { echo "no status id found in: $S"; exit 1; }

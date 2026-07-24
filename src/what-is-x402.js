@@ -6,9 +6,9 @@ import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 
 export function whatIsX402Page(baseUrl) {
   const canonical = `${baseUrl}/what-is-x402`;
-  const title = "What is x402? The internet's pay-per-use button, explained for humans";
+  const title = "What is x402? What is MPP? The internet's pay-per-use button, explained for humans";
   const description =
-    "x402 lets software pay for what it uses the moment it uses it - pennies per request, no signups, no subscriptions, no invoices. The plain-English explainer: what it is, how a payment works (interactive), what 'agents paying agents' means, and why it matters for your business.";
+    "x402 and MPP let software pay for what it uses the moment it uses it - pennies per request, no signups, no subscriptions, no invoices. The plain-English explainer: what they are, how a payment works (interactive), how the two protocols compare, what 'agents paying agents' means, and why it matters for your business.";
 
   const extraCss = `
 .wx-wrap{max-width:880px;margin:0 auto;padding:56px 30px}
@@ -126,8 +126,8 @@ export function whatIsX402Page(baseUrl) {
 
   const body = `<div class="wx-wrap">
   <div class="wx-eyebrow">Plain-English explainer</div>
-  <h1 class="wx-title">What is x402?</h1>
-  <p class="wx-sub">x402 gives the internet a <strong>pay-per-use button</strong>: software can buy exactly what it needs, the moment it needs it, for pennies &mdash; with no signups, no subscriptions, and no invoices. Here's the whole idea in three minutes, no crypto background required.</p>
+  <h1 class="wx-title">What is x402? And MPP?</h1>
+  <p class="wx-sub">x402 and MPP give the internet a <strong>pay-per-use button</strong>: software can buy exactly what it needs, the moment it needs it, for pennies &mdash; with no signups, no subscriptions, and no invoices. They are two dialects of the same idea, and this page explains both in plain English &mdash; no crypto background required.</p>
 
   <h2 class="wx-h2">The 30-second version</h2>
   <p class="wx-p">Everything useful on the internet sits behind a gate. To use a data service today, someone has to create an account, verify an email, enter a credit card, agree to a monthly plan, and manage an API key &mdash; fine for a person, <strong>impossible for software acting on its own</strong>.</p>
@@ -178,9 +178,19 @@ export function whatIsX402Page(baseUrl) {
     <div class="wx-card"><h4>Radically less friction</h4><p>Settlement is final in seconds, refund-proof by design (no delivery, no charge), and global from day one. No chargebacks, no net-30, no dunning emails.</p></div>
   </div>
 
-  <h2 class="wx-h2">Two dialects, one payment: x402 and MPP</h2>
-  <p class="wx-p">Pay-per-request over the web currently speaks two dialects. <strong>x402</strong> is the pioneer &mdash; created at Coinbase, with the largest live ecosystem of sellers and buyers today. <strong>MPP</strong> (the Machine Payments Protocol, created at Tempo) takes the same handshake and rewrites it as a formal internet standard on the IETF track: it rides the web's own authentication headers &mdash; the ones proxies, gateways, and CDNs have understood since the 1990s &mdash; and adds signed receipts and tamper-proof payment challenges at the protocol level.</p>
-  <div class="wx-callout"><strong>What it means here:</strong> every Agent402 endpoint answers both. An x402 buyer and an MPP buyer hit the same URL, pay the same price, and settle the same digital-dollar payment on the same rails &mdash; the buyer's software just picks the dialect it speaks. Sellers shouldn't have to bet on a protocol war, and with a dual-stack they don't.</div>
+  <h2 class="wx-h2">So what is MPP, then?</h2>
+  <p class="wx-p">Pay-per-request over the web currently speaks two dialects. <strong>x402</strong> is the pioneer &mdash; created at Coinbase in 2025, with the largest live ecosystem of sellers and buyers today. <strong>MPP</strong> &mdash; the Machine Payments Protocol, created at Tempo &mdash; takes the same four-move handshake you stepped through above and rewrites it as a formal internet standard on the IETF track.</p>
+  <p class="wx-p">The practical difference is <strong>where the payment conversation lives</strong>. x402 invented its own custom headers to carry the price tag and the payment. MPP carries the identical conversation inside the web's <em>standard</em> authentication headers &mdash; the same machinery browsers, proxies, gateways, and CDNs have understood since the 1990s. Being boring and standard is the feature: infrastructure that has never heard of machine payments still knows how to handle the messages correctly.</p>
+  <p class="wx-p">MPP also adds two things buyers care about at the protocol level: <strong>signed receipts</strong> (every settled purchase returns a cryptographic proof of what was paid and when) and <strong>tamper-proof price tags</strong> (the quote is cryptographically bound, so nothing between buyer and seller can alter it undetected).</p>
+  <div class="wx-real">
+    <div class="wx-real-h">The same purchase, side by side</div>
+    <div class="wx-real-row"><span>Who created it</span><b>x402: Coinbase &nbsp;&middot;&nbsp; MPP: Tempo (IETF track)</b></div>
+    <div class="wx-real-row"><span>The price tag arrives as</span><b>x402: custom header &nbsp;&middot;&nbsp; MPP: standard auth header</b></div>
+    <div class="wx-real-row"><span>The money that moves</span><b>identical: digital dollars, on-chain, in seconds</b></div>
+    <div class="wx-real-row"><span>Receipt returned</span><b>x402: settlement record &nbsp;&middot;&nbsp; MPP: + signed receipt</b></div>
+    <div class="wx-real-row"><span>What the buyer pays</span><b>the same price, either way</b></div>
+  </div>
+  <div class="wx-callout"><strong>What it means here:</strong> every Agent402 endpoint answers both. An x402 buyer and an MPP buyer hit the same URL, pay the same price, and settle the same digital-dollar payment on the same rails &mdash; the buyer's software just picks the dialect it speaks. Sellers shouldn't have to bet on a protocol war, and with a dual-stack they don't. This isn't theoretical: our public test buyer purchases over the MPP wire every day, settled on-chain, receipts and all.</div>
 
   <h2 class="wx-h2">Executive FAQ</h2>
   <div class="wx-faq">

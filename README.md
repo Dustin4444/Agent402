@@ -296,7 +296,9 @@ wallet-only. See [CONTRIBUTING.md](CONTRIBUTING.md) for the full walkthrough.
 ## Optional: charge per call with x402
 
 The same server can require payment per call — useful if you host a public
-instance. It's off by default (`FREE_MODE=true`); to enable, set `WALLET_ADDRESS`
+instance. Payments are the default posture: a bare `npm start` **fails closed**,
+exiting unless `WALLET_ADDRESS` is set — running without payments is the
+explicit opt-in (`FREE_MODE=true npm start`). To charge, set `WALLET_ADDRESS`
 + CDP facilitator keys (free at [portal.cdp.coinbase.com](https://portal.cdp.coinbase.com))
 and agents pay in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Stellar,
 Algorand — or USDG on Robinhood Chain via `PAYMENT_NETWORKS=…,robinhood` +
