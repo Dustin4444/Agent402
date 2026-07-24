@@ -186,7 +186,7 @@ export const CRYPTO_HASH_TOOLS = [
     route: "POST /api/hkdf-expand", name: "HKDF extract-and-expand", slug: "hkdf-expand",
     category: "crypto", price: "$0.001",
     description:
-      "HKDF extract-then-expand (RFC 5869) — derive output keying material from initial keying material, an optional salt, and an optional info/context string. Useful for deriving multiple keys from a single shared secret. Returns hex-encoded OKM.",
+      "HKDF extract-then-expand (RFC 5869) - derive output keying material from initial keying material, an optional salt, and an optional info/context string. Useful for deriving multiple keys from a single shared secret. Returns hex-encoded OKM.",
     tags: ["hkdf", "kdf", "key-derivation", "rfc5869", "crypto", "extract", "expand"],
     discovery: {
       bodyType: "json",

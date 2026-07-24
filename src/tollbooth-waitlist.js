@@ -37,8 +37,8 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
   const isPartner = plan === "partner" || kind === "partner";
   const isEnterprise = plan === "enterprise" || kind === "enterprise";
 
-  const title = `${p.h} — Agent402 Tollbooth Cloud`;
-  const description = `${p.lead} Hosted on top of open-source agent402-tollbooth. Non-custodial — your wallet collects USDC directly.`;
+  const title = `${p.h} - Agent402 Tollbooth Cloud`;
+  const description = `${p.lead} Hosted on top of open-source agent402-tollbooth. Non-custodial - your wallet collects USDC directly.`;
   const canonical = `${baseUrl}/tollbooth/waitlist?plan=${plan}`;
 
   const extraCss = `
@@ -102,7 +102,7 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
 </form>
 
 <div id="wl_done" style="display:none; background:var(--card); border:1.5px solid var(--ink); padding:22px;">
-  <h2 style="margin:0 0 6px; color:var(--accent); font-size:1.2rem;">Got it — you're on the list.</h2>
+  <h2 style="margin:0 0 6px; color:var(--accent); font-size:1.2rem;">Got it - you're on the list.</h2>
   <p style="margin:0; color:var(--muted);">We'll be in touch within 1 business day. In the meantime, <a href="/tollbooth">install the OSS gate</a> in observe mode and you'll have a week of bot-traffic data ready when we onboard you.</p>
 </div>
 
@@ -148,13 +148,13 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
         return;
       }
       // F10 (privacy): fail CLOSED. We never place the lead's name/email/org/
-      // message in a URL (GitHub issue pre-fill, or anything else) — that would
+      // message in a URL (GitHub issue pre-fill, or anything else) - that would
       // leak PII into browser history, referrers, and endpoint logs and break
       // the private-storage promise above. On any failure we show an honest
       // retry error and keep the form so the user can resubmit; no success is
       // shown and no data leaves the page.
       if (r.status === 503) { showError('Our signup service is briefly unavailable. Please try again in a few minutes.'); }
-      else if (r.status === 429) { showError('Too many submissions — please try again in a minute.'); }
+      else if (r.status === 429) { showError('Too many submissions - please try again in a minute.'); }
       else if (r.status === 400) { showError('Please double-check your name and email.'); }
       else { showError('Something went wrong. Please try again.'); }
     } catch (_) {

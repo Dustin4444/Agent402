@@ -5,7 +5,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function webhooksPage(baseUrl) {
   const canonical = `${baseUrl}/docs/webhooks`;
-  const title = "Webhooks & Callbacks \u2014 Agent402 Docs";
+  const title = "Webhooks & Callbacks - Agent402 Docs";
   const description = "How to handle async workflows with Agent402: polling, idempotent retries, and planned webhook support for long-running tool chains.";
 
   const extraCss = `
@@ -42,7 +42,7 @@ export function webhooksPage(baseUrl) {
       <div class="ml-wh-cards">
         <div style="background:var(--card);border:1.5px solid var(--ink);padding:20px 22px;">
           <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Idempotent retries <span style="display:inline-block;background:var(--surface);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
-          <p style="color:var(--muted);font-size:.9rem;line-height:1.6;margin:0;">Add an <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">Idempotency-Key</code> header to any request. If a network error occurs mid-flight, retry safely &mdash; the server returns the cached result without re-charging.</p>
+          <p style="color:var(--muted);font-size:.9rem;line-height:1.6;margin:0;">Add an <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">Idempotency-Key</code> header to any request. If a network error occurs mid-flight, retry safely - the server returns the cached result without re-charging.</p>
         </div>
         <div style="background:var(--card);border:1.5px solid var(--ink);padding:20px 22px;">
           <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Sequential chaining <span style="display:inline-block;background:var(--surface);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
@@ -50,7 +50,7 @@ export function webhooksPage(baseUrl) {
         </div>
         <div style="background:var(--card);border:1.5px solid var(--ink);padding:20px 22px;">
           <h3 style="font-weight:700;font-size:1rem;margin:0 0 8px;">Wallet-keyed state <span style="display:inline-block;background:var(--surface);color:var(--green);font-size:.72rem;font-weight:700;padding:2px 8px;margin-left:8px;vertical-align:middle;font-family:var(--font-mono);">Available</span></h3>
-          <p style="color:var(--muted);font-size:.9rem;line-height:1.6;margin:0;">Use the memory tools (<code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">memory-write</code>, <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">memory-read</code>) to persist intermediate results across tool calls. Your wallet address is your identity &mdash; no accounts needed.</p>
+          <p style="color:var(--muted);font-size:.9rem;line-height:1.6;margin:0;">Use the memory tools (<code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">memory-write</code>, <code style="font-family:var(--font-mono);background:var(--paper);padding:1px 5px;font-size:.85em;">memory-read</code>) to persist intermediate results across tool calls. Your wallet address is your identity - no accounts needed.</p>
         </div>
       </div>
 
@@ -62,7 +62,7 @@ export function webhooksPage(baseUrl) {
   -H "Idempotency-Key: my-unique-key-123" \\
   -d '{"text":"hello","algo":"sha256"}'
 
-# Retry the same request — returns cached result, no re-charge
+# Retry the same request - returns cached result, no re-charge
 curl -X POST https://agent402.tools/api/hash \\
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: my-unique-key-123" \\
@@ -102,9 +102,9 @@ await a.call("memory-write", {
 
       <h2 id="related" style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 12px;">Related</h2>
       <p style="color:var(--muted);line-height:1.7;margin:0;">
-        <a href="/workflows" style="color:var(--accent);text-decoration:none;">Workflow examples</a> &mdash; see how tools chain together<br>
-        <a href="/quickstart" style="color:var(--accent);text-decoration:none;">Quickstart</a> &mdash; get your first call working in 60 seconds<br>
-        <a href="/docs" style="color:var(--accent);text-decoration:none;">Documentation</a> &mdash; full API reference
+        <a href="/workflows" style="color:var(--accent);text-decoration:none;">Workflow examples</a> - see how tools chain together<br>
+        <a href="/quickstart" style="color:var(--accent);text-decoration:none;">Quickstart</a> - get your first call working in 60 seconds<br>
+        <a href="/docs" style="color:var(--accent);text-decoration:none;">Documentation</a> - full API reference
       </p>
     </main>
   </div>

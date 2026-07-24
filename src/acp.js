@@ -39,7 +39,7 @@ export function acpFeed({ baseUrl, catalog, powSlugs }) {
     merchant: {
       name: "Agent402.Tools",
       url: baseUrl,
-      description: `Open-source, self-hostable x402 + MCP server: ${tools.length} pay-per-call tools for AI agents — browser, search, PDFs, OCR, finance, crypto, and more. Pay per call in USDC via x402, or free via proof-of-work.`,
+      description: `Open-source, self-hostable x402 + MCP server: ${tools.length} pay-per-call tools for AI agents - browser, search, PDFs, OCR, finance, crypto, and more. Pay per call in USDC via x402, or free via proof-of-work.`,
     },
     catalog_size: products.length,
     categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])),
@@ -62,7 +62,7 @@ export function acpManifest({ baseUrl, network, networks, wallet, toolCount, pow
     },
     service: {
       type: "api",
-      description: `${toolCount} deterministic pay-per-call tools for AI agents. No LLM in the serving path — same input, same output.`,
+      description: `${toolCount} deterministic pay-per-call tools for AI agents. No LLM in the serving path - same input, same output.`,
       catalog_url: `${baseUrl}/acp/feed`,
       openapi_url: `${baseUrl}/openapi.json`,
       pricing_url: `${baseUrl}/api/pricing`,
@@ -76,11 +76,11 @@ export function acpManifest({ baseUrl, network, networks, wallet, toolCount, pow
       primary_network: network,
       pay_to: wallet || null,
       non_custodial: true,
-      note: "Send a signed x402 payment header with each API call. No signup, no API key — the payment IS the authentication.",
+      note: "Send a signed x402 payment header with each API call. No signup, no API key - the payment IS the authentication.",
     },
     free_tier: {
       protocol: "proof-of-work",
-      description: "Solve a sha256 puzzle (fraction of a second of CPU) to use pure-CPU tools for free — no wallet needed.",
+      description: "Solve a sha256 puzzle (fraction of a second of CPU) to use pure-CPU tools for free - no wallet needed.",
       challenge_url: `${baseUrl}/api/pow/challenge`,
       difficulty_bits: powDifficulty,
     },

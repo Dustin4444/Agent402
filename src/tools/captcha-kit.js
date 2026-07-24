@@ -63,7 +63,7 @@ export const CAPTCHA_TOOLS = [
     category: "api",
     price: "$0.001",
     description:
-      "Mint a stateless captcha challenge to gate your OWN endpoint: returns a human prompt plus a salted sha256 answer hash you keep and verify later (sha256(salt + normalized answer) === answerHash) — no server state, no shared secret. Types: math (arithmetic) or alnum (character code), difficulty 1–3. Deterministic tooling for running bot protection, not defeating it.",
+      "Mint a stateless captcha challenge to gate your OWN endpoint: returns a human prompt plus a salted sha256 answer hash you keep and verify later (sha256(salt + normalized answer) === answerHash) - no server state, no shared secret. Types: math (arithmetic) or alnum (character code), difficulty 1–3. Deterministic tooling for running bot protection, not defeating it.",
     tags: ["captcha", "challenge", "bot-protection", "verification", "signup", "gate", "anti-abuse"],
     discovery: {
       bodyType: "json",
@@ -99,7 +99,7 @@ export const CAPTCHA_TOOLS = [
     category: "api",
     price: "$0.002",
     description:
-      "Validate a Cloudflare Turnstile, Google reCAPTCHA, or hCaptcha token server-side. You pass your OWN provider secret plus the token from the client; we relay to the provider's siteverify endpoint (never logged) and return the normalized verdict (success, hostname, action, score, error codes). The legitimate backend half of bot protection — no solving, no bypass.",
+      "Validate a Cloudflare Turnstile, Google reCAPTCHA, or hCaptcha token server-side. You pass your OWN provider secret plus the token from the client; we relay to the provider's siteverify endpoint (never logged) and return the normalized verdict (success, hostname, action, score, error codes). The legitimate backend half of bot protection - no solving, no bypass.",
     tags: ["captcha", "turnstile", "recaptcha", "hcaptcha", "verify", "bot-protection", "siteverify", "signup"],
     discovery: {
       bodyType: "json",
@@ -122,7 +122,7 @@ export const CAPTCHA_TOOLS = [
     handler: async (input) => {
       const provider = String(input?.provider || "").trim().toLowerCase();
       const url = PROVIDERS[provider];
-      if (!url) throw bad(`Unknown provider "${provider}" — one of: ${Object.keys(PROVIDERS).join(", ")}`);
+      if (!url) throw bad(`Unknown provider "${provider}" - one of: ${Object.keys(PROVIDERS).join(", ")}`);
       const secret = String(input?.secret || "");
       const token = String(input?.token || "");
       if (!secret) throw bad('Missing "secret" (your provider secret key)');

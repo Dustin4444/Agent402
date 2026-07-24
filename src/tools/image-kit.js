@@ -278,7 +278,7 @@ export const IMAGE_TOOLS = [
   {
     route: "POST /api/image-thumbnail", name: "Image thumbnail", slug: "image-thumbnail", category: "web", price: "$0.005",
     description:
-      "Make a square thumbnail of an image — scales and center-crops to NxN (default 128). Send a base64 image and optional size. Returns the thumbnail. Deterministic, no network.",
+      "Make a square thumbnail of an image - scales and center-crops to NxN (default 128). Send a base64 image and optional size. Returns the thumbnail. Deterministic, no network.",
     tags: ["image", "thumbnail", "crop", "square", "preview"],
     discovery: {
       bodyType: "json",
@@ -377,7 +377,7 @@ export const IMAGE_TOOLS = [
   {
     route: "POST /api/image-crop", name: "Image crop", slug: "image-crop", category: "web", price: "$0.005",
     description:
-      "Crop an image to a pixel box, and/or rotate (90/180/270) and flip it — applied in that order. Send a public image URL or a base64 image. Returns the result as binary, or as a JSON data URI with dataUri:true. Deterministic.",
+      "Crop an image to a pixel box, and/or rotate (90/180/270) and flip it - applied in that order. Send a public image URL or a base64 image. Returns the result as binary, or as a JSON data URI with dataUri:true. Deterministic.",
     tags: ["image", "crop", "rotate", "flip", "transform"],
     discovery: {
       bodyType: "json",
@@ -422,7 +422,7 @@ export const IMAGE_TOOLS = [
       const out = await toBuffer(img, i.format, i.quality);
       if (!i.dataUri) return out;
       const b64 = out.__binary.toString("base64");
-      if (b64.length > MAX_B64) throw Object.assign(new Error("result too large for a data URI — request binary output"), { statusCode: 413 });
+      if (b64.length > MAX_B64) throw Object.assign(new Error("result too large for a data URI - request binary output"), { statusCode: 413 });
       return { dataUri: `data:${out.contentType};base64,${b64}`, width: img.width, height: img.height, bytes: out.__binary.length };
     },
   },

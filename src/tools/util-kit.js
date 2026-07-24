@@ -113,7 +113,7 @@ const WEBHOOK_SCHEMES = {
     return {
       valid: ctEqualHex(hmacHex(algo, secret, payload), hex),
       scheme: legacy
-        ? "X-Hub-Signature (legacy): sha1=hex(HMAC-SHA1(secret, rawBody)) — prefer X-Hub-Signature-256"
+        ? "X-Hub-Signature (legacy): sha1=hex(HMAC-SHA1(secret, rawBody)) - prefer X-Hub-Signature-256"
         : "X-Hub-Signature-256: sha256=hex(HMAC-SHA256(secret, rawBody))",
     };
   },
@@ -173,7 +173,7 @@ export const UTIL_TOOLS = [
   {
     route: "POST /api/jwt-sign", name: "JWT sign", slug: "jwt-sign", category: "encoding", price: "$0.001",
     description:
-      "Mint a signed JSON Web Token (HMAC: HS256 default, HS384, HS512) from a payload + secret. Pairs with jwt-decode/jwt-verify to complete the trio. Deterministic — same payload, secret, and alg always produce the same token.",
+      "Mint a signed JSON Web Token (HMAC: HS256 default, HS384, HS512) from a payload + secret. Pairs with jwt-decode/jwt-verify to complete the trio. Deterministic - same payload, secret, and alg always produce the same token.",
     tags: ["jwt", "jws", "hmac", "token", "auth"],
     discovery: {
       bodyType: "json",
@@ -203,7 +203,7 @@ export const UTIL_TOOLS = [
   {
     route: "POST /api/uuid-v5", name: "UUID v5 (deterministic)", slug: "uuid-v5", category: "identifiers", price: "$0.001",
     description:
-      "Generate a deterministic name-based UUID (version 5, SHA-1) from a namespace + name — the same inputs always yield the same UUID, for stable IDs without a database. Namespace may be a UUID or an alias: dns | url | oid | x500.",
+      "Generate a deterministic name-based UUID (version 5, SHA-1) from a namespace + name - the same inputs always yield the same UUID, for stable IDs without a database. Namespace may be a UUID or an alias: dns | url | oid | x500.",
     tags: ["uuid", "uuidv5", "deterministic", "identifier", "rfc4122"],
     discovery: {
       bodyType: "json",
@@ -232,7 +232,7 @@ export const UTIL_TOOLS = [
   {
     route: "POST /api/group-by", name: "Group by / aggregate", slug: "group-by", category: "conversion", price: "$0.001",
     description:
-      "Group an array of objects by one or more keys and aggregate a numeric field — count (default), sum, avg, min, or max. The SQL GROUP BY agents reach for when wrangling JSON. Deterministic (groups in first-seen order).",
+      "Group an array of objects by one or more keys and aggregate a numeric field - count (default), sum, avg, min, or max. The SQL GROUP BY agents reach for when wrangling JSON. Deterministic (groups in first-seen order).",
     tags: ["group-by", "aggregate", "sql", "pivot", "data"],
     discovery: {
       bodyType: "json",
@@ -288,7 +288,7 @@ export const UTIL_TOOLS = [
   {
     route: "POST /api/json-to-xml", name: "JSON to XML", slug: "json-to-xml", category: "conversion", price: "$0.001",
     description:
-      "Convert a JSON value to indented XML — the reverse of xml-to-json. Objects become nested elements, arrays repeat their tag, and text is escaped. Deterministic.",
+      "Convert a JSON value to indented XML - the reverse of xml-to-json. Objects become nested elements, arrays repeat their tag, and text is escaped. Deterministic.",
     tags: ["json", "xml", "convert", "serialize"],
     discovery: {
       bodyType: "json",
@@ -347,7 +347,7 @@ export const UTIL_TOOLS = [
   {
     route: "POST /api/color-contrast", name: "Color contrast (WCAG)", slug: "color-contrast", category: "validation", price: "$0.001",
     description:
-      "Compute the WCAG 2.x contrast ratio between two colors (hex #rgb or #rrggbb) and whether it passes AA/AAA for normal and large text. Deterministic — for accessible color choices without a tool in the loop.",
+      "Compute the WCAG 2.x contrast ratio between two colors (hex #rgb or #rrggbb) and whether it passes AA/AAA for normal and large text. Deterministic - for accessible color choices without a tool in the loop.",
     tags: ["color", "contrast", "wcag", "accessibility", "a11y"],
     discovery: {
       bodyType: "json",
@@ -376,7 +376,7 @@ export const UTIL_TOOLS = [
   {
     route: "POST /api/webhook-verify", name: "Webhook signature verify", slug: "webhook-verify", category: "validation", price: "$0.001",
     description:
-      "Verify a webhook's HMAC signature against the correct per-provider scheme: GitHub (X-Hub-Signature-256, sha256=hex), Stripe (Stripe-Signature t/v1 over \"<t>.<body>\" with replay tolerance), Shopify (X-Shopify-Hmac-Sha256, base64), Slack (X-Slack-Signature, v0:<ts>:<body> with replay tolerance). Constant-time comparison; the secret is never echoed. Pass the RAW request body string — signatures are over the raw bytes. Deterministic.",
+      "Verify a webhook's HMAC signature against the correct per-provider scheme: GitHub (X-Hub-Signature-256, sha256=hex), Stripe (Stripe-Signature t/v1 over \"<t>.<body>\" with replay tolerance), Shopify (X-Shopify-Hmac-Sha256, base64), Slack (X-Slack-Signature, v0:<ts>:<body> with replay tolerance). Constant-time comparison; the secret is never echoed. Pass the RAW request body string - signatures are over the raw bytes. Deterministic.",
     tags: ["webhook", "hmac", "signature", "security", "github", "stripe", "shopify", "slack"],
     discovery: {
       bodyType: "json",
@@ -398,7 +398,7 @@ export const UTIL_TOOLS = [
       const provider = need(i, "provider").trim().toLowerCase();
       const verify = WEBHOOK_SCHEMES[provider];
       if (!verify) throw bad(`unsupported "provider" (github | stripe | shopify | slack)`);
-      if (typeof i.payload !== "string") throw bad('"payload" must be the RAW request body as a string — webhook signatures are computed over the raw bytes, so a parsed-then-restringified JSON object will not match. Pass the body exactly as received.');
+      if (typeof i.payload !== "string") throw bad('"payload" must be the RAW request body as a string - webhook signatures are computed over the raw bytes, so a parsed-then-restringified JSON object will not match. Pass the body exactly as received.');
       const secret = need(i, "secret");
       const signature = need(i, "signature");
       const tol = i.toleranceSeconds === undefined || i.toleranceSeconds === null ? 300 : Number(i.toleranceSeconds);

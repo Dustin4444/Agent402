@@ -63,7 +63,7 @@ function requireAlchemyKey() {
 function pickNetwork(value, dflt = "ethereum") {
   const n = typeof value === "string" ? value.toLowerCase().trim() : dflt;
   const def = NETWORKS[n];
-  if (!def) throw bad(`Unsupported network "${value}" — supported: ${Object.keys(NETWORKS).join(", ")}`);
+  if (!def) throw bad(`Unsupported network "${value}" - supported: ${Object.keys(NETWORKS).join(", ")}`);
   return { name: n, ...def };
 }
 
@@ -111,10 +111,10 @@ async function fetchBidtraces(params) {
     } catch (e) {
       lastErr = e;
       const next = MEV_RELAYS[i + 1];
-      if (next) console.warn(`[mev] relay ${host} failed (${e.message}) — trying ${next.host}`);
+      if (next) console.warn(`[mev] relay ${host} failed (${e.message}) - trying ${next.host}`);
     }
   }
-  throw bad(`All ${MEV_RELAYS.length} MEV-Boost relays failed — last: ${lastErr?.message || "unknown"}`, 502);
+  throw bad(`All ${MEV_RELAYS.length} MEV-Boost relays failed - last: ${lastErr?.message || "unknown"}`, 502);
 }
 
 async function alchemyRpc(network, method, params) {

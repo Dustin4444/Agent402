@@ -23,7 +23,7 @@ export const USAGE_TOOLS = [
     category: "payments",
     price: "$0.005",
     description:
-      "Your own purchase history, keyed to the wallet that pays for the call — no wallet parameter, no signup: the x402 payment IS the identity, so nobody can read another wallet's profile. Returns totals, per-tool counts, per-chain breakdown, and recent receipts with settle tx hashes (independently verifiable on-chain). Requires an EIP-3009 payment (USDC on Base, Polygon, or Arbitrum); Solana/Stellar payments carry no signed payer the server can verify.",
+      "Your own purchase history, keyed to the wallet that pays for the call - no wallet parameter, no signup: the x402 payment IS the identity, so nobody can read another wallet's profile. Returns totals, per-tool counts, per-chain breakdown, and recent receipts with settle tx hashes (independently verifiable on-chain). Requires an EIP-3009 payment (USDC on Base, Polygon, or Arbitrum); Solana/Stellar payments carry no signed payer the server can verify.",
     tags: ["usage", "receipts", "billing", "audit", "wallet", "x402", "history"],
     discovery: {
       bodyType: "json",
@@ -44,7 +44,7 @@ export const USAGE_TOOLS = [
           byNetwork: { base: { calls: 40, usd: 1.2 }, polygon: { calls: 2, usd: 0.034 } },
           bySlug: [{ slug: "hash", calls: 12, usd: 0.012, lastAt: "2026-07-09T00:00:00.000Z" }],
           recent: [{ at: "2026-07-09T00:00:00.000Z", slug: "hash", priceUsd: 0.001, network: "base", tx: "0x…" }],
-          note: "Every USDC row keeps its settle tx — verifiable on-chain.",
+          note: "Every USDC row keeps its settle tx - verifiable on-chain.",
         },
       },
     },

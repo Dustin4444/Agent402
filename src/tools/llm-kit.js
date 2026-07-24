@@ -181,7 +181,7 @@ async function callOpenAI(model, messages, maxTokens, responseFormat, opts) {
   const text = await res.text();
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
-    if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
+    if (res.status === 429) throw bad("OpenAI rate-limited - retry shortly", 503);
     if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
     // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
     // 200-char cut leaves an unredactable prefix); the route binder returns
@@ -228,14 +228,14 @@ export const LLM_TOOLS = [
     category: "ai",
     price: "$0.010",
     description:
-      "LLM inference proxy — send an OpenAI-format chat/completions request and get a response from GPT-4o-mini. Supports vision (up to 2 image URLs, low detail) and structured output (response_format: json_object or json_schema). No API key needed; pay per call via x402. Input capped at 16k chars, output at 4096 tokens.",
+      "LLM inference proxy - send an OpenAI-format chat/completions request and get a response from GPT-4o-mini. Supports vision (up to 2 image URLs, low detail) and structured output (response_format: json_object or json_schema). No API key needed; pay per call via x402. Input capped at 16k chars, output at 4096 tokens.",
     tags: [...SHARED_TAGS, "gpt-4o-mini", "vision", "json-mode"],
     discovery: {
       bodyType: "json",
       input: { model: "gpt-4o-mini", messages: [{ role: "user", content: "Say hello in one sentence." }], max_tokens: 64 },
       inputSchema: {
         properties: {
-          model: { type: "string", description: "Model ID — gpt-4o-mini" },
+          model: { type: "string", description: "Model ID - gpt-4o-mini" },
           messages: { type: "array", description: "Array of {role, content} objects. content can be a string or array of {type:'text',text} and {type:'image_url',image_url:{url,detail}} blocks" },
           max_tokens: { type: "number", description: "Max output tokens (default 1024, cap 4096)" },
           response_format: { type: "object", description: 'Optional: {type:"json_object"} or {type:"json_schema",json_schema:{name,schema}}' },
@@ -263,14 +263,14 @@ export const LLM_TOOLS = [
     category: "ai",
     price: "$0.100",
     description:
-      "LLM inference proxy (Pro tier) — GPT-4o or GPT-4.1. Supports vision (up to 2 image URLs) and structured output (response_format: json_object or json_schema). No API key needed; pay per call via x402. Input capped at 16k chars, output at 2048 tokens.",
+      "LLM inference proxy (Pro tier) - GPT-4o or GPT-4.1. Supports vision (up to 2 image URLs) and structured output (response_format: json_object or json_schema). No API key needed; pay per call via x402. Input capped at 16k chars, output at 2048 tokens.",
     tags: [...SHARED_TAGS, "gpt-4o", "gpt-4.1", "vision", "json-mode"],
     discovery: {
       bodyType: "json",
       input: { model: "gpt-4o", messages: [{ role: "user", content: "Say hello in one sentence." }], max_tokens: 64 },
       inputSchema: {
         properties: {
-          model: { type: "string", description: "Model ID — gpt-4o or gpt-4.1" },
+          model: { type: "string", description: "Model ID - gpt-4o or gpt-4.1" },
           messages: { type: "array", description: "Array of {role, content} objects. content can be a string or array of {type:'text',text} and {type:'image_url',image_url:{url,detail}} blocks" },
           max_tokens: { type: "number", description: "Max output tokens (default 1024, cap 2048)" },
           response_format: { type: "object", description: 'Optional: {type:"json_object"} or {type:"json_schema",json_schema:{name,schema}}' },
@@ -298,14 +298,14 @@ export const LLM_TOOLS = [
     category: "ai",
     price: "$0.500",
     description:
-      "LLM inference proxy (Premium tier) — o3 or o3-mini reasoning models. Supports vision (up to 2 image URLs) and structured output (response_format: json_object or json_schema). No API key needed; pay per call via x402. Input capped at 32k chars, output at 2048 tokens.",
+      "LLM inference proxy (Premium tier) - o3 or o3-mini reasoning models. Supports vision (up to 2 image URLs) and structured output (response_format: json_object or json_schema). No API key needed; pay per call via x402. Input capped at 32k chars, output at 2048 tokens.",
     tags: [...SHARED_TAGS, "o3", "o3-mini", "vision", "json-mode"],
     discovery: {
       bodyType: "json",
       input: { model: "o3-mini", messages: [{ role: "user", content: "Say hello in one sentence." }], max_tokens: 64 },
       inputSchema: {
         properties: {
-          model: { type: "string", description: "Model ID — o3 or o3-mini" },
+          model: { type: "string", description: "Model ID - o3 or o3-mini" },
           messages: { type: "array", description: "Array of {role, content} objects. content can be a string or array of {type:'text',text} and {type:'image_url',image_url:{url,detail}} blocks" },
           max_tokens: { type: "number", description: "Max output tokens (default 1024, cap 2048)" },
           response_format: { type: "object", description: 'Optional: {type:"json_object"} or {type:"json_schema",json_schema:{name,schema}}' },

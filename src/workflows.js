@@ -3,7 +3,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const WORKFLOWS = [
   {
     title: "Research a company",
-    description: "Search the web for a company, render a key page, extract structured data, pull a company profile, and retrieve SEC filings \u2014 all in one chain.",
+    description: "Search the web for a company, render a key page, extract structured data, pull a company profile, and retrieve SEC filings - all in one chain.",
     cost: "~$0.03",
     steps: [
       { slug: "search", label: "Search the web for the company" },
@@ -49,7 +49,7 @@ const WORKFLOWS = [
   },
   {
     title: "Build a macro dashboard",
-    description: "Assemble a US economic snapshot from official government feeds: CPI, unemployment, Fed funds rate, and the Treasury yield curve \u2014 all free via proof-of-work.",
+    description: "Assemble a US economic snapshot from official government feeds: CPI, unemployment, Fed funds rate, and the Treasury yield curve - all free via proof-of-work.",
     cost: "free via PoW",
     steps: [
       { slug: "cpi-yoy", label: "Fetch CPI year-over-year rate" },
@@ -62,7 +62,7 @@ const WORKFLOWS = [
 
 export function workflowsPage(baseUrl) {
   const canonical = `${baseUrl}/workflows`;
-  const pageTitle = "Workflows \u2014 tool chaining examples for Agent402";
+  const pageTitle = "Workflows - tool chaining examples for Agent402";
   const pageDesc = "See how agents chain Agent402 tools into multi-step workflows: company research, domain audits, PDF processing, web monitoring, and macro dashboards.";
 
   const jsonLd = {

@@ -6,7 +6,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function apiExplorerPage(baseUrl) {
   const canonical = `${baseUrl}/docs/api/explorer`;
-  const title = "API Explorer — interactive Agent402 reference";
+  const title = "API Explorer - interactive Agent402 reference";
   const description = "Browse every endpoint, inspect schemas, and try tools live. Generated from the OpenAPI spec.";
 
   const extraCss = `

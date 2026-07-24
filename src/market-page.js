@@ -38,7 +38,7 @@ const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").
 const safeHref = (u) => (/^https?:\/\//i.test(String(u || "")) ? esc(u) : "#");
 // Dollar formatter that never lies about a nonzero settle: normal amounts get
 // 2-3 decimals, but a tiny real payment (e.g. a $0.0004 canary buy) must not
-// round down to "$0" — widen to up to 6 decimals until a nonzero digit shows.
+// round down to "$0" - widen to up to 6 decimals until a nonzero digit shows.
 const usd = (n) => {
   const v = Number(n);
   let s = v.toFixed(v < 0.01 ? 3 : 2);
@@ -484,7 +484,7 @@ export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, win
       ${cell("BUYERS", buyers.toLocaleString("en-US") + plus)}
       ${cell("TOOLS", toolN.toLocaleString("en-US"))}
     </div>
-    <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">rolling ${esc(winLabel)} totals${capped ? " (scan capped &mdash; a floor)" : ""} &middot; payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
+    <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">rolling ${esc(winLabel)} totals${capped ? " (scan capped - a floor)" : ""} &middot; payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
   </div>`;
 }
 
@@ -813,7 +813,7 @@ ${switcherHtml}
 <script>(function(){
   // In-place seller switching: fetch the same-origin, server-rendered (and fully
   // escaped) market panel and swap it without a full reload. Progressive
-  // enhancement — the roster links are real hrefs, so this whole block is a
+  // enhancement - the roster links are real hrefs, so this whole block is a
   // no-op fallback to normal navigation when JS/fetch/history are unavailable
   // or a request fails. Content is parsed with createContextualFragment +
   // replaceChildren (not innerHTML); it is our own output, never user input.
@@ -982,7 +982,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   };
   const chainCell = (s) => {
     const names = chainNamesFor(s);
-    if (!names.length) return `<span style="color:var(--faint);">&mdash;</span>`;
+    if (!names.length) return `<span style="color:var(--faint);">-</span>`;
     return `${esc(names[0])}${names.length > 1 ? ` <span style="color:var(--faint);">+${names.length - 1}</span>` : ""}`;
   };
 
@@ -1057,7 +1057,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   <div>
     <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The x402 marketplace.</h1>
     <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">Pay-per-call tools for AI agents, settled on-chain across every supported rail - no signup, no API keys, the wallet is the account.</p>
-    <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">the neutral x402 index &mdash; every seller, not just ours. Or skip the picking: the <a href="/guides/smart-order-router" style="color:var(--muted);">Smart Order Router</a> resolves your task, pays the best proven seller for you, and relays the result.</p>
+    <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">the neutral x402 index - every seller, not just ours. Or skip the picking: the <a href="/guides/smart-order-router" style="color:var(--muted);">Smart Order Router</a> resolves your task, pays the best proven seller for you, and relays the result.</p>
     ${statsHtml}
   </div>`;
 

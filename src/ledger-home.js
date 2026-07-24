@@ -169,14 +169,14 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     </div>
   </header>
 
-  <!-- SETTLEMENT RAILS — chain logo strip -->
+  <!-- SETTLEMENT RAILS - chain logo strip -->
   <div style="border-bottom:1.5px solid var(--ink);background:var(--paper);">
     <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
       ${chainLogoStrip({ label: "Settles natively on ten networks - USDC on nine chains plus USDG on Robinhood" })}
     </div>
   </div>
 
-  <!-- THE PRODUCT — SKILL PACKS -->
+  <!-- THE PRODUCT - SKILL PACKS -->
   <section style="max-width:1180px;margin:0 auto;padding:78px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/skill/{slug}</div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">

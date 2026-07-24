@@ -89,8 +89,8 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
 
   // ---- SEO ----
   const canonical = baseUrl + "/tools";
-  const title = `Tool Catalog \u2014 ${fmtNum(count)} tools | Agent402`;
-  const description = `Browse all ${fmtNum(count)} deterministic, pay-per-call API tools. ${fmtNum(freeCount)} free via proof-of-work, the rest from $0.001/call — ${RAILS_SHORT}. No signup, no API key.`;
+  const title = `Tool Catalog - ${fmtNum(count)} tools | Agent402`;
+  const description = `Browse all ${fmtNum(count)} deterministic, pay-per-call API tools. ${fmtNum(freeCount)} free via proof-of-work, the rest from $0.001/call - ${RAILS_SHORT}. No signup, no API key.`;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "WebPage",
@@ -122,12 +122,12 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 30px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:14px;">$ GET /tools</div>
     <h1 class="ml-catalog-h1" style="font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;color:var(--ink);">The index.<br>${fmtNum(count)} tools, ${catData.length} categories.</h1>
-    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:600px;margin:0 0 30px;">Every tool is deterministic code \u2014 parsers, hashes, a real browser \u2014 priced flat, with no LLM in the serving path. One real HTTP endpoint each. Free via proof-of-work; ${RAILS_SHORT} from $0.001/call.</p>
+    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:600px;margin:0 0 30px;">Every tool is deterministic code - parsers, hashes, a real browser - priced flat, with no LLM in the serving path. One real HTTP endpoint each. Free via proof-of-work; ${RAILS_SHORT} from $0.001/call.</p>
 
     <!-- search bar -->
     <div style="display:flex;align-items:center;gap:0;border:1.5px solid var(--ink);background:var(--card);max-width:560px;margin-bottom:16px;">
       <span style="font-family:var(--font-mono);color:var(--accent);padding:0 12px;font-weight:700;">\u2315</span>
-      <input id="ml-search" type="text" placeholder="search ${fmtNum(count)} tools \u2014 e.g. &quot;extract pdf&quot;, &quot;geocode&quot;" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:14px;color:var(--ink);padding:13px 0;outline:none;" />
+      <input id="ml-search" type="text" placeholder="search ${fmtNum(count)} tools - e.g. &quot;extract pdf&quot;, &quot;geocode&quot;" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:14px;color:var(--ink);padding:13px 0;outline:none;" />
     </div>
 
     <!-- category chips -->

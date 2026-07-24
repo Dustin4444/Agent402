@@ -17,8 +17,8 @@ const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 
 export function playgroundPage(baseUrl, catalog) {
   const freeCount = fmtNum(toolList(catalog).filter(isComputePayable).length);
-  const title = "Playground — try Agent402 tools for free";
-  const description = `Try any of Agent402's ${freeCount} free-tier tools directly in your browser, or the OpenAI-compatible /v1 gateway. No signup, no wallet — proof-of-work pays automatically.`;
+  const title = "Playground - try Agent402 tools for free";
+  const description = `Try any of Agent402's ${freeCount} free-tier tools directly in your browser, or the OpenAI-compatible /v1 gateway. No signup, no wallet - proof-of-work pays automatically.`;
   const canonical = `${baseUrl}/playground`;
 
   const extraCss = `
@@ -77,7 +77,7 @@ export function playgroundPage(baseUrl, catalog) {
 <div class="crumb"><a href="/">Agent402</a> / playground</div>
 <div class="pg-title">
   <h1>Playground</h1>
-  <p>Try any of Agent402's ${freeCount} free-tier tools directly in your browser, or the OpenAI-compatible /v1 gateway. No signup, no wallet — proof-of-work pays automatically.</p>
+  <p>Try any of Agent402's ${freeCount} free-tier tools directly in your browser, or the OpenAI-compatible /v1 gateway. No signup, no wallet - proof-of-work pays automatically.</p>
 </div>
 <div class="pg-wrap">
   <div class="pg-left">
@@ -206,7 +206,7 @@ ${ledgerFooterCompact()}
       if(prop.description){
         var descSpan=document.createElement('span');
         descSpan.style.cssText='font-weight:400;color:var(--faint);font-family:inherit;font-size:.8rem';
-        descSpan.textContent=' \\u2014 '+prop.description;
+        descSpan.textContent=' \- '+prop.description;
         lbl.appendChild(descSpan);
       }
       field.appendChild(lbl);
@@ -408,7 +408,7 @@ ${ledgerFooterCompact()}
       }
       resultEl.appendChild(pre);
 
-      status.textContent='Done \\u2014 PoW '+powMs+'ms, response '+callMs+'ms';
+      status.textContent='Done \- PoW '+powMs+'ms, response '+callMs+'ms';
     }catch(e){
       while(resultEl.firstChild)resultEl.removeChild(resultEl.firstChild);
       var errPre=document.createElement('pre');

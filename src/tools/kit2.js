@@ -320,7 +320,7 @@ const text = [
       if (t.length <= len) return { result: t, truncated: false };
       let cut = t.slice(0, len);
       // Word mode: only trim a *partial* trailing word (i.e. the cut fell inside
-      // a word — both sides of the boundary are non-whitespace).
+      // a word - both sides of the boundary are non-whitespace).
       if ((i.words === true || i.words === "true") && /\S/.test(t[len] || "") && /\S/.test(cut.slice(-1))) {
         cut = cut.replace(/\S+$/, "").replace(/\s+$/, "");
       }
@@ -564,7 +564,7 @@ const conversion = [
     discovery: { bodyType: "json", input: { value: "ff", from: 16, to: 2 }, inputSchema: { properties: { value: { type: "string" }, from: { type: "number", description: "2-36" }, to: { type: "number", description: "2-36" } }, required: ["value", "from", "to"] }, output: { example: { result: "11111111" } } },
     handler: (i) => {
       const value = String(need(i, "value", "any")).trim().toLowerCase();
-      // BigInt parse/format is quadratic in digit count — cap it so a paid call
+      // BigInt parse/format is quadratic in digit count - cap it so a paid call
       // (or a 16-bit proof-of-work) can't buy seconds of CPU.
       if (value.length > 4096) throw bad("value too long (max 4096 digits)");
       const from = parseInt(i.from, 10), to = parseInt(i.to, 10);
@@ -609,7 +609,7 @@ const conversion = [
         const cur = map[s[k]], next = map[s[k + 1]] || 0;
         total += cur < next ? -cur : cur;
       }
-      // Charset-only wasn't enough — "IIII", "VV", "IC" all passed. Require the
+      // Charset-only wasn't enough - "IIII", "VV", "IC" all passed. Require the
       // canonical form to round-trip: re-encode the parsed value and demand it
       // equals the input, which rejects any non-standard numeral.
       let canon = "", n = total;
@@ -621,7 +621,7 @@ const conversion = [
   {
     route: "POST /api/srt-convert", name: "Subtitle convert (SRT/VTT)", slug: "srt-convert", category: "conversion", price: "$0.002",
     description:
-      "Convert subtitles between SRT, WebVTT, plain text, and JSON cues. Send SRT or VTT text (auto-detected) — or a JSON cues array [{start,end,text}] with times in ms — and the target format. Deterministic, pure CPU.",
+      "Convert subtitles between SRT, WebVTT, plain text, and JSON cues. Send SRT or VTT text (auto-detected) - or a JSON cues array [{start,end,text}] with times in ms - and the target format. Deterministic, pure CPU.",
     tags: ["srt", "vtt", "subtitles", "captions", "convert", "webvtt"],
     discovery: {
       bodyType: "json",
@@ -666,7 +666,7 @@ const conversion = [
   {
     route: "POST /api/ics-parse", name: "iCalendar parse (.ics)", slug: "ics-parse", category: "conversion", price: "$0.002",
     description:
-      "Parse iCalendar (.ics) text into structured JSON events: summary, start/end, location, organizer, attendees, status, and RRULE. Optional bounded recurrence expansion (expand:true, capped occurrences). Deterministic, pure CPU — send the ICS text, not a URL.",
+      "Parse iCalendar (.ics) text into structured JSON events: summary, start/end, location, organizer, attendees, status, and RRULE. Optional bounded recurrence expansion (expand:true, capped occurrences). Deterministic, pure CPU - send the ICS text, not a URL.",
     tags: ["ics", "icalendar", "calendar", "vevent", "rrule", "parse", "convert"],
     discovery: {
       bodyType: "json",
@@ -1019,14 +1019,14 @@ function percentile(sorted, p) {
 const math = [
   {
     route: "POST /api/calc", name: "Calculator", slug: "calc", category: "math", price: "$0.002",
-    description: "Safely evaluate an arithmetic expression (+ - * / % ^ and parentheses). No code execution — a real parser, not eval.",
+    description: "Safely evaluate an arithmetic expression (+ - * / % ^ and parentheses). No code execution - a real parser, not eval.",
     tags: ["calc", "math", "expression", "arithmetic"],
     discovery: { bodyType: "json", input: { expr: "2 + 3 * (4 - 1) ^ 2" }, inputSchema: { properties: { expr: { type: "string" } }, required: ["expr"] }, output: { example: { result: 29 } } },
     handler: (i) => {
       // Accept any reasonable "expression" alias — analytics shows callers send `expression` / `formula`.
       const raw = i.expr ?? i.expression ?? i.formula;
       if (typeof raw !== "string" || !raw) {
-        throw bad('Missing "expr". Send {"expr":"2 + 3 * 4"} — alternate fields expression/formula are also accepted.');
+        throw bad('Missing "expr". Send {"expr":"2 + 3 * 4"} - alternate fields expression/formula are also accepted.');
       }
       return { result: evalExpr(cap(raw, 1000, "expr").trim()) };
     },
@@ -1056,7 +1056,7 @@ const math = [
   },
   {
     route: "POST /api/unit-convert", name: "Unit convert", slug: "unit-convert", category: "math", price: "$0.001",
-    description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency — every unit the retired convert-* endpoints handled (e.g. miles, kilograms, us-gallons, fahrenheit, psi, kilowatt-hours).",
+    description: "Convert a value between units of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, frequency - every unit the retired convert-* endpoints handled (e.g. miles, kilograms, us-gallons, fahrenheit, psi, kilowatt-hours).",
     // The category tags are joined by the most-queried unit words so lexical
     // search surfaces ("convert miles to kilometers" via /api/find and the MCP
     // search_tools) rank this tool where the retired pairwise convert-* slugs
@@ -1069,8 +1069,8 @@ const math = [
       input: { value: 100, from: "fahrenheit", to: "celsius" },
       inputSchema: { properties: {
         value: { type: "number" },
-        from: { type: "string", description: 'Source unit id — any unit of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, or frequency (e.g. "miles", "fahrenheit", "us-gallons"). Short aliases like "km"/"lb"/"f" also work.' },
-        to: { type: "string", description: "Target unit id — must be in the same category as `from`." },
+        from: { type: "string", description: 'Source unit id - any unit of length, mass, temperature, volume, area, speed, time, data, pressure, energy, power, angle, or frequency (e.g. "miles", "fahrenheit", "us-gallons"). Short aliases like "km"/"lb"/"f" also work.' },
+        to: { type: "string", description: "Target unit id - must be in the same category as `from`." },
       }, required: ["value", "from", "to"] },
       output: { example: { result: 37.7777777778, from: "fahrenheit", to: "celsius" } },
     },

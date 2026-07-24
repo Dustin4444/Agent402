@@ -4,14 +4,14 @@
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 
 const ADAPTERS = [
-  { name: "OpenAI",          desc: 'Function-calling tools for chat.completions &mdash; pass <span style="font-family:var(--font-mono);font-size:12px;">tools</span>, call <span style="font-family:var(--font-mono);font-size:12px;">execute</span> on a tool_call.', pkg: "agent402-openai-tools" },
-  { name: "Anthropic",       desc: "Messages API tool_use blocks &mdash; native tool objects with auto-payment.", pkg: "agent402-anthropic-tools" },
+  { name: "OpenAI",          desc: 'Function-calling tools for chat.completions - pass <span style="font-family:var(--font-mono);font-size:12px;">tools</span>, call <span style="font-family:var(--font-mono);font-size:12px;">execute</span> on a tool_call.', pkg: "agent402-openai-tools" },
+  { name: "Anthropic",       desc: "Messages API tool_use blocks - native tool objects with auto-payment.", pkg: "agent402-anthropic-tools" },
   { name: "Vercel AI SDK",   desc: 'Drop into <span style="font-family:var(--font-mono);font-size:12px;">streamText</span> / <span style="font-family:var(--font-mono);font-size:12px;">generateText</span>.', pkg: "agent402-ai-sdk" },
   { name: "LangChain JS",    desc: "Tool objects for LangChain &amp; LangGraph agents.", pkg: "agent402-langchain" },
   { name: "LlamaIndex TS",   desc: "Native FunctionTool wrappers for LlamaIndex agents.", pkg: "agent402-llamaindex" },
   { name: "Google ADK",      desc: "Tools for Gemini agents on the Agent Development Kit.", pkg: "agent402-google-adk" },
   { name: "AWS Strands",     desc: "Native tool objects for the Strands agent runtime.", pkg: "agent402-strands" },
-  { name: "MCP (any client)", desc: 'Hosted connector or <span style="font-family:var(--font-mono);font-size:12px;">npx agent402-mcp</span> &mdash; Claude, and any MCP client.', pkg: "agent402-mcp" },
+  { name: "MCP (any client)", desc: 'Hosted connector or <span style="font-family:var(--font-mono);font-size:12px;">npx agent402-mcp</span> - Claude, and any MCP client.', pkg: "agent402-mcp" },
 ];
 
 function adapterRow(a, isLast) {
@@ -20,7 +20,7 @@ function adapterRow(a, isLast) {
 
 export function ledgerIntegrationsPage(baseUrl) {
   const canonical = baseUrl + "/integrations";
-  const title = "Integrations — Agent402";
+  const title = "Integrations - Agent402";
   const description = "8 zero-dependency npm adapters that turn the Agent402 catalog into native tool objects for OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex, Google ADK, AWS Strands, and MCP.";
 
   const jsonLd = {
@@ -43,7 +43,7 @@ export function ledgerIntegrationsPage(baseUrl) {
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 30px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:14px;">$ GET /integrations</div>
     <h1 class="ml-h1" style="font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;">8 framework adapters.<br>One surface underneath.</h1>
-    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:620px;margin:0;">Zero-dependency npm packages that turn the catalog into native tool objects for your stack &mdash; payment handled underneath (proof-of-work for free tools, USDC via x402 for paid).</p>
+    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:620px;margin:0;">Zero-dependency npm packages that turn the catalog into native tool objects for your stack - payment handled underneath (proof-of-work for free tools, USDC via x402 for paid).</p>
   </section>
 
   <!-- ADAPTERS -->

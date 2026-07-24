@@ -4,7 +4,7 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function privacyPage(baseUrl) {
-  const title = "Privacy — Agent402";
+  const title = "Privacy - Agent402";
   const description = "Agent402's privacy policy: no accounts, no cookies, no browser trackers. What we process, why, and how long we keep it.";
   const canonical = `${baseUrl}/privacy`;
 
@@ -30,7 +30,7 @@ export function privacyPage(baseUrl) {
 <div class="pv-wrap">
 <div class="pv-eyebrow">$ GET /privacy</div>
 <h1 class="pv-h1">Privacy policy</h1>
-<p class="pv-updated">Agent402 (agent402.tools) — last updated 2026-07-17.</p>
+<p class="pv-updated">Agent402 (agent402.tools) - last updated 2026-07-17.</p>
 
 <div class="pv-body">
 <p>Agent402 has no accounts, no signups, no cookies, and no browser trackers or ad trackers on its
@@ -40,7 +40,7 @@ so every claim below is verifiable in code.</p>
 <h2>What we process, and why</h2>
 <ul>
   <li><b>Tool inputs.</b> The data you send to a tool (text to hash, a URL to render, …) is processed
-  in memory to compute the response and is not stored — with one deliberate exception: the
+  in memory to compute the response and is not stored - with one deliberate exception: the
   <code>/api/memory</code> tools, whose purpose <i>is</i> storage (see below).</li>
   <li><b>IP addresses.</b> Used for free-tier rate limiting (kept in process memory for up to one hour)
   and in standard, short-lived operational logs (request path, status code) for abuse prevention and debugging.</li>
@@ -49,18 +49,18 @@ so every claim below is verifiable in code.</p>
   provider</b> (OpenAI, or the model operator serving the request via OpenRouter) to generate the
   response, subject to that provider's own privacy terms. We don't store gateway inputs or outputs
   beyond short-lived caches (minutes) that make repeated identical calls cheaper.</li>
-  <li><b>Payments.</b> We never see card numbers, names, or emails — there are none. Payments settle in USDC on
-  the public Base blockchain (or Solana, Polygon, Arbitrum, Monad, Stellar, Algorand — or USDG on Robinhood Chain) via the x402 protocol; wallet addresses, amounts, and timestamps are public
+  <li><b>Payments.</b> We never see card numbers, names, or emails - there are none. Payments settle in USDC on
+  the public Base blockchain (or Solana, Polygon, Arbitrum, Monad, Stellar, Algorand - or USDG on Robinhood Chain) via the x402 protocol; wallet addresses, amounts, and timestamps are public
   on-chain by the protocol's design, not collected by us. Payment verification is performed by the
   payment facilitators (Coinbase CDP and per-chain facilitators).</li>
   <li><b>Operational telemetry.</b> The server records service events (tool called, payment settled,
-  errors) with metadata — tool name, HTTP status, price, settlement chain, and the paying wallet
-  address (already public on-chain) — in a server-side analytics tool (PostHog). This is used to run
+  errors) with metadata - tool name, HTTP status, price, settlement chain, and the paying wallet
+  address (already public on-chain) - in a server-side analytics tool (PostHog). This is used to run
   the service: reliability, abuse prevention, and knowing what sells. It never includes tool inputs,
   prompts, outputs, cookies, or browser fingerprints.</li>
   <li><b>Payment metadata.</b> An x402 payment token can carry optional annotation fields (a resource URL, a
   description, a <code>reason</code> string) that some buyers use to label a purchase. Agent402 reads <i>only</i>
-  the cryptographically-signed payer wallet address from the token — the exact field the settlement authorization
+  the cryptographically-signed payer wallet address from the token - the exact field the settlement authorization
   covers, and one that is already public on-chain. Those annotation fields are never parsed, logged, or retained,
   so a buyer that inadvertently placed personal data in them does not expose it to us. Data-minimisation by
   construction, not by policy.</li>

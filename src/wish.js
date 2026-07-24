@@ -85,7 +85,7 @@ function upsertCluster(key, source, ts) {
   if (!c) {
     if (clusters.size >= CLUSTER_CAP) {
       // Overflow guard: never grow the in-memory map without bound. The
-      // caller still gets a normal { recorded: true } response — dropping a
+      // caller still gets a normal { recorded: true } response - dropping a
       // never-before-seen distinct wish silently is preferable to an
       // unbounded map or a crash.
       return { count: 1, firstSeen: ts, lastSeen: ts, sources: { [source]: 1 }, issueOpened: false, __overflow: true };
@@ -106,7 +106,7 @@ function appendLine(obj) {
     lineCount++;
     if (lineCount >= MAX_LINES) {
       capReached = true;
-      console.warn(`[wish] file line cap (${MAX_LINES}) reached at ${WISH_FILE} — further wishes are still counted/clustered but no longer written to disk.`);
+      console.warn(`[wish] file line cap (${MAX_LINES}) reached at ${WISH_FILE} - further wishes are still counted/clustered but no longer written to disk.`);
     }
   } catch {
     /* best-effort write-through; never throw from the write path */
@@ -128,7 +128,7 @@ function readTail(path, maxBytes) {
 
 /**
  * Rebuild the in-memory cluster map (and approximate lineCount) from the
- * JSONL file at boot. Reads at most MAX_READ_BYTES — beyond that only the
+ * JSONL file at boot. Reads at most MAX_READ_BYTES - beyond that only the
  * tail is read, and lineCount is estimated from the sample's average line
  * length so the 50k-line cap still engages near the real boundary. Never
  * throws: a missing or corrupt file just means starting from empty state.
@@ -187,7 +187,7 @@ function checkRateLimit(ip) {
 /**
  * Record a "we don't have this tool" signal. `need` is required free text
  * (max 500 chars); `context` is optional free text (max 300).
- * `source` is "api" | "mcp" | "find-miss" — find-miss records are implicit
+ * `source` is "api" | "mcp" | "find-miss" - find-miss records are implicit
  * (a /api/find or find_tool query that matched nothing useful) and are
  * exempt from the rate limit, since they're not a user directly hitting an
  * endpoint. Throws Error with .statusCode on bad input (400) or over the
@@ -242,7 +242,7 @@ export function recordWish({ need, context, source, ip } = {}) {
 /**
  * Aggregate view for /api/wishes: normalized text, count, per-source
  * breakdown, first/last seen, and whether the threshold-crossing log already
- * fired. Deliberately excludes raw `context` — that field is free text
+ * fired. Deliberately excludes raw `context` - that field is free text
  * supplied by callers and never belongs on a public surface. `text` is
  * esc()'d in case this ever gets rendered on an HTML surface later.
  */

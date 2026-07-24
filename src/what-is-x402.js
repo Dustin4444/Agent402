@@ -81,19 +81,19 @@ export function whatIsX402Page(baseUrl) {
   const faqs = [
     {
       q: "Is this a cryptocurrency investment thing?",
-      a: "No. Payments settle in USDC, a “digital dollar”: one USDC is one dollar, in and out. Nothing here is bought in the hope it goes up. x402 uses that digital dollar the way the web uses email — as infrastructure. The blockchain underneath is simply the settlement network that lets a one-cent payment clear in about two seconds for a fraction of a cent in cost, which card networks cannot do.",
+      a: "No. Payments settle in USDC, a “digital dollar”: one USDC is one dollar, in and out. Nothing here is bought in the hope it goes up. x402 uses that digital dollar the way the web uses email - as infrastructure. The blockchain underneath is simply the settlement network that lets a one-cent payment clear in about two seconds for a fraction of a cent in cost, which card networks cannot do.",
     },
     {
       q: "What does “agents paying agents” actually mean?",
-      a: "An AI agent is software that does a multi-step job on its own — research a company, monitor a market, process documents. Mid-job it constantly needs things it doesn't have: a stock quote, a web search, a page rendered. Today that means a human pre-registering for every vendor API. With x402, the agent just buys each piece the moment it needs it, for pennies, from whichever service answers best — including services run by other companies' agents. Software hiring software, with real money, no humans in the loop.",
+      a: "An AI agent is software that does a multi-step job on its own - research a company, monitor a market, process documents. Mid-job it constantly needs things it doesn't have: a stock quote, a web search, a page rendered. Today that means a human pre-registering for every vendor API. With x402, the agent just buys each piece the moment it needs it, for pennies, from whichever service answers best - including services run by other companies' agents. Software hiring software, with real money, no humans in the loop.",
     },
     {
       q: "Who is behind x402? Is this a startup's proprietary thing?",
-      a: "x402 is an open protocol, not a product. It was created at Coinbase in 2025, and builds on a part of the web's own standard that has been reserved since 1997: HTTP status code 402, “Payment Required.” Anyone can implement it — our implementation is open source — and an ecosystem of independent sellers, marketplaces, and infrastructure providers is growing around it.",
+      a: "x402 is an open protocol, not a product. It was created at Coinbase in 2025, and builds on a part of the web's own standard that has been reserved since 1997: HTTP status code 402, “Payment Required.” Anyone can implement it - our implementation is open source - and an ecosystem of independent sellers, marketplaces, and infrastructure providers is growing around it.",
     },
     {
       q: "What does it cost to use?",
-      a: "Whatever the thing you're buying costs — typically fractions of a cent to a few cents per request — plus essentially zero payment overhead. No subscriptions, no minimums, no invoices, no chargebacks. A buyer who makes one call pays for one call.",
+      a: "Whatever the thing you're buying costs - typically fractions of a cent to a few cents per request - plus essentially zero payment overhead. No subscriptions, no minimums, no invoices, no chargebacks. A buyer who makes one call pays for one call.",
     },
     {
       q: "What happens if a service takes the money and fails?",
@@ -101,7 +101,7 @@ export function whatIsX402Page(baseUrl) {
     },
     {
       q: "What is MPP, and how is it different from x402?",
-      a: "Same idea, two dialects. x402 pioneered pay-per-request over HTTP with its own custom headers; MPP (the Machine Payments Protocol, on the IETF standards track) expresses the same handshake through the web's standard authentication headers — the machinery proxies and gateways have understood for decades — and adds signed receipts and tamper-proof payment challenges. For a buyer on this service the money is identical either way: the same digital-dollar payment settles on the same rails at the same price. Agent402 answers both dialects on every endpoint, and the buyer's software picks whichever it speaks.",
+      a: "Same idea, two dialects. x402 pioneered pay-per-request over HTTP with its own custom headers; MPP (the Machine Payments Protocol, on the IETF standards track) expresses the same handshake through the web's standard authentication headers - the machinery proxies and gateways have understood for decades - and adds signed receipts and tamper-proof payment challenges. For a buyer on this service the money is identical either way: the same digital-dollar payment settles on the same rails at the same price. Agent402 answers both dialects on every endpoint, and the buyer's software picks whichever it speaks.",
     },
   ];
 
@@ -127,18 +127,18 @@ export function whatIsX402Page(baseUrl) {
   const body = `<div class="wx-wrap">
   <div class="wx-eyebrow">Plain-English explainer</div>
   <h1 class="wx-title">What is x402? And MPP?</h1>
-  <p class="wx-sub">x402 and MPP give the internet a <strong>pay-per-use button</strong>: software can buy exactly what it needs, the moment it needs it, for pennies &mdash; with no signups, no subscriptions, and no invoices. They are two dialects of the same idea, and this page explains both in plain English &mdash; no crypto background required.</p>
+  <p class="wx-sub">x402 and MPP give the internet a <strong>pay-per-use button</strong>: software can buy exactly what it needs, the moment it needs it, for pennies - with no signups, no subscriptions, and no invoices. They are two dialects of the same idea, and this page explains both in plain English - no crypto background required.</p>
 
   <h2 class="wx-h2">The 30-second version</h2>
-  <p class="wx-p">Everything useful on the internet sits behind a gate. To use a data service today, someone has to create an account, verify an email, enter a credit card, agree to a monthly plan, and manage an API key &mdash; fine for a person, <strong>impossible for software acting on its own</strong>.</p>
+  <p class="wx-p">Everything useful on the internet sits behind a gate. To use a data service today, someone has to create an account, verify an email, enter a credit card, agree to a monthly plan, and manage an API key - fine for a person, <strong>impossible for software acting on its own</strong>.</p>
   <p class="wx-p">That matters now because more and more work is done by <strong>AI agents</strong>: software that completes multi-step jobs without a human driving every click. An agent halfway through a task can't fill in a signup form or wait for procurement to approve a vendor.</p>
-  <p class="wx-p">x402 removes the gate. When software asks a paid service for something, the service answers with a <strong>price tag</strong> instead of a login screen. The software pays it &mdash; usually a fraction of a cent &mdash; and gets the result. The whole exchange takes about two seconds.</p>
-  <div class="wx-callout"><strong>The name:</strong> the web's rulebook has included status code <strong>402 &mdash; “Payment Required”</strong> since 1997, reserved for a future where the internet could handle payments natively. It sat unused for nearly three decades. x402 is that future, switched on.</div>
+  <p class="wx-p">x402 removes the gate. When software asks a paid service for something, the service answers with a <strong>price tag</strong> instead of a login screen. The software pays it - usually a fraction of a cent - and gets the result. The whole exchange takes about two seconds.</p>
+  <div class="wx-callout"><strong>The name:</strong> the web's rulebook has included status code <strong>402 - “Payment Required”</strong> since 1997, reserved for a future where the internet could handle payments natively. It sat unused for nearly three decades. x402 is that future, switched on.</div>
 
   <h2 class="wx-h2">Watch one payment happen</h2>
-  <p class="wx-simcap">This is the entire protocol &mdash; four moves. Step through it:</p>
+  <p class="wx-simcap">This is the entire protocol - four moves. Step through it:</p>
   <div class="wx-sim" id="wxsim">
-    <div class="wx-sim-bar"><span class="wx-dot" style="background:#E0533D"></span><span class="wx-dot" style="background:#E0A33D"></span><span class="wx-dot" style="background:#8A857D"></span><span class="wx-sim-title">one x402 purchase &mdash; live sequence</span></div>
+    <div class="wx-sim-bar"><span class="wx-dot" style="background:#E0533D"></span><span class="wx-dot" style="background:#E0A33D"></span><span class="wx-dot" style="background:#8A857D"></span><span class="wx-sim-title">one x402 purchase - live sequence</span></div>
     <div class="wx-stage">
       <div class="wx-actor" id="wxa1"><b>YOUR AGENT</b>software with a wallet</div>
       <div class="wx-wire" id="wxwire">&nbsp;</div>
@@ -159,11 +159,11 @@ export function whatIsX402Page(baseUrl) {
   </div>
   <p class="wx-p" style="font-size:14px;color:var(--faint)">No account existed before this exchange and none exists after. The payment itself is the identity, the authorization, and the receipt.</p>
 
-  <h2 class="wx-h2">“Agents paying agents” &mdash; the part that sounds like science fiction</h2>
-  <p class="wx-p">Once software can buy things, software can <strong>hire</strong> things. An agent working on “research this company” can buy a stock quote from one vendor, a news search from another, and a document analysis from a third &mdash; three sellers, three payments of a few cents, zero business development.</p>
+  <h2 class="wx-h2">“Agents paying agents” - the part that sounds like science fiction</h2>
+  <p class="wx-p">Once software can buy things, software can <strong>hire</strong> things. An agent working on “research this company” can buy a stock quote from one vendor, a news search from another, and a document analysis from a third - three sellers, three payments of a few cents, zero business development.</p>
   <p class="wx-p">It goes one layer further: an agent can pay <em>another agent</em> to do the choosing. This is a real purchase that ran through our marketplace router:</p>
   <div class="wx-real">
-    <div class="wx-real-h">An actual receipt &mdash; agents paying agents, on-chain</div>
+    <div class="wx-real-h">An actual receipt - agents paying agents, on-chain</div>
     <div class="wx-real-row"><span>A buyer's agent asked our router for DeFi market data</span><b>paid us $0.55</b></div>
     <div class="wx-real-row"><span>Our router picked the best proven seller (a firm we've never spoken to) and bought it</span><b>we paid them $0.01</b></div>
     <div class="wx-real-row"><span>Data delivered back to the buyer, both payments settled in the same 3-second window</span><b>2 settlements</b></div>
@@ -173,14 +173,14 @@ export function whatIsX402Page(baseUrl) {
 
   <h2 class="wx-h2">Why this matters for your business</h2>
   <div class="wx-cards">
-    <div class="wx-card"><h4>A new kind of customer</h4><p>Millions of AI agents are coming online that cannot fill in a signup form &mdash; but can pay. If your data or service is x402-enabled, they can become customers with no sales motion at all.</p></div>
-    <div class="wx-card"><h4>Meter anything</h4><p>Anything you can serve over the web can be priced per use &mdash; a lookup for a tenth of a cent, a report for a dollar &mdash; without building billing, subscriptions, or collections.</p></div>
+    <div class="wx-card"><h4>A new kind of customer</h4><p>Millions of AI agents are coming online that cannot fill in a signup form - but can pay. If your data or service is x402-enabled, they can become customers with no sales motion at all.</p></div>
+    <div class="wx-card"><h4>Meter anything</h4><p>Anything you can serve over the web can be priced per use - a lookup for a tenth of a cent, a report for a dollar - without building billing, subscriptions, or collections.</p></div>
     <div class="wx-card"><h4>Radically less friction</h4><p>Settlement is final in seconds, refund-proof by design (no delivery, no charge), and global from day one. No chargebacks, no net-30, no dunning emails.</p></div>
   </div>
 
   <h2 class="wx-h2">So what is MPP, then?</h2>
-  <p class="wx-p">Pay-per-request over the web currently speaks two dialects. <strong>x402</strong> is the pioneer &mdash; created at Coinbase in 2025, with the largest live ecosystem of sellers and buyers today. <strong>MPP</strong> &mdash; the Machine Payments Protocol, created at Tempo &mdash; takes the same four-move handshake you stepped through above and rewrites it as a formal internet standard on the IETF track.</p>
-  <p class="wx-p">The practical difference is <strong>where the payment conversation lives</strong>. x402 invented its own custom headers to carry the price tag and the payment. MPP carries the identical conversation inside the web's <em>standard</em> authentication headers &mdash; the same machinery browsers, proxies, gateways, and CDNs have understood since the 1990s. Being boring and standard is the feature: infrastructure that has never heard of machine payments still knows how to handle the messages correctly.</p>
+  <p class="wx-p">Pay-per-request over the web currently speaks two dialects. <strong>x402</strong> is the pioneer - created at Coinbase in 2025, with the largest live ecosystem of sellers and buyers today. <strong>MPP</strong> - the Machine Payments Protocol, created at Tempo - takes the same four-move handshake you stepped through above and rewrites it as a formal internet standard on the IETF track.</p>
+  <p class="wx-p">The practical difference is <strong>where the payment conversation lives</strong>. x402 invented its own custom headers to carry the price tag and the payment. MPP carries the identical conversation inside the web's <em>standard</em> authentication headers - the same machinery browsers, proxies, gateways, and CDNs have understood since the 1990s. Being boring and standard is the feature: infrastructure that has never heard of machine payments still knows how to handle the messages correctly.</p>
   <p class="wx-p">MPP also adds two things buyers care about at the protocol level: <strong>signed receipts</strong> (every settled purchase returns a cryptographic proof of what was paid and when) and <strong>tamper-proof price tags</strong> (the quote is cryptographically bound, so nothing between buyer and seller can alter it undetected).</p>
   <div class="wx-real">
     <div class="wx-real-h">The same purchase, side by side</div>
@@ -190,7 +190,7 @@ export function whatIsX402Page(baseUrl) {
     <div class="wx-real-row"><span>Receipt returned</span><b>x402: settlement record &nbsp;&middot;&nbsp; MPP: + signed receipt</b></div>
     <div class="wx-real-row"><span>What the buyer pays</span><b>the same price, either way</b></div>
   </div>
-  <div class="wx-callout"><strong>What it means here:</strong> every Agent402 endpoint answers both. An x402 buyer and an MPP buyer hit the same URL, pay the same price, and settle the same digital-dollar payment on the same rails &mdash; the buyer's software just picks the dialect it speaks. Sellers shouldn't have to bet on a protocol war, and with a dual-stack they don't. This isn't theoretical: our public test buyer purchases over the MPP wire every day, settled on-chain, receipts and all.</div>
+  <div class="wx-callout"><strong>What it means here:</strong> every Agent402 endpoint answers both. An x402 buyer and an MPP buyer hit the same URL, pay the same price, and settle the same digital-dollar payment on the same rails - the buyer's software just picks the dialect it speaks. Sellers shouldn't have to bet on a protocol war, and with a dual-stack they don't. This isn't theoretical: our public test buyer purchases over the MPP wire every day, settled on-chain, receipts and all.</div>
 
   <h2 class="wx-h2">Executive FAQ</h2>
   <div class="wx-faq">
@@ -219,7 +219,7 @@ export function whatIsX402Page(baseUrl) {
     a1.classList.toggle("lit",step===0||step===2);
     a2.classList.toggle("lit",step===1||step===3);
     rcpt.classList.toggle("show",step>=3);
-    next.textContent=step>=3?"Done — that's the whole protocol":"Next step";
+    next.textContent=step>=3?"Done - that's the whole protocol":"Next step";
     next.disabled=step>=3;
   }
   next.addEventListener("click",function(){if(step<3){step++;render();}});

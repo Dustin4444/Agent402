@@ -28,7 +28,7 @@ function bad(message, statusCode = 400) {
 // a kit got renamed and this composite is stale; fail loudly so CI catches it.
 function getHandler(kit, slug) {
   const t = kit.find((x) => x.slug === slug);
-  if (!t) throw bad(`research-kit: missing dependency tool '${slug}' — sub-kit may have been renamed`, 500);
+  if (!t) throw bad(`research-kit: missing dependency tool '${slug}' - sub-kit may have been renamed`, 500);
   return t.handler;
 }
 
@@ -56,7 +56,7 @@ export const RESEARCH_TOOLS = [
     category: "research",
     price: "$0.10",
     description:
-      "One-shot company research dossier for a US-listed ticker: recent 10-K / 10-Q / 8-K filings, Form 4 insider trades (last 90 days), live stock quote, and recent news headlines — all merged into a single deterministic JSON response. Fans out to EDGAR, Yahoo Finance, and an independent news index in parallel. Each section reports its own ok/error status so a partial upstream outage degrades gracefully instead of failing the whole call. Replaces ~5 sequential paid calls with one. ?ticker=AAPL",
+      "One-shot company research dossier for a US-listed ticker: recent 10-K / 10-Q / 8-K filings, Form 4 insider trades (last 90 days), live stock quote, and recent news headlines - all merged into a single deterministic JSON response. Fans out to EDGAR, Yahoo Finance, and an independent news index in parallel. Each section reports its own ok/error status so a partial upstream outage degrades gracefully instead of failing the whole call. Replaces ~5 sequential paid calls with one. ?ticker=AAPL",
     tags: ["research", "company", "dossier", "edgar", "stocks", "filings", "news", "insider", "composite", "premium"],
     discovery: {
       input: { ticker: "AAPL" },

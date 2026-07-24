@@ -3,9 +3,9 @@ import { RAILS_AMP } from "./rails.js";
 
 export function quickstartPage(baseUrl) {
   const canonical = `${baseUrl}/quickstart`;
-  const title = "Quickstart \u2014 your first Agent402 call in 60 seconds";
+  const title = "Quickstart - your first Agent402 call in 60 seconds";
   const description =
-    "Get started with Agent402 in under a minute. Pick your stack \u2014 MCP, curl, JavaScript, OpenAI, or direct USDC \u2014 and make your first call.";
+    "Get started with Agent402 in under a minute. Pick your stack - MCP, curl, JavaScript, OpenAI, or direct USDC - and make your first call.";
 
   const extraCss = `
 .qs-wrap{max-width:860px;margin:0 auto;padding:56px 30px}
@@ -74,7 +74,7 @@ export function quickstartPage(baseUrl) {
 <!-- Panel: Claude / MCP -->
 <div class="qs-panel active" id="panel-mcp" role="tabpanel">
 <h3>Add to Claude Code</h3>
-<p class="qs-oneliner">One command and you're done &mdash; 500+ tools available instantly.</p>
+<p class="qs-oneliner">One command and you're done - 500+ tools available instantly.</p>
 
 <span class="qs-label">Install</span>
 <div class="qs-code-wrap">
@@ -109,7 +109,7 @@ export function quickstartPage(baseUrl) {
 <!-- Panel: curl / HTTP -->
 <div class="qs-panel" id="panel-curl" role="tabpanel">
 <h3>Call any tool with curl</h3>
-<p class="qs-oneliner">Standard HTTP &mdash; POST JSON, get JSON back. No SDK required.</p>
+<p class="qs-oneliner">Standard HTTP - POST JSON, get JSON back. No SDK required.</p>
 
 <span class="qs-label">See a 402 quote (free)</span>
 <div class="qs-code-wrap">
@@ -145,7 +145,7 @@ curl -X POST https://agent402.tools/api/hash \\
 <!-- Panel: JavaScript -->
 <div class="qs-panel" id="panel-js" role="tabpanel">
 <h3>Use the JavaScript SDK</h3>
-<p class="qs-oneliner">Install agent402-client &mdash; auto-payment via proof-of-work, no wallet needed.</p>
+<p class="qs-oneliner">Install agent402-client - auto-payment via proof-of-work, no wallet needed.</p>
 
 <span class="qs-label">Install</span>
 <div class="qs-code-wrap">
@@ -216,7 +216,7 @@ await execute(name, args);</code></pre>
 <!-- Panel: Pay with USDC -->
 <div class="qs-panel" id="panel-usdc" role="tabpanel">
 <h3>Pay directly with ${RAILS_AMP.replace("&", "&amp;")}</h3>
-<p class="qs-oneliner">Use the x402 protocol for on-chain payment &mdash; no API keys, no accounts.</p>
+<p class="qs-oneliner">Use the x402 protocol for on-chain payment - no API keys, no accounts.</p>
 
 <span class="qs-label">Install</span>
 <div class="qs-code-wrap">

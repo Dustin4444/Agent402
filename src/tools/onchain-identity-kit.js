@@ -92,7 +92,7 @@ async function gqlFetch(url, query, variables, label) {
     json = await fetchJson(url, label, init);
   } catch (e) {
     if (!(e.statusCode >= 500)) throw e; // fetchJson maps upstream 5xx→502, timeout→504
-    console.warn(`[eas] ${new URL(url).host} failed (HTTP ${e.statusCode}: ${e.message}) — retrying once in 1s`);
+    console.warn(`[eas] ${new URL(url).host} failed (HTTP ${e.statusCode}: ${e.message}) - retrying once in 1s`);
     await new Promise((r) => setTimeout(r, 1000));
     json = await fetchJson(url, label, init);
   }
@@ -106,7 +106,7 @@ async function gqlFetch(url, query, variables, label) {
 function pickEasNetwork(value) {
   const n = typeof value === "string" ? value.toLowerCase().trim() : "mainnet";
   if (!EAS_INDEXERS[n]) {
-    throw bad(`Unsupported network "${value}" for EAS — supported: ${Object.keys(EAS_INDEXERS).join(", ")}`);
+    throw bad(`Unsupported network "${value}" for EAS - supported: ${Object.keys(EAS_INDEXERS).join(", ")}`);
   }
   return { name: n, url: EAS_INDEXERS[n] };
 }

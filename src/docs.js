@@ -216,7 +216,7 @@ function shell(baseUrl, title, description, path, body, currentSlug) {
   ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: `${title} \u2014 Agent402 Docs`,
+    title: `${title} - Agent402 Docs`,
     description,
     canonical: `${baseUrl}${path}`,
     baseUrl,
@@ -245,7 +245,7 @@ export function docsIndex(baseUrl) {
   return shell(
     baseUrl,
     "Agent402 Docs",
-    "Open-source x402 + MCP server: 500+ pay-per-call tools for AI agents. Browse the docs — getting started, paying with x402, MCP connector, Tollbooth pay-per-crawl, architecture, and security.",
+    "Open-source x402 + MCP server: 500+ pay-per-call tools for AI agents. Browse the docs - getting started, paying with x402, MCP connector, Tollbooth pay-per-crawl, architecture, and security.",
     "/docs",
     renderMarkdown(home),
     "Home"
@@ -285,7 +285,7 @@ export function docsApi(baseUrl, catalog) {
     const rows = tools.map((t) => {
       const slug = esc(t.slug || t.route || "");
       const desc = esc((t.description || "").replace(/\s+/g, " ").trim().slice(0, 220));
-      const price = t.price === 0 ? "free" : (typeof t.price === "number" ? `$${t.price.toFixed(4)}` : esc(String(t.price ?? "\u2014")));
+      const price = t.price === 0 ? "free" : (typeof t.price === "number" ? `$${t.price.toFixed(4)}` : esc(String(t.price ?? "-")));
       return `<div class="ml-docs-api-row"><div class="slug">${slug}</div><div class="desc">${desc}</div><div class="price">${esc(price)}</div></div>`;
     }).join("");
     return `<h2 class="ml-docs-api-cat">${esc(cat)} <span style="font-size:13px;font-weight:400;color:var(--faint);font-family:var(--font-mono);">&middot; ${tools.length}</span></h2>${rows}`;

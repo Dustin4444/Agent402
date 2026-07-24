@@ -34,7 +34,7 @@ function runRegexSafely({ pattern, flags, text, maxMatches }) {
       fn(arg);
     };
     const timer = setTimeout(
-      () => finish(reject, bad("Regex timed out (>750ms) — pattern likely has catastrophic backtracking")),
+      () => finish(reject, bad("Regex timed out (>750ms) - pattern likely has catastrophic backtracking")),
       REGEX_TIMEOUT_MS
     );
     worker.on("message", (msg) =>
@@ -291,7 +291,7 @@ const encodingTools = [
     slug: "jwt-decode",
     category: "encoding",
     price: "$0.001",
-    description: "Decode a JWT without verification: header, payload, expiry status, and time remaining. (Decoding only — signatures are NOT verified.)",
+    description: "Decode a JWT without verification: header, payload, expiry status, and time remaining. (Decoding only - signatures are NOT verified.)",
     tags: ["jwt", "token", "auth", "decode"],
     discovery: {
       bodyType: "json",
@@ -668,7 +668,7 @@ const dataTools = [
     slug: "yaml-to-json",
     category: "conversion",
     price: "$0.002",
-    description: "Parse YAML into JSON (safe schema — no code execution).",
+    description: "Parse YAML into JSON (safe schema - no code execution).",
     tags: ["yaml", "json", "convert", "config"],
     discovery: {
       bodyType: "json",
@@ -789,7 +789,7 @@ const dataTools = [
       // with `body`, `content`, or `text` instead of `html`.
       const raw = input.html ?? input.body ?? input.content ?? input.text;
       if (typeof raw !== "string" || !raw) {
-        throw bad('Missing "html". Send {"html":"<h1>Hi</h1>..."} — alternate fields body/content/text are also accepted.');
+        throw bad('Missing "html". Send {"html":"<h1>Hi</h1>..."} - alternate fields body/content/text are also accepted.');
       }
       const text = capText(raw, 100_000, "html");
       const td = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
@@ -1110,7 +1110,7 @@ const textTools = [
       const pattern = capText(need(input, "pattern"), 200, "pattern");
       const text = capText(need(input, "text"), 10_000);
       const flags = typeof input.flags === "string" && /^[gimsuy]*$/.test(input.flags) ? input.flags : "g";
-      // Executed in a worker with a hard timeout — see runRegexSafely (ReDoS guard).
+      // Executed in a worker with a hard timeout - see runRegexSafely (ReDoS guard).
       return runRegexSafely({ pattern, flags, text, maxMatches: 100 });
     },
   },
@@ -1207,7 +1207,7 @@ const timeTools = [
     slug: "time",
     category: "time",
     price: "$0.001",
-    description: "Current time: UTC ISO, epoch seconds/ms, day of week/year, ISO week — optionally rendered in any IANA timezone via ?tz=.",
+    description: "Current time: UTC ISO, epoch seconds/ms, day of week/year, ISO week - optionally rendered in any IANA timezone via ?tz=.",
     tags: ["time", "clock", "timezone", "utc"],
     discovery: {
       input: { tz: "America/New_York" },
@@ -1340,7 +1340,7 @@ const timeTools = [
       if (typeof v === "number") seconds = v;
       else if (typeof v === "string" && /^\d+(\.\d+)?$/.test(v.trim())) seconds = Number(v);
       else if (typeof v === "string") {
-        // `ms` must precede `m` — JS alternation is first-match-wins, so listing
+        // `ms` must precede `m` - JS alternation is first-match-wins, so listing
         // `m` first made `ms` dead code (parsing "500ms" as 500 minutes).
         const matches = [...v.toLowerCase().matchAll(/(\d+(?:\.\d+)?)\s*(ms|w|d|h|m|s)/g)];
         if (!matches.length) throw bad(`Cannot parse duration: ${v}`);
@@ -1871,7 +1871,7 @@ function robotsAllows(groups, ua, path) {
 // data.iana.org/rdap/dns.json maps every TLD to its registry's authoritative
 // RDAP base URL. The whois tool queries that registry directly and keeps the
 // rdap.org redirector only as a fallback: rdap.org is volunteer-run, and both
-// its Cloudflare front and the registries behind it rate-limit per client IP —
+// its Cloudflare front and the registries behind it rate-limit per client IP -
 // our egress IP is shared with every other tenant of the platform, so the
 // redirector can fail from prod while working from any laptop. Exported for
 // scripts/test-whois-bootstrap.js.
@@ -1906,7 +1906,7 @@ async function rdapAuthoritativeBase(tld) {
       rdapBootstrap = { at: now, map: parseRdapBootstrap(await res.json()) };
     } catch (err) {
       // Keep serving the stale map (or none); a failed refresh must not take
-      // the tool down — rdap.org below still answers every TLD.
+      // the tool down - rdap.org below still answers every TLD.
       console.warn(`[whois] IANA RDAP bootstrap refresh failed (${err.message}); using ${rdapBootstrap.map ? "stale map" : "rdap.org only"}`);
       rdapBootstrap = { at: now - RDAP_BOOTSTRAP_TTL_MS + RDAP_BOOTSTRAP_RETRY_MS, map: rdapBootstrap.map };
     }
@@ -2051,7 +2051,7 @@ const networkTools = [
       // of those and extract the registrable hostname rather than 400'ing.
       let raw = input.domain ?? input.url ?? input.hostname ?? input.host ?? "";
       if (typeof raw !== "string" || !raw.trim()) {
-        throw bad('Missing "domain". Send {"domain":"example.com"} or pass a URL — alternate fields url/hostname/host are also accepted.');
+        throw bad('Missing "domain". Send {"domain":"example.com"} or pass a URL - alternate fields url/hostname/host are also accepted.');
       }
       raw = raw.trim();
       // Strip a URL down to its hostname so http://example.com/foo works.
@@ -2153,7 +2153,7 @@ const networkTools = [
       try {
         ({ html: text } = await safeFetch(`${target.origin}/robots.txt`, { maxBytes: 512 * 1024 }));
       } catch {
-        return { allowed: true, matchedRule: null, note: "No readable robots.txt — crawling is not restricted by robots.txt", sitemaps: [] };
+        return { allowed: true, matchedRule: null, note: "No readable robots.txt - crawling is not restricted by robots.txt", sitemaps: [] };
       }
       const groups = parseRobots(text);
       const { allowed, matchedRule } = robotsAllows(groups, ua, target.pathname + target.search);
@@ -2216,7 +2216,7 @@ const networkTools = [
       // Accept any reasonable "encode this" alias.
       const raw = input.text ?? input.data ?? input.content ?? input.url ?? input.value;
       if (typeof raw !== "string" || !raw) {
-        throw bad('Missing "text". Send {"text":"https://example.com"} — alternate fields data/content/url/value are also accepted.');
+        throw bad('Missing "text". Send {"text":"https://example.com"} - alternate fields data/content/url/value are also accepted.');
       }
       const text = capText(raw, 2048);
       const size = Math.min(Math.max(parseInt(input.size, 10) || 256, 128), 1024);

@@ -29,11 +29,11 @@ export function ledgerPricingPage(baseUrl, catalog) {
     `<div style="display:flex;align-items:baseline;gap:8px;padding:12px 18px;${isLast ? "" : "border-bottom:1px solid var(--hairline);"}"><span>${esc(label)}</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;color:var(--accent);">${esc(price)}</span></div>`;
 
   const receiptRows = [
-    ["Most tools \u2014 text, math, encoding, time, validation, convert", "$0.001"],
-    ["Agent memory \u2014 write, recall, grant, audit", "$0.002"],
-    ["Payments & x402 \u2014 decode, verify, settle", "$0.002"],
-    ["Article extract \u2014 clean markdown out", "$0.004"],
-    ["Headless browser \u2014 render & screenshot (real Chromium)", "$0.02"],
+    ["Most tools - text, math, encoding, time, validation, convert", "$0.001"],
+    ["Agent memory - write, recall, grant, audit", "$0.002"],
+    ["Payments & x402 - decode, verify, settle", "$0.002"],
+    ["Article extract - clean markdown out", "$0.004"],
+    ["Headless browser - render & screenshot (real Chromium)", "$0.02"],
   ];
 
   const gatewayRows = [
@@ -82,7 +82,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
           <span style="font-family:var(--font-body);font-weight:900;font-size:56px;letter-spacing:-.03em;">$0.00</span>
           <span style="font-family:var(--font-mono);font-size:13px;color:var(--faint);">/ call</span>
         </div>
-        <p style="font-size:14.5px;line-height:1.5;color:var(--muted);margin:0 0 20px;">Solve a short sha256 puzzle \u2014 a few seconds of CPU \u2014 instead of paying. No wallet at all.</p>
+        <p style="font-size:14.5px;line-height:1.5;color:var(--muted);margin:0 0 20px;">Solve a short sha256 puzzle - a few seconds of CPU - instead of paying. No wallet at all.</p>
         <div style="display:flex;flex-direction:column;gap:10px;font-size:14px;border-top:1px solid var(--hairline);padding-top:18px;">
           ${check(`${fmtNum(freeCount)} pure-CPU tools`)}
           ${check("No wallet, no funds, no account")}
@@ -101,8 +101,8 @@ export function ledgerPricingPage(baseUrl, catalog) {
         <p style="font-size:14.5px;line-height:1.5;color:var(--dk-muted2);margin:0 0 20px;">An x402 client signs USDC from the agent's own wallet and retries. Settles on Base in seconds.</p>
         <div style="display:flex;flex-direction:column;gap:10px;font-size:14px;color:var(--on-dark);border-top:1px solid var(--dark-border2);padding-top:18px;">
           ${check(`All ${fmtNum(totalCount)} tools, including browser & memory`)}
-          ${check("Flat per-call price \u2014 pay exactly what you use")}
-          ${check("Non-custodial \u2014 Agent402 never holds funds")}
+          ${check("Flat per-call price - pay exactly what you use")}
+          ${check("Non-custodial - Agent402 never holds funds")}
           ${check("Spend caps refuse a runaway model before paying")}
         </div>
       </div>
@@ -136,7 +136,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);letter-spacing:.1em;margin-bottom:10px;">WHY IT'S CHEAP</div>
         <h3 style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 8px;">Beat the token math.</h3>
-        <p style="font-size:14.5px;line-height:1.55;color:var(--muted);margin:0;">Writing, testing and debugging a CSV parser or cron calculator mid-task burns thousands of tokens \u2014 easily 10\u2013100\u00d7 the price of a tested $0.001 call. Reimplementation is the expensive path.</p>
+        <p style="font-size:14.5px;line-height:1.55;color:var(--muted);margin:0;">Writing, testing and debugging a CSV parser or cron calculator mid-task burns thousands of tokens - easily 10\u2013100\u00d7 the price of a tested $0.001 call. Reimplementation is the expensive path.</p>
       </div>
       <div style="border-left:1px dashed var(--dash);padding-left:30px;display:flex;flex-direction:column;justify-content:center;font-family:var(--font-mono);font-size:14px;">
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px;"><span style="color:var(--muted);">build it yourself</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;">~5,000 tokens</span></div>

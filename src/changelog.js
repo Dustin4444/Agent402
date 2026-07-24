@@ -3,7 +3,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const ENTRIES = [
   {
     date: "2026-07-24",
-    title: "MPP dual-stack — every endpoint speaks two payment protocols",
+    title: "MPP dual-stack - every endpoint speaks two payment protocols",
     items: [
       "Every paid endpoint now answers MPP (Machine Payments Protocol, the IETF-track Payment HTTP auth scheme) alongside x402, from the same URL at the same price",
       "402 responses carry a WWW-Authenticate: Payment challenge (EIP-3009 USDC on Base and Celo); Authorization: Payment credentials settle identically to x402; settled responses return a signed Payment-Receipt",
@@ -16,7 +16,7 @@ const ENTRIES = [
   },
   {
     date: "2026-07-23",
-    title: "Smart Order Router — Algorand external settlement",
+    title: "Smart Order Router - Algorand external settlement",
     items: [
       "POST /api/route/execute now settles on the buyer's chain: Algorand buyers are routed to proven AVM sellers and pay in USDC on Algorand",
       "Algorand payment validity windows are checked before execution, so slower tools can't strand a payment",
@@ -24,10 +24,10 @@ const ENTRIES = [
   },
   {
     date: "2026-07-21",
-    title: "Smart Order Router — external execution",
+    title: "Smart Order Router - external execution",
     items: [
       "POST /api/route/execute ($0.01) can buy from external x402 sellers on the buyer's behalf: one payment in, result plus receipt out",
-      "Only sellers with verified on-chain settlement history are eligible — unproven or unhealthy sellers are never routed to",
+      "Only sellers with verified on-chain settlement history are eligible - unproven or unhealthy sellers are never routed to",
     ],
   },
   {
@@ -40,7 +40,7 @@ const ENTRIES = [
   },
   {
     date: "2026-07-17",
-    title: "More settlement rails — USDG on Robinhood Chain, USDC on Avalanche",
+    title: "More settlement rails - USDG on Robinhood Chain, USDC on Avalanche",
     items: [
       "USDG (Global Dollar) on Robinhood Chain accepted for every paid endpoint",
       "USDC on Avalanche accepted for every paid endpoint",
@@ -52,7 +52,7 @@ const ENTRIES = [
     title: "Text-to-speech returns to the /v1 gateway",
     items: [
       "/v1/audio/speech ($0.06): OpenAI TTS wire format, mp3/pcm output, 2k-character cap",
-      "Served by a five-model failover chain — a provider outage never becomes the buyer's error",
+      "Served by a five-model failover chain - a provider outage never becomes the buyer's error",
       "OpenAI voice names map automatically; native voice ids listed on /v1/models",
     ],
   },
@@ -60,48 +60,48 @@ const ENTRIES = [
     date: "2026-06-24",
     title: "LLM vision, structured output, and content moderation",
     items: [
-      "Vision: send up to 2 image URLs to any LLM tier — screenshot analysis, chart reading, image Q&A",
+      "Vision: send up to 2 image URLs to any LLM tier - screenshot analysis, chart reading, image Q&A",
       "Structured output: response_format with json_object or json_schema for schema-enforced JSON",
-      "Content moderation: /api/moderate ($0.002) — check text for harmful content across 13 categories",
+      "Content moderation: /api/moderate ($0.002) - check text for harmful content across 13 categories",
       "All guardrails enforced server-side: image count limits, schema size caps, data: URI blocking",
     ],
   },
   {
     date: "2026-06-24",
-    title: "Full AI suite — TTS, STT, embeddings via x402",
+    title: "Full AI suite - TTS, STT, embeddings via x402",
     items: [
-      "Text-to-speech: /api/tts ($0.05) and /api/tts-hd ($0.10) — 10 voices, 6 audio formats",
-      "Speech-to-text: /api/transcribe ($0.03) and /api/transcribe-pro ($0.10) — URL-based audio input",
-      "Embeddings: /api/embed ($0.005) and /api/embed-large ($0.01) — 1536 or 3072 dimensions for RAG and search",
-      "No API key needed — pay per call with USDC on Base, Solana, Polygon & Arbitrum",
+      "Text-to-speech: /api/tts ($0.05) and /api/tts-hd ($0.10) - 10 voices, 6 audio formats",
+      "Speech-to-text: /api/transcribe ($0.03) and /api/transcribe-pro ($0.10) - URL-based audio input",
+      "Embeddings: /api/embed ($0.005) and /api/embed-large ($0.01) - 1536 or 3072 dimensions for RAG and search",
+      "No API key needed - pay per call with USDC on Base, Solana, Polygon & Arbitrum",
       "Self-hosters: bring your own upstream key to run these for free",
     ],
   },
   {
     date: "2026-06-24",
-    title: "Code execution sandbox — Python/JS via x402",
+    title: "Code execution sandbox - Python/JS via x402",
     items: [
       "Run Python or JavaScript in isolated cloud sandboxes: /api/code-run ($0.02) and /api/code-run-pro ($0.05)",
       "Returns stdout, stderr, expression result, and error traceback",
       "Pro tier: 60s timeout and 50k char code limit for longer computations",
-      "Each call runs in a fresh, isolated VM — nothing persists between calls",
+      "Each call runs in a fresh, isolated VM - nothing persists between calls",
     ],
   },
   {
     date: "2026-06-24",
-    title: "Image generation gateway — 3-tier GPT Image via x402",
+    title: "Image generation gateway - 3-tier GPT Image via x402",
     items: [
       "Generate images: /api/image-gen ($0.03), /api/image-gen-hd ($0.10), /api/image-gen-premium ($0.30)",
-      "Text-to-image — no API key needed, pay per call, returns base64 PNG",
+      "Text-to-image - no API key needed, pay per call, returns base64 PNG",
       "Three quality tiers from fast drafts to high-fidelity output",
     ],
   },
   {
     date: "2026-06-24",
-    title: "LLM proxy gateway — 3-tier inference via x402",
+    title: "LLM proxy gateway - 3-tier inference via x402",
     items: [
       "Chat completions: /api/llm ($0.01), /api/llm-pro ($0.10), /api/llm-premium ($0.50)",
-      "OpenAI-format interface — no API key needed, pay per call",
+      "OpenAI-format interface - no API key needed, pay per call",
       "Models: GPT-4o-mini, GPT-4o, GPT-4.1, o3, o3-mini",
     ],
   },
@@ -126,17 +126,17 @@ const ENTRIES = [
   },
   {
     date: "2026-06-23",
-    title: "Crypto-hash, string, and calendar kits — 15 new tools",
+    title: "Crypto-hash, string, and calendar kits - 15 new tools",
     items: [
       "Crypto-hash kit: PBKDF2, scrypt, HKDF, constant-time compare, CRC32/Adler32 checksums",
       "String kit: Jaccard similarity, case conversion, fuzzy matching, character frequency, word wrap",
       "Calendar kit: ISO week numbers, leap year check, Easter date, epoch conversion, day-of-year",
-      "Google ADK adapter published — agent402-google-adk on npm",
+      "Google ADK adapter published - agent402-google-adk on npm",
     ],
   },
   {
     date: "2026-06-22",
-    title: "Validation, encoding, and math kits — 15 new tools",
+    title: "Validation, encoding, and math kits - 15 new tools",
     items: [
       "Validation kit: phone formatting, XML validation, CSV linting, base detection, IPv6 expansion",
       "Encoding kit: Punycode, NATO phonetic, Soundex, binary-text, Braille conversion",
@@ -147,8 +147,8 @@ const ENTRIES = [
     date: "2026-06-21",
     title: "Decode-blob and trend-analysis skill packs",
     items: [
-      "decode-blob skill pack — automatically detect and decode JWT, gzip, brotli, base64, or hex blobs",
-      "trend-analysis skill pack — fetch data, summarize, smooth, detect trends, flag anomalies, benchmark",
+      "decode-blob skill pack - automatically detect and decode JWT, gzip, brotli, base64, or hex blobs",
+      "trend-analysis skill pack - fetch data, summarize, smooth, detect trends, flag anomalies, benchmark",
       "Compression kit: 5 tools for gzip, brotli, and deflate compression/decompression",
       "Stats kit: 5 tools for summary statistics, correlation, regression, moving averages, and outlier detection",
     ],
@@ -157,8 +157,8 @@ const ENTRIES = [
     date: "2026-06-20",
     title: "Security-audit and structured-scrape skill packs",
     items: [
-      "security-audit skill pack — 7-tool domain audit covering DNS, TLS, WHOIS, HTTP, headers, SPF, and robots.txt",
-      "structured-scrape skill pack — render a page and extract structured data in one workflow",
+      "security-audit skill pack - 7-tool domain audit covering DNS, TLS, WHOIS, HTTP, headers, SPF, and robots.txt",
+      "structured-scrape skill pack - render a page and extract structured data in one workflow",
       "HTML kit: 5 tools for extracting text, elements, links, tables, and headings from HTML",
     ],
   },
@@ -166,29 +166,29 @@ const ENTRIES = [
     date: "2026-06-19",
     title: "x402 economy dashboard and leaderboard",
     items: [
-      "/economy — daily x402 ecosystem volume, concentration, and network breakdown",
-      "/leaderboard — public on-chain ranking of x402 sellers by Base USDC settled volume",
-      "/api/leaderboard — machine-readable seller rankings",
-      "Smart Order Router (/api/route) — find the cheapest healthy tool across the x402 ecosystem",
+      "/economy - daily x402 ecosystem volume, concentration, and network breakdown",
+      "/leaderboard - public on-chain ranking of x402 sellers by Base USDC settled volume",
+      "/api/leaderboard - machine-readable seller rankings",
+      "Smart Order Router (/api/route) - find the cheapest healthy tool across the x402 ecosystem",
     ],
   },
   {
     date: "2026-06-18",
     title: "Docs hub, analytics dashboard, and caching",
     items: [
-      "/docs — wiki content rendered on-site with sidebar navigation",
-      "/analytics — live tool-level call counts, error rates, and latency percentiles",
+      "/docs - wiki content rendered on-site with sidebar navigation",
+      "/analytics - live tool-level call counts, error rates, and latency percentiles",
       "Server-side response caching with cache-hit headers for supported routes",
-      "Idempotency support — Idempotency-Key header prevents double-charging on retries",
+      "Idempotency support - Idempotency-Key header prevents double-charging on retries",
     ],
   },
   {
     date: "2026-06-17",
     title: "Tollbooth Cloud and framework adapters",
     items: [
-      "Tollbooth Cloud — hosted multi-site pay-per-crawl dashboard",
+      "Tollbooth Cloud - hosted multi-site pay-per-crawl dashboard",
       "8 framework adapters on npm: OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex, Google ADK, OpenAI Agents, AWS Strands",
-      "agent402-client SDK — find() + call() with auto-payment",
+      "agent402-client SDK - find() + call() with auto-payment",
     ],
   },
 ];
@@ -219,7 +219,7 @@ ${items}
 
 export function changelogPage(baseUrl) {
   const canonical = `${baseUrl}/changelog`;
-  const title = "Changelog — what's new at Agent402";
+  const title = "Changelog - what's new at Agent402";
   const description = "Recent additions to Agent402: new tools, skill packs, framework adapters, and platform features.";
 
   const jsonLd = {

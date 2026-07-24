@@ -27,7 +27,7 @@ export function landingPage(baseUrl, network, freeMode, catalog, stats = null) {
   // The old-web visitor counter, except every digit is a real served tool call.
   const odometer = served
     ? `<div class="odometer" title="Counted live by the server; settled revenue is independently verifiable on-chain">
-    <span class="odo-label">— TOOL CALLS SERVED —</span>
+    <span class="odo-label">- TOOL CALLS SERVED -</span>
     <span class="odo-digits">${String(served.total).padStart(7, "0").split("").map((d) => `<b>${d}</b>`).join("")}</span>
     <span class="odo-sub">${served.viaUSDC} settled in USDC${stats.walletName ? ` to ${stats.walletName}` : ""} · ${served.viaProofOfWork} paid with compute${stats.onchainRevenueProof ? ` · <a href="${stats.onchainRevenueProof}" rel="noopener">on-chain proof</a>` : ""}${perfLine} · counting since ${String(stats.servingSince).slice(0, 10)}</span>
   </div>`
@@ -41,10 +41,10 @@ export function landingPage(baseUrl, network, freeMode, catalog, stats = null) {
   // Also escape ' so attribute contexts using single quotes are covered.
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   // Ticker items are rendered twice in the track so the translateX(-50%) loop
-  // is seamless — when the original set scrolls off-left, the duplicate is
+  // is seamless - when the original set scrolls off-left, the duplicate is
   // already in the same visual position the original started from. Server-side
   // we esc() slug for HTML; client-side refresh builds nodes with textContent
-  // (no innerHTML — defense-in-depth against any future spec drift on slug).
+  // (no innerHTML - defense-in-depth against any future spec drift on slug).
   const tickerItem = (r) => `<span class="ticker-item"><span class="slug">${esc(r.slug)}</span><span class="sep">·</span><span class="kind">${r.paidWith === "proof-of-work" ? "⚙ PoW" : "$ USDC"}</span><span class="sep">·</span><span class="time">${agoStr(r.at)} ago</span></span>`;
   const tickerItems = (rows) => { const m = rows.slice(0, 12).map(tickerItem).join(""); return m + m; };
   const activity = recent.length
@@ -77,21 +77,21 @@ export function landingPage(baseUrl, network, freeMode, catalog, stats = null) {
 <link rel="shortcut icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/logo.png">
 <meta name="base:app_id" content="6a3dd86ca341d86b910769fb" />
-<title>Agent402 — ${SKILL_PACKS.length} agent skill packs, one x402 payment each · the open x402 index: Find, Router &amp; Leaderboard (${count} tools)</title>
-<meta name="description" content="${SKILL_PACKS.length} skill packs that do a whole agent job in one x402 payment — research a stock, audit a domain's SEO, run SQL over Base, check a wallet's readiness to pay — built on ${count} deterministic pay-per-call tools. Plus the open x402 index: /api/find resolves tasks to tools, /api/route is the neutral Smart Order Router, /api/leaderboard ranks sellers by on-chain USDC volume. Free via proof-of-work, ${RAILS_SHORT}. No signup, no API key.">
+<title>Agent402 - ${SKILL_PACKS.length} agent skill packs, one x402 payment each · the open x402 index: Find, Router &amp; Leaderboard (${count} tools)</title>
+<meta name="description" content="${SKILL_PACKS.length} skill packs that do a whole agent job in one x402 payment - research a stock, audit a domain's SEO, run SQL over Base, check a wallet's readiness to pay - built on ${count} deterministic pay-per-call tools. Plus the open x402 index: /api/find resolves tasks to tools, /api/route is the neutral Smart Order Router, /api/leaderboard ranks sellers by on-chain USDC volume. Free via proof-of-work, ${RAILS_SHORT}. No signup, no API key.">
 <link rel="canonical" href="${baseUrl}/">
 <meta property="og:type" content="website">
 <meta property="og:url" content="${baseUrl}/">
 <meta property="og:site_name" content="Agent402.Tools">
-<meta property="og:title" content="Agent402 — the open x402 index: Find, Router &amp; Leaderboard (${count}+ tools)">
-<meta property="og:description" content="${SKILL_PACKS.length} skill packs that do a whole agent job in one x402 payment — built on ${count} pay-per-call tools, plus the open x402 index (Find, Router, Leaderboard). Free via proof-of-work, ${RAILS_SHORT}.">
+<meta property="og:title" content="Agent402 - the open x402 index: Find, Router &amp; Leaderboard (${count}+ tools)">
+<meta property="og:description" content="${SKILL_PACKS.length} skill packs that do a whole agent job in one x402 payment - built on ${count} pay-per-call tools, plus the open x402 index (Find, Router, Leaderboard). Free via proof-of-work, ${RAILS_SHORT}.">
 <meta property="og:image" content="${baseUrl}/card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="${baseUrl}/card.png">
-<meta name="twitter:title" content="Agent402 — the open x402 index: Find, Router &amp; Leaderboard">
-<meta name="twitter:description" content="${SKILL_PACKS.length} agent skill packs, one x402 payment each — built on ${count} pay-per-call tools + the open x402 index. Free via proof-of-work, ${RAILS_SHORT}.">
+<meta name="twitter:title" content="Agent402 - the open x402 index: Find, Router &amp; Leaderboard">
+<meta name="twitter:description" content="${SKILL_PACKS.length} agent skill packs, one x402 payment each - built on ${count} pay-per-call tools + the open x402 index. Free via proof-of-work, ${RAILS_SHORT}.">
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -102,13 +102,13 @@ export function landingPage(baseUrl, network, freeMode, catalog, stats = null) {
       "name": "Agent402.Tools",
       "url": "${baseUrl}",
       "sameAs": ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools", "https://www.npmjs.com/package/agent402-mcp", "https://www.npmjs.com/package/agent402-client", "https://www.npmjs.com/package/agent402-tollbooth", "https://www.npmjs.com/package/agent402-openai-tools", "https://www.npmjs.com/package/agent402-anthropic-tools", "https://www.npmjs.com/package/agent402-ai-sdk", "https://www.npmjs.com/package/agent402-langchain", "https://www.npmjs.com/package/agent402-llamaindex", "https://www.npmjs.com/package/agent402-google-adk", "https://www.npmjs.com/package/agent402-strands"],
-      "description": "Machine-to-machine payments for AI agents: ${count} pay-per-call web tools settled in USDC on Base, Solana, Polygon & Arbitrum — plus USDG on Robinhood Chain — via the x402 protocol, or free with proof-of-work."
+      "description": "Machine-to-machine payments for AI agents: ${count} pay-per-call web tools settled in USDC on Base, Solana, Polygon & Arbitrum - plus USDG on Robinhood Chain - via the x402 protocol, or free with proof-of-work."
     },
     {
       "@type": "WebSite",
       "@id": "${baseUrl}/#site",
       "url": "${baseUrl}",
-      "name": "Agent402 — tools for AI agents",
+      "name": "Agent402 - tools for AI agents",
       "publisher": { "@id": "${baseUrl}/#org" }
     },
     {
@@ -123,13 +123,13 @@ export function landingPage(baseUrl, network, freeMode, catalog, stats = null) {
     {
       "@type": "FAQPage",
       "mainEntity": [
-        { "@type": "Question", "name": "What is Agent402?", "acceptedAnswer": { "@type": "Answer", "text": "Agent402 is a live node in the machine-to-machine economy: ${count} web tools an autonomous AI agent can call and pay for per request in USDC via the x402 protocol — or with proof-of-work, no wallet. No human, no signup, no API key." } },
-        { "@type": "Question", "name": "How does an AI agent pay for a tool?", "acceptedAnswer": { "@type": "Answer", "text": "The agent calls an endpoint and receives an HTTP 402 Payment Required quote. An x402 client signs a USDC payment from the agent's own wallet on Base (or Solana, Polygon, Arbitrum, Stellar — or USDG on Robinhood Chain) and retries; the call settles on-chain in seconds. The wallet is the identity — no account needed. x402 is an open standard with settlement infrastructure from Coinbase and open client tooling from Stripe." } },
-        { "@type": "Question", "name": "Are any tools free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes — ${freeCount} of the ${count} pure-CPU tools can be used with no wallet at all by solving a short proof-of-work puzzle (a few seconds of the caller's CPU) instead of paying USDC." } },
+        { "@type": "Question", "name": "What is Agent402?", "acceptedAnswer": { "@type": "Answer", "text": "Agent402 is a live node in the machine-to-machine economy: ${count} web tools an autonomous AI agent can call and pay for per request in USDC via the x402 protocol - or with proof-of-work, no wallet. No human, no signup, no API key." } },
+        { "@type": "Question", "name": "How does an AI agent pay for a tool?", "acceptedAnswer": { "@type": "Answer", "text": "The agent calls an endpoint and receives an HTTP 402 Payment Required quote. An x402 client signs a USDC payment from the agent's own wallet on Base (or Solana, Polygon, Arbitrum, Stellar - or USDG on Robinhood Chain) and retries; the call settles on-chain in seconds. The wallet is the identity - no account needed. x402 is an open standard with settlement infrastructure from Coinbase and open client tooling from Stripe." } },
+        { "@type": "Question", "name": "Are any tools free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes - ${freeCount} of the ${count} pure-CPU tools can be used with no wallet at all by solving a short proof-of-work puzzle (a few seconds of the caller's CPU) instead of paying USDC." } },
         { "@type": "Question", "name": "Why would an agent use this instead of building the tools itself?", "acceptedAnswer": { "@type": "Answer", "text": "Many agents can write code but can't run a headless browser, reach the network from a locked sandbox, or keep durable state across sessions. Agent402 provides a real browser, network access, and wallet-keyed memory and coordination that a single ephemeral agent cannot give itself." } },
-        { "@type": "Question", "name": "Does Agent402 use AI or spend my model tokens?", "acceptedAnswer": { "@type": "Answer", "text": "No. Every tool is deterministic code — parsers, hashes, math, a real browser — with no LLM anywhere in the serving path, and the free tier's proof-of-work is a sha256 puzzle your machine solves in a fraction of a second. Nothing consumes AI tokens. Tools like /api/extract exist to SAVE your tokens: they return clean markdown instead of 100k tokens of raw HTML." } },
-        { "@type": "Question", "name": "Can I use Agent402 from OpenAI / Anthropic / LangChain / LlamaIndex / Vercel AI SDK?", "acceptedAnswer": { "@type": "Answer", "text": "Yes — there is a zero-dependency adapter package on npm for each of the major agent stacks: agent402-openai-tools (OpenAI function-calling), agent402-anthropic-tools (Anthropic Messages API), agent402-ai-sdk (Vercel AI SDK), agent402-langchain (LangChain JS / LangGraph), and agent402-llamaindex (LlamaIndex TS). Each one returns ready-to-pass tool objects in the framework's native shape, with payment handled underneath (proof-of-work for free tools, USDC via x402 for wallet-only). MCP-based clients like Claude can use the hosted https://agent402.tools/mcp connector directly." } },
-        { "@type": "Question", "name": "How do I see which x402 sellers are most used?", "acceptedAnswer": { "@type": "Answer", "text": "GET /api/leaderboard returns the live on-chain ranking of every x402 seller by Base USDC settled volume — callsSettled, totalUsd, and uniqueBuyers per seller. The pipeline walks every page of the Coinbase CDP Bazaar discovery endpoint, queries eth_getLogs on Base USDC for each seller's payTo wallet, filters to per-call settlements within a $0.50 ceiling (larger inbound is funding, not buys), and aggregates. The snapshot refreshes hourly server-side. Free, like /api/find and /api/route. Sort by ?sort=usd|calls and use include=external to exclude Agent402 itself and rank only the rest of the ecosystem. The same primitive is also reachable as MCP tool top_x402_sellers (on the hosted /mcp connector and the agent402-mcp npm package) and as agent402-client SDK method topSellers() — one source of truth, three surfaces." } }
+        { "@type": "Question", "name": "Does Agent402 use AI or spend my model tokens?", "acceptedAnswer": { "@type": "Answer", "text": "No. Every tool is deterministic code - parsers, hashes, math, a real browser - with no LLM anywhere in the serving path, and the free tier's proof-of-work is a sha256 puzzle your machine solves in a fraction of a second. Nothing consumes AI tokens. Tools like /api/extract exist to SAVE your tokens: they return clean markdown instead of 100k tokens of raw HTML." } },
+        { "@type": "Question", "name": "Can I use Agent402 from OpenAI / Anthropic / LangChain / LlamaIndex / Vercel AI SDK?", "acceptedAnswer": { "@type": "Answer", "text": "Yes - there is a zero-dependency adapter package on npm for each of the major agent stacks: agent402-openai-tools (OpenAI function-calling), agent402-anthropic-tools (Anthropic Messages API), agent402-ai-sdk (Vercel AI SDK), agent402-langchain (LangChain JS / LangGraph), and agent402-llamaindex (LlamaIndex TS). Each one returns ready-to-pass tool objects in the framework's native shape, with payment handled underneath (proof-of-work for free tools, USDC via x402 for wallet-only). MCP-based clients like Claude can use the hosted https://agent402.tools/mcp connector directly." } },
+        { "@type": "Question", "name": "How do I see which x402 sellers are most used?", "acceptedAnswer": { "@type": "Answer", "text": "GET /api/leaderboard returns the live on-chain ranking of every x402 seller by Base USDC settled volume - callsSettled, totalUsd, and uniqueBuyers per seller. The pipeline walks every page of the Coinbase CDP Bazaar discovery endpoint, queries eth_getLogs on Base USDC for each seller's payTo wallet, filters to per-call settlements within a $0.50 ceiling (larger inbound is funding, not buys), and aggregates. The snapshot refreshes hourly server-side. Free, like /api/find and /api/route. Sort by ?sort=usd|calls and use include=external to exclude Agent402 itself and rank only the rest of the ecosystem. The same primitive is also reachable as MCP tool top_x402_sellers (on the hosted /mcp connector and the agent402-mcp npm package) and as agent402-client SDK method topSellers() - one source of truth, three surfaces." } }
       ]
     },
     {
@@ -138,7 +138,7 @@ export function landingPage(baseUrl, network, freeMode, catalog, stats = null) {
       "name": "Agent402 on Base",
       "applicationCategory": "BlockchainApplication",
       "operatingSystem": "${RAILS_OS}",
-      "description": "x402 pay-per-call agent tools settling in USDC on Base, Solana, Polygon & Arbitrum — plus USDG on Robinhood Chain. Available as a Base MCP plugin (app ID 6a3dd86ca341d86b910769fb). Gas is sponsored on EVM chains — callers need only USDC.",
+      "description": "x402 pay-per-call agent tools settling in USDC on Base, Solana, Polygon & Arbitrum - plus USDG on Robinhood Chain. Available as a Base MCP plugin (app ID 6a3dd86ca341d86b910769fb). Gas is sponsored on EVM chains - callers need only USDC.",
       "url": "${baseUrl}",
       "provider": { "@id": "${baseUrl}/#org" },
       "offers": { "@type": "AggregateOffer", "priceCurrency": "USD", "lowPrice": "0.001", "highPrice": "0.02" }
@@ -282,7 +282,7 @@ ${renderHeader("/", [{ href: "#connect", label: "Connect" }])}
     <div>
       <span class="badge"><span class="dot"></span> open source · <b>x402</b> · ${SKILL_PACKS.length} skill packs · ${count} tools · free tier · no API keys</span>
       <h1>Whole agent jobs, one payment each<span class="x">.</span></h1>
-      <p class="sub"><b>${SKILL_PACKS.length} skill packs — curated multi-tool workflows over <a href="https://x402.org" rel="noopener">x402</a>.</b> Research a stock end to end, audit a domain's SEO, run SQL over Base, decode an opaque blob, check a wallet's readiness to pay — each pack orchestrates the right tools and settles as <em>one</em> x402 payment. Built on <b>${count} deterministic pay-per-call tools</b> (<a href="/tools">browse them</a>), <b>${freeCount.toLocaleString()} free</b> via in-process proof-of-work; <b>USDC on Base, Solana, Polygon &amp; Arbitrum</b> (+ USDG on Robinhood Chain) from $0.001/call. No signup, no API keys — <b>the wallet is the identity</b>.</p>
+      <p class="sub"><b>${SKILL_PACKS.length} skill packs - curated multi-tool workflows over <a href="https://x402.org" rel="noopener">x402</a>.</b> Research a stock end to end, audit a domain's SEO, run SQL over Base, decode an opaque blob, check a wallet's readiness to pay - each pack orchestrates the right tools and settles as <em>one</em> x402 payment. Built on <b>${count} deterministic pay-per-call tools</b> (<a href="/tools">browse them</a>), <b>${freeCount.toLocaleString()} free</b> via in-process proof-of-work; <b>USDC on Base, Solana, Polygon &amp; Arbitrum</b> (+ USDG on Robinhood Chain) from $0.001/call. No signup, no API keys - <b>the wallet is the identity</b>.</p>
       <div class="ctas">
         <a class="cta primary" href="#connect">Add to Claude in 60 seconds →</a>
         <a class="cta ghost" href="/skills">Browse ${SKILL_PACKS.length} skill packs</a>
@@ -305,7 +305,7 @@ ${renderHeader("/", [{ href: "#connect", label: "Connect" }])}
 claude mcp add agent402 -s user -- npx -y agent402-mcp@latest
 
 <span class="c"># Then ask Claude: "run the financial-research pack on AAPL",
-# "seo-audit example.com", "decode this blob" — or any single tool.
+# "seo-audit example.com", "decode this blob" - or any single tool.
 # Free tier auto-pays in compute. USDC on ${RAILS.filter((r) => r.asset === "USDC").length} chains (or USDG on Robinhood) when you scale.</span></pre>
       <div class="snippet-foot">
         <span class="dot"></span> ${freeCount.toLocaleString()} tools free via proof-of-work · ${RAILS_SHORT.replace("USDG on Robinhood Chain", 'USDG on <a href="/guides/usdg-payments-robinhood-chain">Robinhood Chain</a>')}, for the rest · <a href="/llms.txt">llms.txt</a>
@@ -331,7 +331,7 @@ claude mcp add agent402 -s user -- npx -y agent402-mcp@latest
   <section>
     <div class="eyebrow">The product</div>
     <h2>Skill packs: a whole job, one x402 payment</h2>
-    <p class="sub">No single tool researches a stock or audits a site. A pack orchestrates the right tools in the right order server-side and returns one envelope — callable over plain HTTP (<code>POST /api/skill/&lt;slug&gt;</code>), as an MCP prompt, or by just asking Claude. Partial-success per step: you keep everything that worked.</p>
+    <p class="sub">No single tool researches a stock or audits a site. A pack orchestrates the right tools in the right order server-side and returns one envelope - callable over plain HTTP (<code>POST /api/skill/&lt;slug&gt;</code>), as an MCP prompt, or by just asking Claude. Partial-success per step: you keep everything that worked.</p>
     <div class="why">
       ${FLAGSHIP_PACKS.map((slug) => {
         const p = SKILL_PACKS.find((x) => x.slug === slug);
@@ -346,21 +346,21 @@ claude mcp add agent402 -s user -- npx -y agent402-mcp@latest
     <p class="sub" style="margin-top:14px;"><a href="/skills"><b>Browse all ${SKILL_PACKS.length} packs →</b></a> · every pack is also a Claude-ready prompt template (<code>prompts/list</code> → <code>prompts/get</code> on the MCP connector)</p>
   </section>
 
-  <div class="callout">🏆 <b>The neutral x402 layer.</b> <a href="/index">Index</a> + <a href="/api/route">Smart Order Router</a> + <a href="/leaderboard">Leaderboard</a> — auto-crawled from the <a href="https://docs.cdp.coinbase.com/x402/docs/bazaar" rel="noopener">CDP Bazaar</a>, ranked by real on-chain USDC volume. Use <code>?include=external</code> to exclude Agent402 itself.</div>
-  <div class="callout">🚧 <b>The other side: charge AI bots crawling <em>your</em> site.</b> <a href="/tollbooth"><b>agent402-tollbooth</b></a> is an open-source <b>pay-per-crawl</b> gate — humans browse free, crawlers pay per request. Deploy on <a href="https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth/deploy/docker" rel="noopener">Docker</a>, <a href="https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth/deploy/cloudflare" rel="noopener">Cloudflare</a>, <a href="https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth/deploy/nextjs" rel="noopener">Next.js</a>, or <a href="https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth/deploy/wordpress" rel="noopener">WordPress</a>. <a href="/tollbooth/cloud">Tollbooth Cloud →</a></div>
-  ${freeMode ? '<div class="warn">⚠ Demo mode — payments are currently disabled on this instance.</div>' : ""}
+  <div class="callout">🏆 <b>The neutral x402 layer.</b> <a href="/index">Index</a> + <a href="/api/route">Smart Order Router</a> + <a href="/leaderboard">Leaderboard</a> - auto-crawled from the <a href="https://docs.cdp.coinbase.com/x402/docs/bazaar" rel="noopener">CDP Bazaar</a>, ranked by real on-chain USDC volume. Use <code>?include=external</code> to exclude Agent402 itself.</div>
+  <div class="callout">🚧 <b>The other side: charge AI bots crawling <em>your</em> site.</b> <a href="/tollbooth"><b>agent402-tollbooth</b></a> is an open-source <b>pay-per-crawl</b> gate - humans browse free, crawlers pay per request. Deploy on <a href="https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth/deploy/docker" rel="noopener">Docker</a>, <a href="https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth/deploy/cloudflare" rel="noopener">Cloudflare</a>, <a href="https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth/deploy/nextjs" rel="noopener">Next.js</a>, or <a href="https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth/deploy/wordpress" rel="noopener">WordPress</a>. <a href="/tollbooth/cloud">Tollbooth Cloud →</a></div>
+  ${freeMode ? '<div class="warn">⚠ Demo mode - payments are currently disabled on this instance.</div>' : ""}
 
   <section>
     <div class="eyebrow">Proof, not slideware</div>
     <h2>Run the whole loop yourself</h2>
-    <p class="sub">An autonomous buyer discovers the catalog, gets quoted over <code>HTTP 402</code>, settles, and uses the result — zero humans involved:</p>
-    <pre># one file, zero dependencies — pays with COMPUTE (no wallet, no funds)
+    <p class="sub">An autonomous buyer discovers the catalog, gets quoted over <code>HTTP 402</code>, settles, and uses the result - zero humans involved:</p>
+    <pre># one file, zero dependencies - pays with COMPUTE (no wallet, no funds)
 curl -s ${baseUrl}/demo.js -o demo.js && node demo.js
 
 # or settle in real USDC on Base (or Solana/Polygon/Arbitrum/Stellar) with a funded key
 npm i @x402/core @x402/evm @x402/fetch viem
 AGENT_KEY=0xYOUR_FUNDED_KEY node demo.js</pre>
-    <p class="sub">Revenue is trustless and public — every settled call lands on-chain. See live counts and the receiving wallet at <a href="/api/stats">/api/stats</a>.</p>
+    <p class="sub">Revenue is trustless and public - every settled call lands on-chain. See live counts and the receiving wallet at <a href="/api/stats">/api/stats</a>.</p>
     ${odometer}
     ${activity}
   </section>
@@ -372,19 +372,19 @@ AGENT_KEY=0xYOUR_FUNDED_KEY node demo.js</pre>
     <div class="why">
       <div class="card">
         <h3>Sign up for anything</h3>
-        <p>The useful web hides behind signups, captchas, API keys, and credit cards — none of which an autonomous agent can obtain. Here, the only credential is the one thing an agent holds: a wallet. That's how <code>/api/search</code> puts a paid search index one HTTP call away, no account.</p>
+        <p>The useful web hides behind signups, captchas, API keys, and credit cards - none of which an autonomous agent can obtain. Here, the only credential is the one thing an agent holds: a wallet. That's how <code>/api/search</code> puts a paid search index one HTTP call away, no account.</p>
       </div>
       <div class="card">
         <h3>Run a browser farm</h3>
-        <p>Most agent sandboxes have no Chromium, no GPU, no display. <code>/api/render</code> and <code>/api/screenshot</code> are real headless browser infrastructure — JavaScript executed, SPAs included — rented by the call for 2 cents.</p>
+        <p>Most agent sandboxes have no Chromium, no GPU, no display. <code>/api/render</code> and <code>/api/screenshot</code> are real headless browser infrastructure - JavaScript executed, SPAs included - rented by the call for 2 cents.</p>
       </div>
       <div class="card">
         <h3>Remember anything tomorrow</h3>
-        <p>Agent sessions are ephemeral; the container is gone an hour later. <code>/api/memory</code> is durable state keyed to the paying wallet — persist findings today, read them next week from a different machine, zero credentials to store or leak.</p>
+        <p>Agent sessions are ephemeral; the container is gone an hour later. <code>/api/memory</code> is durable state keyed to the paying wallet - persist findings today, read them next week from a different machine, zero credentials to store or leak.</p>
       </div>
       <div class="card">
         <h3>Beat the token math</h3>
-        <p>Writing, testing, and debugging a CSV parser or cron calculator mid-task burns thousands of tokens — easily 10-100&times; the price of a tested <code>$0.001</code> call. Reimplementation is the expensive path.</p>
+        <p>Writing, testing, and debugging a CSV parser or cron calculator mid-task burns thousands of tokens - easily 10-100&times; the price of a tested <code>$0.001</code> call. Reimplementation is the expensive path.</p>
       </div>
     </div>
   </section>
@@ -392,11 +392,11 @@ AGENT_KEY=0xYOUR_FUNDED_KEY node demo.js</pre>
   <section>
     <div class="eyebrow">The retention hook</div>
     <h2>Memory that outlives the session</h2>
-    <p class="sub">One-shot calls solve today's task. <code>/api/memory</code> is why an agent returns next week: durable state where the <em>paying wallet is the identity</em> — no API key to store, leak, or rotate. Write from one machine, read from another, grant a different wallet access, and every access lands in a tamper-evident audit log. From $0.002/call.</p>
-    <pre># today, machine A — persist what you learned
+    <p class="sub">One-shot calls solve today's task. <code>/api/memory</code> is why an agent returns next week: durable state where the <em>paying wallet is the identity</em> - no API key to store, leak, or rotate. Write from one machine, read from another, grant a different wallet access, and every access lands in a tamper-evident audit log. From $0.002/call.</p>
+    <pre># today, machine A - persist what you learned
 POST /api/memory   {"key":"deploy-fix","value":{"cause":"build OOM","fix":"NODE_VERSION=22"}}
 
-# next week, machine B — same wallet, nothing else needed
+# next week, machine B - same wallet, nothing else needed
 GET  /api/memory?key=deploy-fix
 
 # let a teammate's agent read your namespace (different wallet, different owner)
@@ -418,19 +418,19 @@ ${categoryCards}
   <section>
     <div class="eyebrow">Trust is checkable</div>
     <h2>The index lists thousands of sellers. Verify this one.</h2>
-    <p class="sub">No sales calls, no contracts — every trust claim here is checkable by a machine, not asserted: deterministic outputs (no LLM in the path), flat prices, a named maintainer, and fully <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>. The records:</p>
+    <p class="sub">No sales calls, no contracts - every trust claim here is checkable by a machine, not asserted: deterministic outputs (no LLM in the path), flat prices, a named maintainer, and fully <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>. The records:</p>
     <div class="verify">
-      <div class="row"><b>Discoverable on the Coinbase CDP Bazaar</b> — the index AI agents browse for x402 services, keyed to our pay-to address:
+      <div class="row"><b>Discoverable on the Coinbase CDP Bazaar</b> - the index AI agents browse for x402 services, keyed to our pay-to address:
         <code>GET api.cdp.coinbase.com/platform/v2/x402/discovery/resources</code></div>
-      <div class="row"><b>Listed in the official MCP Registry</b> — installable by name in any MCP client:
+      <div class="row"><b>Listed in the official MCP Registry</b> - installable by name in any MCP client:
         <code>GET registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402</code></div>
-      <div class="row"><b>On npm</b> — one-line install, <code>npx -y agent402-mcp</code>:
+      <div class="row"><b>On npm</b> - one-line install, <code>npx -y agent402-mcp</code>:
         <code>https://www.npmjs.com/package/agent402-mcp</code></div>
-      <div class="row"><b>Open source on GitHub</b> — read every line that serves and prices your call:
+      <div class="row"><b>Open source on GitHub</b> - read every line that serves and prices your call:
         <code>https://github.com/MikeyPetrillo/Agent402</code></div>${stats?.wallet ? `
-      <div class="row"><b>Real USDC settlements, on-chain</b> — every paid call lands at ${stats.walletName ? `<b>${stats.walletName}</b> (${stats.wallet.slice(0, 6)}…${stats.wallet.slice(-4)})` : "the revenue wallet"}, verifiable on Basescan:
+      <div class="row"><b>Real USDC settlements, on-chain</b> - every paid call lands at ${stats.walletName ? `<b>${stats.walletName}</b> (${stats.wallet.slice(0, 6)}…${stats.wallet.slice(-4)})` : "the revenue wallet"}, verifiable on Basescan:
         <code>${stats.onchainRevenueProof || `https://basescan.org/address/${stats.wallet}#tokentxns`}</code></div>` : ""}
-      <div class="row"><b>Self-describing & tested</b> — full schemas, and every endpoint is re-tested against its own documented example before each deploy:
+      <div class="row"><b>Self-describing & tested</b> - full schemas, and every endpoint is re-tested against its own documented example before each deploy:
         <code>GET ${baseUrl}/openapi.json &nbsp;·&nbsp; GET ${baseUrl}/api/pricing</code></div>
     </div>
   </section>
@@ -448,7 +448,7 @@ ${categoryCards}
   <section id="connect">
     <div class="eyebrow">Use it</div>
     <h2>Three ways in</h2>
-    <p class="lbl">Pay in code <span>— any x402 client</span></p>
+    <p class="lbl">Pay in code <span>- any x402 client</span></p>
     <pre>import { wrapFetchWithPayment } from "@x402/fetch";
 import { x402Client } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
@@ -464,23 +464,23 @@ const res = await payFetch("${baseUrl}/api/extract", {
 });
 console.log(await res.json()); // { title, markdown, ... }</pre>
 
-    <p class="lbl">Add to Claude / any MCP client <span>— paste the hosted connector URL (claude.ai → Settings → Connectors), zero install: the pure-CPU tools run free there, rate-limited.</span></p>
+    <p class="lbl">Add to Claude / any MCP client <span>- paste the hosted connector URL (claude.ai → Settings → Connectors), zero install: the pure-CPU tools run free there, rate-limited.</span></p>
     <pre>${baseUrl}/mcp</pre>
 
-    <p class="lbl">Full catalog with payment underneath <span>— in the <a href="https://registry.modelcontextprotocol.io" rel="noopener">MCP Registry</a> + npm. High-value tools first-class, the long tail via <code>search_tools</code>/<code>call_tool</code>; spend caps refuse a runaway model before paying.</span></p>
+    <p class="lbl">Full catalog with payment underneath <span>- in the <a href="https://registry.modelcontextprotocol.io" rel="noopener">MCP Registry</a> + npm. High-value tools first-class, the long tail via <code>search_tools</code>/<code>call_tool</code>; spend caps refuse a runaway model before paying.</span></p>
     <pre>{ "mcpServers": { "agent402": {
     "command": "npx", "args": ["-y", "agent402-mcp"],
-    "env": { "AGENT_KEY": "0x&lt;funded wallet key — optional&gt;", "AGENT402_BUDGET": "1.00" }
+    "env": { "AGENT_KEY": "0x&lt;funded wallet key - optional&gt;", "AGENT402_BUDGET": "1.00" }
 } } }</pre>
 
-    <p class="lbl">Call it from your code <span>— the <a href="https://www.npmjs.com/package/agent402-client" rel="noopener">agent402-client</a> SDK resolves a task to a tool and pays automatically (proof-of-work for free tools, your x402 wallet for paid). Zero deps, non-custodial, with caching + idempotent retries.</span></p>
+    <p class="lbl">Call it from your code <span>- the <a href="https://www.npmjs.com/package/agent402-client" rel="noopener">agent402-client</a> SDK resolves a task to a tool and pays automatically (proof-of-work for free tools, your x402 wallet for paid). Zero deps, non-custodial, with caching + idempotent retries.</span></p>
     <pre>npm install agent402-client
 
 import { Agent402 } from "agent402-client";
 const a = new Agent402();                 // free tier (proof-of-work)
 const out = await a.call("hash", { text: "hello world", algo: "sha256" });</pre>
 
-    <p class="lbl">Or drop into your agent framework <span>— zero-dep adapters that turn the catalog into native tool objects, with auto-payment underneath.</span></p>
+    <p class="lbl">Or drop into your agent framework <span>- zero-dep adapters that turn the catalog into native tool objects, with auto-payment underneath.</span></p>
     <pre># pick your stack
 npm install agent402-openai-tools         # OpenAI function-calling
 npm install agent402-anthropic-tools      # Anthropic Messages API (tool_use)
@@ -495,7 +495,7 @@ const { tools, execute } = await agent402Tools({ slugs: ["extract", "hash", "ren
 // pass tools to openai.chat.completions.create({ tools }); call execute(name, args) on a tool_call.</pre>
     <p class="sub" style="margin-top:12px">All <a href="/integrations">8 framework adapters</a> share the same surface: zero-dep, native tool objects, payment handled underneath.</p>
 
-    <p class="lbl">Or try it free <span>— no wallet needed</span></p>
+    <p class="lbl">Or try it free <span>- no wallet needed</span></p>
     <pre>curl ${baseUrl}/api/pricing          # machine-readable catalog
 curl ${baseUrl}/openapi.json         # full OpenAPI 3.1 spec
 curl -i -X POST ${baseUrl}/api/extract \\
@@ -506,12 +506,12 @@ curl -i -X POST ${baseUrl}/api/extract \\
     <div class="eyebrow">Questions</div>
     <h2>FAQ</h2>
     <div class="faq">
-      <p><b>What is Agent402?</b><br><span>A live node in the machine-to-machine economy: ${count} web tools an autonomous AI agent can call and pay for per request in USDC via the <a href="https://x402.org" rel="noopener">x402 protocol</a> — or with proof-of-work, no wallet. No human, no signup, no API key.</span></p>
-      <p><b>How does an AI agent pay for a tool?</b><br><span>It calls an endpoint and gets an <code>HTTP 402 Payment Required</code> quote. An x402 client signs a USDC payment from the agent's own wallet on Base (or Solana, Polygon, Arbitrum, Stellar — or USDG on Robinhood Chain) and retries; the call settles on-chain in seconds. The wallet is the identity. <a href="https://x402.org" rel="noopener">x402</a> is an open standard with settlement infrastructure from Coinbase and open client tooling from Stripe.</span></p>
-      <p><b>Are any tools free?</b><br><span>Yes — ${freeCount} of the ${count} pure-CPU tools work with no wallet at all: solve a short <a href="/api/pow">proof-of-work</a> puzzle (a few seconds of CPU) instead of paying USDC.</span></p>
-      <p><b>Does Agent402 use AI or spend my model tokens?</b><br><span>No. Every tool is deterministic code — parsers, hashes, math, a real browser — with no LLM anywhere in the serving path, and the free tier's proof-of-work is a sha256 puzzle your machine solves in a fraction of a second. Nothing here consumes AI tokens. Tools like <code>/api/extract</code> exist to <em>save</em> your tokens: clean markdown out instead of 100k tokens of raw HTML in.</span></p>
-      <p><b>Can I use Agent402 from OpenAI / Anthropic / LangChain / LlamaIndex / Vercel AI SDK?</b><br><span>Yes — there's a zero-dependency adapter on npm for each: <code><a href="https://www.npmjs.com/package/agent402-openai-tools" rel="noopener">agent402-openai-tools</a></code>, <code><a href="https://www.npmjs.com/package/agent402-anthropic-tools" rel="noopener">agent402-anthropic-tools</a></code>, <code><a href="https://www.npmjs.com/package/agent402-ai-sdk" rel="noopener">agent402-ai-sdk</a></code>, <code><a href="https://www.npmjs.com/package/agent402-langchain" rel="noopener">agent402-langchain</a></code>, and <code><a href="https://www.npmjs.com/package/agent402-llamaindex" rel="noopener">agent402-llamaindex</a></code>. Each returns ready-to-pass tool objects in the framework's native shape — payment handled underneath (proof-of-work for free tools, USDC via x402 for wallet-only). MCP-based clients (Claude) can still use the hosted <code>/mcp</code> connector directly.</span></p>
-      <p><b>How do I see which x402 sellers are most used?</b><br><span><code><a href="/api/leaderboard">GET /api/leaderboard</a></code> returns the live on-chain ranking by Base USDC settled volume — calls served, totalUsd, unique buyers per seller. The pipeline walks every page of the Coinbase CDP Bazaar, queries <code>eth_getLogs</code> on Base USDC for each seller's payTo, filters per-call settlements within a $0.50 ceiling (larger inbound is funding, not buys), and aggregates. Hourly snapshot. Free. Use <code>?include=external</code> to exclude Agent402 itself.</span></p>
+      <p><b>What is Agent402?</b><br><span>A live node in the machine-to-machine economy: ${count} web tools an autonomous AI agent can call and pay for per request in USDC via the <a href="https://x402.org" rel="noopener">x402 protocol</a> - or with proof-of-work, no wallet. No human, no signup, no API key.</span></p>
+      <p><b>How does an AI agent pay for a tool?</b><br><span>It calls an endpoint and gets an <code>HTTP 402 Payment Required</code> quote. An x402 client signs a USDC payment from the agent's own wallet on Base (or Solana, Polygon, Arbitrum, Stellar - or USDG on Robinhood Chain) and retries; the call settles on-chain in seconds. The wallet is the identity. <a href="https://x402.org" rel="noopener">x402</a> is an open standard with settlement infrastructure from Coinbase and open client tooling from Stripe.</span></p>
+      <p><b>Are any tools free?</b><br><span>Yes - ${freeCount} of the ${count} pure-CPU tools work with no wallet at all: solve a short <a href="/api/pow">proof-of-work</a> puzzle (a few seconds of CPU) instead of paying USDC.</span></p>
+      <p><b>Does Agent402 use AI or spend my model tokens?</b><br><span>No. Every tool is deterministic code - parsers, hashes, math, a real browser - with no LLM anywhere in the serving path, and the free tier's proof-of-work is a sha256 puzzle your machine solves in a fraction of a second. Nothing here consumes AI tokens. Tools like <code>/api/extract</code> exist to <em>save</em> your tokens: clean markdown out instead of 100k tokens of raw HTML in.</span></p>
+      <p><b>Can I use Agent402 from OpenAI / Anthropic / LangChain / LlamaIndex / Vercel AI SDK?</b><br><span>Yes - there's a zero-dependency adapter on npm for each: <code><a href="https://www.npmjs.com/package/agent402-openai-tools" rel="noopener">agent402-openai-tools</a></code>, <code><a href="https://www.npmjs.com/package/agent402-anthropic-tools" rel="noopener">agent402-anthropic-tools</a></code>, <code><a href="https://www.npmjs.com/package/agent402-ai-sdk" rel="noopener">agent402-ai-sdk</a></code>, <code><a href="https://www.npmjs.com/package/agent402-langchain" rel="noopener">agent402-langchain</a></code>, and <code><a href="https://www.npmjs.com/package/agent402-llamaindex" rel="noopener">agent402-llamaindex</a></code>. Each returns ready-to-pass tool objects in the framework's native shape - payment handled underneath (proof-of-work for free tools, USDC via x402 for wallet-only). MCP-based clients (Claude) can still use the hosted <code>/mcp</code> connector directly.</span></p>
+      <p><b>How do I see which x402 sellers are most used?</b><br><span><code><a href="/api/leaderboard">GET /api/leaderboard</a></code> returns the live on-chain ranking by Base USDC settled volume - calls served, totalUsd, unique buyers per seller. The pipeline walks every page of the Coinbase CDP Bazaar, queries <code>eth_getLogs</code> on Base USDC for each seller's payTo, filters per-call settlements within a $0.50 ceiling (larger inbound is funding, not buys), and aggregates. Hourly snapshot. Free. Use <code>?include=external</code> to exclude Agent402 itself.</span></p>
     </div>
   </section>
 

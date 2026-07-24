@@ -28,7 +28,7 @@ async function getJson(url, provider = "nominatim") {
     // blaming the caller's query, and it must leave a log line.
     if (err.upstreamStatus === 403 || err.upstreamStatus === 429) {
       console.warn(`[geo] ${provider} ${err.upstreamStatus} (per-IP throttle/block on shared egress)`);
-      throw bad("Geocoder rate limit reached upstream — retry shortly", 503);
+      throw bad("Geocoder rate limit reached upstream - retry shortly", 503);
     }
     if (err.upstreamStatus) {
       console.warn(`[geo] ${provider} HTTP ${err.upstreamStatus}`);
@@ -187,7 +187,7 @@ export const GEO_TOOLS = [
         };
       } catch (err) {
         if (!nominatimFailed(err)) throw err;
-        console.warn(`[geo] nominatim failed (${err.message}) — falling back to photon.komoot.io`);
+        console.warn(`[geo] nominatim failed (${err.message}) - falling back to photon.komoot.io`);
         const results = await photonSearch({ q, limit, countryCodes: cc || null });
         return { query: q, count: results.length, results, source: PHOTON_SOURCE };
       }
@@ -267,7 +267,7 @@ export const GEO_TOOLS = [
         };
       } catch (err) {
         if (!nominatimFailed(err)) throw err;
-        console.warn(`[geo] nominatim failed (${err.message}) — falling back to photon.komoot.io`);
+        console.warn(`[geo] nominatim failed (${err.message}) - falling back to photon.komoot.io`);
         // Photon reverse takes lon/lat only — no zoom equivalent, so the
         // caller's zoom is a best-effort hint we can't honor on fallback.
         const pdata = await getJson(`https://photon.komoot.io/reverse?${new URLSearchParams({ lon: String(lon), lat: String(lat), lang: "en" })}`, "photon");
@@ -303,7 +303,7 @@ export const GEO_TOOLS = [
     category: "data",
     price: "$0.003",
     description:
-      "Search OpenStreetMap for places by keyword, optionally restricted to a bounding box or country. Returns ranked hits with coordinates and place type — e.g. coffee shops in a city, airports in a region. ?q=coffee&viewbox=-122.52,37.81,-122.35,37.70&bounded=1.",
+      "Search OpenStreetMap for places by keyword, optionally restricted to a bounding box or country. Returns ranked hits with coordinates and place type - e.g. coffee shops in a city, airports in a region. ?q=coffee&viewbox=-122.52,37.81,-122.35,37.70&bounded=1.",
     tags: ["places", "poi", "search", "openstreetmap", "nominatim", "maps"],
     discovery: {
       input: { q: "Eiffel Tower", limit: 3 },
@@ -364,7 +364,7 @@ export const GEO_TOOLS = [
         };
       } catch (err) {
         if (!nominatimFailed(err)) throw err;
-        console.warn(`[geo] nominatim failed (${err.message}) — falling back to photon.komoot.io`);
+        console.warn(`[geo] nominatim failed (${err.message}) - falling back to photon.komoot.io`);
         // Nominatim's viewbox is only a strict filter with bounded=1 (otherwise
         // a ranking bias, which Photon can't express) — so map it to Photon's
         // bbox (minLon,minLat,maxLon,maxLat) in the strict case only.

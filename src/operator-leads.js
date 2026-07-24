@@ -48,8 +48,8 @@ export function operatorLeadsPage({ ok, rows, total, byPlan, dbEnabled }) {
     <td class="ol-mono">${esc(fmtDate(r.created_at))}</td>
     <td>${planBadge(r.plan)} ${r.kind && r.kind !== "waitlist" ? `<span class="ol-kind">${esc(r.kind)}</span>` : ""}</td>
     <td><b>${esc(r.name)}</b><br><a class="ol-mail" href="mailto:${encodeURIComponent(r.email)}">${esc(r.email)}</a></td>
-    <td>${esc(r.org || "—")}</td>
-    <td class="ol-sites">${esc(r.sites || "—")}</td>
+    <td>${esc(r.org || "-")}</td>
+    <td class="ol-sites">${esc(r.sites || "-")}</td>
     <td class="ol-msg">${esc(r.message || "")}</td>
     <td class="ol-mono ol-small ol-faint">${esc(r.ip || "")}<br>${esc((r.ua || "").slice(0, 70))}</td>
   </tr>`).join("");
@@ -117,8 +117,8 @@ tr:last-child td{border-bottom:0}
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: "Operator · Tollbooth leads — Agent402",
-    description: "Agent402 operator dashboard — Tollbooth Cloud waitlist and partner application leads.",
+    title: "Operator · Tollbooth leads - Agent402",
+    description: "Agent402 operator dashboard - Tollbooth Cloud waitlist and partner application leads.",
     canonical: `${baseUrl}/__operator/leads`,
     baseUrl,
     activePath: "__none__",

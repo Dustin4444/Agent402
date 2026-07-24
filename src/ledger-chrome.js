@@ -11,7 +11,7 @@ export const esc = (s) =>
 
 // ---------------------------------------------------------------------------
 // Head links: Google Fonts + favicons
-// Browsers cache favicons in a separate, long-lived store keyed by URL — bump
+// Browsers cache favicons in a separate, long-lived store keyed by URL - bump
 // the ?v= literal whenever the logo art changes or old marks linger for weeks.
 // ---------------------------------------------------------------------------
 
@@ -28,7 +28,7 @@ export const LEDGER_HEAD = `<link rel="preload" href="/fonts/archivo-800.woff2" 
 @font-face{font-family:'Space Mono';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/spacemono-700.woff2) format('woff2')}
 /* Metric-matched fallback faces (fontaine/capsize method, computed from the real
    woff2 files vs Arial/Courier New): the fallback is sized to occupy the SAME box
-   as the web font, so when the self-hosted font swaps in nothing reflows — CLS ~0
+   as the web font, so when the self-hosted font swaps in nothing reflows - CLS ~0
    AND the brand font always shows the moment it loads (no font-display:optional
    fallback-flash). Overrides apply to whichever local() resolves, so vertical
    metrics stay matched even on Arial-less systems (Android → Roboto). */
@@ -47,7 +47,7 @@ export const LEDGER_HEAD = `<link rel="preload" href="/fonts/archivo-800.woff2" 
 export const LEDGER_CSS = `
 /* Hard stop on page-level horizontal scroll: no content should ever push the
    document sideways on a phone. Uses overflow-x: clip (not hidden) so it never
-   turns the root into a scroll container — position: sticky (docs TOC) keeps
+   turns the root into a scroll container - position: sticky (docs TOC) keeps
    working. Wide data tables get their own internal scroll below; everything
    else is made to wrap/fit at mobile widths in the media queries. */
 html { overflow-x: clip; }
@@ -195,7 +195,7 @@ a { color: inherit; }
   .ml-roster-compact { grid-template-columns: 1fr !important; row-gap: 4px !important; }
   .sl-h1      { font-size: 40px !important; }
   .sl-steps   { grid-template-columns: 1fr !important; }
-  /* Long unbreakable strings — seller hosts, payTo addresses, package names —
+  /* Long unbreakable strings - seller hosts, payTo addresses, package names -
      must wrap on phones instead of forcing a fixed grid column (and the page)
      wider than the viewport. This is the main source of the horizontal scroll:
      an unwrappable host in a 1fr column sets a min-content floor above 375px. */
@@ -209,7 +209,7 @@ a { color: inherit; }
   .ml-mkts { grid-template-columns: repeat(2, 1fr) !important; }
   /* Leaderboard table: its five fixed columns (rank + name + usdc + calls +
      buyers) are wider than a phone on their own. Drop to the primary three
-     (rank, seller, USDC settled — the headline metric); hide the secondary
+     (rank, seller, USDC settled - the headline metric); hide the secondary
      calls/buyers columns and their headers. Full table stays on desktop. */
   .lb-head, .lb-row { grid-template-columns: 26px 1fr auto !important; column-gap: 10px !important; }
   .lb-num, .lb-buyers, .lb-head > span:nth-child(4), .lb-head > span:nth-child(5) { display: none !important; }
@@ -236,7 +236,7 @@ a { color: inherit; }
 }
 .mfb-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;}
 .mfb-tab{font-family:var(--font-mono);font-size:12px;padding:5px 11px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);text-decoration:none;white-space:nowrap;}
-/* Active tab: accent-as-background — the one pattern that stays legible in BOTH
+/* Active tab: accent-as-background - the one pattern that stays legible in BOTH
    themes (white on #BF360C is 5.8:1; --ink/--on-dark flip light in dark mode and
    made the active tab a white blob with invisible text). */
 .mfb-tab.on{background:var(--accent);color:#fff;border-color:var(--accent);}
@@ -281,10 +281,10 @@ const NAV_ZONES = [
 ];
 
 // Fallback by-chain rows used whenever no live index-snapshot data is wired
-// (offline unit tests, early boot, a throwing/null provider) — the dropdown
+// (offline unit tests, early boot, a throwing/null provider) - the dropdown
 // and footer still get real, crawlable links, just without seller counts.
 // All 10 rails have a live market page (/base, /solana, /polygon, /arbitrum, /monad,
-// /celo, /avalanche, /stellar, /algorand, /robinhood) — this fallback must list
+// /celo, /avalanche, /stellar, /algorand, /robinhood) - this fallback must list
 // every one, not just the two that got dedicated routes first.
 const STATIC_CHAINS = [
   { label: "base", href: "/base" },
@@ -300,7 +300,7 @@ const STATIC_CHAINS = [
 ];
 
 // Per-chain seller counts/health for the index dropdown + footer are live
-// data (crawler + index snapshot), but nav() renders on every page — including
+// data (crawler + index snapshot), but nav() renders on every page - including
 // offline unit tests with no crawler running. server.js wires a provider once
 // real data exists; until then (or if it throws) nav() falls back to
 // STATIC_CHAINS so it never crashes and never blocks a page render.
@@ -312,28 +312,28 @@ function chainRows() {
     const data = navDataProvider && navDataProvider();
     if (data && Array.isArray(data.chains) && data.chains.length) {
       // Scale rule: EVERY live rail gets a row while the rail count stays
-      // human-sized (≤12 — we hold at ten, see #469); only past that does the
+      // human-sized (≤12 - we hold at ten, see #469); only past that does the
       // list truncate to the top 10 with the "all sellers" row carrying the
       // rest. The previous >9 → slice(0,7) rule silently dropped Stellar,
       // Algorand, and Robinhood from the dropdown AND the mobile menu the
-      // moment rail #10 shipped — the exact failure its own comment said it
+      // moment rail #10 shipped - the exact failure its own comment said it
       // was preventing. A ceiling must sit ABOVE the roster it protects.
       const chains = data.chains.length > 12 ? data.chains.slice(0, 10) : data.chains;
       return { chains, live: true };
     }
-  } catch { /* provider threw — fall back to the static list below */ }
+  } catch { /* provider threw - fall back to the static list below */ }
   return { chains: STATIC_CHAINS, live: false };
 }
 
 function chainRowHtml(c, live) {
   if (!live) {
-    // No provider data at all — a plain link, never a fabricated count.
+    // No provider data at all - a plain link, never a fabricated count.
     return `<a href="${esc(c.href)}" class="mlnav-row" style="display:block;padding:9px 16px;text-decoration:none;color:var(--ink);font-weight:700;">${esc(c.label)}</a>`;
   }
   const known = typeof c.sellers === "number" && c.healthy !== false;
   if (known) {
     const fmt = (n) => Number(n).toLocaleString("en-US");
-    // Sellers (green health dot) + tool depth on that chain, when we have it —
+    // Sellers (green health dot) + tool depth on that chain, when we have it -
     // the two numbers an agent picks a chain on. Tools omitted (not zeroed) if
     // the count is missing, never a fabricated 0.
     const toolsSpan = typeof c.tools === "number" && c.tools > 0
@@ -341,12 +341,12 @@ function chainRowHtml(c, live) {
       : "";
     return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:10px;"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${fmt(c.sellers)} sellers</span>${toolsSpan}</span></a>`;
   }
-  // Provider returned this chain but its data failed — honesty rule:
+  // Provider returned this chain but its data failed - honesty rule:
   // "unavailable", never zero.
   return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:6px;color:var(--faint);"><span style="width:7px;height:7px;border-radius:50%;background:var(--faint);display:inline-block;"></span>unavailable</span></a>`;
 }
 
-// Marketplace dropdown — the single buy-side door (the old separate
+// Marketplace dropdown - the single buy-side door (the old separate
 // "marketplaces" and "index" panels, merged): one row per rail (live
 // chainRows/health), the leaderboard row carried over from the old index
 // panel, and the ink footer row linking the unified /marketplace directory.
@@ -397,7 +397,7 @@ function groupTriggerHtml(item, active, panelHtml) {
 const mmLink = (href, label, active, extra = "") =>
   `<a href="${esc(href)}" class="ml-mm-link${active ? " ml-mm-active" : ""}${extra}">${esc(label)}</a>`;
 
-// Mobile menu — every destination flattened into a tap list (the hover
+// Mobile menu - every destination flattened into a tap list (the hover
 // dropdowns don't work on touch, so the chains, sell, and marketplace
 // sub-items all live here directly). Shown ≤880px via the hamburger; hidden
 // on desktop.
@@ -431,7 +431,7 @@ function nav(activePath) {
   const chainInfo = chainRows();
   const groupHrefs = {
     // One buy-side door: /marketplace, every chain page, and /leaderboard (its
-    // panel row) all light the marketplace trigger — a future chain page lights
+    // panel row) all light the marketplace trigger - a future chain page lights
     // it up with zero nav edits.
     marketplace: new Set(["/marketplace", "/leaderboard", ...chainInfo.chains.map((c) => c.href)]),
     sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
@@ -475,7 +475,7 @@ function nav(activePath) {
 }
 
 // ---------------------------------------------------------------------------
-// Footer — full 5-column (home page)
+// Footer - full 5-column (home page)
 // ---------------------------------------------------------------------------
 
 export function ledgerFooterFull() {
@@ -519,7 +519,7 @@ export function ledgerFooterFull() {
 }
 
 // ---------------------------------------------------------------------------
-// Footer — compact single-row (sub-pages)
+// Footer - compact single-row (sub-pages)
 // ---------------------------------------------------------------------------
 
 export function ledgerFooterCompact() {
@@ -538,7 +538,7 @@ export function ledgerFooterCompact() {
 }
 
 // ---------------------------------------------------------------------------
-// Settlement tape — scrolling marquee of recent paid calls
+// Settlement tape - scrolling marquee of recent paid calls
 // ---------------------------------------------------------------------------
 
 function agoStr(iso) {
@@ -614,7 +614,7 @@ function posthogSnippet(baseUrl) {
 }
 export function ledgerShell({ title, description, canonical, baseUrl, activePath = "", ogImage, jsonLd, extraCss = "", body }) {
   const og = ogImage || (baseUrl + "/card.png" + (ogImageVersion ? `?v=${ogImageVersion}` : ""));
-  // Base ecosystem JSON-LD — every page rendered through the ledger shell
+  // Base ecosystem JSON-LD - every page rendered through the ledger shell
   // carries this so crawlers and discovery agents see Base chain support
   // regardless of which page they land on.
   const baseEcosystemLd = {

@@ -71,9 +71,9 @@ async function waybackAvailable(url, timestamp) {
     // Log the real transport cause before mapping to a buyer-facing 504 —
     // this catch used to be bare and discarded the evidence.
     console.warn(`[archive-snapshot] archive.org fetch failed: ${err.name}: ${err.message}`);
-    throw bad("Wayback Machine did not respond — try again shortly", 504);
+    throw bad("Wayback Machine did not respond - try again shortly", 504);
   }
-  if (res.status === 429) throw bad("Wayback Machine rate limit reached — retry shortly", 503);
+  if (res.status === 429) throw bad("Wayback Machine rate limit reached - retry shortly", 503);
   if (!res.ok) throw bad(`Wayback Machine error (HTTP ${res.status})`, 502);
   try { return await res.json(); } catch { throw bad("Wayback Machine returned non-JSON", 502); }
 }
@@ -103,7 +103,7 @@ async function mementoClosest(url, timestamp) {
     });
   } catch (err) {
     console.warn(`[archive-snapshot] memgator.cs.odu.edu fetch failed: ${err.name}: ${err.message}`);
-    throw bad("Memento aggregator did not respond — try again shortly", 504);
+    throw bad("Memento aggregator did not respond - try again shortly", 504);
   }
   if (res.status === 404) return null;
   if (!res.ok) throw bad(`Memento aggregator error (HTTP ${res.status})`, 502);
@@ -177,7 +177,7 @@ function parseFeedXml(text, warnings) {
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "")
       .replace(/&(?!#\d+;|#x[0-9a-fA-F]+;|[a-zA-Z][a-zA-Z0-9]*;)/g, "&amp;");
     doc = parse(repaired);
-    if (doc) warnings.push("Feed XML was malformed (control characters or unescaped ampersands) — recovered with a lenient pass.");
+    if (doc) warnings.push("Feed XML was malformed (control characters or unescaped ampersands) - recovered with a lenient pass.");
   }
   if (!doc) throw bad("URL did not return parseable RSS/Atom XML", 422);
   return doc;
@@ -252,7 +252,7 @@ export const WEB_TOOLS = [
       inputSchema: {
         properties: {
           url: { type: "string", description: "The URL to look up in the Wayback Machine" },
-          timestamp: { type: "string", description: "Optional target time, 4-14 digits (YYYY, YYYYMM, YYYYMMDD, … up to YYYYMMDDhhmmss) — returns the snapshot closest to it" },
+          timestamp: { type: "string", description: "Optional target time, 4-14 digits (YYYY, YYYYMM, YYYYMMDD, … up to YYYYMMDDhhmmss) - returns the snapshot closest to it" },
         },
         required: ["url"],
       },
@@ -277,7 +277,7 @@ export const WEB_TOOLS = [
       try {
         data = await waybackAvailable(url, timestamp);
       } catch (err) {
-        console.warn(`[archive-snapshot] archive.org failed (${err.message}) — falling back to memgator.cs.odu.edu`);
+        console.warn(`[archive-snapshot] archive.org failed (${err.message}) - falling back to memgator.cs.odu.edu`);
         let m;
         try {
           m = await mementoClosest(url, timestamp);
@@ -395,7 +395,7 @@ export const WEB_TOOLS = [
         allItems = childrenOf(root, "item");
         mapItem = rssItem;
       } else {
-        throw bad(`URL returned XML, but not a recognizable feed (root element <${rootName}> — expected <rss>, <feed>, or <rdf:RDF>)`, 422);
+        throw bad(`URL returned XML, but not a recognizable feed (root element <${rootName}> - expected <rss>, <feed>, or <rdf:RDF>)`, 422);
       }
 
       return {

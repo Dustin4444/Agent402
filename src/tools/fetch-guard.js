@@ -228,7 +228,7 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
     throw Object.assign(
       new Error(
         timedOut
-          ? `Source URL did not respond within ${Math.round(timeoutMs / 1000)}s — host may be slow or unreachable`
+          ? `Source URL did not respond within ${Math.round(timeoutMs / 1000)}s - host may be slow or unreachable`
           : `Could not connect to source URL: ${err.message}${code ? ` (${code})` : ""}`
       ),
       { statusCode: 504 }
@@ -249,13 +249,13 @@ export async function safeFetch(rawUrl, { binary = false, maxBytes = MAX_BYTES, 
     if (upstreamStatus >= 400 && upstreamStatus < 500) {
       throw Object.assign(
         new Error(
-          `Source URL returned HTTP ${upstreamStatus} — check the URL is correct and publicly reachable`
+          `Source URL returned HTTP ${upstreamStatus} - check the URL is correct and publicly reachable`
         ),
         { statusCode: 422, upstreamStatus }
       );
     }
     throw Object.assign(
-      new Error(`Source URL's host returned HTTP ${upstreamStatus} — upstream issue, try again later`),
+      new Error(`Source URL's host returned HTTP ${upstreamStatus} - upstream issue, try again later`),
       { statusCode: 502, upstreamStatus }
     );
   }

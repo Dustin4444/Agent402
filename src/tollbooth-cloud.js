@@ -16,8 +16,8 @@ const REPO = "https://github.com/MikeyPetrillo/Agent402";
 const waitlistUrl = (plan) => `/tollbooth/waitlist?plan=${plan}`;
 
 export function tollboothCloudPage(baseUrl) {
-  const title = "Tollbooth Cloud — multi-site AI-crawler analytics for publishers & SEO agencies";
-  const description = "Hosted dashboard on top of open-source agent402-tollbooth. One pane over every client site, alerts when AI crawlers spike, white-label for agencies, 20% partner referral. Non-custodial — your wallet still settles USDC directly.";
+  const title = "Tollbooth Cloud - multi-site AI-crawler analytics for publishers & SEO agencies";
+  const description = "Hosted dashboard on top of open-source agent402-tollbooth. One pane over every client site, alerts when AI crawlers spike, white-label for agencies, 20% partner referral. Non-custodial - your wallet still settles USDC directly.";
   const canonical = `${baseUrl}/tollbooth/cloud`;
 
   const extraCss = `
@@ -106,7 +106,7 @@ export function tollboothCloudPage(baseUrl) {
 
 <span class="pill warn">Cloud · early access</span>
 <h1>Tollbooth Cloud</h1>
-<p class="lede">Hosted multi-site dashboard, alerts, and white-label rollup on top of open-source <a href="${esc(baseUrl)}/tollbooth">agent402-tollbooth</a> — the pay-per-crawl gate. The gate stays self-hosted and non-custodial; Cloud just reads aggregate stats from the durable sink and gives publishers and SEO agencies one pane over every site.</p>
+<p class="lede">Hosted multi-site dashboard, alerts, and white-label rollup on top of open-source <a href="${esc(baseUrl)}/tollbooth">agent402-tollbooth</a> - the pay-per-crawl gate. The gate stays self-hosted and non-custodial; Cloud just reads aggregate stats from the durable sink and gives publishers and SEO agencies one pane over every site.</p>
 
 <div class="hero-cta">
   <a class="primary" href="${esc(waitlistUrl("team"))}">Join the Cloud waitlist →</a>
@@ -126,7 +126,7 @@ export function tollboothCloudPage(baseUrl) {
   <div class="row"><div>guide.client-b.co</div><div>3,402</div><div class="hide-sm">27</div><div class="up">$0.27</div></div>
   <div class="row"><div>news.client-c.net</div><div>21,067</div><div class="hide-sm">0</div><div class="dn">PoW only</div></div>
 </div>
-<p class="annual" style="margin-top:8px;">Counters update minute-by-minute. No request bodies, no per-call data — Cloud only ever sees aggregate stats.</p>
+<p class="annual" style="margin-top:8px;">Counters update minute-by-minute. No request bodies, no per-call data - Cloud only ever sees aggregate stats.</p>
 
 <h2>Who it's for</h2>
 <div class="who">
@@ -220,7 +220,7 @@ export function tollboothCloudPage(baseUrl) {
       <li>Unlimited sites, custom retention</li>
       <li>SSO (SAML / OIDC), role-based access</li>
       <li>SLA, signed audit log, dedicated support</li>
-      <li>Your wallet still owns the USDC — Cloud never custodies funds</li>
+      <li>Your wallet still owns the USDC - Cloud never custodies funds</li>
     </ul>
     <div class="cta"><a href="${esc(waitlistUrl("enterprise"))}&kind=enterprise">Talk to us</a></div>
   </div>
@@ -249,7 +249,7 @@ export function tollboothCloudPage(baseUrl) {
 <div class="tcols">
   <div class="b">
     <h3 style="color:var(--accent);">20% lifetime recurring</h3>
-    <p>On every Team or Agency plan you refer. Paid in normal currency via Stripe — not USDC — so the protocol's non-custodial promise stays clean. Standard rev-share, settled monthly.</p>
+    <p>On every Team or Agency plan you refer. Paid in normal currency via Stripe - not USDC - so the protocol's non-custodial promise stays clean. Standard rev-share, settled monthly.</p>
   </div>
   <div class="b">
     <h3 style="color:var(--accent);">Co-marketing</h3>
@@ -268,7 +268,7 @@ export function tollboothCloudPage(baseUrl) {
 <div class="tcols">
   <div class="b">
     <h3>Cloud reads stats, not money</h3>
-    <p>The OSS gate already writes aggregate counters to its <code>statsSink</code> (memory, KV, or HTTP). Cloud is an <code>httpStatsSink</code> endpoint that aggregates across instances. <b>No request bodies, no per-call data, no PII</b> — just minute-level counters per install.</p>
+    <p>The OSS gate already writes aggregate counters to its <code>statsSink</code> (memory, KV, or HTTP). Cloud is an <code>httpStatsSink</code> endpoint that aggregates across instances. <b>No request bodies, no per-call data, no PII</b> - just minute-level counters per install.</p>
   </div>
   <div class="b">
     <h3>USDC bypasses us entirely</h3>
@@ -279,7 +279,7 @@ export function tollboothCloudPage(baseUrl) {
 <div class="cta-strip">
   <div class="copy">
     <h3>Ready to see who's scraping you?</h3>
-    <p>Self-host the OSS gate for free, or join the Cloud waitlist for the hosted multi-site dashboard. Cancel anytime — your wallet keeps collecting USDC either way.</p>
+    <p>Self-host the OSS gate for free, or join the Cloud waitlist for the hosted multi-site dashboard. Cancel anytime - your wallet keeps collecting USDC either way.</p>
   </div>
   <div class="actions">
     <a class="primary" href="${esc(waitlistUrl("team"))}">Join the waitlist</a>
@@ -290,16 +290,16 @@ export function tollboothCloudPage(baseUrl) {
 <h2>FAQ</h2>
 <dl class="faq">
   <dt>Is Tollbooth itself paid?</dt>
-  <dd>No — <code>agent402-tollbooth</code> is and will stay MIT-licensed and free to self-host. <a href="${esc(baseUrl)}/tollbooth">Install it now</a> at no cost. Cloud is the optional hosted analytics on top.</dd>
+  <dd>No - <code>agent402-tollbooth</code> is and will stay MIT-licensed and free to self-host. <a href="${esc(baseUrl)}/tollbooth">Install it now</a> at no cost. Cloud is the optional hosted analytics on top.</dd>
 
   <dt>What happens when I cancel Cloud?</dt>
-  <dd>Your OSS gate keeps running and your wallet keeps collecting USDC. You lose the hosted dashboard, multi-site rollup, alerts, and digests — that's it.</dd>
+  <dd>Your OSS gate keeps running and your wallet keeps collecting USDC. You lose the hosted dashboard, multi-site rollup, alerts, and digests - that's it.</dd>
 
   <dt>Does Cloud require Cloudflare?</dt>
   <dd>No. The gate runs anywhere Node 20+ runs: Express, Next.js middleware, a reverse proxy, a Cloudflare Worker, a Deno or Bun script. Cloud reads stats from any of them.</dd>
 
   <dt>Which AI crawlers does it charge by default?</dt>
-  <dd>The default <code>bots</code> mode targets 25 AI/LLM crawler user-agents (GPTBot, ClaudeBot, PerplexityBot, CCBot, Google-Extended, Bytespider, …). Classic search indexers (Googlebot, Bingbot) are <b>deliberately not</b> on the list — you almost always want classic SEO indexing to stay free.</dd>
+  <dd>The default <code>bots</code> mode targets 25 AI/LLM crawler user-agents (GPTBot, ClaudeBot, PerplexityBot, CCBot, Google-Extended, Bytespider, …). Classic search indexers (Googlebot, Bingbot) are <b>deliberately not</b> on the list - you almost always want classic SEO indexing to stay free.</dd>
 
   <dt>What if AI vendors haven't shipped buyer-side x402 yet?</dt>
   <dd>Right now Tollbooth's main job for most sites is to <b>deter</b> AI training crawl (with proof-of-work or an outright block), not to <b>monetize</b> it. The USDC rail is fully wired and ready for the moment buyer-side x402 lands at OpenAI / Anthropic / Perplexity. Most operators run <code>observe</code> mode for 1-2 weeks first to size the traffic.</dd>
@@ -308,7 +308,7 @@ export function tollboothCloudPage(baseUrl) {
   <dd>Open source, portable across hosts (not locked to Cloudflare), non-custodial (USDC settles to your wallet, not a vendor's books), single-product price (not bundled into a CDN plan), and ships with a free proof-of-work rail that doesn't need any AI vendor to integrate buyer-side rails first.</dd>
 </dl>
 
-<p class="foot">Cloud is in early access. Pricing reflects the launch terms and may evolve before general availability — anyone on the waitlist gets the price they signed up at, for life. Questions? <a href="${REPO}/issues" rel="noopener">Open an issue</a>.</p>
+<p class="foot">Cloud is in early access. Pricing reflects the launch terms and may evolve before general availability - anyone on the waitlist gets the price they signed up at, for life. Questions? <a href="${REPO}/issues" rel="noopener">Open an issue</a>.</p>
 
 </div>
 ${ledgerFooterCompact()}`;

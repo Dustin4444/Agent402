@@ -35,7 +35,7 @@ async function feedFetch(url) {
     console.warn(`[price-feed] upstream unreachable: ${host} → ${err.name ?? err.code ?? err.message}`);
     throw bad("Price feed upstream timed out", 504);
   }
-  if (res.status === 429) throw bad("Price feed rate limit reached upstream — retry shortly", 503);
+  if (res.status === 429) throw bad("Price feed rate limit reached upstream - retry shortly", 503);
   if (res.status === 404) throw bad("Price feed upstream: not found (check ids / contract)", 404);
   if (!res.ok) throw bad(`Price feed upstream error (HTTP ${res.status})`, 502);
   const ct = res.headers.get("content-type") || "";
@@ -66,7 +66,7 @@ export const PRICE_FEED_TOOLS = [
     category: "crypto",
     price: "$0.001",
     description:
-      "Latest aggregated price for one or more Pyth feeds, sourced live from Pyth's Hermes service. Identify feeds by hex feed-id (preferred — full precision) or by a small set of well-known aliases (BTCUSD, ETHUSD, SOLUSD, USDC, USDT). Each feed returns price, confidence interval, and publish-time so an agent can decide whether the quote is fresh enough to act on.",
+      "Latest aggregated price for one or more Pyth feeds, sourced live from Pyth's Hermes service. Identify feeds by hex feed-id (preferred - full precision) or by a small set of well-known aliases (BTCUSD, ETHUSD, SOLUSD, USDC, USDT). Each feed returns price, confidence interval, and publish-time so an agent can decide whether the quote is fresh enough to act on.",
     tags: ["crypto", "price", "pyth", "feed", "oracle"],
     discovery: {
       bodyType: "json",

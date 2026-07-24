@@ -54,7 +54,7 @@ console.log(result);`,
 
 export function sdkPlaygroundPage(baseUrl) {
   const canonical = `${baseUrl}/sdk-playground`;
-  const title = "SDK Playground — try agent402-client in your browser";
+  const title = "SDK Playground - try agent402-client in your browser";
   const description = "Write and run agent402-client code snippets in the browser. Pre-filled examples, live API calls via proof-of-work.";
 
   const exampleButtons = EXAMPLES.map((ex, i) =>
@@ -215,7 +215,7 @@ ${ledgerFooterCompact()}
     return resp.text();
   }
 
-  /* User code runs entirely client-side via Function() — same sandbox model as
+  /* User code runs entirely client-side via Function() - same sandbox model as
      CodePen/JSFiddle. callTool is injected as a parameter so user code can
      await it without importing anything. */
   runBtn.addEventListener('click',async function(){

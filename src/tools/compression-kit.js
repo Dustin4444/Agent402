@@ -144,7 +144,7 @@ export const COMPRESSION_TOOLS = [
     route: "POST /api/brotli-compress", name: "Brotli compress", slug: "brotli-compress",
     category: "data", price: "$0.001",
     description:
-      "Compress a string with Brotli (RFC 7932) and return it as base64. Brotli typically beats gzip by 15-25% on text — useful when bytes matter (e.g. cramming context into an LLM prompt, fitting under a transport cap). Slower than gzip; pick gzip if speed matters more than ratio.",
+      "Compress a string with Brotli (RFC 7932) and return it as base64. Brotli typically beats gzip by 15-25% on text - useful when bytes matter (e.g. cramming context into an LLM prompt, fitting under a transport cap). Slower than gzip; pick gzip if speed matters more than ratio.",
     tags: ["brotli", "compress", "rfc7932", "encoding"],
     discovery: {
       bodyType: "json",
@@ -221,7 +221,7 @@ export const COMPRESSION_TOOLS = [
     route: "POST /api/compress-compare", name: "Compression compare", slug: "compress-compare",
     category: "data", price: "$0.001",
     description:
-      "Run the same input through gzip, brotli, and raw deflate at max settings and report each one's output size and ratio. Use this to decide which algorithm to actually use — the answer depends on your content (binary often resists compression entirely; English prose squeezes well with brotli; JSON sits in between).",
+      "Run the same input through gzip, brotli, and raw deflate at max settings and report each one's output size and ratio. Use this to decide which algorithm to actually use - the answer depends on your content (binary often resists compression entirely; English prose squeezes well with brotli; JSON sits in between).",
     tags: ["compress", "benchmark", "ratio", "gzip", "brotli", "deflate"],
     discovery: {
       bodyType: "json",

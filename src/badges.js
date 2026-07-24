@@ -82,7 +82,7 @@ const BADGE_STYLES = [
 
 export function badgesPage(baseUrl) {
   const canonical = `${baseUrl}/badges`;
-  const title = "Badges & Embeds \u2014 Agent402";
+  const title = "Badges & Embeds - Agent402";
   const description =
     "Grab embed badges for your README or website to show you're powered by Agent402. Markdown and HTML snippets with copy buttons.";
 

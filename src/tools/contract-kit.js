@@ -49,7 +49,7 @@ const SOURCIFY_CHAINS = {
 function pickSourcifyChain(value) {
   const n = typeof value === "string" ? value.toLowerCase().trim() : "base";
   const chainId = SOURCIFY_CHAINS[n];
-  if (!chainId) throw bad(`Unsupported network "${value}" — supported: ${Object.keys(SOURCIFY_CHAINS).join(", ")}`);
+  if (!chainId) throw bad(`Unsupported network "${value}" - supported: ${Object.keys(SOURCIFY_CHAINS).join(", ")}`);
   return { name: n, chainId };
 }
 
@@ -102,7 +102,7 @@ async function blockscoutContract(chainId, address) {
 // verified" — Sourcify may have it and we can't tell. Never a false miss.
 function verificationSourcesUnavailable() {
   return bad(
-    "Verification sources unavailable — Sourcify is unreachable and Blockscout could not confirm this contract. Try again shortly.",
+    "Verification sources unavailable - Sourcify is unreachable and Blockscout could not confirm this contract. Try again shortly.",
     502
   );
 }
@@ -175,9 +175,9 @@ async function getJson(url, upstream) {
       dispatcher: ssrfDispatcher,
     });
   } catch {
-    throw bad(`${upstream} did not respond — try again shortly`, 504);
+    throw bad(`${upstream} did not respond - try again shortly`, 504);
   }
-  if (res.status === 429) throw bad(`${upstream} rate limit reached — retry shortly`, 503);
+  if (res.status === 429) throw bad(`${upstream} rate limit reached - retry shortly`, 503);
   if (!res.ok && res.status !== 404) throw bad(`${upstream} error (HTTP ${res.status})`, 502);
   let data;
   try { data = await res.json(); } catch { throw bad(`${upstream} returned non-JSON`, 502); }
@@ -341,7 +341,7 @@ export function classifyRpcError(msg, code) {
 function parseSignature(sig) {
   const s = String(sig).trim();
   const open = s.indexOf("(");
-  if (open <= 0 || !s.endsWith(")")) throw bad(`"signature" must look like name(type1,type2,…) — got "${s.slice(0, 80)}"`);
+  if (open <= 0 || !s.endsWith(")")) throw bad(`"signature" must look like name(type1,type2,…) - got "${s.slice(0, 80)}"`);
   return { name: s.slice(0, open), types: splitTypes(s.slice(open + 1, -1)) };
 }
 
@@ -381,49 +381,49 @@ const SCAN_MAX_BYTES = 512 * 1024;
 const SCAN_RULES = [
   {
     rule: "tx-origin", severity: "high", pattern: /\btx\.origin\b/,
-    message: "tx.origin used — authentication via tx.origin is phishable; use msg.sender.",
+    message: "tx.origin used - authentication via tx.origin is phishable; use msg.sender.",
   },
   {
     rule: "delegatecall", severity: "high", pattern: /\.delegatecall\s*[({]/,
-    message: "delegatecall used — callee code runs in this contract's storage context; ensure the target is trusted and immutable.",
+    message: "delegatecall used - callee code runs in this contract's storage context; ensure the target is trusted and immutable.",
   },
   {
     rule: "selfdestruct", severity: "high", pattern: /\b(selfdestruct|suicide)\s*\(/,
-    message: "selfdestruct present — the contract can be destroyed and its balance force-sent.",
+    message: "selfdestruct present - the contract can be destroyed and its balance force-sent.",
   },
   {
     rule: "unchecked-low-level-call", severity: "high",
     pattern: /\.call(\{[^}]*\})?\s*\(/,
     // Only fires when the line neither captures the success bool nor wraps in require.
     exclude: /\(\s*bool\b|require\s*\(|revert\b/,
-    message: "Low-level .call() whose success flag appears unchecked — a failed call is silently ignored.",
+    message: "Low-level .call() whose success flag appears unchecked - a failed call is silently ignored.",
   },
   // NOTE: a checked .call() (success bool captured / require-wrapped) is
   // downgraded to an informational "low-level-call" finding inside the scan
   // loop — see the exclude branch below.
   {
     rule: "unchecked-send", severity: "medium", pattern: /\.send\s*\(/, exclude: /require\s*\(|\(\s*bool\b/,
-    message: ".send() return value appears unchecked — a failed transfer is silently ignored.",
+    message: ".send() return value appears unchecked - a failed transfer is silently ignored.",
   },
   {
     rule: "floating-pragma", severity: "low", pattern: /pragma\s+solidity\s*(\^|>=?)/,
-    message: "Floating pragma — pin an exact compiler version for reproducible builds.",
+    message: "Floating pragma - pin an exact compiler version for reproducible builds.",
   },
   {
     rule: "block-timestamp", severity: "low", pattern: /\bblock\.timestamp\b|\bnow\b/,
-    message: "block.timestamp/now used — miner-influenceable within ~15s; avoid as a strict randomness or deadline source.",
+    message: "block.timestamp/now used - miner-influenceable within ~15s; avoid as a strict randomness or deadline source.",
   },
   {
     rule: "weak-randomness", severity: "medium", pattern: /\bblockhash\s*\(|\bblock\.(difficulty|prevrandao)\b/,
-    message: "Block-derived entropy (blockhash/prevrandao/difficulty) — predictable and miner-influenceable; not a randomness source.",
+    message: "Block-derived entropy (blockhash/prevrandao/difficulty) - predictable and miner-influenceable; not a randomness source.",
   },
   {
     rule: "inline-assembly", severity: "info", pattern: /\bassembly\s*[({]/,
-    message: "Inline assembly — bypasses Solidity safety checks; review manually.",
+    message: "Inline assembly - bypasses Solidity safety checks; review manually.",
   },
   {
     rule: "ecrecover", severity: "info", pattern: /\becrecover\s*\(/,
-    message: "ecrecover used — check for signature malleability and the zero-address failure result.",
+    message: "ecrecover used - check for signature malleability and the zero-address failure result.",
   },
 ];
 
@@ -441,7 +441,7 @@ function scanSolidity(source) {
           const key = `low-level-call:${idx}`;
           if (!seen.has(key)) {
             seen.add(key);
-            findings.push({ rule: "low-level-call", severity: "info", line: idx + 1, snippet: line.trim().slice(0, 160), message: "Low-level .call() used (success flag is checked) — verify reentrancy posture." });
+            findings.push({ rule: "low-level-call", severity: "info", line: idx + 1, snippet: line.trim().slice(0, 160), message: "Low-level .call() used (success flag is checked) - verify reentrancy posture." });
           }
         }
         continue;
@@ -457,7 +457,7 @@ function scanSolidity(source) {
     findings.push({ rule: "missing-spdx", severity: "info", line: 1, snippet: null, message: "No SPDX-License-Identifier comment found." });
   }
   if (/\.call\{\s*value\s*:/.test(source) && !/nonReentrant|ReentrancyGuard/.test(source)) {
-    findings.push({ rule: "reentrancy-surface", severity: "medium", line: null, snippet: null, message: "Value-bearing external call present with no ReentrancyGuard/nonReentrant marker — verify checks-effects-interactions ordering." });
+    findings.push({ rule: "reentrancy-surface", severity: "medium", line: null, snippet: null, message: "Value-bearing external call present with no ReentrancyGuard/nonReentrant marker - verify checks-effects-interactions ordering." });
   }
   const order = { high: 0, medium: 1, low: 2, info: 3 };
   findings.sort((a, b) => order[a.severity] - order[b.severity] || (a.line || 0) - (b.line || 0));
@@ -482,7 +482,7 @@ const ADDRESS_LABELS = {
   "0xdac17f958d2ee523a2206206994597c13d831ec7": [{ label: "USDT", category: "token", network: "ethereum", note: "Tether USD" }],
   "0x6b175474e89094c44da98b954eedeac495271d0f": [{ label: "DAI", category: "token", network: "ethereum", note: "Dai Stablecoin" }],
   "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": [{ label: "WETH", category: "token", network: "ethereum", note: "Wrapped Ether" }],
-  "0x4200000000000000000000000000000000000006": [{ label: "WETH", category: "token", network: "base", note: "Wrapped Ether (OP-stack predeploy — same address on Optimism)" }],
+  "0x4200000000000000000000000000000000000006": [{ label: "WETH", category: "token", network: "base", note: "Wrapped Ether (OP-stack predeploy - same address on Optimism)" }],
   "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599": [{ label: "WBTC", category: "token", network: "ethereum", note: "Wrapped BTC" }],
   "0x514910771af9ca656af840dff83e8264ecf986ca": [{ label: "LINK", category: "token", network: "ethereum", note: "Chainlink token" }],
   // --- DEX routers ---
@@ -561,7 +561,7 @@ export const CONTRACT_TOOLS = [
         // Sourcify UPSTREAM failure (5xx/timeout/non-JSON — a clean 404 "never
         // verified" does not throw): serve from the chain's Blockscout instance.
         if (!isUpstreamFailure(e)) throw e;
-        console.warn(`[contract] Sourcify failed (${e.message}) — falling back to Blockscout for chain ${chain.chainId}`);
+        console.warn(`[contract] Sourcify failed (${e.message}) - falling back to Blockscout for chain ${chain.chainId}`);
         let bs = null;
         try { bs = await blockscoutContract(chain.chainId, address); } catch { /* both down → unavailable below */ }
         if (!bs) throw e; // no Blockscout host for this chain — surface the Sourcify error
@@ -581,7 +581,7 @@ export const CONTRACT_TOOLS = [
           sourceCount: Object.keys(sources).length,
           sources,
           source: `Blockscout (${bs.host})`,
-          note: `Served from Blockscout (${bs.host}) — Sourcify was unreachable.${truncated ? " Source tree exceeds 800KB — trailing files truncated." : ""}`,
+          note: `Served from Blockscout (${bs.host}) - Sourcify was unreachable.${truncated ? " Source tree exceeds 800KB - trailing files truncated." : ""}`,
           ...(truncated ? { truncated: true } : {}),
         };
       }
@@ -589,7 +589,7 @@ export const CONTRACT_TOOLS = [
         return {
           address, network: chain.name, chainId: chain.chainId,
           verified: false, match: null, sources: null,
-          note: "Contract is not verified on Sourcify for this chain — no source available.",
+          note: "Contract is not verified on Sourcify for this chain - no source available.",
         };
       }
       // Cap the response: trim gigantic source trees rather than 500.
@@ -608,7 +608,7 @@ export const CONTRACT_TOOLS = [
         },
         sourceCount: Object.keys(data.sources || {}).length,
         sources,
-        ...(truncated ? { truncated: true, note: "Source tree exceeds 800KB — trailing files truncated." } : {}),
+        ...(truncated ? { truncated: true, note: "Source tree exceeds 800KB - trailing files truncated." } : {}),
       };
     },
   },
@@ -658,7 +658,7 @@ export const CONTRACT_TOOLS = [
       } catch (e) {
         // Sourcify UPSTREAM failure: serve the ABI from Blockscout instead.
         if (!isUpstreamFailure(e)) throw e;
-        console.warn(`[contract] Sourcify failed (${e.message}) — falling back to Blockscout for chain ${chain.chainId}`);
+        console.warn(`[contract] Sourcify failed (${e.message}) - falling back to Blockscout for chain ${chain.chainId}`);
         let bs = null;
         try { bs = await blockscoutContract(chain.chainId, address); } catch { /* both down → unavailable below */ }
         if (!bs) throw e; // no Blockscout host for this chain — surface the Sourcify error
@@ -672,14 +672,14 @@ export const CONTRACT_TOOLS = [
           functions,
           events,
           source: `Blockscout (${bs.host})`,
-          note: `Served from Blockscout (${bs.host}) — Sourcify was unreachable.`,
+          note: `Served from Blockscout (${bs.host}) - Sourcify was unreachable.`,
         };
       }
       if (!data || !Array.isArray(data.abi)) {
         return {
           address, network: chain.name, chainId: chain.chainId,
           verified: false, abi: null,
-          note: "Contract is not verified on Sourcify for this chain — no ABI available.",
+          note: "Contract is not verified on Sourcify for this chain - no ABI available.",
         };
       }
       const { functions, events } = deriveAbiViews(data.abi);
@@ -704,7 +704,7 @@ export const CONTRACT_TOOLS = [
     category: "crypto",
     price: "$0.01",
     description:
-      "Deterministic static pattern scan of Solidity smart-contract source text — a fixed ruleset flagging tx.origin authentication, delegatecall, selfdestruct, unchecked low-level calls, unchecked .send(), floating pragmas, block-timestamp dependence, weak block-derived randomness, value-call reentrancy surface, inline assembly, ecrecover, and missing SPDX headers. Returns line-anchored findings with severities. This is a heuristic pattern check for triage — it is NOT a compiler, NOT a formal audit, and uses no AI. Pair with /api/contract-source to scan any verified contract.",
+      "Deterministic static pattern scan of Solidity smart-contract source text - a fixed ruleset flagging tx.origin authentication, delegatecall, selfdestruct, unchecked low-level calls, unchecked .send(), floating pragmas, block-timestamp dependence, weak block-derived randomness, value-call reentrancy surface, inline assembly, ecrecover, and missing SPDX headers. Returns line-anchored findings with severities. This is a heuristic pattern check for triage - it is NOT a compiler, NOT a formal audit, and uses no AI. Pair with /api/contract-source to scan any verified contract.",
     tags: ["crypto", "solidity", "smart-contract", "security", "audit", "auditor", "static-analysis", "contract", "scan", "evm"],
     discovery: {
       bodyType: "json",
@@ -721,16 +721,16 @@ export const CONTRACT_TOOLS = [
         example: {
           lines: 7,
           findings: [
-            { rule: "tx-origin", severity: "high", line: 4, snippet: "require(tx.origin == msg.sender);", message: "tx.origin used — authentication via tx.origin is phishable; use msg.sender." },
+            { rule: "tx-origin", severity: "high", line: 4, snippet: "require(tx.origin == msg.sender);", message: "tx.origin used - authentication via tx.origin is phishable; use msg.sender." },
           ],
           summary: { high: 2, medium: 1, low: 1, info: 1 },
-          disclaimer: "Deterministic heuristic pattern check — not a compiler, not an audit.",
+          disclaimer: "Deterministic heuristic pattern check - not a compiler, not an audit.",
         },
       },
     },
     handler: async (i) => {
       const source = typeof i.source === "string" ? i.source : "";
-      if (!source.trim()) throw bad(`"source" is required — Solidity source text to scan`);
+      if (!source.trim()) throw bad(`"source" is required - Solidity source text to scan`);
       if (Buffer.byteLength(source, "utf8") > SCAN_MAX_BYTES) {
         throw bad(`"source" is capped at ${SCAN_MAX_BYTES / 1024}KB`, 413);
       }
@@ -739,7 +739,7 @@ export const CONTRACT_TOOLS = [
         lines: source.split(/\r?\n/).length,
         findings,
         summary,
-        disclaimer: "Deterministic heuristic pattern check — not a compiler, not an audit.",
+        disclaimer: "Deterministic heuristic pattern check - not a compiler, not an audit.",
       };
     },
   },
@@ -763,8 +763,8 @@ export const CONTRACT_TOOLS = [
       inputSchema: {
         properties: {
           data: { type: "string", description: "0x-prefixed calldata (selector + encoded args). Max 100KB." },
-          abi: { type: "array", description: "Optional contract ABI (JSON array) — enables a fully offline decode with parameter names." },
-          signature: { type: "string", description: "Optional function signature, e.g. transfer(address,uint256) — offline decode without a full ABI." },
+          abi: { type: "array", description: "Optional contract ABI (JSON array) - enables a fully offline decode with parameter names." },
+          signature: { type: "string", description: "Optional function signature, e.g. transfer(address,uint256) - offline decode without a full ABI." },
         },
         required: ["data"],
       },
@@ -853,8 +853,8 @@ export const CONTRACT_TOOLS = [
         candidates: signatures.slice(0, 10),
         words,
         note: signatures.length
-          ? "Known signatures for this selector did not decode cleanly against the calldata — raw 32-byte words returned."
-          : "Unknown selector — not in the openchain.xyz/4byte.directory signature databases. Raw 32-byte words returned.",
+          ? "Known signatures for this selector did not decode cleanly against the calldata - raw 32-byte words returned."
+          : "Unknown selector - not in the openchain.xyz/4byte.directory signature databases. Raw 32-byte words returned.",
       };
     },
   },
@@ -911,7 +911,7 @@ export const CONTRACT_TOOLS = [
     category: "crypto",
     price: "$0.005",
     description:
-      "Dry-run a prospective smart-contract call or transaction without broadcasting it: executes eth_call and eth_estimateGas against the latest block over the same keyless multi-endpoint public RPC pool as /api/evm-rpc (ethereum, base, polygon, arbitrum, optimism). Returns the return data and a gas estimate on success, or {success:false} with the revert reason when the call would fail. Strictly read-only — nothing is signed or broadcast.",
+      "Dry-run a prospective smart-contract call or transaction without broadcasting it: executes eth_call and eth_estimateGas against the latest block over the same keyless multi-endpoint public RPC pool as /api/evm-rpc (ethereum, base, polygon, arbitrum, optimism). Returns the return data and a gas estimate on success, or {success:false} with the revert reason when the call would fail. Strictly read-only - nothing is signed or broadcast.",
     tags: ["crypto", "simulation", "eth_call", "gas", "transaction", "evm", "dry-run", "smart-contract"],
     discovery: {
       bodyType: "json",
@@ -923,9 +923,9 @@ export const CONTRACT_TOOLS = [
       inputSchema: {
         properties: {
           to: { type: "string", description: "0x-prefixed 40-char target contract/account address." },
-          data: { type: "string", description: "0x-prefixed calldata (default 0x — plain value transfer)." },
+          data: { type: "string", description: "0x-prefixed calldata (default 0x - plain value transfer)." },
           from: { type: "string", description: "Optional sender address (default zero address)." },
-          value: { type: "string", description: "Optional value in wei — decimal string or 0x hex (default 0)." },
+          value: { type: "string", description: "Optional value in wei - decimal string or 0x hex (default 0)." },
           network: { type: "string", description: "ethereum / base / polygon / arbitrum / optimism (default base)." },
         },
         required: ["to"],
@@ -959,7 +959,7 @@ export const CONTRACT_TOOLS = [
       if (i.value !== undefined && i.value !== null && i.value !== "") {
         const v = String(i.value).trim();
         let wei;
-        try { wei = BigInt(v); } catch { throw bad(`"value" must be a wei amount — decimal string or 0x hex`); }
+        try { wei = BigInt(v); } catch { throw bad(`"value" must be a wei amount - decimal string or 0x hex`); }
         if (wei < 0n) throw bad(`"value" must be non-negative`);
         if (wei > 0n) call.value = "0x" + wei.toString(16);
       }
@@ -1008,7 +1008,7 @@ export const CONTRACT_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Label a known EVM address from a curated, committed dataset: major stablecoin + token contracts (USDC on every chain we settle on, USDT, DAI, WETH, WBTC), DEX routers (Uniswap, 1inch, 0x), canonical L1↔L2 bridges, large exchange hot/cold wallets, and burn/system addresses. Deterministic and offline — the provenance field states the dataset revision. Unknown addresses return {found:false}, not an error.",
+      "Label a known EVM address from a curated, committed dataset: major stablecoin + token contracts (USDC on every chain we settle on, USDT, DAI, WETH, WBTC), DEX routers (Uniswap, 1inch, 0x), canonical L1↔L2 bridges, large exchange hot/cold wallets, and burn/system addresses. Deterministic and offline - the provenance field states the dataset revision. Unknown addresses return {found:false}, not an error.",
     tags: ["crypto", "address", "label", "exchange", "bridge", "router", "token", "evm"],
     discovery: {
       bodyType: "json",

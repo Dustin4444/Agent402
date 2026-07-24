@@ -31,7 +31,7 @@ const TASKS = [
   },
   {
     goal: "Get a snapshot of the US economy",
-    answer: "Fresh FRED indicators (CPI, unemployment, Fed funds), Treasury yield curve, and FX rates — all from official feeds, no signup.",
+    answer: "Fresh FRED indicators (CPI, unemployment, Fed funds), Treasury yield curve, and FX rates - all from official feeds, no signup.",
     slugs: ["cpi-yoy", "unemployment-rate", "fed-funds", "treasury-yield-curve", "yield-curve-spread", "sahm-rule"],
     example: "/api/cpi-yoy",
   },
@@ -43,19 +43,19 @@ const TASKS = [
   },
   {
     goal: "Search the live web",
-    answer: "Independent web search, with separate news and image surfaces — and an `answer` tool that returns a cited synthesis instead of a link list.",
+    answer: "Independent web search, with separate news and image surfaces - and an `answer` tool that returns a cited synthesis instead of a link list.",
     slugs: ["search", "answer", "search-news", "search-images", "search-suggest"],
     example: "/api/search?q=federal+reserve",
   },
   {
     goal: "Track crypto markets",
-    answer: "Live prices, market-cap rankings, history, and global dominance — keyless, batched, no rate-limit headaches.",
+    answer: "Live prices, market-cap rankings, history, and global dominance - keyless, batched, no rate-limit headaches.",
     slugs: ["crypto-price", "crypto-market", "crypto-history", "crypto-trending", "crypto-global"],
     example: "/api/crypto-price?ids=BTC,ETH",
   },
   {
     goal: "Track equities",
-    answer: "Live quote, OHLCV history, and earnings calendar — works for stocks, indices, FX, and crypto symbols via Yahoo's chart endpoint.",
+    answer: "Live quote, OHLCV history, and earnings calendar - works for stocks, indices, FX, and crypto symbols via Yahoo's chart endpoint.",
     slugs: ["stock-quote", "stock-history", "earnings-calendar"],
     example: "/api/stock-quote?symbol=AAPL",
   },
@@ -67,7 +67,7 @@ const TASKS = [
   },
   {
     goal: "Run a domain or uptime check",
-    answer: "DNS, TLS certificate inspection, WHOIS/RDAP, HTTP health, robots.txt and sitemap parsing — the boring infra primitives every agent eventually needs.",
+    answer: "DNS, TLS certificate inspection, WHOIS/RDAP, HTTP health, robots.txt and sitemap parsing - the boring infra primitives every agent eventually needs.",
     slugs: ["dns", "tls-cert", "whois", "http-check", "robots-check", "sitemap"],
     example: "/api/http-check?url=https://example.com",
   },
@@ -79,13 +79,13 @@ const TASKS = [
   },
   {
     goal: "Persist state across calls",
-    answer: "Wallet-keyed KV with TTL and atomic counters. The wallet IS the identity — no signup, no API key. Grant access to other agents by their wallet.",
+    answer: "Wallet-keyed KV with TTL and atomic counters. The wallet IS the identity - no signup, no API key. Grant access to other agents by their wallet.",
     slugs: ["memory-write", "memory-read", "memory-incr", "memory-cas", "memory-grant", "memory-recall"],
     example: "/api/memory-write",
   },
   {
     goal: "Pay another x402 seller",
-    answer: "Decode HTTP 402 quotes, verify settlements on Base, check USDC balances, build EIP-3009 transfer authorizations. You sign — Agent402 never touches funds.",
+    answer: "Decode HTTP 402 quotes, verify settlements on Base, check USDC balances, build EIP-3009 transfer authorizations. You sign - Agent402 never touches funds.",
     slugs: ["x402-quote", "x402-verify", "usdc-balance", "transfer-authorization", "tx-status", "gas-estimate"],
     example: "/api/x402-quote",
   },
@@ -162,7 +162,7 @@ const SHOP_CSS = `
 export function shopPage(baseUrl, catalog) {
   const e = ledgerEsc;
   const canonical = `${baseUrl}/shop`;
-  const title = "Agent402 shop — pay-per-call APIs indexed by what an agent wants to do";
+  const title = "Agent402 shop - pay-per-call APIs indexed by what an agent wants to do";
   const description =
     `Task-indexed catalogue of Agent402's machine-payable APIs: research a company, get macro data, read the web, track markets, persist state. Pay per call (${RAILS_SHORT}), or free with proof-of-work.`;
 
@@ -178,7 +178,7 @@ export function shopPage(baseUrl, catalog) {
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "ItemList",
-    name: "Agent402 shop — tools by task",
+    name: "Agent402 shop - tools by task",
     itemListElement: TASKS.map((t, i) => ({
       "@type": "ListItem",
       position: i + 1,
@@ -189,7 +189,7 @@ export function shopPage(baseUrl, catalog) {
   const body = `<div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:10px;">SHOP</div>
   <h1 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:.96;letter-spacing:-.03em;margin-bottom:14px;">What does your agent want to do?</h1>
-  <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:8px;">A task-indexed buyer's guide to the ${Object.keys(catalog).length.toLocaleString()} APIs at Agent402 — written from the agent's side of the call. Each row maps a real goal to the cheapest tool that solves it. Browse the full category-organized catalogue at <a href="/tools" style="color:var(--accent);">/tools</a>, walk the multi-tool workflows at <a href="/skills" style="color:var(--accent);">/skills</a>, or ask the discovery endpoint directly: <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">/api/find?q=&lt;your task&gt;</code>.</p>
+  <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:8px;">A task-indexed buyer's guide to the ${Object.keys(catalog).length.toLocaleString()} APIs at Agent402 - written from the agent's side of the call. Each row maps a real goal to the cheapest tool that solves it. Browse the full category-organized catalogue at <a href="/tools" style="color:var(--accent);">/tools</a>, walk the multi-tool workflows at <a href="/skills" style="color:var(--accent);">/skills</a>, or ask the discovery endpoint directly: <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">/api/find?q=&lt;your task&gt;</code>.</p>
   ${missingNotice}
   ${tasks}
 </div>

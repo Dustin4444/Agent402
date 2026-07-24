@@ -70,7 +70,7 @@ function acquireSlot(signal) {
   }
   if (active < MAX_CONCURRENT) { active++; return Promise.resolve(); }
   if (queue.length >= MAX_QUEUE) {
-    const e = new Error("browser pool is saturated — too many concurrent render requests, retry shortly");
+    const e = new Error("browser pool is saturated - too many concurrent render requests, retry shortly");
     e.statusCode = 503;
     return Promise.reject(e);
   }

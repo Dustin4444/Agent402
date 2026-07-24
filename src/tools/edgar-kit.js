@@ -51,8 +51,8 @@ async function edgarGetJson(url) {
     // tag/period" — surface as 422 (caller-attributable) so the dashboard
     // counts it correctly. 5xx is a real upstream outage.
     const status = res.status;
-    if (status === 404) throw bad("EDGAR returned 404 — unknown CIK, ticker, or tag/period combination", 422);
-    if (status >= 500) throw bad(`EDGAR upstream HTTP ${status} — try again later`, 502);
+    if (status === 404) throw bad("EDGAR returned 404 - unknown CIK, ticker, or tag/period combination", 422);
+    if (status >= 500) throw bad(`EDGAR upstream HTTP ${status} - try again later`, 502);
     throw bad(`EDGAR upstream HTTP ${status}: ${text.slice(0, 200)}`, 422);
   }
   try {
@@ -120,7 +120,7 @@ async function resolveCompany({ ticker, cik }) {
   }
   const map = await getTickerMap();
   const hit = map.get(t);
-  if (!hit) throw bad(`Unknown ticker: ${t} — try the literal CIK or check spelling`, 404);
+  if (!hit) throw bad(`Unknown ticker: ${t} - try the literal CIK or check spelling`, 404);
   return { cik: hit.cik, name: hit.name };
 }
 
@@ -154,7 +154,7 @@ export const EDGAR_TOOLS = [
       if (!/^[A-Z0-9.\-]{1,10}$/.test(ticker)) throw bad("ticker must be a short alphanumeric symbol (letters, digits, dot, hyphen)");
       const map = await getTickerMap();
       const hit = map.get(ticker);
-      if (!hit) throw bad(`Unknown ticker: ${ticker} — not in SEC's company_tickers.json (may be a non-SEC issuer or delisted)`, 404);
+      if (!hit) throw bad(`Unknown ticker: ${ticker} - not in SEC's company_tickers.json (may be a non-SEC issuer or delisted)`, 404);
       return {
         ticker,
         cik: hit.cik,
@@ -298,7 +298,7 @@ export const EDGAR_TOOLS = [
     category: "data",
     price: "$0.025",
     description:
-      "All XBRL concepts reported by a company. Default returns a compact summary per tag (label, unit, latest value, latest end date) — typically a few hundred KB. Pass tags=Revenues,Assets,NetIncomeLoss to get full time-series for just those concepts. Source: data.sec.gov/api/xbrl/companyfacts. ?ticker=AAPL",
+      "All XBRL concepts reported by a company. Default returns a compact summary per tag (label, unit, latest value, latest end date) - typically a few hundred KB. Pass tags=Revenues,Assets,NetIncomeLoss to get full time-series for just those concepts. Source: data.sec.gov/api/xbrl/companyfacts. ?ticker=AAPL",
     tags: ["edgar", "sec", "xbrl", "financials", "fundamentals", "facts", "company"],
     discovery: {
       input: { ticker: "AAPL" },
@@ -307,7 +307,7 @@ export const EDGAR_TOOLS = [
           ticker: { type: "string", description: "US stock ticker (alternative to cik)" },
           cik: { type: "string", description: "SEC CIK number (alternative to ticker)" },
           taxonomy: { type: "string", description: 'Optional taxonomy filter, e.g. "us-gaap" or "dei"' },
-          tags: { type: "string", description: "Optional comma-separated tag list — when set, returns full time series for ONLY these tags (e.g. Revenues,Assets,NetIncomeLoss)" },
+          tags: { type: "string", description: "Optional comma-separated tag list - when set, returns full time series for ONLY these tags (e.g. Revenues,Assets,NetIncomeLoss)" },
         },
       },
       output: {
@@ -644,7 +644,7 @@ EDGAR_TOOLS.push(
     category: "data",
     price: "$0.02",
     description:
-      "Key financial metrics (Revenue, Net Income, Operating Income, Total Assets, Liabilities, Equity, EPS, Operating Cash Flow) for a US public company in one call. Returns the latest annual and quarterly values from SEC XBRL filings. No XBRL knowledge needed — just pass a ticker. ?ticker=AAPL",
+      "Key financial metrics (Revenue, Net Income, Operating Income, Total Assets, Liabilities, Equity, EPS, Operating Cash Flow) for a US public company in one call. Returns the latest annual and quarterly values from SEC XBRL filings. No XBRL knowledge needed - just pass a ticker. ?ticker=AAPL",
     tags: ["edgar", "sec", "financials", "fundamentals", "income-statement", "balance-sheet", "cash-flow"],
     discovery: {
       input: { ticker: "AAPL" },
@@ -713,7 +713,7 @@ EDGAR_TOOLS.push(
     category: "data",
     price: "$0.015",
     description:
-      "Recent Form 4 insider transactions filed against a company (officer, director, or 10% holder trades). Backed by EDGAR's full-text search (efts.sec.gov) filtered by subject-company CIK — Form 4 is owned by each insider's CIK, not the company's, so this is the only single-call path. ?ticker=AAPL&days=30",
+      "Recent Form 4 insider transactions filed against a company (officer, director, or 10% holder trades). Backed by EDGAR's full-text search (efts.sec.gov) filtered by subject-company CIK - Form 4 is owned by each insider's CIK, not the company's, so this is the only single-call path. ?ticker=AAPL&days=30",
     tags: ["edgar", "sec", "insider", "form-4", "trades", "officers", "directors", "transactions"],
     discovery: {
       input: { ticker: "AAPL", days: 30 },
@@ -768,7 +768,7 @@ EDGAR_TOOLS.push(
     category: "data",
     price: "$0.025",
     description:
-      "Top holdings from an institutional investment manager's most recent 13F-HR filing (managers >$100M AUM file quarterly). Parses the standard SEC informationtable.xml attached to the filing — returns issuer, CUSIP, shares, USD value, and voting authority for each position. Sorted by USD value, descending. Source: data.sec.gov + filing archive. ?cik=1067983 (Berkshire) or ?ticker=BRK-B",
+      "Top holdings from an institutional investment manager's most recent 13F-HR filing (managers >$100M AUM file quarterly). Parses the standard SEC informationtable.xml attached to the filing - returns issuer, CUSIP, shares, USD value, and voting authority for each position. Sorted by USD value, descending. Source: data.sec.gov + filing archive. ?cik=1067983 (Berkshire) or ?ticker=BRK-B",
     tags: ["edgar", "sec", "13F", "13F-HR", "holdings", "institutional", "fund", "hedge-fund", "portfolio"],
     discovery: {
       input: { cik: "1067983", limit: 10 },
@@ -803,7 +803,7 @@ EDGAR_TOOLS.push(
       const recent = sub?.filings?.recent;
       if (!recent || !Array.isArray(recent.form)) throw bad("Manager has no recent filings", 422);
       const idx = recent.form.findIndex((f) => String(f).toUpperCase() === "13F-HR");
-      if (idx < 0) throw bad(`Manager has no recent 13F-HR filings — confirm CIK ${cik} is an institutional investment manager`, 422);
+      if (idx < 0) throw bad(`Manager has no recent 13F-HR filings - confirm CIK ${cik} is an institutional investment manager`, 422);
       const accession = recent.accessionNumber[idx];
       const filedDate = recent.filingDate[idx];
       const reportDate = recent.reportDate[idx];
@@ -836,7 +836,7 @@ EDGAR_TOOLS.push(
     category: "data",
     price: "$0.015",
     description:
-      "Recently-filed S-1 (initial registration) or 424B4 (final prospectus — actual priced IPO) filings across all US issuers. Default returns S-1 filings (companies preparing to IPO) in the last 30 days; pass form=424B4 for actual IPOs that priced. Source: EDGAR full-text search. ?days=30&form=S-1",
+      "Recently-filed S-1 (initial registration) or 424B4 (final prospectus - actual priced IPO) filings across all US issuers. Default returns S-1 filings (companies preparing to IPO) in the last 30 days; pass form=424B4 for actual IPOs that priced. Source: EDGAR full-text search. ?days=30&form=S-1",
     tags: ["edgar", "sec", "ipo", "S-1", "424B4", "prospectus", "registration", "new-listings"],
     discovery: {
       input: { days: 30, form: "S-1", limit: 25 },
@@ -891,7 +891,7 @@ EDGAR_TOOLS.push(
     category: "data",
     price: "$0.015",
     description:
-      'General-purpose full-text search across every SEC filing since 2001. Find any phrase in any filing — material-weakness language in 10-Ks, going-concern in 10-Qs, "Russia" exposure across all forms. Supports form-type, CIK, US-state, and date-window filters. Source: EDGAR full-text search (efts.sec.gov). ?q=going+concern&forms=10-Q&days=30',
+      'General-purpose full-text search across every SEC filing since 2001. Find any phrase in any filing - material-weakness language in 10-Ks, going-concern in 10-Qs, "Russia" exposure across all forms. Supports form-type, CIK, US-state, and date-window filters. Source: EDGAR full-text search (efts.sec.gov). ?q=going+concern&forms=10-Q&days=30',
     tags: ["edgar", "sec", "search", "full-text", "filings", "10-K", "10-Q", "8-K", "screen"],
     discovery: {
       input: { q: "going concern", forms: "10-Q", days: 90, limit: 5 },

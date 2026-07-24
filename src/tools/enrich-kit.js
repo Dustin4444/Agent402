@@ -42,14 +42,14 @@ async function getJson(url, upstream, headers = {}) {
       dispatcher: ssrfDispatcher,
     });
   } catch {
-    throw bad(`${upstream} did not respond — try again shortly`, 504);
+    throw bad(`${upstream} did not respond - try again shortly`, 504);
   }
-  if (res.status === 429) throw bad(`${upstream} rate limit reached — retry shortly`, 503);
+  if (res.status === 429) throw bad(`${upstream} rate limit reached - retry shortly`, 503);
   if (res.status === 403) {
     // GitHub reports an exhausted per-IP quota as 403 with a zeroed remaining
     // header — that's capacity, not authorization; surface as retryable 503.
     if (res.headers.get("x-ratelimit-remaining") === "0") {
-      throw bad(`${upstream} rate limit reached — retry shortly`, 503);
+      throw bad(`${upstream} rate limit reached - retry shortly`, 503);
     }
     throw bad(`${upstream} refused the request (HTTP 403)`, 502);
   }
@@ -179,9 +179,9 @@ async function gravatarProbe(url, upstream, accept = "*/*") {
       dispatcher: ssrfDispatcher,
     });
   } catch {
-    throw bad(`${upstream} did not respond — try again shortly`, 504);
+    throw bad(`${upstream} did not respond - try again shortly`, 504);
   }
-  if (res.status === 429) throw bad(`${upstream} rate limit reached — retry shortly`, 503);
+  if (res.status === 429) throw bad(`${upstream} rate limit reached - retry shortly`, 503);
   return res;
 }
 
@@ -280,7 +280,7 @@ export const ENRICH_TOOLS = [
     category: "data",
     price: "$0.01",
     description:
-      "Look up a legal entity in the official GLEIF registry. Pass a 20-character LEI for the full record — legal name, jurisdiction, legal form, addresses, registration status, and the reported direct + ultimate parent entities — or pass a company name to fulltext-search the registry and get ranked candidate LEIs. Unknown LEIs return {found:false}; parents that aren't reported return null. Official registry data, keyless.",
+      "Look up a legal entity in the official GLEIF registry. Pass a 20-character LEI for the full record - legal name, jurisdiction, legal form, addresses, registration status, and the reported direct + ultimate parent entities - or pass a company name to fulltext-search the registry and get ranked candidate LEIs. Unknown LEIs return {found:false}; parents that aren't reported return null. Official registry data, keyless.",
     tags: ["data", "lei", "gleif", "legal-entity", "company", "enrichment", "kyc"],
     discovery: {
       bodyType: "json",
@@ -355,7 +355,7 @@ export const ENRICH_TOOLS = [
     category: "data",
     price: "$0.005",
     description:
-      "Company/person/organization facts from Wikidata. Pass an entity id (e.g. Q312 for Apple Inc.) for the enrichment record — label, description, aliases, and a curated fact set (inception, HQ location, country, industry, founders, CEO, employees, revenue, official website, LEI, ticker + exchange, ISIN, logo; for people: birth/death dates, citizenship, occupation) with item references resolved to human-readable labels. Or pass a name to search: ambiguous names return ranked candidate matches in Wikidata's stable order. Keyless.",
+      "Company/person/organization facts from Wikidata. Pass an entity id (e.g. Q312 for Apple Inc.) for the enrichment record - label, description, aliases, and a curated fact set (inception, HQ location, country, industry, founders, CEO, employees, revenue, official website, LEI, ticker + exchange, ISIN, logo; for people: birth/death dates, citizenship, occupation) with item references resolved to human-readable labels. Or pass a name to search: ambiguous names return ranked candidate matches in Wikidata's stable order. Keyless.",
     tags: ["data", "wikidata", "entity", "company", "person", "enrichment", "knowledge-graph"],
     discovery: {
       bodyType: "json",
@@ -467,7 +467,7 @@ export const ENRICH_TOOLS = [
         found: matches.length > 0,
         query: name,
         matches,
-        note: matches.length ? "Ranked by Wikidata relevance — pass a candidate's id back for the full fact set." : "No Wikidata match for this name.",
+        note: matches.length ? "Ranked by Wikidata relevance - pass a candidate's id back for the full fact set." : "No Wikidata match for this name.",
         source: "wikidata.org",
       };
     },
@@ -483,7 +483,7 @@ export const ENRICH_TOOLS = [
     category: "network",
     price: "$0.002",
     description:
-      "Check whether an email address has a Gravatar: hashes the normalized email (MD5, pure CPU — the raw address is never sent upstream), probes gravatar.com for an avatar, and fetches the public profile when one exists (display name, username, profile URL). Accepts a raw email or a precomputed MD5/SHA-256 hash. Signal-only: a Gravatar's existence suggests a real, web-active address but does NOT verify identity or deliverability — pair with /api/email-validate for MX checks.",
+      "Check whether an email address has a Gravatar: hashes the normalized email (MD5, pure CPU - the raw address is never sent upstream), probes gravatar.com for an avatar, and fetches the public profile when one exists (display name, username, profile URL). Accepts a raw email or a precomputed MD5/SHA-256 hash. Signal-only: a Gravatar's existence suggests a real, web-active address but does NOT verify identity or deliverability - pair with /api/email-validate for MX checks.",
     tags: ["network", "email", "gravatar", "avatar", "enrichment", "people", "signal"],
     discovery: {
       bodyType: "json",
@@ -500,7 +500,7 @@ export const ENRICH_TOOLS = [
           exists: true,
           avatarUrl: "https://gravatar.com/avatar/205e460b479e2e5b48aec07710c08d50",
           profile: { displayName: "Beau Lebens", preferredUsername: "beau", profileUrl: "https://gravatar.com/beau" },
-          note: "Existence is a web-activity signal only — it does not verify identity or deliverability.",
+          note: "Existence is a web-activity signal only - it does not verify identity or deliverability.",
         },
       },
     },
@@ -541,7 +541,7 @@ export const ENRICH_TOOLS = [
         exists,
         avatarUrl: exists ? `https://gravatar.com/avatar/${hash}` : null,
         profile,
-        note: "Existence is a web-activity signal only — it does not verify identity or deliverability.",
+        note: "Existence is a web-activity signal only - it does not verify identity or deliverability.",
       };
     },
   },
@@ -639,7 +639,7 @@ export const ENRICH_TOOLS = [
     category: "web",
     price: "$0.003",
     description:
-      "Fetch a site's favicon/logo: reads the page's declared <link rel=icon…> tags (all variants with their sizes and types), deterministically picks the largest declared icon (falling back to /favicon.ico), fetches it, and returns the bytes as a base64 data URI plus the resolved icon URL and content type. Icons over 256KB return the URL and metadata without the inline data URI. SSRF-guarded — private-network hosts are rejected. Sites with no reachable icon return {found:false}.",
+      "Fetch a site's favicon/logo: reads the page's declared <link rel=icon…> tags (all variants with their sizes and types), deterministically picks the largest declared icon (falling back to /favicon.ico), fetches it, and returns the bytes as a base64 data URI plus the resolved icon URL and content type. Icons over 256KB return the URL and metadata without the inline data URI. SSRF-guarded - private-network hosts are rejected. Sites with no reachable icon return {found:false}.",
     tags: ["web", "favicon", "icon", "logo", "enrichment", "domain", "brand"],
     discovery: {
       bodyType: "json",
@@ -665,7 +665,7 @@ export const ENRICH_TOOLS = [
     },
     handler: async (i) => {
       let raw = typeof i.url === "string" ? i.url.trim() : "";
-      if (!raw) throw bad(`"url" is required — a site URL or bare domain`);
+      if (!raw) throw bad(`"url" is required - a site URL or bare domain`);
       if (raw.length > 2048) throw bad(`"url" is capped at 2048 characters`);
       if (!/^https?:\/\//i.test(raw)) raw = `https://${raw}`;
       // Page fetch (SSRF-guarded). A page that won't serve HTML still gets the
@@ -695,7 +695,7 @@ export const ENRICH_TOOLS = [
         }
       }
       if (!icon) {
-        return { found: false, url: baseUrl, iconUrl: null, declared, note: "No reachable favicon — none declared and /favicon.ico did not serve." };
+        return { found: false, url: baseUrl, iconUrl: null, declared, note: "No reachable favicon - none declared and /favicon.ico did not serve." };
       }
       const inline = icon.buffer.length <= ICON_DATAURI_MAX;
       return {
@@ -706,7 +706,7 @@ export const ENRICH_TOOLS = [
         contentType: icon.contentType,
         bytes: icon.buffer.length,
         dataUri: inline ? `data:${icon.contentType};base64,${icon.buffer.toString("base64")}` : null,
-        ...(inline ? {} : { note: `Icon exceeds ${ICON_DATAURI_MAX / 1024}KB — fetch iconUrl directly.` }),
+        ...(inline ? {} : { note: `Icon exceeds ${ICON_DATAURI_MAX / 1024}KB - fetch iconUrl directly.` }),
         declared,
       };
     },

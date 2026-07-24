@@ -64,7 +64,7 @@ function requireKey() {
 function pickNetwork(value, dflt = "base") {
   const n = typeof value === "string" ? value.toLowerCase().trim() : dflt;
   const def = NETWORKS[n];
-  if (!def) throw bad(`Unsupported network "${value}" — supported: ${Object.keys(NETWORKS).join(", ")}`);
+  if (!def) throw bad(`Unsupported network "${value}" - supported: ${Object.keys(NETWORKS).join(", ")}`);
   return { name: n, ...def, factory: V3_FACTORY[n] };
 }
 
@@ -122,7 +122,7 @@ async function alchemyFetch(url, opts = {}) {
     console.warn(`[dex] upstream unreachable: ${(() => { try { return new URL(url).host; } catch { return "?"; } })()} → ${err.name ?? err.code ?? err.message}`);
     throw bad("Chain upstream timed out", 504);
   }
-  if (res.status === 429) throw bad("Chain rate limit reached upstream — retry shortly", 503);
+  if (res.status === 429) throw bad("Chain rate limit reached upstream - retry shortly", 503);
   if (!res.ok) throw bad(`Chain upstream error (HTTP ${res.status})`, 502);
   return res.json();
 }
@@ -184,7 +184,7 @@ export const DEX_TOOLS = [
     category: "crypto",
     price: "$0.001",
     description:
-      "Look up the Uniswap V3 pool address for a token pair + fee tier on Ethereum, Base, Polygon, Arbitrum, or Optimism. Pass either order (tokenA/tokenB) — the factory sorts internally. Returns 0x0…0 if no pool has been deployed for that combination yet.",
+      "Look up the Uniswap V3 pool address for a token pair + fee tier on Ethereum, Base, Polygon, Arbitrum, or Optimism. Pass either order (tokenA/tokenB) - the factory sorts internally. Returns 0x0…0 if no pool has been deployed for that combination yet.",
     tags: ["crypto", "uniswap", "dex", "v3", "pool", "evm"],
     discovery: {
       bodyType: "json",
@@ -314,7 +314,7 @@ export const DEX_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Spot quote for swapping through a Uniswap V3 pool at the current tick. amountIn is in human units (not wei). zeroForOne=true sends token0 → token1; false sends token1 → token0. Returns amountOut net of the pool's fee tier. NOTE: this is a single-tick spot quote — slippage from depleting concentrated liquidity is NOT modeled. Use for indicative pricing; for production swaps quote against the Uniswap SDK.",
+      "Spot quote for swapping through a Uniswap V3 pool at the current tick. amountIn is in human units (not wei). zeroForOne=true sends token0 → token1; false sends token1 → token0. Returns amountOut net of the pool's fee tier. NOTE: this is a single-tick spot quote - slippage from depleting concentrated liquidity is NOT modeled. Use for indicative pricing; for production swaps quote against the Uniswap SDK.",
     tags: ["crypto", "uniswap", "dex", "v3", "quote", "swap", "evm"],
     discovery: {
       bodyType: "json",
@@ -342,7 +342,7 @@ export const DEX_TOOLS = [
           fee: 500,
           spotPrice_1per0: 3500.05,
           amountOut: 3498.30,
-          note: "spot quote at current tick — no multi-tick swap simulation",
+          note: "spot quote at current tick - no multi-tick swap simulation",
         },
       },
     },
@@ -392,7 +392,7 @@ export const DEX_TOOLS = [
         fee,
         spotPrice_1per0: spotPrice,
         amountOut,
-        note: "spot quote at current tick — no multi-tick swap simulation",
+        note: "spot quote at current tick - no multi-tick swap simulation",
       };
     },
   },
@@ -407,7 +407,7 @@ export const DEX_TOOLS = [
     category: "crypto",
     price: "$0.001",
     description:
-      "Top DEX pools (Uniswap, Sushi, Curve, Aerodrome, etc.) ranked by current TVL — filterable by chain and project. Sourced from DeFiLlama's public Yields API (keyless). Each row carries chain, project slug, symbol pair, TVL in USD, current APY, and pool ID for follow-up queries.",
+      "Top DEX pools (Uniswap, Sushi, Curve, Aerodrome, etc.) ranked by current TVL - filterable by chain and project. Sourced from DeFiLlama's public Yields API (keyless). Each row carries chain, project slug, symbol pair, TVL in USD, current APY, and pool ID for follow-up queries.",
     tags: ["crypto", "dex", "tvl", "defillama", "pools", "yield"],
     discovery: {
       bodyType: "json",
@@ -443,7 +443,7 @@ export const DEX_TOOLS = [
         console.warn(`[dex] yields.llama.fi unreachable: ${err.name ?? err.code ?? err.message}`);
         throw bad("DeFiLlama upstream timed out", 504);
       }
-      if (res.status === 429) throw bad("DeFiLlama rate limit reached upstream — retry shortly", 503);
+      if (res.status === 429) throw bad("DeFiLlama rate limit reached upstream - retry shortly", 503);
       if (!res.ok) throw bad(`DeFiLlama upstream error (HTTP ${res.status})`, 502);
       const json = await res.json();
       let pools = Array.isArray(json.data) ? json.data : [];

@@ -400,7 +400,7 @@ async function rpcCall(rpcs, method, params, { passes = 2 } = {}) {
 /** Render a block count as a human-friendly window label ("5h", "24h", "7d"). */
 export function windowLabelFromBlocks(blocks) {
   const seconds = (Number(blocks) || 0) * SECONDS_PER_BASE_BLOCK;
-  if (seconds <= 0) return "—";
+  if (seconds <= 0) return "-";
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   const hours = seconds / 3600;
   if (hours < 48) return `${Math.round(hours)}h`;
@@ -526,7 +526,7 @@ export async function runLeaderboard(overrides = {}) {
     }
   }
   if (callCount > 0 && failedChunks === callCount) {
-    throw new Error(`All ${callCount} eth_getLogs chunk(s) failed — RPC outage, aborting scan`);
+    throw new Error(`All ${callCount} eth_getLogs chunk(s) failed - RPC outage, aborting scan`);
   }
   const partial = failedChunks > 0;
   onProgress(`      ${transferCount} transfer log(s) total${partial ? ` (partial: ${failedChunks} of ${callCount} ranges unavailable)` : ""}`);
@@ -779,11 +779,11 @@ const fmtUsd = (n) => {
   return `$${v.toFixed(4)}`;
 };
 
-const shortAddr = (a) => (typeof a === "string" && a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : (a || "—"));
+const shortAddr = (a) => (typeof a === "string" && a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : (a || "-"));
 
 /**
  * Public HTML dashboard for the x402 leaderboard. Self-contained: no client-side
- * polling — a page refresh re-renders from the latest cached snapshot. The
+ * polling - a page refresh re-renders from the latest cached snapshot. The
  * underlying snapshot is refreshed hourly by startLeaderboardRefresh().
  */
 export function leaderboardPage(snapshot, { baseUrl, sort }) {
@@ -822,7 +822,7 @@ export function leaderboardPage(snapshot, { baseUrl, sort }) {
       const extraCount = Math.max(0, allWallets.length - 1);
       const walletCell = r.wallet
         ? `<a href="${esc(explorer)}/address/${esc(r.wallet)}#tokentxns" target="_blank" rel="noopener nofollow" title="${esc(allWallets.join("\n"))}">${esc(shortAddr(r.wallet))}</a>${extraCount ? ` <span class="badge" title="${esc(allWallets.join("\n"))}">+${esc(extraCount)} more</span>` : ""}`
-        : "—";
+        : "-";
       return `<tr>
         <td class="num">${esc(r.rank)}</td>
         <td>${nameCell}</td>
@@ -836,22 +836,22 @@ export function leaderboardPage(snapshot, { baseUrl, sort }) {
     .join("");
 
   const emptyState = snapshot?.warming
-    ? `<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Warming the cache — first snapshot is in flight. Refresh in a few seconds.</td></tr>`
+    ? `<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Warming the cache - first snapshot is in flight. Refresh in a few seconds.</td></tr>`
     : snapshot?.scanSkipped
     ? `<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">Snapshot skipped: ${esc(snapshot.reason || "no data")}</td></tr>`
     : `<tr><td colspan="7" class="muted" style="text-align:center;padding:24px">No settled volume yet. Snapshot refreshes hourly.</td></tr>`;
 
-  const asOf = snapshot?.asOf ? snapshot.asOf.replace("T", " ").slice(0, 19) + "Z" : "—";
+  const asOf = snapshot?.asOf ? snapshot.asOf.replace("T", " ").slice(0, 19) + "Z" : "-";
   const windowLabel = snapshot?.windowLabel || windowLabelFromBlocks(snapshot?.scannedBlocks);
-  const windowHuman = windowLabel === "—" ? "the scan window" : `last ${windowLabel}`;
+  const windowHuman = windowLabel === "-" ? "the scan window" : `last ${windowLabel}`;
 
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>x402 Leaderboard — Agent402</title>
-<meta name="description" content="Public on-chain ranking of every x402 seller by Base USDC settled volume — callsSettled, totalUsd, uniqueBuyers per seller.">
+<title>x402 Leaderboard - Agent402</title>
+<meta name="description" content="Public on-chain ranking of every x402 seller by Base USDC settled volume - callsSettled, totalUsd, uniqueBuyers per seller.">
 ${CHROME_HEAD_LINKS}
 <style>
   :root { --bg:#0b0e14; --fg:#e6e9f0; --muted:#8b93a7; --accent:#4ade80; --line:#1e2638; --card:#0f1320; --warn:#f97316; }
@@ -898,15 +898,15 @@ ${renderHeader("/leaderboard")}
 ${sortToggle}
 
 <div class="grid">
-  <div class="stat"><div class="k">Top seller (${esc(windowLabel)})</div><div class="v" style="font-size:1.05rem">${esc(top1?.name || "—")}</div><div class="s">${esc(top1 ? (sortMode === "calls" ? (top1.callsSettled || 0) + " calls · " + fmtUsd(top1.totalUsd) : fmtUsd(top1.totalUsd) + " · " + (top1.callsSettled || 0) + " calls") : "no data yet")}</div></div>
+  <div class="stat"><div class="k">Top seller (${esc(windowLabel)})</div><div class="v" style="font-size:1.05rem">${esc(top1?.name || "-")}</div><div class="s">${esc(top1 ? (sortMode === "calls" ? (top1.callsSettled || 0) + " calls · " + fmtUsd(top1.totalUsd) : fmtUsd(top1.totalUsd) + " · " + (top1.callsSettled || 0) + " calls") : "no data yet")}</div></div>
   <div class="stat"><div class="k">Sellers ranked</div><div class="v">${esc(board.length)}</div><div class="s">of ${esc(snapshot?.scannedSellers ?? 0)} scanned (${esc(snapshot?.bazaarTotal ?? "?")} Bazaar listings)</div></div>
   <div class="stat"><div class="k">Total volume (${esc(windowLabel)})</div><div class="v">${esc(fmtUsd(totalUsd))}</div><div class="s">across ${esc(totalCalls)} settled call${totalCalls === 1 ? "" : "s"}</div></div>
-  <div class="stat"><div class="k">Window</div><div class="v" style="font-size:1.05rem">Last ${esc(windowLabel)}</div><div class="s">${esc(snapshot?.scannedBlocks ?? "—")} blocks · per-call ceiling ${esc(fmtUsd(snapshot?.maxCallUsd ?? 0))}</div></div>
+  <div class="stat"><div class="k">Window</div><div class="v" style="font-size:1.05rem">Last ${esc(windowLabel)}</div><div class="s">${esc(snapshot?.scannedBlocks ?? "-")} blocks · per-call ceiling ${esc(fmtUsd(snapshot?.maxCallUsd ?? 0))}</div></div>
   <div class="stat"><div class="k">Snapshot</div><div class="v" style="font-size:1rem">${esc(asOf)}</div><div class="s">refresh the page to update</div></div>
 </div>
 
 <div class="panel">
-  <div class="ph"><h2>Sellers by ${sortMode === "calls" ? "call count" : "settled volume"} (${esc(windowHuman)})</h2><div class="pn">Wallet links open Basescan token-transfer view for independent verification. <b>${sortMode === "calls" ? "0 calls" : "$0"} ≠ no revenue</b> — sellers with bursty traffic may have lifetime ${sortMode === "calls" ? "activity" : "volume"} outside this window.</div></div>
+  <div class="ph"><h2>Sellers by ${sortMode === "calls" ? "call count" : "settled volume"} (${esc(windowHuman)})</h2><div class="pn">Wallet links open Basescan token-transfer view for independent verification. <b>${sortMode === "calls" ? "0 calls" : "$0"} ≠ no revenue</b> - sellers with bursty traffic may have lifetime ${sortMode === "calls" ? "activity" : "volume"} outside this window.</div></div>
   <table>
     <thead><tr><th class="num">#</th><th>Seller</th><th>Wallet</th><th>Network</th><th class="num">Calls (${esc(windowLabel)})</th><th class="num">USDC settled (${esc(windowLabel)})</th><th class="num">Buyers</th></tr></thead>
     <tbody>${rows || emptyState}</tbody>
@@ -914,7 +914,7 @@ ${sortToggle}
 </div>
 
 <div class="panel">
-  <div class="ph"><h2>How the ranking is built</h2><div class="pn">Trustless on-chain signal — no self-reported counters.</div></div>
+  <div class="ph"><h2>How the ranking is built</h2><div class="pn">Trustless on-chain signal - no self-reported counters.</div></div>
   <div style="padding:14px 18px;">
     <ol class="foot" style="margin:0 0 10px 18px; padding:0;">
       <li>Walk the Coinbase CDP Bazaar discovery API and extract every Base-mainnet USDC <code>payTo</code> wallet.</li>
@@ -926,11 +926,11 @@ ${sortToggle}
     <pre>curl -s ${esc(baseUrl)}/api/leaderboard?top=10
 curl -s ${esc(baseUrl)}/api/leaderboard?include=external   # exclude Agent402 itself
 curl -s ${esc(baseUrl)}/api/leaderboard?window=7d           # window hint (default; 24h/30d/all documented, roadmap)</pre>
-    <p class="foot" style="margin:10px 0 0;">Free — same gate as <code>/api/find</code> and <code>/api/route</code>. JSON snapshot at <code>${esc(baseUrl)}/api/leaderboard</code>.</p>
+    <p class="foot" style="margin:10px 0 0;">Free - same gate as <code>/api/find</code> and <code>/api/route</code>. JSON snapshot at <code>${esc(baseUrl)}/api/leaderboard</code>.</p>
   </div>
 </div>
 
-<p class="foot">x402 Leaderboard is open-source — part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. Sellers don't have to register: any wallet that appears in the Bazaar with Base-mainnet USDC payment options is scanned automatically.</p>
+<p class="foot">x402 Leaderboard is open-source - part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. Sellers don't have to register: any wallet that appears in the Bazaar with Base-mainnet USDC payment options is scanned automatically.</p>
 
 </div>
 ${renderFooter()}

@@ -16,7 +16,7 @@ const fmtUsd = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 const shortAddr = (a) =>
   typeof a === "string" && a.length > 12
     ? `${a.slice(0, 6)}\u2026${a.slice(-4)}`
-    : a || "\u2014";
+    : a || "-";
 
 /** Only allow http(s) — seller-supplied homepage data, defense in depth. */
 const safeHref = (u) =>
@@ -49,7 +49,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
   // window rather than fully covering it. Never hide this — it's the
   // difference between "no revenue" and "revenue we couldn't see".
   const partialNote = snapshot?.partial
-    ? `Partial scan — ${snapshot.windowNote || "some block ranges were unavailable"}; totals are a floor, not the full window.`
+    ? `Partial scan - ${snapshot.windowNote || "some block ranges were unavailable"}; totals are a floor, not the full window.`
     : "";
 
   // --- Ranked table rows ---------------------------------------------------
@@ -81,7 +81,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
 
   // --- Empty / warming state -----------------------------------------------
 
-  const warmingHtml = `<div style="padding: 40px 20px; text-align: center; color: #7C7C7C; font-family: var(--font-mono); font-size: 13px;">Warming up \u2014 first snapshot in progress. Refresh in a few seconds.</div>`;
+  const warmingHtml = `<div style="padding: 40px 20px; text-align: center; color: #7C7C7C; font-family: var(--font-mono); font-size: 13px;">Warming up - first snapshot in progress. Refresh in a few seconds.</div>`;
 
   // --- Page body -----------------------------------------------------------
 
@@ -90,7 +90,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
   <section style="max-width: 1180px; margin: 0 auto; padding: 56px 30px 30px;">
     <div style="display: flex; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 13px; color: var(--accent); margin-bottom: 14px;"><span>$ GET /api/leaderboard</span><span style="display: flex; align-items: center; gap: 6px; color: var(--ink);"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; animation: ml-pulse 1.8s ease-in-out infinite;"></span>LIVE</span></div>
     <h1 class="lb-h1" style="font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 58px; line-height: .96; letter-spacing: -.03em; margin: 0 0 14px;">Ranked by real<br>on-chain USDC.</h1>
-    <p style="font-size: 17px; line-height: 1.55; color: var(--muted); max-width: 620px; margin: 0;">Not vanity metrics \u2014 settled Base USDC volume, read straight off the chain. The pipeline walks every page of the Coinbase CDP Bazaar and aggregates per-call settlements for each seller\u2019s payTo over the last <strong>${esc(windowLabel)}</strong>. Hourly snapshot, free to query.</p>
+    <p style="font-size: 17px; line-height: 1.55; color: var(--muted); max-width: 620px; margin: 0;">Not vanity metrics - settled Base USDC volume, read straight off the chain. The pipeline walks every page of the Coinbase CDP Bazaar and aggregates per-call settlements for each seller\u2019s payTo over the last <strong>${esc(windowLabel)}</strong>. Hourly snapshot, free to query.</p>
     ${partialNote ? `<p style="font-size: 13px; font-family: var(--font-mono); color: var(--accent); max-width: 620px; margin: 10px 0 0;">${esc(partialNote)}</p>` : ""}
   </section>
 
@@ -120,7 +120,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
     <div class="lb-method" style="border: 1.5px solid var(--ink); background: var(--card); display: grid; grid-template-columns: repeat(4, 1fr);">
       <div style="padding: 20px; border-right: 1.5px solid var(--ink);"><div style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; font-size: 18px; margin-bottom: 8px;">01</div><div style="font-size: 13.5px; line-height: 1.5; color: var(--muted);">Walk every page of the Coinbase CDP Bazaar discovery API.</div></div>
       <div style="padding: 20px; border-right: 1.5px solid var(--ink);"><div style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; font-size: 18px; margin-bottom: 8px;">02</div><div style="font-size: 13.5px; line-height: 1.5; color: var(--muted);">Query eth_getLogs on Base USDC for each seller\u2019s payTo address.</div></div>
-      <div style="padding: 20px; border-right: 1.5px solid var(--ink);"><div style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; font-size: 18px; margin-bottom: 8px;">03</div><div style="font-size: 13.5px; line-height: 1.5; color: var(--muted);">Filter per-call settlements under a $0.50 ceiling \u2014 larger inbound is funding, not buys.</div></div>
+      <div style="padding: 20px; border-right: 1.5px solid var(--ink);"><div style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; font-size: 18px; margin-bottom: 8px;">03</div><div style="font-size: 13.5px; line-height: 1.5; color: var(--muted);">Filter per-call settlements under a $0.50 ceiling - larger inbound is funding, not buys.</div></div>
       <div style="padding: 20px;"><div style="font-family: var(--font-mono); color: var(--accent); font-weight: 700; font-size: 18px; margin-bottom: 8px;">04</div><div style="font-size: 13.5px; line-height: 1.5; color: var(--muted);">Aggregate calls, totalUsd and unique buyers per seller. Hourly snapshot.</div></div>
     </div>
   </section>
@@ -130,7 +130,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
     <div class="lb-cta-wrap" style="border: 1.5px solid var(--ink); background: var(--surface); padding: 32px 30px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap;">
       <div>
         <h2 style="font-family: 'Archivo', sans-serif; font-weight: 800; font-size: 28px; line-height: 1; letter-spacing: -.02em; margin: 0 0 6px; color: var(--on-dark2);">Route across every x402 seller.</h2>
-        <p style="font-family: var(--font-mono); font-size: 13px; color: var(--dk-muted); margin: 0;">the neutral Smart Order Router \u2014 not just ours</p>
+        <p style="font-family: var(--font-mono); font-size: 13px; color: var(--dk-muted); margin: 0;">the neutral Smart Order Router - not just ours</p>
       </div>
       <div style="display: flex; gap: 11px;">
         <a href="/api/route" style="background: var(--accent); color: #fff; font-family: var(--font-mono); font-weight: 700; font-size: 14px; text-decoration: none; padding: 13px 20px;">/api/route \u2192</a>
@@ -142,9 +142,9 @@ export function ledgerLeaderboardPage(baseUrl, snapshot) {
   ${ledgerFooterCompact()}`;
 
   const canonical = baseUrl + "/leaderboard";
-  const title = "x402 Leaderboard \u2014 Agent402";
+  const title = "x402 Leaderboard - Agent402";
   const description =
-    "Public on-chain ranking of every x402 seller by Base USDC settled volume \u2014 calls, totalUsd, uniqueBuyers per seller. Hourly snapshot, free to query.";
+    "Public on-chain ranking of every x402 seller by Base USDC settled volume - calls, totalUsd, uniqueBuyers per seller. Hourly snapshot, free to query.";
 
   const jsonLd = {
     "@context": "https://schema.org",

@@ -101,7 +101,7 @@ const REASONING_RE = /[∑∫√π≠≤≥]|\bprove\b|\btheorem\b|\bderive\b|\b
 const LONG_CHARS = 8000;
 
 /** Deterministic prompt classifier for the auto tier. Tolerates malformed
- *  messages (returns "general") — validateRequest raises the real 400 right
+ *  messages (returns "general") - validateRequest raises the real 400 right
  *  after, so garbage never reaches the upstream anyway. */
 export function classifyPrompt(messages) {
   let text = "";
@@ -122,22 +122,22 @@ export function classifyPrompt(messages) {
 // Tier → OpenRouter model-id prefixes, input char budget, output token cap.
 // Caps chosen so worst-case upstream cost stays well below the x402 price
 // (budget models run ~$0.15-0.60/M tokens; 2048 output + 32k input tops out
-// around $0.003 — a $0.02 price leaves >6x headroom).
+// around $0.003 - a $0.02 price leaves >6x headroom).
 //
 // `maxPrice` (USD per 1M tokens, {prompt, completion}) rides to OpenRouter as
-// provider.max_price — a HARD upstream price filter. These are CATASTROPHE
+// provider.max_price - a HARD upstream price filter. These are CATASTROPHE
 // BOUNDS, not tight budgets: each sits ~1.5-2x above the priciest allowlisted
 // model's list price, so they never affect normal serving. What they block is
 // the silent failure mode where one of a model's providers charges multiples
-// of list (or a provider reprices) — OpenRouter then refuses that provider
+// of list (or a provider reprices) - OpenRouter then refuses that provider
 // instead of us quietly eating the margin. A model with NO provider under the
 // bound errors upstream, which the failover chain already treats as walkable.
 export const TIERS = {
-  // Nano tier — priced for agent LOOPS, not occasional calls. The x402
+  // Nano tier - priced for agent LOOPS, not occasional calls. The x402
   // leaderboard's top earner does ~800k inference calls/day at sub-cent
   // average prices; the $0.02 base tier is priced out of that traffic.
   // Caps keep worst-case upstream (~3k tokens in / 768 out on ~$0.10-0.40/M
-  // models) around $0.0006 — >5x headroom under the $0.003 price, same
+  // models) around $0.0006 - >5x headroom under the $0.003 price, same
   // discipline as the other tiers. Listed FIRST so tierFor()'s
   // self-correcting 400s and /v1/models lead with the cheapest home.
   "v1-chat-nano": {
@@ -198,7 +198,7 @@ export const TIERS = {
       "anthropic/claude-opus",
     ],
   },
-  // Auto tier — model chosen server-side (see AUTO_RANKINGS above). Listed
+  // Auto tier - model chosen server-side (see AUTO_RANKINGS above). Listed
   // LAST so tierFor() keeps resolving explicit models to their existing home
   // tiers: the auto prefixes deliberately overlap the nano/base allowlists
   // (an explicit ranked model is honored here at the auto caps), and listing
@@ -236,7 +236,7 @@ export function tierAllows(tierSlug, model) {
   return tier.prefixes.some((p) => (p.endsWith("/") ? id.startsWith(p) : id === p || id.startsWith(p + "-") || id.startsWith(p + ":")));
 }
 
-/** Which gateway tier serves this model — for self-correcting 400s. */
+/** Which gateway tier serves this model - for self-correcting 400s. */
 export function tierFor(model) {
   for (const slug of Object.keys(TIERS)) if (tierAllows(slug, model)) return slug;
   return null;
@@ -245,10 +245,10 @@ export function tierFor(model) {
 const MAX_MESSAGES = 100;
 const MAX_IMAGES = 4;
 const MAX_IMAGE_URL_LEN = 2048;
-const MAX_N = 4; // `n` multiplies output cost — bounded and priced in the margin clamp
+const MAX_N = 4; // `n` multiplies output cost - bounded and priced in the margin clamp
 
 // ---------------------------------------------------------------------------
-// Margin clamp — the flat tier price must ALWAYS cover the metered upstream
+// Margin clamp - the flat tier price must ALWAYS cover the metered upstream
 // bill. Char caps alone can't guarantee that: token-dense text (CJK packs
 // 4-8x more tokens per char than English), giant tool schemas, `n`
 // completions, and expensive model families (opus, o3-pro) can push the
@@ -257,11 +257,11 @@ const MAX_N = 4; // `n` multiplies output cost — bounded and priced in the mar
 // model family's list price, and clamp max_tokens so
 // input + output ≤ MARGIN × tier price. Cheap models never feel it (the
 // affordable output exceeds the tier cap); pricey models get proportionally
-// tighter output — and a request whose INPUT alone busts the budget gets a
+// tighter output - and a request whose INPUT alone busts the budget gets a
 // self-explaining 400 instead of a useless clamp.
 //
 // Upstream list prices (USD per 1M tokens) by canonical-id prefix, longest
-// prefix wins. Rounded UP — this table only needs to never UNDERestimate.
+// prefix wins. Rounded UP - this table only needs to never UNDERestimate.
 // Effective cost is elementwise-min'd with the tier's provider max_price
 // bound (OpenRouter refuses pricier providers), so an overestimate here
 // can't reject traffic the provider bound already makes safe.
@@ -270,7 +270,7 @@ export const MODEL_COST = [
   ["openai/o3-mini", { prompt: 1.1, completion: 4.4 }],
   ["openai/o3", { prompt: 2, completion: 8 }],
   ["openai/o4-mini", { prompt: 1.1, completion: 4.4 }],
-  ["openai/o4", { prompt: 20, completion: 80 }], // unreleased flagship — assume pro-tier pricing until known
+  ["openai/o4", { prompt: 20, completion: 80 }], // unreleased flagship - assume pro-tier pricing until known
   ["openai/gpt-5-nano", { prompt: 0.05, completion: 0.4 }],
   ["openai/gpt-5-mini", { prompt: 0.25, completion: 2 }],
   ["openai/gpt-5", { prompt: 1.25, completion: 10 }],
@@ -295,7 +295,7 @@ export const MODEL_COST = [
 ];
 
 /** Upstream list price for a model (longest matching prefix), or null when
- *  the family is unknown — callers fall back to the tier's max_price bound. */
+ *  the family is unknown - callers fall back to the tier's max_price bound. */
 export function costFor(model) {
   const id = canonicalModel(model).toLowerCase();
   let best = null;
@@ -306,13 +306,13 @@ export function costFor(model) {
 }
 
 export const MARGIN = 0.7;   // worst-case upstream ≤ 70% of the tier price
-const MIN_OUT_TOKENS = 64;   // a clamp below this is useless — reject with guidance instead
+const MIN_OUT_TOKENS = 64;   // a clamp below this is useless - reject with guidance instead
 const IMAGE_TOKENS = 1600;   // conservative flat per-image input estimate (high-detail tiling)
 const TOKEN_SAFETY = 1.15;   // headroom for BPE drift across vendors
 
 function estimateInputTokens(body, imageCount) {
-  // Price the ENTIRE outbound body — messages, tools, response_format, stop
-  // sequences — so a giant tool schema is input like any other input. Image
+  // Price the ENTIRE outbound body - messages, tools, response_format, stop
+  // sequences - so a giant tool schema is input like any other input. Image
   // URLs are excluded from the text count (a data: URL is not prompt text)
   // and billed flat per image instead. Exact-BPE via gpt-tokenizer (o200k);
   // deterministic, so the prompt-cache key stays stable.
@@ -325,7 +325,7 @@ function estimateInputTokens(body, imageCount) {
 /** Worst-case upstream bill (USD) for an outbound body at this tier:
  *  exact-BPE input pricing plus the full output cap × n, against the model's
  *  list cost elementwise-min'd with the tier's provider max_price bound.
- *  This is THE pricing function the margin clamp uses — the pricing-margin
+ *  This is THE pricing function the margin clamp uses - the pricing-margin
  *  CI test (scripts/test-pricing-margin.js) imports it so the test and the
  *  runtime can never disagree on the math. */
 export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
@@ -353,7 +353,7 @@ export function clampToMargin(body, tier, imageCount) {
   if (affordableOut < MIN_OUT_TOKENS) {
     throw bad(
       `Input is too large for "${body.model}" at this tier's price (est. ${inTokens} input tokens). ` +
-      `Shrink the input, lower "n", or use a cheaper model — GET /v1/models lists every model and its tier.`
+      `Shrink the input, lower "n", or use a cheaper model - GET /v1/models lists every model and its tier.`
     );
   }
   if (body.max_tokens > affordableOut) body.max_tokens = affordableOut;
@@ -399,7 +399,7 @@ export function validateRequest(input, tierSlug) {
     // from the requested quality band (default balanced). Resolving HERE (not
     // in the handler) keeps promptCacheKey correct: the resolved model is
     // part of the normalized body, so cached entries invalidate cleanly when
-    // the ranking table changes — and two qualities that resolve to the same
+    // the ranking table changes - and two qualities that resolve to the same
     // model rightly share one cache entry.
     const quality = input.quality === undefined ? "balanced" : String(input.quality);
     if (!AUTO_QUALITIES.includes(quality)) {
@@ -407,14 +407,14 @@ export function validateRequest(input, tierSlug) {
     }
     model = AUTO_RANKINGS[quality][classifyPrompt(input.messages)][0];
   } else if (tier.router === true && input.quality !== undefined) {
-    throw bad('"quality" applies only when the gateway picks the model — omit "model" (or send "auto") to use it');
+    throw bad('"quality" applies only when the gateway picks the model - omit "model" (or send "auto") to use it');
   }
   if (!model) throw bad('"model" is required (e.g. "openai/gpt-4o-mini" or "gpt-4o-mini")');
   if (!tierAllows(tierSlug, model)) {
     const home = tierFor(model);
     throw bad(
       home
-        ? `Model "${model}" is served by the ${home} tier — call ${TIERS[home].route.split(" ")[1]} (price $${TIERS[home].price.toFixed(2)}/call) instead.`
+        ? `Model "${model}" is served by the ${home} tier - call ${TIERS[home].route.split(" ")[1]} (price $${TIERS[home].price.toFixed(2)}/call) instead.`
         : `Model "${model}" is not in the gateway allowlist. GET /v1/models lists every supported model and its tier.`
     );
   }
@@ -439,13 +439,13 @@ export function validateRequest(input, tierSlug) {
 
   let maxTokens = input.max_tokens != null ? parseInt(input.max_tokens, 10) : Math.min(1024, tier.maxTokens);
   if (Number.isNaN(maxTokens) || maxTokens < 1) maxTokens = Math.min(1024, tier.maxTokens);
-  if (maxTokens > tier.maxTokens) maxTokens = tier.maxTokens; // clamp, don't reject — drop-in friendliness
+  if (maxTokens > tier.maxTokens) maxTokens = tier.maxTokens; // clamp, don't reject - drop-in friendliness
 
   const body = { model, messages, max_tokens: maxTokens };
   for (const k of PASSTHROUGH) if (input[k] !== undefined) body[k] = input[k];
   if (body.n !== undefined) {
     const n = parseInt(body.n, 10);
-    if (Number.isNaN(n) || n < 1 || n > MAX_N) throw bad(`"n" must be an integer between 1 and ${MAX_N} — each completion is metered output`);
+    if (Number.isNaN(n) || n < 1 || n > MAX_N) throw bad(`"n" must be an integer between 1 and ${MAX_N} - each completion is metered output`);
     body.n = n;
   }
   if (input.stream === true) {
@@ -484,8 +484,8 @@ async function fetchOpenRouter(body, { timeoutMs, signal } = {}) {
 async function throwUpstreamError(res) {
   const text = await res.text().catch(() => "");
   if (res.status === 401 || res.status === 403) throw bad("Gateway upstream auth failed", 502);
-  if (res.status === 402) throw bad("Gateway upstream balance exhausted — the operator has been notified", 502);
-  if (res.status === 429) throw bad("Upstream rate-limited — retry shortly", 503);
+  if (res.status === 402) throw bad("Gateway upstream balance exhausted - the operator has been notified", 502);
+  if (res.status === 429) throw bad("Upstream rate-limited - retry shortly", 503);
   if (res.status >= 500) throw bad(`Upstream error (HTTP ${res.status})`, 502);
   // Redact the FULL body BEFORE slicing/parsing — a secret straddling the
   // 200-char cut would otherwise leave an unredactable prefix. The route binder
@@ -693,7 +693,7 @@ export function validateEmbeddingsRequest(input) {
   // Normalize string -> [string]: OpenAI returns the same list shape either
   // way, and normalizing collapses both spellings to ONE cache entry.
   const items = typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw : null;
-  if (!items || items.length === 0) throw bad('"input" is required — a string or an array of strings to embed');
+  if (!items || items.length === 0) throw bad('"input" is required - a string or an array of strings to embed');
   if (items.length > EMBEDDINGS_MAX_ITEMS) throw bad(`Too many inputs (${items.length}). Maximum is ${EMBEDDINGS_MAX_ITEMS} per request`);
   let totalChars = 0;
   for (const it of items) {
@@ -803,17 +803,17 @@ export const IMAGES_MAX_PRICE = { prompt: 1, completion: 35, image: 0.05, reques
 export function validateImagesRequest(input) {
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
   const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
-  if (!prompt) throw bad('"prompt" is required — a text description of the image to generate');
+  if (!prompt) throw bad('"prompt" is required - a text description of the image to generate');
   if (prompt.length > IMAGES_MAX_PROMPT_CHARS) throw bad(`Prompt too long (${prompt.length} chars). Maximum is ${IMAGES_MAX_PROMPT_CHARS}`);
   if (input.model !== undefined) {
     const m = canonicalModel(input.model);
     if (m !== IMAGES_MODEL) throw bad(`"model" is fixed to ${IMAGES_MODEL} on this endpoint (omit it, or send that id)`);
   }
   if (input.n !== undefined && parseInt(input.n, 10) !== 1) {
-    throw bad('"n" is locked to 1 — the flat price is per image; call again for more');
+    throw bad('"n" is locked to 1 - the flat price is per image; call again for more');
   }
   if (input.response_format !== undefined && input.response_format !== "b64_json") {
-    throw bad('"response_format" must be "b64_json" — generated images are returned inline, not hosted');
+    throw bad('"response_format" must be "b64_json" - generated images are returned inline, not hosted');
   }
   // size/quality/style have no upstream meaning for this model and no cost
   // impact — ignored for drop-in friendliness rather than rejected.
@@ -840,7 +840,7 @@ async function imagesHandler(input) {
 
   const images = data?.choices?.[0]?.message?.images;
   if (!Array.isArray(images) || images.length === 0) {
-    throw bad("Upstream returned no image — retry, or rephrase the prompt", 502);
+    throw bad("Upstream returned no image - retry, or rephrase the prompt", 502);
   }
 
   // Exact upstream bill → operator telemetry, stripped before the response.
@@ -975,12 +975,12 @@ function speechVoiceFor(entry, requested) {
 export function validateSpeechRequest(input) {
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
   const text = typeof input.input === "string" ? input.input : "";
-  if (!text.trim()) throw bad('"input" is required — the text to speak');
+  if (!text.trim()) throw bad('"input" is required - the text to speak');
   if (text.length > SPEECH_MAX_CHARS) {
     throw bad(`Input too long (${text.length} chars). /v1/audio/speech allows up to ${SPEECH_MAX_CHARS}`);
   }
   if (input.instructions !== undefined) {
-    throw bad('"instructions" is not supported by the serving models — pick an expressive native voice instead (e.g. "en_paul_cheerful"; full list on GET /v1/models)');
+    throw bad('"instructions" is not supported by the serving models - pick an expressive native voice instead (e.g. "en_paul_cheerful"; full list on GET /v1/models)');
   }
   // Explicit model pins that link to the FRONT of the chain — the rest stay
   // as fallbacks (same semantics as the chat tiers: a buyer's pick should
@@ -1043,7 +1043,7 @@ async function speechHandler(input) {
       }
       if (!res.ok) await throwUpstreamError(res);
       const buffer = Buffer.from(await res.arrayBuffer());
-      if (buffer.length === 0) throw bad("Upstream returned no audio — retry, or rephrase the input", 502);
+      if (buffer.length === 0) throw bad("Upstream returned no audio - retry, or rephrase the input", 502);
       return { __binary: buffer, contentType };
     } catch (e) {
       // Walk on anything upstream-shaped (throwUpstreamError maps every
@@ -1204,10 +1204,10 @@ const EXAMPLE_OUT = {
 
 const INPUT_SCHEMA = {
   properties: {
-    model: { type: "string", description: "Model id — OpenRouter form (openai/gpt-4o-mini) or bare OpenAI form (gpt-4o-mini). GET /v1/models lists the allowlist per tier." },
-    messages: { type: "array", description: "OpenAI chat messages: [{role, content}] — text and image_url content blocks supported" },
+    model: { type: "string", description: "Model id - OpenRouter form (openai/gpt-4o-mini) or bare OpenAI form (gpt-4o-mini). GET /v1/models lists the allowlist per tier." },
+    messages: { type: "array", description: "OpenAI chat messages: [{role, content}] - text and image_url content blocks supported" },
     max_tokens: { type: "number", description: "Output token cap (clamped to the tier maximum)" },
-    zdr: { type: "boolean", description: "Optional — true routes only to zero-data-retention providers (also accepted as provider.zdr). Same price; a model with no ZDR provider errors upstream and walks the failover chain." },
+    zdr: { type: "boolean", description: "Optional - true routes only to zero-data-retention providers (also accepted as provider.zdr). Same price; a model with no ZDR provider errors upstream and walks the failover chain." },
   },
   required: ["model", "messages"],
 };
@@ -1215,7 +1215,7 @@ const INPUT_SCHEMA = {
 const AUTO_INPUT_SCHEMA = {
   properties: {
     messages: INPUT_SCHEMA.properties.messages,
-    model: { type: "string", description: 'Optional — omit (or send "auto") for eval-ranked server-side routing. An explicit model from the auto ranking is honored at the auto caps.' },
+    model: { type: "string", description: 'Optional - omit (or send "auto") for eval-ranked server-side routing. An explicit model from the auto ranking is honored at the auto caps.' },
     quality: { type: "string", description: 'Optional routing band when the gateway picks the model: "fast" (cheapest/snappiest), "balanced" (default), "best" (strongest under the flat price). Never changes the price.' },
     max_tokens: INPUT_SCHEMA.properties.max_tokens,
   },
@@ -1225,24 +1225,24 @@ const AUTO_INPUT_SCHEMA = {
 export const LLM_GATEWAY_TOOLS = [
   {
     route: "POST /v1/nano/chat/completions",
-    name: "Chat completions — nano tier",
+    name: "Chat completions - nano tier",
     slug: "v1-chat-nano",
     category: "llm",
     price: "$0.003",
     description:
-      "OpenAI-compatible chat completions, nano tier: gpt-4.1-nano, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat — $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). Streaming supported (stream: true). No API key, no signup.",
+      "OpenAI-compatible chat completions, nano tier: gpt-4.1-nano, gpt-5-nano, gemini flash-lite, small llama/ministral/qwen, deepseek-chat - $0.003 per call in USDC over x402, priced for high-frequency agent loops. Same wire format as /v1/chat/completions with loop-sized caps (12k chars in, 768 tokens out). Streaming supported (stream: true). No API key, no signup.",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-4.1-nano" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4.1-nano" } } },
     handler: makeHandler("v1-chat-nano"),
   },
   {
     route: "POST /v1/auto/chat/completions",
-    name: "Chat completions — auto tier (eval-ranked routing)",
+    name: "Chat completions - auto tier (eval-ranked routing)",
     slug: "v1-chat-auto",
     category: "llm",
     price: "$0.01",
     description:
-      'OpenAI-compatible chat completions with server-side model choice: omit "model" (or send "auto") and the gateway routes the prompt to the top-ranked model for its task type (code / reasoning / long-context / general) from a fixed eval-derived ranking — deterministic, no LLM in the routing path. An optional quality knob picks the band: "fast" (cheapest/snappiest), "balanced" (default), or "best" (strongest models the flat price covers) — same $0.01 either way. Provider errors fail over down the ranking automatically; the response adds agent402_router {category, quality, served} alongside the standard model field. Caps 16k chars in / 1024 tokens out. Streaming supported (stream: true). No API key, no signup.',
+      'OpenAI-compatible chat completions with server-side model choice: omit "model" (or send "auto") and the gateway routes the prompt to the top-ranked model for its task type (code / reasoning / long-context / general) from a fixed eval-derived ranking - deterministic, no LLM in the routing path. An optional quality knob picks the band: "fast" (cheapest/snappiest), "balanced" (default), or "best" (strongest models the flat price covers) - same $0.01 either way. Provider errors fail over down the ranking automatically; the response adds agent402_router {category, quality, served} alongside the standard model field. Caps 16k chars in / 1024 tokens out. Streaming supported (stream: true). No API key, no signup.',
     tags: [...SHARED_TAGS, "router", "auto"],
     discovery: {
       bodyType: "json",
@@ -1259,31 +1259,31 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.02",
     description:
-      "OpenAI-compatible chat completions over x402 — point any OpenAI SDK at base_url https://agent402.tools/v1 and pay per call in USDC (Base, Solana, Polygon, Arbitrum, Stellar), no API key, no signup. Budget/mid models: gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen. Full wire compatibility incl. tools/function-calling and response_format. GET /v1/models lists every model. Streaming supported (stream: true).",
+      "OpenAI-compatible chat completions over x402 - point any OpenAI SDK at base_url https://agent402.tools/v1 and pay per call in USDC (Base, Solana, Polygon, Arbitrum, Stellar), no API key, no signup. Budget/mid models: gpt-4o-mini, claude haiku, gemini flash, deepseek, llama, mistral, qwen. Full wire compatibility incl. tools/function-calling and response_format. GET /v1/models lists every model. Streaming supported (stream: true).",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: EXAMPLE, inputSchema: INPUT_SCHEMA, output: { example: EXAMPLE_OUT } },
     handler: makeHandler("v1-chat"),
   },
   {
     route: "POST /v1/pro/chat/completions",
-    name: "Chat completions — pro tier",
+    name: "Chat completions - pro tier",
     slug: "v1-chat-pro",
     category: "llm",
     price: "$0.10",
     description:
-      "OpenAI-compatible chat completions, pro tier: gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok — paid per call in USDC over x402. Same wire format as /v1/chat/completions with higher input/output caps (48k chars in, 4096 tokens out).",
+      "OpenAI-compatible chat completions, pro tier: gpt-4o, gpt-4.1, claude sonnet, gemini pro, grok - paid per call in USDC over x402. Same wire format as /v1/chat/completions with higher input/output caps (48k chars in, 4096 tokens out).",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "openai/gpt-4o" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "openai/gpt-4o" } } },
     handler: makeHandler("v1-chat-pro"),
   },
   {
     route: "POST /v1/premium/chat/completions",
-    name: "Chat completions — premium tier",
+    name: "Chat completions - premium tier",
     slug: "v1-chat-premium",
     category: "llm",
     price: "$0.50",
     description:
-      "OpenAI-compatible chat completions, premium tier: gpt-5, o3/o4, claude opus — paid per call in USDC over x402. Same wire format as /v1/chat/completions with the largest caps (64k chars in, 8192 tokens out).",
+      "OpenAI-compatible chat completions, premium tier: gpt-5, o3/o4, claude opus - paid per call in USDC over x402. Same wire format as /v1/chat/completions with the largest caps (64k chars in, 8192 tokens out).",
     tags: SHARED_TAGS,
     discovery: { bodyType: "json", input: { ...EXAMPLE, model: "anthropic/claude-opus-4" }, inputSchema: INPUT_SCHEMA, output: { example: { ...EXAMPLE_OUT, model: "anthropic/claude-opus-4" } } },
     handler: makeHandler("v1-chat-premium"),
@@ -1295,15 +1295,15 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.002",
     description:
-      "OpenAI-compatible text embeddings over x402 — point any OpenAI SDK at base_url https://agent402.tools/v1 and pay $0.002 per call in USDC, no API key, no signup. Batch up to 64 inputs / 16k chars per request; text-embedding-3-small by default (3-large and ada-002 supported; dimensions and encoding_format pass through). Embeddings are deterministic, so a byte-identical repeat within 10 minutes is served FREE from cache automatically (X-Cache: hit; opt out with cache:false).",
+      "OpenAI-compatible text embeddings over x402 - point any OpenAI SDK at base_url https://agent402.tools/v1 and pay $0.002 per call in USDC, no API key, no signup. Batch up to 64 inputs / 16k chars per request; text-embedding-3-small by default (3-large and ada-002 supported; dimensions and encoding_format pass through). Embeddings are deterministic, so a byte-identical repeat within 10 minutes is served FREE from cache automatically (X-Cache: hit; opt out with cache:false).",
     tags: ["embeddings", "vector", "rag", "semantic-search", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
       input: { input: "Agent402 is an open-source x402 tool server." },
       inputSchema: {
         properties: {
-          input: { type: "string", description: "Text to embed — a string or an array of up to 64 strings (16k chars total)" },
-          model: { type: "string", description: `Optional — ${EMBEDDINGS_DEFAULT_MODEL} (default), text-embedding-3-large, or text-embedding-ada-002` },
+          input: { type: "string", description: "Text to embed - a string or an array of up to 64 strings (16k chars total)" },
+          model: { type: "string", description: `Optional - ${EMBEDDINGS_DEFAULT_MODEL} (default), text-embedding-3-large, or text-embedding-ada-002` },
           dimensions: { type: "number", description: "Optional output dimensions (3-small/3-large only)" },
         },
         required: ["input"],
@@ -1319,7 +1319,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.080",
     description:
-      "OpenAI-compatible image generation over x402 — point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and pay $0.08 per image in USDC, no API key, no signup. Served by Gemini 2.5 Flash Image (nano banana); prompt in (up to 4k chars), inline base64 image out (response_format b64_json). One image per call (n locked to 1). Optional zdr:true routes only to zero-data-retention providers.",
+      "OpenAI-compatible image generation over x402 - point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and pay $0.08 per image in USDC, no API key, no signup. Served by Gemini 2.5 Flash Image (nano banana); prompt in (up to 4k chars), inline base64 image out (response_format b64_json). One image per call (n locked to 1). Optional zdr:true routes only to zero-data-retention providers.",
     tags: ["image-generation", "images", "text-to-image", "nano-banana", "gemini", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
@@ -1327,7 +1327,7 @@ export const LLM_GATEWAY_TOOLS = [
       inputSchema: {
         properties: {
           prompt: { type: "string", description: "Text description of the image to generate (up to 4,000 chars)" },
-          zdr: { type: "boolean", description: "Optional — true routes only to zero-data-retention providers" },
+          zdr: { type: "boolean", description: "Optional - true routes only to zero-data-retention providers" },
         },
         required: ["prompt"],
       },
@@ -1342,7 +1342,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.060",
     description:
-      "OpenAI-compatible text-to-speech over x402 — point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by Voxtral Mini TTS behind a five-model failover chain (xAI Grok Voice, Kokoro, Zonos, MAI-Voice-2), every link proven by a real paid canary — a provider outage never becomes your failure. Up to 2,000 chars in, raw mp3 (default) or pcm bytes out — the same wire shape as OpenAI's endpoint. OpenAI voice names (alloy, nova, …) map per-model; native voice ids (e.g. en_paul_cheerful) work too. zdr:true routes only to zero-data-retention providers.",
+      "OpenAI-compatible text-to-speech over x402 - point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by Voxtral Mini TTS behind a five-model failover chain (xAI Grok Voice, Kokoro, Zonos, MAI-Voice-2), every link proven by a real paid canary - a provider outage never becomes your failure. Up to 2,000 chars in, raw mp3 (default) or pcm bytes out - the same wire shape as OpenAI's endpoint. OpenAI voice names (alloy, nova, …) map per-model; native voice ids (e.g. en_paul_cheerful) work too. zdr:true routes only to zero-data-retention providers.",
     tags: ["tts", "text-to-speech", "speech", "audio", "voice", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
@@ -1350,15 +1350,15 @@ export const LLM_GATEWAY_TOOLS = [
       inputSchema: {
         properties: {
           input: { type: "string", description: "Text to speak (up to 2,000 chars)" },
-          voice: { type: "string", description: "OpenAI voice name — alloy (default), ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse — or a native voice id from GET /v1/models (e.g. en_paul_cheerful)" },
+          voice: { type: "string", description: "OpenAI voice name - alloy (default), ash, ballad, coral, echo, fable, onyx, nova, sage, shimmer, verse - or a native voice id from GET /v1/models (e.g. en_paul_cheerful)" },
           response_format: { type: "string", description: '"mp3" (default) or "pcm"' },
-          model: { type: "string", description: "Optional — pin a chain model (e.g. mistralai/voxtral-mini-tts-2603); the rest stay as fallbacks" },
+          model: { type: "string", description: "Optional - pin a chain model (e.g. mistralai/voxtral-mini-tts-2603); the rest stay as fallbacks" },
           speed: { type: "number", description: "Optional 0.25–4 playback speed (providers that don't support it ignore it)" },
-          zdr: { type: "boolean", description: "Optional — true routes only to zero-data-retention providers" },
+          zdr: { type: "boolean", description: "Optional - true routes only to zero-data-retention providers" },
         },
         required: ["input"],
       },
-      output: { example: "(raw mp3 bytes — Content-Type: audio/mpeg)" },
+      output: { example: "(raw mp3 bytes - Content-Type: audio/mpeg)" },
     },
     handler: speechHandler,
   },
@@ -1399,5 +1399,5 @@ export function modelsList() {
       x402: { tier: "v1-audio-speech", endpoint: SPEECH_PATH, priceUsd: SPEECH_PRICE, maxInputChars: SPEECH_MAX_CHARS, voices: [...m.voices] },
     });
   }
-  return { object: "list", data, terms_of_service: "https://agent402.tools/terms", note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) — no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped. Use constitutes acceptance of the terms_of_service (acceptable-use policy included)." };
+  return { object: "list", data, terms_of_service: "https://agent402.tools/terms", note: "Prefixes ending in /* allow the whole vendor family. Pay per call via x402 (USDC on Base, Solana, Polygon, Arbitrum, Stellar) - no API key. Bare OpenAI-style names (gpt-4o-mini) are accepted and mapped. Use constitutes acceptance of the terms_of_service (acceptable-use policy included)." };
 }

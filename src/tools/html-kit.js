@@ -72,7 +72,7 @@ export const HTML_TOOLS = [
     route: "POST /api/html-select", name: "HTML select", slug: "html-select",
     category: "web", price: "$0.001",
     description:
-      "Run a CSS selector against an HTML string and return the matches (text, attrs, and optionally outerHTML for each). The deterministic alternative to regex when you already have the HTML and know the selector — pairs with /api/render or any page you've fetched yourself.",
+      "Run a CSS selector against an HTML string and return the matches (text, attrs, and optionally outerHTML for each). The deterministic alternative to regex when you already have the HTML and know the selector - pairs with /api/render or any page you've fetched yourself.",
     tags: ["html", "css-selector", "queryselector", "dom", "scrape", "extract"],
     discovery: {
       bodyType: "json",
@@ -82,8 +82,8 @@ export const HTML_TOOLS = [
           html: { type: "string", description: "Raw HTML string to query (max 5MB)" },
           selector: { type: "string", description: "CSS selector (e.g. \"h1\", \".price\", \"article > p:first-of-type\")" },
           limit: { type: "number", description: "Max matches to return, 1-200 (default 25)" },
-          attr: { type: "string", description: "When set, return only this attribute's value per match (e.g. \"href\", \"data-id\") — keeps responses compact" },
-          includeHtml: { type: "boolean", description: "Include outerHTML of each match (default false — text + attrs only)" },
+          attr: { type: "string", description: "When set, return only this attribute's value per match (e.g. \"href\", \"data-id\") - keeps responses compact" },
+          includeHtml: { type: "boolean", description: "Include outerHTML of each match (default false - text + attrs only)" },
         },
         required: ["html", "selector"],
       },
@@ -134,7 +134,7 @@ export const HTML_TOOLS = [
         properties: {
           html: { type: "string", description: "Raw HTML string containing the table (max 5MB)" },
           selector: { type: "string", description: "CSS selector for the table (default \"table\")" },
-          format: { type: "string", description: "\"json\" (default — rows as header-keyed objects) | \"csv\"" },
+          format: { type: "string", description: "\"json\" (default - rows as header-keyed objects) | \"csv\"" },
         },
         required: ["html"],
       },
@@ -194,7 +194,7 @@ export const HTML_TOOLS = [
       inputSchema: {
         properties: {
           html: { type: "string", description: "Raw HTML string to strip (max 5MB)" },
-          selector: { type: "string", description: "Optional CSS selector — strip only within this element (default: whole document)" },
+          selector: { type: "string", description: "Optional CSS selector - strip only within this element (default: whole document)" },
         },
         required: ["html"],
       },
@@ -207,7 +207,7 @@ export const HTML_TOOLS = [
       const doc = parseHtml(html).window.document;
       const root = selector ? doc.querySelector(selector) : doc.body || doc.documentElement;
       if (!root) return { text: "", chars: 0 };
-      // Remove <script> and <style> — their contents aren't visible text.
+      // Remove <script> and <style> - their contents aren't visible text.
       root.querySelectorAll("script, style, noscript").forEach((el) => el.remove());
       // Block-level newlines: insert a marker after every block element so
       // textContent gives us paragraph separation without spelunking the tree.
@@ -236,7 +236,7 @@ export const HTML_TOOLS = [
         properties: {
           html: { type: "string", description: "Raw HTML string to scan (max 5MB)" },
           base: { type: "string", description: "Optional base URL to resolve relative hrefs against" },
-          filter: { type: "string", description: "Optional regex applied to the href — only matching links are returned" },
+          filter: { type: "string", description: "Optional regex applied to the href - only matching links are returned" },
           limit: { type: "number", description: "Max links to return, 1-1000 (default 200)" },
           unique: { type: "boolean", description: "Deduplicate by href (default true)" },
         },
@@ -250,7 +250,7 @@ export const HTML_TOOLS = [
       let filterRe = null;
       if (i.filter) {
         // compileUserRegex rejects catastrophic-backtracking patterns (ReDoS) and
-        // over-long ones, then throws a 400 on an invalid pattern — the filter runs
+        // over-long ones, then throws a 400 on an invalid pattern - the filter runs
         // on the main event loop against every href, so it must be bounded.
         filterRe = compileUserRegex(i.filter);
       }
@@ -283,7 +283,7 @@ export const HTML_TOOLS = [
     route: "POST /api/html-meta", name: "HTML meta (from string)", slug: "html-meta",
     category: "web", price: "$0.001",
     description:
-      "Extract <title>, <meta description>, OpenGraph/Twitter cards, canonical URL, and JSON-LD blocks from an HTML string. Distinct from /api/meta which fetches a URL — feed this the HTML you already have (from /api/render, /api/extract.body, or your own fetch).",
+      "Extract <title>, <meta description>, OpenGraph/Twitter cards, canonical URL, and JSON-LD blocks from an HTML string. Distinct from /api/meta which fetches a URL - feed this the HTML you already have (from /api/render, /api/extract.body, or your own fetch).",
     tags: ["html", "meta", "opengraph", "twitter", "json-ld", "seo"],
     discovery: {
       bodyType: "json",

@@ -902,7 +902,7 @@ export async function robinhoodActivity(wallet, { days = 30 } = {}) {
     const entry = parseRobinhoodTransfer(t, wallet);
     if (!entry) continue;
     const ts = Date.parse(entry.when || "");
-    if (Number.isFinite(ts) && ts < cutoff) continue; // Blockscout order isn't guaranteed — filter, don't break
+    if (Number.isFinite(ts) && ts < cutoff) continue; // Blockscout order isn't guaranteed - filter, don't break
     entry.internal = entry.from != null && OUR_EVM_WALLETS.has(entry.from);
     entries.push(entry);
   }
@@ -1027,7 +1027,7 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const short = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "-");
 
-// "What's selling" — the sales ledger's merchant view (src/sales-ledger.js):
+// "What's selling" - the sales ledger's merchant view (src/sales-ledger.js):
 // external paid calls BY NAME. The on-chain cards above prove the money;
 // this section names the products. Renders nothing until the first
 // externally-paid call lands (recording started 2026-07-04).
@@ -1177,7 +1177,7 @@ function revenueChartSection() {
     function slotOf(chain){return SLOTS[chain]||8}
     // Wire filter: MPP and x402 settle identically on-chain, so the MPP subset
     // is joined in by tx hash server-side. x402 is the remainder, never a
-    // separate count — that keeps All === x402 + MPP exactly.
+    // separate count - that keeps All === x402 + MPP exactly.
     function val(r){
       var usd=state.metric==="usd";
       var e=usd?r.extUsd:r.extTx, i=usd?r.intUsd:r.intTx;
@@ -1197,7 +1197,7 @@ function revenueChartSection() {
     function fmt(v){return state.metric==="usd"?(v>=1?"$"+v.toFixed(2):"$"+v.toFixed(4)):String(Math.round(v))}
     function render(){
       var data=build(), svg=document.getElementById("rvzSvg"), tip=document.getElementById("rvzTip");
-      if(!data.length){svg.outerHTML="";document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">ledger backfilling — the series appears as settlements sync</div>';return}
+      if(!data.length){svg.outerHTML="";document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">ledger backfilling - the series appears as settlements sync</div>';return}
       var W=940,H=300,L=52,R=8,T=10,B=26,pw=W-L-R,ph=H-T-B;
       var max=0;data.forEach(function(d){var t=0;for(var s=1;s<=8;s++)t+=d.slots[s]||0;if(t>max)max=t});
       max=max||1;
@@ -1227,7 +1227,7 @@ function revenueChartSection() {
       var lg="",present={};data.forEach(function(d){for(var s=1;s<=8;s++)if(d.slots[s])present[s]=1});
       Object.keys(present).forEach(function(s){lg+='<span><i style="background:'+css(s)+'"></i>'+NAMES[s]+"</span>"});
       // An empty series under a wire filter is a real answer, not a broken
-      // chart — say which filter emptied it rather than showing a blank grid.
+      // chart - say which filter emptied it rather than showing a blank grid.
       if(!Object.keys(present).length){
         lg='<span>no '+(state.wire==="all"?"":state.wire==="mpp"?"MPP-wire ":"x402-wire ")+
           (state.scope==="ext"?"external":state.scope==="int"?"internal":"")+' settlements in this window</span>'}

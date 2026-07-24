@@ -38,7 +38,7 @@ export function validateAgentCard(card) {
   }
   if (isStr(card.url)) {
     if (!/^https?:\/\//i.test(card.url)) errors.push('"url" must be an http(s) URL');
-    else if (!/^https:\/\//i.test(card.url)) warnings.push('"url" is not https — most A2A clients require TLS');
+    else if (!/^https:\/\//i.test(card.url)) warnings.push('"url" is not https - most A2A clients require TLS');
   }
   if (!isObj(card.capabilities)) errors.push('missing required object "capabilities"');
   else {
@@ -54,7 +54,7 @@ export function validateAgentCard(card) {
   }
   if (!isArr(card.skills)) errors.push('missing required array "skills"');
   else {
-    if (card.skills.length === 0) warnings.push("skills is empty — clients cannot discover what this agent does");
+    if (card.skills.length === 0) warnings.push("skills is empty - clients cannot discover what this agent does");
     card.skills.forEach((s, i) => {
       if (!isObj(s)) { errors.push(`skills[${i}] must be an object`); return; }
       for (const f of ["id", "name", "description"]) {
@@ -67,7 +67,7 @@ export function validateAgentCard(card) {
   }
 
   // --- interop smells (warnings) -------------------------------------------
-  if (!isStr(card.protocolVersion)) warnings.push('no "protocolVersion" — clients will assume a spec version');
+  if (!isStr(card.protocolVersion)) warnings.push('no "protocolVersion" - clients will assume a spec version');
   if (isStr(card.preferredTransport)) {
     if (!KNOWN_TRANSPORTS.has(card.preferredTransport)) {
       warnings.push(`preferredTransport "${card.preferredTransport}" is not a registered transport (JSONRPC, GRPC, HTTP+JSON)`);
@@ -75,7 +75,7 @@ export function validateAgentCard(card) {
   } else if ("preferredTransport" in card) {
     errors.push('"preferredTransport" must be a string when present');
   } else {
-    warnings.push('no "preferredTransport" — clients will assume JSONRPC at "url"');
+    warnings.push('no "preferredTransport" - clients will assume JSONRPC at "url"');
   }
   if (isArr(card.additionalInterfaces)) {
     card.additionalInterfaces.forEach((it, i) => {

@@ -67,7 +67,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     about: `${REPO}#agent402-in-the-x402-ecosystem`,
     name: "Agent402.Tools",
     summary:
-      `The open-source, self-hostable x402 + MCP server: 500+ pay-per-call tools for AI agents in one integration — browser, search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts, wallet-keyed memory, and an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003/call, embeddings $0.002 — no API key, the wallet is the account). Free via proof-of-work or pay per call in USDC via x402.`,
+      `The open-source, self-hostable x402 + MCP server: 500+ pay-per-call tools for AI agents in one integration - browser, search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts, wallet-keyed memory, and an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003/call, embeddings $0.002 - no API key, the wallet is the account). Free via proof-of-work or pay per call in USDC via x402.`,
     homepage: baseUrl,
     repository: REPO,
     openSource: true,
@@ -95,12 +95,12 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     // self-hostable, the whole catalog in one integration, and it owns the
     // other side of the protocol too (pay-per-crawl).
     differentiators: [
-      "Open-source and self-hostable — read every line, run it yourself (AGPL-3.0).",
-      `One integration covers all 500+ tools — no per-service SDKs or signups.`,
+      "Open-source and self-hostable - read every line, run it yourself (AGPL-3.0).",
+      `One integration covers all 500+ tools - no per-service SDKs or signups.`,
       "Two-sided: also ships agent402-tollbooth, an open pay-per-crawl gate for the demand side of x402.",
-      "Deterministic tool catalog — no LLM in that serving path; same input, same output, full OpenAPI schemas. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
+      "Deterministic tool catalog - no LLM in that serving path; same input, same output, full OpenAPI schemas. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
       "Free without a wallet via proof-of-work on the pure-CPU tools.",
-      `${SKILL_PACKS.length} curated multi-tool workflows (skill packs) callable as MCP prompts — agents fetch the whole task template, not just one tool.`,
+      `${SKILL_PACKS.length} curated multi-tool workflows (skill packs) callable as MCP prompts - agents fetch the whole task template, not just one tool.`,
     ],
     twoSided: {
       tollbooth: {
@@ -123,7 +123,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
         ...(process.env.BASE_BUILDER_CODE ? { builderCode: process.env.BASE_BUILDER_CODE } : {}),
       },
       proofOfWork: {
-        summary: "No wallet? Solve a single-use sha256 puzzle (a fraction of a second of CPU) — no money, no AI tokens, no model involved.",
+        summary: "No wallet? Solve a single-use sha256 puzzle (a fraction of a second of CPU) - no money, no AI tokens, no model involved.",
         difficultyBits: powDifficulty,
         eligibleTools: powEligible.length,
         challengeUrl: `${baseUrl}/api/pow/challenge`,
@@ -156,7 +156,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       indexHtml: `${baseUrl}/skills`,
       index: `${baseUrl}/api/skill-packs.json`,
       promptHttp: `${baseUrl}/api/skill-packs/{slug}/prompt`,
-      mcpPromptsHint: "On the MCP connector, call prompts/list then prompts/get { name: '<slug>', arguments: {…} } — same slugs as below.",
+      mcpPromptsHint: "On the MCP connector, call prompts/list then prompts/get { name: '<slug>', arguments: {…} } - same slugs as below.",
       items: SKILL_PACKS.map((p) => ({
         slug: p.slug,
         title: p.title,
@@ -167,7 +167,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     },
     mcp: {
       remoteConnector: `${baseUrl}/mcp`,
-      remoteNote: "Streamable HTTP, no auth — paste into Claude, Claude Code, Cursor, ChatGPT (Pro+), or VS Code (GitHub Copilot MCP) custom connectors. Pure-CPU tools run free (rate-limited).",
+      remoteNote: "Streamable HTTP, no auth - paste into Claude, Claude Code, Cursor, ChatGPT (Pro+), or VS Code (GitHub Copilot MCP) custom connectors. Pure-CPU tools run free (rate-limited).",
       package: "agent402-mcp",
       registry: "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402",
     },
@@ -251,7 +251,7 @@ export function reliabilityReport({ baseUrl, network, wallet, stats }) {
     toolCallsServed: stats.toolCallsServed,
     onchain: {
       revenueProof: wallet ? `${explorer}/address/${wallet}#tokentxns` : null,
-      note: "Settled revenue is verifiable on-chain — that is the trustless source of truth, not any counter here.",
+      note: "Settled revenue is verifiable on-chain - that is the trustless source of truth, not any counter here.",
     },
     guarantees: [
       {
@@ -270,7 +270,7 @@ export function reliabilityReport({ baseUrl, network, wallet, stats }) {
         evidence: wallet ? `${explorer}/address/${wallet}#tokentxns` : null,
       },
       {
-        claim: "Deterministic: no LLM in the tool-catalog serving path — the same input always yields the same output. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
+        claim: "Deterministic: no LLM in the tool-catalog serving path - the same input always yields the same output. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
         verify: `${baseUrl}/openapi.json`,
       },
       {

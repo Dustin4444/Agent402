@@ -40,7 +40,7 @@ function toRgba(imageField) {
 
   const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
   const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
-  if (!isPng && !isJpg) throw bad("unsupported image format — provide a PNG or JPEG");
+  if (!isPng && !isJpg) throw bad("unsupported image format - provide a PNG or JPEG");
   let img;
   try {
     if (isPng) {

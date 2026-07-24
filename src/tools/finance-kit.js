@@ -90,10 +90,10 @@ async function jsonGet(url, host, extraHeaders = {}) {
   const text = await res.text();
   if (!res.ok) {
     const s = res.status;
-    if (s === 404) throw bad(`${host} returned 404 — unknown symbol or no data for the requested window`, 422);
-    if (s === 401 || s === 403) throw bad(`${host} returned ${s} — upstream may require auth (try a different symbol or retry later)`, 502);
-    if (s === 429) throw bad(`${host} rate-limited the request — retry shortly`, 503);
-    if (s >= 500) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
+    if (s === 404) throw bad(`${host} returned 404 - unknown symbol or no data for the requested window`, 422);
+    if (s === 401 || s === 403) throw bad(`${host} returned ${s} - upstream may require auth (try a different symbol or retry later)`, 502);
+    if (s === 429) throw bad(`${host} rate-limited the request - retry shortly`, 503);
+    if (s >= 500) throw bad(`${host} upstream HTTP ${s} - try again later`, 502);
     // Redact the full body before slicing — the Yahoo/Nasdaq relay token rides
     // Authorization: Bearer into this fetcher and could be reflected upstream.
     throw bad(`${host} HTTP ${s}: ${redactSecrets(text).slice(0, 200)}`, 422);
@@ -165,7 +165,7 @@ async function getYahooSession(force = false) {
   } catch (e) {
     throw bad(`Yahoo Finance session handshake failed: ${e.message}`, 504);
   }
-  if (!cookie) throw bad("Yahoo Finance did not issue a session cookie — options auth handshake failed", 502);
+  if (!cookie) throw bad("Yahoo Finance did not issue a session cookie - options auth handshake failed", 502);
   const crumbUrl = await assertPublicUrl("https://query1.finance.yahoo.com/v1/test/getcrumb");
   let crumbRes;
   try {
@@ -235,7 +235,7 @@ function classifySession(epochSeconds, ctp) {
 export function assertListedExpiration(requested, listedIsoDates, symbol) {
   if (listedIsoDates.includes(requested)) return;
   const shown = listedIsoDates.slice(0, 12).join(", ") + (listedIsoDates.length > 12 ? ", …" : "");
-  throw bad(`"${symbol}" has no listed option expiration ${requested} — "expiration" must be one of the listed expirations: ${shown}`, 422);
+  throw bad(`"${symbol}" has no listed option expiration ${requested} - "expiration" must be one of the listed expirations: ${shown}`, 422);
 }
 
 export const FINANCE_TOOLS = [
@@ -249,13 +249,13 @@ export const FINANCE_TOOLS = [
     // identical product. Match the market; watch volume.
     price: "$0.003",
     description:
-      "Live stock/index/FX/crypto quote: last price, day range, 52-week range, previous close, currency, exchange, and a relative change vs. previous close, as clean JSON. Backed by Yahoo Finance's public chart endpoint — keyless, no rate limits in practice. Symbols: equities (AAPL), indices (^GSPC), FX (EURUSD=X), crypto (BTC-USD).",
+      "Live stock/index/FX/crypto quote: last price, day range, 52-week range, previous close, currency, exchange, and a relative change vs. previous close, as clean JSON. Backed by Yahoo Finance's public chart endpoint - keyless, no rate limits in practice. Symbols: equities (AAPL), indices (^GSPC), FX (EURUSD=X), crypto (BTC-USD).",
     tags: ["finance", "stocks", "quote", "market-data", "price"],
     discovery: {
       input: { symbol: "AAPL" },
       inputSchema: {
         properties: {
-          symbol: { type: "string", description: "Ticker symbol — equity (AAPL), index (^GSPC), FX (EURUSD=X), crypto (BTC-USD)" },
+          symbol: { type: "string", description: "Ticker symbol - equity (AAPL), index (^GSPC), FX (EURUSD=X), crypto (BTC-USD)" },
         },
         required: ["symbol"],
       },
@@ -290,7 +290,7 @@ export const FINANCE_TOOLS = [
         // (an agent guessing the ticker format). Return the exact conventions so
         // the agent can self-correct on the next call instead of re-guessing.
         throw bad(
-          `No quote data for "${symbol}". Check the symbol format — equity: AAPL · index needs a caret: ^GSPC · FX pair uses =X: EURUSD=X · crypto uses -USD: BTC-USD.`,
+          `No quote data for "${symbol}". Check the symbol format - equity: AAPL · index needs a caret: ^GSPC · FX pair uses =X: EURUSD=X · crypto uses -USD: BTC-USD.`,
           422,
         );
       }
@@ -390,7 +390,7 @@ export const FINANCE_TOOLS = [
     category: "data",
     price: "$0.015",
     description:
-      "Earnings calendar for a given date — every company reporting that day with EPS estimate, EPS actual (if reported), and reporting time slot. Optional `symbol` filter narrows to one ticker. Defaults to today (UTC). Backed by Nasdaq's public calendar API.",
+      "Earnings calendar for a given date - every company reporting that day with EPS estimate, EPS actual (if reported), and reporting time slot. Optional `symbol` filter narrows to one ticker. Defaults to today (UTC). Backed by Nasdaq's public calendar API.",
     tags: ["finance", "earnings", "calendar", "eps", "events"],
     discovery: {
       input: { date: "2026-06-22" },
@@ -459,7 +459,7 @@ export const FINANCE_TOOLS = [
       inputSchema: {
         properties: {
           symbol: { type: "string", description: "US-listed ticker (e.g. AAPL, SPY, TSLA)" },
-          expiration: { type: "string", description: "Optional expiry to fetch, YYYY-MM-DD — must be one of the listed expirations (default: nearest)" },
+          expiration: { type: "string", description: "Optional expiry to fetch, YYYY-MM-DD - must be one of the listed expirations (default: nearest)" },
         },
         required: ["symbol"],
       },
@@ -495,7 +495,7 @@ export const FINANCE_TOOLS = [
       const data = await fetchOptions(symbol, params);
       const r = data?.optionChain?.result?.[0];
       if (!r) {
-        throw bad(`No options data for "${symbol}" — the symbol may not have listed options (only US-listed equities/ETFs do).`, 422);
+        throw bad(`No options data for "${symbol}" - the symbol may not have listed options (only US-listed equities/ETFs do).`, 422);
       }
       const iso = (sec) => (Number.isFinite(sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null);
       const expirations = (r.expirationDates ?? []).map(iso).filter(Boolean);
@@ -632,7 +632,7 @@ export const FINANCE_TOOLS = [
     category: "data",
     price: "$0.003",
     description:
-      "Dividend and stock-split history for a ticker: every cash dividend (ex-date + amount) and split (date + ratio) over a configurable range (default 5y, up to max). Empty arrays for non-payers — a valid answer, not an error. Backed by Yahoo Finance's chart endpoint with events=div,split.",
+      "Dividend and stock-split history for a ticker: every cash dividend (ex-date + amount) and split (date + ratio) over a configurable range (default 5y, up to max). Empty arrays for non-payers - a valid answer, not an error. Backed by Yahoo Finance's chart endpoint with events=div,split.",
     tags: ["finance", "dividends", "splits", "income", "history"],
     discovery: {
       input: { symbol: "AAPL" },
@@ -665,7 +665,7 @@ export const FINANCE_TOOLS = [
       if (!VALID_RANGES.has(range)) throw bad(`"range" must be one of: ${[...VALID_RANGES].join(", ")}`);
       const data = await fetchChart(symbol, { interval: "1mo", range, events: "div,split" });
       const r = data?.chart?.result?.[0];
-      if (!r) throw bad(`No data for "${symbol}" — check the symbol format (equity: AAPL).`, 422);
+      if (!r) throw bad(`No data for "${symbol}" - check the symbol format (equity: AAPL).`, 422);
       const day = (sec) => (Number.isFinite(sec) ? new Date(sec * 1000).toISOString().slice(0, 10) : null);
       const dividends = Object.values(r.events?.dividends ?? {})
         .map((d) => ({ date: day(d.date), amount: d.amount ?? null }))
@@ -697,7 +697,7 @@ export const FINANCE_TOOLS = [
     category: "data",
     price: "$0.005",
     description:
-      "Market-wide ex-dividend calendar for a given date — every US-listed company going ex-dividend that day with dividend rate, indicated annual dividend, payment date, and record date. Optional `symbol` filter narrows to one ticker. Defaults to today (UTC). Backed by Nasdaq's public calendar API — same upstream as earnings-calendar.",
+      "Market-wide ex-dividend calendar for a given date - every US-listed company going ex-dividend that day with dividend rate, indicated annual dividend, payment date, and record date. Optional `symbol` filter narrows to one ticker. Defaults to today (UTC). Backed by Nasdaq's public calendar API - same upstream as earnings-calendar.",
     tags: ["finance", "dividends", "calendar", "ex-dividend", "income", "events"],
     discovery: {
       input: {},

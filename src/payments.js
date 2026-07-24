@@ -227,7 +227,7 @@ export function enabledNetworks(network) {
     // Degrade to the known networks instead; the missing one just isn't offered.
     if (!NETWORKS[n]) {
       console.warn(
-        `Ignoring unknown PAYMENT_NETWORKS entry "${n}" — not offered. Known: ${Object.keys(NETWORKS).join(", ")}`
+        `Ignoring unknown PAYMENT_NETWORKS entry "${n}" - not offered. Known: ${Object.keys(NETWORKS).join(", ")}`
       );
       continue;
     }
@@ -324,7 +324,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       facilitatorClients.push(new HTTPFacilitatorClient(cdpConfig));
     } else {
       console.warn(
-        "WARNING: multi-chain mode without CDP keys — Base will settle via PayAI and the " +
+        "WARNING: multi-chain mode without CDP keys - Base will settle via PayAI and the " +
           "x402 Bazaar will stop indexing/refreshing this seller's listings. Set " +
           "CDP_API_KEY_ID + CDP_API_KEY_SECRET to keep Base on CDP (Bazaar discovery + fee-free)."
       );
@@ -360,7 +360,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   const robinhoodEnabled = evmCaip2.includes(ROBINHOOD_CAIP2) && !!ROBINHOOD_FACILITATOR_URL;
   if (evmCaip2.includes(ROBINHOOD_CAIP2) && !ROBINHOOD_FACILITATOR_URL) {
     console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `robinhood` but ROBINHOOD_FACILITATOR_URL is unset — " +
+      "WARNING: PAYMENT_NETWORKS enables `robinhood` but ROBINHOOD_FACILITATOR_URL is unset - " +
         "dropping Robinhood Chain/USDG from the offered networks (other chains unaffected). " +
         "Set ROBINHOOD_FACILITATOR_URL to enable it."
     );
@@ -379,7 +379,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   const monadEnabled = evmCaip2.includes(MONAD_CAIP2) && !!MONAD_FACILITATOR_URL;
   if (evmCaip2.includes(MONAD_CAIP2) && !MONAD_FACILITATOR_URL) {
     console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `monad` but MONAD_FACILITATOR_URL is empty — " +
+      "WARNING: PAYMENT_NETWORKS enables `monad` but MONAD_FACILITATOR_URL is empty - " +
         "dropping Monad from the offered networks (other chains unaffected)."
     );
     evmCaip2 = evmCaip2.filter((c) => c !== MONAD_CAIP2);
@@ -401,9 +401,9 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   if (evmCaip2.includes(CELO_CAIP2) && !celoEnabled) {
     console.warn(
       "WARNING: PAYMENT_NETWORKS enables `celo` but " +
-        (CELO_FACILITATOR_URL ? "CELO_FACILITATOR_KEY is unset — the facilitator's /settle requires an " +
+        (CELO_FACILITATOR_URL ? "CELO_FACILITATOR_KEY is unset - the facilitator's /settle requires an " +
           "X-API-Key (free: sign a no-gas message at https://x402.celo.org)" : "CELO_FACILITATOR_URL is empty") +
-        " — dropping Celo from the offered networks (other chains unaffected)."
+        " - dropping Celo from the offered networks (other chains unaffected)."
     );
     evmCaip2 = evmCaip2.filter((c) => c !== CELO_CAIP2);
   }
@@ -446,13 +446,13 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     console.log(`Stellar: settling USDC via facilitator ${stellarFacilitatorUrl} → ${stellarWallet}`);
   } else if (stellarCaip2.length && !stellarWallet) {
     console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_WALLET_ADDRESS is unset — " +
+      "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_WALLET_ADDRESS is unset - " +
         "the Stellar payment option will be OMITTED from every 402. Set STELLAR_WALLET_ADDRESS " +
         "(Stellar public key, G...) to accept USDC on Stellar."
     );
   } else if (stellarCaip2.length && !stellarFacilitatorKey) {
     console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_FACILITATOR_KEY is unset — " +
+      "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_FACILITATOR_KEY is unset - " +
         "the OpenZeppelin facilitator requires a Bearer token. Generate one at " +
         "https://channels.openzeppelin.com/gen (GitHub OAuth). Stellar will be OMITTED until set."
     );
@@ -471,9 +471,9 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     console.log(`Algorand: settling USDC via facilitator ${algorandFacilitatorUrl} → ${algorandWallet}`);
   } else if (avmCaip2.length && !algorandWallet) {
     console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `algorand` but ALGORAND_WALLET_ADDRESS is unset — " +
+      "WARNING: PAYMENT_NETWORKS enables `algorand` but ALGORAND_WALLET_ADDRESS is unset - " +
         "the Algorand payment option will be OMITTED from every 402. Set ALGORAND_WALLET_ADDRESS " +
-        "(Algorand public key) to accept USDC on Algorand — and make sure that wallet has opted " +
+        "(Algorand public key) to accept USDC on Algorand - and make sure that wallet has opted " +
         "in to ASA 31566704 (USDC), or settlement will fail on-chain even though the payment verifies."
     );
   }
@@ -481,7 +481,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   registerWalletBlocklistHook(server);
   console.log(
     `Accepting USDC on: ${networks.join(", ")} (${caip2List.join(", ")})` +
-      (robinhoodEnabled ? " — note: robinhood settles USDG, not USDC" : "")
+      (robinhoodEnabled ? " - note: robinhood settles USDG, not USDC" : "")
   );
 
   const solanaWallet = (process.env.SOLANA_WALLET_ADDRESS || "").trim();
@@ -495,7 +495,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // anywhere is exactly what that misconfiguration looks like.
   if (svmCaip2.length && !solanaWallet) {
     console.warn(
-      "WARNING: PAYMENT_NETWORKS enables a Solana network but SOLANA_WALLET_ADDRESS is unset — " +
+      "WARNING: PAYMENT_NETWORKS enables a Solana network but SOLANA_WALLET_ADDRESS is unset - " +
         "the Solana payment option will be OMITTED from every 402. Set SOLANA_WALLET_ADDRESS " +
         "(base58 Solana address) to actually accept USDC on Solana."
     );
@@ -756,7 +756,7 @@ function warnIfSolanaTokenAccountMissing(owner) {
     const j = await res.json();
     if (Array.isArray(j?.result?.value) && j.result.value.length === 0) {
       console.warn(
-        `WARNING: Solana payTo ${owner} has NO USDC token account — every buyer's Solana ` +
+        `WARNING: Solana payTo ${owner} has NO USDC token account - every buyer's Solana ` +
           "payment will fail on-chain simulation (InvalidAccountData) until one exists. " +
           "One-time fix: send this address any amount of USDC on Solana to create it."
       );

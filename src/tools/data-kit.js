@@ -83,7 +83,7 @@ function cachePut(cache, key, response) {
 function serveStaleOrThrow(cache, key, slug, err) {
   const e = cache.get(key);
   if (!e) throw err;
-  console.warn(`[${slug}] upstream failed — serving cached copy from ${new Date(e.fetchedAt).toISOString()}`);
+  console.warn(`[${slug}] upstream failed - serving cached copy from ${new Date(e.fetchedAt).toISOString()}`);
   return { ...e.response, stale: true };
 }
 
@@ -182,12 +182,12 @@ export const DATA_TOOLS = [
         // computed client-side from that table. Response shape is identical
         // to the Frankfurter path; `date` is ER-API's last-update day (UTC).
         if (e.statusCode !== 502 && e.statusCode !== 504) throw e;
-        console.warn(`[fx-rate] frankfurter failed (${e.message}) — falling back to open.er-api.com`);
+        console.warn(`[fx-rate] frankfurter failed (${e.message}) - falling back to open.er-api.com`);
         // Identity branch mirrors the Frankfurter one: touch the upstream (USD
         // table) purely so `date` is upstream-sourced, never `new Date()`.
         const j2 = await getJson(`https://open.er-api.com/v6/latest/${from === to ? "USD" : from}`);
         if (j2?.result !== "success" || !j2.rates || !j2.time_last_update_unix) {
-          throw bad(`fx upstreams unavailable — frankfurter: ${e.message}; er-api: ${j2?.["error-type"] || "unexpected shape"}`, 502);
+          throw bad(`fx upstreams unavailable - frankfurter: ${e.message}; er-api: ${j2?.["error-type"] || "unexpected shape"}`, 502);
         }
         const date = new Date(j2.time_last_update_unix * 1000).toISOString().slice(0, 10);
         if (from === to) return { from, to, amount, rate: 1, result: amount, date };
@@ -229,10 +229,10 @@ export const DATA_TOOLS = [
         // or throttle is weather.gov failing — blaming the caller's coords for
         // that destroyed the evidence (and misled the buyer).
         if (err.upstreamStatus === 404) {
-          throw bad("location not covered — weather.gov serves US locations only", 400);
+          throw bad("location not covered - weather.gov serves US locations only", 400);
         }
         console.warn(`[weather-forecast] weather.gov /points failed: ${err.message ?? err}`);
-        throw bad(`weather.gov upstream error — ${err.message ?? "unreachable"}`, 502);
+        throw bad(`weather.gov upstream error - ${err.message ?? "unreachable"}`, 502);
       }
       const forecastUrl = point.properties?.forecast;
       if (!forecastUrl) throw bad("no forecast available for this location (US only)", 400);
@@ -281,7 +281,7 @@ export const DATA_TOOLS = [
         j = await getJson(`https://date.nager.at/api/v3/PublicHolidays/${year}/${country}`, { allowEmpty: true });
       } catch (e) {
         const mapped = e.statusCode === 422
-          ? bad(`no holiday data for country "${country}" — Nager.Date covers ~110 countries by ISO alpha-2 code`)
+          ? bad(`no holiday data for country "${country}" - Nager.Date covers ~110 countries by ISO alpha-2 code`)
           : e;
         return serveStaleOrThrow(HOLIDAY_CACHE, key, "public-holidays", mapped);
       }
@@ -305,7 +305,7 @@ export const DATA_TOOLS = [
   {
     route: "GET /api/country-info", name: "Country info", slug: "country-info", category: "data", price: "$0.002",
     description:
-      "Country facts by name or ISO code: official name, capital, region, currencies, languages, timezones, dialing code, TLD, and more. Committed open dataset (world-countries, ODbL, plus the IANA timezone country map) — offline and deterministic. ?name=Japan or ?code=JP",
+      "Country facts by name or ISO code: official name, capital, region, currencies, languages, timezones, dialing code, TLD, and more. Committed open dataset (world-countries, ODbL, plus the IANA timezone country map) - offline and deterministic. ?name=Japan or ?code=JP",
     tags: ["country", "geography", "currency", "language", "timezone", "dialing-code", "iso-3166"],
     discovery: {
       input: { name: "Japan" },

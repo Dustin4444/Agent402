@@ -288,7 +288,7 @@ export const FINANCE_MATH_TOOLS = [
     route: "POST /api/npv", name: "Net present value (NPV)", slug: "npv",
     category: "data", price: "$0.001",
     description:
-      "Compute the net present value of a stream of cashflows at a given discount rate. Index 0 is treated as t=0 (today, not discounted); indices 1..n are discounted by (1+rate)^t. Matches Excel's NPV but with the conventional t=0 treatment most finance textbooks use (Excel itself starts discounting at t=1 — see notes). Use for capital-budgeting decisions: positive NPV = creates value at the discount rate; negative = destroys value.",
+      "Compute the net present value of a stream of cashflows at a given discount rate. Index 0 is treated as t=0 (today, not discounted); indices 1..n are discounted by (1+rate)^t. Matches Excel's NPV but with the conventional t=0 treatment most finance textbooks use (Excel itself starts discounting at t=1 - see notes). Use for capital-budgeting decisions: positive NPV = creates value at the discount rate; negative = destroys value.",
     tags: ["finance", "npv", "present-value", "cashflow", "capital-budgeting", "discount-rate"],
     discovery: {
       bodyType: "json",
@@ -338,7 +338,7 @@ export const FINANCE_MATH_TOOLS = [
     route: "POST /api/irr", name: "Internal rate of return (IRR)", slug: "irr",
     category: "data", price: "$0.001",
     description:
-      "Compute the internal rate of return (IRR) of a cashflow stream — the discount rate at which NPV = 0. Index 0 is treated as t=0 (typically the negative initial investment); indices 1..n are inflows in subsequent periods. Solved via Newton-Raphson with bisection fallback. Requires at least one positive and one negative cashflow (otherwise IRR is undefined). Multiple sign changes in the cashflows can produce multiple IRR roots — we return the first one found.",
+      "Compute the internal rate of return (IRR) of a cashflow stream - the discount rate at which NPV = 0. Index 0 is treated as t=0 (typically the negative initial investment); indices 1..n are inflows in subsequent periods. Solved via Newton-Raphson with bisection fallback. Requires at least one positive and one negative cashflow (otherwise IRR is undefined). Multiple sign changes in the cashflows can produce multiple IRR roots - we return the first one found.",
     tags: ["finance", "irr", "rate-of-return", "cashflow", "capital-budgeting"],
     discovery: {
       bodyType: "json",
@@ -427,7 +427,7 @@ export const FINANCE_MATH_TOOLS = [
             npvAtIrr: round2(npvAt(rate)),
             iterations,
             converged: false,
-            warning: "could not bracket IRR root in [-0.999, 10] — try a different `guess` or check cashflow signs",
+            warning: "could not bracket IRR root in [-0.999, 10] - try a different `guess` or check cashflow signs",
           };
         }
         for (let k = 0; k < 200; k++) {
@@ -459,7 +459,7 @@ export const FINANCE_MATH_TOOLS = [
     route: "POST /api/black-scholes", name: "Black-Scholes option price", slug: "black-scholes",
     category: "data", price: "$0.002",
     description:
-      "Price a European option (call or put) with the Black-Scholes-Merton model, plus the greeks (delta, gamma, vega, theta, rho). Continuous dividend yield supported. Greeks are per unit: theta is per year, vega per 1.00 change in volatility, rho per 1.00 change in rate. Deterministic — matches standard references to the cent.",
+      "Price a European option (call or put) with the Black-Scholes-Merton model, plus the greeks (delta, gamma, vega, theta, rho). Continuous dividend yield supported. Greeks are per unit: theta is per year, vega per 1.00 change in volatility, rho per 1.00 change in rate. Deterministic - matches standard references to the cent.",
     tags: ["finance", "options", "black-scholes", "derivatives", "greeks", "call", "put"],
     discovery: {
       bodyType: "json",
@@ -549,7 +549,7 @@ export const FINANCE_MATH_TOOLS = [
   // --- Bond yield to maturity from price (bisection) -------------------------
   {
     route: "POST /api/bond-ytm", name: "Bond yield to maturity", slug: "bond-ytm", category: "data", price: "$0.002",
-    description: "Solve a bond's yield to maturity from its market price — the annual rate that present-values the coupons plus face to that price. Bracketed bisection root-find.",
+    description: "Solve a bond's yield to maturity from its market price - the annual rate that present-values the coupons plus face to that price. Bracketed bisection root-find.",
     tags: ["finance", "bond", "ytm", "yield", "fixed-income"],
     discovery: {
       bodyType: "json",
@@ -636,7 +636,7 @@ export const FINANCE_MATH_TOOLS = [
       const mean = r.reduce((a, b) => a + b, 0) / r.length;
       const sd = Math.sqrt(r.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (r.length - 1));
       // Epsilon, not === 0: identical returns leave a tiny float residual, not exactly 0.
-      if (sd < 1e-12) throw bad("standard deviation is ~zero — Sharpe ratio is undefined for constant returns");
+      if (sd < 1e-12) throw bad("standard deviation is ~zero - Sharpe ratio is undefined for constant returns");
       const out = { sharpe: round6((mean - rf) / sd), mean: round6(mean), stdDev: round6(sd), excessReturn: round6(mean - rf) };
       if (i.periodsPerYear != null) out.annualizedSharpe = round6(((mean - rf) / sd) * Math.sqrt(positiveInt(i.periodsPerYear, "periodsPerYear")));
       return out;

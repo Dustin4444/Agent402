@@ -8,7 +8,7 @@ const INTEGRATIONS = [
     pkg: null,
     icon: "\u{1F310}",
     desc: "Zero-install: paste the remote MCP URL into Claude, Cursor, ChatGPT Pro+, or VS Code. Free tier via rate-limited proof-of-work.",
-    install: "# no install \u2014 just paste the URL into your MCP client config\nhttps://agent402.tools/mcp",
+    install: "# no install - just paste the URL into your MCP client config\nhttps://agent402.tools/mcp",
     snippet: `// Claude Desktop \u2192 Settings \u2192 MCP Servers \u2192 Add
 {
   "mcpServers": {
@@ -181,15 +181,15 @@ export function integrationsPage(baseUrl) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Integrations \u2014 connect Agent402 to any agent framework</title>
+<title>Integrations - connect Agent402 to any agent framework</title>
 <meta name="description" content="Agent402 adapters for MCP, OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex, Google ADK, AWS Strands, and more. Zero-dependency, native tool objects, automatic payment.">
 <link rel="canonical" href="${esc(canonical)}">
-<meta property="og:title" content="Integrations \u2014 connect Agent402 to any agent framework">
+<meta property="og:title" content="Integrations - connect Agent402 to any agent framework">
 <meta property="og:description" content="Agent402 plugs into every major agent framework. Each adapter is zero-dependency, returns native tool objects, and handles payment underneath.">
 <meta property="og:url" content="${esc(canonical)}">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary">
-<meta name="twitter:title" content="Integrations \u2014 connect Agent402 to any agent framework">
+<meta name="twitter:title" content="Integrations - connect Agent402 to any agent framework">
 <meta name="twitter:description" content="Agent402 plugs into every major agent framework. Each adapter is zero-dependency, returns native tool objects, and handles payment underneath.">
 ${CHROME_HEAD_LINKS}
 <style>
@@ -218,7 +218,7 @@ ${renderHeader("/integrations")}
 <main style="max-width:72rem;margin:0 auto;padding:2rem 1.5rem">
 <div class="crumb"><a href="/">Agent402</a> / integrations</div>
 <h1 style="font-size:1.75rem;margin:0 0 1rem">Integrations</h1>
-<p class="int-intro">Agent402 plugs into every major agent framework &mdash; MCP, OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex, Google ADK, AWS Strands. Each adapter is zero-dependency, returns native tool objects, and handles payment underneath (proof-of-work for free tools, USDC via x402 for wallet-only). Pick your stack.</p>
+<p class="int-intro">Agent402 plugs into every major agent framework - MCP, OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex, Google ADK, AWS Strands. Each adapter is zero-dependency, returns native tool objects, and handles payment underneath (proof-of-work for free tools, USDC via x402 for wallet-only). Pick your stack.</p>
 <div class="int-grid">
 ${cards}
 </div>
