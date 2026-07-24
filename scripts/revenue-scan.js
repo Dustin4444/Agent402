@@ -26,9 +26,10 @@ const WALLET = (process.env.REVENUE_WALLET || "0xaBF4FAbd7c416fB67202E5f9002389F
 const OUR_WALLETS = new Set(
   // Canary/burner EVM addresses (public; keys live only in CI). Rotated
   // 2026-07-17: 0xfeda7403… retired (drained), 0x902dcf34… is the current
-  // burner. Both stay listed so historical AND ongoing self-buys classify as
-  // internal, not external revenue.
-  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256")
+  // burner. 0x77065d81… is the Base x402 SPENDING wallet (X402_UPSTREAM_BUYER_ADDRESS
+  // on Railway) — its sweeps to the treasury are internal moves, never revenue.
+  // All stay listed so historical AND ongoing self-flows classify internal.
+  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256,0x77065d81e18ad403bcd6e9a0616b288e16744121")
     .toLowerCase().split(",").map((s) => s.trim()).filter(Boolean)
 );
 // A genuine per-call settlement can't exceed the max tool price ($0.02); the

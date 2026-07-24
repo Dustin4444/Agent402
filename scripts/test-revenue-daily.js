@@ -27,7 +27,13 @@ db.prepare("INSERT INTO cursors (chain, wallet, next_block, newest_sig, backfill
 recordTransfer({ chain: "base", wallet: W, txid: "b1", tx_hash: "b1", block: 1000000, when_ts: null, usd: 0.003, asset: "USDC", external: true });
 recordTransfer({ chain: "base", wallet: W, txid: "b2", tx_hash: "b2", block: 1000000 - 43200, when_ts: null, usd: 0.004, asset: "USDC", external: true });
 
-const days = ledgerDaily({ walletAddress: W, solanaWallet: null, stellarWallet: null, algorandWallet: "ALGOWALLET" });
+// Spending wallet (baseExtraWallets): its inbound route-execute sale is revenue.
+const SPEND = "0x7706000000000000000000000000000000004121";
+recordTransfer({ chain: "base", wallet: SPEND, txid: "s1", tx_hash: "s1", block: 1000000, when_ts: null, usd: 0.55, asset: "USDC", external: true });
+db.prepare("INSERT INTO cursors (chain, wallet, next_block, newest_sig, backfilled, caught_up, updated_ts) VALUES ('base', ?, 1000000, NULL, 1, 1, ?)").run(SPEND, NOW);
+
+const wallets = { walletAddress: W, solanaWallet: null, stellarWallet: null, algorandWallet: "ALGOWALLET", baseExtraWallets: [SPEND] };
+const days = ledgerDaily(wallets);
 const today = new Date(NOW * 1000).toISOString().slice(0, 10);
 const yesterday = new Date((NOW - DAY) * 1000).toISOString().slice(0, 10);
 const get = (day, chain) => days.find((d) => d.day === day && d.chain === chain);
@@ -38,8 +44,13 @@ const ok = (c, n) => { if (c) { passed++; console.log("ok - " + n); } else { con
 ok(get(today, "algorand")?.extUsd === 0.02 && get(today, "algorand")?.extTx === 1, "real-timestamp rows bucket to their day");
 ok(get(yesterday, "algorand")?.extUsd === 0.01, "prior-day row buckets separately");
 ok(get(today, "algorand")?.intUsd === 0.05 && get(today, "algorand")?.intTx === 1, "canary-sized internal counted; funding-sized $5 excluded");
-ok(get(today, "base")?.extUsd === 0.003, "EVM row at cursor head estimates to today");
+ok(get(today, "base")?.extTx === 2, "EVM rows at cursor head estimate to today (treasury + spending)");
 ok(get(yesterday, "base")?.extUsd === 0.004, "EVM row 43200 blocks back (2s cadence) estimates to yesterday");
 ok(days.every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d.day)), "all rows carry ISO day keys");
+ok(get(today, "base")?.extUsd === Number((0.003 + 0.55).toFixed(6)), "spending-wallet route-execute sale counts in the daily base series");
+const { ledgerSummary } = await import("../src/revenue-ledger.js");
+const sum = ledgerSummary(wallets);
+ok(sum.perChain.base.externalUsd === Number((0.003 + 0.004 + 0.55).toFixed(6)), "summary aggregates treasury + spending wallet on base");
+ok(sum.allTimeExternalUsd > 0.55, "all-time total includes the spending-wallet revenue");
 
 console.log(`\ntest-revenue-daily: ${passed} passed${process.exitCode ? ", FAILURES" : ""}`);
