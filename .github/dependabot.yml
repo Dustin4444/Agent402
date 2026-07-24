@@ -1,20 +1,47 @@
-# Dependabot — weekly dependency + action update PRs (7th audit N-02).
-# Security-relevant updates surface as PRs against the deploy branch; the
-# normal CI markers gate whether they test/deploy.
+# Dependabot (audit N-02) — configured for SIGNAL, not noise. The point is to
+# surface a genuine security update, not to churn cosmetic version bumps. So:
+# everything is GROUPED into at most a couple of PRs, the payment libraries and
+# known-incompatible packages are IGNORED (they're bumped deliberately, never
+# auto), and open-PR limits are low.
 version: 2
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 3
     labels:
       - "dependencies"
+    groups:
+      # One PR for all safe (minor+patch) npm updates instead of one per package.
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Payment libraries — the settlement path is audit-locked to a coordinated
+      # @x402 version set. NEVER auto-bump these; adopt a new line deliberately
+      # (express+core+evm+fetch+svm+stellar+avm together) with a paid-canary run.
+      - dependency-name: "@x402/*"
+      # better-sqlite3 major: native module; v13 has no working prebuilt for the
+      # node:22-slim deploy image and breaks the Railway build (verified 2026-07-24).
+      # Revisit only with a container-build test.
+      - dependency-name: "better-sqlite3"
+        update-types: ["version-update:semver-major"]
+      # @zxing/library >=0.23 requires Node 24 (we run 22) and changed its exports,
+      # crashing the server boot. Revisit after a Node upgrade.
+      - dependency-name: "@zxing/library"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "github-actions"
+    groups:
+      # One PR for all GitHub Actions updates.
+      github-actions:
+        patterns:
+          - "*"
