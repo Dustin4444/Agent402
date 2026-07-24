@@ -47,7 +47,7 @@ function capUtf8(value, budget) {
 
 function validateInput(input, tierSlug) {
   const code = typeof input.code === "string" ? input.code.trim() : "";
-  if (!code) throw bad('"code" is required — the source code to execute');
+  if (!code) throw bad('"code" is required - the source code to execute');
 
   const cap = TIERS[tierSlug].maxCodeChars;
   if (code.length > cap) {
@@ -82,7 +82,7 @@ async function runInSandbox(code, language, tierSlug) {
   const tier = TIERS[tierSlug];
   // F12: global concurrency gate — refuse BEFORE creating a sandbox so a burst
   // can't run us (and the E2B account) out of capacity.
-  if (e2bInFlight >= E2B_MAX_CONCURRENT) throw bad("code execution is at capacity — retry shortly", 503);
+  if (e2bInFlight >= E2B_MAX_CONCURRENT) throw bad("code execution is at capacity - retry shortly", 503);
   e2bInFlight++;
   let sbx;
   try {

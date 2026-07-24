@@ -2,7 +2,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function contributePage(baseUrl) {
   const canonical = `${baseUrl}/contribute`;
-  const title = "Contribute to Agent402 — add tools, guides, and skill packs";
+  const title = "Contribute to Agent402 - add tools, guides, and skill packs";
   const description =
     "A contributor guide for Agent402: how to add a tool kit, write a guide, or submit a skill pack.";
 
@@ -54,14 +54,14 @@ export function contributePage(baseUrl) {
 <!-- Section 1: Add a tool kit -->
 <div class="ct-section">
 <h2>Add a tool kit</h2>
-<p>A tool kit is a JavaScript file in <code>src/tools/</code> that exports an array of tool objects. Each tool is a self-contained, deterministic function &mdash; no LLM in the serving path.</p>
+<p>A tool kit is a JavaScript file in <code>src/tools/</code> that exports an array of tool objects. Each tool is a self-contained, deterministic function - no LLM in the serving path.</p>
 
-<h3>Step 1 &mdash; Create the file</h3>
+<h3>Step 1 - Create the file</h3>
 <p>Add a new file in <code>src/tools/</code>, for example <code>my-kit.js</code>. Export a named array of tool objects:</p>
 
 <span class="ct-label">src/tools/my-kit.js</span>
 <div class="ct-code-wrap">
-<pre><code>// my-kit.js — example tool kit
+<pre><code>// my-kit.js - example tool kit
 export const MY_TOOLS = [
   {
     route: "POST /api/reverse-string",
@@ -101,7 +101,7 @@ export const MY_TOOLS = [
 <button class="ct-copy" aria-label="Copy">Copy</button>
 </div>
 
-<h3>Step 2 &mdash; Wire it into the server</h3>
+<h3>Step 2 - Wire it into the server</h3>
 <p>Open <code>src/server.js</code>, add the import, and spread the array into <code>ALL_KIT</code>:</p>
 
 <span class="ct-label">src/server.js</span>
@@ -112,7 +112,7 @@ const ALL_KIT = [...KIT, ...KIT2, /* ... existing kits ... */ ...MY_TOOLS];</cod
 <button class="ct-copy" aria-label="Copy">Copy</button>
 </div>
 
-<h3>Step 3 &mdash; Test</h3>
+<h3>Step 3 - Test</h3>
 <p>Every tool must pass the "answers its own example" CI check. Run the test suite locally:</p>
 
 <div class="ct-code-wrap">
@@ -125,22 +125,22 @@ TARGET_URL=http://localhost:3000 node scripts/test-all.js</code></pre>
 </div>
 
 <div class="ct-note">
-<strong>Key rules:</strong> Tools must be deterministic &mdash; same input, same output, every time. No LLM calls, no non-deterministic dependencies. Pure-CPU tools are automatically eligible for the free proof-of-work tier. Tools that make external network requests must be added to <code>WALLET_ONLY_SLUGS</code> in <code>src/pow.js</code>.
+<strong>Key rules:</strong> Tools must be deterministic - same input, same output, every time. No LLM calls, no non-deterministic dependencies. Pure-CPU tools are automatically eligible for the free proof-of-work tier. Tools that make external network requests must be added to <code>WALLET_ONLY_SLUGS</code> in <code>src/pow.js</code>.
 </div>
 
 <h3>Tool object shape</h3>
 <p>Every tool in the array needs these fields:</p>
 <ul>
-  <li><code>route</code> &mdash; HTTP method and path, e.g. <code>"POST /api/my-tool"</code></li>
-  <li><code>name</code> &mdash; human-readable name</li>
-  <li><code>slug</code> &mdash; URL-safe identifier, unique across the catalog</li>
-  <li><code>category</code> &mdash; one of the existing categories (text, data, web, finance, etc.)</li>
-  <li><code>price</code> &mdash; USDC price string, e.g. <code>"$0.001"</code></li>
-  <li><code>description</code> &mdash; what the tool does, one or two sentences</li>
-  <li><code>tags</code> &mdash; array of lowercase keyword strings for discovery</li>
-  <li><code>discovery.inputSchema</code> &mdash; JSON Schema describing the input</li>
-  <li><code>discovery.input</code> &mdash; example input (used by CI to test the tool)</li>
-  <li><code>handler(input)</code> &mdash; function that returns JSON or throws an <code>Error</code> with <code>.statusCode</code></li>
+  <li><code>route</code> - HTTP method and path, e.g. <code>"POST /api/my-tool"</code></li>
+  <li><code>name</code> - human-readable name</li>
+  <li><code>slug</code> - URL-safe identifier, unique across the catalog</li>
+  <li><code>category</code> - one of the existing categories (text, data, web, finance, etc.)</li>
+  <li><code>price</code> - USDC price string, e.g. <code>"$0.001"</code></li>
+  <li><code>description</code> - what the tool does, one or two sentences</li>
+  <li><code>tags</code> - array of lowercase keyword strings for discovery</li>
+  <li><code>discovery.inputSchema</code> - JSON Schema describing the input</li>
+  <li><code>discovery.input</code> - example input (used by CI to test the tool)</li>
+  <li><code>handler(input)</code> - function that returns JSON or throws an <code>Error</code> with <code>.statusCode</code></li>
 </ul>
 </div>
 
@@ -209,19 +209,19 @@ Use ## for top-level sections within the guide.
 <p>A skill pack is a curated, multi-tool workflow that solves a job no single tool covers. Instead of guessing which tools to call, the agent gets a ready-to-run plan with the right tools wired in the right order.</p>
 
 <h3>How skill packs work</h3>
-<p>Skill packs are defined in <code>src/skills.js</code> in the <code>SKILL_PACKS</code> array. Each pack is both a server-rendered page at <code>/skills/&lt;slug&gt;</code> and an MCP prompt template that agents discover via <code>prompts/list</code>. Payment only happens when the agent actually calls each tool &mdash; the template itself is free.</p>
+<p>Skill packs are defined in <code>src/skills.js</code> in the <code>SKILL_PACKS</code> array. Each pack is both a server-rendered page at <code>/skills/&lt;slug&gt;</code> and an MCP prompt template that agents discover via <code>prompts/list</code>. Payment only happens when the agent actually calls each tool - the template itself is free.</p>
 
 <h3>Pack shape</h3>
 <p>A skill pack has these fields:</p>
 <ul>
-  <li><code>slug</code> &mdash; URL-safe identifier, e.g. <code>"security-audit"</code></li>
-  <li><code>title</code> &mdash; human-readable name</li>
-  <li><code>tagline</code> &mdash; one-sentence summary of what the pack solves</li>
-  <li><code>useCase</code> &mdash; when to reach for this pack</li>
-  <li><code>promptArgs</code> &mdash; array of <code>{ name, description, required, substitute }</code> arguments</li>
-  <li><code>toolSlugs</code> &mdash; ordered array of tool slugs the pack orchestrates</li>
-  <li><code>workflow</code> &mdash; array of strings, one per step, describing what each tool contributes</li>
-  <li><code>claudePrompt</code> &mdash; a copy-pastable Claude prompt that exercises the pack</li>
+  <li><code>slug</code> - URL-safe identifier, e.g. <code>"security-audit"</code></li>
+  <li><code>title</code> - human-readable name</li>
+  <li><code>tagline</code> - one-sentence summary of what the pack solves</li>
+  <li><code>useCase</code> - when to reach for this pack</li>
+  <li><code>promptArgs</code> - array of <code>{ name, description, required, substitute }</code> arguments</li>
+  <li><code>toolSlugs</code> - ordered array of tool slugs the pack orchestrates</li>
+  <li><code>workflow</code> - array of strings, one per step, describing what each tool contributes</li>
+  <li><code>claudePrompt</code> - a copy-pastable Claude prompt that exercises the pack</li>
 </ul>
 
 <span class="ct-label">Example skill pack in src/skills.js</span>

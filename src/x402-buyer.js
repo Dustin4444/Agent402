@@ -65,7 +65,7 @@ let buyerPromise = null;
  *  fresh clone never tries to pay upstream without a funded wallet. */
 export async function getUpstreamBuyer() {
   const pk = (process.env.X402_UPSTREAM_BUYER_KEY || "").trim();
-  if (!pk) throw bad("Upstream buyer wallet not configured (X402_UPSTREAM_BUYER_KEY) — this path pays an upstream x402 seller and cannot run without a funded spending wallet", 503);
+  if (!pk) throw bad("Upstream buyer wallet not configured (X402_UPSTREAM_BUYER_KEY) - this path pays an upstream x402 seller and cannot run without a funded spending wallet", 503);
   buyerPromise ??= (async () => {
     const [{ privateKeyToAccount }, { x402Client, x402HTTPClient }, { registerExactEvmScheme }] = await Promise.all([
       import("viem/accounts"), import("@x402/core/client"), import("@x402/evm/exact/client"),
@@ -94,7 +94,7 @@ export function avmBuyerConfigured() {
  *  403s Railway's egress IP outright, so prod cannot reach the public bases. */
 export async function getUpstreamBuyerAvm() {
   const mnemonic = (process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim();
-  if (!mnemonic) throw bad("Algorand upstream buyer wallet not configured (ALGORAND_UPSTREAM_BUYER_MNEMONIC) — this path pays an Algorand x402 seller and cannot run without a funded AVM spending wallet", 503);
+  if (!mnemonic) throw bad("Algorand upstream buyer wallet not configured (ALGORAND_UPSTREAM_BUYER_MNEMONIC) - this path pays an Algorand x402 seller and cannot run without a funded AVM spending wallet", 503);
   avmBuyerPromise ??= (async () => {
     const [{ x402Client, x402HTTPClient }, { ExactAvmScheme }, { toClientAvmSigner }, algosdk, { AlgorandClient }] = await Promise.all([
       import("@x402/core/client"), import("@x402/avm/exact/client"), import("@x402/avm"),
@@ -140,7 +140,7 @@ export async function avmBuyerStatus() {
       address = algosdk.mnemonicToSecretKey((process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim()).addr.toString();
     } catch {
       const words = (process.env.ALGORAND_UPSTREAM_BUYER_MNEMONIC || "").trim().split(/\s+/).filter(Boolean).length;
-      console.error(`[avm-buyer] ALGORAND_UPSTREAM_BUYER_MNEMONIC does not decode (${words} words — Algorand mnemonics are 25)`);
+      console.error(`[avm-buyer] ALGORAND_UPSTREAM_BUYER_MNEMONIC does not decode (${words} words - Algorand mnemonics are 25)`);
       result = { configured: true, status: "unknown", reason: "mnemonic-invalid" };
       avmStatusCache = { at: Date.now(), result };
       return result;
@@ -205,7 +205,7 @@ export function reserveSpend(atomic) {
   const now = Date.now();
   if (now - spendWindowStart > SPEND_WINDOW_MS) { spendWindowStart = now; spentThisWindow = 0n; }
   const amt = BigInt(atomic);
-  if (spentThisWindow + amt > SPEND_CAP_ATOMIC) throw bad("Upstream spend budget for this window is exhausted — try again shortly", 429);
+  if (spentThisWindow + amt > SPEND_CAP_ATOMIC) throw bad("Upstream spend budget for this window is exhausted - try again shortly", 429);
   spentThisWindow += amt;
   return spendWindowStart; // token: identifies the window this hold belongs to
 }
@@ -244,7 +244,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   // "seller unreachable" — fail it loudly as OUR bug instead. Callers convert
   // params to query strings for GET sellers (route-execute does).
   if (body !== undefined && (method === "GET" || method === "HEAD")) {
-    throw bad(`payX402: ${method} request cannot carry a body — pass params in the URL`, 400);
+    throw bad(`payX402: ${method} request cannot carry a body - pass params in the URL`, 400);
   }
   const { client, http } = chain === "algorand" ? await getUpstreamBuyerAvm() : await getUpstreamBuyer();
   const reqInit = {
@@ -260,7 +260,7 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
     redirect: "manual",
     signal: AbortSignal.timeout(timeoutMs),
   };
-  const reject3xx = (r) => { if (r.status >= 300 && r.status < 400) throw bad("Seller returned a redirect — refusing to follow off the validated host", 502); };
+  const reject3xx = (r) => { if (r.status >= 300 && r.status < 400) throw bad("Seller returned a redirect - refusing to follow off the validated host", 502); };
   let bare;
   try { bare = await fetch(url, reqInit); }
   catch (e) { throw bad(`Seller unreachable: ${String(e?.message || e).slice(0, 80)}`, 502); }
@@ -282,10 +282,10 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   // hand the client a single validated accept, so what we cap-check is what
   // we sign.
   const payable = pickPayableAccept(paymentRequired.accepts, chain);
-  if (!payable) throw bad(`Seller offers no ${chain}/exact/USDC accept — cannot pay from the ${chain} spending wallet`, 502);
+  if (!payable) throw bad(`Seller offers no ${chain}/exact/USDC accept - cannot pay from the ${chain} spending wallet`, 502);
   const quotedAtomic = payable.amount ?? payable.maxAmountRequired;
   if (!quoteWithinCap(quotedAtomic, maxAtomic)) {
-    throw bad(`Seller quote ${quotedAtomic} atomic exceeds the ${maxAtomic} cap — refusing to pay`, 402);
+    throw bad(`Seller quote ${quotedAtomic} atomic exceeds the ${maxAtomic} cap - refusing to pay`, 402);
   }
   const spendToken = reserveSpend(quotedAtomic); // F3 belt — before signing (throws 429 if over the window budget)
   let committed = false;

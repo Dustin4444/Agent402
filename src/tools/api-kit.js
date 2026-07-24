@@ -197,7 +197,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-diff", name: "OpenAPI / Swagger diff", slug: "openapi-diff", category: "conversion", price: "$0.002",
     description:
-      "Compare two OpenAPI 3.x or Swagger 2.x documents and return a structured diff: added / removed / changed endpoints, with a conservative \"is any change breaking?\" flag. Breaking = an endpoint or required-2xx status was removed, a required parameter was added, an optional param became required, a param type changed, or a JSON body field became required. Pure CPU — deterministic, no network, no $ref dereferencing (resolve refs upstream if needed).",
+      "Compare two OpenAPI 3.x or Swagger 2.x documents and return a structured diff: added / removed / changed endpoints, with a conservative \"is any change breaking?\" flag. Breaking = an endpoint or required-2xx status was removed, a required parameter was added, an optional param became required, a param type changed, or a JSON body field became required. Pure CPU - deterministic, no network, no $ref dereferencing (resolve refs upstream if needed).",
     tags: ["openapi", "swagger", "diff", "breaking-change", "api"],
     discovery: {
       bodyType: "json",
@@ -289,7 +289,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-lint", name: "OpenAPI agent-readiness lint", slug: "openapi-lint", category: "validation", price: "$0.002",
     description:
-      "Score an OpenAPI 3.x or Swagger 2.x spec on agent-readiness — i.e. does an LLM-driven caller have what it needs to call the API correctly without guessing. Returns a 0..100 score, severity counts, and a structured list of violations with stable rule codes. Checks: documented title/servers/paths, per-operation summary/description/operationId/tags, documented 2xx + error responses, param descriptions/schemas/examples, response descriptions, JSON response schemas. Pure CPU — deterministic, no network, no $ref dereferencing.",
+      "Score an OpenAPI 3.x or Swagger 2.x spec on agent-readiness - i.e. does an LLM-driven caller have what it needs to call the API correctly without guessing. Returns a 0..100 score, severity counts, and a structured list of violations with stable rule codes. Checks: documented title/servers/paths, per-operation summary/description/operationId/tags, documented 2xx + error responses, param descriptions/schemas/examples, response descriptions, JSON response schemas. Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "lint", "score", "agent-readiness", "validation"],
     discovery: {
       bodyType: "json",
@@ -332,7 +332,7 @@ export const API_TOOLS = [
               rule: "operation-missing-operationid",
               severity: "warning",
               location: "GET /users",
-              message: "Operation has no operationId — agents can't refer to this call by a stable name.",
+              message: "Operation has no operationId - agents can't refer to this call by a stable name.",
             },
           ],
         },
@@ -357,7 +357,7 @@ export const API_TOOLS = [
       // Swagger 2.x uses `host` instead of `servers`. Accept either.
       const hasServer = (Array.isArray(spec.servers) && spec.servers.length > 0) || (typeof spec.host === "string" && spec.host.trim());
       if (!hasServer) {
-        add("no-servers", "warning", "servers", "No servers documented — agents don't know where to call.");
+        add("no-servers", "warning", "servers", "No servers documented - agents don't know where to call.");
       }
 
       const idx = indexEndpoints(spec);
@@ -373,15 +373,15 @@ export const API_TOOLS = [
 
         if (!op.summary && !op.description) {
           add("operation-missing-summary-or-description", "warning", route,
-            "Operation has no summary or description — agents can't tell what it does.");
+            "Operation has no summary or description - agents can't tell what it does.");
         }
         if (!op.operationId) {
           add("operation-missing-operationid", "warning", route,
-            "Operation has no operationId — agents can't refer to this call by a stable name.");
+            "Operation has no operationId - agents can't refer to this call by a stable name.");
         }
         if (!Array.isArray(op.tags) || op.tags.length === 0) {
           add("operation-missing-tags", "info", route,
-            "Operation has no tags — agents can't browse by category.");
+            "Operation has no tags - agents can't browse by category.");
         }
 
         const responses = op.responses || {};
@@ -390,11 +390,11 @@ export const API_TOOLS = [
         const hasErr = statuses.some((s) => /^[45]\d\d$/.test(s));
         if (!has2xx) {
           add("operation-missing-2xx-response", "error", route,
-            "Operation documents no 2xx response — agents don't know what success looks like.");
+            "Operation documents no 2xx response - agents don't know what success looks like.");
         }
         if (has2xx && !hasErr) {
           add("operation-no-error-responses", "info", route,
-            "Operation documents no 4xx/5xx response — agents won't know how errors are shaped.");
+            "Operation documents no 4xx/5xx response - agents won't know how errors are shaped.");
         }
 
         for (const p of mergeParams(pathItem, op)) {
@@ -425,7 +425,7 @@ export const API_TOOLS = [
             const jc = r.content["application/json"];
             if (jc && !jc.schema) {
               add("response-2xx-missing-schema", "info", rloc,
-                "2xx JSON response has content but no schema — agents can't predict the body shape.");
+                "2xx JSON response has content but no schema - agents can't predict the body shape.");
             }
           }
         }
@@ -445,7 +445,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-extract", name: "OpenAPI endpoint extractor", slug: "openapi-extract", category: "conversion", price: "$0.002",
     description:
-      "Flatten an OpenAPI 3.x or Swagger 2.x spec into a structured list of callable endpoints — one row per operation with method, path, operationId, summary, tags, parameters (name / in / required / type), JSON-body flag, and documented response codes. Includes per-method and per-tag counts so an agent can pick what to call next without parsing the full spec. Output is sorted by path then method for stable, agent-friendly grouping. Pure CPU — deterministic, no network, no $ref dereferencing.",
+      "Flatten an OpenAPI 3.x or Swagger 2.x spec into a structured list of callable endpoints - one row per operation with method, path, operationId, summary, tags, parameters (name / in / required / type), JSON-body flag, and documented response codes. Includes per-method and per-tag counts so an agent can pick what to call next without parsing the full spec. Output is sorted by path then method for stable, agent-friendly grouping. Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "extract", "endpoints", "api", "agent-readiness"],
     discovery: {
       bodyType: "json",
@@ -566,7 +566,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-to-curl", name: "OpenAPI to curl command", slug: "openapi-to-curl", category: "conversion", price: "$0.002",
     description:
-      "Build a runnable curl command for one operation in an OpenAPI 3.x or Swagger 2.x spec. Locate the operation by operationId (preferred) or by method + path, substitute path parameters using the spec's example values, include required query and header parameters with their example values, and attach a JSON body when the operation defines one. Returns the structured request (method, url, headers, body) alongside the assembled curl string with POSIX single-quote escaping. Pure CPU — deterministic, no network, no $ref dereferencing.",
+      "Build a runnable curl command for one operation in an OpenAPI 3.x or Swagger 2.x spec. Locate the operation by operationId (preferred) or by method + path, substitute path parameters using the spec's example values, include required query and header parameters with their example values, and attach a JSON body when the operation defines one. Returns the structured request (method, url, headers, body) alongside the assembled curl string with POSIX single-quote escaping. Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "curl", "client", "api", "agent-readiness"],
     discovery: {
       bodyType: "json",
@@ -674,7 +674,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-mock-response", name: "OpenAPI mock response generator", slug: "openapi-mock-response", category: "conversion", price: "$0.002",
     description:
-      "Synthesize a JSON response body for one operation + status code in an OpenAPI 3.x or Swagger 2.x spec. Locate the operation by operationId or method+path. Pick the response by explicit `status`, else the first 2xx, else the first documented response. Generation precedence: operation-level `example`/`examples` > schema `example` > recursive type-inferred walk (objects walk properties, arrays return [mock(items)], enums return the first value, $ref is surfaced literally). Returns a `source` tag so callers know the mock's fidelity. Pure CPU — deterministic, no network, no $ref dereferencing.",
+      "Synthesize a JSON response body for one operation + status code in an OpenAPI 3.x or Swagger 2.x spec. Locate the operation by operationId or method+path. Pick the response by explicit `status`, else the first 2xx, else the first documented response. Generation precedence: operation-level `example`/`examples` > schema `example` > recursive type-inferred walk (objects walk properties, arrays return [mock(items)], enums return the first value, $ref is surfaced literally). Returns a `source` tag so callers know the mock's fidelity. Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "mock", "response", "api", "agent-readiness"],
     discovery: {
       bodyType: "json",
@@ -775,7 +775,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-search", name: "OpenAPI operation search", slug: "openapi-search", category: "conversion", price: "$0.002",
     description:
-      "Search operations in an OpenAPI 3.x or Swagger 2.x spec against a free-text query. Tokenizes the query (lowercase, alphanumeric runs), scores each operation by which fields the tokens match — operationId +3, path +3, tags +2, summary +2, description +1 per matched token — and returns ranked results with a `matches` array naming the contributing fields. Sort: score descending, then path ascending for stability. Limit defaults to 10 (max 100). Pure CPU — deterministic, no network, no $ref dereferencing.",
+      "Search operations in an OpenAPI 3.x or Swagger 2.x spec against a free-text query. Tokenizes the query (lowercase, alphanumeric runs), scores each operation by which fields the tokens match - operationId +3, path +3, tags +2, summary +2, description +1 per matched token - and returns ranked results with a `matches` array naming the contributing fields. Sort: score descending, then path ascending for stability. Limit defaults to 10 (max 100). Pure CPU - deterministic, no network, no $ref dereferencing.",
     tags: ["openapi", "swagger", "search", "ranking", "api", "agent-readiness"],
     discovery: {
       bodyType: "json",
@@ -898,7 +898,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-validate-payload", name: "OpenAPI payload validator", slug: "openapi-validate-payload", category: "validation", price: "$0.002",
     description:
-      "Validate a JSON payload against the request or response schema for one operation in an OpenAPI 3.x or Swagger 2.x spec. Locate the operation by operationId or method+path; choose `part: \"request\"` or `part: \"response\"` (status defaults to the first 2xx). Deterministic subset of JSON Schema: type, required, enum, properties, items, additionalProperties:false, oneOf/anyOf/allOf, $ref-detection (not dereferenced). Returns `valid`, `schemaPresent` (false → no contract to check; result is vacuously valid), and ordered `errors[]` with stable rule codes. Pure CPU — deterministic, no network.",
+      "Validate a JSON payload against the request or response schema for one operation in an OpenAPI 3.x or Swagger 2.x spec. Locate the operation by operationId or method+path; choose `part: \"request\"` or `part: \"response\"` (status defaults to the first 2xx). Deterministic subset of JSON Schema: type, required, enum, properties, items, additionalProperties:false, oneOf/anyOf/allOf, $ref-detection (not dereferenced). Returns `valid`, `schemaPresent` (false → no contract to check; result is vacuously valid), and ordered `errors[]` with stable rule codes. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "validation", "json-schema", "api", "agent-readiness"],
     discovery: {
       bodyType: "json",
@@ -977,7 +977,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-redact", name: "OpenAPI spec redactor", slug: "openapi-redact", category: "conversion", price: "$0.002",
     description:
-      "Shrink an OpenAPI 3.x or Swagger 2.x document for LLM context by stripping verbose meta-fields (examples, descriptions, summaries, tags, externalDocs, deprecated). Categories are explicit; default is `[\"examples\", \"descriptions\"]`. User-defined property names under `properties: { ... }` are protected — only the meta-field `example` keyword inside a property schema is removed, not a user property literally named \"example\". Returns the redacted spec plus `sizeBefore`/`sizeAfter` (JSON byte length) and per-category removal counts so callers can see how much context they saved. Pure CPU — deterministic, no network.",
+      "Shrink an OpenAPI 3.x or Swagger 2.x document for LLM context by stripping verbose meta-fields (examples, descriptions, summaries, tags, externalDocs, deprecated). Categories are explicit; default is `[\"examples\", \"descriptions\"]`. User-defined property names under `properties: { ... }` are protected - only the meta-field `example` keyword inside a property schema is removed, not a user property literally named \"example\". Returns the redacted spec plus `sizeBefore`/`sizeAfter` (JSON byte length) and per-category removal counts so callers can see how much context they saved. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "redact", "shrink", "llm-context", "api"],
     discovery: {
       bodyType: "json",
@@ -1036,7 +1036,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-resolve-refs", name: "OpenAPI $ref resolver", slug: "openapi-resolve-refs", category: "conversion", price: "$0.002",
     description:
-      "Inline every local `$ref` in an OpenAPI 3.x or Swagger 2.x document so downstream tools see a self-contained spec. Resolves `#/components/...` (OpenAPI) and `#/definitions/...` (Swagger) JSON-pointer refs anywhere in the document, including inside components themselves. Per-branch cycle detection: if A→B→A, the second A is left as a `$ref` and recorded under `circular`. External refs (http://, file://, ./other.yaml) are never fetched — they're reported under `external` and left as-is. Sibling keys of `$ref` (e.g. a `description` next to a `$ref`) are dropped to match JSON Schema Draft 7 / OpenAPI 3.0 semantics. Returns the dereffed spec plus `resolved` (count inlined) and arrays of any refs that couldn't be inlined. Pure CPU — deterministic, no network.",
+      "Inline every local `$ref` in an OpenAPI 3.x or Swagger 2.x document so downstream tools see a self-contained spec. Resolves `#/components/...` (OpenAPI) and `#/definitions/...` (Swagger) JSON-pointer refs anywhere in the document, including inside components themselves. Per-branch cycle detection: if A→B→A, the second A is left as a `$ref` and recorded under `circular`. External refs (http://, file://, ./other.yaml) are never fetched - they're reported under `external` and left as-is. Sibling keys of `$ref` (e.g. a `description` next to a `$ref`) are dropped to match JSON Schema Draft 7 / OpenAPI 3.0 semantics. Returns the dereffed spec plus `resolved` (count inlined) and arrays of any refs that couldn't be inlined. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "ref", "dereference", "resolve", "api"],
     discovery: {
       bodyType: "json",
@@ -1103,7 +1103,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-security-summary", name: "OpenAPI security summary", slug: "openapi-security-summary", category: "conversion", price: "$0.002",
     description:
-      "Resolve authentication requirements across an OpenAPI 3.x or Swagger 2.x document. Returns the catalog of security schemes (`components.securitySchemes` in OpenAPI 3, `securityDefinitions` in Swagger 2) verbatim, the document-level default, and the *effective* security for each operation after layering. Honors the OpenAPI rule that `security: []` on an operation overrides the global default with \"explicitly open\" rather than inheriting it — so an agent sees `open: true` for that op and won't try to attach a token. Includes a `schemeUsage` count so callers know which scheme is actually needed. Operations are sorted `METHOD /path` for deterministic output. Pure CPU — deterministic, no network.",
+      "Resolve authentication requirements across an OpenAPI 3.x or Swagger 2.x document. Returns the catalog of security schemes (`components.securitySchemes` in OpenAPI 3, `securityDefinitions` in Swagger 2) verbatim, the document-level default, and the *effective* security for each operation after layering. Honors the OpenAPI rule that `security: []` on an operation overrides the global default with \"explicitly open\" rather than inheriting it - so an agent sees `open: true` for that op and won't try to attach a token. Includes a `schemeUsage` count so callers know which scheme is actually needed. Operations are sorted `METHOD /path` for deterministic output. Pure CPU - deterministic, no network.",
     tags: ["openapi", "swagger", "security", "auth", "api"],
     discovery: {
       bodyType: "json",
@@ -1210,7 +1210,7 @@ export const API_TOOLS = [
   {
     route: "POST /api/openapi-required-params", name: "OpenAPI required-params extractor", slug: "openapi-required-params", category: "conversion", price: "$0.002",
     description:
-      "For one operation, return the minimum set of inputs an agent must provide to make a successful call. Locate the op by `operationId` (preferred) or by `method`+`path`. Output is a single flat array tagged by `in`: `path` (always required), `query` / `header` / `cookie` (only when `required: true`), and `body.field` entries naming the top-level required fields of a required JSON request body. `hasBody` and `bodyContentType` are included separately so callers can decide whether to serialize a payload at all. Merges path-item-level shared parameters with operation-level ones (operation wins on collision), matching openapi-to-curl behavior. Does NOT recurse into nested object schemas — top-level required fields only. Pure CPU.",
+      "For one operation, return the minimum set of inputs an agent must provide to make a successful call. Locate the op by `operationId` (preferred) or by `method`+`path`. Output is a single flat array tagged by `in`: `path` (always required), `query` / `header` / `cookie` (only when `required: true`), and `body.field` entries naming the top-level required fields of a required JSON request body. `hasBody` and `bodyContentType` are included separately so callers can decide whether to serialize a payload at all. Merges path-item-level shared parameters with operation-level ones (operation wins on collision), matching openapi-to-curl behavior. Does NOT recurse into nested object schemas - top-level required fields only. Pure CPU.",
     tags: ["openapi", "swagger", "required", "params", "api"],
     discovery: {
       bodyType: "json",
@@ -1434,7 +1434,7 @@ function pickResponse(op, requestedStatus) {
   throw bad("operation has no documented responses");
 }
 
-// Recursive schema-to-mock walker. Depth-capped at 6 — without $ref deref
+// Recursive schema-to-mock walker. Depth-capped at 6 - without $ref deref
 // there's no real cycle path, but defense in depth keeps a pathological
 // nested array from blowing the stack.
 function mockFromSchema(schema, depth = 0) {

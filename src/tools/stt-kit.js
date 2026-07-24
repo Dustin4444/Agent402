@@ -32,7 +32,7 @@ const TIERS = {
 
 function validateInput(input) {
   const url = typeof input.url === "string" ? input.url.trim() : "";
-  if (!url) throw bad('"url" is required — a URL pointing to an audio file (mp3, wav, m4a, etc.)');
+  if (!url) throw bad('"url" is required - a URL pointing to an audio file (mp3, wav, m4a, etc.)');
   if (!/^https?:\/\//i.test(url)) throw bad('"url" must be an HTTP(S) URL');
 
   const language = typeof input.language === "string" ? input.language.trim().toLowerCase() : undefined;
@@ -86,13 +86,13 @@ export async function assertWithinDurationCap(buf, filename, tierSlug) {
   const tier = TIERS[tierSlug];
   const durationSec = await probeDurationSeconds(buf, filename);
   if (durationSec === null) {
-    throw bad("Could not read the audio duration from the file — send a standard mp3, wav, m4a, ogg, flac, or webm file", 422);
+    throw bad("Could not read the audio duration from the file - send a standard mp3, wav, m4a, ogg, flac, or webm file", 422);
   }
   const capSec = tier.maxMinutes * 60;
   if (durationSec > capSec + 2) {
     const mins = (durationSec / 60).toFixed(1);
     const upsell = tierSlug === "transcribe" ? " For up to 10 minutes, use /api/transcribe-pro." : "";
-    throw bad(`Audio is ${mins} minutes — this tier accepts up to ${tier.maxMinutes} minutes.${upsell} Split longer recordings into chunks.`, 422);
+    throw bad(`Audio is ${mins} minutes - this tier accepts up to ${tier.maxMinutes} minutes.${upsell} Split longer recordings into chunks.`, 422);
   }
   return durationSec;
 }
@@ -122,7 +122,7 @@ async function callOpenAI(audioBuffer, filename, model, language) {
   const text = await res.text();
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
-    if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
+    if (res.status === 429) throw bad("OpenAI rate-limited - retry shortly", 503);
     if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
     // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
     // 200-char cut leaves an unredactable prefix); the route binder returns

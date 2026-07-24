@@ -105,7 +105,7 @@ function dispatchable(def) {
   if (!def || typeof def.handler !== "function") return { ok: false, why: "tool has no internal handler" };
   if (def.slug === "route-execute") return { ok: false, why: "cannot dispatch to itself" };
   if (def.identityBound || isIdentityBoundRoute(def)) {
-    return { ok: false, why: "identity-bound tools are wallet-keyed — call them directly so the signed payment identity is preserved" };
+    return { ok: false, why: "identity-bound tools are wallet-keyed - call them directly so the signed payment identity is preserved" };
   }
   const bodyType = def.discovery?.bodyType;
   if (bodyType && bodyType !== "json") return { ok: false, why: `bodyType "${bodyType}" is not dispatchable through the JSON params envelope` };
@@ -133,14 +133,14 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
     category: "agent",
     price: `$${EXEC_PRICE_USD}`,
     description:
-      `Describe a task (or name a slug) and the Smart Order Router resolves the best-matching tool and RUNS it in the same call — flat $${EXEC_PRICE_USD} covering any tool listed at $${UNDERLYING_MAX_USD} or less, from THIS host's catalog or any external x402 seller in the open index (paid over x402 on your behalf, result relayed). One payment, one request, result + receipt. /api/route quotes which tier a task needs; pricier tools return a self-correcting 409 with their direct route.`,
+      `Describe a task (or name a slug) and the Smart Order Router resolves the best-matching tool and RUNS it in the same call - flat $${EXEC_PRICE_USD} covering any tool listed at $${UNDERLYING_MAX_USD} or less, from THIS host's catalog or any external x402 seller in the open index (paid over x402 on your behalf, result relayed). One payment, one request, result + receipt. /api/route quotes which tier a task needs; pricier tools return a self-correcting 409 with their direct route.`,
     tags: ["router", "sor", "execute", "dispatch", "meta", "agent", "x402", ...(routeSuffix ? ["max-tier"] : [])],
     discovery: {
       bodyType: "json",
       input: { slug: "hash", params: { text: "agent402", algo: "sha256" } },
       inputSchema: {
         properties: {
-          task: { type: "string", description: "Plain-language task, e.g. \"sha256 hash of a string\" — resolved via the same ranker as /api/find. Provide task OR slug." },
+          task: { type: "string", description: "Plain-language task, e.g. \"sha256 hash of a string\" - resolved via the same ranker as /api/find. Provide task OR slug." },
           slug: { type: "string", description: "Exact tool slug to execute (skips ranking). Provide task OR slug." },
           params: { type: "object", description: "Input for the resolved tool, matching its inputSchema (default {})" },
           include: { type: "string", description: 'Where to route: default runs a tool from THIS host\'s catalog; "external" routes to the best-matching x402 seller in the OPEN index and pays it on your behalf (result relayed, marked untrustedContent). Requires task (not slug).' },
@@ -149,7 +149,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
       },
       output: {
         example: {
-          receipt: { slug: "hash", route: "POST /api/hash", underlyingPriceUsd: 0.001, paidUsd: EXEC_PRICE_USD, routingFeeUsd: 0.009, seller: "internal", resolvedBy: "slug", ts: "2026-07-10T00:00:00.000Z", callRef: "sha256:…  (recomputable: sha256 of {\"nonce\":<payment authorization nonce>,\"slug\":…,\"ts\":…} — null on nonce-less calls)" },
+          receipt: { slug: "hash", route: "POST /api/hash", underlyingPriceUsd: 0.001, paidUsd: EXEC_PRICE_USD, routingFeeUsd: 0.009, seller: "internal", resolvedBy: "slug", ts: "2026-07-10T00:00:00.000Z", callRef: "sha256:…  (recomputable: sha256 of {\"nonce\":<payment authorization nonce>,\"slug\":…,\"ts\":…} - null on nonce-less calls)" },
           result: { algo: "sha256", hex: "…", base64: "…" },
         },
       },
@@ -170,11 +170,11 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
       if (input.slug != null) {
         resolvedBy = "slug";
         def = bySlug.get(String(input.slug)) || null;
-        if (!def) throw bad(`Unknown slug "${String(input.slug).slice(0, 80)}" — resolve one with /api/find?q=<task>`, 404);
+        if (!def) throw bad(`Unknown slug "${String(input.slug).slice(0, 80)}" - resolve one with /api/find?q=<task>`, 404);
         const d = dispatchable(def);
         if (!d.ok) throw bad(`Tool "${def.slug}" is not dispatchable here: ${d.why}`, 409);
         if (toUsd(def.price) > cap) {
-          throw bad(`Tool "${def.slug}" is listed at $${toUsd(def.price)} — above this endpoint's $${cap} underlying cap. Call it directly: ${def.route}${baseUrl ? ` on ${baseUrl}` : ""}`, 409);
+          throw bad(`Tool "${def.slug}" is listed at $${toUsd(def.price)} - above this endpoint's $${cap} underlying cap. Call it directly: ${def.route}${baseUrl ? ` on ${baseUrl}` : ""}`, 409);
         }
       } else if (typeof input.task === "string" && input.task.trim()) {
         resolvedBy = "task";
@@ -207,14 +207,14 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           const chain = hasPayment ? EXTERNAL_CHAIN_BY_NETWORK[payNet] : "base";
           if (!chain || !supported.includes(chain)) {
             const offer = supported.map((c) => `${c} (${EXTERNAL_CHAIN_CAIP2[c]})`).join(" or ");
-            throw bad(`External routing settles on ${offer} — this request paid on ${payNet || "an unreadable network"}. Pay on a supported chain for include:"external", or use internal routing (works on every chain).`, 409);
+            throw bad(`External routing settles on ${offer} - this request paid on ${payNet || "an unreadable network"}. Pay on a supported chain for include:"external", or use internal routing (works on every chain).`, 409);
           }
           const chainCaip2 = EXTERNAL_CHAIN_CAIP2[chain];
           const ext = await resolveExternal(input.task, { cap, baseUrl, chain });
           if (!ext) throw bad(`No external x402 seller matched that task${chain !== "base" ? ` on ${chain}` : ""}. Explore /api/route?q=<task>&include=external.`, 404);
           const extUsd = toUsd(ext.price);
-          if (!(extUsd > 0 && extUsd <= cap)) throw bad(`Best external match "${ext.slug}" is ${ext.price} — over this tier's $${cap} cap. Use route-execute-max or raise the tier.`, 409);
-          if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes(chainCaip2))) throw bad(`External seller "${ext.seller}" does not offer ${chain} settlement — cannot pay it from the ${chain} spending wallet.`, 409);
+          if (!(extUsd > 0 && extUsd <= cap)) throw bad(`Best external match "${ext.slug}" is ${ext.price} - over this tier's $${cap} cap. Use route-execute-max or raise the tier.`, 409);
+          if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes(chainCaip2))) throw bad(`External seller "${ext.seller}" does not offer ${chain} settlement - cannot pay it from the ${chain} spending wallet.`, 409);
           // GET sellers take their input as query params — an HTTP GET cannot
           // carry a body (undici refuses it outright). Only primitives can ride
           // a query string; a nested param against a GET seller is the caller's
@@ -226,7 +226,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             const qp = new URLSearchParams();
             for (const [k, v] of Object.entries(params || {})) {
               if (v == null) continue;
-              if (typeof v === "object") throw bad(`External tool "${ext.slug}" is a ${extMethod} endpoint — param "${k}" must be a string, number, or boolean`, 400);
+              if (typeof v === "object") throw bad(`External tool "${ext.slug}" is a ${extMethod} endpoint - param "${k}" must be a string, number, or boolean`, 400);
               qp.set(k, String(v));
             }
             const qs = qp.toString();

@@ -258,7 +258,7 @@ export const CALENDAR_TOOLS = [
         properties: {
           epoch: { type: "number", description: "Unix epoch timestamp (seconds or milliseconds)" },
           date: { type: "string", description: "ISO 8601 date string (alternative to epoch)" },
-          unit: { type: "string", description: "\"seconds\" (default) or \"milliseconds\" — interpretation of the epoch value" },
+          unit: { type: "string", description: "\"seconds\" (default) or \"milliseconds\" - interpretation of the epoch value" },
         },
         required: [],
       },

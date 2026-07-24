@@ -334,7 +334,7 @@ export const COLOR_TOOLS = [
     route: "POST /api/color-convert", name: "Color convert", slug: "color-convert",
     category: "data", price: "$0.001",
     description:
-      "Convert a color between every common notation (hex, rgb, hsl, oklch) at once, plus return the nearest CSS named color. Accepts input as hex (#fff or #ffffff), rgb()/rgba(), hsl()/hsla(), oklch(), or any of the 148 CSS named colors. Use this when an agent has a color in one format and the next step needs it in another — e.g. converting a designer's Figma hex into OKLCH for a modern Tailwind theme.",
+      "Convert a color between every common notation (hex, rgb, hsl, oklch) at once, plus return the nearest CSS named color. Accepts input as hex (#fff or #ffffff), rgb()/rgba(), hsl()/hsla(), oklch(), or any of the 148 CSS named colors. Use this when an agent has a color in one format and the next step needs it in another - e.g. converting a designer's Figma hex into OKLCH for a modern Tailwind theme.",
     tags: ["color", "convert", "hex", "rgb", "hsl", "oklch", "css"],
     discovery: {
       bodyType: "json",
@@ -377,7 +377,7 @@ export const COLOR_TOOLS = [
     route: "POST /api/color-blindness", name: "Color blindness simulation", slug: "color-blindness",
     category: "data", price: "$0.001",
     description:
-      "Simulate how a color appears to viewers with protanopia (red-blind), deuteranopia (green-blind), or tritanopia (blue-blind) — the three dichromacy types covering ~8% of men and ~0.5% of women. Returns the simulated RGB plus the contrast ratio against a reference color so you can verify a UI is still legible under each condition. Uses the Brettel/Vienot/Mollon approximation in sRGB (the de-facto standard for web tools).",
+      "Simulate how a color appears to viewers with protanopia (red-blind), deuteranopia (green-blind), or tritanopia (blue-blind) - the three dichromacy types covering ~8% of men and ~0.5% of women. Returns the simulated RGB plus the contrast ratio against a reference color so you can verify a UI is still legible under each condition. Uses the Brettel/Vienot/Mollon approximation in sRGB (the de-facto standard for web tools).",
     tags: ["color", "accessibility", "a11y", "colorblind", "protanopia", "deuteranopia", "tritanopia"],
     discovery: {
       bodyType: "json",
@@ -385,7 +385,7 @@ export const COLOR_TOOLS = [
       inputSchema: {
         properties: {
           color: { type: "string", description: "Color to simulate." },
-          compareTo: { type: "string", description: "Optional second color — both are simulated and the contrast ratio between the simulated pair is included." },
+          compareTo: { type: "string", description: "Optional second color - both are simulated and the contrast ratio between the simulated pair is included." },
         },
         required: ["color"],
       },
@@ -432,7 +432,7 @@ export const COLOR_TOOLS = [
     route: "POST /api/color-palette", name: "Color palette generator", slug: "color-palette",
     category: "data", price: "$0.001",
     description:
-      "Generate a coordinated palette from a base color using a named color-theory scheme: complementary (2 colors), analogous (3), triadic (3), tetradic (4), split-complementary (3), or monochromatic (5 lightness variants). Returns each color in hex, rgb, hsl, and oklch so the agent can drop them straight into any framework. Hue rotation happens in HSL — matches Adobe Color / Coolors expectations, not perceptual Oklab geometry.",
+      "Generate a coordinated palette from a base color using a named color-theory scheme: complementary (2 colors), analogous (3), triadic (3), tetradic (4), split-complementary (3), or monochromatic (5 lightness variants). Returns each color in hex, rgb, hsl, and oklch so the agent can drop them straight into any framework. Hue rotation happens in HSL - matches Adobe Color / Coolors expectations, not perceptual Oklab geometry.",
     tags: ["color", "palette", "scheme", "design", "complementary", "triadic", "analogous"],
     discovery: {
       bodyType: "json",

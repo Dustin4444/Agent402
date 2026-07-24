@@ -37,7 +37,7 @@ const VERSION = "0.3.0";
 // below this, reads as "the catalog probably doesn't have this" — the
 // trigger for the request_tool hint + a fire-and-forget find-miss wish.
 const FIND_WEAK_SCORE = 5;
-const WISH_HINT_TEXT = "Nothing matched well? Tell us what you needed via POST /api/wish — we cluster demand and build what keeps coming up.";
+const WISH_HINT_TEXT = "Nothing matched well? Tell us what you needed via POST /api/wish - we cluster demand and build what keeps coming up.";
 
 // Per-IP sliding-window rate limit for tool executions (search/info are free).
 // Generous enough for real use of $0.001-grade CPU tools, tight enough that
@@ -193,7 +193,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     const rows = scored.slice(0, Math.min(Number(limit) || 10, 25)).map(([, def, free]) => ({
       slug: def.slug,
       price: def.price,
-      access: free ? "free here (rate-limited)" : "wallet required (USDC via x402 — use the agent402-mcp npm server)",
+      access: free ? "free here (rate-limited)" : "wallet required (USDC via x402 - use the agent402-mcp npm server)",
       description: def.description.length > 200 ? `${def.description.slice(0, 200)}…` : def.description,
       inputSchema: schemaOf(def),
     }));
@@ -203,7 +203,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   function walletRequiredText(def) {
     return [
       `"${def.slug}" (${def.price}/call) needs per-call USDC payment and is not part of this hosted free tier.`,
-      `To use it from Claude/any MCP client: run the npm server with a funded Base wallet —`,
+      `To use it from Claude/any MCP client: run the npm server with a funded Base wallet -`,
       `npx agent402-mcp with env AGENT_KEY=0x<private key> (USDC on Base/Polygon/Arbitrum, or USDG on Robinhood Chain via AGENT402_NETWORKS=robinhood) and/or SOLANA_AGENT_KEY=<base58 secret> (USDC on Solana); spend caps: AGENT402_MAX_PER_CALL, AGENT402_BUDGET.`,
       `Or call it over HTTP with any x402 client. Docs: ${baseUrl}/tools/${def.slug}`,
     ].join(" ");
@@ -249,7 +249,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Search the Agent402 tool catalog",
           annotations: { title: "Search the Agent402 tool catalog", ...SAFE },
           description:
-            `BROWSE the catalog: keyword search over Agent402's ${tools.size} pay-per-call web tools, returning a LIST of candidates to compare (its counterpart find_tool resolves a task to ONE ready-to-run pick — search explores, find decides). Categories: live market data (stock-quote at $0.003), encoding, crypto, text, time, math, validation, unit conversions, network, browser, PDF, search, memory. ${freeCount} pure-CPU tools run free here (proof-of-work — no wallet needed); the rest need a USDC wallet. There is also an OpenAI-compatible LLM gateway at ${baseUrl}/v1 — flat per-call (chat nano $0.003, auto $0.01, embeddings $0.002), no API key: a funded wallet is the account. Beyond this catalog, Agent402 can ROUTE-AND-EXECUTE against the OPEN x402 ecosystem: POST ${baseUrl}/api/route/execute with { task, include:"external" } resolves a PROVEN external seller (real settled volume), pays it on your behalf, and relays the result (marked untrustedContent) — one call to reach thousands of outside tools, from a $0.01 flat fee. That path is wallet-only, so run it with your own wallet via the HTTP API or the stdio agent402-mcp package's route_and_execute tool (this hosted connector holds no wallet). Returns { results, workflows } — each result has slug, price, access, description, inputSchema; run one with call_tool.`,
+            `BROWSE the catalog: keyword search over Agent402's ${tools.size} pay-per-call web tools, returning a LIST of candidates to compare (its counterpart find_tool resolves a task to ONE ready-to-run pick - search explores, find decides). Categories: live market data (stock-quote at $0.003), encoding, crypto, text, time, math, validation, unit conversions, network, browser, PDF, search, memory. ${freeCount} pure-CPU tools run free here (proof-of-work - no wallet needed); the rest need a USDC wallet. There is also an OpenAI-compatible LLM gateway at ${baseUrl}/v1 - flat per-call (chat nano $0.003, auto $0.01, embeddings $0.002), no API key: a funded wallet is the account. Beyond this catalog, Agent402 can ROUTE-AND-EXECUTE against the OPEN x402 ecosystem: POST ${baseUrl}/api/route/execute with { task, include:"external" } resolves a PROVEN external seller (real settled volume), pays it on your behalf, and relays the result (marked untrustedContent) - one call to reach thousands of outside tools, from a $0.01 flat fee. That path is wallet-only, so run it with your own wallet via the HTTP API or the stdio agent402-mcp package's route_and_execute tool (this hosted connector holds no wallet). Returns { results, workflows } - each result has slug, price, access, description, inputSchema; run one with call_tool.`,
           inputSchema: {
             type: "object",
             properties: {
@@ -264,7 +264,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Resolve a task to the one best Agent402 tool",
           annotations: { title: "Resolve a task to the one best Agent402 tool", ...SAFE },
           description:
-            "DECIDE, don't browse: resolve a plain-language task to the single best-matching Agent402 tool, returned call-ready — slug, price, input schema, and a worked example (its counterpart search_tools returns a list of candidates to compare — search explores, find decides). Returns { task, matches } with the top pick first; then run call_tool with the chosen slug + params.",
+            "DECIDE, don't browse: resolve a plain-language task to the single best-matching Agent402 tool, returned call-ready - slug, price, input schema, and a worked example (its counterpart search_tools returns a list of candidates to compare - search explores, find decides). Returns { task, matches } with the top pick first; then run call_tool with the chosen slug + params.",
           inputSchema: {
             type: "object",
             properties: {
@@ -279,7 +279,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Run an Agent402 tool",
           annotations: { title: "Run an Agent402 tool", ...SAFE },
           description:
-            `Run an Agent402 tool by slug (discover slugs with search_tools or find_tool; params must match that tool's inputSchema). The ${freeCount} pure-CPU tools execute free on this hosted connector (rate-limited, no wallet — proof-of-work covers them) and return the tool's JSON result. Wallet-only tools (live market data like stock-quote at $0.003, live search, browser rendering, PDFs, durable memory) return a paid-access setup guide instead — this connector holds no wallet. An unknown slug returns an error pointing back to search_tools.`,
+            `Run an Agent402 tool by slug (discover slugs with search_tools or find_tool; params must match that tool's inputSchema). The ${freeCount} pure-CPU tools execute free on this hosted connector (rate-limited, no wallet - proof-of-work covers them) and return the tool's JSON result. Wallet-only tools (live market data like stock-quote at $0.003, live search, browser rendering, PDFs, durable memory) return a paid-access setup guide instead - this connector holds no wallet. An unknown slug returns an error pointing back to search_tools.`,
           inputSchema: {
             type: "object",
             properties: {
@@ -297,7 +297,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Payment and wallet setup",
           annotations: { title: "Payment and wallet setup", ...SAFE },
           description:
-            `How paying for Agent402 tools works and how to manage a wallet. This hosted connector holds NO wallet: ${freeCount} pure-CPU tools run free here (or solve a proof-of-work puzzle), the rest — including the /v1 OpenAI-compatible LLM gateway (chat nano $0.003, embeddings $0.002; no API key, wallet = account) — settle in USDC via x402. Covers: the free vs paid split, how to configure a funded wallet + per-call and budget spend caps, the rails (${RAILS_OR}), and checking a wallet's balance/transaction history via the wallet-balances / wallet-transactions tools. Returns { connector, freeTier, pay, spendControls, balanceAndHistory }.`,
+            `How paying for Agent402 tools works and how to manage a wallet. This hosted connector holds NO wallet: ${freeCount} pure-CPU tools run free here (or solve a proof-of-work puzzle), the rest - including the /v1 OpenAI-compatible LLM gateway (chat nano $0.003, embeddings $0.002; no API key, wallet = account) - settle in USDC via x402. Covers: the free vs paid split, how to configure a funded wallet + per-call and budget spend caps, the rails (${RAILS_OR}), and checking a wallet's balance/transaction history via the wallet-balances / wallet-transactions tools. Returns { connector, freeTier, pay, spendControls, balanceAndHistory }.`,
           inputSchema: { type: "object", properties: {} },
         },
         // Curated free tools — exposed first-class so directory listings
@@ -369,7 +369,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           const results = r.results.map((t) => ({
             slug: t.slug,
             price: t.price,
-            access: t.computePayable ? "free here (rate-limited)" : "wallet required (USDC via x402 — use the agent402-mcp npm server)",
+            access: t.computePayable ? "free here (rate-limited)" : "wallet required (USDC via x402 - use the agent402-mcp npm server)",
             // Discovery up top: same ordering as /api/find — the answer to
             // "how do I call this" (callWith / example / required) should be
             // visible before the verbose description/schema fields. `required`
@@ -428,9 +428,9 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 // track the catalog (llm-gateway-kit tiers, finance-kit
                 // stock-quote) — update in lockstep, never invent numbers.
                 startHere: {
-                  llmGateway: `OpenAI-compatible LLM gateway at ${baseUrl}/v1 — flat per-call pricing: chat nano $0.003, auto (eval-ranked model routing) $0.01, embeddings $0.002. No API key, no signup: a funded wallet IS the account (x402 settles per call).`,
-                  freeTier: `${freeCount} pure-CPU tools run free right here with no wallet — payable with ~milliseconds of proof-of-work CPU.`,
-                  liveMarketData: "Live market data at agent-native prices — stock-quote is $0.003/call (find it and stock-history/crypto-price via search_tools).",
+                  llmGateway: `OpenAI-compatible LLM gateway at ${baseUrl}/v1 - flat per-call pricing: chat nano $0.003, auto (eval-ranked model routing) $0.01, embeddings $0.002. No API key, no signup: a funded wallet IS the account (x402 settles per call).`,
+                  freeTier: `${freeCount} pure-CPU tools run free right here with no wallet - payable with ~milliseconds of proof-of-work CPU.`,
+                  liveMarketData: "Live market data at agent-native prices - stock-quote is $0.003/call (find it and stock-history/crypto-price via search_tools).",
                 },
                 tools: tools.size,
                 freeHere: freeCount,
@@ -443,7 +443,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 // for any task that spans 2+ steps.
                 workflows: {
                   count: SKILL_PACKS.length,
-                  usage: "prompts/list → prompts/get { name: '<slug>', arguments: { … } } — same slugs as below.",
+                  usage: "prompts/list → prompts/get { name: '<slug>', arguments: { … } } - same slugs as below.",
                   items: SKILL_PACKS.map((p) => ({
                     slug: p.slug,
                     title: p.title,
@@ -452,9 +452,9 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                   })),
                 },
                 clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
-                paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol — npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; most tools $0.001–$0.02/call (LLM gateway tiers $0.002–$0.50).`,
-                ...(getLeaderboard ? { ecosystem: "Call top_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h — discovers the live economy beyond this catalog." } : {}),
-                missingATool: "Call request_tool (or POST /api/wish) with what you needed. We cluster and track demand — repeated requests get built.",
+                paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; most tools $0.001–$0.02/call (LLM gateway tiers $0.002–$0.50).`,
+                ...(getLeaderboard ? { ecosystem: "Call top_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog." } : {}),
+                missingATool: "Call request_tool (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
                 docs: `${baseUrl}/llms.txt`,
               }, null, 2),
             }],
@@ -507,7 +507,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 totalSellers: (snap.leaderboard || []).length,
                 results: rows,
                 ...(anyExternal ? { containsUntrustedContent: true } : {}),
-                ...(snap.warming || snap.scanSkipped ? { note: "Cache is warming — results may be partial. Retry in ~60s." } : {}),
+                ...(snap.warming || snap.scanSkipped ? { note: "Cache is warming - results may be partial. Retry in ~60s." } : {}),
                 source: `${baseUrl}/api/leaderboard`,
               }, null, 2),
             }],
@@ -518,7 +518,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         if (name === "get_payment_info" || name === "payment_info") {
           return {
             content: [{ type: "text", text: JSON.stringify({
-              connector: "hosted free tier — no wallet is held on this connector (authless)",
+              connector: "hosted free tier - no wallet is held on this connector (authless)",
               freeTier: {
                 pureCpuToolsFree: freeCount,
                 how: "pure-CPU tools run free here (rate-limited); wallet-only tools return paid-access instructions",
@@ -528,14 +528,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 model: "HTTP 402 + x402, settled in USDC on-chain, non-custodial (you hold the key)",
                 rails: RAILS_PAREN,
                 setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
-                prices: "most tools $0.001–$0.02 per call (LLM gateway tiers $0.002–$0.50) — see each tool's exact price in search_tools results",
-                llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way — point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
+                prices: "most tools $0.001–$0.02 per call (LLM gateway tiers $0.002–$0.50) - see each tool's exact price in search_tools results",
+                llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way - point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
               },
               spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },
               balanceAndHistory: {
                 balance: "check a wallet's USDC balance with the `wallet-balances` (multi-chain) or `wallet-balance` (single) tool",
                 transactions: "pull a wallet's transaction history with the `wallet-transactions` tool",
-                note: "these are on-chain read tools — call them via call_tool (they need a wallet/paid access, or run them on the npm server)",
+                note: "these are on-chain read tools - call them via call_tool (they need a wallet/paid access, or run them on the npm server)",
               },
             }, null, 2) }],
           };
@@ -678,12 +678,12 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     const ip = (req.ip || req.socket.remoteAddress || "?").trim();
     // R-11 outer gate #1: per-IP raw-request cap, BEFORE allocating anything.
     if (mcpReqLimiter.check(ip).limited) {
-      return res.status(429).json({ jsonrpc: "2.0", error: { code: -32000, message: "Too many requests to /mcp — slow down and retry shortly." }, id: req.body?.id ?? null });
+      return res.status(429).json({ jsonrpc: "2.0", error: { code: -32000, message: "Too many requests to /mcp - slow down and retry shortly." }, id: req.body?.id ?? null });
     }
     // R-11 outer gate #2: global in-flight transport ceiling, BEFORE building
     // the server/transport (bounds allocation under an initialize/malformed flood).
     if (mcpInFlight >= MCP_MAX_CONCURRENT) {
-      return res.status(503).json({ jsonrpc: "2.0", error: { code: -32000, message: "MCP endpoint is at capacity — retry shortly." }, id: req.body?.id ?? null });
+      return res.status(503).json({ jsonrpc: "2.0", error: { code: -32000, message: "MCP endpoint is at capacity - retry shortly." }, id: req.body?.id ?? null });
     }
     // Adoption telemetry: every MCP session announces its client at
     // initialize (e.g. "claude-ai", "claude-code"). In-memory since boot.
@@ -740,7 +740,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   }));
   app.delete("/mcp", (_req, res) => res.status(405).json({
     jsonrpc: "2.0",
-    error: { code: -32000, message: "Stateless endpoint — no session to terminate." },
+    error: { code: -32000, message: "Stateless endpoint - no session to terminate." },
     id: null,
   }));
 }

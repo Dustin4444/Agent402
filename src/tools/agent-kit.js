@@ -131,7 +131,7 @@ export const AGENT_TOOLS = [
   {
     route: "POST /api/token-count", name: "Token count", slug: "token-count", category: "text", price: "$0.001",
     description:
-      "Count exact LLM tokens for a string using the real OpenAI BPE (o200k_base for gpt-4o/o-series, cl100k_base for gpt-4/gpt-3.5). Deterministic, offline — budget context windows without calling a model.",
+      "Count exact LLM tokens for a string using the real OpenAI BPE (o200k_base for gpt-4o/o-series, cl100k_base for gpt-4/gpt-3.5). Deterministic, offline - budget context windows without calling a model.",
     tags: ["tokens", "tokenizer", "context-window", "llm", "bpe"],
     discovery: {
       bodyType: "json",
@@ -148,7 +148,7 @@ export const AGENT_TOOLS = [
   {
     route: "POST /api/text-chunk", name: "Text chunk (RAG)", slug: "text-chunk", category: "text", price: "$0.001",
     description:
-      "Split text into overlapping chunks for RAG ingestion — by characters (default) or by exact LLM tokens. Returns the chunks plus offsets. Deterministic, no model needed.",
+      "Split text into overlapping chunks for RAG ingestion - by characters (default) or by exact LLM tokens. Returns the chunks plus offsets. Deterministic, no model needed.",
     tags: ["chunk", "rag", "split", "embeddings", "tokens"],
     discovery: {
       bodyType: "json",
@@ -195,7 +195,7 @@ export const AGENT_TOOLS = [
   {
     route: "POST /api/json-validate", name: "JSON Schema validate", slug: "json-validate", category: "data", price: "$0.002",
     description:
-      "Validate a JSON document against a JSON Schema (draft-07 subset) and get the list of violations. Supports type, required, properties, items, enum, const, min/max, length, pattern, format, anyOf/allOf/oneOf/not, additionalProperties. Deterministic — check an agent's structured output before you trust it.",
+      "Validate a JSON document against a JSON Schema (draft-07 subset) and get the list of violations. Supports type, required, properties, items, enum, const, min/max, length, pattern, format, anyOf/allOf/oneOf/not, additionalProperties. Deterministic - check an agent's structured output before you trust it.",
     tags: ["json-schema", "validate", "structured-output", "draft-07"],
     discovery: {
       bodyType: "json",
@@ -218,7 +218,7 @@ export const AGENT_TOOLS = [
   {
     route: "POST /api/a2a-card-validate", name: "A2A Agent Card validate", slug: "a2a-card-validate", category: "data", price: "$0.002",
     description:
-      "Validate an A2A (Agent2Agent protocol) Agent Card: required fields, skill shape, transport names, capability flags — spec v0.3 structural core. Returns errors, interop warnings, and a normalized summary (skills, interfaces, capabilities). Deterministic mini-A2A tooling — check a card before your agent trusts it.",
+      "Validate an A2A (Agent2Agent protocol) Agent Card: required fields, skill shape, transport names, capability flags - spec v0.3 structural core. Returns errors, interop warnings, and a normalized summary (skills, interfaces, capabilities). Deterministic mini-A2A tooling - check a card before your agent trusts it.",
     tags: ["a2a", "minia2a", "agent2agent", "agent-card", "validate", "interop", "protocol", "agents"],
     discovery: {
       bodyType: "json",

@@ -69,7 +69,7 @@ export function checkAvmValidity(headerValue, slug, currentRound) {
   const remaining = (Number(lastValid) - Number(currentRound)) * AVG_ROUND_SECONDS;
   if (remaining < required) {
     const err = new Error(
-      `Payment validity window too short for this tool: ~${Math.max(0, Math.round(remaining))}s remain before the Algorand txn's lastValid round, but ${slug} can take up to ~${required}s and x402 settlement happens after the work completes — the txn would be dead before it settles. Re-sign with a longer validity window (e.g. algokit setDefaultValidityWindow(1000)) and retry. You have not been charged.`,
+      `Payment validity window too short for this tool: ~${Math.max(0, Math.round(remaining))}s remain before the Algorand txn's lastValid round, but ${slug} can take up to ~${required}s and x402 settlement happens after the work completes - the txn would be dead before it settles. Re-sign with a longer validity window (e.g. algokit setDefaultValidityWindow(1000)) and retry. You have not been charged.`,
     );
     err.statusCode = 422;
     throw err;

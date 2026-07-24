@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 const dir = mkdtempSync(join(tmpdir(), "a402-sales-"));
 process.env.SALES_LEDGER_DB = join(dir, "test-sales.db");
-const { recordSale, salesSummary, topByBuyers, txFromPaymentResponse } = await import("../src/sales-ledger.js");
+const { recordSale, salesSummary, topByBuyers, txFromPaymentResponse, mppTxHashes, mppSales } = await import("../src/sales-ledger.js");
 const { OUR_EVM_WALLETS } = await import("../src/revenue-live.js");
 
 let passed = 0, failed = 0;
@@ -95,6 +95,26 @@ ok(s.totals.external.sales >= 2, "ledger still readable after garbage rows");
   ok(buyers[0]?.slug === "dns-lookup", "ranked by distinct buyers desc (dns-lookup leads with 2)");
   ok(!buyers.some((r) => r.buyers === 0), "no zero-buyer rows");
   ok(!buyers.some((r) => r.slug === "search" || r.slug === "qr"), "payer-null sales (marketplace/pow) excluded from the buyer ranking");
+}
+
+// --- MPP wire -> tx hashes (the join key for the revenue chart's wire filter) -------
+{
+  const MPP_PAYER = "0x1111111111111111111111111111111111111111";
+  const H_MPP = "0xAbCdEf0000000000000000000000000000000000000000000000000000000001"; // mixed-case hex, as an explorer renders it
+  const H_SOL = "5Kd3NBUAdUnhyzhWCbNCcMzTPFtLBUAdUnhyzhWCbNCc"; // base58: case-SENSITIVE, must stay verbatim
+  recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "base", payer: MPP_PAYER, tx: H_MPP, synthetic: false, wire: "mpp" });
+  recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "solana", payer: null, tx: H_SOL, synthetic: false, wire: "mpp" });
+  recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "base", payer: MPP_PAYER, tx: "0x0402", synthetic: false, wire: "x402" });
+  recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "base", payer: MPP_PAYER, tx: "0x0f00", synthetic: false });
+  const hashes = mppTxHashes();
+  ok(hashes.has(H_MPP) && hashes.has(H_SOL), "MPP-wire sales expose their tx hashes");
+  ok(!hashes.has("0x0402"), "x402-wire sales are excluded");
+  ok(!hashes.has("0x0f00"), "sales recorded before the wire column (null wire) are excluded");
+  // EVM hex is case-insensitive, so both forms join; base58 is NOT, so it is
+  // never case-folded (a lowercased Solana signature is a different signature).
+  ok(hashes.has(H_MPP.toLowerCase()), "EVM hashes are carried in lowercase form too");
+  ok(!hashes.has(H_SOL.toLowerCase()), "base58 signatures are never lowercased");
+  ok(mppSales({ limit: 10 }).count === 2, "mppSales agrees with the hash set");
 }
 
 // --- settle receipt tx parser --------------------------------------------------------

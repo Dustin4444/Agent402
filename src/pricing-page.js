@@ -54,12 +54,12 @@ export function pricingPage(baseUrl, catalog) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Pricing - Agent402</title>
-<meta name="description" content="Flat per-call pricing for ${totalTools} deterministic web tools. Pay in USDC on Base, Solana, Polygon & Arbitrum — or USDG on Robinhood Chain — via x402, or use proof-of-work for free.">
+<meta name="description" content="Flat per-call pricing for ${totalTools} deterministic web tools. Pay in USDC on Base, Solana, Polygon & Arbitrum - or USDG on Robinhood Chain - via x402, or use proof-of-work for free.">
 <link rel="canonical" href="${baseUrl}/pricing">
 <meta property="og:type" content="website">
 <meta property="og:url" content="${baseUrl}/pricing">
 <meta property="og:site_name" content="Agent402.Tools">
-<meta property="og:title" content="Pricing — Agent402">
+<meta property="og:title" content="Pricing - Agent402">
 <meta property="og:description" content="Flat per-call pricing for ${totalTools} deterministic web tools. No tiers, no subscriptions.">
 <meta name="twitter:card" content="summary">
 ${CHROME_HEAD_LINKS}
@@ -141,7 +141,7 @@ ${renderHeader("/pricing")}
 
 <div class="hero">
   <h1>Flat per-call pricing, no tiers, no subscriptions</h1>
-  <p>Every tool has a flat price. Pay per call in USDC on Base, Solana, Polygon, or Arbitrum — plus USDG on Robinhood Chain — via the x402 protocol. No accounts, no API keys, no monthly bills.</p>
+  <p>Every tool has a flat price. Pay per call in USDC on Base, Solana, Polygon, or Arbitrum - plus USDG on Robinhood Chain - via the x402 protocol. No accounts, no API keys, no monthly bills.</p>
 </div>
 
 <div class="tiers">
@@ -203,9 +203,9 @@ ${renderHeader("/pricing")}
 <div class="links">
   <h2>Machine-readable pricing</h2>
   <ul>
-    <li><a href="/api/pricing">/api/pricing</a> \u2014 full pricing as JSON</li>
-    <li><a href="/openapi.json">/openapi.json</a> \u2014 OpenAPI spec with all tool schemas</li>
-    <li><a href="/llms.txt">/llms.txt</a> \u2014 LLM-optimized tool listing</li>
+    <li><a href="/api/pricing">/api/pricing</a> - full pricing as JSON</li>
+    <li><a href="/openapi.json">/openapi.json</a> - OpenAPI spec with all tool schemas</li>
+    <li><a href="/llms.txt">/llms.txt</a> - LLM-optimized tool listing</li>
   </ul>
 </div>
 

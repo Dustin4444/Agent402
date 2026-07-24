@@ -174,7 +174,7 @@ import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPane
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
-import { recordSale, salesSummary, mppSales, txFromPaymentResponse } from "./sales-ledger.js";
+import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
@@ -394,7 +394,7 @@ const CATALOG = {
     category: "memory",
     price: "$0.001",
     description:
-      "Atomically increment (or decrement) a numeric key and return the new value — a coordination primitive for counters, locks, and rate budgets shared across agents. Creates the key at 0 if absent.",
+      "Atomically increment (or decrement) a numeric key and return the new value - a coordination primitive for counters, locks, and rate budgets shared across agents. Creates the key at 0 if absent.",
     tags: ["memory", "counter", "atomic", "coordination", "lock"],
     discovery: {
       bodyType: "json",
@@ -416,7 +416,7 @@ const CATALOG = {
     category: "memory",
     price: "$0.001",
     description:
-      "Atomically write (or release) a key only if its current value equals `expected` — the coordination primitive for distributed locks and optimistic concurrency across agents. Acquire a lock: expected=null + a value + ttlSeconds. Release it: expected=<your token> with no value (deletes on match). Update safely: expected=<old>, value=<new>. Returns whether it swapped and the current value.",
+      "Atomically write (or release) a key only if its current value equals `expected` - the coordination primitive for distributed locks and optimistic concurrency across agents. Acquire a lock: expected=null + a value + ttlSeconds. Release it: expected=<your token> with no value (deletes on match). Update safely: expected=<old>, value=<new>. Returns whether it swapped and the current value.",
     tags: ["memory", "cas", "compare-and-set", "lock", "coordination", "atomic"],
     discovery: {
       bodyType: "json",
@@ -492,7 +492,7 @@ const CATALOG = {
     category: "memory",
     price: "$0.001",
     description:
-      "Tamper-evident history of every change to a namespace — an append-only, hash-chained audit log the server attests to (provenance an agent can't forge for itself). ?owner=0x… reads a granted namespace.",
+      "Tamper-evident history of every change to a namespace - an append-only, hash-chained audit log the server attests to (provenance an agent can't forge for itself). ?owner=0x… reads a granted namespace.",
     tags: ["memory", "audit", "provenance", "history", "verifiable"],
     discovery: {
       input: { limit: "50" },
@@ -511,7 +511,7 @@ const CATALOG = {
     category: "memory",
     price: "$0.003",
     description:
-      "Store a piece of text for later similarity recall — a per-wallet semantic index an agent cannot host in-session. Returns an id. Pair with /api/memory/recall to retrieve by meaning, not exact key.",
+      "Store a piece of text for later similarity recall - a per-wallet semantic index an agent cannot host in-session. Returns an id. Pair with /api/memory/recall to retrieve by meaning, not exact key.",
     tags: ["memory", "semantic", "embeddings", "recall", "vector"],
     discovery: {
       bodyType: "json",
@@ -1140,7 +1140,7 @@ app.get("/api/revenue", async (_req, res) => {
 // internal, per chain per day, straight from the settlement ledger.
 app.get("/api/revenue/daily", (_req, res) => {
   try {
-    res.set("Cache-Control", "public, max-age=300").json({ asOf: new Date().toISOString(), days: ledgerDaily(revenueWallets()) });
+    res.set("Cache-Control", "public, max-age=300").json({ asOf: new Date().toISOString(), days: ledgerDaily(revenueWallets(), mppTxHashes()) });
   } catch (e) {
     res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });
   }
@@ -2504,7 +2504,7 @@ const retiredConvertHandler = (req, res) => {
   // Fire-and-forget, rate-capped in posthog.js; env-gated no-op like every capture.
   capturePostHogToolGone({ route: req.path, replacement: "POST /api/unit-convert" });
   res.status(410).json({
-    error: "This pairwise conversion endpoint is retired. Use POST /api/unit-convert with { value, from, to } — the same unit ids and the same math, one route for every pair. Discovery: GET /api/find?q=unit+convert.",
+    error: "This pairwise conversion endpoint is retired. Use POST /api/unit-convert with { value, from, to } - the same unit ids and the same math, one route for every pair. Discovery: GET /api/find?q=unit+convert.",
     replacement: {
       route: "POST /api/unit-convert",
       input: { value: Number.isFinite(num) ? num : null, from, to },
@@ -2548,7 +2548,7 @@ app.get("/tools/:slug/card.png", async (req, res) => {
   const nameT = tool.name.length > 36 ? tool.name.slice(0, 34) + "\u2026" : tool.name;
   const descT = tool.description.length > 74 ? tool.description.slice(0, 72) + "\u2026" : tool.description;
   const free = POW_SLUGS.has(tool.slug) ? "FREE w/ PoW \u00b7 " : "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">${BRAND_FONT_STYLE}<rect width="1200" height="630" fill="${BRAND.paper}"/><g><rect x="36" y="36" width="1128" height="558" fill="${BRAND.card}" stroke="${BRAND.ink}" stroke-width="3"/><rect x="84" y="84" width="64" height="64" fill="none" stroke="${BRAND.ink}" stroke-width="5"/><text x="116" y="126" font-size="26" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" fill="${BRAND.ink}">402</text><text x="170" y="118" font-size="26" font-weight="800" font-family=${JSON.stringify(BRAND.display)} fill="${BRAND.ink}">AGENT402<tspan fill="${BRAND.accent}">.</tspan>TOOLS</text><text x="170" y="146" font-size="20" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(catLabel)}</text><line x1="84" y1="172" x2="1116" y2="172" stroke="${BRAND.ink}" stroke-width="2.5"/><text x="84" y="308" font-size="58" font-weight="800" font-family=${JSON.stringify(BRAND.display)} letter-spacing="-1" fill="${BRAND.ink}">${svgEsc(nameT)}</text><text x="84" y="372" font-size="22" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(descT)}</text><line x1="84" y1="440" x2="1116" y2="440" stroke="${BRAND.hairline}" stroke-width="2"/><text x="84" y="496" font-size="29" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.accent}">${svgEsc(free)}${svgEsc(tool.price)} per call \u00b7 ${svgEsc(tool.method)} ${svgEsc(tool.path)}</text><text x="84" y="550" font-size="23" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">Pay in USDC on Base via x402 \u2014 no API key, no signup</text></g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">${BRAND_FONT_STYLE}<rect width="1200" height="630" fill="${BRAND.paper}"/><g><rect x="36" y="36" width="1128" height="558" fill="${BRAND.card}" stroke="${BRAND.ink}" stroke-width="3"/><rect x="84" y="84" width="64" height="64" fill="none" stroke="${BRAND.ink}" stroke-width="5"/><text x="116" y="126" font-size="26" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" fill="${BRAND.ink}">402</text><text x="170" y="118" font-size="26" font-weight="800" font-family=${JSON.stringify(BRAND.display)} fill="${BRAND.ink}">AGENT402<tspan fill="${BRAND.accent}">.</tspan>TOOLS</text><text x="170" y="146" font-size="20" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(catLabel)}</text><line x1="84" y1="172" x2="1116" y2="172" stroke="${BRAND.ink}" stroke-width="2.5"/><text x="84" y="308" font-size="58" font-weight="800" font-family=${JSON.stringify(BRAND.display)} letter-spacing="-1" fill="${BRAND.ink}">${svgEsc(nameT)}</text><text x="84" y="372" font-size="22" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(descT)}</text><line x1="84" y1="440" x2="1116" y2="440" stroke="${BRAND.hairline}" stroke-width="2"/><text x="84" y="496" font-size="29" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.accent}">${svgEsc(free)}${svgEsc(tool.price)} per call \u00b7 ${svgEsc(tool.method)} ${svgEsc(tool.path)}</text><text x="84" y="550" font-size="23" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">Pay in USDC on Base via x402 - no API key, no signup</text></g></svg>`;
   try {
     if (!toolCardCache.has(tool.slug)) toolCardCache.set(tool.slug, await rasterizeSvg(svg, { width: 1200, height: 630 }));
     res.set("Cache-Control", "public, max-age=86400").type("image/png").send(toolCardCache.get(tool.slug));
@@ -2676,7 +2676,7 @@ app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
     name: "Agent402.Tools",
-    description: `Pay-per-call tools for AI agents via the x402 payment protocol — ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images — no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    description: `Pay-per-call tools for AI agents via the x402 payment protocol - ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
     // The LLM gateway is the highest-frequency product agents buy — surface its
     // tiers at the top level instead of burying them among ${endpointCount}
     // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows
@@ -2684,10 +2684,10 @@ app.get("/api/pricing", (_req, res) => {
     llmGateway: {
       wire: "OpenAI-compatible",
       base: `${BASE_URL}/v1`,
-      pricing: "flat per call — never token-metered",
+      pricing: "flat per call - never token-metered",
       tiers: [
         { path: "/v1/nano/chat/completions", price: "$0.003", note: "cheap fast models" },
-        { path: "/v1/auto/chat/completions", price: "$0.01", note: "model optional — deterministic eval-ranked routing" },
+        { path: "/v1/auto/chat/completions", price: "$0.01", note: "model optional - deterministic eval-ranked routing" },
         { path: "/v1/chat/completions", price: "$0.02", note: "base tier" },
         { path: "/v1/pro/chat/completions", price: "$0.10", note: "frontier models" },
         { path: "/v1/premium/chat/completions", price: "$0.50", note: "largest models" },
@@ -2699,7 +2699,7 @@ app.get("/api/pricing", (_req, res) => {
     payment: { protocol: "x402", version: 2, network: NETWORK, currency: "USDC", networks: enabledNetworks(NETWORK) },
     altPayment: {
       protocol: "proof-of-work",
-      summary: "No wallet? Solve a sha256 puzzle (a fraction of a second of CPU) instead — no money, no AI tokens, no model involved.",
+      summary: "No wallet? Solve a sha256 puzzle (a fraction of a second of CPU) instead - no money, no AI tokens, no model involved.",
       challengeUrl: `${BASE_URL}/api/pow/challenge`,
       info: `${BASE_URL}/api/pow`,
       difficultyBits: POW_DIFFICULTY,
@@ -2741,7 +2741,7 @@ app.get("/api/cacheable", (_req, res) => {
     cacheHeader: "X-Cache",
     cacheHeaderValues: ["hit", "miss", "skip"],
     routes,
-    note: "Server-side response cache. Buyer SDKs can skip their own cache for these paths — repeated identical calls within the TTL return the same JSON without re-hitting the upstream. Errors are never cached.",
+    note: "Server-side response cache. Buyer SDKs can skip their own cache for these paths - repeated identical calls within the TTL return the same JSON without re-hitting the upstream. Errors are never cached.",
   });
 });
 
@@ -2863,7 +2863,7 @@ app.use((req, res, next) => {
 
 // x402 paywall for the catalog routes
 if (FREE_MODE) {
-  console.warn("FREE_MODE=true — payments are DISABLED. Do not run this in production.");
+  console.warn("FREE_MODE=true - payments are DISABLED. Do not run this in production.");
 } else {
   if (!WALLET_ADDRESS) {
     console.error(
@@ -2941,7 +2941,7 @@ if (FREE_MODE) {
           if (res.statusCode === 402 && body && typeof body === "object" && !Array.isArray(body) && !body.altPayment) {
             body.altPayment = {
               protocol: "proof-of-work",
-              summary: "No wallet? This tool is also payable with a few ms of CPU: solve a sha256 puzzle instead — no money, no tokens.",
+              summary: "No wallet? This tool is also payable with a few ms of CPU: solve a sha256 puzzle instead - no money, no tokens.",
               challengeUrl: `${BASE_URL}/api/pow/challenge?slug=${encodeURIComponent(def.slug)}`,
               info: `${BASE_URL}/api/pow`,
             };
@@ -3058,7 +3058,7 @@ if (FREE_MODE) {
         res.setHeader("X-Payment-Replay", verdict); // "consumed" | "inflight"
         return res.status(409).json({
           error:
-            "Payment authorization already used. Each x402 payment authorization (nonce) is single-use — sign a fresh authorization to make another paid call.",
+            "Payment authorization already used. Each x402 payment authorization (nonce) is single-use - sign a fresh authorization to make another paid call.",
           reason: verdict,
         });
       }
@@ -3285,7 +3285,7 @@ function memoryActor(req, res) {
   if (payer) return payer;
   if (FREE_MODE && req.query.ns) return `demo:${req.query.ns}`;
   res.status(400).json({
-    error: "No payer identity found on this request. Pay via x402 — the paying wallet is your identity.",
+    error: "No payer identity found on this request. Pay via x402 - the paying wallet is your identity.",
   });
   return null;
 }
@@ -3486,7 +3486,7 @@ app.use((err, req, res, _next) => {
     const is404 = status === 404;
     const t = is404 ? "Page not found" : `Error ${status}`;
     const m = is404 ? "The page you\u2019re looking for doesn\u2019t exist." : "Something went wrong. Try again in a moment.";
-    res.status(status).type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${CHROME_HEAD_LINKS}<title>${t} \u2014 Agent402</title><style>${CHROME_CSS}:root{--bg:#0b0e14;--text:#e6e9f0;--muted:#8b93a7;--accent:#4ade80;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,sans-serif}.e{max-width:600px;margin:0 auto;padding:80px 20px;text-align:center}.e .code{font:700 5rem/1 var(--mono);color:var(--accent);text-shadow:0 0 30px rgba(74,222,128,.3);margin-bottom:16px}.e h1{font-size:1.5rem;margin:0 0 12px}.e p{color:var(--muted);margin:0 0 28px}.e a.btn{display:inline-block;padding:10px 20px;background:var(--accent);color:#06210f;border-radius:10px;text-decoration:none;font-weight:600;margin:0 6px}.e a.ghost{background:transparent;border:1px solid #2a3550;color:var(--text)}.e a.ghost:hover{border-color:var(--accent)}.e .links{margin-top:32px;color:var(--muted);font-size:.9rem}.e .links a{color:var(--accent);margin:0 8px}</style></head><body>${renderHeader("")}<div class="e"><div class="code">${status}</div><h1>${t}</h1><p>${m}</p><a class="btn" href="/">Home</a><a class="btn ghost" href="/tools">Browse tools</a><a class="btn ghost" href="/api/find">Find a tool</a><div class="links">or try: <a href="/playground">Playground</a><a href="/docs">Docs</a><a href="/quickstart">Quickstart</a></div></div>${renderFooter()}</body></html>`);
+    res.status(status).type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${CHROME_HEAD_LINKS}<title>${t} - Agent402</title><style>${CHROME_CSS}:root{--bg:#0b0e14;--text:#e6e9f0;--muted:#8b93a7;--accent:#4ade80;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,sans-serif}.e{max-width:600px;margin:0 auto;padding:80px 20px;text-align:center}.e .code{font:700 5rem/1 var(--mono);color:var(--accent);text-shadow:0 0 30px rgba(74,222,128,.3);margin-bottom:16px}.e h1{font-size:1.5rem;margin:0 0 12px}.e p{color:var(--muted);margin:0 0 28px}.e a.btn{display:inline-block;padding:10px 20px;background:var(--accent);color:#06210f;border-radius:10px;text-decoration:none;font-weight:600;margin:0 6px}.e a.ghost{background:transparent;border:1px solid #2a3550;color:var(--text)}.e a.ghost:hover{border-color:var(--accent)}.e .links{margin-top:32px;color:var(--muted);font-size:.9rem}.e .links a{color:var(--accent);margin:0 8px}</style></head><body>${renderHeader("")}<div class="e"><div class="code">${status}</div><h1>${t}</h1><p>${m}</p><a class="btn" href="/">Home</a><a class="btn ghost" href="/tools">Browse tools</a><a class="btn ghost" href="/api/find">Find a tool</a><div class="links">or try: <a href="/playground">Playground</a><a href="/docs">Docs</a><a href="/quickstart">Quickstart</a></div></div>${renderFooter()}</body></html>`);
   }
 });
 
@@ -3574,7 +3574,7 @@ let shuttingDown = false;
 function shutdown(signal, { code = 0, deadlineMs = 75_000 } = {}) {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`${signal} received — draining in-flight requests (exit ${code})`);
+  console.log(`${signal} received - draining in-flight requests (exit ${code})`);
   // Drain the PostHog paywall_402 rollup + client queue so a redeploy doesn't
   // drop up to a flush window of funnel counts. Fire-and-forget (no-op when
   // PostHog is disabled); the drain deadline below still governs exit.
@@ -3608,7 +3608,7 @@ process.on("unhandledRejection", (reason) => {
 // after the exception, so we neither linger the full redeploy grace nor depend
 // on complex teardown. If the drain setup itself throws, exit immediately.
 process.on("uncaughtException", (err) => {
-  console.error("[uncaughtException] fatal — draining then exiting non-zero:", err?.stack || err);
+  console.error("[uncaughtException] fatal - draining then exiting non-zero:", err?.stack || err);
   try {
     shutdown("uncaughtException", { code: 1, deadlineMs: 10_000 });
   } catch {

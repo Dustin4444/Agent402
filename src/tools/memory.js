@@ -104,7 +104,7 @@ function assertByteBudget(owner, key, incomingBytes) {
   if (kvBytes.get(owner).b + delta > MAX_NS_BYTES()) {
     kvPruneExpired.run(owner, nowSec());
     if (kvBytes.get(owner).b + delta > MAX_NS_BYTES()) {
-      throw bad(`Namespace byte budget exceeded (${MAX_NS_BYTES()} bytes of stored values) — delete keys, shrink values, or let TTLs expire`, 413);
+      throw bad(`Namespace byte budget exceeded (${MAX_NS_BYTES()} bytes of stored values) - delete keys, shrink values, or let TTLs expire`, 413);
     }
   }
 }

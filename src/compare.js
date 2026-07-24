@@ -2,7 +2,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function comparePage(baseUrl) {
   const canonical = `${baseUrl}/compare`;
-  const pageTitle = "Compare — Agent402 vs alternatives";
+  const pageTitle = "Compare - Agent402 vs alternatives";
   const pageDesc = "See how Agent402 compares to building your own tool server, raw API calls, and hosted AI tool platforms. Open source, per-call pricing, no lock-in.";
 
   const jsonLd = {
@@ -69,7 +69,7 @@ export function comparePage(baseUrl) {
 <table class="cmp-table">
 <thead><tr><th>Dimension</th><th class="col-a402">Agent402</th><th>Raw API calls</th></tr></thead>
 <tbody>
-<tr><td>Authentication</td><td class="cmp-win"><span class="check">&#10003;</span> x402 protocol &mdash; one wallet, all tools</td><td class="cmp-lose">Separate API key per service</td></tr>
+<tr><td>Authentication</td><td class="cmp-win"><span class="check">&#10003;</span> x402 protocol - one wallet, all tools</td><td class="cmp-lose">Separate API key per service</td></tr>
 <tr><td>Discovery</td><td class="cmp-win"><span class="check">&#10003;</span> Searchable catalog + /api/find</td><td class="cmp-lose">Read each provider's docs</td></tr>
 <tr><td>Error handling</td><td class="cmp-win"><span class="check">&#10003;</span> Standardized JSON errors</td><td class="cmp-lose">Different format per API</td></tr>
 <tr><td>Payment</td><td class="cmp-win"><span class="check">&#10003;</span> Per-call, pay only for what you use</td><td class="cmp-lose">Monthly subscriptions per provider</td></tr>
@@ -87,7 +87,7 @@ export function comparePage(baseUrl) {
 <tr><td>Open source</td><td class="cmp-win"><span class="check">&#10003;</span> Fully open source</td><td class="cmp-lose"><span class="cross">&#10007;</span> Proprietary</td></tr>
 <tr><td>Self-hostable</td><td class="cmp-win"><span class="check">&#10003;</span> Run your own instance</td><td class="cmp-lose"><span class="cross">&#10007;</span> Vendor-hosted only</td></tr>
 <tr><td>Pricing</td><td class="cmp-win"><span class="check">&#10003;</span> Per-call, transparent</td><td class="cmp-lose">Monthly subscription</td></tr>
-<tr><td>Lock-in</td><td class="cmp-win"><span class="check">&#10003;</span> None &mdash; standard protocols</td><td class="cmp-lose">Vendor lock-in</td></tr>
+<tr><td>Lock-in</td><td class="cmp-win"><span class="check">&#10003;</span> None - standard protocols</td><td class="cmp-lose">Vendor lock-in</td></tr>
 <tr><td>Deterministic</td><td class="cmp-win"><span class="check">&#10003;</span> Every tool is deterministic</td><td class="cmp-lose">LLM-dependent, non-reproducible</td></tr>
 </tbody>
 </table>
@@ -95,16 +95,16 @@ export function comparePage(baseUrl) {
 
 <div class="cmp-section">
 <h2>agent402-tollbooth vs. platform monetization gateways</h2>
-<p class="cmp-desc">The other side of the protocol: charging AI crawlers and agents for <em>your</em> content. Cloudflare's announced Monetization Gateway (waitlist at the time of writing) brings x402 charging to sites behind Cloudflare &mdash; strong validation that pay-per-request is the business model of the agentic web. <a href="/tollbooth">agent402-tollbooth</a> is the open-source take on the same idea: self-hostable, in front of any origin.</p>
+<p class="cmp-desc">The other side of the protocol: charging AI crawlers and agents for <em>your</em> content. Cloudflare's announced Monetization Gateway (waitlist at the time of writing) brings x402 charging to sites behind Cloudflare - strong validation that pay-per-request is the business model of the agentic web. <a href="/tollbooth">agent402-tollbooth</a> is the open-source take on the same idea: self-hostable, in front of any origin.</p>
 <table class="cmp-table">
 <thead><tr><th>Dimension</th><th class="col-a402">agent402-tollbooth</th><th>Platform gateways (e.g. Cloudflare)</th></tr></thead>
 <tbody>
-<tr><td>Availability</td><td class="cmp-win"><span class="check">&#10003;</span> Live today &mdash; <code>npm i agent402-tollbooth</code></td><td class="cmp-lose">Waitlist / beta</td></tr>
-<tr><td>Where it runs</td><td class="cmp-win"><span class="check">&#10003;</span> Any origin &mdash; Express, Next.js, Docker, even a Cloudflare Worker</td><td class="cmp-lose">Only sites behind the platform's proxy</td></tr>
-<tr><td>Open source</td><td class="cmp-win"><span class="check">&#10003;</span> MIT &mdash; read every line, fork it</td><td class="cmp-lose"><span class="cross">&#10007;</span> Proprietary edge service</td></tr>
-<tr><td>Free tier for bots</td><td class="cmp-win"><span class="check">&#10003;</span> Proof-of-work &mdash; crawlers can pay with CPU instead of money</td><td class="cmp-lose"><span class="cross">&#10007;</span> Pay or blocked</td></tr>
-<tr><td>Settlement</td><td class="cmp-win"><span class="check">&#10003;</span> x402 USDC on Base, Solana, Polygon, Arbitrum, Stellar + USDG on Robinhood Chain &mdash; direct to your wallet, 0% take</td><td class="cmp-lose">Stablecoins over x402; fee structure not yet public</td></tr>
-<tr><td>Charge rules</td><td class="cmp-win"><span class="check">&#10003;</span> Your code &mdash; modes (bots/all/strict), adaptive PoW, per-path pricing</td><td class="cmp-lose">Platform rules API</td></tr>
+<tr><td>Availability</td><td class="cmp-win"><span class="check">&#10003;</span> Live today - <code>npm i agent402-tollbooth</code></td><td class="cmp-lose">Waitlist / beta</td></tr>
+<tr><td>Where it runs</td><td class="cmp-win"><span class="check">&#10003;</span> Any origin - Express, Next.js, Docker, even a Cloudflare Worker</td><td class="cmp-lose">Only sites behind the platform's proxy</td></tr>
+<tr><td>Open source</td><td class="cmp-win"><span class="check">&#10003;</span> MIT - read every line, fork it</td><td class="cmp-lose"><span class="cross">&#10007;</span> Proprietary edge service</td></tr>
+<tr><td>Free tier for bots</td><td class="cmp-win"><span class="check">&#10003;</span> Proof-of-work - crawlers can pay with CPU instead of money</td><td class="cmp-lose"><span class="cross">&#10007;</span> Pay or blocked</td></tr>
+<tr><td>Settlement</td><td class="cmp-win"><span class="check">&#10003;</span> x402 USDC on Base, Solana, Polygon, Arbitrum, Stellar + USDG on Robinhood Chain - direct to your wallet, 0% take</td><td class="cmp-lose">Stablecoins over x402; fee structure not yet public</td></tr>
+<tr><td>Charge rules</td><td class="cmp-win"><span class="check">&#10003;</span> Your code - modes (bots/all/strict), adaptive PoW, per-path pricing</td><td class="cmp-lose">Platform rules API</td></tr>
 <tr><td>Analytics</td><td class="cmp-win"><span class="check">&#10003;</span> Built-in dashboard + stats endpoint, self-hosted</td><td class="cmp-lose">Platform dashboard</td></tr>
 </tbody>
 </table>

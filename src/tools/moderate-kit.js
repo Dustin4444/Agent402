@@ -14,7 +14,7 @@ const MAX_TEXT_CHARS = 10_000;
 
 function validateInput(input) {
   const text = typeof input.text === "string" ? input.text.trim() : "";
-  if (!text) throw bad('"text" is required — the content to check for policy violations');
+  if (!text) throw bad('"text" is required - the content to check for policy violations');
   if (text.length > MAX_TEXT_CHARS) {
     throw bad(`Text too long (${text.length} chars). Maximum is ${MAX_TEXT_CHARS}`);
   }
@@ -43,7 +43,7 @@ async function callOpenAI(text) {
   const body = await res.text();
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
-    if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
+    if (res.status === 429) throw bad("OpenAI rate-limited - retry shortly", 503);
     if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
     // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
     // 200-char cut leaves an unredactable prefix); the route binder returns

@@ -41,7 +41,7 @@ function run(bin, args) {
 
 async function withTmp(fn) {
   if (active >= MAX_CONCURRENT) {
-    throw Object.assign(bad("Media workers busy — retry in a few seconds", 429), { retryAfter: 5 });
+    throw Object.assign(bad("Media workers busy - retry in a few seconds", 429), { retryAfter: 5 });
   }
   active++;
   const dir = await mkdtemp(join(tmpdir(), "a402-media-"));
@@ -121,7 +121,7 @@ const fetchMedia = async (url) => {
   const { buffer, contentType } = await safeFetch(url, { binary: true, maxBytes: MAX_MEDIA_BYTES });
   if (contentType && NON_MEDIA_CT.test(contentType)) {
     throw bad(
-      `Source URL returned Content-Type "${contentType.split(";")[0]}", not audio/video — did you pass a webpage URL instead of a direct media file URL?`,
+      `Source URL returned Content-Type "${contentType.split(";")[0]}", not audio/video - did you pass a webpage URL instead of a direct media file URL?`,
       422
     );
   }
@@ -146,7 +146,7 @@ export const MEDIA_TOOLS = [
   {
     route: "POST /api/audio-convert", name: "Audio convert (to MP3)", slug: "audio-convert", category: "web", price: "$0.02",
     description:
-      "Extract/convert the audio track of any media URL (mp4, mov, wav, m4a, ogg…) to MP3 — the \"mp4 to mp3\" conversion, deterministic ffmpeg, no AI. Body: {\"url\":\"https://…/video.mp4\",\"bitrate\":\"192k\"?}. Returns the MP3 as base64.",
+      "Extract/convert the audio track of any media URL (mp4, mov, wav, m4a, ogg…) to MP3 - the \"mp4 to mp3\" conversion, deterministic ffmpeg, no AI. Body: {\"url\":\"https://…/video.mp4\",\"bitrate\":\"192k\"?}. Returns the MP3 as base64.",
     tags: ["ffmpeg", "mp4-to-mp3", "audio", "convert", "mp3"],
     discovery: {
       bodyType: "json",
@@ -165,7 +165,7 @@ export const MEDIA_TOOLS = [
   {
     route: "POST /api/audio-normalize", name: "Audio normalize (EBU R128)", slug: "audio-normalize", category: "web", price: "$0.02",
     description:
-      "Loudness-normalize any audio/video URL to a target LUFS with ffmpeg's loudnorm (EBU R128) and return MP3 — consistent levels for podcasts, clips, and TTS output. Body: {\"url\":\"https://…/audio.wav\",\"targetLufs\":-16?}.",
+      "Loudness-normalize any audio/video URL to a target LUFS with ffmpeg's loudnorm (EBU R128) and return MP3 - consistent levels for podcasts, clips, and TTS output. Body: {\"url\":\"https://…/audio.wav\",\"targetLufs\":-16?}.",
     tags: ["ffmpeg", "normalize", "loudnorm", "audio", "lufs"],
     discovery: {
       bodyType: "json",

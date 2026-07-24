@@ -1255,12 +1255,12 @@ export const PACK_STEPS = {
       }) },
       { slug: "edgar-filings",        mapInput: (_a, p) => {
           const cik = p["edgar-search"]?.hits?.[0]?.cik;
-          if (!cik) throw Object.assign(new Error("no theme match — empty watchlist"), { statusCode: 422 });
+          if (!cik) throw Object.assign(new Error("no theme match - empty watchlist"), { statusCode: 422 });
           return { cik, limit: 10 };
       } },
       { slug: "edgar-insider-trades", mapInput: (_a, p) => {
           const cik = p["edgar-search"]?.hits?.[0]?.cik;
-          if (!cik) throw Object.assign(new Error("no theme match — empty watchlist"), { statusCode: 422 });
+          if (!cik) throw Object.assign(new Error("no theme match - empty watchlist"), { statusCode: 422 });
           return { cik, days: 90, limit: 25 };
       } },
       { slug: "edgar-13f-holdings",   mapInput: () => ({ cik: "1067983", limit: 10 }) },
@@ -2175,7 +2175,7 @@ export const PACK_STEPS = {
       }) },
       { slug: "keywords",   mapInput: (_a, p) => ({
           text: (p["feed-parse"]?.items ?? [])
-            .map((it) => [it?.title, it?.summary].filter(Boolean).join(" — "))
+            .map((it) => [it?.title, it?.summary].filter(Boolean).join(" - "))
             .join("\n"),
           limit: 10,
       }) },
@@ -2350,7 +2350,7 @@ async function runPack(packSlug, args, ctx) {
       const handler = lookupHandler(step.slug, ctx);
       if (!handler) {
         throw Object.assign(
-          new Error(`No in-process handler for slug "${step.slug}" — wire via INLINE_HANDLERS in server.js`),
+          new Error(`No in-process handler for slug "${step.slug}" - wire via INLINE_HANDLERS in server.js`),
           { statusCode: 501 }
         );
       }
@@ -2406,7 +2406,7 @@ export function buildSkillTools({ getCatalog, inlineHandlers = {} }) {
       category: "skill-pack",
       price: `$${price.toFixed(price < 0.1 ? 3 : 2)}`,
       description:
-        `Bundled execution of the ${pack.title} workflow — ${pack.tagline} ` +
+        `Bundled execution of the ${pack.title} workflow - ${pack.tagline} ` +
         `One x402 payment runs ${pack.toolSlugs.length} underlying tools (${pack.toolSlugs.join(", ")}); ` +
         `partial-success per step.`,
       tags: ["skill-pack", "workflow", slug],

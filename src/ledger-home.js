@@ -5,7 +5,7 @@
 import { ledgerShell, ledgerFooterFull, ledgerTape, esc } from "./ledger-chrome.js";
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable } from "./pow.js";
-import { RAILS, RAILS_AMP, RAILS_SHORT, RAILS_PAREN } from "./rails.js";
+import { RAILS, RAILS_AMP, RAILS_SHORT } from "./rails.js";
 import { PACK_PRICES } from "./tools/skill-runner.js";
 import { chainLogoStrip } from "./chain-logos.js";
 
@@ -57,17 +57,25 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const title = `Agent402 - ${packCount} agent skill packs, one x402 payment each (${fmtNum(count)} tools)`;
   const description = `${packCount} skill packs that do a whole agent job in one x402 payment - research a stock, audit a domain's SEO, run SQL over Base - built on ${fmtNum(count)} deterministic pay-per-call tools, plus an OpenAI-compatible LLM gateway at /v1 (chat, embeddings & images from $0.002, model-optional auto-routing). Free via proof-of-work; ${RAILS_SHORT} - from $0.001/call. No signup, no API key - the wallet is the identity.`;
 
-  // One source of truth for the FAQ: these five Q&As render as the visible
-  // section below AND as FAQPage JSON-LD (rich-result eligibility the old
-  // landing page had and the ledger redesign initially dropped — the deploy
-  // workflow's SEO gate greps prod for both surfaces).
+  // One source of truth for the FAQ: these Q&As render as the visible section
+  // below AND as FAQPage JSON-LD (rich-result eligibility the old landing page
+  // had and the ledger redesign initially dropped — the deploy workflow's SEO
+  // gate greps prod for both surfaces).
+  //
+  // Audience: a HUMAN who has never heard of x402. Agents discover endpoints
+  // through marketplaces, /api/find and the MCP connector — they do not read
+  // this page — so the job here is to explain the idea from zero, not to brief
+  // someone already in the ecosystem. Depth (rails, MPP, /v1, the router,
+  // self-hosting, privacy) lives on /faq; anything that needs prior knowledge
+  // of x402 belongs there, not here. Answers are rendered with esc(), so they
+  // are plain text: name a page in words rather than linking it.
   const faqs = [
-    { q: "What is Agent402?", a: `A live node in the machine-to-machine economy: ${fmtNum(toolOnlyCount)} web tools and ${packCount} skill packs (a catalog of ${fmtNum(count)}) an autonomous agent can call and pay for per request in USDC via x402 - or with proof-of-work, no wallet. Every one earns its place. No human, no signup, no API key.` },
-    { q: "How does an agent pay for a tool?", a: `It calls an endpoint and gets an HTTP 402 quote. An x402 client signs a payment - ${RAILS_PAREN} - from the agent's own wallet, and retries; the call settles on-chain in seconds. The wallet is the identity.` },
-    { q: "Are any tools free?", a: `Yes - the free tier is proof-of-work on the pure-CPU tools: ${fmtNum(freeCount)} of the ${fmtNum(count)} work with no wallet. Solve a short puzzle (a few seconds of CPU) instead of paying USDC; tools that cost real infrastructure to run settle in USDC.` },
-    { q: "Does it spend my model tokens?", a: "No LLM in the deterministic tool path - parsers, hashes, math, a real browser. Tools like /api/extract exist to save your tokens: clean markdown out instead of 100k tokens of raw HTML in. (The optional /v1 gateway is a separate OpenAI-compatible LLM proxy you opt into.)" },
-    { q: "How do I get paid as a seller?", a: "Serve x402 challenges from your API (or install agent402-tollbooth on your site) and buyers settle USDC straight to your wallet - non-custodial, no merchant account. The index crawler lists any origin whose 402s answer; ranking is health-based and listing is free." },
-    { q: "Does it support MPP as well as x402?", a: "Yes - every endpoint is dual-stack. MPP (the Machine Payments Protocol, IETF standards track) speaks the same pay-per-request handshake through the web's standard authentication headers; x402 uses its own. Same URL, same price, same USDC settlement either way - the buyer's client picks the dialect. MPP buyers also get signed Payment-Receipt headers. The full comparison lives on the what-is-x402 page." },
+    { q: "What is Agent402?", a: `A place where software buys small jobs, one at a time. ${fmtNum(toolOnlyCount)} web tools and ${packCount} skill packs - read a page, decode a barcode, check a domain, run a query - each with a price and each callable without a signup. The customers are mostly AI agents rather than people, so there is no account to create and no API key to manage.` },
+    { q: "What is x402?", a: "When the web was designed, HTTP set aside a response for \"payment required\" - status code 402 - and then left it unused for about thirty years. x402 finally fills it in: ask for something, get a price back, pay, and the same request goes through. It is an open standard rather than anything we invented, and it is what lets a program buy one thing in one round trip with no subscription and no checkout page. There is a plain-English explainer on the what-is-x402 page." },
+    { q: "Why would software need to buy anything?", a: "An AI agent working on a real task keeps running into things it cannot answer from memory: fetch a live page, pull a filing, convert a file, look up an address on a blockchain. Signing up for twenty different APIs is not something an agent can do on its own - it has no email, no credit card, and no way to agree to terms. Paying a fraction of a cent per call is something it can do." },
+    { q: "Do I need crypto or a wallet to try it?", a: `No. ${fmtNum(freeCount)} of the ${fmtNum(count)} tools run free on proof-of-work: your own computer solves a short puzzle instead of paying, which costs a second of CPU and nothing else. A wallet only matters for tools that cost real money to run, and those quote their price before anything is charged.` },
+    { q: "How do I know the money side is honest?", a: "The whole server is open source, so the payment code can be read line by line. Settlement happens on a public blockchain, so every payment is independently verifiable. And a failed call is never charged - payment only completes on a successful response, so if a tool breaks, no money moves." },
+    { q: "I have a website or an API. Is there anything here for me?", a: "Yes, it runs in both directions. If you have an API, you can charge for it the same way and buyers pay straight into your wallet with nothing taken in between. If you have a website that AI crawlers keep hitting, agent402-tollbooth is an open-source gate that charges them per page instead of blocking them. Listing is free." },
   ];
 
   const jsonLd = [
@@ -161,14 +169,14 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     </div>
   </header>
 
-  <!-- SETTLEMENT RAILS — chain logo strip -->
+  <!-- SETTLEMENT RAILS - chain logo strip -->
   <div style="border-bottom:1.5px solid var(--ink);background:var(--paper);">
     <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
       ${chainLogoStrip({ label: "Settles natively on ten networks - USDC on nine chains plus USDG on Robinhood" })}
     </div>
   </div>
 
-  <!-- THE PRODUCT — SKILL PACKS -->
+  <!-- THE PRODUCT - SKILL PACKS -->
   <section style="max-width:1180px;margin:0 auto;padding:78px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/skill/{slug}</div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">

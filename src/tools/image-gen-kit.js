@@ -23,7 +23,7 @@ const TIERS = {
 
 function validateInput(input, tierSlug) {
   const prompt = typeof input.prompt === "string" ? input.prompt.trim() : "";
-  if (!prompt) throw bad('"prompt" is required — describe the image you want');
+  if (!prompt) throw bad('"prompt" is required - describe the image you want');
   const cap = TIERS[tierSlug].maxPromptChars;
   if (prompt.length > cap) {
     throw bad(`Prompt too long (${prompt.length} chars). The ${tierSlug} tier allows up to ${cap} chars`);
@@ -62,7 +62,7 @@ async function callOpenAI(prompt, tierSlug) {
   const text = await res.text();
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
-    if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
+    if (res.status === 429) throw bad("OpenAI rate-limited - retry shortly", 503);
     if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
     // Redact the FULL body BEFORE slicing/parsing (a secret straddling the
     // 200-char cut leaves an unredactable prefix); the route binder returns

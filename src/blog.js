@@ -5,16 +5,16 @@ export const BLOG_POSTS = [
     slug: "why-we-built-agent402",
     date: "2026-06-15",
     title: "Why we built Agent402",
-    excerpt: "Agents need deterministic tools they can trust. We built Agent402 to give them exactly that — no API keys, no rate-limit games, just x402 micropayments for every call.",
+    excerpt: "Agents need deterministic tools they can trust. We built Agent402 to give them exactly that - no API keys, no rate-limit games, just x402 micropayments for every call.",
     body: `<p>Most tool APIs were designed for human developers: sign up, get an API key, read the docs, handle auth, manage quotas. That friction is invisible to a person, but it's a wall for an autonomous agent.</p>
 
-<p>We built Agent402 around a simple idea: <strong>every tool should be callable with a single HTTP request and a micropayment</strong>. No registration, no API keys, no OAuth flows. The x402 protocol makes this possible — the agent's wallet <em>is</em> its identity, and payment <em>is</em> authorization.</p>
+<p>We built Agent402 around a simple idea: <strong>every tool should be callable with a single HTTP request and a micropayment</strong>. No registration, no API keys, no OAuth flows. The x402 protocol makes this possible - the agent's wallet <em>is</em> its identity, and payment <em>is</em> authorization.</p>
 
 <h2>Why deterministic?</h2>
 
 <p>An agent that calls a tool needs to know what it will get back. If a "summarize" endpoint silently calls an LLM, the output varies on every call. That makes testing impossible, caching meaningless, and debugging a nightmare.</p>
 
-<p>Every Agent402 tool is deterministic: same input, same output, every time. This means agents can cache results, retry safely, and CI can verify every tool automatically. Our test suite literally calls every tool with its example input and checks the response — 500+ tools, zero LLM variance.</p>
+<p>Every Agent402 tool is deterministic: same input, same output, every time. This means agents can cache results, retry safely, and CI can verify every tool automatically. Our test suite literally calls every tool with its example input and checks the response - 500+ tools, zero LLM variance.</p>
 
 <h2>Why x402 over API keys?</h2>
 
@@ -24,10 +24,10 @@ export const BLOG_POSTS = [
   <li><strong>No signup.</strong> The agent sends a payment header with its request. Done.</li>
   <li><strong>No rate limits.</strong> You pay per call. Want to make 10,000 calls? Pay for 10,000 calls.</li>
   <li><strong>No vendor lock-in.</strong> x402 is an open protocol. Any server can accept it, any client can send it.</li>
-  <li><strong>Micropayments that actually work.</strong> USDC on Base (and Solana, Polygon, Arbitrum, Stellar — plus USDG on Robinhood Chain) settles in seconds for fractions of a cent in gas.</li>
+  <li><strong>Micropayments that actually work.</strong> USDC on Base (and Solana, Polygon, Arbitrum, Stellar - plus USDG on Robinhood Chain) settles in seconds for fractions of a cent in gas.</li>
 </ul>
 
-<p>The result: an agent with a funded wallet can discover Agent402 tools via MCP, call them, and pay — all without a human ever creating an account.</p>
+<p>The result: an agent with a funded wallet can discover Agent402 tools via MCP, call them, and pay - all without a human ever creating an account.</p>
 
 <h2>Open source, self-hostable</h2>
 
@@ -40,7 +40,7 @@ export const BLOG_POSTS = [
     date: "2026-06-17",
     title: "How the proof-of-work free tier works",
     excerpt: "Every pure-CPU tool on Agent402 is free if you solve a small proof-of-work challenge. Here's how it works, why we built it, and what it means for agents.",
-    body: `<p>Agent402 has over a thousand tools, and most of them are pure CPU — no external API calls, no network I/O, just computation. Things like JSON formatting, hash generation, regex matching, unit conversion, and text analysis.</p>
+    body: `<p>Agent402 has over a thousand tools, and most of them are pure CPU - no external API calls, no network I/O, just computation. Things like JSON formatting, hash generation, regex matching, unit conversion, and text analysis.</p>
 
 <p>For these tools, we offer a <strong>proof-of-work free tier</strong>: instead of paying USDC, the caller solves a small computational challenge. It's the same idea as Hashcash (the precursor to Bitcoin mining), adapted for API access control.</p>
 
@@ -52,7 +52,7 @@ export const BLOG_POSTS = [
   <li><strong>Submit the solution.</strong> The client re-sends the original request with the PoW solution in the headers. The server verifies the solution (instant) and serves the result.</li>
 </ol>
 
-<p>Each solution is <strong>single-use and slug-scoped</strong> — it can only be used once, and only for the specific tool it was issued for. This prevents replay attacks and solution-sharing across tools.</p>
+<p>Each solution is <strong>single-use and slug-scoped</strong> - it can only be used once, and only for the specific tool it was issued for. This prevents replay attacks and solution-sharing across tools.</p>
 
 <h2>Why proof-of-work?</h2>
 
@@ -61,16 +61,16 @@ export const BLOG_POSTS = [
 <ul>
   <li><strong>Abuse prevention.</strong> Solving a challenge has a real CPU cost, so bulk abuse is expensive even though the tools are "free."</li>
   <li><strong>No identity required.</strong> The caller doesn't need an account, email, or API key. Just compute the answer.</li>
-  <li><strong>Fair access.</strong> Every caller pays the same cost — a few milliseconds of CPU time — regardless of who they are.</li>
+  <li><strong>Fair access.</strong> Every caller pays the same cost - a few milliseconds of CPU time - regardless of who they are.</li>
 </ul>
 
 <h2>Browser-side solving</h2>
 
-<p>The PoW challenge is designed to be solvable in the browser using Web Crypto. The <code>agent402-client</code> SDK handles this automatically — it detects a 402 response, solves the challenge, and retries, all transparently. For agents using the MCP integration, the hosted server at <code>/mcp</code> handles PoW internally.</p>
+<p>The PoW challenge is designed to be solvable in the browser using Web Crypto. The <code>agent402-client</code> SDK handles this automatically - it detects a 402 response, solves the challenge, and retries, all transparently. For agents using the MCP integration, the hosted server at <code>/mcp</code> handles PoW internally.</p>
 
 <h2>Which tools are free?</h2>
 
-<p>Any tool that runs purely on the server's CPU without making external network requests is PoW-eligible. Tools that call upstream APIs (web search, rendering, geocoding) require payment because they have a real marginal cost. The tool catalog marks each tool's pricing — <code>$0.000</code> means PoW-eligible.</p>`,
+<p>Any tool that runs purely on the server's CPU without making external network requests is PoW-eligible. Tools that call upstream APIs (web search, rendering, geocoding) require payment because they have a real marginal cost. The tool catalog marks each tool's pricing - <code>$0.000</code> means PoW-eligible.</p>`,
   },
   {
     slug: "1000-tools-milestone",
@@ -81,7 +81,7 @@ export const BLOG_POSTS = [
 
 <h2>What categories exist</h2>
 
-<p>The catalog spans 30+ categories, grouped into "kits" — each kit is a focused collection of related tools:</p>
+<p>The catalog spans 30+ categories, grouped into "kits" - each kit is a focused collection of related tools:</p>
 
 <ul>
   <li><strong>Data processing:</strong> JSON, CSV, XML, YAML, TOML manipulation and validation</li>
@@ -103,7 +103,7 @@ export const BLOG_POSTS = [
 
 <h2>How we got here</h2>
 
-<p>We started with 50 tools in the first week. The approach was simple: pick a category, build 5-10 tools that cover the common tasks, write the CI test for each, and ship. Each kit follows the same pattern — a single file that exports an array of tool definitions with handlers.</p>
+<p>We started with 50 tools in the first week. The approach was simple: pick a category, build 5-10 tools that cover the common tasks, write the CI test for each, and ship. Each kit follows the same pattern - a single file that exports an array of tool definitions with handlers.</p>
 
 <p>The constraint that kept quality high: <strong>every tool must answer its own example input correctly in CI</strong>. No exceptions. If a tool can't pass that bar, it doesn't ship.</p>
 
@@ -125,10 +125,10 @@ export const BLOG_POSTS = [
 <p>The simplest way to connect: point your MCP client at <code>https://agent402.tools/mcp</code>. This endpoint exposes four tools:</p>
 
 <ul>
-  <li><strong>search_tools</strong> — find tools by keyword or task description</li>
-  <li><strong>find_tool</strong> — resolve a specific tool by name or slug</li>
-  <li><strong>call_tool</strong> — execute any tool with input parameters</li>
-  <li><strong>about_agent402</strong> — get platform info and capabilities</li>
+  <li><strong>search_tools</strong> - find tools by keyword or task description</li>
+  <li><strong>find_tool</strong> - resolve a specific tool by name or slug</li>
+  <li><strong>call_tool</strong> - execute any tool with input parameters</li>
+  <li><strong>about_agent402</strong> - get platform info and capabilities</li>
 </ul>
 
 <p>The hosted endpoint handles PoW challenges internally, so pure-CPU tools are effectively free through MCP. Paid tools require an x402 payment header on the <code>call_tool</code> request.</p>
@@ -145,7 +145,7 @@ export const BLOG_POSTS = [
   }
 }</code></pre>
 
-<p>Once connected, Claude Code can search through all 500+ tools, find the right one for a task, and call it — all through the standard MCP protocol. The <code>search_tools</code> and <code>find_tool</code> commands help the agent discover relevant tools without needing to know the full catalog.</p>
+<p>Once connected, Claude Code can search through all 500+ tools, find the right one for a task, and call it - all through the standard MCP protocol. The <code>search_tools</code> and <code>find_tool</code> commands help the agent discover relevant tools without needing to know the full catalog.</p>
 
 <h2>npm package (local / stdio)</h2>
 
@@ -164,7 +164,7 @@ export const BLOG_POSTS = [
   }
 }</code></pre>
 
-<p>The npm package bundles the same tool definitions and connects to the hosted API for execution. It works with any MCP client that supports stdio transport — Claude Code, Cline, Continue, and others.</p>
+<p>The npm package bundles the same tool definitions and connects to the hosted API for execution. It works with any MCP client that supports stdio transport - Claude Code, Cline, Continue, and others.</p>
 
 <h2>Framework adapters</h2>
 
@@ -176,8 +176,8 @@ export const BLOG_POSTS = [
 
 export function blogIndex(baseUrl) {
   const canonical = `${baseUrl}/blog`;
-  const pageTitle = "Blog — Agent402";
-  const pageDesc = "News, deep-dives, and announcements from the Agent402 project — deterministic tools, x402 payments, and MCP integrations for autonomous agents.";
+  const pageTitle = "Blog - Agent402";
+  const pageDesc = "News, deep-dives, and announcements from the Agent402 project - deterministic tools, x402 payments, and MCP integrations for autonomous agents.";
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -240,7 +240,7 @@ export function blogPost(baseUrl, slug) {
   if (!post) return null;
 
   const canonical = `${baseUrl}/blog/${post.slug}`;
-  const pageTitle = `${post.title} — Agent402 Blog`;
+  const pageTitle = `${post.title} - Agent402 Blog`;
 
   const jsonLd = {
     "@context": "https://schema.org",

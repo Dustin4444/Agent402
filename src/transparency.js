@@ -12,7 +12,7 @@ const CLAIM_TX = "0xf843a85897343ba1888760ecf07398b99d73d4acb4aee84b4c35ef8411d4
 const SCOUT = "https://robinhoodchain.blockscout.com";
 
 export function transparencyPage(baseUrl) {
-  const title = "Transparency — Agent402";
+  const title = "Transparency - Agent402";
   const description =
     "Public disclosures with on-chain receipts: the community-launched $AGENT402 token on Robinhood Chain, the contract address, the claiming wallet, and our commitments.";
   const canonical = `${baseUrl}/transparency`;

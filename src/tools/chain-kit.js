@@ -49,7 +49,7 @@ function requireKey() {
 export function pickNetwork(value, dflt = "base") {
   const n = typeof value === "string" ? value.toLowerCase().trim() : dflt;
   const def = NETWORKS[n];
-  if (!def) throw bad(`Unsupported network "${value}" — supported: ${Object.keys(NETWORKS).join(", ")}`);
+  if (!def) throw bad(`Unsupported network "${value}" - supported: ${Object.keys(NETWORKS).join(", ")}`);
   return { name: n, ...def };
 }
 
@@ -73,7 +73,7 @@ async function alchemyFetch(url, opts = {}) {
     console.warn(`[chain] upstream unreachable: ${(() => { try { return new URL(url).host; } catch { return "?"; } })()} → ${err.name ?? err.code ?? err.message}`);
     throw bad("Chain upstream timed out", 504);
   }
-  if (res.status === 429) throw bad("Chain rate limit reached upstream — retry shortly", 503);
+  if (res.status === 429) throw bad("Chain rate limit reached upstream - retry shortly", 503);
   if (!res.ok) throw bad(`Chain upstream error (HTTP ${res.status})`, 502);
   return res.json();
 }
@@ -241,7 +241,7 @@ export const CHAIN_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Look up the native coin balance (ETH/MATIC) plus every ERC-20 holding for a wallet address on Ethereum, Base, Polygon, Arbitrum, or Optimism. Returns clean decimal balances (already scaled by token decimals) plus symbol and contract — ready to display in a UI or feed into a portfolio tool.",
+      "Look up the native coin balance (ETH/MATIC) plus every ERC-20 holding for a wallet address on Ethereum, Base, Polygon, Arbitrum, or Optimism. Returns clean decimal balances (already scaled by token decimals) plus symbol and contract - ready to display in a UI or feed into a portfolio tool.",
     tags: ["crypto", "wallet", "balance", "erc20", "evm", "base", "ethereum"],
     discovery: {
       bodyType: "json",
@@ -399,7 +399,7 @@ export const CHAIN_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Return the most recent asset transfers (incoming + outgoing) for a wallet address — native coin, ERC-20, ERC-721, ERC-1155 — already merged and sorted newest first. Each row carries the block, tx hash, counterparty, asset, and decimal value. Cap is 100 per direction; widen the window via `fromBlock` if you need deeper history.",
+      "Return the most recent asset transfers (incoming + outgoing) for a wallet address - native coin, ERC-20, ERC-721, ERC-1155 - already merged and sorted newest first. Each row carries the block, tx hash, counterparty, asset, and decimal value. Cap is 100 per direction; widen the window via `fromBlock` if you need deeper history.",
     tags: ["crypto", "wallet", "transactions", "history", "transfers", "evm"],
     discovery: {
       bodyType: "json",
@@ -462,7 +462,7 @@ export const CHAIN_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Return the NFTs owned by a wallet address on a given network. Each row carries the collection name, contract address, token ID, image URL (where available), and ERC-721 vs ERC-1155 standard. Up to 100 per call — paginate with `pageKey` from the previous response.",
+      "Return the NFTs owned by a wallet address on a given network. Each row carries the collection name, contract address, token ID, image URL (where available), and ERC-721 vs ERC-1155 standard. Up to 100 per call - paginate with `pageKey` from the previous response.",
     tags: ["crypto", "nft", "wallet", "erc721", "erc1155", "evm"],
     discovery: {
       bodyType: "json",
@@ -577,7 +577,7 @@ export const CHAIN_TOOLS = [
     category: "crypto",
     price: "$0.005",
     description:
-      "Live gas price snapshot for a chain — slow / standard / fast tiers in gwei, plus the latest base fee. Sampled from eth_feeHistory (last 4 blocks, 25th/50th/90th percentile priority fees). Use to estimate before broadcasting a transaction from another tool.",
+      "Live gas price snapshot for a chain - slow / standard / fast tiers in gwei, plus the latest base fee. Sampled from eth_feeHistory (last 4 blocks, 25th/50th/90th percentile priority fees). Use to estimate before broadcasting a transaction from another tool.",
     tags: ["crypto", "gas", "fees", "evm", "transaction"],
     discovery: {
       bodyType: "json",
@@ -633,7 +633,7 @@ export const CHAIN_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Escape hatch for power users: forward an arbitrary read-only JSON-RPC method to the chain. Method must be in our read-only whitelist (eth_call, eth_getLogs, eth_getBlockByNumber, eth_getTransactionReceipt, eth_chainId, eth_blockNumber, etc.). Mutating methods (eth_sendTransaction, eth_sendRawTransaction) are rejected — sign and broadcast through your own provider.",
+      "Escape hatch for power users: forward an arbitrary read-only JSON-RPC method to the chain. Method must be in our read-only whitelist (eth_call, eth_getLogs, eth_getBlockByNumber, eth_getTransactionReceipt, eth_chainId, eth_blockNumber, etc.). Mutating methods (eth_sendTransaction, eth_sendRawTransaction) are rejected - sign and broadcast through your own provider.",
     tags: ["crypto", "rpc", "json-rpc", "evm", "eth-call", "advanced"],
     discovery: {
       bodyType: "json",
@@ -680,7 +680,7 @@ export const CHAIN_TOOLS = [
     category: "crypto",
     price: "$0.004",
     description:
-      "Read-only JSON-RPC against Ethereum, Base, Polygon, Arbitrum, or Optimism with built-in multi-endpoint failover — one paid call, no node or API key of your own. Whitelisted methods only: eth_blockNumber, eth_gasPrice, eth_getBalance, eth_getTransactionCount, eth_getBlockByNumber, eth_getTransactionByHash, eth_getTransactionReceipt, eth_call, eth_getCode, eth_getStorageAt, eth_chainId, eth_feeHistory, net_version. Mutating, signing, subscription, and unbounded methods (eth_getLogs) are rejected. Results over 200KB serialized return 413 — narrow the query.",
+      "Read-only JSON-RPC against Ethereum, Base, Polygon, Arbitrum, or Optimism with built-in multi-endpoint failover - one paid call, no node or API key of your own. Whitelisted methods only: eth_blockNumber, eth_gasPrice, eth_getBalance, eth_getTransactionCount, eth_getBlockByNumber, eth_getTransactionByHash, eth_getTransactionReceipt, eth_call, eth_getCode, eth_getStorageAt, eth_chainId, eth_feeHistory, net_version. Mutating, signing, subscription, and unbounded methods (eth_getLogs) are rejected. Results over 200KB serialized return 413 - narrow the query.",
     tags: ["crypto", "rpc", "json-rpc", "evm", "multichain", "base", "ethereum", "polygon", "arbitrum"],
     discovery: {
       bodyType: "json",
@@ -707,7 +707,7 @@ export const CHAIN_TOOLS = [
       const method = EVM_RPC_METHOD_BY_LOWER.get(rawMethod.toLowerCase());
       if (!method) {
         throw bad(
-          `${rawMethod ? `Method "${rawMethod}" is not allowed — read-only whitelist only` : `"method" is required`}. Allowed: ${EVM_RPC_METHODS.join(", ")}`
+          `${rawMethod ? `Method "${rawMethod}" is not allowed - read-only whitelist only` : `"method" is required`}. Allowed: ${EVM_RPC_METHODS.join(", ")}`
         );
       }
       let params = i.params === undefined || i.params === null ? [] : i.params;
@@ -724,7 +724,7 @@ export const CHAIN_TOOLS = [
       const resultBytes = resultJson === undefined ? 0 : Buffer.byteLength(resultJson, "utf8");
       if (resultBytes > EVM_RPC_MAX_RESULT_BYTES) {
         throw bad(
-          `Result too large (${resultBytes} bytes serialized, cap ${EVM_RPC_MAX_RESULT_BYTES}) — narrow the query (e.g. eth_getBlockByNumber with hydrated transactions off)`,
+          `Result too large (${resultBytes} bytes serialized, cap ${EVM_RPC_MAX_RESULT_BYTES}) - narrow the query (e.g. eth_getBlockByNumber with hydrated transactions off)`,
           413
         );
       }

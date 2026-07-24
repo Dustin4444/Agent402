@@ -13,8 +13,8 @@
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function tollboothLandingPage(baseUrl) {
-  const title = "Tollbooth — charge AI bots that crawl your site (30-second install)";
-  const description = "agent402-tollbooth is the open-source monetization gateway: a self-hostable pay-per-crawl gate for any origin — no platform, no waitlist. Drop it in front of any Node site (Express, Next.js, Cloudflare Worker, Docker) and AI crawlers pay USDC on Base (or Solana, Polygon, Arbitrum, Stellar) — or burn CPU — to read your content. Humans browse free.";
+  const title = "Tollbooth - charge AI bots that crawl your site (30-second install)";
+  const description = "agent402-tollbooth is the open-source monetization gateway: a self-hostable pay-per-crawl gate for any origin - no platform, no waitlist. Drop it in front of any Node site (Express, Next.js, Cloudflare Worker, Docker) and AI crawlers pay USDC on Base (or Solana, Polygon, Arbitrum, Stellar) - or burn CPU - to read your content. Humans browse free.";
   const canonical = `${baseUrl}/tollbooth`;
 
   const extraCss = `
@@ -62,12 +62,12 @@ export function tollboothLandingPage(baseUrl) {
 
   /* The inline render() function uses .innerHTML to build syntax-highlighted
      code from user inputs. Every interpolated value passes through the inline
-     esc() sanitiser first — this pattern is carried over from the original
+     esc() sanitiser first - this pattern is carried over from the original
      pre-migration code and is safe against injection. */
   const body = `<div class="tb-wrap">
 
 <h1>Charge AI bots that crawl your site</h1>
-<p class="lede"><b>agent402-tollbooth</b> is the open-source monetization gateway — a self-hostable pay-per-crawl gate that is live today, no waitlist, and works in front of <em>any</em> origin, not just sites behind a platform proxy. Drop it in front of any Node site and AI crawlers pay USDC on Base (or Solana, Polygon, Arbitrum, Stellar) — or burn CPU — to read your content. Humans browse free, funds settle straight to your wallet with a 0% take. <a href="https://github.com/MikeyPetrillo/Agent402/wiki/Pay-per-crawl-Walkthrough" rel="noopener">30-min walkthrough →</a> <a href="/compare" rel="noopener">vs. platform gateways →</a></p>
+<p class="lede"><b>agent402-tollbooth</b> is the open-source monetization gateway - a self-hostable pay-per-crawl gate that is live today, no waitlist, and works in front of <em>any</em> origin, not just sites behind a platform proxy. Drop it in front of any Node site and AI crawlers pay USDC on Base (or Solana, Polygon, Arbitrum, Stellar) - or burn CPU - to read your content. Humans browse free, funds settle straight to your wallet with a 0% take. <a href="https://github.com/MikeyPetrillo/Agent402/wiki/Pay-per-crawl-Walkthrough" rel="noopener">30-min walkthrough →</a> <a href="/compare" rel="noopener">vs. platform gateways →</a></p>
 
 <div class="cloud-cta">
   <span>Managing multiple sites or running an SEO agency? Multi-site rollup, alerts, white-label dashboard, 20% partner program.</span>
@@ -84,10 +84,10 @@ export function tollboothLandingPage(baseUrl) {
   </label>
   <label><span class="k">Mode</span>
     <select id="mode">
-      <option value="observe" selected>observe — watch only</option>
-      <option value="bots">bots — charge AI crawlers</option>
-      <option value="all">all — charge everything non-human</option>
-      <option value="strict">strict — paywall everyone</option>
+      <option value="observe" selected>observe - watch only</option>
+      <option value="bots">bots - charge AI crawlers</option>
+      <option value="all">all - charge everything non-human</option>
+      <option value="strict">strict - paywall everyone</option>
     </select>
   </label>
 </div>
@@ -135,7 +135,7 @@ export function tollboothLandingPage(baseUrl) {
     var price=esc((p.value||'').trim()||'$0.002');
     var mode=esc(m.value);
     var modeLine = mode==='observe'
-      ? '<span class="kw">observe</span>: <span class="num">true</span>,                       <span class="com">// no 402s yet — watch first</span>'
+      ? '<span class="kw">observe</span>: <span class="num">true</span>,                       <span class="com">// no 402s yet - watch first</span>'
       : '<span class="kw">mode</span>: <span class="str">"'+mode+'"</span>,                   <span class="com">// '+(mode==='bots'?'charge AI crawlers; humans pass':mode==='all'?'charge everything non-human':'paywall everyone')+'</span>';
     out.innerHTML =
       '<span class="kw">import</span> express <span class="kw">from</span> <span class="str">"express"</span>;\\n' +

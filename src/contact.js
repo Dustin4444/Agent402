@@ -2,7 +2,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function contactPage(baseUrl) {
   const canonical = `${baseUrl}/contact`;
-  const title = "Contact — Agent402.Tools";
+  const title = "Contact - Agent402.Tools";
   const description = "Get in touch with the Agent402 team. Email mike@agent402.tools or reach out on GitHub and X.";
 
   const jsonLd = {
@@ -58,7 +58,7 @@ export function contactPage(baseUrl) {
     <div class="ct-card">
       <div class="ct-card-label">email</div>
       <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>
-      <p>Best for partnerships, support questions, and general inquiries — and the channel for abuse reports, copyright complaints, and legal requests (see <a href="/terms">terms</a>).</p>
+      <p>Best for partnerships, support questions, and general inquiries - and the channel for abuse reports, copyright complaints, and legal requests (see <a href="/terms">terms</a>).</p>
     </div>
     <div class="ct-card">
       <div class="ct-card-label">x / twitter</div>

@@ -7,9 +7,15 @@
 import { PNG } from "pngjs";
 import jpeg from "jpeg-js";
 import jsQR from "jsqr";
-import {
+// Imported via the default export, not named ESM imports: @zxing/library 0.23
+// ships CJS only, so `import { BarcodeFormat } from …` stops resolving there
+// and the whole server fails to boot. The default export carries every symbol
+// on both 0.21 and 0.23, so this form survives the bump either way.
+import zxing from "@zxing/library";
+
+const {
   RGBLuminanceSource, BinaryBitmap, HybridBinarizer, MultiFormatReader, BarcodeFormat, DecodeHintType,
-} from "@zxing/library";
+} = zxing;
 
 function bad(message) {
   const err = new Error(message);
@@ -34,7 +40,7 @@ function toRgba(imageField) {
 
   const isPng = buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
   const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
-  if (!isPng && !isJpg) throw bad("unsupported image format — provide a PNG or JPEG");
+  if (!isPng && !isJpg) throw bad("unsupported image format - provide a PNG or JPEG");
   let img;
   try {
     if (isPng) {

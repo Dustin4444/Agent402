@@ -73,9 +73,9 @@ export function statusPage(baseUrl, stats) {
 
 <div class="st-grid">
   <div class="st-stat"><div class="st-k">Uptime (this process)</div><div class="st-v" id="uptime">${esc(fmtUptime(stats?.uptimeSeconds || 0))}</div><div class="st-sv">${since ? `serving since ${esc(since)}` : ""}</div></div>
-  <div class="st-stat"><div class="st-k">Tools live</div><div class="st-v">${esc(stats?.tools ?? "—")}</div><div class="st-sv">${esc(stats?.payment?.network || "")} · ${esc(stats?.payment?.currency || "")}</div></div>
+  <div class="st-stat"><div class="st-k">Tools live</div><div class="st-v">${esc(stats?.tools ?? "-")}</div><div class="st-sv">${esc(stats?.payment?.network || "")} · ${esc(stats?.payment?.currency || "")}</div></div>
   <div class="st-stat"><div class="st-k">Calls served</div><div class="st-v" id="total">${esc(served.total)}</div><div class="st-sv"><span id="viaUSDC">${esc(served.viaUSDC)}</span> USDC · <span id="viaPoW">${esc(served.viaProofOfWork)}</span> PoW</div></div>
-  <div class="st-stat"><div class="st-k">Estimated revenue</div><div class="st-v" id="rev">${esc(typeof stats?.estimatedRevenueUsd === "number" ? `$${stats.estimatedRevenueUsd.toFixed(4)}` : "—")}</div><div class="st-sv">${onchain ? `<a href="${esc(onchain)}" rel="noopener">on-chain proof</a>` : "counter only"}</div></div>
+  <div class="st-stat"><div class="st-k">Estimated revenue</div><div class="st-v" id="rev">${esc(typeof stats?.estimatedRevenueUsd === "number" ? `$${stats.estimatedRevenueUsd.toFixed(4)}` : "-")}</div><div class="st-sv">${onchain ? `<a href="${esc(onchain)}" rel="noopener">on-chain proof</a>` : "counter only"}</div></div>
 </div>
 
 <div id="last-wrap">${lastBlock}</div>
@@ -102,7 +102,7 @@ export function statusPage(baseUrl, stats) {
       var t=document.getElementById('total'); if(t) t.textContent=(s.total||0);
       var u=document.getElementById('viaUSDC'); if(u) u.textContent=(s.viaUSDC||0);
       var p=document.getElementById('viaPoW'); if(p) p.textContent=(s.viaProofOfWork||0);
-      var rv=document.getElementById('rev'); if(rv) rv.textContent=(typeof d.estimatedRevenueUsd==='number'?'$'+d.estimatedRevenueUsd.toFixed(4):'—');
+      var rv=document.getElementById('rev'); if(rv) rv.textContent=(typeof d.estimatedRevenueUsd==='number'?'$'+d.estimatedRevenueUsd.toFixed(4):'-');
       var last=(d.recentCalls||[])[0];
       var w=document.getElementById('last-wrap');
       if(w&&last){
@@ -119,7 +119,7 @@ export function statusPage(baseUrl, stats) {
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: "Status — Agent402",
+    title: "Status - Agent402",
     description: "Live status for Agent402: uptime, tool calls served, settlement split (USDC + proof-of-work), and on-chain revenue proof.",
     canonical: `${baseUrl}/status`,
     baseUrl,

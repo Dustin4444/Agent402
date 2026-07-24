@@ -28,10 +28,15 @@ updates:
       # Revisit only with a container-build test.
       - dependency-name: "better-sqlite3"
         update-types: ["version-update:semver-major"]
-      # @zxing/library >=0.23 requires Node 24 (we run 22) and changed its exports,
-      # crashing the server boot. Revisit after a Node upgrade.
+      # @zxing/library >=0.23 declares engines node >=24 (the deploy image is
+      # node:22-slim) and ships CJS only, which broke the named ESM imports in
+      # barcode-kit until they moved to the default export. Revisit after a Node
+      # upgrade. NOTE: no update-types qualifier on purpose — for a 0.x package
+      # Dependabot reads the MIDDLE digit as minor, so 0.21 -> 0.23 is a
+      # semver-MINOR update and a "semver-major" ignore silently never matches.
+      # That is exactly how 0.23 landed in the grouped minor/patch PR (#531) and
+      # failed it.
       - dependency-name: "@zxing/library"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

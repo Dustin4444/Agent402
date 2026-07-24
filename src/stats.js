@@ -204,13 +204,13 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
   const explorer = network === "base-sepolia" ? "https://sepolia.basescan.org" : "https://basescan.org";
   return {
     service: "Agent402.Tools",
-    summary: "A live node in the machine-to-machine economy: autonomous agents pay per call in USDC (or with compute) and get the result — no human, no signup.",
+    summary: "A live node in the machine-to-machine economy: autonomous agents pay per call in USDC (or with compute) and get the result - no human, no signup.",
     tools: toolCount,
     payment: { protocol: "x402", network, currency: "USDC" },
     wallet,
     walletName: walletName || null,
     onchainRevenueProof: wallet ? `${explorer}/address/${wallet}#tokentxns` : null,
-    onchainNote: "Settled revenue is verifiable on-chain at the wallet above — that is the trustless source of truth, not this counter.",
+    onchainNote: "Settled revenue is verifiable on-chain at the wallet above - that is the trustless source of truth, not this counter.",
     toolCallsServed: {
       total: num("total"),
       viaUSDC: num("viaUSDC"),

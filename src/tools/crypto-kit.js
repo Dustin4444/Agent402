@@ -134,9 +134,9 @@ async function jsonGet(url, host = "CoinGecko") {
   const text = await res.text();
   if (!res.ok) {
     const s = res.status;
-    if (s === 404) throw bad(`${host} returned 404 — unknown coin or market`, 422);
-    if (s === 429) throw bad(`${host} rate-limited the request — retry shortly`, 503);
-    if (s >= 500) throw bad(`${host} upstream HTTP ${s} — try again later`, 502);
+    if (s === 404) throw bad(`${host} returned 404 - unknown coin or market`, 422);
+    if (s === 429) throw bad(`${host} rate-limited the request - retry shortly`, 503);
+    if (s >= 500) throw bad(`${host} upstream HTTP ${s} - try again later`, 502);
     // Redact the FULL upstream body before slicing (a secret straddling the
     // 200-char cut would otherwise leave an unredactable prefix): the CoinGecko
     // demo key rides this request and there is no 401/403 shield above.
@@ -156,7 +156,7 @@ export const CRYPTO_TOOLS = [
     category: "data",
     price: "$0.010",
     description:
-      "Live crypto prices for one or many coins in any vs_currency (usd, eur, btc, eth, etc). Returns last price, 24h change %, 24h volume, and market cap per coin. Accepts ticker symbols (BTC, ETH, SOL) for the top ~50 by market cap, or canonical CoinGecko ids (e.g. \"render-token\") for any of the ~15k tracked coins. Batched: up to 25 coins per call. Backed by CoinGecko's public API — keyless.",
+      "Live crypto prices for one or many coins in any vs_currency (usd, eur, btc, eth, etc). Returns last price, 24h change %, 24h volume, and market cap per coin. Accepts ticker symbols (BTC, ETH, SOL) for the top ~50 by market cap, or canonical CoinGecko ids (e.g. \"render-token\") for any of the ~15k tracked coins. Batched: up to 25 coins per call. Backed by CoinGecko's public API - keyless.",
     tags: ["crypto", "price", "market-data", "bitcoin", "ethereum", "defi"],
     discovery: {
       input: { coins: "BTC,ETH,SOL", currency: "usd" },
@@ -414,7 +414,7 @@ export const CRYPTO_TOOLS = [
     category: "crypto",
     price: "$0.003",
     description:
-      "L2 order-book snapshot for a spot pair: best bid/ask, mid price, spread (absolute + %), and the top N aggregated price levels per side (default 25, max 100). Pairs use BASE-QUOTE format (BTC-USD, ETH-USD, SOL-USDC). Backed by Coinbase Exchange's public market-data API — keyless; coverage is Coinbase-listed markets.",
+      "L2 order-book snapshot for a spot pair: best bid/ask, mid price, spread (absolute + %), and the top N aggregated price levels per side (default 25, max 100). Pairs use BASE-QUOTE format (BTC-USD, ETH-USD, SOL-USDC). Backed by Coinbase Exchange's public market-data API - keyless; coverage is Coinbase-listed markets.",
     tags: ["crypto", "orderbook", "depth", "spread", "trading", "market-data"],
     discovery: {
       input: { pair: "BTC-USD" },
@@ -520,7 +520,7 @@ export const CRYPTO_TOOLS = [
       const url = `${CG}/coins/markets?vs_currency=usd&ids=${encodeURIComponent(ids.join(","))}&order=market_cap_desc`;
       const data = await jsonGet(url);
       if (!Array.isArray(data)) throw bad("CoinGecko returned unexpected shape for /coins/markets", 502);
-      if (data.length === 0) throw bad("No CoinGecko data for the requested coins — check the ids/symbols", 422);
+      if (data.length === 0) throw bad("No CoinGecko data for the requested coins - check the ids/symbols", 422);
       const bps = (p) => (typeof p === "number" ? +((p - 1) * 10000).toFixed(2) : null);
       const coins = data.map((c) => {
         const dev = bps(c.current_price);

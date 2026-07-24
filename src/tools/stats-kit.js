@@ -173,7 +173,7 @@ export const STATS_TOOLS = [
       const denom = Math.sqrt(dx2 * dy2);
       // denom=0 means one of the series is constant — correlation is undefined,
       // not "0". Surface that honestly instead of returning a fake number.
-      if (denom === 0) throw bad(`correlation undefined — at least one input series has zero variance (all values equal)`);
+      if (denom === 0) throw bad(`correlation undefined - at least one input series has zero variance (all values equal)`);
       const r = num / denom;
 
       // A one-line interpretation helps agents do the right thing without
@@ -199,7 +199,7 @@ export const STATS_TOOLS = [
     route: "POST /api/linear-regression", name: "Linear regression (OLS)", slug: "linear-regression",
     category: "data", price: "$0.001",
     description:
-      "Fit a least-squares line y = slope·x + intercept to two equal-length series. Returns slope, intercept, r² (variance explained), and optionally predicted y values for new x inputs — useful for trend extrapolation (e.g. project next quarter's revenue from the last 8 quarters).",
+      "Fit a least-squares line y = slope·x + intercept to two equal-length series. Returns slope, intercept, r² (variance explained), and optionally predicted y values for new x inputs - useful for trend extrapolation (e.g. project next quarter's revenue from the last 8 quarters).",
     tags: ["stats", "regression", "ols", "trend", "slope", "intercept", "r-squared"],
     discovery: {
       bodyType: "json",
@@ -234,7 +234,7 @@ export const STATS_TOOLS = [
         num += dx * (y[k] - my);
         denom += dx * dx;
       }
-      if (denom === 0) throw bad(`cannot fit — "x" has zero variance (all values equal)`);
+      if (denom === 0) throw bad(`cannot fit - "x" has zero variance (all values equal)`);
       const slope = num / denom;
       const intercept = my - slope * mx;
 
@@ -267,7 +267,7 @@ export const STATS_TOOLS = [
     route: "POST /api/moving-average", name: "Moving average (SMA + EMA)", slug: "moving-average",
     category: "data", price: "$0.001",
     description:
-      "Compute simple (SMA) and exponential (EMA) moving averages over a numeric series. Returns one value per input position — the first (window-1) SMA values are null since there isn't enough history. EMA uses the standard alpha = 2/(window+1) smoothing factor used in technical analysis.",
+      "Compute simple (SMA) and exponential (EMA) moving averages over a numeric series. Returns one value per input position - the first (window-1) SMA values are null since there isn't enough history. EMA uses the standard alpha = 2/(window+1) smoothing factor used in technical analysis.",
     tags: ["stats", "moving-average", "sma", "ema", "smoothing", "timeseries"],
     discovery: {
       bodyType: "json",
@@ -330,7 +330,7 @@ export const STATS_TOOLS = [
     route: "POST /api/outliers", name: "Outlier detection (IQR + z-score)", slug: "outliers",
     category: "data", price: "$0.001",
     description:
-      "Flag outliers in a numeric series using either the IQR rule (Tukey fences at 1.5·IQR — robust, default) or z-score (|z| > threshold — assumes normality). Returns the outlier values + their indices + the thresholds used so you can decide whether to trust them.",
+      "Flag outliers in a numeric series using either the IQR rule (Tukey fences at 1.5·IQR - robust, default) or z-score (|z| > threshold - assumes normality). Returns the outlier values + their indices + the thresholds used so you can decide whether to trust them.",
     tags: ["stats", "outliers", "iqr", "z-score", "anomaly"],
     discovery: {
       bodyType: "json",
@@ -383,7 +383,7 @@ export const STATS_TOOLS = [
         if (!Number.isFinite(threshold) || threshold <= 0) throw bad(`"threshold" must be a positive number`);
         const mu = mean(values);
         const sd = stddev(values, mu);
-        if (sd === 0) throw bad(`z-score outliers undefined — series has zero variance (all values equal)`);
+        if (sd === 0) throw bad(`z-score outliers undefined - series has zero variance (all values equal)`);
         const outliers = [];
         for (let k = 0; k < values.length; k++) {
           const z = (values[k] - mu) / sd;

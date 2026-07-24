@@ -124,7 +124,7 @@ async function checkFeature(feature) {
     feature,
     featureId: id,
     activated: activated === true,
-    ...(activated === null ? { note: "registry returned empty — Activation Registry precompile not live yet" } : {}),
+    ...(activated === null ? { note: "registry returned empty - Activation Registry precompile not live yet" } : {}),
   };
 }
 

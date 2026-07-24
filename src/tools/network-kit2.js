@@ -74,7 +74,7 @@ async function certTransparencyHandler(body) {
       // answer — treat it as a retryable upstream failure, not a client error.
       if (!res.ok) throw bad(`${label} returned HTTP ${res.status}`, res.status >= 500 || res.status === 404 ? 502 : 422);
       const text = await res.text();
-      try { return JSON.parse(text); } catch { throw bad(`${label} returned non-JSON — try again later`, 502); }
+      try { return JSON.parse(text); } catch { throw bad(`${label} returned non-JSON - try again later`, 502); }
     } finally {
       clearTimeout(timer);
     }
@@ -147,7 +147,7 @@ async function certTransparencyHandler(body) {
       result = await firstSuccess([crtP, csP]);
     } catch (bothFailed) {
       if (bothFailed?.statusCode) throw bothFailed; // an upstream-status 502 already carries a clear message
-      throw bad(bothFailed?.name === "AbortError" ? "cert transparency logs did not respond — try again later" : `Could not reach a cert transparency log: ${bothFailed?.message}`, 502);
+      throw bad(bothFailed?.name === "AbortError" ? "cert transparency logs did not respond - try again later" : `Could not reach a cert transparency log: ${bothFailed?.message}`, 502);
     }
   } finally {
     clearTimeout(hedgeTimer);
@@ -421,7 +421,7 @@ async function asnInfoHandler(body) {
     throw bad('Missing "ip" or "host". Send {"ip":"8.8.8.8"} or {"host":"google.com"}');
   }
   ip = ip.trim();
-  if (isIP(ip) !== 4) throw bad('asn-info currently supports IPv4 only — pass an IPv4 address', 422);
+  if (isIP(ip) !== 4) throw bad('asn-info currently supports IPv4 only - pass an IPv4 address', 422);
 
   const originHost = `${reverseIpv4(ip)}.origin.asn.cymru.com`;
   let originTxt;
@@ -430,7 +430,7 @@ async function asnInfoHandler(body) {
     originTxt = (records[0] || []).join("");
   } catch (err) {
     if (err.code === "ENOTFOUND" || err.code === "ENODATA") {
-      throw bad(`No ASN found for ${ip} — IP may be unrouted or reserved`, 422);
+      throw bad(`No ASN found for ${ip} - IP may be unrouted or reserved`, 422);
     }
     throw bad(`ASN lookup failed: ${err.message}`, 502);
   }
@@ -472,7 +472,7 @@ export const NETWORK_TOOLS2 = [
     category: "network",
     price: "$0.005",
     description:
-      "Search public Certificate Transparency logs (via crt.sh) for every cert issued to a domain. Returns the cert list plus a deduped subdomain set extracted from the SANs — the fastest way to enumerate subdomains for a security audit. Free upstream, no key required.",
+      "Search public Certificate Transparency logs (via crt.sh) for every cert issued to a domain. Returns the cert list plus a deduped subdomain set extracted from the SANs - the fastest way to enumerate subdomains for a security audit. Free upstream, no key required.",
     tags: ["security", "ssl", "tls", "certificates", "subdomain-discovery", "audit"],
     discovery: {
       bodyType: "json",
@@ -595,7 +595,7 @@ export const NETWORK_TOOLS2 = [
     category: "network",
     price: "$0.003",
     description:
-      "Look up the Autonomous System (ASN), prefix, country, registry, and allocation date for an IPv4 address — or for a hostname (which is resolved first). Uses Team Cymru's free DNS-based IP→ASN mapping; no HTTPS upstream, no auth, no rate-limit headaches.",
+      "Look up the Autonomous System (ASN), prefix, country, registry, and allocation date for an IPv4 address - or for a hostname (which is resolved first). Uses Team Cymru's free DNS-based IP→ASN mapping; no HTTPS upstream, no auth, no rate-limit headaches.",
     tags: ["security", "network", "geolocation", "asn"],
     discovery: {
       bodyType: "json",

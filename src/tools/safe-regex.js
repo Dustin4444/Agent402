@@ -16,7 +16,7 @@ export function compileUserRegex(pattern, flags = "") {
   // (a+)+, (a*)*, (.+)*, ([a-z]+)+ … These blow up exponentially and are the
   // exact shape the DoS review demonstrated. Reject them.
   if (/[+*]\)[+*]/.test(p) || /[+*]\)\{/.test(p) || /\}\)[+*]/.test(p)) {
-    fail("regex rejected: nested quantifiers risk catastrophic backtracking — simplify the pattern");
+    fail("regex rejected: nested quantifiers risk catastrophic backtracking - simplify the pattern");
   }
   try {
     return new RegExp(p, flags);

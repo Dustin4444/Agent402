@@ -121,7 +121,7 @@ function resolveNetwork(name) {
 function requireUsdc(net) {
   if (!net.usdc) {
     throw bad(
-      `USDC tools aren't available on ${net.key} — its canonical stablecoin is USDG (Global Dollar), not Circle USDC. ` +
+      `USDC tools aren't available on ${net.key} - its canonical stablecoin is USDG (Global Dollar), not Circle USDC. ` +
         `The chain-read tools (tx-status, gas-estimate) do work on ${net.key}.`
     );
   }
@@ -242,7 +242,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/x402-quote", name: "x402 quote", slug: "x402-quote", category: "payments", price: "$0.003",
     description:
-      "Probe any URL and decode its HTTP 402 payment requirements (price, asset, network, pay-to) into clean JSON — what an agent needs to decide whether/how to pay. Read-only; does not pay. ?url=https://api.example.com/paid&method=GET",
+      "Probe any URL and decode its HTTP 402 payment requirements (price, asset, network, pay-to) into clean JSON - what an agent needs to decide whether/how to pay. Read-only; does not pay. ?url=https://api.example.com/paid&method=GET",
     tags: ["x402", "402", "payment-required", "quote", "discovery"],
     discovery: {
       input: { url: "https://agent402.tools/api/hash", method: "POST" },
@@ -350,7 +350,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/gas-estimate", name: "Gas price", slug: "gas-estimate", category: "payments", price: "$0.002",
     description:
-      "Current gas price (gwei and wei) on Base, Polygon, Arbitrum, Optimism, Ethereum, or Robinhood Chain — for an agent budgeting a transaction. Read-only. ?network=base",
+      "Current gas price (gwei and wei) on Base, Polygon, Arbitrum, Optimism, Ethereum, or Robinhood Chain - for an agent budgeting a transaction. Read-only. ?network=base",
     tags: ["gas", "gas-price", "fees", "gwei", "multichain", "robinhood", "usdg"],
     discovery: {
       input: { network: "base" },
@@ -404,7 +404,7 @@ export const X402_TOOLS = [
   {
     route: "POST /api/transfer-authorization", name: "Build USDC transfer authorization", slug: "transfer-authorization", category: "payments", price: "$0.003",
     description:
-      "Build the EIP-3009 transferWithAuthorization typed data for a gasless USDC transfer on Base/Polygon/Arbitrum/Optimism/Ethereum — the exact EIP-712 object an agent signs with its OWN key to authorize an x402 payment. We construct it; we never sign or send. Non-custodial.",
+      "Build the EIP-3009 transferWithAuthorization typed data for a gasless USDC transfer on Base/Polygon/Arbitrum/Optimism/Ethereum - the exact EIP-712 object an agent signs with its OWN key to authorize an x402 payment. We construct it; we never sign or send. Non-custodial.",
     tags: ["x402", "eip-3009", "eip-712", "usdc", "transfer", "authorization", "gasless", "multichain"],
     discovery: {
       bodyType: "json",
@@ -445,14 +445,14 @@ export const X402_TOOLS = [
           message: { from: i.from, to: i.to, value, validAfter: 0, validBefore: now + validForSeconds, nonce },
         },
         amountUsdc: amount, valueAtomic: value, asset: "USDC", network: net.key, chainId: net.chainId,
-        note: "Sign typedData with the 'from' wallet (EIP-712 / signTypedData). Agent402 never signs or sends — this is the unsigned authorization only.",
+        note: "Sign typedData with the 'from' wallet (EIP-712 / signTypedData). Agent402 never signs or sends - this is the unsigned authorization only.",
       };
     },
   },
   {
     route: "GET /api/ens-resolve", name: "ENS resolve", slug: "ens-resolve", category: "payments", price: "$0.003",
     description:
-      "Resolve an ENS name (e.g. vitalik.eth) to its Ethereum address — so an agent can turn a human-readable recipient into a payable address. Read-only on Ethereum mainnet. ?name=vitalik.eth",
+      "Resolve an ENS name (e.g. vitalik.eth) to its Ethereum address - so an agent can turn a human-readable recipient into a payable address. Read-only on Ethereum mainnet. ?name=vitalik.eth",
     tags: ["ens", "resolve", "ethereum", "name", "address"],
     discovery: {
       input: { name: "vitalik.eth" },
@@ -476,7 +476,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/x402-audit", name: "x402 security audit", slug: "x402-audit", category: "payments", price: "$0.01",
     description:
-      "Grade any x402 seller's payment-security posture from the outside — a read-only black-box check mapped to the 'Five Attacks on x402' failure modes. Probes the URL's 402 challenge (never pays) and scores TLS transport, gated-response cache hygiene (Attack III / cache leakage), error/info-leak hygiene, and payment-terms well-formedness, then returns a letter grade with per-check findings and an honest note on what only insider/active testing can confirm. ?url=https://api.example.com/paid&method=GET",
+      "Grade any x402 seller's payment-security posture from the outside - a read-only black-box check mapped to the 'Five Attacks on x402' failure modes. Probes the URL's 402 challenge (never pays) and scores TLS transport, gated-response cache hygiene (Attack III / cache leakage), error/info-leak hygiene, and payment-terms well-formedness, then returns a letter grade with per-check findings and an honest note on what only insider/active testing can confirm. ?url=https://api.example.com/paid&method=GET",
     tags: ["x402", "audit", "security", "posture", "cache", "tls", "grade", "five-attacks"],
     discovery: {
       input: { url: "https://agent402.tools/api/hash", method: "POST" },
@@ -493,9 +493,9 @@ export const X402_TOOLS = [
           x402Version: 2, score: 92, grade: "A",
           checks: [
             { id: "transport-tls", title: "Payment challenge served over TLS", attack: "credential interception", severity: "high", status: "pass", detail: "https" },
-            { id: "cache-hygiene", title: "Gated response is not shared-cacheable", attack: "III — cache leakage", severity: "high", status: "pass", detail: "Cache-Control: no-store, private" },
+            { id: "cache-hygiene", title: "Gated response is not shared-cacheable", attack: "III - cache leakage", severity: "high", status: "pass", detail: "Cache-Control: no-store, private" },
           ],
-          summary: "A (92/100) — 6 passed, 1 warning, 0 failed. Note: replay/idempotency (II) and router Sybil (IV) can't be graded from outside.",
+          summary: "A (92/100) - 6 passed, 1 warning, 0 failed. Note: replay/idempotency (II) and router Sybil (IV) can't be graded from outside.",
         },
       },
     },
@@ -525,7 +525,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/x402-trending", name: "x402 trending sellers", slug: "x402-trending", category: "payments", price: "$0.005",
     description:
-      "Momentum radar for the x402 seller ecosystem — which sellers are heating up, graded for wash-trade resistance. Reads the hourly on-chain leaderboard (real Base USDC settlements) and adds per-seller signals the raw board doesn't have: organicScore (uniqueBuyers/callsSettled — 1000 calls from 2 buyers smells like self-dealing, 1000 from 400 is organic demand) and avgTicketUsd. Rank by sort: 'usd' (revenue, default), 'calls' (volume), 'organic' (buyer diversity — the honest-demand lens), or 'buyers' (reach). include='external' (default) excludes Agent402's own row; 'all' keeps it. Once ~7 days of persisted snapshots accrue, each row also carries deltaVsPrevWeek + trend (rising/flat/cooling/new) — the wow envelope says whether those are live; deltas are never faked. ?sort=organic&limit=10",
+      "Momentum radar for the x402 seller ecosystem - which sellers are heating up, graded for wash-trade resistance. Reads the hourly on-chain leaderboard (real Base USDC settlements) and adds per-seller signals the raw board doesn't have: organicScore (uniqueBuyers/callsSettled - 1000 calls from 2 buyers smells like self-dealing, 1000 from 400 is organic demand) and avgTicketUsd. Rank by sort: 'usd' (revenue, default), 'calls' (volume), 'organic' (buyer diversity - the honest-demand lens), or 'buyers' (reach). include='external' (default) excludes Agent402's own row; 'all' keeps it. Once ~7 days of persisted snapshots accrue, each row also carries deltaVsPrevWeek + trend (rising/flat/cooling/new) - the wow envelope says whether those are live; deltas are never faked. ?sort=organic&limit=10",
     tags: ["x402", "trending", "momentum", "sellers", "leaderboard", "organic", "wash-trading", "ecosystem", "discovery"],
     discovery: {
       input: { sort: "usd", limit: 10, include: "external" },
@@ -545,7 +545,7 @@ export const X402_TOOLS = [
             callsSettled: 3541, totalUsd: 41.2, uniqueBuyers: 402,
             organicScore: 0.1135, avgTicketUsd: 0.011635,
           }],
-          wow: { available: false, note: "no persisted snapshot ~7 days old yet — week-over-week deltas activate automatically as history accrues" },
+          wow: { available: false, note: "no persisted snapshot ~7 days old yet - week-over-week deltas activate automatically as history accrues" },
           snapshotAsOf: "2026-07-14T00:00:00.000Z", generatedAt: "2026-07-14T00:00:05.000Z",
         },
       },
@@ -561,7 +561,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/demand-radar", name: "agent demand radar", slug: "demand-radar", category: "research", price: "$0.005",
     description:
-      "What agents want that no one is serving yet — the paid intelligence layer over Agent402's agent-demand board, for x402 sellers deciding what to build next. Ranks the aggregated wish clusters (searches that found nothing + explicit tool requests) and adds the analysis the free raw feed (/api/wishes) doesn't have: signalType classifies each cluster as 'explicit-request' (agents proactively asked — build it), 'discoverability' (dominated by find-misses — the capability may exist but ranking failed, so improve discovery before building), or 'mixed'; nearThreshold marks clusters within 2 signals of the build threshold (the strongest build signals), with gapToThreshold as the exact distance; obvious operator/CI test traffic is flagged noise:true, never silently dropped. sort: 'count' (default) or 'recent' (by lastSeen); minCount filters low-signal noise. ?sort=count&limit=10",
+      "What agents want that no one is serving yet - the paid intelligence layer over Agent402's agent-demand board, for x402 sellers deciding what to build next. Ranks the aggregated wish clusters (searches that found nothing + explicit tool requests) and adds the analysis the free raw feed (/api/wishes) doesn't have: signalType classifies each cluster as 'explicit-request' (agents proactively asked - build it), 'discoverability' (dominated by find-misses - the capability may exist but ranking failed, so improve discovery before building), or 'mixed'; nearThreshold marks clusters within 2 signals of the build threshold (the strongest build signals), with gapToThreshold as the exact distance; obvious operator/CI test traffic is flagged noise:true, never silently dropped. sort: 'count' (default) or 'recent' (by lastSeen); minCount filters low-signal noise. ?sort=count&limit=10",
     tags: ["demand", "market-intelligence", "x402", "agents", "wishes", "research"],
     discovery: {
       input: { sort: "count", limit: 10, minCount: 1 },
@@ -594,7 +594,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/bestsellers", name: "Agent402 bestsellers", slug: "bestsellers", category: "research", price: "$0.005",
     description:
-      "What agents actually pay for on a 500+ tool x402 catalog — the paid intelligence layer over Agent402's own sales ledger, the one demand signal that never reaches the chain (settlements are on-chain; WHICH tool was bought is not). The raw merchant feed stays free at /api/sales; this adds the analysis it doesn't have: pick the window (days 1-90) and the ranking lens with sort: 'buyers' (distinct paying wallets, default — the whale/wash-resistant read), 'sales' (volume), 'usd' (revenue), or 'organic' (buyers-per-sale diversity grade, same metric as x402-trending); every row carries all lenses plus organicScore, avgTicketUsd, revenueShare, and a trend vs the previous same-length window (deltaSales + rising/flat/cooling/new — never faked: a row with no prior-window sales says 'new'). Canary/burner/heartbeat traffic is excluded at the source, and if this tool ranks in its own chart the row is flagged isSelf:true rather than hidden — buying the chart puts you on the chart. ?sort=buyers&days=30&limit=10",
+      "What agents actually pay for on a 500+ tool x402 catalog - the paid intelligence layer over Agent402's own sales ledger, the one demand signal that never reaches the chain (settlements are on-chain; WHICH tool was bought is not). The raw merchant feed stays free at /api/sales; this adds the analysis it doesn't have: pick the window (days 1-90) and the ranking lens with sort: 'buyers' (distinct paying wallets, default - the whale/wash-resistant read), 'sales' (volume), 'usd' (revenue), or 'organic' (buyers-per-sale diversity grade, same metric as x402-trending); every row carries all lenses plus organicScore, avgTicketUsd, revenueShare, and a trend vs the previous same-length window (deltaSales + rising/flat/cooling/new - never faked: a row with no prior-window sales says 'new'). Canary/burner/heartbeat traffic is excluded at the source, and if this tool ranks in its own chart the row is flagged isSelf:true rather than hidden - buying the chart puts you on the chart. ?sort=buyers&days=30&limit=10",
     tags: ["bestsellers", "demand", "market-intelligence", "sales", "x402", "catalog", "trending", "discovery"],
     discovery: {
       input: { days: 30, sort: "buyers", limit: 10 },
@@ -616,7 +616,7 @@ export const X402_TOOLS = [
             firstAt: "2026-07-05T11:00:00.000Z", lastAt: "2026-07-14T09:30:00.000Z",
             prevSales: 3, deltaSales: 11, trend: "rising",
           }],
-          note: "External paid demand only — canary/burner/heartbeat traffic excluded at the source.",
+          note: "External paid demand only - canary/burner/heartbeat traffic excluded at the source.",
           generatedAt: "2026-07-16T00:00:05.000Z",
         },
       },
@@ -734,7 +734,7 @@ export function computeTrending(snap, input = {}, { selfWallet = "", history = [
   );
 
   return {
-    window: snap?.windowLabel || "—",
+    window: snap?.windowLabel || "-",
     sort,
     include,
     limit,
@@ -742,7 +742,7 @@ export function computeTrending(snap, input = {}, { selfWallet = "", history = [
     sellers: rows.slice(0, limit).map((r, i2) => ({ rank: i2 + 1, ...r })),
     wow: baseline
       ? { available: true, comparedTo: baseline.day, note: "deltaVsPrevWeek compares this window's aggregates to the persisted snapshot from ~7 days ago" }
-      : { available: false, note: "no persisted snapshot ~7 days old yet — week-over-week deltas activate automatically as history accrues" },
+      : { available: false, note: "no persisted snapshot ~7 days old yet - week-over-week deltas activate automatically as history accrues" },
     snapshotAsOf: snap?.asOf || null,
     generatedAt: new Date().toISOString(),
     ...(snap?.warming ? { warming: true } : {}),
@@ -872,7 +872,7 @@ export function gradeX402Response({ href, protocol, status, cacheControl, bodyTe
   //    the wire in the clear.
   add("transport-tls", "Payment challenge served over TLS", "credential interception", "high",
     protocol === "https:" ? "pass" : "fail",
-    protocol === "https:" ? "https" : "served over http — a payment authorization would be interceptable in transit");
+    protocol === "https:" ? "https" : "served over http - a payment authorization would be interceptable in transit");
 
   if (paymentRequired) {
     // 2. Cache hygiene (Attack III) — the only externally-observable signal:
@@ -881,22 +881,22 @@ export function gradeX402Response({ href, protocol, status, cacheControl, bodyTe
     //    a publicly-cacheable gated response is the exact leak the paper
     //    validated at 100% on nginx proxy_cache.
     if (cc.includes("no-store")) {
-      add("cache-hygiene", "Gated response is not shared-cacheable", "III — cache leakage", "high", "pass",
+      add("cache-hygiene", "Gated response is not shared-cacheable", "III - cache leakage", "high", "pass",
         `Cache-Control: ${cc}`);
     } else if (cc.includes("private") || cc.includes("no-cache")) {
-      add("cache-hygiene", "Gated response is not shared-cacheable", "III — cache leakage", "high", "warn",
-        `Cache-Control: ${cc} — private/no-cache is weaker than no-store; a paid 200 could still be revalidated-and-served`);
+      add("cache-hygiene", "Gated response is not shared-cacheable", "III - cache leakage", "high", "warn",
+        `Cache-Control: ${cc} - private/no-cache is weaker than no-store; a paid 200 could still be revalidated-and-served`);
     } else {
-      add("cache-hygiene", "Gated response is not shared-cacheable", "III — cache leakage", "high", "fail",
+      add("cache-hygiene", "Gated response is not shared-cacheable", "III - cache leakage", "high", "fail",
         cc
-          ? `Cache-Control: ${cc} — no no-store directive; a shared cache/CDN could serve a paid result to a later unpaid caller`
-          : "no Cache-Control on the gated response — add 'no-store, private' so a shared cache/CDN can't serve a paid result to an unpaid caller");
+          ? `Cache-Control: ${cc} - no no-store directive; a shared cache/CDN could serve a paid result to a later unpaid caller`
+          : "no Cache-Control on the gated response - add 'no-store, private' so a shared cache/CDN can't serve a paid result to an unpaid caller");
     }
 
     // 3. Payment terms present & well-formed (discoverability / correct routing).
     if (accepts && accepts.length) {
       const badTerm = accepts.find((a) => !a || !a.payTo || (!a.network && !a.scheme));
-      add("terms-present", "Payment terms are advertised and well-formed", "IV — discovery", "medium",
+      add("terms-present", "Payment terms are advertised and well-formed", "IV - discovery", "medium",
         badTerm ? "warn" : "pass",
         badTerm ? "an accepts entry is missing payTo/network/scheme" : `${accepts.length} payment option(s) advertised`);
 
@@ -923,16 +923,16 @@ export function gradeX402Response({ href, protocol, status, cacheControl, bodyTe
         badPrice ? "an accepts entry has a non-positive or unparseable amount" : "advertised amounts are positive");
 
       // 6. Version detectable.
-      add("version", "x402 protocol version is detectable", "IV — discovery", "low",
+      add("version", "x402 protocol version is detectable", "IV - discovery", "low",
         x402Version != null ? "pass" : "warn",
         x402Version != null ? `x402 v${x402Version}` : "no x402Version in the body or PAYMENT-REQUIRED header");
     } else {
-      add("terms-present", "Payment terms are advertised and well-formed", "IV — discovery", "medium", "fail",
-        "402 returned but no x402 'accepts' found in the body (v1) or PAYMENT-REQUIRED header (v2) — buyers can't learn how to pay");
+      add("terms-present", "Payment terms are advertised and well-formed", "IV - discovery", "medium", "fail",
+        "402 returned but no x402 'accepts' found in the body (v1) or PAYMENT-REQUIRED header (v2) - buyers can't learn how to pay");
     }
   } else {
     add("payment-required", "URL is a paid x402 endpoint", "n/a", "info", "info",
-      `status ${status} (not 402) — this URL did not issue a payment challenge, so payment-posture checks are not applicable`);
+      `status ${status} (not 402) - this URL did not issue a payment challenge, so payment-posture checks are not applicable`);
   }
 
   // 7. Error / info-leak hygiene — the response body must not spill a stack
@@ -964,8 +964,8 @@ export function gradeX402Response({ href, protocol, status, cacheControl, bodyTe
     url: href, reachable: true, status, paymentRequired, x402Version,
     score, grade, checks,
     summary:
-      `${grade} (${score}/100) — ${nPass} passed, ${nWarn} warning${nWarn === 1 ? "" : "s"}, ${nFail} failed. ` +
-      "Note: replay/idempotency (Attack II) and router Sybil resistance (Attack IV) can't be graded from a black-box probe — they need insider or active testing.",
+      `${grade} (${score}/100) - ${nPass} passed, ${nWarn} warning${nWarn === 1 ? "" : "s"}, ${nFail} failed. ` +
+      "Note: replay/idempotency (Attack II) and router Sybil resistance (Attack IV) can't be graded from a black-box probe - they need insider or active testing.",
   };
 }
 
@@ -1054,7 +1054,7 @@ export function computeBestsellers(rows, prevRows, input = {}, { recordingSince 
     },
     bestsellers: list.slice(0, limit).map((r, i2) => ({ rank: i2 + 1, ...r })),
     note:
-      "External paid demand on Agent402's own catalog — canary/burner/heartbeat traffic excluded at the source (sales ledger internal=0, money rails only). buyers counts distinct verified payers; Solana/Stellar settlements carry no server-visible payer, so they count toward sales but never buyers. trend compares this window to the same-length window immediately before it. The raw merchant feed is free at /api/sales; per-tool purchase counts never reach the chain, so this ledger is where tool-level x402 demand lives.",
+      "External paid demand on Agent402's own catalog - canary/burner/heartbeat traffic excluded at the source (sales ledger internal=0, money rails only). buyers counts distinct verified payers; Solana/Stellar settlements carry no server-visible payer, so they count toward sales but never buyers. trend compares this window to the same-length window immediately before it. The raw merchant feed is free at /api/sales; per-tool purchase counts never reach the chain, so this ledger is where tool-level x402 demand lives.",
     generatedAt: new Date(now).toISOString(),
   };
 }

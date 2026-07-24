@@ -397,8 +397,17 @@ let loopStarted = false;
  *  anchored to the sync cursor (next_block ≈ chain head at updated_ts) via the
  *  per-chain block cadence — no network calls, accurate to sync lag, and
  *  drift over months only ever mis-buckets a row by a day at the boundary. */
-export function ledgerDaily(wallets) {
-  const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external FROM transfers WHERE wallet = ?");
+// `mppTx` is an optional Set of tx hashes whose credential arrived over the MPP
+// wire (from the separate sales db — on-chain, an MPP settlement is identical to
+// an x402 one, so the wire cannot be derived here). When supplied, each bucket
+// also carries its MPP subset, letting the chart filter by wire. Absent or
+// empty, the extra fields are all zero and the series behaves exactly as before.
+export function ledgerDaily(wallets, mppTx = null) {
+  const isMpp = (h) => {
+    if (!mppTx || !mppTx.size || !h) return false;
+    return mppTx.has(h) || (/^0x[0-9a-fA-F]+$/.test(h) && mppTx.has(h.toLowerCase()));
+  };
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external, tx_hash FROM transfers WHERE wallet = ?");
   const chains = walletPairs(wallets);
   const byDay = new Map(); // "YYYY-MM-DD|chain" -> {extUsd, extTx, intUsd, intTx}
   for (const [chain, wallet] of chains) {
@@ -414,9 +423,18 @@ export function ledgerDaily(wallets) {
       if (ms == null) continue; // undateable row — skip rather than guess
       const day = new Date(ms).toISOString().slice(0, 10);
       const key = `${day}|${chain}`;
-      const b = byDay.get(key) || { day, chain, extUsd: 0, extTx: 0, intUsd: 0, intTx: 0 };
-      if (t.external) { b.extUsd += t.usd; b.extTx += 1; }
-      else if (t.usd <= MAX_CALL_USD) { b.intUsd += t.usd; b.intTx += 1; } // canary-sized only
+      const b = byDay.get(key) || {
+        day, chain, extUsd: 0, extTx: 0, intUsd: 0, intTx: 0,
+        extMppUsd: 0, extMppTx: 0, intMppUsd: 0, intMppTx: 0,
+      };
+      const mpp = isMpp(t.tx_hash);
+      if (t.external) {
+        b.extUsd += t.usd; b.extTx += 1;
+        if (mpp) { b.extMppUsd += t.usd; b.extMppTx += 1; }
+      } else if (t.usd <= MAX_CALL_USD) { // canary-sized only
+        b.intUsd += t.usd; b.intTx += 1;
+        if (mpp) { b.intMppUsd += t.usd; b.intMppTx += 1; }
+      }
       byDay.set(key, b);
     }
   }
@@ -426,7 +444,11 @@ export function ledgerDaily(wallets) {
   const start = process.env.REVENUE_DAILY_START || "2026-06-01";
   return [...byDay.values()]
     .filter((b) => b.day >= start)
-    .map((b) => ({ ...b, extUsd: Number(b.extUsd.toFixed(6)), intUsd: Number(b.intUsd.toFixed(6)) }))
+    .map((b) => ({
+      ...b,
+      extUsd: Number(b.extUsd.toFixed(6)), intUsd: Number(b.intUsd.toFixed(6)),
+      extMppUsd: Number(b.extMppUsd.toFixed(6)), intMppUsd: Number(b.intMppUsd.toFixed(6)),
+    }))
     .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.chain.localeCompare(b.chain)));
 }
 

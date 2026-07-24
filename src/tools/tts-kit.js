@@ -23,7 +23,7 @@ const TIERS = {
 
 function validateInput(input, tierSlug) {
   const text = typeof input.text === "string" ? input.text.trim() : "";
-  if (!text) throw bad('"text" is required — the text to convert to speech');
+  if (!text) throw bad('"text" is required - the text to convert to speech');
   const cap = TIERS[tierSlug].maxChars;
   if (text.length > cap) {
     throw bad(`Text too long (${text.length} chars). The ${tierSlug} tier allows up to ${cap} chars`);
@@ -69,7 +69,7 @@ async function callOpenAI(text, voice, format, tierSlug) {
 
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw bad("OpenAI upstream auth failed", 502);
-    if (res.status === 429) throw bad("OpenAI rate-limited — retry shortly", 503);
+    if (res.status === 429) throw bad("OpenAI rate-limited - retry shortly", 503);
     if (res.status >= 500) throw bad(`OpenAI upstream error (HTTP ${res.status})`, 502);
     const errText = await res.text().catch(() => "");
     // Redact the FULL body BEFORE slicing/parsing (a secret straddling the

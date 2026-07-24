@@ -65,7 +65,7 @@ const BRAILLE_MAP = {
   "-": "\u2824", ":": "\u2812", ";": "\u2806", "'": "\u2804",
 };
 const NUM_PREFIX = "\u283C"; // number indicator
-const LETTER_SIGN = "\u2830"; // letter sign \u2014 ends number mode before an a-j letter (whose cell == a digit)
+const LETTER_SIGN = "\u2830"; // letter sign - ends number mode before an a-j letter (whose cell == a digit)
 const BRAILLE_REV = {};
 for (const [k, v] of Object.entries(BRAILLE_MAP)) {
   if (k >= "a" && k <= "z") BRAILLE_REV[v] = k;

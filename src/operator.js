@@ -42,7 +42,7 @@ export function operatorLoginPage(baseUrl) {
 </script>
 ${ledgerFooterCompact()}`;
   return ledgerShell({
-    title: "Operator sign-in — Agent402",
+    title: "Operator sign-in - Agent402",
     description: "Agent402 operator sign-in.",
     canonical: `${baseUrl}/__operator/login`,
     baseUrl,
@@ -57,7 +57,7 @@ export function operatorPage(baseUrl, data) {
   const tools = Array.isArray(data?.tools) ? data.tools : [];
   const recent = Array.isArray(data?.recentCalls) ? data.recentCalls : [];
   const badge = (r) => r.walletOnly
-    ? `<span class="op-badge op-badge-wallet" title="USDC only — no proof-of-work path">USDC-ONLY</span>`
+    ? `<span class="op-badge op-badge-wallet" title="USDC only - no proof-of-work path">USDC-ONLY</span>`
     : `<span class="op-badge op-badge-pow" title="Also payable with proof-of-work (free tier)">FREE-W/POW</span>`;
   const rows = tools.map((r) => `<tr>
     <td><a href="/tools/${esc(r.slug)}">${esc(r.slug)}</a> ${badge(r)}</td>
@@ -123,7 +123,7 @@ td a:hover{color:var(--accent)}
 <div class="op-wrap">
 
 <h1 class="op-h1">Operator dashboard</h1>
-<p class="op-sub">Per-tool usage, settlement split, and live activity. Auto-refreshes every 10s. Not public — gated by <code>AGENT402_OPERATOR_TOKEN</code>. <a href="/__operator/wishes">Agent demand</a> · <a href="/__operator/leads">Tollbooth leads</a> · <form method="POST" action="/__operator/logout" style="display:inline;margin:0"><button type="submit" style="background:none;border:0;padding:0;color:var(--accent);font:inherit;cursor:pointer">Log out</button></form></p>
+<p class="op-sub">Per-tool usage, settlement split, and live activity. Auto-refreshes every 10s. Not public - gated by <code>AGENT402_OPERATOR_TOKEN</code>. <a href="/__operator/wishes">Agent demand</a> · <a href="/__operator/leads">Tollbooth leads</a> · <form method="POST" action="/__operator/logout" style="display:inline;margin:0"><button type="submit" style="background:none;border:0;padding:0;color:var(--accent);font:inherit;cursor:pointer">Log out</button></form></p>
 
 <div class="op-grid">
   <div class="op-stat"><div class="op-k">Total calls</div><div class="op-v" id="t-total">${esc(t.total ?? 0)}</div><div class="op-s">all tools, all rails</div></div>
@@ -139,7 +139,7 @@ td a:hover{color:var(--accent)}
   <div class="op-panel">
     <div class="op-ph"><h2>Per-tool breakdown</h2><input id="filter" type="search" placeholder="filter slug…" autocomplete="off"></div>
     <div class="op-tbody-scroll"><table id="tbl">
-      <thead><tr><th data-k="slug">Slug</th><th class="num" data-k="calls">Calls</th><th class="num" data-k="paid">USDC</th><th class="num" data-k="pow" title="External proof-of-work — does not include the heartbeat probe">PoW</th><th class="num" data-k="heartbeat" title="Internal /api/hash probe (agent402-heartbeat UA, every 15 min)">HB</th><th class="num" data-k="rev">Revenue</th><th class="num" data-k="price">Price</th></tr></thead>
+      <thead><tr><th data-k="slug">Slug</th><th class="num" data-k="calls">Calls</th><th class="num" data-k="paid">USDC</th><th class="num" data-k="pow" title="External proof-of-work - does not include the heartbeat probe">PoW</th><th class="num" data-k="heartbeat" title="Internal /api/hash probe (agent402-heartbeat UA, every 15 min)">HB</th><th class="num" data-k="rev">Revenue</th><th class="num" data-k="price">Price</th></tr></thead>
       <tbody id="tbody">${rows || `<tr><td colspan="7" class="op-muted" style="padding:24px;text-align:center;">No tool calls yet.</td></tr>`}</tbody>
     </table></div>
   </div>
@@ -220,8 +220,8 @@ td a:hover{color:var(--accent)}
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: "Operator — Agent402",
-    description: "Agent402 operator dashboard — per-tool usage, settlement split, and live activity.",
+    title: "Operator - Agent402",
+    description: "Agent402 operator dashboard - per-tool usage, settlement split, and live activity.",
     canonical: `${baseUrl}/__operator`,
     baseUrl,
     activePath: "__none__",

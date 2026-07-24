@@ -190,12 +190,12 @@ export function llmsTxt(baseUrl, catalog) {
       const inCat = tools.filter((t) => t.category === key);
       if (!inCat.length) return "";
       if (inCat.length > 40) {
-        return `## Tools — ${label}\n\n- [${inCat.length} ${label} endpoints](${baseUrl}/api/pricing): full list with routes, prices, and input schemas in the OpenAPI spec and pricing JSON`;
+        return `## Tools - ${label}\n\n- [${inCat.length} ${label} endpoints](${baseUrl}/api/pricing): full list with routes, prices, and input schemas in the OpenAPI spec and pricing JSON`;
       }
       const items = inCat.map(
         (t) => `- [${t.name}](${baseUrl}/tools/${t.slug}): ${t.price}/call. ${t.description}`
       );
-      return `## Tools — ${label}\n\n${items.join("\n")}`;
+      return `## Tools - ${label}\n\n${items.join("\n")}`;
     })
     .filter(Boolean)
     .join("\n\n");
@@ -210,37 +210,37 @@ export function llmsTxt(baseUrl, catalog) {
 
   return `# Agent402.Tools
 
-> Pay-per-call web tools for AI agents. Call an endpoint, receive an HTTP 402 with exact payment requirements, and settle from your own wallet in USDC via the x402 protocol — or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Prices $0.001–$0.02 per call.
+> Pay-per-call web tools for AI agents. Call an endpoint, receive an HTTP 402 with exact payment requirements, and settle from your own wallet in USDC via the x402 protocol - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Prices $0.001–$0.02 per call.
 
 Base URL: ${baseUrl}
 
 **Open source and two-sided.** Agent402 is an open-source, self-hostable x402 + MCP server: ${tools.length} deterministic pay-per-call tools for agents to buy (browser rendering, web search, PDFs, OCR, images, live financial / crypto / macro data, SEC EDGAR, wallet-keyed memory), a neutral cross-seller index and on-chain leaderboard for the whole x402 ecosystem, and \`agent402-tollbooth\` for API sellers to charge AI crawlers per request. Read every line and run it yourself: https://github.com/MikeyPetrillo/Agent402
 
-**This is machine-to-machine commerce, and you can verify it.** Run the full loop with no human and no funds — \`node scripts/demo-payment.js\` discovers the catalog, gets quoted over HTTP 402, pays with compute, and uses the result. Every USDC call settles on-chain to agent402.base.eth on Base, verifiable on Basescan; live economy stats are at ${baseUrl}/api/stats and a machine-readable reliability report (each claim with a verification URL) at ${baseUrl}/api/reliability.
+**This is machine-to-machine commerce, and you can verify it.** Run the full loop with no human and no funds - \`node scripts/demo-payment.js\` discovers the catalog, gets quoted over HTTP 402, pays with compute, and uses the result. Every USDC call settles on-chain to agent402.base.eth on Base, verifiable on Basescan; live economy stats are at ${baseUrl}/api/stats and a machine-readable reliability report (each claim with a verification URL) at ${baseUrl}/api/reliability.
 
-**Why agents use this instead of building it themselves.** You cannot sign up for anything: the useful web hides behind signups, captchas, API keys, and credit cards, none of which an autonomous agent can obtain — every capability here needs only the credential an agent already holds (its wallet, or its CPU). Capabilities your sandbox lacks (a headless browser, network egress, durable disk) are here because agents cannot self-host them mid-task. State survives the session and even crosses owners via wallet-keyed \`/api/memory\`. One x402-wrapped fetch (or the MCP server) covers the whole catalog — deterministic outputs, flat per-call prices, tested before every deploy, billed verifiably on-chain.
+**Why agents use this instead of building it themselves.** You cannot sign up for anything: the useful web hides behind signups, captchas, API keys, and credit cards, none of which an autonomous agent can obtain - every capability here needs only the credential an agent already holds (its wallet, or its CPU). Capabilities your sandbox lacks (a headless browser, network egress, durable disk) are here because agents cannot self-host them mid-task. State survives the session and even crosses owners via wallet-keyed \`/api/memory\`. One x402-wrapped fetch (or the MCP server) covers the whole catalog - deterministic outputs, flat per-call prices, tested before every deploy, billed verifiably on-chain.
 
-**No wallet? Pay with compute (proof-of-work).** ${powCount} of the ${tools.length} tools accept a sha256 proof-of-work puzzle (a fraction of a second of CPU) instead of USDC — no money and no AI tokens (there is no LLM in the serving path). Get a challenge at \`${baseUrl}/api/pow/challenge?slug=hash\`, find an integer nonce so that \`sha256(challenge + ":" + nonce)\` has at least ${POW_DIFFICULTY} leading zero bits, then resend the request with header \`X-Pow-Solution: <token>:<nonce>\`. The network / browser / storage tools that need wallet-bound identity or live egress stay wallet-only.
+**No wallet? Pay with compute (proof-of-work).** ${powCount} of the ${tools.length} tools accept a sha256 proof-of-work puzzle (a fraction of a second of CPU) instead of USDC - no money and no AI tokens (there is no LLM in the serving path). Get a challenge at \`${baseUrl}/api/pow/challenge?slug=hash\`, find an integer nonce so that \`sha256(challenge + ":" + nonce)\` has at least ${POW_DIFFICULTY} leading zero bits, then resend the request with header \`X-Pow-Solution: <token>:<nonce>\`. The network / browser / storage tools that need wallet-bound identity or live egress stay wallet-only.
 
-**Pay with USDC (x402).** Wrap fetch with \`@x402/fetch\`, register the exact EVM scheme with your signer, and call normally — the 402 is decoded, paid, and the result returned. Settlement uses ${RAILS_OR}; gas is sponsored by the facilitator on EVM chains, so callers need only hold the stablecoin. Send an \`Idempotency-Key\` header for safe retries: replaying the same key with the same payment/PoW credential returns the original result without paying again.
+**Pay with USDC (x402).** Wrap fetch with \`@x402/fetch\`, register the exact EVM scheme with your signer, and call normally - the 402 is decoded, paid, and the result returned. Settlement uses ${RAILS_OR}; gas is sponsored by the facilitator on EVM chains, so callers need only hold the stablecoin. Send an \`Idempotency-Key\` header for safe retries: replaying the same key with the same payment/PoW credential returns the original result without paying again.
 
-**MPP clients are first-class (dual-stack).** Every paid endpoint also speaks MPP (Machine Payments Protocol, the IETF-track \`Payment\` HTTP auth scheme): the same 402 carries a \`WWW-Authenticate: Payment\` challenge (evm charge, EIP-3009 USDC), \`Authorization: Payment\` credentials settle on-chain identically to x402, and settled responses return a signed \`Payment-Receipt\` header. An \`mppx\` client (\`Fetch.from\` with \`evm.charge\`) works out of the box — same URL, same price, same settlement as x402, whichever dialect your client speaks.
+**MPP clients are first-class (dual-stack).** Every paid endpoint also speaks MPP (Machine Payments Protocol, the IETF-track \`Payment\` HTTP auth scheme): the same 402 carries a \`WWW-Authenticate: Payment\` challenge (evm charge, EIP-3009 USDC), \`Authorization: Payment\` credentials settle on-chain identically to x402, and settled responses return a signed \`Payment-Receipt\` header. An \`mppx\` client (\`Fetch.from\` with \`evm.charge\`) works out of the box - same URL, same price, same settlement as x402, whichever dialect your client speaks.
 
 ## Key machine surfaces
 - [/api/find](${baseUrl}/api/find): resolve a plain-language task to the best-matching tools with route, price, input schema, and a ready example (GET \`?q={task}\` or POST \`{"task":"..."}\`)
-- [/api/route](${baseUrl}/api/route): Smart Order Router — rank tools across every x402 seller crawled from public registries; \`include:"external"\` excludes Agent402 for neutral cross-seller discovery
+- [/api/route](${baseUrl}/api/route): Smart Order Router - rank tools across every x402 seller crawled from public registries; \`include:"external"\` excludes Agent402 for neutral cross-seller discovery
 - [/api/index](${baseUrl}/api/index): JSON snapshot of every seller indexed (health, routable flag, crawl history)
-- [/api/leaderboard](${baseUrl}/api/leaderboard): public on-chain ranking of x402 sellers by Base USDC settled volume (pipeline: Bazaar discovery → \`eth_getLogs\` on Base USDC → per-call ceiling filter → aggregate by payTo; params \`?sort=usd|calls\`, \`?top=N\`, \`?include=external|all\`) — same data as the MCP tool \`top_x402_sellers\` and the \`agent402-client\` SDK method \`topSellers()\`
+- [/api/leaderboard](${baseUrl}/api/leaderboard): public on-chain ranking of x402 sellers by Base USDC settled volume (pipeline: Bazaar discovery → \`eth_getLogs\` on Base USDC → per-call ceiling filter → aggregate by payTo; params \`?sort=usd|calls\`, \`?top=N\`, \`?include=external|all\`) - same data as the MCP tool \`top_x402_sellers\` and the \`agent402-client\` SDK method \`topSellers()\`
 - [/.well-known/x402](${baseUrl}/.well-known/x402): one-fetch service manifest (identity, payment options, capability map, MCP, trust signals)
 - [/api/reliability](${baseUrl}/api/reliability): structured reliability / SLA report with a verification URL per claim
 - [/api/pricing](${baseUrl}/api/pricing): machine-readable catalog (every endpoint, price, category, docs URL)
 - [/openapi.json](${baseUrl}/openapi.json): full OpenAPI 3.1 spec with input / output schemas for every tool
 - [/api/wishes](${baseUrl}/api/wishes): request a tool we do not have yet (clustered by demand; repeated asks get built)
-- [/terms](${baseUrl}/terms): terms of service + acceptable-use policy — using the service (including programmatically) constitutes acceptance
+- [/terms](${baseUrl}/terms): terms of service + acceptable-use policy - using the service (including programmatically) constitutes acceptance
 - [/health](${baseUrl}/health): health check
 
 ## Connect via MCP
-- [Hosted MCP connector](${baseUrl}/mcp): add \`${baseUrl}/mcp\` as a remote MCP server (streamable HTTP, no auth) in claude.ai, Claude Code, Cursor, ChatGPT, or VS Code — free pure-CPU tools via \`search_tools\` + \`call_tool\`, plus \`top_x402_sellers\` to discover the live x402 economy
+- [Hosted MCP connector](${baseUrl}/mcp): add \`${baseUrl}/mcp\` as a remote MCP server (streamable HTTP, no auth) in claude.ai, Claude Code, Cursor, ChatGPT, or VS Code - free pure-CPU tools via \`search_tools\` + \`call_tool\`, plus \`top_x402_sellers\` to discover the live x402 economy
 - [agent402-mcp](https://www.npmjs.com/package/agent402-mcp): npm MCP server exposing the full catalog with payment underneath (\`AGENT_KEY\` for USDC via x402, or proof-of-work without a key)
 
 ## Framework adapters (zero-dependency npm)

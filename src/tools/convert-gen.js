@@ -95,7 +95,7 @@ export function convertAnyUnit(value, from, to) {
   const toCat = UNIT_TO_CATEGORY[to];
   if (!fromCat) throw bad(`Unknown unit "${from}". Categories: ${Object.keys(UNIT_CATEGORIES).join(", ")}.`);
   if (!toCat) throw bad(`Unknown unit "${to}". Units in ${fromCat}: ${Object.keys(UNIT_CATEGORIES[fromCat].units).join(", ")}.`);
-  if (fromCat !== toCat) throw bad(`"${from}" is ${fromCat} but "${to}" is ${toCat} — units must share a category`);
+  if (fromCat !== toCat) throw bad(`"${from}" is ${fromCat} but "${to}" is ${toCat} - units must share a category`);
   if (fromCat === "temperature") return fromCelsius(toCelsius(value, TEMP[from]), TEMP[to]);
   const { units } = UNIT_CATEGORIES[fromCat];
   return (value * units[from]) / units[to];

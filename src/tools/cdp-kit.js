@@ -163,7 +163,7 @@ export function faucetGate(address, now = Date.now()) {
   faucetLog.all = prune(faucetLog.all);
   const forAddr = prune(faucetLog.byAddress.get(address) || []);
   faucetLog.byAddress.set(address, forAddr);
-  if (forAddr.length >= 2) return { ok: false, reason: "This address already received 2 faucet drips in the last 24h. CDP also enforces its own per-address caps — try again tomorrow." };
+  if (forAddr.length >= 2) return { ok: false, reason: "This address already received 2 faucet drips in the last 24h. CDP also enforces its own per-address caps - try again tomorrow." };
   if (faucetLog.all.length >= 8) return { ok: false, reason: "The shared faucet budget for this service is exhausted for the next 24h (CDP caps faucet volume per account). Try again later." };
   forAddr.push(now);
   faucetLog.all.push(now);
@@ -180,13 +180,13 @@ export const CDP_TOOLS = [
     category: "wallet",
     price: "$0.002",
     description:
-      "All token balances for any address in one call, from Coinbase's indexed data API — ERC-20 + native on EVM, SPL on Solana; no per-token contract calls, no RPC wrangling. Networks: base, ethereum, base-sepolia, solana, solana-devnet. Symbols/decimals populated for whitelisted tokens (USDC always included).",
+      "All token balances for any address in one call, from Coinbase's indexed data API - ERC-20 + native on EVM, SPL on Solana; no per-token contract calls, no RPC wrangling. Networks: base, ethereum, base-sepolia, solana, solana-devnet. Symbols/decimals populated for whitelisted tokens (USDC always included).",
     tags: [...SHARED_TAGS, "balances", "erc-20", "spl", "base", "ethereum", "solana", "portfolio"],
     discovery: {
       input: { address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0", network: "base" },
       inputSchema: {
         properties: {
-          address: { type: "string", description: "Wallet address — EVM 0x… or Solana base58, matching the network" },
+          address: { type: "string", description: "Wallet address - EVM 0x… or Solana base58, matching the network" },
           network: { type: "string", description: "base (default) | ethereum | base-sepolia | solana | solana-devnet" },
         },
         required: ["address"],
@@ -230,14 +230,14 @@ export const CDP_TOOLS = [
     category: "wallet",
     price: "$0.001",
     description:
-      "Fund any address with testnet money via the Coinbase faucet — USDC (1) or ETH (0.0001) on Base Sepolia, USDC (1) or SOL on Solana devnet — everything an agent needs to rehearse the complete x402 payment loop safely before moving real money. A tenth of a cent buys a full testnet dollar. Limits: 2 drips per address per day; CDP enforces its own rolling caps on top.",
+      "Fund any address with testnet money via the Coinbase faucet - USDC (1) or ETH (0.0001) on Base Sepolia, USDC (1) or SOL on Solana devnet - everything an agent needs to rehearse the complete x402 payment loop safely before moving real money. A tenth of a cent buys a full testnet dollar. Limits: 2 drips per address per day; CDP enforces its own rolling caps on top.",
     tags: [...SHARED_TAGS, "faucet", "testnet", "base-sepolia", "solana-devnet", "getting-started"],
     discovery: {
       bodyType: "json",
       input: { address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0", token: "usdc" },
       inputSchema: {
         properties: {
-          address: { type: "string", description: "Address to fund — EVM 0x… or Solana base58, matching the network" },
+          address: { type: "string", description: "Address to fund - EVM 0x… or Solana base58, matching the network" },
           network: { type: "string", description: "base-sepolia (default) | solana-devnet" },
           token: { type: "string", description: "usdc (default, 1 USDC) | eth (0.0001, base-sepolia) | sol (solana-devnet)" },
         },
@@ -282,7 +282,7 @@ export const CDP_TOOLS = [
     category: "wallet",
     price: "$0.001",
     description:
-      "Generate a single-use Coinbase Onramp URL that lets a human fund any wallet with a card or Apple Pay — the fastest way to put real USDC into an agent's wallet. Returns the ready-to-open URL plus a fee-inclusive quote. Networks: base, ethereum, polygon, arbitrum, optimism, solana.",
+      "Generate a single-use Coinbase Onramp URL that lets a human fund any wallet with a card or Apple Pay - the fastest way to put real USDC into an agent's wallet. Returns the ready-to-open URL plus a fee-inclusive quote. Networks: base, ethereum, polygon, arbitrum, optimism, solana.",
     tags: [...SHARED_TAGS, "onramp", "fiat", "usdc", "fund-wallet", "apple-pay"],
     discovery: {
       bodyType: "json",
@@ -294,7 +294,7 @@ export const CDP_TOOLS = [
           asset: { type: "string", description: "Ticker to purchase (default USDC)" },
           amount: { type: "string", description: "Crypto amount the wallet should receive (default 10)" },
           country: { type: "string", description: "Buyer's ISO 3166-1 country code (default US)" },
-          subdivision: { type: "string", description: "US state code (e.g. NY) — required for US buyers by some payment methods" },
+          subdivision: { type: "string", description: "US state code (e.g. NY) - required for US buyers by some payment methods" },
           redirectUrl: { type: "string", description: "Optional URL to send the buyer to after checkout" },
         },
         required: ["address"],
@@ -345,7 +345,7 @@ export const CDP_TOOLS = [
           destinationNetwork: res.quote.destinationNetwork,
           exchangeRate: res.quote.exchangeRate,
         } } : {}),
-        note: "Open the URL in a browser to complete the purchase — it is single-use and expires after first visit.",
+        note: "Open the URL in a browser to complete the purchase - it is single-use and expires after first visit.",
       };
     },
   },
@@ -356,7 +356,7 @@ export const CDP_TOOLS = [
     category: "wallet",
     price: "$0.020",
     description:
-      "Run read-only SQL against Coinbase's indexed, DECODED blockchain data — base.events (decoded logs with parameters), base.transactions, base.blocks, base.decoded_user_operations, base.transaction_attributions (builder codes), plus solana.instructions and hyperevm.events. ClickHouse-dialect SELECTs, server-side grammar validation, up to 50k rows / 30s / 12 joins. Ask Base anything — token flows, event analytics, gas studies — in one call, no indexer to run.",
+      "Run read-only SQL against Coinbase's indexed, DECODED blockchain data - base.events (decoded logs with parameters), base.transactions, base.blocks, base.decoded_user_operations, base.transaction_attributions (builder codes), plus solana.instructions and hyperevm.events. ClickHouse-dialect SELECTs, server-side grammar validation, up to 50k rows / 30s / 12 joins. Ask Base anything - token flows, event analytics, gas studies - in one call, no indexer to run.",
     tags: [...SHARED_TAGS, "sql", "analytics", "onchain-data", "base", "events", "clickhouse", "data-science"],
     discovery: {
       bodyType: "json",
@@ -395,7 +395,7 @@ export const CDP_TOOLS = [
     category: "wallet",
     price: "$0.002",
     description:
-      "The table + column schema for the onchain-sql tool — every queryable table (base.events, base.transactions, base.blocks, base.decoded_user_operations, base.transaction_attributions, solana.instructions, …) with its columns and types. Fetch once, then write SQL with confidence.",
+      "The table + column schema for the onchain-sql tool - every queryable table (base.events, base.transactions, base.blocks, base.decoded_user_operations, base.transaction_attributions, solana.instructions, …) with its columns and types. Fetch once, then write SQL with confidence.",
     tags: [...SHARED_TAGS, "sql", "schema", "onchain-data", "reference"],
     discovery: {
       input: {},

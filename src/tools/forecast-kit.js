@@ -271,7 +271,7 @@ export const FORECAST_TOOLS = [
     route: "POST /api/forecast-naive", name: "Forecast (naive baselines)", slug: "forecast-naive",
     category: "data", price: "$0.001",
     description:
-      "Three textbook baseline forecasts: mean (forecast = average of history), naive (forecast = last value), drift (linear extrapolation from first to last point). Use as a sanity floor — any sophisticated method (SES, Holt, Holt-Winters) should beat the best of these on a backtest, otherwise the extra complexity isn't earning its keep. Returns point forecasts + 95% prediction intervals per Hyndman §3.1.",
+      "Three textbook baseline forecasts: mean (forecast = average of history), naive (forecast = last value), drift (linear extrapolation from first to last point). Use as a sanity floor - any sophisticated method (SES, Holt, Holt-Winters) should beat the best of these on a backtest, otherwise the extra complexity isn't earning its keep. Returns point forecasts + 95% prediction intervals per Hyndman §3.1.",
     tags: ["forecast", "timeseries", "naive", "drift", "baseline", "prediction"],
     discovery: {
       bodyType: "json",
@@ -310,7 +310,7 @@ export const FORECAST_TOOLS = [
     route: "POST /api/forecast-ses", name: "Forecast (simple exponential smoothing)", slug: "forecast-ses",
     category: "data", price: "$0.001",
     description:
-      "Simple exponential smoothing (SES) — level-only forecast for series without trend or seasonality. Higher alpha (closer to 1) tracks recent values aggressively; lower alpha (closer to 0) smooths through noise. Default alpha=0.3 is a common conservative pick; pass an explicit alpha or use forecast-eval to pick the one that minimizes backtest error. Forecast is flat (= last fitted level) for all horizons.",
+      "Simple exponential smoothing (SES) - level-only forecast for series without trend or seasonality. Higher alpha (closer to 1) tracks recent values aggressively; lower alpha (closer to 0) smooths through noise. Default alpha=0.3 is a common conservative pick; pass an explicit alpha or use forecast-eval to pick the one that minimizes backtest error. Forecast is flat (= last fitted level) for all horizons.",
     tags: ["forecast", "timeseries", "ses", "exponential-smoothing", "prediction"],
     discovery: {
       bodyType: "json",
@@ -349,7 +349,7 @@ export const FORECAST_TOOLS = [
     route: "POST /api/forecast-holt", name: "Forecast (Holt linear trend)", slug: "forecast-holt",
     category: "data", price: "$0.001",
     description:
-      "Holt's linear trend method — level + trend (no seasonality). Two smoothing parameters: alpha (level) and beta (trend). Forecast extrapolates as a straight line from the last fitted level along the last fitted trend, so it grows or shrinks linearly with horizon. Use this when your series has a persistent up/down trend but no seasonal cycle (e.g. a SaaS MRR climb, a deflating cohort retention curve).",
+      "Holt's linear trend method - level + trend (no seasonality). Two smoothing parameters: alpha (level) and beta (trend). Forecast extrapolates as a straight line from the last fitted level along the last fitted trend, so it grows or shrinks linearly with horizon. Use this when your series has a persistent up/down trend but no seasonal cycle (e.g. a SaaS MRR climb, a deflating cohort retention curve).",
     tags: ["forecast", "timeseries", "holt", "exponential-smoothing", "trend", "prediction"],
     discovery: {
       bodyType: "json",
@@ -400,7 +400,7 @@ export const FORECAST_TOOLS = [
     route: "POST /api/forecast-holt-winters", name: "Forecast (Holt-Winters seasonal)", slug: "forecast-holt-winters",
     category: "data", price: "$0.001",
     description:
-      "Holt-Winters triple exponential smoothing — level + trend + seasonal component. Use for series with a repeating cycle (weekly retail traffic, monthly utility usage, quarterly revenue). Additive seasonality (constant amplitude) or multiplicative (amplitude grows with level). `period` is optional — if omitted, the kit auto-detects via autocorrelation on first differences and surfaces what it picked (with the ACF strength) so you can audit. Needs at least two full seasonal cycles to fit reliably.",
+      "Holt-Winters triple exponential smoothing - level + trend + seasonal component. Use for series with a repeating cycle (weekly retail traffic, monthly utility usage, quarterly revenue). Additive seasonality (constant amplitude) or multiplicative (amplitude grows with level). `period` is optional - if omitted, the kit auto-detects via autocorrelation on first differences and surfaces what it picked (with the ACF strength) so you can audit. Needs at least two full seasonal cycles to fit reliably.",
     tags: ["forecast", "timeseries", "holt-winters", "seasonal", "exponential-smoothing", "prediction"],
     discovery: {
       bodyType: "json",
@@ -492,7 +492,7 @@ export const FORECAST_TOOLS = [
     route: "POST /api/forecast-eval", name: "Forecast backtest (MAPE + RMSE)", slug: "forecast-eval",
     category: "data", price: "$0.001",
     description:
-      "Backtest a forecasting method on the input series by holding out the last `testSize` observations, forecasting them, and computing MAPE (mean absolute percentage error) + RMSE (root mean squared error). Lets an agent pick which method (mean / naive / drift / ses / holt / holt-winters) actually fits its data before committing to a forward forecast. Always returns a `warnings` array — empty when the backtest is well-posed, populated when `testSize` exceeds n/2 (treat error as indicative not predictive).",
+      "Backtest a forecasting method on the input series by holding out the last `testSize` observations, forecasting them, and computing MAPE (mean absolute percentage error) + RMSE (root mean squared error). Lets an agent pick which method (mean / naive / drift / ses / holt / holt-winters) actually fits its data before committing to a forward forecast. Always returns a `warnings` array - empty when the backtest is well-posed, populated when `testSize` exceeds n/2 (treat error as indicative not predictive).",
     tags: ["forecast", "backtest", "evaluation", "mape", "rmse", "cross-validation"],
     discovery: {
       bodyType: "json",
@@ -539,7 +539,7 @@ export const FORECAST_TOOLS = [
 
       const warnings = [];
       if (testSize > Math.floor(values.length / 2)) {
-        warnings.push(`testSize (${testSize}) exceeds n/2 (${Math.floor(values.length / 2)}); backtest error is indicative not predictive — point forecasts diverge past ~half the input length.`);
+        warnings.push(`testSize (${testSize}) exceeds n/2 (${Math.floor(values.length / 2)}); backtest error is indicative not predictive - point forecasts diverge past ~half the input length.`);
       }
 
       // Run the chosen method via the shared dispatcher so we don't duplicate
@@ -581,7 +581,7 @@ export const FORECAST_TOOLS = [
       if (mapeCount === testSize) {
         mape = (mapeSum / testSize) * 100;
       } else if (mapeCount === 0) {
-        warnings.push(`MAPE undefined — every actual value in the test window is 0; using RMSE only.`);
+        warnings.push(`MAPE undefined - every actual value in the test window is 0; using RMSE only.`);
       } else {
         mape = (mapeSum / mapeCount) * 100;
         warnings.push(`MAPE computed over ${mapeCount}/${testSize} test points (skipped ${testSize - mapeCount} zero-valued actuals).`);

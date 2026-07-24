@@ -902,7 +902,7 @@ export async function robinhoodActivity(wallet, { days = 30 } = {}) {
     const entry = parseRobinhoodTransfer(t, wallet);
     if (!entry) continue;
     const ts = Date.parse(entry.when || "");
-    if (Number.isFinite(ts) && ts < cutoff) continue; // Blockscout order isn't guaranteed — filter, don't break
+    if (Number.isFinite(ts) && ts < cutoff) continue; // Blockscout order isn't guaranteed - filter, don't break
     entry.internal = entry.from != null && OUR_EVM_WALLETS.has(entry.from);
     entries.push(entry);
   }
@@ -1027,7 +1027,7 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const short = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "-");
 
-// "What's selling" — the sales ledger's merchant view (src/sales-ledger.js):
+// "What's selling" - the sales ledger's merchant view (src/sales-ledger.js):
 // external paid calls BY NAME. The on-chain cards above prove the money;
 // this section names the products. Renders nothing until the first
 // externally-paid call lands (recording started 2026-07-04).
@@ -1161,7 +1161,9 @@ function revenueChartSection() {
       <span class="rvz-seg" id="rvzMode"><button data-v="cum" class="on">Cumulative</button><button data-v="daily">Daily</button></span>
       <span class="rvz-seg" id="rvzMetric"><button data-v="usd" class="on">Revenue $</button><button data-v="tx">Transactions</button></span>
       <span class="rvz-seg" id="rvzScope"><button data-v="ext" class="on">External</button><button data-v="int">Internal (canary)</button><button data-v="both">Both</button></span>
+      <span class="rvz-seg" id="rvzWire"><button data-v="all" class="on">All wires</button><button data-v="x402">x402</button><button data-v="mpp">MPP</button></span>
     </div>
+    <p id="rvzWireNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;">MPP-wire settlements are identified by tx hash from the sales ledger, which began recording the wire on 2026-07-24 - earlier days read as x402 because the wire was not recorded, not because no MPP traffic existed.</p>
     <div class="rvz-wrap"><svg id="rvzSvg" viewBox="0 0 940 300" width="100%" role="img" aria-label="Stacked daily revenue by chain"></svg><div class="rvz-tip" id="rvzTip"></div></div>
     <div class="rvz-legend" id="rvzLegend"></div>
     <details><summary>view as table</summary><div id="rvzTable" style="overflow-x:auto"></div></details>
@@ -1170,10 +1172,18 @@ function revenueChartSection() {
   (function(){
     var SLOTS={base:1,algorand:2,solana:3,polygon:4,stellar:5,arbitrum:6,celo:7};
     var NAMES={1:"Base",2:"Algorand",3:"Solana",4:"Polygon",5:"Stellar",6:"Arbitrum",7:"Celo",8:"Other"};
-    var state={mode:"cum",metric:"usd",scope:"ext",rows:[]};
+    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",rows:[]};
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
-    function val(r){var e=state.metric==="usd"?r.extUsd:r.extTx, i=state.metric==="usd"?r.intUsd:r.intTx;
+    // Wire filter: MPP and x402 settle identically on-chain, so the MPP subset
+    // is joined in by tx hash server-side. x402 is the remainder, never a
+    // separate count - that keeps All === x402 + MPP exactly.
+    function val(r){
+      var usd=state.metric==="usd";
+      var e=usd?r.extUsd:r.extTx, i=usd?r.intUsd:r.intTx;
+      var em=(usd?r.extMppUsd:r.extMppTx)||0, im=(usd?r.intMppUsd:r.intMppTx)||0;
+      if(state.wire==="mpp"){e=em;i=im}
+      else if(state.wire==="x402"){e=Math.max(0,e-em);i=Math.max(0,i-im)}
       return state.scope==="ext"?e:state.scope==="int"?i:e+i}
     function seg(id,cb){var el=document.getElementById(id);el.addEventListener("click",function(ev){var b=ev.target.closest("button");if(!b)return;
       [].slice.call(el.querySelectorAll("button")).forEach(function(x){x.classList.toggle("on",x===b)});cb(b.dataset.v);render();})}
@@ -1187,7 +1197,7 @@ function revenueChartSection() {
     function fmt(v){return state.metric==="usd"?(v>=1?"$"+v.toFixed(2):"$"+v.toFixed(4)):String(Math.round(v))}
     function render(){
       var data=build(), svg=document.getElementById("rvzSvg"), tip=document.getElementById("rvzTip");
-      if(!data.length){svg.outerHTML="";document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">ledger backfilling — the series appears as settlements sync</div>';return}
+      if(!data.length){svg.outerHTML="";document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">ledger backfilling - the series appears as settlements sync</div>';return}
       var W=940,H=300,L=52,R=8,T=10,B=26,pw=W-L-R,ph=H-T-B;
       var max=0;data.forEach(function(d){var t=0;for(var s=1;s<=8;s++)t+=d.slots[s]||0;if(t>max)max=t});
       max=max||1;
@@ -1216,12 +1226,19 @@ function revenueChartSection() {
       svg.onmouseleave=function(){tip.style.display="none"};
       var lg="",present={};data.forEach(function(d){for(var s=1;s<=8;s++)if(d.slots[s])present[s]=1});
       Object.keys(present).forEach(function(s){lg+='<span><i style="background:'+css(s)+'"></i>'+NAMES[s]+"</span>"});
+      // An empty series under a wire filter is a real answer, not a broken
+      // chart - say which filter emptied it rather than showing a blank grid.
+      if(!Object.keys(present).length){
+        lg='<span>no '+(state.wire==="all"?"":state.wire==="mpp"?"MPP-wire ":"x402-wire ")+
+          (state.scope==="ext"?"external":state.scope==="int"?"internal":"")+' settlements in this window</span>'}
       document.getElementById("rvzLegend").innerHTML=lg;
       var tb='<table><tr><th>day</th>';Object.keys(present).forEach(function(s){tb+="<th>"+NAMES[s]+"</th>"});tb+="<th>total</th></tr>";
       data.forEach(function(d){var tot=0;tb+="<tr><td>"+d.day+"</td>";Object.keys(present).forEach(function(s){var v=d.slots[s]||0;tot+=v;tb+="<td>"+fmt(v)+"</td>"});tb+="<td>"+fmt(tot)+"</td></tr>"});
       document.getElementById("rvzTable").innerHTML=tb+"</table>";
     }
     seg("rvzMode",function(v){state.mode=v});seg("rvzMetric",function(v){state.metric=v});seg("rvzScope",function(v){state.scope=v});
+    seg("rvzWire",function(v){state.wire=v;
+      document.getElementById("rvzWireNote").style.display=v==="all"?"none":"block"});
     fetch("/api/revenue/daily").then(function(r){return r.json()}).then(function(j){state.rows=j.days||[];render()})
       .catch(function(){document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">series unavailable</div>'});
   })();

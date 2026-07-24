@@ -247,7 +247,7 @@ console.log(result);`,
 
 export function adapterDocsIndex(baseUrl) {
   const canonical = `${baseUrl}/docs/adapters`;
-  const title = "Framework Adapters \u2014 Agent402 Docs";
+  const title = "Framework Adapters - Agent402 Docs";
   const description = "Adapter documentation for every supported agent framework: OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex, Google ADK, OpenAI Agents SDK, and AWS Strands.";
 
   const cards = ADAPTERS.map((a) => `
@@ -296,7 +296,7 @@ export function adapterDocPage(baseUrl, slug) {
   if (!adapter) return null;
 
   const canonical = `${baseUrl}/docs/adapters/${adapter.slug}`;
-  const title = `${adapter.name} Adapter \u2014 Agent402 Docs`;
+  const title = `${adapter.name} Adapter - Agent402 Docs`;
   const description = `${adapter.desc} Install ${adapter.pkg} and start using Agent402 tools in your ${adapter.name} project.`;
 
   const tocItems = [

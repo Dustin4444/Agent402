@@ -9,7 +9,7 @@ const USE_CASES = [
   },
   {
     title: "Audit a domain\u2019s security posture in 30 seconds",
-    story: "A security team\u2019s agent ran the security-audit skill pack against a candidate vendor\u2019s domain: DNS records, TLS certificate, WHOIS, HTTP headers, SPF/DKIM, and robots.txt \u2014 all in one pass.",
+    story: "A security team\u2019s agent ran the security-audit skill pack against a candidate vendor\u2019s domain: DNS records, TLS certificate, WHOIS, HTTP headers, SPF/DKIM, and robots.txt - all in one pass.",
     tools: ["dns", "tls-cert", "whois", "http-check", "spf-check", "robots-check"],
     cost: "~$0.04 (7 tool calls)",
   },
@@ -27,7 +27,7 @@ const USE_CASES = [
   },
   {
     title: "Build a macro dashboard from government data",
-    story: "A research agent assembled a US economic snapshot: CPI year-over-year, unemployment, Fed funds rate, Treasury yield curve, and FX rates \u2014 all from official FRED and Treasury feeds, no API keys needed.",
+    story: "A research agent assembled a US economic snapshot: CPI year-over-year, unemployment, Fed funds rate, Treasury yield curve, and FX rates - all from official FRED and Treasury feeds, no API keys needed.",
     tools: ["cpi-yoy", "unemployment-rate", "fed-funds", "treasury-yield-curve", "fx-dashboard"],
     cost: "~$0.005 (5 \u00d7 $0.001, all free via PoW)",
   },
@@ -39,7 +39,7 @@ const USE_CASES = [
   },
   {
     title: "Validate and geocode a 500-row address list",
-    story: "An ops agent processed a CSV of customer addresses: validated formatting, geocoded each to lat/lng, and flagged duplicates \u2014 no Google Maps API key required.",
+    story: "An ops agent processed a CSV of customer addresses: validated formatting, geocoded each to lat/lng, and flagged duplicates - no Google Maps API key required.",
     tools: ["geocode", "csv-lint", "email-validate"],
     cost: "~$2.50 (500 geocodes at $0.005)",
   },
@@ -53,7 +53,7 @@ const USE_CASES = [
 
 export function useCasesPage(baseUrl) {
   const canonical = `${baseUrl}/use-cases`;
-  const pageTitle = "Use Cases \u2014 what agents build with Agent402";
+  const pageTitle = "Use Cases - what agents build with Agent402";
   const pageDesc = "Concrete examples of autonomous agents using Agent402: company research, security audits, PDF processing, live web search, macro dashboards, and more.";
 
   const jsonLd = {
@@ -108,7 +108,7 @@ export function useCasesPage(baseUrl) {
 <div class="uc-wrap">
 <div class="uc-eyebrow">$ GET /use-cases</div>
 <h1 class="uc-h1">Use Cases</h1>
-<p class="uc-intro">Real tasks agents solve with Agent402 &mdash; from overnight research to live monitoring. Each example shows the tools involved and what it costs at per-call pricing.</p>
+<p class="uc-intro">Real tasks agents solve with Agent402 - from overnight research to live monitoring. Each example shows the tools involved and what it costs at per-call pricing.</p>
 <div class="uc-grid">
 ${cards}
 </div>

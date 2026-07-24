@@ -88,7 +88,7 @@ export async function withStaleFallback(lastGood, key, fn, { maxStaleMs, now = D
         ...prev.payload,
         stale: true,
         staleAsOf: new Date(prev.at).toISOString(),
-        staleReason: `FRED upstream failed (${sc}) — serving the last successful snapshot`,
+        staleReason: `FRED upstream failed (${sc}) - serving the last successful snapshot`,
       };
     }
     throw e;
@@ -258,7 +258,7 @@ async function fetchFredYields() {
     // Fall back only on upstream failures, and only when the keyed API is
     // configured — with no key, behavior is exactly as before.
     if (!isYieldCsvUpstreamFailure(e) || !(process.env.FRED_API_KEY || "").trim()) throw e;
-    console.warn(`[macro] fredgraph.csv failed (${e.message}) — falling back to keyed FRED API`);
+    console.warn(`[macro] fredgraph.csv failed (${e.message}) - falling back to keyed FRED API`);
     return fetchFredYieldsViaKeyedApi();
   }
 }
@@ -281,7 +281,7 @@ export const MACRO_TOOLS = [
   {
     route: "GET /api/treasury-yield-curve", name: "US Treasury daily yield curve", slug: "treasury-yield-curve", category: "data", price: "$0.010",
     description:
-      "Latest US Treasury daily constant-maturity yields (1mo, 3mo, 6mo, 1y, 2y, 3y, 5y, 7y, 10y, 20y, 30y) as clean JSON. Source: FRED DGS* series (St. Louis Fed), public domain, no key. No params — always returns the most recent published curve.",
+      "Latest US Treasury daily constant-maturity yields (1mo, 3mo, 6mo, 1y, 2y, 3y, 5y, 7y, 10y, 20y, 30y) as clean JSON. Source: FRED DGS* series (St. Louis Fed), public domain, no key. No params - always returns the most recent published curve.",
     tags: ["treasury", "yield-curve", "interest-rates", "rates", "macro", "bonds", "fed", "10-year", "yields"],
     discovery: {
       input: {},
@@ -362,7 +362,7 @@ export const MACRO_TOOLS = [
   {
     route: "GET /api/treasury-avg-rates", name: "Average interest rates on Treasury securities", slug: "treasury-avg-rates", category: "data", price: "$0.010",
     description:
-      "Latest average interest rates the US Treasury is paying by security type (Bills, Notes, Bonds, TIPS, FRNs, marketable vs non-marketable). Public domain, no key. No params — returns the most recent reporting month.",
+      "Latest average interest rates the US Treasury is paying by security type (Bills, Notes, Bonds, TIPS, FRNs, marketable vs non-marketable). Public domain, no key. No params - returns the most recent reporting month.",
     tags: ["treasury", "interest-rates", "bills", "notes", "bonds", "tips", "frn", "macro", "cost-of-debt"],
     discovery: {
       input: {},
@@ -478,7 +478,7 @@ export const MACRO_TOOLS = [
       try {
         j = await getJson(`https://api.frankfurter.dev/v1/latest?from=USD&to=${G10.join(",")}`);
       } catch (e) {
-        console.warn(`[fx-dashboard] frankfurter failed (${String(e?.message || e).slice(0, 80)}) — walking to open.er-api.com`);
+        console.warn(`[fx-dashboard] frankfurter failed (${String(e?.message || e).slice(0, 80)}) - walking to open.er-api.com`);
         try {
           const alt = await getJson("https://open.er-api.com/v6/latest/USD");
           if (alt?.result === "success" && alt?.rates) {
@@ -630,7 +630,7 @@ function requireFredKey() {
 // FRED_API_KEY_V2; never substitute the v1 key (v2 will reject it).
 function requireFredV2Key() {
   const key = (process.env.FRED_API_KEY_V2 || "").trim();
-  if (!key) throw bad("FRED v2 is not configured on this deployment (set FRED_API_KEY_V2 — distinct from v1 key)", 503);
+  if (!key) throw bad("FRED v2 is not configured on this deployment (set FRED_API_KEY_V2 - distinct from v1 key)", 503);
   return key;
 }
 
@@ -717,7 +717,7 @@ MACRO_TOOLS.push(
   {
     route: "GET /api/fred-series", name: "FRED time series", slug: "fred-series", category: "data", price: "$0.015",
     description:
-      "Fetch any of FRED's ~800,000 economic time series by series ID — GDP (GDPC1), CPI (CPIAUCSL), unemployment (UNRATE), fed funds (DFF), and so on. Supports date windowing and the standard FRED units transformations (lin, chg, ch1, pch, pc1, pca, cca, log). ?seriesId=GDPC1&startDate=2018-01-01&endDate=2023-12-31&units=pc1",
+      "Fetch any of FRED's ~800,000 economic time series by series ID - GDP (GDPC1), CPI (CPIAUCSL), unemployment (UNRATE), fed funds (DFF), and so on. Supports date windowing and the standard FRED units transformations (lin, chg, ch1, pch, pc1, pca, cca, log). ?seriesId=GDPC1&startDate=2018-01-01&endDate=2023-12-31&units=pc1",
     tags: ["fred", "series", "time-series", "gdp", "cpi", "inflation", "unemployment", "fed", "macro", "economic-data", "st-louis-fed"],
     discovery: {
       input: { seriesId: "GDPC1", startDate: "2018-01-01", endDate: "2022-12-31" },
@@ -823,7 +823,7 @@ MACRO_TOOLS.push(
   {
     route: "GET /api/fred-release-calendar", name: "FRED economic release calendar", slug: "fred-release-calendar", category: "data", price: "$0.005",
     description:
-      "Upcoming and very-recent US economic data release dates — CPI, employment, GDP, FOMC minutes, Treasury auctions, etc. Useful for scheduling agents around event-driven moves. ?days=14 (default 14, range 1-90).",
+      "Upcoming and very-recent US economic data release dates - CPI, employment, GDP, FOMC minutes, Treasury auctions, etc. Useful for scheduling agents around event-driven moves. ?days=14 (default 14, range 1-90).",
     tags: ["fred", "calendar", "releases", "cpi", "jobs", "gdp", "fomc", "macro", "economic-data"],
     discovery: {
       input: { days: 14 },
@@ -869,7 +869,7 @@ MACRO_TOOLS.push(
   {
     route: "GET /api/sahm-rule", name: "Sahm Rule recession indicator", slug: "sahm-rule", category: "data", price: "$0.015",
     description:
-      "Real-time Sahm Rule recession indicator from FRED (SAHMREALTIME series). The Sahm Rule triggers when the 3-month moving average of US unemployment rises ≥0.50 percentage points above its prior-12-month low — historically a clean recession signal. No params.",
+      "Real-time Sahm Rule recession indicator from FRED (SAHMREALTIME series). The Sahm Rule triggers when the 3-month moving average of US unemployment rises ≥0.50 percentage points above its prior-12-month low - historically a clean recession signal. No params.",
     tags: ["sahm-rule", "recession", "unemployment", "macro", "fred", "indicator", "signal"],
     discovery: {
       input: {},
@@ -891,7 +891,7 @@ MACRO_TOOLS.push(
   {
     route: "GET /api/cpi-yoy", name: "US CPI year-over-year inflation", slug: "cpi-yoy", category: "data", price: "$0.015",
     description:
-      "Latest US Consumer Price Index year-over-year inflation rate (headline CPI-U) plus the trailing 12 months of YoY readings — the headline inflation number. Source: FRED CPIAUCSL with pc1 transformation. No params.",
+      "Latest US Consumer Price Index year-over-year inflation rate (headline CPI-U) plus the trailing 12 months of YoY readings - the headline inflation number. Source: FRED CPIAUCSL with pc1 transformation. No params.",
     tags: ["cpi", "inflation", "yoy", "consumer-price-index", "macro", "fred", "bls", "headline-inflation"],
     discovery: {
       input: {},

@@ -82,7 +82,7 @@ export const GOV_TOOLS = [
   {
     route: "GET /api/gov-data", name: "US gov dataset search", slug: "gov-data", category: "data", price: "$0.003",
     description:
-      "Search 300,000+ US government datasets on catalog.data.gov (CKAN): titles, publishing org, formats, and direct resource URLs — the index agents need before fetching public data. ?q=electric+vehicles&rows=5.",
+      "Search 300,000+ US government datasets on catalog.data.gov (CKAN): titles, publishing org, formats, and direct resource URLs - the index agents need before fetching public data. ?q=electric+vehicles&rows=5.",
     tags: ["data.gov", "datasets", "open-data", "government", "ckan"],
     discovery: {
       input: { q: "electric vehicle charging stations", rows: 5 },
@@ -118,7 +118,7 @@ export const GOV_TOOLS = [
       // block is an honest 502 rather than silently returning nulls.
       const result = data?.result;
       if (data?.success !== true || !result || (result.count === undefined && !Array.isArray(result.results))) {
-        throw bad("data.gov is not returning results right now (upstream outage) — retry later", 502);
+        throw bad("data.gov is not returning results right now (upstream outage) - retry later", 502);
       }
       const results = Array.isArray(result.results) ? result.results : [];
       return {
@@ -297,7 +297,7 @@ export const GOV_TOOLS = [
   {
     route: "GET /api/drug-adverse-events", name: "FDA drug adverse events", slug: "drug-adverse-events", category: "data", price: "$0.004",
     description:
-      "Top reported adverse reactions for a drug from the FDA FAERS database (openFDA), ranked by report count — a fast read on a drug's real-world safety signal. Live FDA data, no key. ?drug=aspirin&limit=10",
+      "Top reported adverse reactions for a drug from the FDA FAERS database (openFDA), ranked by report count - a fast read on a drug's real-world safety signal. Live FDA data, no key. ?drug=aspirin&limit=10",
     tags: ["fda", "drug", "adverse-events", "faers", "openfda", "health", "government"],
     discovery: {
       input: { drug: "aspirin", limit: 10 },
@@ -345,7 +345,7 @@ export const GOV_TOOLS = [
       inputSchema: {
         properties: {
           vin: { type: "string", description: "17-char VIN (or a partial VIN with * wildcards)" },
-          modelYear: { type: "number", description: "Model year — helps decode a partial VIN" },
+          modelYear: { type: "number", description: "Model year - helps decode a partial VIN" },
         },
         required: ["vin"],
       },
@@ -577,7 +577,7 @@ export const GOV_TOOLS = [
   {
     route: "GET /api/federal-awards", name: "US federal awards search (USAspending)", slug: "federal-awards", category: "data", price: "$0.005",
     description:
-      "Search US federal contract awards via USAspending.gov by keyword: recipient, award amount, awarding agency, and description — largest awards first. Live gov data, no key. ?q=Lockheed&limit=5",
+      "Search US federal contract awards via USAspending.gov by keyword: recipient, award amount, awarding agency, and description - largest awards first. Live gov data, no key. ?q=Lockheed&limit=5",
     tags: ["usaspending", "federal-spending", "contracts", "procurement", "government", "awards"],
     discovery: {
       input: { q: "Lockheed", limit: 5 },
@@ -631,7 +631,7 @@ export const GOV_TOOLS = [
   {
     route: "GET /api/geo-lookup", name: "US location lookup (lat/lon)", slug: "geo-lookup", category: "data", price: "$0.003",
     description:
-      "Resolve a US latitude/longitude to its county, state, and census block FIPS via the FCC Area API — the geographic context agents need for any coordinate. Live gov data, no key. ?lat=34.0522&lon=-118.2437",
+      "Resolve a US latitude/longitude to its county, state, and census block FIPS via the FCC Area API - the geographic context agents need for any coordinate. Live gov data, no key. ?lat=34.0522&lon=-118.2437",
     tags: ["geo", "location", "county", "census", "fips", "fcc", "government"],
     discovery: {
       input: { lat: 34.0522, lon: -118.2437 },
@@ -667,7 +667,7 @@ export const GOV_TOOLS = [
   {
     route: "GET /api/fema-disasters", name: "FEMA disaster declarations", slug: "fema-disasters", category: "data", price: "$0.004",
     description:
-      "Recent FEMA disaster declarations for a US state (openFEMA): title, incident type, declaration type, and date — the federal emergency picture by state, de-duplicated by disaster. Live gov data, no key. ?state=CA&limit=5",
+      "Recent FEMA disaster declarations for a US state (openFEMA): title, incident type, declaration type, and date - the federal emergency picture by state, de-duplicated by disaster. Live gov data, no key. ?state=CA&limit=5",
     tags: ["fema", "disaster", "emergency", "declarations", "openfema", "government"],
     discovery: {
       input: { state: "CA", limit: 5 },

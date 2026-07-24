@@ -54,7 +54,7 @@ function serveStale(url, label, meta, err) {
   const hit = lastGood.get(url);
   if (!hit || Date.now() - hit.at > STALE_MAX_MS) throw err;
   const asOf = new Date(hit.at).toISOString();
-  console.warn(`[prediction] ${label} down (${String(err.message).slice(0, 120)}) — serving cached copy from ${asOf}`);
+  console.warn(`[prediction] ${label} down (${String(err.message).slice(0, 120)}) - serving cached copy from ${asOf}`);
   if (meta) { meta.stale = true; meta.asOf = asOf; }
   return hit.json;
 }
@@ -90,7 +90,7 @@ async function fetchJson(url, label, meta = null) {
   if (res.status === 429 || res.status >= 500) {
     const ra = Number(res.headers.get("retry-after"));
     const waitMs = Math.min(Number.isFinite(ra) && ra > 0 ? ra * 1000 : 2500, 5000) + Math.floor(Math.random() * 500);
-    console.warn(`[prediction] ${label} HTTP ${res.status} — retrying once in ${waitMs}ms${Number.isFinite(ra) && ra > 0 ? " (Retry-After honored)" : ""}`);
+    console.warn(`[prediction] ${label} HTTP ${res.status} - retrying once in ${waitMs}ms${Number.isFinite(ra) && ra > 0 ? " (Retry-After honored)" : ""}`);
     await new Promise((r) => setTimeout(r, waitMs));
     try {
       const retryRes = await attempt();
@@ -252,7 +252,7 @@ async function polymarketMarket({ slug, id } = {}) {
 // ----------------------------------------------------------------------------
 async function polymarketOrderbook({ tokenId, depth } = {}) {
   if (typeof tokenId !== "string" || !/^\d+$/.test(tokenId.trim())) {
-    throw bad('"tokenId" is required (decimal-encoded CLOB token id string — see market.clobTokenIds)');
+    throw bad('"tokenId" is required (decimal-encoded CLOB token id string - see market.clobTokenIds)');
   }
   const d = Math.max(1, Math.min(50, Number.parseInt(depth, 10) || 10));
   const meta = {};

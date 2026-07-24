@@ -8,18 +8,18 @@ import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
 
 export const CATEGORIES = {
   web: { label: "Web & documents", blurb: "Read the live web: browser rendering, screenshots, article extraction, PDFs, metadata." },
-  memory: { label: "Agent memory & coordination", blurb: "The stateful layer a stateless agent can't build for itself: durable wallet-keyed KV with TTL, atomic counters/locks, shared namespaces other agents can reach (grants), a tamper-evident audit log, and similarity recall. The payment is the identity — no signup." },
+  memory: { label: "Agent memory & coordination", blurb: "The stateful layer a stateless agent can't build for itself: durable wallet-keyed KV with TTL, atomic counters/locks, shared namespaces other agents can reach (grants), a tamper-evident audit log, and similarity recall. The payment is the identity - no signup." },
   network: { label: "Network & domains", blurb: "DNS, TLS certificates, WHOIS/RDAP, uptime checks, robots.txt and sitemaps." },
   data: { label: "Live public data", blurb: "Keyless real-time government and market data: dataset search across data.gov, NWS weather alerts, USGS earthquakes, currency rates, barcode product lookup." },
-  payments: { label: "Payments & x402", blurb: "Non-custodial x402 tooling: decode HTTP 402 quotes, verify on-chain USDC settlements, read balances, tx status and gas across Base, Polygon, Arbitrum, Optimism, Ethereum, and Robinhood Chain, and build EIP-3009 transfer authorizations. The agent signs with its own key — Agent402 never touches funds." },
-  conversion: { label: "Data conversion", blurb: "JSON ⇄ CSV/YAML/XML, markdown ⇄ HTML, diffs and queries — formats agents juggle constantly." },
+  payments: { label: "Payments & x402", blurb: "Non-custodial x402 tooling: decode HTTP 402 quotes, verify on-chain USDC settlements, read balances, tx status and gas across Base, Polygon, Arbitrum, Optimism, Ethereum, and Robinhood Chain, and build EIP-3009 transfer authorizations. The agent signs with its own key - Agent402 never touches funds." },
+  conversion: { label: "Data conversion", blurb: "JSON ⇄ CSV/YAML/XML, markdown ⇄ HTML, diffs and queries - formats agents juggle constantly." },
   text: { label: "Text processing", blurb: "Slugs, case conversion, diffs, regex, keywords, token estimates, edit distance, readability, PII redaction." },
   math: { label: "Math & finance", blurb: "Safe expression calculator, statistics, unit conversion across 13 categories (length, mass, temperature, …) via POST /api/unit-convert, percentage/number formatting, CIDR subnets, compound interest and loan math." },
   encoding: { label: "Encoding & crypto", blurb: "Hashes, HMAC signatures, base64/hex, JWT decoding, TOTP codes." },
   identifiers: { label: "Generators & IDs", blurb: "UUIDs, ULIDs, passwords, secure randomness, QR codes." },
   time: { label: "Time & scheduling", blurb: "Timezone-aware clocks, epoch conversion, cron parsing, durations." },
   validation: { label: "Validation & parsing", blurb: "Emails (with MX), URLs, IPs, user agents, colors, semver, IBAN, card numbers." },
-  llm: { label: "LLM gateway", blurb: "OpenAI-compatible pay-per-call inference over x402 — five quality tiers plus embeddings and image generation, model-optional auto-routing, streaming, and a default-on prompt cache. See /v1 in the OpenAPI spec for the full wire format." },
+  llm: { label: "LLM gateway", blurb: "OpenAI-compatible pay-per-call inference over x402 - five quality tiers plus embeddings and image generation, model-optional auto-routing, streaming, and a default-on prompt cache. See /v1 in the OpenAPI spec for the full wire format." },
 };
 
 /** Flatten the catalog into renderable tool descriptors. */
@@ -147,7 +147,7 @@ function fmtTtl(seconds) {
 
 export function toolPage(baseUrl, tool, related, { computePayable = false, powDifficulty = 0, cacheTtl = null } = {}) {
   const e = ledgerEsc;
-  const title = `${tool.name} API for AI agents — ${tool.price} per call | Agent402`;
+  const title = `${tool.name} API for AI agents - ${tool.price} per call | Agent402`;
   const canonical = `${baseUrl}/tools/${tool.slug}`;
   const catLabel = CATEGORIES[tool.category]?.label ?? tool.category;
   const jsonLd = [
@@ -197,8 +197,8 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
   const inPacks = SKILL_PACKS.filter((p) => (p.toolSlugs || []).includes(tool.slug));
   const packsHtml = inPacks.length
     ? `<h2 style="font-weight:800;font-size:22px;margin:40px 0 10px;">Part of these workflows</h2>
-  <p style="color:var(--muted);font-size:15px;margin-bottom:12px;">This tool is one step in ${inPacks.length === 1 ? "a curated multi-tool workflow" : `${inPacks.length} curated multi-tool workflows`} — agents can fetch the whole sequence as an MCP prompt or call <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">${e(baseUrl)}/api/skill-packs/{slug}/prompt</code>.</p>
-  <ul style="padding-left:20px;">${inPacks.map((p) => `<li style="margin-bottom:6px;"><a href="/skills/${e(p.slug)}" style="color:var(--accent);font-weight:700;">${e(p.title)}</a> — <span style="color:var(--muted);">${e(p.tagline)}</span></li>`).join("")}</ul>`
+  <p style="color:var(--muted);font-size:15px;margin-bottom:12px;">This tool is one step in ${inPacks.length === 1 ? "a curated multi-tool workflow" : `${inPacks.length} curated multi-tool workflows`} - agents can fetch the whole sequence as an MCP prompt or call <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">${e(baseUrl)}/api/skill-packs/{slug}/prompt</code>.</p>
+  <ul style="padding-left:20px;">${inPacks.map((p) => `<li style="margin-bottom:6px;"><a href="/skills/${e(p.slug)}" style="color:var(--accent);font-weight:700;">${e(p.title)}</a> - <span style="color:var(--muted);">${e(p.tagline)}</span></li>`).join("")}</ul>`
     : "";
 
   const methodColor = tool.method === "GET" ? "var(--green)" : "var(--accent)";
@@ -240,7 +240,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
   <h2 class="tp-h2">Example output</h2>
   <pre class="tp-pre">${e(JSON.stringify(tool.discovery?.output?.example ?? {}, null, 2))}</pre>
 
-  <h2 class="tp-h2">Try it — see the 402 challenge (free)</h2>
+  <h2 class="tp-h2">Try it - see the 402 challenge (free)</h2>
   <pre class="tp-pre">${e(exampleCall(baseUrl, tool))}</pre>
   <p class="tp-sub">The response is <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">HTTP 402 Payment Required</code> with exact payment requirements. Any x402 v2 client pays automatically and retries:</p>
 
@@ -259,7 +259,7 @@ ${e(payExample(baseUrl, tool))}</pre>
   ${
     computePayable
       ? `<h2 class="tp-h2">No wallet? Pay with compute</h2>
-  <p class="tp-sub">This is a pure-CPU tool, so an agent without a wallet can pay with <a href="/api/pow" style="color:var(--accent);">proof-of-work</a> instead of USDC: fetch a challenge, solve the sha256 puzzle (${powDifficulty} leading zero bits — a fraction of a second of CPU, no money, no AI tokens), and resend with the <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">X-Pow-Solution</code> header.</p>
+  <p class="tp-sub">This is a pure-CPU tool, so an agent without a wallet can pay with <a href="/api/pow" style="color:var(--accent);">proof-of-work</a> instead of USDC: fetch a challenge, solve the sha256 puzzle (${powDifficulty} leading zero bits - a fraction of a second of CPU, no money, no AI tokens), and resend with the <code style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:2px 6px;font-size:13px;">X-Pow-Solution</code> header.</p>
   <pre class="tp-pre">import { createHash } from "node:crypto";
 const lz = (b) =&gt; { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
 const c = await (await fetch("${baseUrl}/api/pow/challenge?slug=${e(tool.slug)}")).json();
@@ -278,7 +278,7 @@ ${ledgerFooterCompact()}`;
 
   return ledgerShell({
     title,
-    description: `${tool.description} ${tool.price} per call via x402 — no API key, no signup.`,
+    description: `${tool.description} ${tool.price} per call via x402 - no API key, no signup.`,
     canonical,
     baseUrl,
     activePath: "/tools",
@@ -300,7 +300,7 @@ export function toolsIndexPage(baseUrl, catalog) {
   const tools = toolList(catalog);
   const canonical = `${baseUrl}/tools`;
   const title = `${tools.length} pay-per-call APIs for AI agents | Agent402 tool catalogue`;
-  const description = `${tools.length} machine-payable tools for AI agents: browser rendering, PDF extraction, wallet-keyed memory, conversions, validation, networking. USDC per call via x402 — no API keys.`;
+  const description = `${tools.length} machine-payable tools for AI agents: browser rendering, PDF extraction, wallet-keyed memory, conversions, validation, networking. USDC per call via x402 - no API keys.`;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -353,9 +353,9 @@ ${renderHeader("/tools")}
 <div class="wrap">
   <div class="crumb"><a href="/">Agent402</a> / tools</div>
   <h1>${tools.length} tools, one base URL, zero API keys</h1>
-  <p class="sub">Call any endpoint, get an <code>HTTP 402</code> quote, and either pay a fraction of a cent in ${RAILS_PAREN} via <a href="https://x402.org" rel="noopener">x402</a> — or, on the <span class="free">FREE</span> tools, skip the wallet entirely. The catalog is capped — every tool here earns its place and answers its own example on every deploy. Machine-readable: <a href="/api/pricing">/api/pricing</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/llms.txt">/llms.txt</a>.</p>
+  <p class="sub">Call any endpoint, get an <code>HTTP 402</code> quote, and either pay a fraction of a cent in ${RAILS_PAREN} via <a href="https://x402.org" rel="noopener">x402</a> - or, on the <span class="free">FREE</span> tools, skip the wallet entirely. The catalog is capped - every tool here earns its place and answers its own example on every deploy. Machine-readable: <a href="/api/pricing">/api/pricing</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/llms.txt">/llms.txt</a>.</p>
   <div style="margin:18px 0"><input id="tool-search" type="text" placeholder="Search ${tools.length} tools\u2026" style="width:100%;max-width:480px;padding:10px 16px;background:#0d1220;border:1px solid #1e2638;border-radius:10px;color:#e6e9f0;font-size:.95rem;outline:none;" onfocus="this.style.borderColor='#4ade80'" onblur="this.style.borderColor='#1e2638'"><span id="tool-search-count" style="margin-left:12px;color:#8b93a7;font-size:.85rem"></span></div>
-  <div class="callout"><b>${freeCount} of ${tools.length} tools are free</b> — no wallet needed. Pay with a few seconds of <a href="/api/pow">proof-of-work</a> (CPU) instead of USDC. The other ${tools.length - freeCount} (browser, network, memory) settle in USDC because they cost real infrastructure to run. Look for the <span class="free">FREE</span> badge below.</div>
+  <div class="callout"><b>${freeCount} of ${tools.length} tools are free</b> - no wallet needed. Pay with a few seconds of <a href="/api/pow">proof-of-work</a> (CPU) instead of USDC. The other ${tools.length - freeCount} (browser, network, memory) settle in USDC because they cost real infrastructure to run. Look for the <span class="free">FREE</span> badge below.</div>
   ${sections}
   <script>(function(){var input=document.getElementById('tool-search'),count=document.getElementById('tool-search-count');if(!input)return;input.addEventListener('input',function(){var q=this.value.toLowerCase().trim();var cards=document.querySelectorAll('.card');var sections=document.querySelectorAll('h2');var shown=0;cards.forEach(function(c){var text=(c.textContent||'').toLowerCase();var match=!q||text.indexOf(q)!==-1;c.style.display=match?'':'none';if(match)shown++;});sections.forEach(function(s){if(!q){s.style.display='';return;}var next=s.nextElementSibling;while(next&&!next.matches('h2')){if(next.classList&&next.classList.contains('grid')){var vis=next.querySelectorAll('.card:not([style*="display: none"])');s.style.display=vis.length?'':'none';break;}if(next.classList&&next.classList.contains('cat-blurb')){next.style.display=s.style.display;next=next.nextElementSibling;continue;}next=next.nextElementSibling;}});count.textContent=q?shown+' match'+(shown===1?'':'es'):'';});})();</script>
 </div>
@@ -373,7 +373,7 @@ export function categoryPage(baseUrl, catalog, catKey) {
   if (!tools.length) return null;
   const freeCount = tools.filter(isComputePayable).length;
   const canonical = `${baseUrl}/tools/category/${catKey}`;
-  const title = `${cat.label} — ${tools.length} tools | Agent402`;
+  const title = `${cat.label} - ${tools.length} tools | Agent402`;
   const description = `${cat.blurb} ${tools.length} tools, ${freeCount} free via proof-of-work.`;
   const jsonLd = {
     "@context": "https://schema.org",
@@ -402,7 +402,7 @@ export function categoryPage(baseUrl, catalog, catKey) {
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--faint);margin-bottom:18px;"><a href="/" style="color:var(--accent);text-decoration:none;">Agent402</a> / <a href="/tools" style="color:var(--accent);text-decoration:none;">tools</a> / ${e(cat.label)}</div>
   <h1 style="font-family:var(--font-body);font-weight:800;font-size:38px;line-height:1;letter-spacing:-.02em;margin-bottom:10px;">${e(cat.label)}</h1>
   <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;">${e(cat.blurb)}</p>
-  <div style="background:var(--card);border:1.5px solid var(--ink);padding:16px 20px;margin:18px 0;font-size:15px;"><b style="color:var(--accent);">${tools.length} tools</b> in this category${freeCount ? ` — <b style="color:var(--accent);">${freeCount} free</b> via proof-of-work` : ""}. <a href="/tools" style="color:var(--accent);">\u2190 All tools</a></div>
+  <div style="background:var(--card);border:1.5px solid var(--ink);padding:16px 20px;margin:18px 0;font-size:15px;"><b style="color:var(--accent);">${tools.length} tools</b> in this category${freeCount ? ` - <b style="color:var(--accent);">${freeCount} free</b> via proof-of-work` : ""}. <a href="/tools" style="color:var(--accent);">\u2190 All tools</a></div>
   <div class="cp-grid">${cards}</div>
 </div>
 ${ledgerFooterCompact()}`;
@@ -424,29 +424,29 @@ ${ledgerFooterCompact()}`;
 // BOTH the visible HTML and the JSON-LD, so they can't drift apart. Answers may
 // contain simple inline HTML (links) — allowed in FAQPage and rendered as-is.
 const FAQ_ITEMS = [
-  { q: "Do I need an account or API key?", a: "No. Nothing here has a signup. Payment — USDC or proof-of-work — is the only credential, charged per call." },
+  { q: "Do I need an account or API key?", a: "No. Nothing here has a signup. Payment - USDC or proof-of-work - is the only credential, charged per call." },
   { q: "What does it cost?", a: 'Flat per-call prices, $0.001–$0.02, published in <a href="/api/pricing">/api/pricing</a> and quoted exactly in every HTTP 402 response. No subscriptions or tiers.' },
-  { q: "Can I use it without any money or a wallet?", a: "Yes. Most pure-CPU tools accept proof-of-work — a sub-second sha256 puzzle solved by your own CPU — and the hosted MCP connector runs that same set for free (rate-limited)." },
+  { q: "Can I use it without any money or a wallet?", a: "Yes. Most pure-CPU tools accept proof-of-work - a sub-second sha256 puzzle solved by your own CPU - and the hosted MCP connector runs that same set for free (rate-limited)." },
   { q: "What is x402?", a: 'An open HTTP payment standard built on the 402 Payment Required status code, for machine-to-machine pay-per-call payments in stablecoins, with settlement infrastructure from Coinbase. Plain-English explainer: <a href="/what-is-x402">/what-is-x402</a>.' },
-  { q: "What is MPP, and does Agent402 support it?", a: 'Yes — every paid endpoint is dual-stack. MPP (Machine Payments Protocol, the IETF-track Payment HTTP authentication scheme) carries the same pay-per-call handshake through the web&rsquo;s standard auth headers: the 402 carries a <code>WWW-Authenticate: Payment</code> challenge, the client pays via <code>Authorization: Payment</code>, and settled responses return a signed <code>Payment-Receipt</code>. Same URL, same price, same on-chain USDC settlement as x402 — the buyer&rsquo;s client picks the dialect. How the two compare: <a href="/what-is-x402">/what-is-x402</a>.' },
-  { q: "Which blockchain and asset does it use?", a: `${RAILS_PAREN}. The buyer needs only the stablecoin — gas is sponsored by the facilitator on EVM chains.` },
-  { q: "Does using this spend my AI tokens?", a: "No LLM in the deterministic tool path — those are pure code (parsers, hashes, math, a real browser). Proof-of-work spends your CPU; x402 spends USDC. The optional /v1 gateway is a separate OpenAI-compatible LLM proxy you opt into — it's the only place a model runs." },
-  { q: "Is there an OpenAI-compatible endpoint?", a: 'Yes — <code>/v1</code> is a pay-per-call OpenAI-wire LLM gateway: point any OpenAI SDK at <code>base_url https://agent402.tools/v1</code> for chat (five quality tiers, model-optional auto-routing), embeddings, and image generation. No API key, no signup — settle in USDC over x402, same as every other tool. See <a href="/pricing">/pricing</a> for the tier breakdown.' },
-  { q: "Is my data stored?", a: 'Tool inputs are processed in memory and not persisted — except the memory tools, whose purpose is storage (wallet-keyed, owner-deletable, with optional TTL). Full policy: <a href="/privacy">/privacy</a>.' },
+  { q: "What is MPP, and does Agent402 support it?", a: 'Yes - every paid endpoint is dual-stack. MPP (Machine Payments Protocol, the IETF-track Payment HTTP authentication scheme) carries the same pay-per-call handshake through the web&rsquo;s standard auth headers: the 402 carries a <code>WWW-Authenticate: Payment</code> challenge, the client pays via <code>Authorization: Payment</code>, and settled responses return a signed <code>Payment-Receipt</code>. Same URL, same price, same on-chain USDC settlement as x402 - the buyer&rsquo;s client picks the dialect. How the two compare: <a href="/what-is-x402">/what-is-x402</a>.' },
+  { q: "Which blockchain and asset does it use?", a: `${RAILS_PAREN}. The buyer needs only the stablecoin - gas is sponsored by the facilitator on EVM chains.` },
+  { q: "Does using this spend my AI tokens?", a: "No LLM in the deterministic tool path - those are pure code (parsers, hashes, math, a real browser). Proof-of-work spends your CPU; x402 spends USDC. The optional /v1 gateway is a separate OpenAI-compatible LLM proxy you opt into - it's the only place a model runs." },
+  { q: "Is there an OpenAI-compatible endpoint?", a: 'Yes - <code>/v1</code> is a pay-per-call OpenAI-wire LLM gateway: point any OpenAI SDK at <code>base_url https://agent402.tools/v1</code> for chat (five quality tiers, model-optional auto-routing), embeddings, and image generation. No API key, no signup - settle in USDC over x402, same as every other tool. See <a href="/pricing">/pricing</a> for the tier breakdown.' },
+  { q: "Is my data stored?", a: 'Tool inputs are processed in memory and not persisted - except the memory tools, whose purpose is storage (wallet-keyed, owner-deletable, with optional TTL). Full policy: <a href="/privacy">/privacy</a>.' },
   { q: "How do I know the service is honest?", a: "It is fully open source; CI re-tests every endpoint against its own documented example before each deploy; and revenue settles on-chain to agent402.base.eth (the named public receiving wallet), auditable by anyone on Basescan." },
   { q: "What happens if a tool fails after I pay?", a: "You are not charged. Payment settles only for a successful (under-400) response, so an error cancels settlement and no money moves. On top of that guarantee, anything which can't be served reliably is removed from the catalog rather than left to fail, and failure rates are watched by CI and a 15-minute production heartbeat." },
-  { q: "Is Agent402 self-hostable and open source?", a: 'Yes — the server is open source under the AGPL-3.0 license (the client SDK, MCP connector, and tollbooth are MIT). Clone the repo and run it yourself for free, with or without payments enabled. It also ships agent402-tollbooth, an open-source pay-per-crawl gate for charging AI crawlers on your own site.' },
-  { q: "Can I find tools on other x402 sellers from here?", a: 'Yes. Agent402 is also an x402 Index + Smart Order Router: <code>POST /api/route</code> ranks tools across every x402 seller we have crawled — the local catalog plus sellers auto-discovered from public registries like the Coinbase CDP Bazaar, refreshed hourly. It filters out unhealthy sellers and tiebreaks on health then price. Browse the live marketplace at <a href="/marketplace">/marketplace</a> or fetch the JSON snapshot at <a href="/api/index">/api/index</a>. Both surfaces are free.' },
-  { q: "How do I list my own API?", a: 'For free, three ways: your origin is auto-discovered from public x402 registries (Coinbase CDP Bazaar, GoPlausible) once it&rsquo;s live and settling; paste it on <a href="/sell">/sell</a> for an immediate probe; or call <code>POST /api/index/register</code> directly. A listed seller is routable by the Smart Order Router and ranked on <a href="/leaderboard">/leaderboard</a> by real on-chain USDC volume — 0% take, settlement lands straight in your wallet.' },
-  { q: "How do I see which x402 sellers are most used?", a: '<code>GET <a href="/api/leaderboard">/api/leaderboard</a></code> returns the live on-chain ranking of every x402 seller by Base USDC settled volume — callsSettled, totalUsd, and uniqueBuyers per seller. The pipeline walks every page of the Coinbase CDP Bazaar discovery endpoint, queries <code>eth_getLogs</code> on Base USDC for each seller&rsquo;s payTo, filters per-call settlements within a $0.50 ceiling (larger inbound is funding/swaps, not buys), and aggregates. The snapshot refreshes hourly server-side. Free, like <code>/api/find</code> and <code>/api/route</code>. Use <code>?include=external</code> to exclude Agent402 itself and rank only the rest of the ecosystem.' },
-  { q: "How does the Smart Order Router decide which seller to route to?", a: "It scores tools by lexical match against your query, then ranks by seller health (computed from the last five crawl outcomes), then by price. Sellers whose recent crawls errored are excluded entirely — a buyer routed to a dead seller wastes money. Brand-new sellers with no history yet are still routable: benefit of the doubt for newcomers." },
-  { q: "Who runs Agent402?", a: 'Havok Holdings LLC — a public, contactable maintainer reachable at <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>, on <a href="https://github.com/MikeyPetrillo/Agent402">GitHub</a>, and on <a href="https://x.com/Agent402Tools">X</a>.' },
+  { q: "Is Agent402 self-hostable and open source?", a: 'Yes - the server is open source under the AGPL-3.0 license (the client SDK, MCP connector, and tollbooth are MIT). Clone the repo and run it yourself for free, with or without payments enabled. It also ships agent402-tollbooth, an open-source pay-per-crawl gate for charging AI crawlers on your own site.' },
+  { q: "Can I find tools on other x402 sellers from here?", a: 'Yes. Agent402 is also an x402 Index + Smart Order Router: <code>POST /api/route</code> ranks tools across every x402 seller we have crawled - the local catalog plus sellers auto-discovered from public registries like the Coinbase CDP Bazaar, refreshed hourly. It filters out unhealthy sellers and tiebreaks on health then price. Browse the live marketplace at <a href="/marketplace">/marketplace</a> or fetch the JSON snapshot at <a href="/api/index">/api/index</a>. Both surfaces are free.' },
+  { q: "How do I list my own API?", a: 'For free, three ways: your origin is auto-discovered from public x402 registries (Coinbase CDP Bazaar, GoPlausible) once it&rsquo;s live and settling; paste it on <a href="/sell">/sell</a> for an immediate probe; or call <code>POST /api/index/register</code> directly. A listed seller is routable by the Smart Order Router and ranked on <a href="/leaderboard">/leaderboard</a> by real on-chain USDC volume - 0% take, settlement lands straight in your wallet.' },
+  { q: "How do I see which x402 sellers are most used?", a: '<code>GET <a href="/api/leaderboard">/api/leaderboard</a></code> returns the live on-chain ranking of every x402 seller by Base USDC settled volume - callsSettled, totalUsd, and uniqueBuyers per seller. The pipeline walks every page of the Coinbase CDP Bazaar discovery endpoint, queries <code>eth_getLogs</code> on Base USDC for each seller&rsquo;s payTo, filters per-call settlements within a $0.50 ceiling (larger inbound is funding/swaps, not buys), and aggregates. The snapshot refreshes hourly server-side. Free, like <code>/api/find</code> and <code>/api/route</code>. Use <code>?include=external</code> to exclude Agent402 itself and rank only the rest of the ecosystem.' },
+  { q: "How does the Smart Order Router decide which seller to route to?", a: "It scores tools by lexical match against your query, then ranks by seller health (computed from the last five crawl outcomes), then by price. Sellers whose recent crawls errored are excluded entirely - a buyer routed to a dead seller wastes money. Brand-new sellers with no history yet are still routable: benefit of the doubt for newcomers." },
+  { q: "Who runs Agent402?", a: 'Havok Holdings LLC - a public, contactable maintainer reachable at <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>, on <a href="https://github.com/MikeyPetrillo/Agent402">GitHub</a>, and on <a href="https://x.com/Agent402Tools">X</a>.' },
 ];
 
 export function faqPage(baseUrl) {
   const e = ledgerEsc;
   const canonical = `${baseUrl}/faq`;
-  const title = "Agent402 FAQ — x402 + MCP server for AI agents";
+  const title = "Agent402 FAQ - x402 + MCP server for AI agents";
   const description =
     `Frequently asked questions about Agent402: pricing, proof-of-work, x402 and ${RAILS_SHORT}, the OpenAI-compatible /v1 gateway, self-serve listing, MCP, data handling, and self-hosting the open-source server.`;
   const jsonLd = {
@@ -515,7 +515,7 @@ export function openapiSpec(baseUrl, catalog) {
                 : { schema: { type: "object" }, example: discovery?.output?.example ?? {} },
           },
         },
-        402: { description: "Payment Required — x402 payment requirements in the response body/headers" },
+        402: { description: "Payment Required - x402 payment requirements in the response body/headers" },
         400: { description: "Invalid input" },
       },
       "x-price": tool.price,
@@ -546,7 +546,7 @@ export function openapiSpec(baseUrl, catalog) {
           method: "evm",
           amount: String(Math.round((Number(String(tool.price ?? "").replace(/[^0-9.]/g, "")) || 0) * 1e6)),
           currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-          description: `${tool.price} in USDC on Base (eip155:8453) — MPP evm charge or x402 exact; more chains in the live 402`,
+          description: `${tool.price} in USDC on Base (eip155:8453) - MPP evm charge or x402 exact; more chains in the live 402`,
         }],
       },
     };
@@ -603,7 +603,7 @@ export function openapiSpec(baseUrl, catalog) {
       security: [],
       summary: "Get a templated workflow prompt for a single skill pack",
       description:
-        "Returns the rendered MCP-style messages for the named skill pack with the given arguments substituted in. Same output as MCP prompts/get on the hosted connector — usable directly with any LLM. Per-pack argument names come from /api/skill-packs.json. Free.",
+        "Returns the rendered MCP-style messages for the named skill pack with the given arguments substituted in. Same output as MCP prompts/get on the hosted connector - usable directly with any LLM. Per-pack argument names come from /api/skill-packs.json. Free.",
       tags: ["workflows"],
       parameters: [
         {
@@ -627,10 +627,10 @@ export function openapiSpec(baseUrl, catalog) {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Agent402 — the open-source, self-hostable x402 server for AI agents",
+      title: "Agent402 - the open-source, self-hostable x402 server for AI agents",
       version: "2.0.0",
       description:
-        "The open-source, self-hostable x402 server: hundreds of machine-payable web tools for AI agents in one place (browser, search, PDFs, images, live data, payment helpers) — the whole catalog is open and runnable yourself. Every endpoint is paid per call in ${RAILS_OR} — via x402 (no signup, no API keys — the first request returns HTTP 402, an x402 client pays and retries) or free with proof-of-work. Free discovery: GET /api/pricing, GET /llms.txt. Multi-tool workflows: GET /api/skill-packs.json.",
+        "The open-source, self-hostable x402 server: hundreds of machine-payable web tools for AI agents in one place (browser, search, PDFs, images, live data, payment helpers) - the whole catalog is open and runnable yourself. Every endpoint is paid per call in ${RAILS_OR} - via x402 (no signup, no API keys - the first request returns HTTP 402, an x402 client pays and retries) or free with proof-of-work. Free discovery: GET /api/pricing, GET /llms.txt. Multi-tool workflows: GET /api/skill-packs.json.",
       // Email doubles as x402scan's ownership-verification signal; it is the
       // same public maintainer contact the /.well-known/x402 manifest names.
       contact: { name: "Havok Holdings LLC", email: "mike@agent402.tools", url: baseUrl },
@@ -665,7 +665,7 @@ export function openapiSpec(baseUrl, catalog) {
     },
     tags: [
       ...Object.entries(CATEGORIES).map(([k, v]) => ({ name: k, description: v.label })),
-      { name: "workflows", description: "Curated multi-tool workflows (skill packs) — task-level templates that compose catalog tools." },
+      { name: "workflows", description: "Curated multi-tool workflows (skill packs) - task-level templates that compose catalog tools." },
     ],
     paths,
     // Top-level extension so OpenAPI consumers can enumerate workflows without

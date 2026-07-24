@@ -2,7 +2,7 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export function uptimePage(baseUrl) {
   const canonical = `${baseUrl}/status`;
-  const pageTitle = "Status & Uptime — Agent402";
+  const pageTitle = "Status & Uptime - Agent402";
   const pageDesc = "Agent402 system status, uptime monitoring, and incident response. 15-minute health probes, daily paid canary tests, and automated incident management.";
 
   const jsonLd = {
@@ -108,19 +108,19 @@ export function uptimePage(baseUrl) {
 <ul class="monitor-list">
   <li>
     <span class="check-icon">&#10003;</span>
-    <span><strong>Heartbeat probe every 15 minutes</strong> &mdash; a GitHub Actions workflow hits <code>/health</code> around the clock and verifies the service responds healthy.</span>
+    <span><strong>Heartbeat probe every 15 minutes</strong> - a GitHub Actions workflow hits <code>/health</code> around the clock and verifies the service responds healthy.</span>
   </li>
   <li>
     <span class="check-icon">&#10003;</span>
-    <span><strong>Daily paid canary</strong> &mdash; a separate workflow purchases a $0.001 tool once per day to verify the full end-to-end payment flow: tool discovery, x402 negotiation, USDC settlement on Base, and result delivery.</span>
+    <span><strong>Daily paid canary</strong> - a separate workflow purchases a $0.001 tool once per day to verify the full end-to-end payment flow: tool discovery, x402 negotiation, USDC settlement on Base, and result delivery.</span>
   </li>
   <li>
     <span class="check-icon">&#10003;</span>
-    <span><strong>Automated incident management</strong> &mdash; on any probe failure, a GitHub issue is auto-opened with diagnostic details. When the service recovers, the issue is auto-closed. No open issues = healthy.</span>
+    <span><strong>Automated incident management</strong> - on any probe failure, a GitHub issue is auto-opened with diagnostic details. When the service recovers, the issue is auto-closed. No open issues = healthy.</span>
   </li>
   <li>
     <span class="check-icon">&#10003;</span>
-    <span><strong>Transparent monitoring</strong> &mdash; all monitoring runs in the open. View the <a href="https://github.com/MikeyPetrillo/Agent402/actions/workflows/heartbeat.yml" rel="noopener">heartbeat workflow runs</a> and <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">open issues</a> on GitHub.</span>
+    <span><strong>Transparent monitoring</strong> - all monitoring runs in the open. View the <a href="https://github.com/MikeyPetrillo/Agent402/actions/workflows/heartbeat.yml" rel="noopener">heartbeat workflow runs</a> and <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">open issues</a> on GitHub.</span>
   </li>
 </ul>
 

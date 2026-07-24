@@ -13,17 +13,17 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 const fmtInt = (n) => Number(n || 0).toLocaleString("en-US");
 const fmtPct = (num, denom) => {
   const d = Number(denom || 0);
-  if (!d) return "—";
+  if (!d) return "-";
   return ((Number(num || 0) / d) * 100).toFixed(1) + "%";
 };
 const fmtMs = (n) => {
   const v = Number(n || 0);
-  if (v === 0) return "—";
+  if (v === 0) return "-";
   if (v < 1000) return v + " ms";
   return (v / 1000).toFixed(2) + " s";
 };
 const fmtTs = (ts) => {
-  if (!ts) return "—";
+  if (!ts) return "-";
   const s = typeof ts === "string" ? ts : new Date(ts).toISOString();
   return s.replace("T", " ").slice(0, 16) + "Z";
 };
@@ -90,7 +90,7 @@ export function analyticsPage(data, { baseUrl }) {
   if (!data || !data.enabled) {
     return renderShell({
       baseUrl,
-      windowHuman: "—",
+      windowHuman: "-",
       hours: 24,
       body: `
 <div class="an-panel">
@@ -106,11 +106,11 @@ export function analyticsPage(data, { baseUrl }) {
   if (!data.ok) {
     return renderShell({
       baseUrl,
-      windowHuman: "—",
+      windowHuman: "-",
       hours: data.windowHours || 24,
       body: `
 <div class="an-panel">
-  <div class="an-ph"><h2>Analytics temporarily unavailable</h2><div class="an-pn">Query failed — the DB connection may be warming. Refresh in a few seconds.</div></div>
+  <div class="an-ph"><h2>Analytics temporarily unavailable</h2><div class="an-pn">Query failed - the DB connection may be warming. Refresh in a few seconds.</div></div>
 </div>`,
     });
   }
@@ -134,9 +134,9 @@ export function analyticsPage(data, { baseUrl }) {
   const rows = top
     .map((r, i) => {
       const safeSlug = esc(r.slug);
-      const cachedPct = r.calls ? fmtPct(r.cached, r.calls) : "—";
-      const clientErrCellPct = r.calls ? fmtPct(r.client_errored, r.calls) : "—";
-      const serverErrCellPct = r.calls ? fmtPct(r.server_errored, r.calls) : "—";
+      const cachedPct = r.calls ? fmtPct(r.cached, r.calls) : "-";
+      const clientErrCellPct = r.calls ? fmtPct(r.client_errored, r.calls) : "-";
+      const serverErrCellPct = r.calls ? fmtPct(r.server_errored, r.calls) : "-";
       const clientErrClass = (Number(r.client_errored || 0) > 0) ? "an-warn" : "an-muted";
       const serverErrClass = (Number(r.server_errored || 0) > 0) ? "an-danger" : "an-muted";
       const route = "/api/" + safeSlug;
@@ -161,7 +161,7 @@ export function analyticsPage(data, { baseUrl }) {
       const total = Number(r.errored || 0);
       const c4 = Number(r.client_errored || 0);
       const c5 = Number(r.server_errored || 0);
-      const errPct = r.calls ? fmtPct(total, r.calls) : "—";
+      const errPct = r.calls ? fmtPct(total, r.calls) : "-";
       const route = "/api/" + safeSlug;
       return `<tr>
         <td class="num an-muted">${esc(i + 1)}</td>
@@ -174,7 +174,7 @@ export function analyticsPage(data, { baseUrl }) {
       </tr>`;
     })
     .join("");
-  const errEmpty = `<tr><td colspan="7" class="an-muted" style="text-align:center;padding:24px">No errors in the last ${esc(windowHuman)} — every tool call returned 2xx.</td></tr>`;
+  const errEmpty = `<tr><td colspan="7" class="an-muted" style="text-align:center;padding:24px">No errors in the last ${esc(windowHuman)} - every tool call returned 2xx.</td></tr>`;
 
   const clientErrClass = (Number(totals.client_errored || 0) > 0) ? "an-warn" : "";
   const serverErrClass = (Number(totals.server_errored || 0) > 0) ? "an-danger" : "";
@@ -183,18 +183,18 @@ export function analyticsPage(data, { baseUrl }) {
 <div class="an-grid">
   <div class="an-stat"><div class="an-k">Tool calls (${esc(windowHuman)})</div><div class="an-v">${esc(fmtInt(totals.calls))}</div><div class="an-s">across the whole catalog</div></div>
   <div class="an-stat"><div class="an-k">Cache hit rate</div><div class="an-v">${esc(cacheHitRate)}</div><div class="an-s">served from Redis without re-fetching upstream</div></div>
-  <div class="an-stat ${clientErrClass}" title="HTTP 4xx — input the tool's schema didn't accept (missing required field, unrecognized shape). Often a UX gap on our side: the caller's intent is clear but we haven't taught the handler to accept their field names. Each one returns the schema + an example so the next call self-corrects.">
-    <div class="an-k">Schema mismatches (4xx)</div><div class="an-v">${esc(clientErrRate)}</div><div class="an-s">input we didn't accept — caller gets back the schema + an example</div>
+  <div class="an-stat ${clientErrClass}" title="HTTP 4xx - input the tool's schema didn't accept (missing required field, unrecognized shape). Often a UX gap on our side: the caller's intent is clear but we haven't taught the handler to accept their field names. Each one returns the schema + an example so the next call self-corrects.">
+    <div class="an-k">Schema mismatches (4xx)</div><div class="an-v">${esc(clientErrRate)}</div><div class="an-s">input we didn't accept - caller gets back the schema + an example</div>
   </div>
-  <div class="an-stat ${serverErrClass}" title="HTTP 5xx — the handler threw or its upstream failed. This is the rate that needs fixing.">
-    <div class="an-k">Server errors (5xx)</div><div class="an-v">${esc(serverErrRate)}</div><div class="an-s">handler or upstream failure — actionable</div>
+  <div class="an-stat ${serverErrClass}" title="HTTP 5xx - the handler threw or its upstream failed. This is the rate that needs fixing.">
+    <div class="an-k">Server errors (5xx)</div><div class="an-v">${esc(serverErrRate)}</div><div class="an-s">handler or upstream failure - actionable</div>
   </div>
   <div class="an-stat"><div class="an-k">Latency p50 / p95</div><div class="an-v" style="font-size:1.05rem">${esc(fmtMs(totals.p50_latency_ms))} / ${esc(fmtMs(totals.p95_latency_ms))}</div><div class="an-s">avg ${esc(fmtMs(totals.avg_latency_ms))}</div></div>
   <div class="an-stat"><div class="an-k">Peak hour</div><div class="an-v" style="font-size:1rem">${esc(fmtTs(peakHour?.ts))}</div><div class="an-s">${esc(fmtInt(peakHour?.calls || 0))} calls</div></div>
 </div>
 
 <div class="an-panel">
-  <div class="an-ph"><h2>Tool calls per hour (last ${esc(windowHuman)})</h2><div class="an-pn">Live, write-through from the dispatcher — every tool call is recorded after responding (no PII, no caller wallet, no IP).</div></div>
+  <div class="an-ph"><h2>Tool calls per hour (last ${esc(windowHuman)})</h2><div class="an-pn">Live, write-through from the dispatcher - every tool call is recorded after responding (no PII, no caller wallet, no IP).</div></div>
   <div style="padding:14px 18px;">
     ${sparkline(series)}
   </div>
@@ -203,7 +203,7 @@ export function analyticsPage(data, { baseUrl }) {
 <div class="an-panel">
   <div class="an-ph"><h2>Top tools by volume (last ${esc(windowHuman)})</h2><div class="an-pn">Click a slug to see the tool's docs page.</div></div>
   <table>
-    <thead><tr><th class="num">#</th><th>Tool</th><th class="num">Calls</th><th class="num" title="Share of this tool's calls served from the Redis response cache">Cache %</th><th class="num" title="HTTP 4xx — input the schema didn't accept. Often a UX gap on our side; the tool returns its schema + an example so the next call self-corrects.">4xx %</th><th class="num" title="HTTP 5xx — handler or upstream failure. Actionable.">5xx %</th><th class="num">p50</th><th class="num">p95</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>Tool</th><th class="num">Calls</th><th class="num" title="Share of this tool's calls served from the Redis response cache">Cache %</th><th class="num" title="HTTP 4xx - input the schema didn't accept. Often a UX gap on our side; the tool returns its schema + an example so the next call self-corrects.">4xx %</th><th class="num" title="HTTP 5xx - handler or upstream failure. Actionable.">5xx %</th><th class="num">p50</th><th class="num">p95</th></tr></thead>
     <tbody>${rows || emptyRow}</tbody>
   </table>
 </div>
@@ -211,7 +211,7 @@ export function analyticsPage(data, { baseUrl }) {
 <div class="an-panel">
   <div class="an-ph"><h2>Top error slugs (last ${esc(windowHuman)})</h2><div class="an-pn">Tools ranked by total errored calls. 4xx = caller sent the wrong shape (often a schema-coverage gap we can fix with input aliases). 5xx = handler or upstream broke (the actionable one).</div></div>
   <table>
-    <thead><tr><th class="num">#</th><th>Tool</th><th class="num">Calls</th><th class="num" title="HTTP 4xx — schema mismatches">4xx</th><th class="num" title="HTTP 5xx — handler/upstream failures">5xx</th><th class="num">Errors</th><th class="num">Error %</th></tr></thead>
+    <thead><tr><th class="num">#</th><th>Tool</th><th class="num">Calls</th><th class="num" title="HTTP 4xx - schema mismatches">4xx</th><th class="num" title="HTTP 5xx - handler/upstream failures">5xx</th><th class="num">Errors</th><th class="num">Error %</th></tr></thead>
     <tbody>${errRows || errEmpty}</tbody>
   </table>
 </div>
@@ -234,7 +234,7 @@ function renderShell({ baseUrl, windowHuman, hours, includeSynthetic, syntheticH
 <div class="an-wrap">
 
 <h1 class="an-h1">Analytics</h1>
-<p class="an-sub">Live, public usage data for Agent402. Every tool call records four aggregate fields after responding — slug, latency, cache flag, error flag — with no PII. Window: <b>${esc(windowHuman)}</b>.</p>
+<p class="an-sub">Live, public usage data for Agent402. Every tool call records four aggregate fields after responding - slug, latency, cache flag, error flag - with no PII. Window: <b>${esc(windowHuman)}</b>.</p>
 
 <div class="an-winbar">
   ${[1, 24, 24 * 7, 24 * 30].map((h) => {
@@ -246,18 +246,18 @@ ${(syntheticHidden > 0 || includeSynthetic) ? `<p class="an-foot" style="margin:
     : `<b>${esc(String(syntheticHidden))}</b> synthetic call${syntheticHidden === 1 ? "" : "s"} hidden (CI canary / heartbeat probe). <a href="/analytics?hours=${hours}&include_synthetic=1${includeProbes ? "&include_probes=1" : ""}">Show all</a>`}</p>` : ""}
 ${(probesHidden > 0 || includeProbes) ? `<p class="an-foot" style="margin:6px 0 0;font-size:13px;">${includeProbes
     ? `Showing <b>probe</b> calls (empty-input scans). <a href="/analytics?hours=${hours}${includeSynthetic ? "&include_synthetic=1" : ""}">Hide probes</a>`
-    : `<b>${esc(String(probesHidden))}</b> probe call${probesHidden === 1 ? "" : "s"} hidden (empty-input scans — not real errors). <a href="/analytics?hours=${hours}${includeSynthetic ? "&include_synthetic=1" : ""}&include_probes=1">Show all</a>`}</p>` : ""}
+    : `<b>${esc(String(probesHidden))}</b> probe call${probesHidden === 1 ? "" : "s"} hidden (empty-input scans - not real errors). <a href="/analytics?hours=${hours}${includeSynthetic ? "&include_synthetic=1" : ""}&include_probes=1">Show all</a>`}</p>` : ""}
 
 ${body}
 
-<p class="an-foot" style="margin-top:24px;">Analytics is open-source — part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. Self-hosters get the same dashboard by attaching a Postgres instance.</p>
+<p class="an-foot" style="margin-top:24px;">Analytics is open-source - part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. Self-hosters get the same dashboard by attaching a Postgres instance.</p>
 
 </div>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: "Analytics — Agent402",
-    description: "Live, public usage analytics for Agent402 — total tool calls, cache hit rate, latency percentiles, and top tools over a configurable window.",
+    title: "Analytics - Agent402",
+    description: "Live, public usage analytics for Agent402 - total tool calls, cache hit rate, latency percentiles, and top tools over a configurable window.",
     canonical: `${baseUrl}/analytics`,
     baseUrl,
     activePath: "__none__",
