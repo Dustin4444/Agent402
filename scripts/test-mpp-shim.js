@@ -96,6 +96,10 @@ try {
     && ch.request.currency === advertised.asset && ch.request.methodDetails.chainId === 8453,
     "native ChargeRequest mirrors the accepts entry");
 
+  // Baseline stats BEFORE any buy — the local stats DB persists across runs,
+  // so the wire-attribution check below asserts DELTAS, not absolutes.
+  const statsBefore = await (await fetch(`${B}/api/stats`)).json();
+
   // ---- 2. A stock mppx client buys the tool over the native MPP wire ----
   const key = generatePrivateKey();
   const account = privateKeyToAccount(key);
@@ -203,6 +207,16 @@ try {
   const retryBody = await retry.json();
   ok(typeof firstBody.hex === "string" && retryBody.hex === firstBody.hex, "replay serves the original paid body");
   ok(facCalls.settle.length === settlesBeforeIdem + 1, "one settle across original + replay (never re-charged)");
+
+  // ---- 4d. Wire attribution: /api/stats counts MPP-wire buys separately ----
+  // Three MPP-wire settles so far (uuid GET, POST hash, idempotency first buy —
+  // the replay is served from the cache and never reaches the tally); the
+  // plain-x402 buy must NOT count. The MPP-adoption signal on /api/stats.
+  const stats = await (await fetch(`${B}/api/stats`)).json();
+  const dMpp = stats.toolCallsServed?.viaMPPWire - statsBefore.toolCallsServed?.viaMPPWire;
+  const dUsdc = stats.toolCallsServed?.viaUSDC - statsBefore.toolCallsServed?.viaUSDC;
+  ok(dMpp === 3, `stats viaMPPWire grew by exactly the MPP-wire settles (delta ${dMpp}, want 3)`);
+  ok(dUsdc === 4, `stats viaUSDC grew by all USDC settles regardless of wire (delta ${dUsdc}, want 4)`);
 
   // ---- 5. Translator rejects tampering, wrong secret, and expiry ----
   const header402 = challengeHeaderFromPaymentRequired(prHeader, { secretKey: SECRET, realm: `localhost:${PORT}` });
