@@ -317,6 +317,15 @@ const res = await payFetch("https://agent402.tools/api/extract", {
 });
 ```
 
+**MPP dual-stack.** The paywall also speaks MPP (Machine Payments Protocol —
+the IETF-track `Payment` HTTP auth scheme from [tempoxyz/mpp](https://github.com/tempoxyz/mpp)):
+the same 402 carries a `WWW-Authenticate: Payment` challenge, `Authorization:
+Payment` credentials settle identically (EIP-3009 USDC, same facilitator, same
+price), and settled responses return a `Payment-Receipt`. An
+[`mppx`](https://www.npmjs.com/package/mppx) client works out of the box; set
+`MPP_SECRET_KEY` to enable it on your own instance. Same URL either way — the
+buyer's client picks the dialect.
+
 Agents without a wallet still use every pure-CPU tool by solving a single-use
 sha256 proof-of-work (sub-second; the MCP servers do it automatically). Details:
 [wiki: Paying with x402](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-x402)

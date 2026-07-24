@@ -99,6 +99,10 @@ export function whatIsX402Page(baseUrl) {
       q: "What happens if a service takes the money and fails?",
       a: "Payment and delivery are tied together at the protocol level: settlement completes only when a successful response is returned. If the service errors, the buyer is not charged. That guarantee is enforced by the payment flow itself, not by a refund department.",
     },
+    {
+      q: "What is MPP, and how is it different from x402?",
+      a: "Same idea, two dialects. x402 pioneered pay-per-request over HTTP with its own custom headers; MPP (the Machine Payments Protocol, on the IETF standards track) expresses the same handshake through the web's standard authentication headers — the machinery proxies and gateways have understood for decades — and adds signed receipts and tamper-proof payment challenges. For a buyer on this service the money is identical either way: the same digital-dollar payment settles on the same rails at the same price. Agent402 answers both dialects on every endpoint, and the buyer's software picks whichever it speaks.",
+    },
   ];
 
   const faqLd = {
@@ -173,6 +177,10 @@ export function whatIsX402Page(baseUrl) {
     <div class="wx-card"><h4>Meter anything</h4><p>Anything you can serve over the web can be priced per use &mdash; a lookup for a tenth of a cent, a report for a dollar &mdash; without building billing, subscriptions, or collections.</p></div>
     <div class="wx-card"><h4>Radically less friction</h4><p>Settlement is final in seconds, refund-proof by design (no delivery, no charge), and global from day one. No chargebacks, no net-30, no dunning emails.</p></div>
   </div>
+
+  <h2 class="wx-h2">Two dialects, one payment: x402 and MPP</h2>
+  <p class="wx-p">Pay-per-request over the web currently speaks two dialects. <strong>x402</strong> is the pioneer &mdash; created at Coinbase, with the largest live ecosystem of sellers and buyers today. <strong>MPP</strong> (the Machine Payments Protocol, created at Tempo) takes the same handshake and rewrites it as a formal internet standard on the IETF track: it rides the web's own authentication headers &mdash; the ones proxies, gateways, and CDNs have understood since the 1990s &mdash; and adds signed receipts and tamper-proof payment challenges at the protocol level.</p>
+  <div class="wx-callout"><strong>What it means here:</strong> every Agent402 endpoint answers both. An x402 buyer and an MPP buyer hit the same URL, pay the same price, and settle the same digital-dollar payment on the same rails &mdash; the buyer's software just picks the dialect it speaks. Sellers shouldn't have to bet on a protocol war, and with a dual-stack they don't.</div>
 
   <h2 class="wx-h2">Executive FAQ</h2>
   <div class="wx-faq">

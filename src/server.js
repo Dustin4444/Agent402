@@ -3144,6 +3144,7 @@ app.use((req, res, next) => {
             payer,
             tx: txFromPaymentResponse(settleReceipt),
             synthetic,
+            wire: rail === "usdc" ? (req.mppCredential ? "mpp" : "x402") : null,
           });
         }
       } else if (settleReceipt) {

@@ -60,9 +60,15 @@ CREATE INDEX IF NOT EXISTS idx_sales_ext_ts ON sales (internal, ts);
 CREATE INDEX IF NOT EXISTS idx_sales_slug   ON sales (slug);
 CREATE INDEX IF NOT EXISTS idx_sales_payer  ON sales (payer, ts);
 `);
+// Additive column (2026-07-24): which HTTP wire carried the credential —
+// "x402" (PAYMENT-SIGNATURE) or "mpp" (Authorization: Payment via
+// src/mpp-shim.js). Same settlement either way; recorded so MPP adoption is
+// answerable from the ledger history the day it starts, and /revenue can
+// surface the split once external MPP sales exist. NULL = pre-column rows.
+try { db.exec("ALTER TABLE sales ADD COLUMN wire TEXT"); } catch { /* exists */ }
 
 const insertSale = db.prepare(
-  "INSERT INTO sales (ts, slug, price_usd, rail, network, payer, tx, internal) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+  "INSERT INTO sales (ts, slug, price_usd, rail, network, payer, tx, internal, wire) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
 );
 
 /** Settle tx hash/signature out of the base64 PAYMENT-RESPONSE receipt. */
@@ -80,7 +86,7 @@ export function txFromPaymentResponse(headerValue) {
  * Record one served catalog call. Fire-and-forget from the serving path:
  * never throws, and a broken disk only costs the row, not the response.
  */
-export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic }) {
+export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic, wire }) {
   try {
     const p = normalizePayerAddress(payer); // lowercases EVM only — base58/Stellar stay case-exact
     const internal = Boolean(synthetic) || rail === "heartbeat" || (p !== null && BURNERS.has(p));
@@ -92,7 +98,8 @@ export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic
       network ? String(network) : null,
       p,
       tx ? String(tx) : null,
-      internal ? 1 : 0
+      internal ? 1 : 0,
+      wire ? String(wire) : null
     );
   } catch { /* never break serving for accounting */ }
 }
