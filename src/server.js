@@ -1283,7 +1283,12 @@ app.post("/api/tollbooth/waitlist", async (req, res) => {
   }
   const name = typeof b.name === "string" ? b.name.trim() : "";
   const email = typeof b.email === "string" ? b.email.trim() : "";
-  if (!name || !email || !EMAIL_RE.test(email)) {
+  // Length caps BEFORE any regex: EMAIL_RE's adjacent quantifier groups
+  // backtrack in polynomial time, and email is only bounded by the 100kb body
+  // parser — so a ~100k-char crafted value could pin CPU (ReDoS). RFC 5321
+  // caps a real email at 320 chars; name is stored, not matched, but capped
+  // for hygiene. Short-circuits (||) so the regex never sees an oversized string.
+  if (!name || name.length > 200 || !email || email.length > 320 || !EMAIL_RE.test(email)) {
     return res.status(400).json({ ok: false, error: "name+email required" });
   }
   const plan = ALLOWED_PLANS.has(String(b.plan || "").toLowerCase()) ? String(b.plan).toLowerCase() : "team";
