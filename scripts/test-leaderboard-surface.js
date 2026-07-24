@@ -114,7 +114,7 @@ ok(faqMatched, "JSON-LD FAQPage contains a leaderboard Q&A");
 ok(windowLabelFromBlocks(43200) === "24h", "43200 blocks → 24h");
 ok(windowLabelFromBlocks(302400) === "7d", "302400 blocks → 7d");
 ok(windowLabelFromBlocks(9000) === "5h", "9000 blocks → 5h");
-ok(windowLabelFromBlocks(0) === "—", "zero blocks → em-dash");
+ok(windowLabelFromBlocks(0) === "-", "zero blocks → placeholder dash");
 
 // ---- HTML /leaderboard page ----
 // Cache-warming state (no scan run yet) — the page must still render cleanly.
