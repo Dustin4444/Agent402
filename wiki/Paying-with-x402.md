@@ -31,6 +31,33 @@ const res = await payFetch("https://agent402.tools/api/extract", {
 console.log(await res.json());
 ```
 
+## Paying over MPP instead (dual-stack)
+
+Every paid endpoint also speaks **MPP** (Machine Payments Protocol — the
+IETF-track `Payment` HTTP auth scheme from [tempoxyz/mpp](https://github.com/tempoxyz/mpp)).
+Same URL, same price, same on-chain USDC settlement; the only difference is the
+HTTP dialect, and MPP responses add a signed `Payment-Receipt` header. With the
+reference [`mppx`](https://www.npmjs.com/package/mppx) client:
+
+```js
+import { Fetch, evm } from "mppx/client";
+import { privateKeyToAccount } from "viem/accounts";
+
+const payFetch = Fetch.from({
+  methods: [evm.charge({
+    account: privateKeyToAccount(KEY),
+    currencies: [evm.assets.base.USDC],
+    maxAmount: "1.00",
+  })],
+});
+const res = await payFetch("https://agent402.tools/api/uuid"); // 402 -> sign -> paid retry -> 200
+console.log(res.headers.get("payment-receipt"));               // signed MPP receipt
+```
+
+The buyer's client picks the dialect: mppx prefers the native MPP challenge and
+pays via `Authorization: Payment`; x402 clients keep using `PAYMENT-SIGNATURE`.
+Both settle the identical EIP-3009 authorization.
+
 ## Command line: Stripe's `purl`
 
 Stripe's open-source [purl](https://github.com/stripe/purl) ("curl for paid endpoints") works against Agent402 out of the box — our CI proves it on demand with a real settled payment:
