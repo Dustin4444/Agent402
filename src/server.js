@@ -174,7 +174,7 @@ import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPane
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
-import { recordSale, salesSummary, txFromPaymentResponse } from "./sales-ledger.js";
+import { recordSale, salesSummary, mppSales, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
@@ -1157,10 +1157,19 @@ app.get("/api/revenue/daily", (_req, res) => {
     res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
+// Machine-readable MPP-wire settlements (behind the /revenue "MPP transactions"
+// button) — same on-chain USDC settlements as x402, filtered to the MPP wire.
+app.get("/api/revenue/mpp", (_req, res) => {
+  try {
+    res.set("Cache-Control", "public, max-age=60").json(mppSales());
+  } catch (e) {
+    res.status(500).json({ error: "mpp settlements failed", detail: String(e?.message || e).slice(0, 120) });
+  }
+});
 app.get("/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), sales: salesSummary() }));
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), sales: salesSummary(), mpp: mppSales() }));
   } catch (e) {
     res.status(500).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
   }

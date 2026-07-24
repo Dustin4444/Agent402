@@ -116,6 +116,15 @@ const qIntRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx
   FROM sales WHERE internal = 1
   ORDER BY ts DESC LIMIT 20`);
+// Settlements whose credential arrived over the MPP wire (Authorization:
+// Payment). Same on-chain USDC settlement as x402 — the `wire` column is the
+// only difference. Both external buys and internal (canary) MPP settlements
+// are included, since MPP is new and most current MPP traffic is the daily
+// canary's Base+Celo native-wire legs.
+const qMppRecent = db.prepare(`
+  SELECT ts, slug, price_usd, rail, network, payer, tx, internal
+  FROM sales WHERE wire = 'mpp'
+  ORDER BY ts DESC LIMIT ?`);
 const qExtByPayer = db.prepare(`
   SELECT payer, COUNT(*) AS sales, SUM(price_usd) AS revenue, MAX(ts) AS last_ts
   FROM sales WHERE internal = 0 AND rail IN ('usdc','marketplace') AND payer IS NOT NULL AND ts >= ?
@@ -231,6 +240,19 @@ export function firstRecordedTs() {
  * repeat buyers, and honest internal/external totals. `days` bounds the
  * by-slug/by-payer aggregations (recent list is always the latest rows).
  */
+/** Recent MPP-wire settlements (Authorization: Payment) with on-chain tx + payer. */
+export function mppSales({ limit = 30 } = {}) {
+  const rows = qMppRecent.all(Math.min(Math.max(1, limit | 0), 100));
+  return {
+    persistent: salesPersistent,
+    count: rows.length,
+    settlements: rows.map((r) => ({
+      at: new Date(r.ts).toISOString(), slug: r.slug, priceUsd: r.price_usd,
+      rail: r.rail, network: r.network, payer: r.payer, tx: r.tx, internal: !!r.internal,
+    })),
+  };
+}
+
 export function salesSummary({ days = 30 } = {}) {
   const since = Date.now() - days * 86_400_000;
   const totals = { external: { sales: 0, revenueUsd: 0 }, internal: { sales: 0, revenueUsd: 0 }, byRail: {} };
