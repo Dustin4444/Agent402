@@ -1047,7 +1047,8 @@ const SALE_TX_URL = {
 // every rail's tx links render regardless of when the row was recorded.
 const NET_ALIAS = {
   "eip155:8453": "base", "eip155:42220": "celo", "eip155:137": "polygon",
-  "eip155:42161": "arbitrum", "eip155:43114": "avalanche", "eip155:4663": "robinhood (USDG)",
+  "eip155:42161": "arbitrum", "eip155:43114": "avalanche", "eip155:143": "monad",
+  "eip155:4663": "robinhood (USDG)",
   "stellar:pubnet": "stellar", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "algorand",
 };
 function txHref(network, tx) {
@@ -1055,6 +1056,9 @@ function txHref(network, tx) {
   const key = SALE_TX_URL[network] ? network : (NET_ALIAS[network] || network);
   return SALE_TX_URL[key] ? SALE_TX_URL[key](tx) : null;
 }
+// Friendly network label for display: rows recorded before a chain was in the
+// name map store the raw CAIP-2 id (e.g. eip155:42220) — show "celo" instead.
+const netName = (n) => NET_ALIAS[n] || n;
 // MPP-wire settlements, revealed by a button (a styled <details> toggle, no JS).
 // Same on-chain USDC settlements as x402 — this just filters to the MPP wire so
 // MPP adoption is visible and independently verifiable on-chain.
@@ -1063,7 +1067,7 @@ function mppSection(mpp) {
   const rowsHtml = list.slice(0, 30).map((s) => {
     const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
     const tag = s.internal ? ' · <span style="color:var(--muted);">canary</span>' : "";
-    return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(s.network || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
+    return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
   }).join("");
   const body = list.length
     ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;margin-top:12px;">${rowsHtml}</div>`
@@ -1102,7 +1106,7 @@ function salesSection(sales) {
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
           ${recent.slice(0, 10).map((s) => {
             const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
-            return `<div><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc((s.network || s.rail))}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
+            return `<div><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
           }).join("") || '<div style="color:var(--muted);">-</div>'}
         </div>
       </div>
@@ -1111,7 +1115,7 @@ function salesSection(sales) {
         <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
           ${internal.slice(0, 10).map((s) => {
             const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
-            return `<div style="opacity:.62;"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc((s.network || s.rail))}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
+            return `<div style="opacity:.62;"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
           }).join("") || '<div style="color:var(--muted);">-</div>'}
         </div>
       </div>
