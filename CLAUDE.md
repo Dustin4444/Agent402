@@ -183,7 +183,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   stateless + byte-exact); inbound `Authorization: Payment` credentials that
   HMAC-verify are re-encoded as `PAYMENT-SIGNATURE` and fall through — every
   paywall invariant (replay guard, payer attribution, settlement ordering,
-  idempotency) reads the same header it always has. Settled 200s for MPP buyers
+  idempotency) reads the same header it always has. The shim mounts BEFORE the
+  idempotency middleware so the translated header is the gate credential the
+  Idempotency-Key cache binds to — MPP buyers get the same paid-retry replay
+  as x402 buyers (proven: one settle across original + keyed replay). Settled 200s for MPP buyers
   mirror `PAYMENT-RESPONSE` as `Payment-Receipt`. mppx is used for codec
   primitives ONLY — its request-guard/settle path is never mounted
   (double-settle risk). Rollout switch = `MPP_SECRET_KEY` presence (unset → not
