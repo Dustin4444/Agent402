@@ -89,6 +89,21 @@ try {
   }
   ok(priced === 20, `first 20 catalog tools carry x-price in the spec (got ${priced}/20)`);
 
+  // MPP discovery dialect (paymentauth.org draft-payment-discovery; MPPScan
+  // crawls it): the same x-payment-info object must carry an `offers` array
+  // whose evm charge offer prices the tool in ATOMIC USDC units matching
+  // x-price dollars — drift here would advertise wrong prices to MPP agents.
+  ok(spec["x-service-info"]?.docs?.llms?.endsWith("/llms.txt"), "x-service-info.docs.llms points at /llms.txt (MPP discovery)");
+  let mppOffers = 0;
+  for (const tool of catalog.slice(0, 20)) {
+    const op = Object.values(spec.paths[tool.path] || {})[0];
+    const offer = op?.["x-payment-info"]?.offers?.[0];
+    if (!offer || offer.intent !== "charge" || offer.method !== "evm") continue;
+    const dollars = Number(String(op["x-price"]).replace(/[^0-9.]/g, ""));
+    if (offer.amount === String(Math.round(dollars * 1e6))) mppOffers++;
+  }
+  ok(mppOffers === 20, `first 20 catalog tools carry an MPP evm charge offer with atomic-USDC amount matching x-price (got ${mppOffers}/20)`);
+
   console.log(`\n${pass} passed (${catalog.length} catalog tools, ${specPaths.length} spec paths)`);
   proc.kill("SIGKILL");
   process.exit(0);
