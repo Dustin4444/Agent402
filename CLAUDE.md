@@ -240,6 +240,31 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   hop + Chromium + F04 egress proxy end-to-end; new-leg coverage locked by
   `scripts/test-canary-coverage.js`). Trigger via workflow_dispatch on
   `paid-canary.yml` (ref main) after a deploy; verdict is the job log tail.
+- **Algorand rail canary (`scripts/algorand-rail-canary.js`, `algorand-rail-canary.yml`,
+  weekly Mon ~06:41 UTC + dispatch):** buys EVERY catalog tool on Algorand and asserts
+  402 → sign → settle → 200 → non-empty payload. Fills the gap between paid-canary (ONE
+  Algorand leg) and challenge-sweep (skips already-registered, so it re-verifies nothing).
+  Failures are classified **rail** (paid, still got a 402 = settlement refused), **tool**
+  (settled path fine, handler didn't deliver; a ≥400 cancels settlement so nobody was
+  charged), and **unexpected-missing-accept** (a non-identity-bound tool stopped
+  advertising `algorand:*`). All three fail the run and open/close ONE issue, heartbeat
+  style — no tolerance thresholds, each class is a real defect. Identity-bound routes are
+  excluded via `isIdentityBoundRoute` **imported from `src/payments.js`**, never a local
+  pattern, so it can't drift from the server (a `^memory` heuristic missed `my-usage`).
+  Self-buys recycle to our payTo; true cost = txn fees + per-tool upstream spend, hence
+  weekly not daily. Baseline 2026-07-25: 490 buyable, 12 identity-bound, 14 over the
+  $0.25/tool cap, ~$10.78 in flight.
+- **External Algorand buying (`scripts/algorand-external-buy.js`, `algorand-external-buy.yml`,
+  dispatch-only, **dry by default**):** pays OTHER Algorand sellers from the GoPlausible
+  catalog (`src/algorand-sellers.js`) so we're a buyer on the rail, not only a seller.
+  This money does NOT come back, so: hard total cap checked before every buy, per-buy cap,
+  live 402 re-quote (catalog price is a hint only), USDC ASA pinned, and a self-buy guard
+  that learns our own payTo from a live 402. Budget spreads one buy per seller per round,
+  most-verified sellers first. First real run 2026-07-25: **$0.992 across 51 settled buys
+  from 7 distinct sellers**. Expect a high non-200 rate (54 + 18 HTTP 400s, ZERO charged —
+  no settle receipt) because external sellers publish no example inputs the way our bazaar
+  extension does; `algo.netintel.dev` alone accounted for 42. A failed third-party buy
+  never pages (their outage, not our defect).
 
 ## Environment / ops (set on Railway, not in repo)
 `WALLET_ADDRESS`, `WALLET_ENS`, `NETWORK`, `CDP_API_KEY_ID/SECRET`, `FACILITATOR_URL`,
