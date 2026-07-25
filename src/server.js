@@ -2520,30 +2520,41 @@ const parseRetiredConvertPath = (path) => {
 // These are legacy compatibility handlers, NOT catalog entries — the catalog
 // count is untouched and the boot-time shadow guard above still applies.
 const RETIRED_CONVERT_API_RE = /^\/api\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/;
-const retiredConvertHandler = (req, res) => {
-  const { from, to } = parseRetiredConvertPath(req.path);
+
+/** Either retired shape: "/api/convert-x-to-y" (slug) or "/api/convert/x-to-y"
+ *  (the shape the live routes actually had). Defined here so the pre-paywall
+ *  gate and the route registrations can never drift apart — covering only one
+ *  shape would leave the other serving free. */
+const isRetiredConvertPath = (path) =>
+  RETIRED_CONVERT_API_RE.test(path) || RETIRED_CONVERT_API_SLASH_RE.test(path);
+
+/** The caller's numeric value, or NaN. Both verbs: POST {value} / GET ?value=N. */
+const retiredConvertValue = (req) => {
   const raw = req.body && req.body.value !== undefined ? req.body.value : req.query.value;
-  const num = raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
-  if (from && to && Number.isFinite(num)) {
-    try {
-      const result = +convertAnyUnit(num, from, to).toPrecision(12);
-      // Served hits emit NO event: tool_gone is reserved for the teaching
-      // 410s, so the event means "a caller we could NOT serve". A marketplace
-      // crawler sweeping all ~650 cached converter listings hourly since
-      // 2026-07-14 was pushing ~590 served-fine tool_gone/hr — ~425k
-      // events/mo of pure PostHog quota burn saying nothing.
-      return res.json({
-        result,
-        from,
-        to,
-        _retired: true,
-        _replacement: "unit-convert",
-      });
-    } catch {
-      // Cross-category pair — a route shape that never existed. Can't compute;
-      // fall through to the teaching 410 below.
-    }
+  return raw === undefined || raw === null || raw === "" ? NaN : Number(raw);
+};
+
+/** True when we can actually compute this conversion — the only case worth
+ *  billing. Must stay side-effect free: the pre-paywall gate calls it on every
+ *  retired-path request, including ones it is about to answer for free. */
+const retiredConvertServable = (req) => {
+  const { from, to } = parseRetiredConvertPath(req.path);
+  if (!from || !to || !Number.isFinite(retiredConvertValue(req))) return false;
+  try {
+    convertAnyUnit(1, from, to); // cross-category pairs throw
+    return true;
+  } catch {
+    return false;
   }
+};
+
+/** The free teaching 410, for requests we genuinely can't answer: unparseable
+ *  pairs, cross-category guesses (route shapes that never existed), or no
+ *  numeric value. Never billed — and it stays free precisely so a deprecated
+ *  caller can always discover where to go. */
+const retiredConvertGone = (req, res) => {
+  const { from, to } = parseRetiredConvertPath(req.path);
+  const num = retiredConvertValue(req);
   // Residual demand we can't serve is the product signal worth an event.
   // Fire-and-forget, rate-capped in posthog.js; env-gated no-op like every capture.
   capturePostHogToolGone({ route: req.path, replacement: "POST /api/unit-convert" });
@@ -2555,15 +2566,35 @@ const retiredConvertHandler = (req, res) => {
     },
   });
 };
-app.post(RETIRED_CONVERT_API_RE, retiredConvertHandler);
-app.get(RETIRED_CONVERT_API_RE, retiredConvertHandler);
+
+// Only reached once the gate proved it servable AND the paywall settled, so
+// this is now the paid path: compute and return, same output shape as
+// POST /api/unit-convert plus the honest `_retired` / `_replacement` markers.
+// Served hits emit no tool_gone — that event means "a caller we could NOT
+// serve" — but they DO record a served call, so the volume is finally visible
+// in /api/stats instead of being invisible in every surface we have.
+const retiredConvertHandler = (req, res) => {
+  const { from, to } = parseRetiredConvertPath(req.path);
+  const num = retiredConvertValue(req);
+  if (!from || !to || !Number.isFinite(num)) return retiredConvertGone(req, res);
+  let result;
+  try {
+    result = +convertAnyUnit(num, from, to).toPrecision(12);
+  } catch {
+    return retiredConvertGone(req, res);
+  }
+  res.json({ result, from, to, _retired: true, _replacement: "unit-convert" });
+};
+// NB: the handlers themselves are mounted AFTER the paywall (search
+// "retired converters mount here"). Express runs middleware in registration
+// order, so registering them here — above the x402 middleware — is exactly
+// what made them serve for free.
 // The routes that were ACTUALLY mounted (and documented in the wiki / cited by
 // buyers) were the slash form — GET /api/convert/<from>-to-<to>?value=N. Those
 // must get the same teaching 410, not a bare 404. The slug form above stays
 // covered too since agents commonly guess a route from a slug.
 const RETIRED_CONVERT_API_SLASH_RE = /^\/api\/convert\/[a-z0-9-]+-to-[a-z0-9-]+$/;
-app.post(RETIRED_CONVERT_API_SLASH_RE, retiredConvertHandler);
-app.get(RETIRED_CONVERT_API_SLASH_RE, retiredConvertHandler);
+// (mounted after the paywall — see "retired converters mount here")
 // The retired tool PAGES carry inbound links + SEO equity — those 301 to the
 // survivor's page (a page visit has no re-POST hazard, unlike the API).
 app.get(/^\/tools\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/, (_req, res) => res.redirect(301, "/tools/unit-convert"));
@@ -2930,6 +2961,26 @@ if (FREE_MODE) {
     network: NETWORK,
     baseUrl: BASE_URL,
     catalog: CATALOG,
+    // Retired pairwise converters, priced identically to the tool that
+    // replaced them (POST /api/unit-convert, $0.001) because it is the same
+    // work through the same table. Wildcards, NOT catalog entries: `*` compiles
+    // to `.*?` in @x402/core's parseRoutePattern, so one entry per verb+shape
+    // covers all ~970 legacy paths without touching the catalog, the tool
+    // count, or bazaar-register. The pre-paywall gate above has already sent
+    // every unservable request home with a free 410, so anything reaching here
+    // is a real conversion we are about to perform.
+    extraRoutes: Object.fromEntries(
+      ["/api/convert/*", "/api/convert-*"].flatMap((path) =>
+        ["GET", "POST"].map((verb) => [
+          `${verb} ${path}`,
+          {
+            price: "$0.001",
+            category: "convert",
+            description: "Retired pairwise unit conversion (legacy compatibility shim for POST /api/unit-convert).",
+          },
+        ])
+      )
+    ),
   });
   // Payment-nonce replay guard (M3, defends "Five Attacks on x402" Attack II).
   // Defense-in-depth over settle-before-grant: rejects a duplicate payment
@@ -3057,6 +3108,30 @@ if (FREE_MODE) {
 
   // Gate: for a compute-payable route, a valid proof-of-work bypasses the x402
   // paywall; otherwise the normal USDC paywall applies (and we advertise the
+  // Retired-converter gate — runs BEFORE the paywall so the two outcomes stay
+  // separate:
+  //
+  //   • We CAN'T serve it (no numeric value, unparseable pair, cross-category
+  //     guess): answer the free teaching 410 right here, never reaching the
+  //     paywall. Deprecated callers keep learning where to go, and the crawler
+  //     that sweeps ~970 route shapes without ever sending a value keeps
+  //     costing nothing.
+  //   • We CAN serve it: fall through to the paywall, which charges $0.001 —
+  //     the same price as POST /api/unit-convert, which does the identical math
+  //     through the identical table.
+  //
+  // Charging here is what the ecosystem already advertises. PayAI's discovery
+  // catalog still lists 739 of these routes (lastUpdated 2026-07-01) with
+  // `amount: "1000"` — $0.001 to our payTo on Base — so an agent arriving from
+  // that listing already expects to pay, and a 402 is the protocol working
+  // rather than us looking broken. The TRANSPARENT SERVE note on the handler
+  // was guarding against returning a 410 to those agents, which this gate
+  // still avoids; it was never an argument for doing the work for free.
+  app.use((req, res, next) => {
+    if (!isRetiredConvertPath(req.path)) return next();
+    if (retiredConvertServable(req)) return next(); // paywall, then the handler
+    return retiredConvertGone(req, res);            // free 410 + tool_gone
+  });
   // PoW alternative via a response header on its 402). PoW redemption is
   // sliding-window rate-limited per IP using the SAME limiter+policy as the
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
@@ -3120,6 +3195,18 @@ if (FREE_MODE) {
   });
   console.log(`x402 payments enabled: ${NETWORK} -> ${WALLET_ADDRESS}; proof-of-work tier on ${POW_SLUGS.size} tools (difficulty ${POW_DIFFICULTY} bits)`);
 }
+
+// retired converters mount here — DELIBERATELY below the paywall block above.
+// Express runs middleware in registration order, so these handlers must be
+// registered AFTER the x402 middleware or the paywall never sees the request.
+// They sat above it until 2026-07-25, which is precisely why a $0.001 tool's
+// exact output was available for free on ~970 legacy paths. The pre-paywall
+// gate has already answered everything unservable with a free 410, so reaching
+// this handler means: real conversion, payment settled.
+app.post(RETIRED_CONVERT_API_RE, retiredConvertHandler);
+app.get(RETIRED_CONVERT_API_RE, retiredConvertHandler);
+app.post(RETIRED_CONVERT_API_SLASH_RE, retiredConvertHandler);
+app.get(RETIRED_CONVERT_API_SLASH_RE, retiredConvertHandler);
 
 // Tally successfully served paid-tool calls for /api/stats (best-effort; runs
 // after the paywall so only paid/proven requests that return 200 are counted).

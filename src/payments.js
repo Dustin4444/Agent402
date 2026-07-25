@@ -293,7 +293,7 @@ export function acceptsForItem(item, rails) {
  * can find the service. Accepts USDC on EVM chains and optionally Solana (the
  * agent picks the chain it holds funds on).
  */
-export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, catalog }) {
+export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, catalog, extraRoutes = {} }) {
   const networks = enabledNetworks(network);
   const caip2List = networks.map((n) => NETWORKS[n]);
   let evmCaip2 = caip2List.filter((c) => c.startsWith("eip155:"));
@@ -569,6 +569,26 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       ];
     })
   );
+
+  // Wildcard price entries for paths that are deliberately NOT catalog tools —
+  // today just the retired pairwise converters. They must never enter `catalog`:
+  // the boot-time shadow guard rejects that shape, and ~970 phantom rows would
+  // land in /api/pricing, /openapi.json, the sitemap, the tool count, and
+  // bazaar-register (which BUYS a listing per route). A wildcard keeps the
+  // paywall honest with one entry and leaves every catalog-derived surface
+  // untouched. `bazaar: false` on the caller's side keeps the discovery
+  // extension off, which is also what x402 wants for `*` patterns.
+  for (const [route, cfg] of Object.entries(extraRoutes)) {
+    routes[route] = {
+      accepts: acceptsFor(cfg),
+      description: capDesc(cfg.description),
+      serviceName: "Agent402.tools",
+      tags: ["web", "tools", "agents", "x402", cfg.category].filter(Boolean).slice(0, 10),
+      mimeType: "application/json",
+      resource: `${baseUrl}${route.split(" ")[1]}`,
+      iconUrl: `${baseUrl}/favicon.ico`,
+    };
+  }
 
   // X402_SYNC_ON_START=false skips the facilitator handshake at boot —
   // only for local testing where the facilitator is unreachable.
