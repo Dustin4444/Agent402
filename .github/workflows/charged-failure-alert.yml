@@ -47,11 +47,23 @@ jobs:
           # our worst failure mode reported green while doing nothing. Found and
           # fixed 2026-07-25.
           [ -n "$OP_TOKEN" ] || { echo "no AGENT402_OPERATOR_TOKEN — cannot read the charged-failure log"; exit 1; }
-          RESP="$(curl -s --max-time 30 -H "X-Operator-Token: $OP_TOKEN" "$PROD/__operator/stats" || true)"
-          # Unreadable = a prod outage, which is heartbeat's job, not ours — skip
-          # quietly rather than false-alert. A missing field is NOT treated as
-          # unreadable: that is what hid the breakage last time.
-          echo "$RESP" | jq -e 'has("chargedFailures")' >/dev/null 2>&1 || { echo "operator stats unreadable — skip"; echo "status=skip" >> "$GITHUB_OUTPUT"; exit 0; }
+          # Say WHY on the skip path. The original version printed a bare
+          # "unreadable" and moved on, which is precisely how a permanently
+          # broken alarm passed for months without anyone noticing.
+          CODE="$(curl -s --max-time 30 -o /tmp/opstats.json -w '%{http_code}' \
+            -H "X-Operator-Token: $OP_TOKEN" "$PROD/__operator/stats" || echo 000)"
+          echo "operator stats: HTTP $CODE, $(wc -c < /tmp/opstats.json) bytes, token length ${#OP_TOKEN}"
+          if [ "$CODE" = "404" ]; then
+            # /__operator/* answers 404 (never 401) to unauthenticated callers,
+            # so a 404 here means the token is wrong, not that the route moved.
+            echo "::error::operator token REJECTED (404). The AGENT402_OPERATOR_TOKEN secret does not match the value on Railway."
+            echo "status=skip" >> "$GITHUB_OUTPUT"; exit 1
+          fi
+          RESP="$(cat /tmp/opstats.json)"
+          # A genuine outage is heartbeat's job, not ours — skip rather than
+          # false-alert. A MISSING field is not treated as unreadable: that is
+          # what hid the breakage last time.
+          echo "$RESP" | jq -e 'has("chargedFailures")' >/dev/null 2>&1 || { echo "operator stats unreadable (HTTP $CODE) — skip"; echo "status=skip" >> "$GITHUB_OUTPUT"; exit 0; }
           CUTOFF="$(date -u -d "$WINDOW_HOURS hours ago" +%Y-%m-%dT%H:%M:%SZ)"
           # Charged failures in the window, summarized as "slug(httpStatus)xN".
           SUMMARY="$(echo "$RESP" | jq -r --arg cut "$CUTOFF" '
