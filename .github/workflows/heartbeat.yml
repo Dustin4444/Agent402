@@ -67,6 +67,17 @@ jobs:
             # paid tools away for free (a silent revenue-loss incident).
             PW=$(curl -s --max-time 15 -D /tmp/hb-402.h -o /dev/null -w "%{http_code}" -X POST "$PROD/api/extract" -H 'Content-Type: application/json' -d '{"url":"https://example.com"}')
             [ "$PW" = "402" ] || FAILS="$FAILS paywall($PW)"
+            # The retired pairwise converters are paid too ($0.001, same as the
+            # unit-convert tool that replaced them) but they are NOT catalog
+            # routes, so the check above can't see them. They served that exact
+            # output for FREE until 2026-07-25 because their handlers were
+            # registered above the paywall middleware — a gap no probe noticed
+            # for weeks. A servable request must 402; an unservable one must
+            # still get the free teaching 410, so both halves are asserted.
+            RC=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" -X POST "$PROD/api/convert/feet-to-meters" -H 'Content-Type: application/json' -d '{"value":10}')
+            [ "$RC" = "402" ] || FAILS="$FAILS retired-convert-paywall($RC)"
+            RG=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" -X POST "$PROD/api/convert/feet-to-meters" -H 'Content-Type: application/json' -d '{}')
+            [ "$RG" = "410" ] || FAILS="$FAILS retired-convert-teaching($RG)"
             # Payment RAILS must stay in the offer. A rail silently dropping
             # out of the 402 accepts loses that chain's revenue with no error
             # anywhere (the 2026-07-02 incident class: buyers simply never see
