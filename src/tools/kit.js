@@ -12,7 +12,11 @@ import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { JSDOM } from "jsdom";
 import TurndownService from "turndown";
-import yaml from "js-yaml";
+// Named imports, not a default import: js-yaml v5 dropped the default export
+// ("does not provide an export named 'default'", which broke the v5 bump on
+// CI). Named imports resolve on both v4 (synthesized from the CJS build) and
+// v5, so this stays correct across the upgrade.
+import { load as yamlLoad, dump as yamlDump, JSON_SCHEMA as YAML_JSON_SCHEMA } from "js-yaml";
 import { marked } from "marked";
 import QRCode from "qrcode";
 import { assertPublicUrl, safeFetch, ssrfDispatcher, isSsrfBlock } from "./fetch-guard.js";
@@ -682,7 +686,7 @@ const dataTools = [
     handler: (input) => {
       const text = capText(need(input, "yaml"), 100_000, "yaml");
       try {
-        return { json: yaml.load(text, { schema: yaml.JSON_SCHEMA }) ?? null };
+        return { json: yamlLoad(text, { schema: YAML_JSON_SCHEMA }) ?? null };
       } catch (e) {
         throw bad(`YAML parse error: ${e.message.split("\n")[0]}`);
       }
@@ -707,7 +711,7 @@ const dataTools = [
     },
     handler: (input) => {
       const data = parseMaybeJson(need(input, "json", "any"), "json");
-      return { yaml: yaml.dump(data, { lineWidth: 120 }) };
+      return { yaml: yamlDump(data, { lineWidth: 120 }) };
     },
   },
   {
