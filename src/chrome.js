@@ -110,7 +110,7 @@ export function renderFooter() {
       <a href="/api/stats">Stats</a>
       <a href="/blog">Blog</a>
       <a href="/changelog">Changelog</a>
-      <a href="/uptime">Uptime</a>
+      <a href="/status">Status</a>
     </div>
   </div>
   <div class="ft-bottom">

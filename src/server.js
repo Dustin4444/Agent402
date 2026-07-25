@@ -160,7 +160,6 @@ import { comparePage } from "./compare.js";
 import { communityPage } from "./community.js";
 import { contributePage } from "./contribute.js";
 import { workflowsPage } from "./workflows.js";
-import { uptimePage } from "./uptime.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
@@ -1203,7 +1202,14 @@ app.get("/compare", (_req, res) => htmlCache(res, 300, 900).send(comparePage(BAS
 app.get("/community", (_req, res) => htmlCache(res, 300, 900).send(communityPage(BASE_URL)));
 app.get("/contribute", (_req, res) => htmlCache(res, 300, 900).send(contributePage(BASE_URL)));
 app.get("/workflows", (_req, res) => htmlCache(res, 300, 900).send(workflowsPage(BASE_URL)));
-app.get("/uptime", (_req, res) => htmlCache(res, 300, 900).send(uptimePage(BASE_URL)));
+// /uptime was a second, static "System Status" page carrying a hardcoded
+// "All systems operational" banner — green during an outage, which is the exact
+// failure /status was rebuilt to remove. It already declared /status as its
+// canonical, so search engines were consolidating the two anyway, and its
+// How-We-Monitor prose is now covered by the "How this is measured" section on
+// /status with links to the actual probe runs. Permanent redirect: one surface,
+// one truth, and the SEO history follows.
+app.get("/uptime", (_req, res) => res.redirect(301, "/status"));
 app.get("/badges", (_req, res) => htmlCache(res, 300, 900).send(badgesPage(BASE_URL)));
 app.get("/badges/:style.svg", (req, res) => { const svg = badgeSvg(req.params.style); if (!svg) return res.status(404).json({ error: "unknown badge style" }); res.setHeader("Cache-Control", "public, max-age=3600").type("image/svg+xml").send(svg); });
 app.get("/docs/adapters", (_req, res) => htmlCache(res, 300, 900).send(adapterDocsIndex(BASE_URL)));

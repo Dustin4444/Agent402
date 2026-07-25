@@ -285,6 +285,11 @@ export function reliabilityReport({ baseUrl, network, wallet, stats }) {
     endpoints: {
       health: `${baseUrl}/health`,
       stats: `${baseUrl}/api/stats`,
+      // Availability history measured by an observer OUTSIDE this server, so a
+      // buyer deciding whether to depend on us can check uptime without taking
+      // our word for it. `status` is the JSON; `statusPage` is the human view.
+      status: `${baseUrl}/api/status`,
+      statusPage: `${baseUrl}/status`,
       openapi: `${baseUrl}/openapi.json`,
       manifest: `${baseUrl}/.well-known/x402`,
     },
