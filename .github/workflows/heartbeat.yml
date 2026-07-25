@@ -105,6 +105,46 @@ jobs:
           done
           echo "status=down" >> "$GITHUB_OUTPUT"
           echo "fails=$FAILS" >> "$GITHUB_OUTPUT"
+
+      # Record what this probe observed, so /status can show availability
+      # measured from OUTSIDE production rather than production's opinion of
+      # itself. Best-effort by design: never `-e`-fails the job, because a
+      # status-page write must not turn a healthy heartbeat red. When prod is
+      # down this POST cannot land either — that absence is the evidence, and
+      # /status renders a missing observation as a gap rather than as uptime.
+      - name: Record the probe on /status
+        if: always()
+        continue-on-error: true
+        env:
+          OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+          STATUS: ${{ steps.probe.outputs.status }}
+          FAILS: ${{ steps.probe.outputs.fails }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$OP_TOKEN" ] || { echo "no operator token — skipping status record"; exit 0; }
+          # A component is false only when the final attempt named it in FAILS,
+          # so a check that passed is never marked down by another's failure.
+          has() { case "$FAILS" in *"$1"*) echo false;; *) echo true;; esac; }
+          if [ "$STATUS" = "up" ]; then
+            API=true; CATALOG=true; MCP=true; PAYWALL=true; RAILS=true; PAID=true
+          else
+            API=$(has "/health"); CATALOG=$(has "catalog("); MCP=$(has "/mcp")
+            PAYWALL=$(has "paywall("); RAILS=$(has "rails("); PAID=$(has "pow-paid-call")
+          fi
+          BODY=$(jq -nc --arg u "$RUN_URL" --arg d "$FAILS" \
+            --argjson a "$API" --argjson c "$CATALOG" --argjson m "$MCP" \
+            --argjson w "$PAYWALL" --argjson r "$RAILS" --argjson p "$PAID" \
+            '{source:"heartbeat", ts:(now*1000|floor), url:$u, components:{
+               "api":{ok:$a, detail:(if $a then null else $d end)},
+               "catalog":{ok:$c, detail:(if $c then null else $d end)},
+               "mcp":{ok:$m, detail:(if $m then null else $d end)},
+               "paywall":{ok:$w, detail:(if $w then null else $d end)},
+               "rails":{ok:$r, detail:(if $r then null else $d end)},
+               "paid-call":{ok:$p, detail:(if $p then null else $d end)}}}')
+          curl -sf --max-time 20 -X POST "$PROD/api/status/probe" \
+            -H "Content-Type: application/json" -H "X-Operator-Token: $OP_TOKEN" \
+            -d "$BODY" >/dev/null && echo "probe recorded" || echo "probe not recorded (prod unreachable — the gap is the signal)"
+
       # Gateway credits: /v1 tiers settle the buyer's USDC before the handler
       # runs, so an empty OpenRouter balance turns every gateway call into
       # "charged but failed". Alarm on "low" BEFORE that happens. Separate
