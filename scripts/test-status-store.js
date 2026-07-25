@@ -114,6 +114,27 @@ const NOW = Date.UTC(2026, 6, 25, 12, 0, 0); // 2026-07-25T12:00:00Z
   check("failure detail round-trips through storage", api.detail === "/health");
 }
 
+// ── Per-component staleness (src/status.js) ──────────────────────────────────
+// The paid canary runs once a day. Judging it by the heartbeat's 45-minute
+// threshold would leave settlement reading "unknown" for 23 hours out of 24 and
+// drag the whole page to "degraded" — a cadence mismatch dressed up as an
+// incident. Each component carries the threshold that matches its observer.
+{
+  const { COMPONENTS } = await import("../src/status.js");
+  const byKey = Object.fromEntries(COMPONENTS.map((c) => [c.key, c]));
+  check("every component declares a staleness threshold", COMPONENTS.every((c) => Number.isFinite(c.staleAfterMs)));
+  check("heartbeat-fed components use a ~45 min threshold", byKey.api.staleAfterMs === 45 * 60_000);
+  check("the daily canary component tolerates over 24h", byKey.settlement.staleAfterMs > 24 * 3600_000);
+
+  const dayOld = { ts: NOW - 20 * 3600_000, ok: 1 };
+  check("a 20h-old canary result is still operational under its own threshold",
+    stateFrom(dayOld, { nowMs: NOW, staleAfterMs: byKey.settlement.staleAfterMs }).state === "operational");
+  check("the same 20h-old result WOULD be unknown under the heartbeat threshold",
+    stateFrom(dayOld, { nowMs: NOW, staleAfterMs: byKey.api.staleAfterMs }).state === "unknown");
+  check("a canary result older than its threshold is still unknown",
+    stateFrom({ ts: NOW - 30 * 3600_000, ok: 1 }, { nowMs: NOW, staleAfterMs: byKey.settlement.staleAfterMs }).state === "unknown");
+}
+
 // ── Overall rollup (src/status.js) ───────────────────────────────────────────
 {
   const { overallState } = await import("../src/status.js");

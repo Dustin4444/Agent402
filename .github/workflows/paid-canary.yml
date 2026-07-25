@@ -61,6 +61,36 @@ jobs:
           # silently skipped when the SOLANA_BURNER_KEY secret is unset.
           [ -n "$SOLANA_BURNER_KEY" ] && echo "::add-mask::$SOLANA_BURNER_KEY"
           if node scripts/paid-canary.js; then echo "result=ok" >> "$GITHUB_OUTPUT"; else echo "result=fail" >> "$GITHUB_OUTPUT"; fi
+
+      # Feed the /status "settlement" component. Deliberately a SEPARATE step
+      # from the buy above: that step holds the wallet keys, and widening its
+      # environment to carry the operator token too would undo the per-step
+      # secret scoping from audit R-07.
+      #
+      # A "noconfig" run posts NOTHING. The canary never actually bought
+      # anything in that case, so there is no observation to record, and
+      # inventing one either way is exactly what /status refuses to do.
+      - name: Record settlement on /status
+        if: always()
+        continue-on-error: true
+        env:
+          OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+          RESULT: ${{ steps.canary.outputs.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$OP_TOKEN" ] || { echo "no operator token — skipping status record"; exit 0; }
+          case "$RESULT" in
+            ok)   OK=true;  DETAIL="" ;;
+            fail) OK=false; DETAIL="paid canary could not complete a real USDC purchase" ;;
+            *)    echo "canary result '$RESULT' — nothing was bought, so no observation to record"; exit 0 ;;
+          esac
+          BODY=$(jq -nc --arg u "$RUN_URL" --arg d "$DETAIL" --argjson ok "$OK" \
+            '{source:"paid-canary", ts:(now*1000|floor), url:$u,
+              components:{"settlement":{ok:$ok, detail:(if $d=="" then null else $d end)}}}')
+          curl -sf --max-time 20 -X POST "$TARGET_URL/api/status/probe" \
+            -H "Content-Type: application/json" -H "X-Operator-Token: $OP_TOKEN" \
+            -d "$BODY" >/dev/null && echo "settlement recorded (ok=$OK)" || echo "settlement not recorded (prod unreachable)"
+
       - name: Alert on failure / clear on recovery
         run: |
           TITLE="Paid-path canary FAILED"
