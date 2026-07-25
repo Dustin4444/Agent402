@@ -37,14 +37,23 @@ const DAY = 86400000;
 // data; a known component with no observations is shown as "not yet measured"
 // rather than omitted, so a check that was supposed to run and isn't stays
 // visible instead of silently vanishing.
+// `staleAfterMs` must track the cadence of whatever observes the component, not
+// a single global number. The heartbeat probes every 15 minutes, so 45 minutes
+// means "we missed two in a row". The paid canary runs ONCE A DAY, so the same
+// 45-minute rule would leave settlement reading "unknown" for 23 hours out of
+// every 24 and drag the whole page to "degraded" — a threshold mismatch
+// masquerading as an incident.
+const QUARTER_HOURLY = 45 * 60_000; // ~3 missed heartbeats
+const DAILY = 26 * 3600_000; // a day plus slack for a late scheduled run
+
 export const COMPONENTS = [
-  { key: "api", label: "Tool serving", blurb: "The paid API answering requests: /health reachable and the catalog mounted." },
-  { key: "catalog", label: "Catalog", blurb: "Every tool route mounted and advertised on /api/pricing." },
-  { key: "paid-call", label: "Paid call path", blurb: "A real end-to-end purchase: challenge, payment, unlock, payload." },
-  { key: "mcp", label: "MCP connector", blurb: "The hosted /mcp endpoint agents connect through." },
-  { key: "paywall", label: "Paywall engaged", blurb: "Paid tools still answer 402 when unpaid, so nothing is given away by accident." },
-  { key: "rails", label: "Payment rails", blurb: "The chains advertised in a live 402 challenge." },
-  { key: "settlement", label: "Settlement (paid canary)", blurb: "A daily purchase paying real USDC across every supported chain." },
+  { key: "api", label: "Tool serving", blurb: "The paid API answering requests: /health reachable and the catalog mounted.", staleAfterMs: QUARTER_HOURLY },
+  { key: "catalog", label: "Catalog", blurb: "Every tool route mounted and advertised on /api/pricing.", staleAfterMs: QUARTER_HOURLY },
+  { key: "paid-call", label: "Paid call path", blurb: "A real end-to-end purchase: challenge, payment, unlock, payload.", staleAfterMs: QUARTER_HOURLY },
+  { key: "mcp", label: "MCP connector", blurb: "The hosted /mcp endpoint agents connect through.", staleAfterMs: QUARTER_HOURLY },
+  { key: "paywall", label: "Paywall engaged", blurb: "Paid tools still answer 402 when unpaid, so nothing is given away by accident.", staleAfterMs: QUARTER_HOURLY },
+  { key: "rails", label: "Payment rails", blurb: "The chains advertised in a live 402 challenge.", staleAfterMs: QUARTER_HOURLY },
+  { key: "settlement", label: "Settlement (paid canary)", blurb: "A daily purchase paying real USDC across every supported chain.", staleAfterMs: DAILY },
 ];
 
 const WINDOWS = [
@@ -83,7 +92,7 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
       label: c.label,
       blurb: c.blurb,
       observed: rows.length,
-      current: stateFrom(latest.get(c.key), { nowMs }),
+      current: stateFrom(latest.get(c.key), { nowMs, staleAfterMs: c.staleAfterMs }),
       windows,
       daily: dailyFrom(rows, { days: historyDays, nowMs }),
     };
