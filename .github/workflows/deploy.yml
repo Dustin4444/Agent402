@@ -757,6 +757,9 @@ jobs:
       - name: Bazaar register verdict (harvester lag is not a failure; a failed or unpaid route is — offline)
         run: node scripts/test-bazaar-verdict.js
 
+      - name: External-buy spend cap (reserve before send; release only on a conclusive on-chain miss — offline)
+        run: node scripts/test-spend-budget.js
+
       - name: Pricing margin invariant (worst-case upstream < price on every gateway tier, failover links included; cap-before-spend; 410 tool_gone telemetry — offline)
         run: node scripts/test-pricing-margin.js
 

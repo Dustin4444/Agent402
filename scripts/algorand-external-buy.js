@@ -37,6 +37,8 @@
 //   ALGORAND_BURNER_MNEMONIC=… node scripts/algorand-external-buy.js --out ext.json
 import { writeFileSync } from "node:fs";
 import { algorandCatalog } from "../src/algorand-sellers.js";
+import { getJsonAcross, ALGORAND_INDEXER_BASES } from "../src/revenue-live.js";
+import { makeBudget, verifySettlement } from "./spend-budget.js";
 
 const OUR_TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
 const OUR_ORIGIN = new URL(OUR_TARGET).origin.toLowerCase();
@@ -127,6 +129,10 @@ for (let round = 0; ; round++) {
 }
 
 // ── Buy ───────────────────────────────────────────────────────────────────────
+// The budget COMMITS before each signed payment goes out and releases only when
+// the chain proves the payment never landed — see scripts/spend-budget.js for
+// why a receipt header is not evidence.
+const budget = makeBudget(MAX_USD);
 const report = {
   payer: payerAddress, dry: DRY, maxUsd: MAX_USD, perBuyUsd: PER_BUY_USD,
   bought: [], failed: [], skipped: [], spentUsd: 0, sellers: origins.length,
@@ -134,7 +140,7 @@ const report = {
 };
 
 for (const r of plan) {
-  const remaining = MAX_USD - report.spentUsd;
+  const remaining = budget.remaining();
   if (remaining <= 0) break;
   const label = `${r.method} ${r.url}`;
 
@@ -162,14 +168,20 @@ for (const r of plan) {
   const usd = Number(accept.amount ?? accept.maxAmountRequired) / 1e6;
   if (!(usd > 0)) { report.skipped.push({ label, reason: "unparseable quote amount" }); continue; }
   if (usd > PER_BUY_USD) { report.skipped.push({ label, reason: `live quote $${usd} > per-buy cap $${PER_BUY_USD} (catalog said $${r.priceUsd})` }); continue; }
-  if (usd > remaining) { report.skipped.push({ label, reason: `$${usd} exceeds the $${remaining.toFixed(4)} left in budget` }); continue; }
+  if (!budget.canAfford(usd)) { report.skipped.push({ label, reason: `$${usd} exceeds the $${remaining.toFixed(4)} left in budget` }); continue; }
 
   if (DRY) {
     console.log(`PLAN  $${usd.toFixed(3)}  ${label}  (${r.verifs} verifs) — ${r.description.slice(0, 60)}`);
     report.bought.push({ label, usd, verifs: r.verifs, dry: true });
-    report.spentUsd += usd;
+    budget.reserve(usd);
     continue;
   }
+
+  // Commit BEFORE the signed payment leaves. From here on the money is treated
+  // as spent unless the chain says otherwise, so a seller that settles and then
+  // errors can never push us past the cap.
+  const sinceIso = new Date(Date.now() - 120_000).toISOString();
+  budget.reserve(usd);
 
   try {
     const payload = await client.createPaymentPayload({ ...paymentRequired, accepts });
@@ -187,30 +199,69 @@ for (const r of plan) {
 
     if (paid.status === 200) {
       report.bought.push({ label, usd, verifs: r.verifs, tx: tx || null, bytes: body.length, preview: body.slice(0, 200) });
-      report.spentUsd += usd;
       console.log(`BOUGHT $${usd.toFixed(3)}  ${label}${tx ? ` · tx ${tx.slice(0, 10)}…` : ""} · ${body.length}B`);
+    } else if (tx) {
+      // Settled and then failed: charged, and the receipt says so outright.
+      report.failed.push({ label, usd, status: paid.status, tx, charged: true, body: body.slice(0, 160) });
+      console.log(`FAIL   $${usd.toFixed(3)}  ${label} → HTTP ${paid.status} (settled tx ${tx.slice(0, 10)}… — charged anyway)`);
     } else {
-      // We cannot assume a third party settles the way we do (our stack cancels
-      // settlement on a >=400; theirs may not), so a non-200 is counted against
-      // the budget as possibly-charged rather than assumed free.
-      report.failed.push({ label, usd, status: paid.status, tx: tx || null, body: body.slice(0, 160) });
-      if (tx) report.spentUsd += usd;
-      console.log(`FAIL   $${usd.toFixed(3)}  ${label} → HTTP ${paid.status}${tx ? ` (settled tx ${tx.slice(0, 10)}… — charged anyway)` : " (no settle receipt)"}`);
+      // No receipt header. That is NOT evidence we kept our money: a third
+      // party's stack may settle before it fails (ours cancels settlement on a
+      // >=400, theirs need not). Ask the chain, and release the reservation
+      // only if the read succeeds AND finds nothing.
+      const v = await verifySettlement(
+        { payer: payerAddress, payTo: String(accept.payTo || ""), amountAtomic: String(accept.amount ?? accept.maxAmountRequired), sinceIso },
+        { getJsonAcross, bases: ALGORAND_INDEXER_BASES },
+      );
+      if (v.settled) {
+        report.failed.push({ label, usd, status: paid.status, tx: v.tx, charged: true, viaChain: true, body: body.slice(0, 160) });
+        console.log(`FAIL   $${usd.toFixed(3)}  ${label} → HTTP ${paid.status} (NO receipt, but chain shows tx ${String(v.tx).slice(0, 10)}… — CHARGED)`);
+      } else if (v.conclusive) {
+        budget.release(usd);
+        report.failed.push({ label, usd, status: paid.status, charged: false, body: body.slice(0, 160) });
+        console.log(`FAIL   $${usd.toFixed(3)}  ${label} → HTTP ${paid.status} (chain confirms not charged — budget released)`);
+      } else {
+        report.failed.push({ label, usd, status: paid.status, charged: "unknown", body: body.slice(0, 160) });
+        console.log(`FAIL   $${usd.toFixed(3)}  ${label} → HTTP ${paid.status} (indexer unavailable — held against budget)`);
+      }
     }
-  } catch (e) { report.failed.push({ label, usd, reason: `pay: ${String(e.message).slice(0, 160)}` }); }
+  } catch (e) {
+    // The request itself threw, so we never saw a response. The payment may
+    // still have been submitted; keep it committed.
+    report.failed.push({ label, usd, charged: "unknown", reason: `pay: ${String(e.message).slice(0, 160)}` });
+    console.log(`FAIL   $${usd.toFixed(3)}  ${label} → ${String(e.message).slice(0, 60)} (held against budget)`);
+  }
+  report.spentUsd = budget.committedUsd;
 
   await sleep(DELAY_MS);
 }
 
 report.finishedAt = new Date().toISOString();
+// The budget is the single source of truth for spend, in dry and live runs
+// alike (the dry path reserves too, so the preview shows real planned spend).
+report.spentUsd = budget.committedUsd;
 const distinct = new Set(report.bought.map((b) => new URL(b.label.split(" ")[1]).origin)).size;
+
+// Charged-but-failed is the number that matters: money out with nothing back.
+const chargedFails = report.failed.filter((f) => f.charged === true);
+const unknownFails = report.failed.filter((f) => f.charged === "unknown");
+report.chargedFailUsd = chargedFails.reduce((s, f) => s + f.usd, 0);
 
 console.log(`\n=== external Algorand buys ===`);
 console.log(`bought: ${report.bought.length} from ${distinct} distinct sellers · failed: ${report.failed.length} · skipped: ${report.skipped.length}`);
-console.log(`spent: $${report.spentUsd.toFixed(4)} of the $${MAX_USD.toFixed(2)} budget`);
+console.log(`spent: $${report.spentUsd.toFixed(4)} of the $${MAX_USD.toFixed(2)} budget (never exceeds it: every payment is committed before it is sent)`);
+if (chargedFails.length) {
+  console.log(`charged but got no result: ${chargedFails.length} buy(s), $${report.chargedFailUsd.toFixed(4)} — these sellers settled and then errored`);
+}
+if (unknownFails.length) {
+  console.log(`indeterminate: ${unknownFails.length} buy(s) held against the budget (indexer unavailable or the request threw)`);
+}
 if (report.failed.length) {
   console.log(`\nfailures:`);
-  for (const f of report.failed) console.log(`  ${f.label} — ${f.reason || `HTTP ${f.status}: ${f.body}`}`);
+  for (const f of report.failed) {
+    const tag = f.charged === true ? "CHARGED" : f.charged === false ? "not charged" : "unknown";
+    console.log(`  [${tag}] ${f.label} — ${f.reason || `HTTP ${f.status}: ${f.body}`}`);
+  }
 }
 if (report.skipped.length) {
   console.log(`\nskipped (${report.skipped.length}):`);
