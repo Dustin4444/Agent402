@@ -45,9 +45,13 @@
 //   MAX_SPEND_USD     missing-mode cost ceiling (default 5)
 //   DRY_RUN=1         list the work without paying
 //
-// Exit codes: 0 = no work remaining · 1 = some routes still missing/stale or errored · 2 = misconfigured.
+// Exit codes: 0 = no work remaining OF OURS (includes "every buy settled, the
+// Bazaar harvester just hasn't ingested them yet" — that lag is theirs, not a
+// failure) · 1 = real work remaining: a buy failed, or a route was never paid
+// for (spend/price cap, batch stride) · 2 = misconfigured.
 
 import { readFileSync, existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 // viem + @x402/* are loaded lazily so DRY_RUN works without them installed.
 
 const TARGET = process.env.TARGET_URL || "https://agent402.tools";
@@ -227,7 +231,10 @@ async function runMissingMode({ sweep = false } = {}) {
   const payFetch = await buildPayFetch();
   console.log(`Spending up to $${estCost.toFixed(3)} …`);
 
-  const results = { ok: 0, fail: 0, errors: [] };
+  // `bought` records the paths whose settlement we actually observed, so the
+  // post-check below can tell "the harvester hasn't ingested it yet" apart from
+  // "this route never got paid for".
+  const results = { ok: 0, fail: 0, errors: [], bought: new Set() };
   for (let i = 0; i < missing.length; i++) {
     const t = missing[i];
     const key = `${t.method} ${t.path}`;
@@ -247,6 +254,7 @@ async function runMissingMode({ sweep = false } = {}) {
         lastStatus = res.status;
         if (res.status === 200) {
           results.ok++;
+          results.bought.add(t.path);
           if (i % 50 === 0 || i === missing.length - 1) console.log(`  [${i + 1}/${missing.length}] OK ${key} (${t.price})`);
           break;
         }
@@ -290,7 +298,50 @@ async function runMissingMode({ sweep = false } = {}) {
   const afterReg = await loadRegisteredPaths();
   const stillMissing = catalog.filter((t) => !afterReg.has(t.path));
   console.log(`After: ${afterReg.size} registered, ${stillMissing.length} still missing (harvester may continue to catch up).`);
-  return stillMissing.length === 0 ? 0 : 1;
+  if (stillMissing.length === 0) return 0;
+
+  const verdict = missingModeVerdict({
+    failCount: results.fail,
+    okCount: results.ok,
+    stillMissingPaths: stillMissing.map((t) => t.path),
+    boughtPaths: results.bought,
+  });
+  console[verdict.exitCode === 0 ? "log" : "error"](verdict.message);
+  return verdict.exitCode;
+}
+
+/** Decide whether a `missing` pass actually left work undone.
+ *
+ *  Coinbase's harvester is asynchronous: it lists a route only after it
+ *  observes the settlement, which routinely takes far longer than the 60s we
+ *  wait. A 74-route pass on 2026-07-24 reported all 74 "still missing" here and
+ *  every one of them listed within ~2.5h, unattended. Exiting non-zero in that
+ *  case put a red X on a run where every single buy succeeded, which is exactly
+ *  the kind of lying check that teaches people to ignore red.
+ *
+ *  So the verdict keys off work that is still OURS: a buy that failed, or a
+ *  route we never paid for (spend cap, price cap, batch stride). If every route
+ *  still unlisted is one we just watched settle, the pass did its job and the
+ *  remainder is ingestion lag on their side.
+ *
+ *  Pure, so scripts/test-bazaar-verdict.js can pin it without paying anyone. */
+export function missingModeVerdict({ failCount, okCount, stillMissingPaths, boughtPaths }) {
+  const bought = boughtPaths instanceof Set ? boughtPaths : new Set(boughtPaths || []);
+  const missing = stillMissingPaths || [];
+  if (missing.length === 0) return { exitCode: 0, message: "All routes are listed on the Bazaar." };
+  const unpaid = missing.filter((p) => !bought.has(p));
+  if (failCount === 0 && unpaid.length === 0) {
+    return {
+      exitCode: 0,
+      message:
+        `All ${okCount} route(s) settled successfully; the ${missing.length} not yet listed are waiting on Coinbase's ` +
+        `harvester, which is asynchronous and outside our control. Treating as success — re-count in a few hours to confirm ingestion.`,
+    };
+  }
+  return {
+    exitCode: 1,
+    message: `Work remaining: ${failCount} failed buy(s), ${unpaid.length} route(s) never paid for (spend cap, price cap, or batch stride).`,
+  };
 }
 
 // One pay-capable fetch for whichever chain PAY_NETWORK selects.
@@ -430,7 +481,12 @@ async function main() {
   process.exit(1);
 }
 
-main().catch((e) => {
-  console.error("refresh-bazaar: unhandled error", e);
-  process.exit(1);
-});
+// Same main-guard convention as deploy-quiet-gate.js / sync-count.js, so
+// scripts/test-bazaar-verdict.js can import missingModeVerdict without the
+// script running (and paying for) anything.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((e) => {
+    console.error("refresh-bazaar: unhandled error", e);
+    process.exit(1);
+  });
+}
