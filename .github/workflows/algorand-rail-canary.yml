@@ -1,0 +1,107 @@
+name: Algorand rail canary
+
+# Buy EVERY tool in the catalog on the Algorand rail once a week and assert each
+# one settles and renders its payload. The daily paid-canary has a single
+# Algorand leg (/api/hash) — it proves the rail is alive, not that it works for
+# the catalog. challenge-sweep.yml buys every tool but skips anything already
+# registered on GoPlausible, so it verifies almost nothing on a second run.
+# See scripts/algorand-rail-canary.js.
+#
+# Self-buys (burner -> our revenue payTo) so the USDC recycles; the true cost is
+# the per-txn Algorand fee plus whatever upstream API spend a tool triggers.
+# Weekly rather than daily: 500+ buys of upstream-metered tools every day would
+# be real money for a signal that changes slowly.
+on:
+  schedule:
+    - cron: "41 6 * * 1" # Mondays ~06:41 UTC
+  workflow_dispatch:
+    inputs:
+      max_usd:
+        description: "Hard total-spend cap in USDC (stops cleanly before exceeding)"
+        required: false
+        default: "15"
+      tool_max_usd:
+        description: "Per-tool price cap — skips pricier tools (default 0.25 covers 502 of 516 routes)"
+        required: false
+        default: "0.25"
+      dry:
+        description: "Set to 'true' to preview (quotes only, no payments)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_URL: https://agent402.tools
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Install x402 client
+        # No wallet secrets are in scope for this step (they live on the run
+        # step), and --ignore-scripts blocks dependency lifecycle scripts
+        # entirely (audit R-07). @x402/* pinned to the server's protocol version
+        # (src/payments.js runs 2.16), same posture as scripts/paid-canary.js.
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/core@2.16.0 @x402/avm@2.16.0
+
+      - name: Sweep the catalog on the Algorand rail
+        id: sweep
+        # Wallet/pow secrets scoped to THIS step only (audit R-07).
+        env:
+          ALGORAND_BURNER_MNEMONIC: ${{ secrets.ALGORAND_BURNER_MNEMONIC }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+          CANARY_MAX_USD: ${{ inputs.max_usd || '15' }}
+          CANARY_TOOL_MAX_USD: ${{ inputs.tool_max_usd || '0.25' }}
+          CANARY_DRY: ${{ inputs.dry == 'true' && '1' || '0' }}
+        run: |
+          if [ -z "$ALGORAND_BURNER_MNEMONIC" ] && [ "$CANARY_DRY" != "1" ]; then
+            echo "No ALGORAND_BURNER_MNEMONIC secret — cannot run the paid sweep."
+            echo "result=noconfig" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          [ -n "$ALGORAND_BURNER_MNEMONIC" ] && echo "::add-mask::$ALGORAND_BURNER_MNEMONIC"
+          if node scripts/algorand-rail-canary.js --out rail-report.json --max-usd "$CANARY_MAX_USD"; then
+            echo "result=pass" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=fail" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: algorand-rail-report
+          path: rail-report.json
+          if-no-files-found: ignore
+
+      # Alert on failure, clear on recovery — same one-issue pattern the
+      # heartbeat uses, so repeated failures comment instead of piling up.
+      - name: Alert (open issue) or clear (close issue)
+        if: always() && steps.sweep.outputs.result != 'noconfig' && inputs.dry != 'true'
+        run: |
+          TITLE="Algorand rail canary FAILING"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "${{ steps.sweep.outputs.result }}" = "fail" ]; then
+            BODY="The weekly Algorand rail sweep found problems. Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Three failure classes, all real defects:
+          - **rail failure** — we signed a valid AVM payment and still got a 402, so settlement was refused (facilitator, accept, validity window, or USDC opt-in).
+          - **tool failure** — the payment path was fine but the handler did not deliver a payload. A >=400 cancels settlement, so no buyer was charged.
+          - **unexpected missing accept** — a tool that is not wallet-keyed stopped offering an \`algorand:*\` accept, meaning the rail silently went away for it.
+
+          The per-tool breakdown is in the \`algorand-rail-report\` artifact on that run."
+            if [ -n "$OPEN" ]; then
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still failing at $(date -u +%FT%TZ). Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+            fi
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: the full Algorand rail sweep passed at $(date -u +%FT%TZ)."
+          fi
