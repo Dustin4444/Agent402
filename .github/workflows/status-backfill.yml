@@ -1,0 +1,49 @@
+name: Status history backfill
+
+# Import heartbeat probe history into the /status store so the uptime chart
+# starts populated with real observations instead of an empty grid. Idempotent
+# (the store dedupes on source+component+timestamp), so it is safe to re-run at
+# any time to pick up whatever has happened since the last import.
+#
+# Judged per PROBE STEP, never per run conclusion — a heartbeat run can fail for
+# reasons unrelated to production (a runner dying in "Set up job", the
+# issue-management step erroring), and counting those as outages would invent
+# downtime that never happened. See scripts/backfill-status-history.js.
+on:
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "Preview only — resolve every run and report, but post nothing (default true)"
+        required: false
+        default: "true"
+      limit:
+        description: "Max observations to import (0 = all)"
+        required: false
+        default: "0"
+
+permissions:
+  contents: read
+  actions: read # reading past heartbeat runs is the entire point
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TARGET_URL: https://agent402.tools
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Import heartbeat history
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+          DRY: ${{ inputs.dry != 'false' && '1' || '0' }}
+          LIMIT: ${{ inputs.limit || '0' }}
+        run: |
+          [ -n "$OP_TOKEN" ] && echo "::add-mask::$OP_TOKEN"
+          ARGS="--limit $LIMIT"
+          [ "$DRY" = "1" ] && ARGS="$ARGS --dry"
+          node scripts/backfill-status-history.js $ARGS

@@ -27,7 +27,8 @@ import { payerFromRequest, payerFromPaymentResponse } from "./payer.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { landingPage } from "./landing.js";
-import { statusPage } from "./status.js";
+import { statusPage, statusSnapshot } from "./status.js";
+import { recordProbes } from "./status-store.js";
 import { tollboothLandingPage } from "./tollbooth-landing.js";
 import { tollboothCloudPage } from "./tollbooth-cloud.js";
 import { tollboothWaitlistPage } from "./tollbooth-waitlist.js";
@@ -1214,11 +1215,48 @@ app.get("/sitemap-pages.xml", (_req, res) => { res.setHeader("Cache-Control", "p
 app.get("/sitemap-tools.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapTools(BASE_URL, CATALOG)); });
 app.get("/sitemap-guides.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapGuides(BASE_URL)); });
 app.get("/sitemap-skills.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapSkills(BASE_URL)); });
-app.get("/status", (_req, res) =>
-  htmlCache(res, 60, 300).send(
-    statusPage(BASE_URL, getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }))
-  )
-);
+// Status page. The availability history comes from externally-observed probes
+// (src/status-store.js); the live bucket reads are self-reported and labelled
+// as such on the page. Cheap enough to render per request — every query is an
+// indexed read over one small local table.
+async function statusLive() {
+  try {
+    const [gateway, upstreamBuyer, upstreamBuyerAvm] = await Promise.all([
+      gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(),
+    ]);
+    return { gateway: gateway?.status || null, upstreamBuyer: upstreamBuyer?.status || null, upstreamBuyerAvm: upstreamBuyerAvm?.status || null };
+  } catch { return {}; }
+}
+app.get("/status", async (_req, res) => {
+  const stats = getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES });
+  const snap = statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() });
+  htmlCache(res, 60, 300).send(statusPage(BASE_URL, stats, snap));
+});
+app.get("/api/status", async (_req, res) => {
+  res.set("Cache-Control", "public, max-age=60").json(statusSnapshot({ baseUrl: BASE_URL, live: await statusLive() }));
+});
+// Probe intake. Operator-authed because it writes the record that /status is
+// built from — an open endpoint would let anyone forge our uptime history.
+app.post("/api/status/probe", express.json({ limit: "256kb" }), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const body = req.body || {};
+  const rows = [];
+  const push = (component, ok, detail, ts, url) => {
+    const t = Number(ts ?? body.ts ?? Date.now());
+    if (!Number.isFinite(t) || !component) return;
+    rows.push({ ts: t, source: String(body.source || "heartbeat"), component: String(component), ok: !!ok, detail: detail || null, url: url || body.url || null });
+  };
+  if (Array.isArray(body.probes)) {
+    for (const p of body.probes.slice(0, 5000)) push(p.component, p.ok, p.detail, p.ts, p.url);
+  } else if (body.components && typeof body.components === "object") {
+    for (const [k, v] of Object.entries(body.components)) {
+      const ok = typeof v === "object" ? !!v.ok : !!v;
+      push(k, ok, typeof v === "object" ? v.detail : null, body.ts, body.url);
+    }
+  }
+  const written = recordProbes(rows);
+  res.json({ ok: true, received: rows.length, written });
+});
 app.get("/tollbooth", (_req, res) => htmlCache(res, 300, 900).send(tollboothLandingPage(BASE_URL)));
 app.get("/tollbooth/cloud", (_req, res) => htmlCache(res, 300, 900).send(tollboothCloudPage(BASE_URL)));
 app.get("/tollbooth/waitlist", (req, res) => {
