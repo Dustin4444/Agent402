@@ -280,8 +280,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     </div>
   </section>
 
-  <!-- SETTLEMENT TAPE -->
-
   <!-- SELL BAND -->
   <section id="sell" style="max-width:1180px;margin:0 auto;padding:78px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /sell</div>
