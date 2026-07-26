@@ -25,19 +25,35 @@ const page = (results, extra = {}) =>
     { total: results.length, matched: results.length, offset: 0, limit: 100, described: results.filter((r) => r.described).length, results, ...extra },
     [{ category: "data", count: 1 }], {});
 
-// ── The disclaimers are the product. Their absence is a defect. ─────────────
+// ── Disclaimers, scoped by provenance ───────────────────────────────────────
+// The page mixes our tools with other people's, so a BLANKET disclaimer would
+// now be a lie in both directions: "we do not test any of this" is false for
+// our rows, and "tested on every deploy" is false for everyone else's. The
+// wording has to attach to the badge, not the page.
 {
-  const html = page([tool()]);
+  const html = page([tool({ ours: true, sellerName: "Agent402", slug: "hash" }), tool()]);
   const must = [
-    "not our tools",
-    "do not operate, host, or test",
-    "written by the sellers",
-    "directly to the seller",
-    "not endorsement",
-    "untrusted",
+    "do not operate, host, or test",   // third-party rows
+    "written by the seller",           // third-party metadata is theirs
+    "directly to the seller",          // non-custodial
+    "not endorsement",                 // listing != review
+    "untrusted",                       // prompt-injection warning
+    "applies only to these rows",      // the scoping itself
   ];
   for (const phrase of must) check(`states: "${phrase}"`, html.toLowerCase().includes(phrase.toLowerCase()));
-  check("points back at our own catalog for contrast", html.includes('href="/tools"'));
+  check("claims the guarantee for OUR rows specifically", /build, host and stand behind/i.test(html));
+  check("offers a way back to our own catalog", html.includes('href="/tools"'));
+  check("does NOT disclaim everything as third-party", !/we do not operate, host, or test any endpoint on this page/i.test(html));
+}
+
+// ── Provenance is visible without reading ───────────────────────────────────
+{
+  const html = page([tool({ ours: true, sellerName: "Agent402", slug: "hash" }), tool({ sellerName: "Someone Else" })]);
+  check("our row carries an OURS badge", /ix-badge ours/.test(html));
+  check("their row carries a third-party badge", /ix-badge third/.test(html));
+  check("our row is visually marked", /class="is-ours"/.test(html));
+  check("our row links to our own tool page, not an outbound link", html.includes('href="/tools/hash"'));
+  check("our row is NOT nofollowed like a third party", !/href="\/tools\/hash"[^>]*nofollow/.test(html));
 }
 
 // ── Undescribed rows are shown and labelled, never silently dropped ─────────

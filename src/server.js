@@ -2208,19 +2208,43 @@ app.get("/api/market/:chain/panel", async (req, res) => {
 // page leads with what we do and do not stand behind — see src/index-tools-page.js.
 // Paginated rather than one page per tool: ~56k thin pages of other people's
 // copy would be a liability to the domain that ranks for our own catalog.
+// Our own catalog, shaped like an index row so ours and everyone else's can sit
+// in one table with provenance on each. Built per request from CATALOG (cheap,
+// ~500 entries) so it can never drift from what we actually serve.
+function ourToolsAsIndexRows() {
+  return toolList(CATALOG).map((t) => ({
+    ours: true,
+    seller: BASE_URL,
+    sellerName: "Agent402",
+    slug: t.slug,
+    name: t.name || t.slug,
+    route: t.path,
+    method: t.method,
+    url: `${BASE_URL}${t.path}`,
+    description: String(t.description || "").trim(),
+    described: String(t.description || "").trim().length >= 12,
+    category: t.category || "other",
+    tags: Array.isArray(t.tags) ? t.tags.slice(0, 6) : [],
+    priceUsd: parseFloat(String(t.price ?? "").replace(/[^0-9.]/g, "")) || null,
+    networks: enabledNetworks(NETWORK),
+  }));
+}
 app.get("/marketplace/tools", (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const search = String(req.query.q || req.query.search || "").slice(0, 120);
   const category = String(req.query.category || "").slice(0, 60);
+  const source = String(req.query.source || "").slice(0, 20);
   const data = allIndexedTools({
     search,
     category,
+    source,
     network: String(req.query.network || "").slice(0, 40),
     offset: (page - 1) * INDEX_TOOLS_PAGE_SIZE,
     limit: INDEX_TOOLS_PAGE_SIZE,
     excludeOrigin: BASE_URL,
+    ourTools: ourToolsAsIndexRows(),
   });
-  htmlCache(res, 300, 900).send(indexToolsPage(BASE_URL, data, indexedToolCategories(BASE_URL), { search, category, page }));
+  htmlCache(res, 300, 900).send(indexToolsPage(BASE_URL, data, indexedToolCategories(BASE_URL), { search, category, source, page }));
 });
 // Machine-readable twin. Free, like every other discovery surface here.
 app.get("/api/index/tools", (req, res) => {
@@ -2228,9 +2252,11 @@ app.get("/api/index/tools", (req, res) => {
     search: String(req.query.q || req.query.search || "").slice(0, 120),
     category: String(req.query.category || "").slice(0, 60),
     network: String(req.query.network || "").slice(0, 40),
+    source: String(req.query.source || "").slice(0, 20),
     offset: req.query.offset,
     limit: req.query.limit,
     excludeOrigin: BASE_URL,
+    ourTools: ourToolsAsIndexRows(),
   });
   res.set("Cache-Control", "public, max-age=300").json({
     spec: "x402-index/tools/1",

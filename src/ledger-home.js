@@ -263,6 +263,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;">An open index and Smart Order Router, ranked by <strong style="color:var(--on-dark2);font-weight:700;">real on-chain USDC volume</strong>. Route a task across every x402 seller, not just ours.</p>
           <div style="display:flex;gap:20px;flex-wrap:wrap;font-family:var(--font-mono);font-size:13px;">
             <a href="/marketplace" style="color:var(--accent);text-decoration:none;">Explore the marketplace →</a>
+            <a href="/marketplace/tools" style="color:var(--accent);text-decoration:none;margin-left:18px;">Every tool indexed, ours and theirs →</a>
           </div>
         </div>
         <div style="border:1.5px solid var(--dark-border2);background:var(--ink-panel);">

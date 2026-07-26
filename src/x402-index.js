@@ -1862,14 +1862,26 @@ export function _cacheForTests() {
  * reachable — the same bar /api/index/register enforces on the way in, so the
  * catalog cannot advertise something registration would have refused.
  */
-export function allIndexedTools({ search = "", category = "", network = "", offset = 0, limit = 100, excludeOrigin = "" } = {}) {
-  const rows = flattenedThirdPartyTools(excludeOrigin);
+export function allIndexedTools({ search = "", category = "", network = "", offset = 0, limit = 100, excludeOrigin = "", ourTools = [], source = "" } = {}) {
+  // One index of the whole ecosystem WITH provenance on every row. Ours are
+  // NOT floated to the top: 515 of them would fill the first six pages and bury
+  // the third-party index this page exists to show, which would read as a
+  // directory that is mostly an advert. Provenance is carried by the badge and
+  // the row tint instead, and anyone who wants only ours has the source filter
+  // and /tools. Described rows lead, because a row with no description cannot
+  // help anyone choose. `excludeOrigin` still drops our crawled self-listing
+  // (we publish to the Bazaar, so the crawler finds us) so ours appear exactly
+  // once, from the authoritative catalog rather than a stale crawl of it.
+  const rows = interleaveBySeller([...ourTools, ...flattenedThirdPartyTools(excludeOrigin)]);
   const q = String(search || "").trim().toLowerCase();
   const terms = q ? q.split(/[^a-z0-9]+/).filter(Boolean).slice(0, 8) : [];
   const cat = String(category || "").trim().toLowerCase();
   const net = String(network || "").trim().toLowerCase();
 
+  const src = String(source || "").trim().toLowerCase();
   const filtered = rows.filter((t) => {
+    if (src === "ours" && !t.ours) return false;
+    if (src === "third-party" && t.ours) return false;
     if (cat && String(t.category || "").toLowerCase() !== cat) return false;
     if (net && !(t.networks || []).some((n) => String(n).toLowerCase().includes(net))) return false;
     if (!terms.length) return true;
@@ -1881,12 +1893,49 @@ export function allIndexedTools({ search = "", category = "", network = "", offs
   const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
   return {
     total: rows.length,
+    ours: rows.filter((t) => t.ours).length,
+    thirdParty: rows.filter((t) => !t.ours).length,
     matched: filtered.length,
     offset: off,
     limit: lim,
     described: filtered.filter((t) => t.described).length,
     results: filtered.slice(off, off + lim),
   };
+}
+
+/** Round-robin the rows across sellers, described first.
+ *
+ *  A directory sorted by seller name shows one seller's entire catalog before
+ *  the next one starts, which for us meant our own 500-odd tools filling the
+ *  first six pages of a page titled "Every tool, indexed" — accurate row by row
+ *  and misleading as a whole. Interleaving means page one is ~100 different
+ *  sellers rather than one, ours included and badged. Deterministic, so the
+ *  pagination stays stable and cacheable.
+ *
+ *  Described rows lead: a row with no description cannot help anyone choose,
+ *  so those sink rather than being hidden. */
+function interleaveBySeller(rows) {
+  const pass = (subset) => {
+    const bySeller = new Map();
+    for (const r of subset) {
+      const k = r.sellerName || r.seller;
+      if (!bySeller.has(k)) bySeller.set(k, []);
+      bySeller.get(k).push(r);
+    }
+    const groups = [...bySeller.entries()]
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+      .map(([, list]) => list.sort((a, b) => String(a.route).localeCompare(String(b.route))));
+    const out = [];
+    for (let i = 0; out.length < subset.length; i++) {
+      let moved = false;
+      for (const g of groups) {
+        if (i < g.length) { out.push(g[i]); moved = true; }
+      }
+      if (!moved) break; // defensive: never spin if a group shrinks underneath us
+    }
+    return out;
+  };
+  return [...pass(rows.filter((r) => r.described)), ...pass(rows.filter((r) => !r.described))];
 }
 
 let flatCache = { at: 0, rows: [], self: "" };
@@ -1918,6 +1967,7 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
       seen.add(key);
       const description = String(t?.description || "").trim();
       out.push({
+        ours: false,
         seller: origin,
         sellerName,
         name: String(t?.name || route),

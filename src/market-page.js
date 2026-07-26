@@ -520,6 +520,7 @@ export function chainSwitcherStrip(activeChainKey) {
 <div style="border-bottom:1.5px solid var(--ink);background:var(--card);">
   <div style="max-width:1080px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;">
     <a href="/marketplace" style="text-decoration:none;color:${allActive ? "var(--ink)" : "var(--faint)"};font-weight:${allActive ? 700 : 400};letter-spacing:.08em;border-bottom:2px solid ${allActive ? "var(--accent)" : "transparent"};padding-bottom:2px;">MARKETPLACE</a>
+    <a href="/marketplace/tools" style="text-decoration:none;color:var(--faint);letter-spacing:.08em;border-bottom:2px solid transparent;padding-bottom:2px;">EVERY TOOL INDEXED</a>
     <span style="color:var(--faint);">/</span>
     ${chainKeys.map((k) => {
       const active = k === activeChainKey;
