@@ -1,7 +1,7 @@
 import { RAILS_AMP, RAILS_OS, RAILS_TICKER } from "./rails.js";
 // Machine Ledger design system — shared chrome for the Agent402 marketing site.
-// Exports the status line, nav, footers (full + compact), settlement tape,
-// design-token CSS, and a ledgerShell() wrapper that composes a full HTML page.
+// Exports the status line, nav, footers (full + compact), design-token CSS,
+// and a ledgerShell() wrapper that composes a full HTML page.
 //
 // Pages import ledgerShell() and one of the footer functions, then pass their
 // body HTML to get a complete document with SEO metadata and shared chrome.
@@ -66,7 +66,6 @@ html { overflow-x: clip; }
   --footer-bg: #F2F2F0;
   --ink: #0B0B0B;
   --ink-panel: #151515;
-  --ink-tape: #0B0B0B;
   --muted: #4A4A4A;
   --faint: #6A6A6A;
   --hairline: #E0E0DE;
@@ -112,7 +111,6 @@ html { overflow-x: clip; }
   --surface: #17171A;
   --on-dark: #F4F4F2;
   --on-dark2: #CFCFCB;
-  --ink-tape: #050506;
   --ink-panel: #171719;
 }
 :root { color-scheme: light; }
@@ -158,7 +156,6 @@ a { color: inherit; }
 
 /* --- keyframes --- */
 @keyframes ml-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
-@keyframes ml-tape  { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 
 /* --- responsive --- */
 @media (max-width: 900px) {
@@ -422,11 +419,21 @@ function mobileMenuHtml(chainInfo, activePath) {
       ${mmLink("/what-is-x402", "what is x402/MPP", activePath === "/what-is-x402")}
       ${mmLink("/docs", "docs", activePath === "/docs")}
       <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
-      ${mmLink("/docs", "ADD TO CLAUDE →", false, " ml-mm-cta")}
+      ${activePath === "" ? "" : mmLink("/docs#add", "ADD TO CLAUDE →", false, " ml-mm-cta")}
     </div>
   </div>`;
 }
 
+// The "ADD TO CLAUDE" nav CTA points at /docs#add — the "Three ways in"
+// section with the actual connector instructions — not /docs. A button whose
+// label names an action must not land the reader at the top of a long
+// reference page to go hunting for it.
+//
+// It is also suppressed on the homepage (activePath === ""), where the hero
+// carries the identical button: nav + hero were both on screen at first paint,
+// same label, same destination, so home was showing the same CTA three times
+// counting the closing band. Interior pages keep it — there it is the only
+// call to action on the page.
 function nav(activePath) {
   const chainInfo = chainRows();
   const groupHrefs = {
@@ -463,7 +470,7 @@ function nav(activePath) {
         <svg class="ml-moon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         <svg class="ml-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
       </button>
-      <a class="ml-nav-cta" href="/docs" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>
+      ${activePath === "" ? "" : `<a class="ml-nav-cta" href="/docs#add" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>`}
       <button type="button" onclick="a402ToggleMenu()" class="ml-burger" aria-label="Open menu" aria-expanded="false">
         <svg class="ml-burger-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
         <svg class="ml-burger-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -549,19 +556,16 @@ function agoStr(iso) {
   return `${(s / 86400) | 0}d`;
 }
 
-export function ledgerTape(recentCalls) {
-  if (!recentCalls || !recentCalls.length) return "";
-  const items = recentCalls.slice(0, 12);
-  const chip = (r) =>
-    `<span>${esc(r.slug)} · <span style="color:#EDEDEB;">${r.paidWith === "proof-of-work" ? "PoW" : "$USDC"}</span> · ${agoStr(r.at)}</span>`;
-  const track = items.map(chip).join("");
-  return `<div style="background:var(--ink-tape);--accent:var(--accent-lit);border-bottom:1.5px solid var(--ink);overflow:hidden;display:flex;align-items:center;">
-  <div style="flex:none;padding:11px 18px;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--accent);border-right:1px solid var(--dark-border);">●●● TAPE</div>
-  <div style="overflow:hidden;flex:1;">
-    <div style="display:flex;gap:30px;width:max-content;animation:ml-tape 40s linear infinite;font-family:var(--font-mono);font-size:12px;color:var(--dk-muted);padding:11px 18px;white-space:nowrap;">${track}${track}</div>
-  </div>
-</div>`;
-}
+// The scrolling "●●● TAPE" band of recent calls was REMOVED 2026-07-25. It was
+// the homepage's only live-proof element and it argued against the page: on a
+// site headlined "where agents pay agents", the tape showed 23 of 25 calls on
+// the free proof-of-work rail, one of them our own heartbeat probe, across just
+// five trivial tools (base64, hash, unit-convert, timezone-convert). Real
+// revenue at the same moment — transcribe, search, the skill packs — never
+// appeared, because the feed was ordered by recency and the cheap free calls
+// dominate by volume. A proof band that quietly contradicts the headline is
+// worse than none. The cumulative "N calls settled to date" counter in the hero
+// stays; it is a real number that does not misrepresent the mix.
 
 // ---------------------------------------------------------------------------
 // Full HTML document shell
