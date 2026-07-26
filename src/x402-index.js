@@ -488,15 +488,52 @@ export function bazaarItemToTool(item, originUrl) {
 
 // Exported for the offline crawler contract test. Keeping this pure makes the
 // exact OpenAPI -> index row mapping testable without network I/O.
+/** The path prefix an OpenAPI document's `paths` are relative to.
+ *
+ *  OpenAPI paths are relative to `servers[].url`, so a document declaring
+ *  server `https://host/api` and path `/foo` describes the endpoint
+ *  `https://host/api/foo`. We ignored this, recorded the route as `/foo`, and
+ *  then failed to match it against the real `/api/foo` that Bazaar/PayAI
+ *  discovery reports — so mergeOpenapiIntoBazaar never fired and the seller's
+ *  summary, description and tags were dropped. Their tools stayed in the index
+ *  with an empty description and the raw path as their name, which the Smart
+ *  Order Router can only rank on path tokens. Found via Cloud World Model,
+ *  whose 106 endpoints were invisible to every semantic query (2026-07-26).
+ *
+ *  Prefers a server whose origin matches the seller we are indexing; falls back
+ *  to the first usable entry. Relative server URLs ("/api") are honoured too. */
+export function openapiBasePath(openapi, originUrl) {
+  const servers = Array.isArray(openapi?.servers) ? openapi.servers : [];
+  let origin = null;
+  try { origin = new URL(originUrl).origin; } catch { /* originUrl may be a bare host */ }
+  const candidates = servers.map((s) => (typeof s === "string" ? s : s?.url)).filter((u) => typeof u === "string" && u);
+  const pick =
+    (origin && candidates.find((u) => { try { return new URL(u).origin === origin; } catch { return false; } })) ||
+    candidates.find((u) => u.startsWith("/")) ||
+    candidates[0];
+  if (!pick) return "";
+  let path;
+  try { path = new URL(pick, origin || "https://x.invalid").pathname; } catch { return ""; }
+  path = path.replace(/\/+$/, "");
+  return path === "/" ? "" : path;
+}
+
 export function normaliseOpenapiTools(openapi, originUrl) {
   if (!openapi || typeof openapi !== "object" || !openapi.paths) return [];
+  const base = openapiBasePath(openapi, originUrl);
   const out = [];
-  for (const [pathStr, methods] of Object.entries(openapi.paths)) {
+  for (const [rawPath, methods] of Object.entries(openapi.paths)) {
+    // Apply the basePath unless the document already spells it out (some specs
+    // repeat the prefix in every path even though servers declares it).
+    const pathStr = base && !rawPath.startsWith(base + "/") && rawPath !== base ? base + rawPath : rawPath;
     for (const [method, op] of Object.entries(methods || {})) {
       if (!op || typeof op !== "object") continue;
       // Heuristics: openapi entries that look like a paid tool route.
-      // Skip pure discovery surfaces.
-      if (/^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)/.test(pathStr)) continue;
+      // Skip pure discovery surfaces. Tested against BOTH the declared path and
+      // the basePath-prefixed one: a spec with servers "/api" declares its
+      // health check as "/health", which only the raw form matches.
+      if (/^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)/.test(rawPath) ||
+          /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)/.test(pathStr)) continue;
       const tags = Array.isArray(op.tags) ? op.tags : [];
       out.push({
         seller: originUrl,
