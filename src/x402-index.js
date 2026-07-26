@@ -1839,3 +1839,110 @@ ${ledgerFooterCompact()}`;
 export function _cacheForTests() {
   return cache;
 }
+
+// ---------------------------------------------------------------------------
+// Third-party tool catalog (/marketplace/tools)
+// ---------------------------------------------------------------------------
+
+/**
+ * Every tool the crawler holds for a THIRD-PARTY seller, flattened for browsing.
+ *
+ * These are not our tools and carry none of our guarantees. Our own catalog is
+ * tested against each tool's documented example on every deploy and priced by
+ * us; these are endpoints other people operate, described in their own words.
+ * `described` is surfaced per row rather than filtered on, because roughly two
+ * thirds of the ecosystem publishes no description at all (PayAI's discovery
+ * records carry only a URL, method and price) and hiding them would misrepresent
+ * how much of the index is actually legible.
+ *
+ * Every string here is seller-supplied and therefore untrusted: render it as
+ * escaped text, never as markup, and never as instructions to an agent.
+ *
+ * Sellers are limited to https origins that the crawler currently scores as
+ * reachable — the same bar /api/index/register enforces on the way in, so the
+ * catalog cannot advertise something registration would have refused.
+ */
+export function allIndexedTools({ search = "", category = "", network = "", offset = 0, limit = 100, excludeOrigin = "" } = {}) {
+  const rows = flattenedThirdPartyTools(excludeOrigin);
+  const q = String(search || "").trim().toLowerCase();
+  const terms = q ? q.split(/[^a-z0-9]+/).filter(Boolean).slice(0, 8) : [];
+  const cat = String(category || "").trim().toLowerCase();
+  const net = String(network || "").trim().toLowerCase();
+
+  const filtered = rows.filter((t) => {
+    if (cat && String(t.category || "").toLowerCase() !== cat) return false;
+    if (net && !(t.networks || []).some((n) => String(n).toLowerCase().includes(net))) return false;
+    if (!terms.length) return true;
+    const hay = `${t.name} ${t.description} ${t.route} ${t.sellerName} ${(t.tags || []).join(" ")}`.toLowerCase();
+    return terms.every((term) => hay.includes(term));
+  });
+
+  const off = Math.max(0, parseInt(offset, 10) || 0);
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 100, 1), 500);
+  return {
+    total: rows.length,
+    matched: filtered.length,
+    offset: off,
+    limit: lim,
+    described: filtered.filter((t) => t.described).length,
+    results: filtered.slice(off, off + lim),
+  };
+}
+
+let flatCache = { at: 0, rows: [], self: "" };
+const FLAT_TTL_MS = 60_000;
+
+/** Flatten + dedupe the crawler's per-seller tool arrays. Cached for a minute:
+ *  the catalog is a read-heavy page and the underlying crawl moves on the order
+ *  of minutes, so rebuilding per request would be pure waste. */
+function flattenedThirdPartyTools(excludeOrigin = "") {
+  // We publish our own routes to the Bazaar, so the crawler discovers
+  // agent402.tools as just another seller and our tools would otherwise appear
+  // in a catalog whose entire premise is "these are NOT ours". Keyed on the
+  // caller-supplied origin because the index module has no BASE_URL of its own.
+  const self = String(excludeOrigin || "").replace(/\/+$/, "").toLowerCase();
+  if (flatCache.self !== self) flatCache = { at: 0, rows: [], self };
+  if (Date.now() - flatCache.at < FLAT_TTL_MS && flatCache.rows.length) return flatCache.rows;
+  const out = [];
+  const seen = new Set();
+  for (const [origin, v] of cache.entries()) {
+    if (!origin.startsWith("https:")) continue; // same bar as /api/index/register
+    if (self && origin.replace(/\/+$/, "").toLowerCase() === self) continue;
+    if (v?.error) continue;
+    if (healthScore(v) <= 0) continue;
+    const sellerName = v?.manifest?.name || origin.replace(/^https?:\/\//, "");
+    for (const t of v?.tools || []) {
+      const route = t?.route || "/";
+      const key = `${t?.method || "POST"} ${origin}${route}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const description = String(t?.description || "").trim();
+      out.push({
+        seller: origin,
+        sellerName,
+        name: String(t?.name || route),
+        route,
+        method: t?.method || "POST",
+        url: origin + route,
+        description,
+        described: description.length >= 12,
+        category: t?.category || "other",
+        tags: Array.isArray(t?.tags) ? t.tags.slice(0, 6) : [],
+        priceUsd: typeof t?.price === "number" ? t.price : null,
+        networks: Array.isArray(t?.networks) ? t.networks : [],
+      });
+    }
+  }
+  out.sort((a, b) => (b.described - a.described) || a.sellerName.localeCompare(b.sellerName) || a.route.localeCompare(b.route));
+  flatCache = { at: Date.now(), rows: out, self };
+  return out;
+}
+
+/** Category rollup for the catalog's filter chips. */
+export function indexedToolCategories(excludeOrigin = "") {
+  const counts = new Map();
+  for (const t of flattenedThirdPartyTools(excludeOrigin)) counts.set(t.category, (counts.get(t.category) || 0) + 1);
+  return [...counts.entries()].map(([category, count]) => ({ category, count })).sort((a, b) => b.count - a.count);
+}
+
+export function _resetFlatCacheForTest() { flatCache = { at: 0, rows: [], self: "" }; }

@@ -53,6 +53,10 @@ export function sitemapXml(baseUrl, catalog) {
     // Unified marketplace surface (the old /index and /marketplaces 301 here —
     // a sitemap must never list URLs that redirect).
     { loc: `${baseUrl}/marketplace`, priority: "0.9" },
+    // Third-party tool index. Listed at a lower priority than our own catalog
+    // on purpose: it is other people's endpoints reproduced with their own
+    // descriptions, so it should never outrank the tools we actually operate.
+    { loc: `${baseUrl}/marketplace/tools`, priority: "0.6" },
     { loc: `${baseUrl}/api/index`, priority: "0.6" },
     { loc: `${baseUrl}/sell`, priority: "0.8" },
     { loc: `${baseUrl}/api/route`, priority: "0.7" },
@@ -131,6 +135,10 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/faq`, priority: "0.8" },
     // Unified marketplace surface (the old /index and /marketplaces 301 here).
     { loc: `${baseUrl}/marketplace`, priority: "0.9" },
+    // Third-party tool index. Listed at a lower priority than our own catalog
+    // on purpose: it is other people's endpoints reproduced with their own
+    // descriptions, so it should never outrank the tools we actually operate.
+    { loc: `${baseUrl}/marketplace/tools`, priority: "0.6" },
     { loc: `${baseUrl}/sell`, priority: "0.8" },
     { loc: `${baseUrl}/leaderboard`, priority: "0.8" },
     { loc: `${baseUrl}/docs`, priority: "0.8" },
