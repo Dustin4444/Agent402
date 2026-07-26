@@ -2521,6 +2521,11 @@ const parseRetiredConvertPath = (path) => {
 // count is untouched and the boot-time shadow guard above still applies.
 const RETIRED_CONVERT_API_RE = /^\/api\/convert-[a-z0-9-]+-to-[a-z0-9-]+$/;
 
+// The retired converters perform exactly this tool's work, so they quote its
+// price and redeem its proof-of-work challenges. One constant keeps the price
+// entry, the PoW slug and the 402's replacement pointer from drifting apart.
+const RETIRED_CONVERT_POW_SLUG = "unit-convert";
+
 /** Either retired shape: "/api/convert-x-to-y" (slug) or "/api/convert/x-to-y"
  *  (the shape the live routes actually had). Defined here so the pre-paywall
  *  gate and the route registrations can never drift apart — covering only one
@@ -3021,6 +3026,30 @@ if (FREE_MODE) {
   // calling next(), so the post-paywall tally middleware never sees them.
   // Rolled up in-memory (src/posthog.js) — registry crawlers sweep every
   // endpoint, so per-request events would swamp the budget.
+  // Retired converters: same free-tier hint as any PoW-eligible tool, plus a
+  // pointer to the survivor. Without this their 402 body was a bare `{}` — no
+  // free tier, no replacement, nothing for an unfunded agent to act on, which
+  // is strictly worse than the teaching 410 they used to get.
+  app.use((req, res, next) => {
+    if (!isRetiredConvertPath(req.path)) return next();
+    const origJson = res.json.bind(res);
+    res.json = (body) => {
+      if (res.statusCode === 402 && body && typeof body === "object" && !Array.isArray(body) && !body.altPayment) {
+        body.altPayment = {
+          protocol: "proof-of-work",
+          summary: "No wallet? This retired converter is also payable with a few ms of CPU: solve a sha256 puzzle instead - no money, no tokens.",
+          challengeUrl: `${BASE_URL}/api/pow/challenge?slug=${RETIRED_CONVERT_POW_SLUG}`,
+          info: `${BASE_URL}/api/pow`,
+        };
+        body.replacement = {
+          route: `POST /api/${RETIRED_CONVERT_POW_SLUG}`,
+          note: "This pairwise route is retired but still served. The replacement takes { value, from, to } for every pair at the same price.",
+        };
+      }
+      return origJson(body);
+    };
+    next();
+  });
   app.use((req, res, next) => {
     const def = CATALOG[`${req.method} ${req.path}`];
     if (def) {
@@ -3137,7 +3166,15 @@ if (FREE_MODE) {
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
   // on /mcp could keep hammering /api/* with fresh PoW solutions for free.
   app.use((req, res, next) => {
-    const slug = POW_ROUTES.get(`${req.method} ${req.path}`);
+    // Retired converters aren't catalog routes, so POW_ROUTES can't know them —
+    // which briefly made them the only paid paths on the site with NO free
+    // tier, while unit-convert (the identical work, same engine, same table)
+    // kept offering one. They redeem against the unit-convert slug because
+    // that is literally the tool being performed; verifySolution is
+    // slug-scoped, so a challenge minted for unit-convert is the right one.
+    const slug =
+      POW_ROUTES.get(`${req.method} ${req.path}`) ??
+      (isRetiredConvertPath(req.path) ? RETIRED_CONVERT_POW_SLUG : undefined);
     if (slug) {
       const solution = req.header("x-pow-solution");
       if (solution) {
