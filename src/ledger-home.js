@@ -1,8 +1,8 @@
 // Machine Ledger — Home page ("Agent402 Ledger")
 // The primary marketing page: hero, skill packs, three ways in, catalog index,
-// leaderboard preview, settlement tape, sell band, proof, FAQ (accordions), CTA, footer.
+// leaderboard preview, sell band, proof, FAQ (accordions), CTA, footer.
 
-import { ledgerShell, ledgerFooterFull, ledgerTape, esc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterFull, esc } from "./ledger-chrome.js";
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable } from "./pow.js";
 import { RAILS, RAILS_AMP, RAILS_SHORT } from "./rails.js";
@@ -26,7 +26,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const toolOnlyCount = tools.filter((t) => t.category !== "skill-pack").length;
   const freeCount = tools.filter(isComputePayable).length;
   const served = stats?.toolCallsServed;
-  const recent = Array.isArray(stats?.recentCalls) ? stats.recentCalls : [];
   const board = Array.isArray(leaderboardSnapshot?.leaderboard) ? leaderboardSnapshot.leaderboard : [];
   const packCount = Array.isArray(skillPacks) ? skillPacks.length : 42;
 
@@ -141,7 +140,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
             ${[[fmtNum(count),"tools"],[String(packCount),"skill packs"],[fmtNum(freeCount),"free · pow"],['<span style="color:var(--accent);">$</span>0.001',"per call"],[String(RAILS.length),"chains"]].map(([n,l])=>`<div class="ml-spec-cell" style="flex:1 1 auto;padding:11px 16px 10px 0;margin-right:16px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:19px;line-height:1;font-variant-numeric:tabular-nums;">${n}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px;">${l}</div></div>`).join("")}
           </div>
           <div style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;margin-bottom:18px;">
-            <a class="ml-cta" href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;box-shadow:4px 4px 0 #0b0b0b22;">ADD TO CLAUDE →</a>
+            <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;box-shadow:4px 4px 0 #0b0b0b22;">ADD TO CLAUDE →</a>
             <a class="ml-cta" href="/tools" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE THE CATALOG</a>
           </div>
           <div style="display:flex;align-items:center;gap:9px;font-family:var(--font-mono);font-size:13px;color:var(--muted);">
@@ -282,7 +281,6 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </section>
 
   <!-- SETTLEMENT TAPE -->
-  ${ledgerTape(recent)}
 
   <!-- SELL BAND -->
   <section id="sell" style="max-width:1180px;margin:0 auto;padding:78px 30px 0;">
@@ -344,7 +342,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         <h2 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 14px;color:var(--on-dark2);">No signup. No API keys.<br>Just pay-per-call.</h2>
         <p style="font-size:16px;color:var(--dk-muted2);margin:0 0 26px;max-width:460px;">Add ${fmtNum(count)} tools to your agent in 60 seconds. Free tier, no wallet - settle in USDC when you scale.</p>
         <div style="display:flex;gap:11px;flex-wrap:wrap;">
-          <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">ADD TO CLAUDE →</a>
+          <a href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">ADD TO CLAUDE →</a>
           <a href="/docs" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">READ THE DOCS</a>
         </div>
       </div>
