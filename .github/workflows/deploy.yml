@@ -763,6 +763,9 @@ jobs:
       - name: Status page store (unobserved days are never uptime; stale is never operational — offline)
         run: node scripts/test-status-store.js
 
+      - name: Third-party catalog (disclaimers present, seller strings inert, links nofollowed — offline)
+        run: node scripts/test-index-tools-catalog.js
+
       - name: Pricing margin invariant (worst-case upstream < price on every gateway tier, failover links included; cap-before-spend; 410 tool_gone telemetry — offline)
         run: node scripts/test-pricing-margin.js
 
