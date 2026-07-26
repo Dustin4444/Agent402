@@ -41,9 +41,21 @@ export function whatIsX402Page(baseUrl) {
 .wx-receipt{border-top:1.5px dashed var(--dark-border2);margin:8px 18px 0;padding:10px 0 14px;font-size:12px;color:var(--dk-muted2);display:none}
 .wx-receipt.show{display:block}
 .wx-receipt b{color:var(--on-dark)}
-.wx-controls{display:flex;align-items:center;gap:10px;padding:0 18px 16px}
-.wx-btn{background:transparent;border:1.5px solid var(--cream);color:var(--on-dark);font-family:var(--font-mono);font-size:13px;padding:7px 18px;cursor:pointer}
+/* The step controls are click targets, never text. Without user-select:none the
+   demo painted a stray highlight band: stepping through means clicking the same
+   button four times, and at the last step the script sets next.disabled, so a
+   disabled button stops swallowing the click and the browser treats the repeat
+   as a multi-click TEXT selection - a triple-click there selects the RECEIPT
+   line. With ::selection set to #d63c1a33 site-wide, that lands as a maroon
+   band across the receipt on the dark theme, which reads as a rendering bug. */
+.wx-controls{display:flex;align-items:center;gap:10px;padding:0 18px 16px;-webkit-user-select:none;user-select:none}
+.wx-btn{background:transparent;border:1.5px solid var(--cream);color:var(--on-dark);font-family:var(--font-mono);font-size:13px;padding:7px 18px;cursor:pointer;-webkit-user-select:none;user-select:none}
 .wx-btn:hover{background:var(--cream);color:var(--ink)}
+/* At the last step the button becomes a status ("Done - that's the whole
+   protocol"), not an action. Keeping cursor:pointer on a disabled control
+   invites exactly the repeat-clicking that produced the stray highlight. */
+.wx-btn:disabled{cursor:default}
+.wx-btn.primary:disabled:hover{filter:none}
 .wx-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
 .wx-btn.primary:hover{filter:brightness(1.1)}
 .wx-dots{display:flex;gap:6px;margin-left:auto}
