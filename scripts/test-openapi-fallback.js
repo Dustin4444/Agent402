@@ -260,3 +260,68 @@ seed("https://md.example", bazaarTools);
 
 cache.clear();
 console.log("openapi-fallback tests passed");
+
+// ── servers[] basePath (regression, 2026-07-26) ──────────────────────────────
+// OpenAPI paths are relative to servers[].url. Ignoring that prefix meant a
+// seller declaring server ".../api" and path "/foo" was indexed as route "/foo"
+// while Bazaar/PayAI discovery reported the real "/api/foo" — so the merge
+// never matched and the seller's summary/description/tags were dropped. Their
+// tools sat in the index with an empty description and the raw path as a name,
+// which the Smart Order Router can only rank on path tokens. Found via Cloud
+// World Model: 106 endpoints, invisible to every semantic query.
+{
+  const { openapiBasePath } = await import("../src/x402-index.js");
+
+  const spec = {
+    openapi: "3.1.0",
+    servers: [
+      { url: "https://www.example.ai/api", description: "Production" },
+      { url: "http://localhost:5000/api", description: "Local development" },
+    ],
+    paths: {
+      "/multi-cloud/explore": {
+        post: {
+          summary: "Explore multi-cloud deployment strategies",
+          description: "Analyze a workload profile and generate optimized strategies.",
+          tags: ["Optimize & Predict"],
+        },
+      },
+      "/health": { get: { summary: "health" } },
+    },
+  };
+
+  const base = openapiBasePath(spec, "https://www.example.ai");
+  ok(base === "/api", `basePath should be /api, got ${base}`);
+
+  const tools = normaliseOpenapiTools(spec, "https://www.example.ai");
+  const explore = tools.find((t) => /multi-cloud/.test(t.route));
+  ok(explore, "explore route should be present");
+  ok(explore.route === "/api/multi-cloud/explore", `route should carry the basePath, got ${explore.route}`);
+  ok(explore.name === "Explore multi-cloud deployment strategies", "summary should become the name");
+  ok(/Analyze a workload profile/.test(explore.description), "description should survive");
+  ok(!tools.some((t) => /health/.test(t.route)), "health check must still be skipped under a basePath");
+
+  // The whole point: the merge must now match what discovery actually reports.
+  const fromDiscovery = [{
+    seller: "https://www.example.ai", method: "POST", route: "/api/multi-cloud/explore",
+    slug: "api-multi-cloud-explore", name: "/api/multi-cloud/explore", description: "", category: "other", tags: [],
+  }];
+  const merged = mergeOpenapiIntoBazaar(tools, fromDiscovery);
+  const m = merged.find((t) => t.route === "/api/multi-cloud/explore");
+  ok(m && /Analyze a workload profile/.test(m.description), "merged tool must inherit the OpenAPI description");
+  ok(m.name === "Explore multi-cloud deployment strategies", "merged tool must inherit the summary as its name");
+  ok(m.category === "Optimize & Predict", "merged tool must inherit the tag as its category");
+
+  // A spec that already repeats the prefix must not be double-prefixed.
+  const repeated = normaliseOpenapiTools(
+    { servers: [{ url: "https://www.example.ai/api" }], paths: { "/api/thing": { get: { summary: "t" } } } },
+    "https://www.example.ai",
+  );
+  ok(repeated[0].route === "/api/thing", `must not double-prefix, got ${repeated[0].route}`);
+
+  // No servers block = unchanged behaviour.
+  const noServers = normaliseOpenapiTools({ paths: { "/thing": { get: { summary: "t" } } } }, "https://www.example.ai");
+  ok(noServers[0].route === "/thing", "no servers => route unchanged");
+
+  console.log("ok - openapi servers[] basePath is applied, merged, and never double-prefixed");
+}
