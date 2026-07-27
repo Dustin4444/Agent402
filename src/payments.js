@@ -415,6 +415,23 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     }));
     console.log(`Celo: settling USDC (${CELO_USDC.asset}) via facilitator ${CELO_FACILITATOR_URL}`);
   }
+  // Solvador — settle-FALLBACK ONLY, deliberately NOT in facilitatorClients:
+  // adding it there would let it win primary routes (it advertises Base, which
+  // must stay on CDP for Bazaar indexing, and most of our other rails). Its
+  // value is redundancy: it is the only second facilitator that can settle
+  // Celo, Monad and Robinhood, our three single-facilitator rails. Env-gated on
+  // SOLVADOR_KEY (dashboard.solvador.com, pay-as-you-go: first 1,000
+  // settlements/month free, then $0.001 — a fallback-only client stays far
+  // inside the free tier). Used by registerFacilitatorFailureHooks below, and
+  // only when PAYMENT_SETTLE_FALLBACK is on.
+  let solvadorClient = null;
+  if (process.env.SOLVADOR_KEY) {
+    const solvadorAuth = { "X-API-Key": process.env.SOLVADOR_KEY };
+    solvadorClient = new HTTPFacilitatorClient({
+      url: process.env.SOLVADOR_FACILITATOR_URL || "https://api.solvador.com",
+      createAuthHeaders: async () => ({ verify: solvadorAuth, settle: solvadorAuth, supported: solvadorAuth }),
+    });
+  }
   let server = new x402ResourceServer(facilitatorClients)
     .registerExtension(bazaarResourceServerExtension)
     .registerExtension(builderCodeResourceServerExtension);
@@ -477,7 +494,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
         "in to ASA 31566704 (USDC), or settlement will fail on-chain even though the payment verifies."
     );
   }
-  registerFacilitatorFailureHooks(server, payAiClient);
+  registerFacilitatorFailureHooks(server, payAiClient, solvadorClient);
   registerWalletBlocklistHook(server);
   console.log(
     `Accepting USDC on: ${networks.join(", ")} (${caip2List.join(", ")})` +
@@ -661,14 +678,38 @@ function registerWalletBlocklistHook(server) {
  * the facilitator's actual reason (and correlationId/errorLink) in the server
  * log, turning that class of outage into a seconds-long diagnosis.
  *
- * PAYMENT_SETTLE_FALLBACK=true (default OFF) additionally re-settles through
- * PayAI when the primary facilitator rejects settlement BEFORE broadcasting
- * (an HTTP 402 billing gate) — never on a timeout/5xx, where the primary may
- * already have broadcast, so it cannot double-charge the buyer. Left off by
+ * PAYMENT_SETTLE_FALLBACK=true (default OFF) additionally re-settles through a
+ * fallback CHAIN — PayAI, then Solvador (when SOLVADOR_KEY is set) — when the
+ * primary facilitator rejects settlement BEFORE broadcasting (an HTTP 402
+ * billing gate). Never on a timeout/5xx, where the settler may already have
+ * broadcast; that rule applies between fallbacks too, so a PayAI timeout stops
+ * the chain rather than risking a double-charge via Solvador. PayAI is skipped
+ * on networks it cannot settle (Celo/Monad/Robinhood go straight to Solvador —
+ * the only second facilitator those single-facilitator rails have). Left off by
  * default so Base stays purely on CDP (Bazaar discovery + fee-free settlement)
  * unless the operator opts into never-miss-a-sale behavior.
  */
-function registerFacilitatorFailureHooks(server, payAiClient) {
+/** Networks PayAI can settle (from its live /supported, 2026-07-27). A fallback
+ *  attempt on a network the facilitator cannot settle is a guaranteed error —
+ *  worse than useless, because a network-level failure STOPS the fallback chain
+ *  (it is indistinguishable from "may have broadcast"). So PayAI is skipped
+ *  outright for networks it does not serve, sending Celo/Monad/Robinhood
+ *  straight to Solvador. Solvador gets no allowlist: it is always last, so a
+ *  wasted attempt there cannot mask a viable fallback behind it. */
+const PAYAI_SETTLE_NETWORKS = new Set([
+  "eip155:8453", "eip155:137", "eip155:42161", "eip155:43114",
+  "eip155:1329", "eip155:196", "eip155:1187947933", "eip155:324705682",
+  "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+]);
+
+export function fallbackCandidatesFor(network, payAiClient, solvadorClient) {
+  const out = [];
+  if (payAiClient && PAYAI_SETTLE_NETWORKS.has(network)) out.push({ name: "PayAI", client: payAiClient });
+  if (solvadorClient) out.push({ name: "Solvador", client: solvadorClient });
+  return out;
+}
+
+export function registerFacilitatorFailureHooks(server, payAiClient, solvadorClient = null) {
   server.onVerifyFailure((ctx) => {
     console.warn(
       `[payments] facilitator VERIFY failed on ${ctx?.requirements?.network} ` +
@@ -698,20 +739,30 @@ function registerFacilitatorFailureHooks(server, payAiClient) {
       `[payments] facilitator SETTLE failed on ${ctx?.requirements?.network} ` +
         `${ctx?.requirements?.scheme}: ${summarizeFacilitatorError(ctx?.error)}`
     );
-    if (!fallbackEnabled || !payAiClient) return;
+    if (!fallbackEnabled) return;
     if (!isPreBroadcastSettleRejection(ctx?.error)) return;
-    try {
-      const result = await payAiClient.settle(ctx.paymentPayload, ctx.requirements);
-      console.warn(
-        `[payments] recovered ${ctx?.requirements?.network} settlement via PayAI fallback ` +
-          "(PAYMENT_SETTLE_FALLBACK=true; primary rejected pre-broadcast)"
-      );
-      return { recovered: true, result };
-    } catch (err) {
-      console.warn(
-        `[payments] PayAI settle fallback ALSO failed on ${ctx?.requirements?.network}: ` +
-          summarizeFacilitatorError(err)
-      );
+    const candidates = fallbackCandidatesFor(ctx?.requirements?.network, payAiClient, solvadorClient);
+    for (const { name, client } of candidates) {
+      try {
+        const result = await client.settle(ctx.paymentPayload, ctx.requirements);
+        console.warn(
+          `[payments] recovered ${ctx?.requirements?.network} settlement via ${name} fallback ` +
+            "(PAYMENT_SETTLE_FALLBACK=true; primary rejected pre-broadcast)"
+        );
+        return { recovered: true, result };
+      } catch (err) {
+        console.warn(
+          `[payments] ${name} settle fallback ALSO failed on ${ctx?.requirements?.network}: ` +
+            summarizeFacilitatorError(err)
+        );
+        // The double-settle gate applies BETWEEN fallbacks exactly as it does
+        // after the primary: only a clean pre-broadcast rejection (HTTP 402
+        // class) proves this facilitator did not broadcast, so only that lets
+        // the chain continue to the next candidate. A timeout/5xx here may
+        // mean the transfer is already on-chain — trying anyone else could
+        // charge the buyer twice, so the chain STOPS.
+        if (!isPreBroadcastSettleRejection(err)) return;
+      }
     }
   });
 }
@@ -723,7 +774,7 @@ function registerFacilitatorFailureHooks(server, payAiClient) {
  * errors, timeouts, and 5xx are excluded — there the primary may already have
  * broadcast, so re-settling could double-charge the buyer.
  */
-function isPreBroadcastSettleRejection(err) {
+export function isPreBroadcastSettleRejection(err) {
   if (!err) return false;
   if (err.status === 402) return true;
   const msg = String(err.message || "");

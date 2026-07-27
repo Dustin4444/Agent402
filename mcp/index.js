@@ -21,6 +21,7 @@
 //   AGENT402_NETWORKS     restrict + order the chains to pay on (e.g. "robinhood" for USDG on
 //                         Robinhood Chain, "base,solana", or a raw CAIP-2 like eip155:4663) — optional
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { parseNetworkPrefs, withNetworkPreference } from "./networks.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -38,7 +39,10 @@ const AGENT_KEY = process.env.AGENT_KEY || "";
 // settle on whichever chain the seller offers (EVM accepts are tried first).
 const SOLANA_AGENT_KEY = process.env.SOLANA_AGENT_KEY || "";
 const HAS_WALLET = Boolean(AGENT_KEY || SOLANA_AGENT_KEY);
-const VERSION = "0.11.5";
+// Version comes from package.json — the serverInfo self-report drifted from
+// the published version once (0.11.5 vs 0.12.1) because this was a hardcoded
+// string bumped by hand. Reading the manifest makes drift impossible.
+const VERSION = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
 
 // Spend controls — enforced BEFORE a payment is ever signed, so a confused or
 // runaway model cannot drain the wallet. Unset = unlimited (back-compat).
