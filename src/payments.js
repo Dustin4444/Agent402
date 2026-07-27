@@ -734,6 +734,12 @@ export function registerFacilitatorFailureHooks(server, payAiClient, solvadorCli
   });
 
   const fallbackEnabled = /^(1|true|yes|on)$/i.test((process.env.PAYMENT_SETTLE_FALLBACK || "").trim());
+  if (fallbackEnabled) {
+    console.log(
+      `Settle fallback: ON — chain ${payAiClient ? "PayAI → " : ""}${solvadorClient ? "Solvador" : payAiClient ? "(PayAI only)" : "(no candidates!)"}` +
+        "; fires ONLY on facilitator-thrown pre-broadcast rejections (HTTP 402 class), never on buyer-side or ambiguous failures"
+    );
+  }
   server.onSettleFailure(async (ctx) => {
     console.warn(
       `[payments] facilitator SETTLE failed on ${ctx?.requirements?.network} ` +
