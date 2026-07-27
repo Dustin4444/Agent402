@@ -44,10 +44,7 @@ const EVM_NETWORKS = {
   // multi-chain mode, so routing is automatic; assets + EIP-712 domains
   // verified on-chain, see TIER1_USDC). OPT-IN via PAYMENT_NETWORKS.
   avalanche: "eip155:43114",
-  // Sei (1329) and X Layer (196) were built + Phase-0-verified 2026-07-20 but
-  // REVERTED to watch items before launch (burner-funding friction — see the
-  // x402-chain-expansion-research memory for the verified assets/domains).
-  // PayAI settles both; re-adding is the Tier-1 template.
+  sei: "eip155:1329",
   "base-sepolia": "eip155:84532",
   // Robinhood Chain (Arbitrum Orbit L2, EVM-equivalent, AI-native RWA chain).
   // NOT in @x402/evm's built-in USDC registry, and settles a non-Circle
@@ -167,15 +164,15 @@ function makeMonadUsdcScheme() {
   });
 }
 
-// Tier 1 chains (Avalanche / Sei / X Layer): USDC deployments @x402/evm's
+// Tier 1 chains (Avalanche / Sei): USDC deployments @x402/evm's
 // registry lacks, with EIP-712 domains verified on-chain 2026-07-20. Sei's
 // trap: the prominent "USDC" there is Noble's IBC bridge WITHOUT EIP-3009 —
 // the address below is Circle's native deployment (name "USDC", the
-// Monad/Celo-style domain). X Layer's is the Bridged USDC Standard (not
-// Circle-native, EIP-3009 present). One table + one factory replaces three
+// Monad/Celo-style domain). One table + one factory replaces per-chain
 // copies of the Monad/Celo parser shape.
 const TIER1_USDC = {
   "eip155:43114": { asset: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", decimals: 6, name: "USD Coin", version: "2" }, // Avalanche C-Chain, native Circle
+  "eip155:1329": { asset: "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392", decimals: 6, name: "USDC", version: "2" }, // Sei, native Circle (NOT Noble's 0x3894…)
 };
 function makeTier1UsdcScheme(caip2) {
   const cfg = TIER1_USDC[caip2];

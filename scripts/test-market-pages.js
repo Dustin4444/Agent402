@@ -28,11 +28,12 @@ const NEW_CHAINS = [
   { key: "arbitrum", network: "eip155:42161", offNetwork: "eip155:421614", asset: "USDC", explorer: "arbiscan.io", wallet: "0x3333333333333333333333333333333333333333" },
   { key: "celo", network: "eip155:42220", offNetwork: "eip155:11142220", asset: "USDC", explorer: "celoscan.io", wallet: "0x5555555555555555555555555555555555555555" },
   { key: "avalanche", network: "eip155:43114", offNetwork: "eip155:43113", asset: "USDC", explorer: "snowtrace.io", wallet: "0x6666666666666666666666666666666666666666" },
+  { key: "sei", network: "eip155:1329", offNetwork: "eip155:1328", asset: "USDC", explorer: "seitrace.com", wallet: "0x7777777777777777777777777777777777777777" },
   { key: "robinhood", network: "eip155:4663", offNetwork: "eip155:99999", asset: "USDG", explorer: "robinhoodchain.blockscout.com", wallet: "0x4444444444444444444444444444444444444444" },
 ];
 
-// 1. All 10 chain pages exist in CHAIN_PAGES.
-ok(Object.keys(CHAIN_PAGES).length === 10, `CHAIN_PAGES has 10 entries (got ${Object.keys(CHAIN_PAGES).length})`);
+// 1. All 11 chain pages exist in CHAIN_PAGES.
+ok(Object.keys(CHAIN_PAGES).length === 11, `CHAIN_PAGES has 11 entries (got ${Object.keys(CHAIN_PAGES).length})`);
 for (const c of NEW_CHAINS) ok(!!CHAIN_PAGES[c.key], `CHAIN_PAGES has a "${c.key}" entry`);
 
 for (const c of NEW_CHAINS) {
