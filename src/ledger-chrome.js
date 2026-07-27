@@ -280,8 +280,8 @@ const NAV_ZONES = [
 // Fallback by-chain rows used whenever no live index-snapshot data is wired
 // (offline unit tests, early boot, a throwing/null provider) - the dropdown
 // and footer still get real, crawlable links, just without seller counts.
-// All 10 rails have a live market page (/base, /solana, /polygon, /arbitrum, /monad,
-// /celo, /avalanche, /stellar, /algorand, /robinhood) - this fallback must list
+// All 11 rails have a live market page (/base, /solana, /polygon, /arbitrum, /monad,
+// /celo, /avalanche, /sei, /stellar, /algorand, /robinhood) - this fallback must list
 // every one, not just the two that got dedicated routes first.
 const STATIC_CHAINS = [
   { label: "base", href: "/base" },
@@ -291,6 +291,7 @@ const STATIC_CHAINS = [
   { label: "monad", href: "/monad" },
   { label: "celo", href: "/celo" },
   { label: "avalanche", href: "/avalanche" },
+  { label: "sei", href: "/sei" },
   { label: "stellar", href: "/stellar" },
   { label: "algorand", href: "/algorand" },
   { label: "robinhood", href: "/robinhood" },
@@ -309,13 +310,13 @@ function chainRows() {
     const data = navDataProvider && navDataProvider();
     if (data && Array.isArray(data.chains) && data.chains.length) {
       // Scale rule: EVERY live rail gets a row while the rail count stays
-      // human-sized (≤12 - we hold at ten, see #469); only past that does the
-      // list truncate to the top 10 with the "all sellers" row carrying the
-      // rest. The previous >9 → slice(0,7) rule silently dropped Stellar,
+      // human-sized (≤12 - eleven live rails, see #469); only past that does
+      // the list truncate to the top 11 with the "all sellers" row carrying
+      // the rest. The previous >9 → slice(0,7) rule silently dropped Stellar,
       // Algorand, and Robinhood from the dropdown AND the mobile menu the
       // moment rail #10 shipped - the exact failure its own comment said it
       // was preventing. A ceiling must sit ABOVE the roster it protects.
-      const chains = data.chains.length > 12 ? data.chains.slice(0, 10) : data.chains;
+      const chains = data.chains.length > 12 ? data.chains.slice(0, 11) : data.chains;
       return { chains, live: true };
     }
   } catch { /* provider threw - fall back to the static list below */ }

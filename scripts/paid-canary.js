@@ -786,6 +786,7 @@ async function main() {
     { key: "monad", caip2: "eip155:143", sym: "USDC", chainLabel: "Monad", tx: (h) => `https://monadscan.com/tx/${h}` },
     { key: "celo", caip2: "eip155:42220", sym: "USDC", chainLabel: "Celo", tx: (h) => `https://celoscan.io/tx/${h}` },
     { key: "avalanche", caip2: "eip155:43114", sym: "USDC", chainLabel: "Avalanche", tx: (h) => `https://snowtrace.io/tx/${h}` },
+    { key: "sei", caip2: "eip155:1329", sym: "USDC", chainLabel: "Sei", tx: (h) => `https://seitrace.com/tx/${h}?chain=pacific-1` },
   ]) {
     try {
       const { x402HTTPClient } = await import("@x402/core/client");

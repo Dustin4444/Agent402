@@ -1,6 +1,6 @@
 // Offline unit test for the leaderboard's per-chain scan config.
 //
-// The leaderboard ranked one of our ten rails. Generalising it is mostly about
+// The leaderboard ranked one of our eleven rails. Generalising it is mostly about
 // NOT getting the chain wrong: scanning Base's USDC address against Polygon's
 // RPC would silently return nothing and look like "no activity" rather than a
 // bug, so the config is asserted here rather than trusted.

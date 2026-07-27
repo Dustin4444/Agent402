@@ -79,6 +79,11 @@ const EVM_NETWORKS = {
     rpcs: [...alchemy("avax-mainnet"), "https://api.avax.network/ext/bc/C/rpc", "https://avalanche-c-chain-rpc.publicnode.com"],
     spanBlocks: 10800, // ~6h at 2s blocks
   },
+  sei: {
+    usdc: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392",
+    rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"],
+    spanBlocks: 54000, // ~6h at 0.4s blocks
+  },
   monad: {
     usdc: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
     rpcs: [...alchemy("monad-mainnet"), "https://rpc.monad.xyz", "https://rpc2.monad.xyz"],
