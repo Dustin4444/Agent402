@@ -859,6 +859,9 @@ jobs:
       - name: Revenue buyers series (distinct-count semantics; seeded ledger — offline)
         run: node scripts/test-revenue-buyers.js
 
+      - name: Settle-fallback chain (PayAI -> Solvador; double-settle gate between fallbacks — offline)
+        run: node scripts/test-settle-fallback.js
+
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 
