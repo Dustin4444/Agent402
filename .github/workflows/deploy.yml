@@ -865,6 +865,9 @@ jobs:
       - name: Per-chain price premiums (fee-charging rails priced in; dormant default byte-identical — offline)
         run: node scripts/test-price-premium.js
 
+      - name: Canary underfunded classification (empty burner is funding, never an outage — offline)
+        run: node scripts/test-canary-underfunded.js
+
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 

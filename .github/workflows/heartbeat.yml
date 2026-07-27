@@ -102,6 +102,37 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
           fi
 
+      # Canary burner balance watch — the 2026-07-27 lesson: the Base burner
+      # hit $0.000 mid-sweep, the canary filed it as a settlement outage, and
+      # the public status page said OUTAGE while buyers settled fine. The
+      # canary now classifies that correctly, but the better outcome is never
+      # getting there: warn while there is still a week of runway. Public RPC,
+      # no keys; unreadable balance warns loudly rather than silently passing.
+      - name: Canary burner balance watch (Base USDC)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BURNER: "0x902dCf34E53695bDEA2fFB354b1a2e58bD598256"
+          WARN_USD: ${{ vars.CANARY_BURNER_LOW_USD || '1' }}
+        run: |
+          DATA="0x70a08231000000000000000000000000${BURNER#0x}"
+          BAL=$(curl -s --max-time 15 https://mainnet.base.org -H 'Content-Type: application/json'             -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_call\",\"params\":[{\"to\":\"0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913\",\"data\":\"$DATA\"},\"latest\"]}"             | jq -re '.result' 2>/dev/null) || { echo "::warning::burner balance UNREADABLE — not silently skipping, investigate"; exit 0; }
+          USD=$(node -e "console.log((parseInt('$BAL',16)/1e6).toFixed(4))")
+          echo "canary burner Base USDC: \$$USD (warn under \$$WARN_USD)"
+          TITLE="Canary burner LOW (Base)"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          LOW=$(node -e "console.log($USD < $WARN_USD ? 1 : 0)")
+          if [ "$LOW" = "1" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The paid canary's Base burner ($BURNER) is at \$$USD USDC, under the \$$WARN_USD low-water mark (repo var CANARY_BURNER_LOW_USD). The daily tools sweep spends ~\$0.15-0.30/run; top up before it runs dry — an empty burner now files as a funding issue rather than an outage, but a funded one is better."
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low: \$$USD at $(date -u +%FT%TZ)."
+            fi
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: \$$USD on Base at $(date -u +%FT%TZ)."
+          fi
+
       # PayAI settlement quota watch — PayAI is the PRIMARY facilitator for
       # Solana/Polygon/Arbitrum/Avalanche (free tier: 10k settlements/month).
       # Solana is our #2 revenue chain, so hitting the cap silently would be

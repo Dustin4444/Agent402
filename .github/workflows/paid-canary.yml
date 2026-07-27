@@ -60,7 +60,14 @@ jobs:
           # pure-CPU, no upstream cost). Informational (warns, never pages);
           # silently skipped when the SOLANA_BURNER_KEY secret is unset.
           [ -n "$SOLANA_BURNER_KEY" ] && echo "::add-mask::$SOLANA_BURNER_KEY"
-          if node scripts/paid-canary.js; then echo "result=ok" >> "$GITHUB_OUTPUT"; else echo "result=fail" >> "$GITHUB_OUTPUT"; fi
+          if node scripts/paid-canary.js; then echo "result=ok" >> "$GITHUB_OUTPUT"
+          else
+            CODE=$?
+            # Exit 3 = the script PROVED underfunding (every failed leg a clean
+            # 402, at least one real settlement this run, live Base balance
+            # below the cheapest failed leg). Anything else is a real failure.
+            if [ "$CODE" = "3" ]; then echo "result=underfunded" >> "$GITHUB_OUTPUT"; else echo "result=fail" >> "$GITHUB_OUTPUT"; fi
+          fi
 
       # Feed the /status "settlement" component. Deliberately a SEPARATE step
       # from the buy above: that step holds the wallet keys, and widening its
@@ -82,6 +89,12 @@ jobs:
           case "$RESULT" in
             ok)   OK=true;  DETAIL="" ;;
             fail) OK=false; DETAIL="paid canary could not complete a real USDC purchase" ;;
+            # Underfunded = the run PROVED settlement works (real settles
+            # happened) and proved the failures were its own empty wallet.
+            # Recording that as an outage put "outage" on the public page while
+            # buyers were settling fine (2026-07-27). It is an ok observation
+            # with the funding named; the funding issue below still pages us.
+            underfunded) OK=true; DETAIL="settlement proven; canary burner needs a top-up (funding, not an outage)" ;;
             *)    echo "canary result '$RESULT' — nothing was bought, so no observation to record"; exit 0 ;;
           esac
           BODY=$(jq -nc --arg u "$RUN_URL" --arg d "$DETAIL" --argjson ok "$OK" \
@@ -95,6 +108,25 @@ jobs:
         run: |
           TITLE="Paid-path canary FAILED"
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          # Funding starvation gets its own issue and CLOSES the outage-class
+          # one: "buying may be broken" must not stay open when the run proved
+          # buying works and only our wallet is empty.
+          if [ "${{ steps.canary.outputs.result }}" = "underfunded" ]; then
+            FTITLE="Canary burner EMPTY (Base)"
+            FOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$FTITLE\"" --json number --jq '.[0].number // empty')
+            if [ -z "$FOPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$FTITLE" --body "The paid canary's Base burner is out of USDC — the run settled real purchases on the funded rails and every Base failure was a clean 402 with the live balance below the cheapest leg, so this is FUNDING, not an outage. Top up the burner (see the run log for the address), then dispatch paid-canary.yml; a green run closes this. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            else
+              gh issue comment "$FOPEN" --repo "$GITHUB_REPOSITORY" --body "Still empty at $(date -u +%FT%TZ). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            fi
+            [ -n "$OPEN" ] && gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Reclassified: the failure is canary-wallet funding, not a broken paid path — settlement was proven in the same run. Tracking in the funding issue."
+            exit 0
+          fi
+          if [ "${{ steps.canary.outputs.result }}" = "ok" ]; then
+            FTITLE="Canary burner EMPTY (Base)"
+            FOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$FTITLE\"" --json number --jq '.[0].number // empty')
+            [ -n "$FOPEN" ] && gh issue close "$FOPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: full canary green at $(date -u +%FT%TZ)."
+          fi
           if [ "${{ steps.canary.outputs.result }}" = "fail" ]; then
             BODY="The daily paid-path canary could not complete a real USDC purchase from production — *buying may be broken* (paywall, facilitator, or settlement). The free/proof-of-work path is checked separately by the Heartbeat.
           Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID

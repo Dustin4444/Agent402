@@ -386,6 +386,54 @@ export function classifyResult({ status, shapeOk, transportError } = {}) {
 }
 
 // Decide whether BUYING is broken from all tool results. Pure — unit-tested.
+/**
+ * Distinguish "settlement is broken" from "the canary starved its own wallet".
+ *
+ * 2026-07-27: the Base burner hit $0.000 mid-sweep. 27 legs came back
+ * [unsettled] 402 — the exact signature of a settlement outage — the run
+ * exited 1, and /status told the world "outage" while the SAME run had settled
+ * 11 real purchases across 8 chains. An empty test wallet is our operational
+ * problem, not a service outage, and the page must never conflate them.
+ *
+ * The gate is deliberately narrow, so a real break still pages:
+ *   • every failing leg must be cls "unsettled" (a clean 402 — payment did not
+ *     complete). Any 5xx/unreachable/bad-shape leg means something else broke.
+ *   • at least one settlement must have succeeded this run (proof the path
+ *     works when funded).
+ *   • the burner's LIVE Base USDC balance must be below the cheapest failed
+ *     leg — the arithmetic proof the 402s were "insufficient funds".
+ * Anything else — including a failed balance read — stays "broken".
+ */
+export function classifyCanaryFailure(decision, { balanceUsd = null } = {}) {
+  if (!decision.broken) return "ok";
+  const failed = decision.rows.filter((r) => r.cls !== "settled");
+  if (!failed.length || !failed.every((r) => r.cls === "unsettled")) return "broken";
+  if (decision.settled < 1) return "broken";
+  if (balanceUsd == null || !Number.isFinite(balanceUsd)) return "broken";
+  const cheapestFailed = Math.min(...failed.map((r) => r.priceUsd || Infinity));
+  // No failed leg with a known price = no arithmetic proof possible. The only
+  // exception is a balance below the platform's minimum price ($0.001), which
+  // cannot afford ANY paid leg regardless of which one failed.
+  if (!Number.isFinite(cheapestFailed)) return balanceUsd < 0.001 ? "underfunded" : "broken";
+  return balanceUsd < cheapestFailed ? "underfunded" : "broken";
+}
+
+/** Burner USDC balance on Base via the public RPC. null on any failure —
+ *  callers treat null as "cannot prove underfunding" and page normally. */
+async function baseUsdcBalanceUsd(address) {
+  try {
+    const data = "0x70a08231" + address.toLowerCase().replace("0x", "").padStart(64, "0");
+    const r = await fetch("https://mainnet.base.org", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", data }, "latest"] }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const j = await r.json();
+    if (!j?.result) return null;
+    return parseInt(j.result, 16) / 1e6;
+  } catch { return null; }
+}
+
 export function decideCanary(results, { coreKit = CORE_KIT } = {}) {
   const rows = results.map((r) => ({ ...r, cls: classifyResult(r) }));
   const core = rows.find((r) => r.kit === coreKit);
@@ -946,6 +994,16 @@ async function main() {
   if (decision.warnings.length) console.warn(`\nwarnings (non-blocking — upstream/data, not payments):\n  ${decision.warnings.join("\n  ")}`);
 
   if (decision.broken) {
+    const balanceUsd = await baseUsdcBalanceUsd(account.address);
+    if (classifyCanaryFailure(decision, { balanceUsd }) === "underfunded") {
+      console.error(
+        `\nCANARY UNDERFUNDED — the Base burner is down to $${balanceUsd.toFixed(4)} USDC ` +
+          `(cheapest failed leg costs more). Settlement itself is PROVEN this run ` +
+          `(${decision.settled} tool settle(s) + the chain rails above). ` +
+          `Top up ${account.address} on Base. Exiting 3 so this is filed as funding, not an outage.`
+      );
+      process.exit(3);
+    }
     console.error(`\nPAID CANARY FAILED — buying looks broken:\n  ${decision.reasons.join("\n  ")}`);
     process.exit(1);
   }
