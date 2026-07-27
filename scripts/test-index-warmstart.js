@@ -17,6 +17,7 @@ import {
   loadPersistedIndexCache,
   persistIndexCache,
   indexSnapshot,
+  seedList,
 } from "../src/x402-index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "a402-idx-"));
@@ -60,6 +61,17 @@ check("a cold boot serves the persisted crawl immediately", () => {
 
 check("a second load never clobbers what the live crawl already refreshed", () => {
   assert.equal(loadPersistedIndexCache(file), 0);
+});
+
+check("warm-started origins re-enter the crawl seed list (no orphans)", () => {
+  // The crawl loop only visits seeds. A warm-started cache entry whose origin
+  // is in no seed set would be served forever and re-crawled never — a seller
+  // who fixes their manifest stays wrong for eternity (live incident
+  // 2026-07-27). registerOrigin also early-returns on cached entries, so the
+  // seed set is the ONLY path back to freshness.
+  const seeds = seedList();
+  assert.ok(seeds.includes("https://seller-a.example"), "warm-started origin missing from the crawl seeds");
+  assert.ok(seeds.includes("https://seller-b.example"), "warm-started origin missing from the crawl seeds");
 });
 
 check("persist writes the warm cache back out", () => {

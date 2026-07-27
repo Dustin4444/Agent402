@@ -225,7 +225,7 @@ const DEFAULT_SEEDS = [
   "https://x402.evidencesupply.com", // Evidence Supply — corroborated agent-action verification, USDC on Base
 ];
 
-const seedList = () => {
+export const seedList = () => {
   const envSeeds = String(process.env.X402_INDEX_SEEDS || "")
     .split(",")
     .map((s) => s.trim().replace(/\/+$/, ""))
@@ -953,6 +953,15 @@ export function loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
     for (const [origin, v] of entries) {
       if (typeof origin !== "string" || !origin || cache.has(origin)) continue;
       cache.set(origin, { ...v, warmStarted: true });
+      // CRITICAL: re-seed the crawler with every warm-started origin. The crawl
+      // loop only visits seedList() — a cache entry whose origin is in no seed
+      // set is an ORPHAN: served forever, re-crawled never, wrong forever once
+      // the seller changes anything. Found live 2026-07-27: a seller fixed
+      // their manifest and their listing stayed frozen at the stale tool count
+      // through every crawl cycle because warm-start restored the cache but
+      // not the seeds. Discovery may re-add these origins anyway when a
+      // registry lists them, but that must never be load-bearing.
+      discoveredSeeds.add(origin);
       n++;
     }
     return n;
