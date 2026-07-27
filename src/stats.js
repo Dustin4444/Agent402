@@ -36,6 +36,12 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS paid_tool_counts (slug TEXT PRIMARY KEY, n INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS heartbeat_tool_counts (slug TEXT PRIMARY KEY, n INTEGER NOT NULL);
   CREATE TABLE IF NOT EXISTS charged_failures (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL, status INTEGER NOT NULL, ts INTEGER NOT NULL);
+  -- Daily served-call tally by settlement method. The lifetime counters above
+  -- answer "how much free-tier adoption is there"; they cannot answer "is it
+  -- growing", and recent_calls is pruned to RECENT_KEEP (200 rows) so it can
+  -- never be the source of a time series. One row per (day, method) — three
+  -- methods x 365 days is ~1k rows a year, so this is never pruned.
+  CREATE TABLE IF NOT EXISTS daily_calls (day TEXT NOT NULL, method TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, method));
 `);
 
 const RECENT_KEEP = 200; // rows retained
@@ -65,6 +71,8 @@ const getRecentAll = db.prepare("SELECT slug, method, ts FROM recent_calls ORDER
 // case operational failure (we took the buyer's money, gave them nothing). Kept
 // as both a counter and a small retained log so an alarm can show *which* tools
 // failed and when. Pruned to the most recent 200 events, same as recent_calls.
+const bumpDaily = db.prepare("INSERT INTO daily_calls (day, method, n) VALUES (?, ?, 1) ON CONFLICT(day, method) DO UPDATE SET n = n + 1");
+const allDaily = db.prepare("SELECT day, method, n FROM daily_calls ORDER BY day, method");
 const insertChargedFailure = db.prepare("INSERT INTO charged_failures (slug, status, ts) VALUES (?, ?, ?)");
 const pruneChargedFailures = db.prepare("DELETE FROM charged_failures WHERE id <= (SELECT MAX(id) FROM charged_failures) - ?");
 const getChargedFailures = db.prepare("SELECT slug, status, ts FROM charged_failures ORDER BY id DESC LIMIT ?");
@@ -96,6 +104,9 @@ const recordCall = db.transaction((slug, method, network, wire) => {
   // payload, wallet, or IP. Only successful (200) served calls reach here.
   insertRecent.run(slug, method, Date.now());
   pruneRecent.run(RECENT_KEEP);
+  // Same transaction as the counters above: the daily series and the lifetime
+  // totals are written together or not at all, so they cannot drift apart.
+  bumpDaily.run(new Date().toISOString().slice(0, 10), method === "pow" ? "pow" : method === "heartbeat" ? "heartbeat" : "usdc");
   setMetaIfAbsent.run("firstServed", String(Date.now()));
 });
 
@@ -241,6 +252,31 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
     uptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000),
     runTheDemo: `${baseUrl}/llms.txt`,
   };
+}
+
+/**
+ * Daily served-call counts by settlement method, oldest first.
+ * [{ day: "2026-07-26", usdc: 812, pow: 143, heartbeat: 96 }]
+ *
+ * Recording starts the day this table ships — earlier days genuinely have no
+ * per-day record (recent_calls is pruned to 200 rows and the counters are
+ * lifetime-only), so the series must never imply zero free-tier usage before
+ * then. Callers get `recordingSince` to label that honestly.
+ */
+export function getDailyCalls() {
+  const byDay = new Map();
+  for (const r of allDaily.all()) {
+    const d = byDay.get(r.day) || { day: r.day, usdc: 0, pow: 0, heartbeat: 0 };
+    if (r.method === "pow" || r.method === "heartbeat" || r.method === "usdc") d[r.method] = r.n;
+    byDay.set(r.day, d);
+  }
+  return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+}
+
+/** First day the daily tally recorded anything, or null before the first call. */
+export function dailyCallsRecordingSince() {
+  const rows = allDaily.all();
+  return rows.length ? rows.reduce((m, r) => (r.day < m ? r.day : m), rows[0].day) : null;
 }
 
 /**

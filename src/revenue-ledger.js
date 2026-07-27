@@ -438,10 +438,10 @@ export function ledgerDaily(wallets, mppTx = null) {
       byDay.set(key, b);
     }
   }
-  // Chart epoch: the pre-June trickle (ledger backfill of pre-launch dust)
-  // adds a flat month of near-zero bars — start the series at June 1 unless
+  // Chart epoch: the pre-launch trickle (ledger backfill of pre-launch dust)
+  // adds a flat run of near-zero bars — start the series at June 15 unless
   // the operator overrides.
-  const start = process.env.REVENUE_DAILY_START || "2026-06-01";
+  const start = process.env.REVENUE_DAILY_START || "2026-06-15";
   return [...byDay.values()]
     .filter((b) => b.day >= start)
     .map((b) => ({

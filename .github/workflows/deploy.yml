@@ -847,6 +847,9 @@ jobs:
       - name: Index warm-start (crawl cache survives a redeploy; no half-crawled marketplace — offline)
         run: node scripts/test-index-warmstart.js
 
+      - name: Revenue chart free-tier lane (free calls never priced as revenue; jsdom — offline)
+        run: node scripts/test-revenue-chart.js
+
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 

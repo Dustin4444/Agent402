@@ -235,6 +235,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
+- **Revenue chart free-tier lane (`/revenue`, `src/revenue-live.js` `revenueChartSection`):**
+  the chart is built from the settlement ledger, so free (proof-of-work) calls are
+  invisible to it — they settle nowhere. A **Paid / Free (PoW) / Both** control merges a
+  second series from `GET /api/calls/daily`, backed by the `daily_calls (day, method, n)`
+  table in `src/stats.js` (bumped inside the SAME transaction as the lifetime counters, so
+  the two can never drift; never pruned — `recent_calls` is capped at 200 rows and can
+  never source a time series). A free call earns **$0**, so the lane is mutually exclusive
+  with the `Revenue $` metric: each control corrects the other (`setSeg`), and `build()`
+  additionally refuses the lane unless `metric === "tx"`. Free tier is **not a chain** — it
+  takes a neutral `--sfree` grey, never one of the 8 validated chain slots, and never folds
+  into "Other". Per-day recording began when the table shipped; earlier days have **no
+  record**, which the note distinguishes from "no free traffic" (heartbeat probes are
+  excluded — external PoW only). Chart epoch is `REVENUE_DAILY_START`, default **2026-06-15**.
+  `scripts/test-revenue-chart.js` (jsdom, in CI) pins the interaction invariants.
 - **Status page (`/status`, `/api/status`, `src/status.js` + `src/status-store.js`):**
   availability measured from OUTSIDE production. The heartbeat (GitHub Actions, every
   15 min) POSTs what it observed to `POST /api/status/probe` (operator-authed — an open

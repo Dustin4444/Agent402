@@ -1129,11 +1129,14 @@ function salesSection(sales) {
 // whose relief is the table view below). Chains map to slots by ENTITY, fixed
 // forever (never repainted by filters); chains outside the named seven fold
 // into "Other" (slot 8).
-function revenueChartSection() {
+// Exported for scripts/test-revenue-chart.js — the free-tier lane has
+// invariants (never under Revenue $, never a chain colour) worth testing
+// without standing up a full revenue snapshot.
+export function revenueChartSection() {
   return `
   <style>
-  .rvz{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;--vsurf:var(--card)}
-  :root[data-theme="dark"] .rvz{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;--vsurf:var(--card)}
+  .rvz{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;--sfree:#8a8f98;--vsurf:var(--card)}
+  :root[data-theme="dark"] .rvz{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;--sfree:#9aa0aa;--vsurf:var(--card)}
   .rvz{border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin:0 0 26px}
   .rvz-controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
   .rvz-seg{display:inline-flex;border:1.5px solid var(--ink)}
@@ -1162,7 +1165,9 @@ function revenueChartSection() {
       <span class="rvz-seg" id="rvzMetric"><button data-v="usd" class="on">Revenue $</button><button data-v="tx">Transactions</button></span>
       <span class="rvz-seg" id="rvzScope"><button data-v="ext" class="on">External</button><button data-v="int">Internal (canary)</button><button data-v="both">Both</button></span>
       <span class="rvz-seg" id="rvzWire"><button data-v="all" class="on">All wires</button><button data-v="x402">x402</button><button data-v="mpp">MPP</button></span>
+      <span class="rvz-seg" id="rvzTraffic"><button data-v="paid" class="on">Paid</button><button data-v="free">Free (PoW)</button><button data-v="both">Both</button></span>
     </div>
+    <p id="rvzFreeNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzWireNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;">MPP-wire settlements are identified by tx hash from the sales ledger, which began recording the wire on 2026-07-24 - earlier days read as x402 because the wire was not recorded, not because no MPP traffic existed.</p>
     <div class="rvz-wrap"><svg id="rvzSvg" viewBox="0 0 940 300" width="100%" role="img" aria-label="Stacked daily revenue by chain"></svg><div class="rvz-tip" id="rvzTip"></div></div>
     <div class="rvz-legend" id="rvzLegend"></div>
@@ -1171,8 +1176,11 @@ function revenueChartSection() {
   <script>
   (function(){
     var SLOTS={base:1,algorand:2,solana:3,polygon:4,stellar:5,arbitrum:6,celo:7};
-    var NAMES={1:"Base",2:"Algorand",3:"Solana",4:"Polygon",5:"Stellar",6:"Arbitrum",7:"Celo",8:"Other"};
-    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",rows:[]};
+    var NAMES={1:"Base",2:"Algorand",3:"Solana",4:"Polygon",5:"Stellar",6:"Arbitrum",7:"Celo",8:"Other",free:"Free tier (PoW)"};
+    // Draw order. "free" is a lane, not a chain - free calls settle nowhere,
+    // so it never takes a chain colour and never folds into "Other".
+    var ORDER=[1,2,3,4,5,6,7,8,"free"];
+    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",rows:[],free:[],freeSince:null};
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
     // Wire filter: MPP and x402 settle identically on-chain, so the MPP subset
@@ -1185,13 +1193,26 @@ function revenueChartSection() {
       if(state.wire==="mpp"){e=em;i=im}
       else if(state.wire==="x402"){e=Math.max(0,e-em);i=Math.max(0,i-im)}
       return state.scope==="ext"?e:state.scope==="int"?i:e+i}
+    function setSeg(id,v){var el=document.getElementById(id);
+      [].slice.call(el.querySelectorAll("button")).forEach(function(b){b.classList.toggle("on",b.dataset.v===v)})}
     function seg(id,cb){var el=document.getElementById(id);el.addEventListener("click",function(ev){var b=ev.target.closest("button");if(!b)return;
       [].slice.call(el.querySelectorAll("button")).forEach(function(x){x.classList.toggle("on",x===b)});cb(b.dataset.v);render();})}
     function build(){
-      var days={}; state.rows.forEach(function(r){var d=days[r.day]||(days[r.day]={day:r.day,slots:{}});
-        var s=slotOf(r.chain); d.slots[s]=(d.slots[s]||0)+val(r)});
+      var days={};
+      function dayOf(k){return days[k]||(days[k]={day:k,slots:{}})}
+      if(state.traffic!=="free"){
+        state.rows.forEach(function(r){var d=dayOf(r.day);
+          var s=slotOf(r.chain); d.slots[s]=(d.slots[s]||0)+val(r)})}
+      // Free calls are counts, never dollars - a free call earns $0 by
+      // definition, so the lane is absent under the Revenue $ metric rather
+      // than drawn as a bar pretending call count is revenue. The metric/
+      // traffic handlers already keep those two from being selected together;
+      // this is defence in depth for any future caller that sets state directly.
+      if(state.traffic!=="paid"&&state.metric==="tx"){
+        state.free.forEach(function(r){var d=dayOf(r.day);d.slots.free=(d.slots.free||0)+(r.pow||0)})}
       var list=Object.keys(days).sort().map(function(k){return days[k]});
-      if(state.mode==="cum"){var acc={};list.forEach(function(d){for(var s=1;s<=8;s++){acc[s]=(acc[s]||0)+(d.slots[s]||0);d.slots[s]=acc[s]}})}
+      if(state.mode==="cum"){var acc={};list.forEach(function(d){for(var k=0;k<ORDER.length;k++){var s=ORDER[k];
+        acc[s]=(acc[s]||0)+(d.slots[s]||0);d.slots[s]=acc[s]}})}
       return list;
     }
     function fmt(v){return state.metric==="usd"?(v>=1?"$"+v.toFixed(2):"$"+v.toFixed(4)):String(Math.round(v))}
@@ -1199,7 +1220,7 @@ function revenueChartSection() {
       var data=build(), svg=document.getElementById("rvzSvg"), tip=document.getElementById("rvzTip");
       if(!data.length){svg.outerHTML="";document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">ledger backfilling - the series appears as settlements sync</div>';return}
       var W=940,H=300,L=52,R=8,T=10,B=26,pw=W-L-R,ph=H-T-B;
-      var max=0;data.forEach(function(d){var t=0;for(var s=1;s<=8;s++)t+=d.slots[s]||0;if(t>max)max=t});
+      var max=0;data.forEach(function(d){var t=0;for(var k=0;k<ORDER.length;k++)t+=d.slots[ORDER[k]]||0;if(t>max)max=t});
       max=max||1;
       var n=data.length, bw=Math.max(2,Math.min(34,pw/n-2));
       var x=function(i){return L+(pw/n)*i+(pw/n-bw)/2}, y=function(v){return T+ph-(v/max)*ph};
@@ -1211,36 +1232,65 @@ function revenueChartSection() {
       data.forEach(function(d,i){
         if(i%step===0)out.push('<text x="'+(x(i)+bw/2)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="var(--faint)" font-family="var(--font-mono)">'+d.day.slice(5)+"</text>");
         var y0=T+ph;
-        for(var s=1;s<=8;s++){var v=d.slots[s]||0;if(v<=0)continue;var h=(v/max)*ph;y0-=h;
+        for(var k=0;k<ORDER.length;k++){var s=ORDER[k];var v=d.slots[s]||0;if(v<=0)continue;var h=(v/max)*ph;y0-=h;
           if(state.mode==="cum"){out.push('<rect x="'+x(i)+'" y="'+y0+'" width="'+bw+'" height="'+Math.max(h,0.5)+'" fill="'+css(s)+'" opacity="0.9"/>')}
           else{out.push('<rect x="'+x(i)+'" y="'+y0+'" width="'+bw+'" height="'+Math.max(h-1,0.5)+'" fill="'+css(s)+'" stroke="var(--vsurf)" stroke-width="1" rx="1"/>')}}
         out.push('<rect x="'+(L+(pw/n)*i)+'" y="'+T+'" width="'+(pw/n)+'" height="'+ph+'" fill="transparent" data-i="'+i+'"/>')});
       svg.innerHTML=out.join("");
       svg.onmousemove=function(ev){var t=ev.target.closest("rect[data-i]");if(!t){tip.style.display="none";return}
         var d=data[+t.dataset.i],rows="",tot=0;
-        for(var s=8;s>=1;s--){var v=d.slots[s]||0;if(v<=0)continue;tot+=v;
+        for(var k=ORDER.length-1;k>=0;k--){var s=ORDER[k];var v=d.slots[s]||0;if(v<=0)continue;tot+=v;
           rows+='<div><i style="display:inline-block;width:8px;height:8px;background:'+css(s)+';margin-right:5px"></i>'+NAMES[s]+" "+fmt(v)+"</div>"}
         tip.innerHTML="<b>"+d.day+"</b>"+rows+"<div style='border-top:1px dashed var(--dark-border2);margin-top:3px'>total "+fmt(tot)+"</div>";
         var wr=document.querySelector(".rvz-wrap").getBoundingClientRect();
         tip.style.display="block";tip.style.left=Math.min(ev.clientX-wr.left+14,wr.width-270)+"px";tip.style.top=(ev.clientY-wr.top+10)+"px"};
       svg.onmouseleave=function(){tip.style.display="none"};
-      var lg="",present={};data.forEach(function(d){for(var s=1;s<=8;s++)if(d.slots[s])present[s]=1});
+      var lg="",present={};data.forEach(function(d){for(var k=0;k<ORDER.length;k++)if(d.slots[ORDER[k]])present[ORDER[k]]=1});
       Object.keys(present).forEach(function(s){lg+='<span><i style="background:'+css(s)+'"></i>'+NAMES[s]+"</span>"});
       // An empty series under a wire filter is a real answer, not a broken
       // chart - say which filter emptied it rather than showing a blank grid.
       if(!Object.keys(present).length){
-        lg='<span>no '+(state.wire==="all"?"":state.wire==="mpp"?"MPP-wire ":"x402-wire ")+
-          (state.scope==="ext"?"external":state.scope==="int"?"internal":"")+' settlements in this window</span>'}
+        lg='<span>no '+(state.traffic==="free"?"free-tier calls":
+          (state.wire==="all"?"":state.wire==="mpp"?"MPP-wire ":"x402-wire ")+
+          (state.scope==="ext"?"external":state.scope==="int"?"internal":"")+" settlements")+' in this window</span>'}
       document.getElementById("rvzLegend").innerHTML=lg;
       var tb='<table><tr><th>day</th>';Object.keys(present).forEach(function(s){tb+="<th>"+NAMES[s]+"</th>"});tb+="<th>total</th></tr>";
       data.forEach(function(d){var tot=0;tb+="<tr><td>"+d.day+"</td>";Object.keys(present).forEach(function(s){var v=d.slots[s]||0;tot+=v;tb+="<td>"+fmt(v)+"</td>"});tb+="<td>"+fmt(tot)+"</td></tr>"});
       document.getElementById("rvzTable").innerHTML=tb+"</table>";
     }
-    seg("rvzMode",function(v){state.mode=v});seg("rvzMetric",function(v){state.metric=v});seg("rvzScope",function(v){state.scope=v});
+    function freeNote(){
+      var el=document.getElementById("rvzFreeNote");
+      if(state.traffic==="paid"){el.style.display="none";return}
+      el.style.display="block";
+      el.textContent="Free calls are served via proof-of-work and settle nowhere, so they earn $0 and appear only under Transactions."+
+        (state.freeSince?" Per-day recording of the free tier began "+state.freeSince+
+          " - earlier days have no per-day record, which is not the same as no free traffic.":
+          " Per-day recording of the free tier has not started yet.")+
+        " Internal heartbeat probes are excluded.";
+    }
+    seg("rvzMode",function(v){state.mode=v});
+    seg("rvzMetric",function(v){state.metric=v;
+      // Revenue $ is paid-only: a free call has no dollar value to chart.
+      if(v==="usd"&&state.traffic!=="paid"){state.traffic="paid";setSeg("rvzTraffic","paid")}
+      freeNote()});
+    seg("rvzScope",function(v){state.scope=v});
+    seg("rvzTraffic",function(v){state.traffic=v;
+      if(v!=="paid"&&state.metric==="usd"){state.metric="tx";setSeg("rvzMetric","tx")}
+      freeNote()});
     seg("rvzWire",function(v){state.wire=v;
       document.getElementById("rvzWireNote").style.display=v==="all"?"none":"block"});
-    fetch("/api/revenue/daily").then(function(r){return r.json()}).then(function(j){state.rows=j.days||[];render()})
-      .catch(function(){document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">series unavailable</div>'});
+    // The free-tier series is a separate endpoint (free calls never touch the
+    // settlement ledger). A failure there must not blank the revenue chart, so
+    // it degrades to an empty free lane rather than rejecting the pair.
+    Promise.all([
+      fetch("/api/revenue/daily").then(function(r){return r.json()}),
+      fetch("/api/calls/daily").then(function(r){return r.json()}).catch(function(){return{days:[],recordingSince:null}})
+    ]).then(function(res){
+      state.rows=res[0].days||[];
+      state.free=res[1].days||[];
+      state.freeSince=res[1].recordingSince||null;
+      render();
+    }).catch(function(){document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">series unavailable</div>'});
   })();
   </script>`;
 }
