@@ -216,7 +216,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   awaits the build. Errored reads back-date `cachedAt` so they expire in ~5 min, not 30.
   No visitor request ever blocks on the rebuild — before this, the first visitor after each
   30-min expiry ate the full ~500ms. `getIndexSnapshot()` is a separate 30s in-memory cache
-  (`INDEX_SNAPSHOT_TTL_MS`). Measured live 2026-07-18: `/marketplace` p50 135ms / max 224ms,
+  (`INDEX_SNAPSHOT_TTL_MS`). The **crawl cache itself warm-starts from `/data`**
+  (`INDEX_CACHE_FILE`, default `/data/x402-index-cache.json`; persisted after each
+  crawl, loaded in `startCrawler`, never clobbers a live-refreshed entry) — it used to
+  be memory-only, so every redeploy served a half-crawled ecosystem for the minutes a
+  ~2,200-origin re-crawl takes (a visitor saw 569 sellers against a real 2,169). Same
+  fix and same reasoning as the leaderboard's own snapshot warm-start.
+  `scripts/test-index-warmstart.js` (offline, in CI). Note the two seller counts on
+  `/marketplace` are deliberately different populations: the stat card counts **distinct
+  payees** (rows after collapsing origins sharing a leaderboard payTo gid) and the chain
+  nav counts **raw origins** — the card names both so they reconcile. Measured live 2026-07-18: `/marketplace` p50 135ms / max 224ms,
   `/api/x402-economy` p50 93ms, zero requests >500ms across 26 samples. NB: there is **no CDN**
   in front (no `age`/`cf-cache` header) — the server-side snapshot caches are the origin
   protection; the `max-age=120` on the response is a browser-only hint. Contract pinned by
