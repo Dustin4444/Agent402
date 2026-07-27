@@ -58,7 +58,11 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
   merge to `main`. The `create_pull_request` tool auto-appends a session-link footer; **strip it**
   via `update_pull_request` before/after creating (no session links in PR bodies/commits).
 - **Heartbeat** (`heartbeat.yml`) probes prod every 15 min and opens a "production DOWN" issue on
-  failure; a daily paid canary buys a $0.001 tool. No open issues = prod healthy.
+  failure; a daily paid canary buys a $0.001 tool. No open issues = prod healthy. Also
+  watches the **PayAI settlement quota** (PayAI is PRIMARY for Solana/Polygon/Arbitrum/
+  Avalanche, free tier 10k settles/month): rolling 30-day on-chain count from
+  `/api/revenue/daily`, opens "PayAI settlement quota HIGH" at `PAYAI_QUOTA_WARN`
+  (repo var, default 8000). Unreadable data logs a loud warning, never a silent skip.
 
 ## Testing (run locally)
 - Boot free mode: `FREE_MODE=true PORT=3000 node src/server.js` then `TARGET_URL=http://localhost:3000 node scripts/test-all.js` (every tool answers its example) and `scripts/test-mcp-all.js`.
