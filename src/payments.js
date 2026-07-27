@@ -267,23 +267,66 @@ export const isIdentityBoundRoute = (def) =>
 export const SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-max"]);
 const UPSTREAM_BUYER_ADDRESS = (process.env.X402_UPSTREAM_BUYER_ADDRESS || "").trim();
 
+// ---------------------------------------------------------------------------
+// Per-chain price premiums (Phase B pricing engine, 2026-07-27)
+// ---------------------------------------------------------------------------
+// Mike's binding rule: anything settled through a fee-charging facilitator must
+// be priced to cover the fee — structurally, not by memory. Each 402 accepts
+// entry carries its own price, so a chain whose facilitator charges us (e.g.
+// Solvador at $0.001/settlement as a PRIMARY) quotes tool price + premium
+// while fee-free rails (CDP on Base) stay at list. Buyers on cheap rails never
+// subsidise expensive ones, and the fee is visible in the quote.
+//
+// Config: NETWORK_PRICE_PREMIUMS="eip155:10=0.001,eip155:130=0.001" (USD per
+// settlement, CAIP-2 keyed). Unset/empty = every accepts entry byte-identical
+// to before, pinned by scripts/test-price-premium.js. Premiums only ever ADD:
+// a negative or unparseable entry is refused LOUDLY at parse time rather than
+// silently quoting below cost. Integer micro-dollar arithmetic — float math on
+// money invents dust like $0.0020000000000000005.
+export function parseNetworkPremiums(raw = process.env.NETWORK_PRICE_PREMIUMS || "") {
+  const out = new Map();
+  for (const pair of String(raw).split(",").map((x) => x.trim()).filter(Boolean)) {
+    const eq = pair.indexOf("=");
+    const net = eq > 0 ? pair.slice(0, eq).trim() : "";
+    const usd = eq > 0 ? Number(pair.slice(eq + 1)) : NaN;
+    if (!net || !Number.isFinite(usd) || usd < 0) {
+      console.warn(`[payments] NETWORK_PRICE_PREMIUMS entry ignored (malformed or negative): "${pair}"`);
+      continue;
+    }
+    out.set(net, Math.round(usd * 1e6)); // micro-dollars
+  }
+  return out;
+}
+const NETWORK_PREMIUMS = parseNetworkPremiums();
+
+/** "$0.001" + premium micro-dollars -> "$0.002". Exact in integer micro-dollars.
+ *  A price this parser cannot read is returned UNCHANGED (never a NaN quote). */
+export function priceWithPremium(price, network, premiums = NETWORK_PREMIUMS) {
+  const extra = premiums.get(network);
+  if (!extra) return price;
+  const m = /^\$(\d+(?:\.\d+)?)$/.exec(String(price));
+  if (!m) return price;
+  const micro = Math.round(Number(m[1]) * 1e6) + extra;
+  return "$" + (micro / 1e6).toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+}
+
 export function acceptsForItem(item, rails) {
   const { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet } = rails;
   const burner = rails.upstreamBuyerAddress ?? UPSTREAM_BUYER_ADDRESS;
   const payToFor = (caip2) =>
     burner && caip2 === "eip155:8453" && SELF_FUNDING_SLUGS.has(item.slug) ? burner : walletAddress;
-  const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: item.price, network: caip2 }));
+  const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: priceWithPremium(item.price, caip2), network: caip2 }));
   if (item.identityBound) return evm;
   return [
     ...evm,
-    ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: item.price, network: caip2 })) : []),
-    ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: item.price, network: caip2 })) : []),
+    ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: priceWithPremium(item.price, caip2), network: caip2 })) : []),
+    ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: priceWithPremium(item.price, caip2), network: caip2 })) : []),
     // The Algorand accepts carry the x402 Global Challenge tag (Algorand
     // Foundation's entry marker, per their 2026-07-21 checklist): GoPlausible's
     // Bazaar + leaderboard attribute challenge entries by `extra.tag`, and the
     // challenge-filtered views hide untagged merchants entirely. Scheme-level
     // fields (decimals/feePayer) are merged in by the facilitator downstream.
-    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: algorandWallet, price: item.price, network: caip2, extra: { tag: "x402-global-challenge" } })) : []),
+    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: algorandWallet, price: priceWithPremium(item.price, caip2), network: caip2, extra: { tag: "x402-global-challenge" } })) : []),
   ];
 }
 

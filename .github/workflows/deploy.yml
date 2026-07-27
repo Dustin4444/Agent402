@@ -862,6 +862,9 @@ jobs:
       - name: Settle-fallback chain (PayAI -> Solvador; double-settle gate between fallbacks — offline)
         run: node scripts/test-settle-fallback.js
 
+      - name: Per-chain price premiums (fee-charging rails priced in; dormant default byte-identical — offline)
+        run: node scripts/test-price-premium.js
+
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 
