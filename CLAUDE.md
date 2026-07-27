@@ -323,6 +323,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   LIFETIME counter (~1726) polluted by a since-fixed miscount that logged Robinhood
   settlement *rejections* — where the buyer kept their money — as charged failures. Never
   quote it as current quality; use a recent window from the operator endpoint.**
+- **Canary burner auto-refill (`canary-refill.yml` + `scripts/canary-refill.js`, daily
+  11:17 UTC — two hours before the canary):** tops the Base burner back to $15 when it
+  dips under $8, from a DEDICATED refill wallet (`0xeB005745aEB2179b7b6E5506CAf5da4b42e90f8A`;
+  key `CANARY_REFILL_KEY`, Actions secret ONLY). Risk inversion on purpose: the burner's
+  high-exposure key (used by every canary run) carries a small float; the refill key
+  (touched by one tiny job) holds a month of runway. Recipient + asset are CONSTANTS in
+  the script — no input can redirect funds; sends cap at $12/run so a bug loop drains
+  over days with daily issues, never in one tx; unreadable balances refuse to send.
+  When the refill wallet cannot cover a top-up it opens "Canary refill wallet needs
+  funding" — the owner's ONLY remaining task (~quarterly, ~$50 USDC + ~$1 ETH on Base).
+  Tunables: repo vars `REFILL_FLOOR_USD`/`REFILL_TARGET_USD`/`REFILL_MAX_PER_RUN_USD`.
+  `scripts/test-canary-refill.js` (9 assertions, in CI).
 - **Paid canary (`scripts/paid-canary.js`):** 31 legs — tools across chains
   (Base/Solana/Polygon/Arbitrum/Monad/Celo/Stellar/Robinhood), incl. two federal-data legs
   (vin-decode / geo-lookup) whose Base settlements also seed the gov tools into
