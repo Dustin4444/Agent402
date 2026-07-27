@@ -337,6 +337,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   hop + Chromium + F04 egress proxy end-to-end; new-leg coverage locked by
   `scripts/test-canary-coverage.js`). Trigger via workflow_dispatch on
   `paid-canary.yml` (ref main) after a deploy; verdict is the job log tail.
+  **Funding classification:** exit 3 = proven underfunded (all failed legs clean 402s,
+  ≥1 real settle, live Base balance < cheapest failed leg — files a "burner EMPTY"
+  issue, not an outage); exit 4 = green run but balance < `CANARY_LOW_WATER_USD`
+  (default $2, ~2 runs) — "burner LOW" issue pages for a top-up BEFORE starvation.
+  The balance read walks a 3-RPC fallback chain (mainnet.base.org rejected the read
+  2026-07-27 while the wallet sat at $0.00, so an empty wallet paged as "buying looks
+  broken"); an unreadable balance is logged loudly and never demotes a green run.
 - **Algorand rail canary (`scripts/algorand-rail-canary.js`, `algorand-rail-canary.yml`,
   weekly Mon ~06:41 UTC + dispatch):** buys EVERY catalog tool on Algorand and asserts
   402 → sign → settle → 200 → non-empty payload. Fills the gap between paid-canary (ONE
