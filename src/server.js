@@ -191,7 +191,7 @@ import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
 // per-IP bucket. PoW redemption on the direct HTTP path goes through here.
 const powHttpLimiter = createRateLimiter("pow-http");
-import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent } from "./stats.js";
+import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
 const PORT = process.env.PORT || 3000;
@@ -1144,6 +1144,23 @@ app.get("/api/revenue/daily", (_req, res) => {
     res.set("Cache-Control", "public, max-age=300").json({ asOf: new Date().toISOString(), days: ledgerDaily(revenueWallets(), mppTxHashes()) });
   } catch (e) {
     res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });
+  }
+});
+// Daily served-call counts by settlement method — the non-revenue companion to
+// /api/revenue/daily. Free (proof-of-work) calls never touch a chain, so they
+// are invisible to the settlement ledger; this is the only record of them.
+app.get("/api/calls/daily", (_req, res) => {
+  try {
+    res.set("Cache-Control", "public, max-age=300").json({
+      asOf: new Date().toISOString(),
+      // Per-day recording began when the daily_calls table shipped. Days before
+      // it have no record at all — not zero free calls. The chart labels this
+      // rather than drawing a flat zero line back through history.
+      recordingSince: dailyCallsRecordingSince(),
+      days: getDailyCalls(),
+    });
+  } catch (e) {
+    res.status(500).json({ error: "daily calls failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
 // Machine-readable MPP-wire settlements (behind the /revenue "MPP transactions"
