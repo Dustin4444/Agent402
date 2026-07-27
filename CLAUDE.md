@@ -266,6 +266,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   gives **784 observations, 0 failures, 100.000%** (43 days). The OLD page hardcoded an
   "All systems operational" pill and headlined `process.uptime()` (resets every deploy) —
   never reintroduce either.
+- **Heartbeat cadence (why /status went amber on a healthy prod):** the workflow's
+  cron says `*/15` but GitHub delivers it **about once an hour** (measured 2026-07-27:
+  60-72 min gaps plus a 3.3h stall), while `COMPONENTS.staleAfterMs` marks these
+  components stale at 45 min — so the page reported "degraded" with production
+  perfectly healthy, the exact threshold-vs-cadence mismatch `src/status.js` warns
+  about. Fixed by observing MORE, never by loosening the alarm: the probe moved to
+  `scripts/heartbeat-probe.sh` (sourced, defines `probe()` + `record_observation()`)
+  and a final `if: always()` step re-probes 4x at 12-min spacing, so freshness tracks
+  the 45-min threshold again. That step runs LAST so nothing that can page is delayed;
+  `timeout-minutes` is 75 to cover it. `scripts/test-heartbeat-probe.sh` (22 assertions,
+  offline, stubbed curl, in CI) pins the FAILS -> per-component mapping — a mismap would
+  silently report the wrong component down, or a broken one as operational.
 - **Charged-failure alarm — READ THIS BEFORE TRUSTING IT.** `charged-failure-alert.yml`
   polled PUBLIC `/api/stats` for `.chargedFailures`, a field that only exists on
   `getOperatorBreakdown()` behind `/__operator/stats`. `jq -e` failed every run, it took
