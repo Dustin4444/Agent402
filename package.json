@@ -2,7 +2,7 @@
   "name": "agent402",
   "version": "1.0.0",
   "private": true,
-  "description": "Agent402.Tools — the open-source, self-hostable x402 + MCP server: 500+ tools + 100 skill packs for AI agents, plus a pay-per-crawl tollbooth. Run free, or charge per call over x402 (USDC on Base, Solana, Polygon, Arbitrum & Stellar — plus USDG on Robinhood Chain). 6 chains supported.",
+  "description": "Agent402.Tools \u2014 the open-source, self-hostable x402 + MCP server: 500+ tools + 100 skill packs for AI agents, plus a pay-per-crawl tollbooth. Run free, or charge per call over x402 (USDC on Base, Solana, Polygon, Arbitrum & Stellar \u2014 plus USDG on Robinhood Chain). 6 chains supported.",
   "main": "src/server.js",
   "engines": {
     "node": ">=20"
@@ -98,6 +98,7 @@
     "fast-uri": "3.1.4",
     "brace-expansion": "5.0.8",
     "body-parser": "2.3.0",
-    "hono": "4.12.32"
+    "hono": "4.12.32",
+    "@hono/node-server": "2.0.12"
   }
 }
