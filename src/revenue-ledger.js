@@ -452,6 +452,133 @@ export function ledgerDaily(wallets, mppTx = null) {
     .sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.chain.localeCompare(b.chain)));
 }
 
+/**
+ * Distinct EXTERNAL buyers per day, oldest first.
+ *
+ * Answers "are we winning more buyers, or is the same handful paying more?",
+ * which transaction counts alone cannot: 200 calls is one whale or fifty
+ * customers and the revenue line looks identical either way.
+ *
+ * Three things this gets right on purpose:
+ *   • A buyer is counted ONCE PER DAY no matter how many chains they paid on.
+ *     The transfer rows are keyed by day+chain, so counting there would report
+ *     a multi-chain buyer as two buyers.
+ *   • `cumulative` is a running UNION, never a sum of the daily counts. Summing
+ *     distinct counts double-counts every returning buyer and would turn a
+ *     stagnant handful into an impressive-looking climb — the exact illusion
+ *     this series exists to dispel.
+ *   • `newBuyers` is measured against ALL prior history, not just the charted
+ *     window, so nobody is called "new" merely because the epoch cuts them off.
+ *
+ * `unattributed` counts external payments whose payer could not be read from
+ * the chain scan. Those are in the revenue totals but cannot be attributed to a
+ * buyer, so the page can say so instead of quietly undercounting.
+ *
+ * Returns counts only. Buyer addresses are public on-chain, but publishing a
+ * per-day roster of who pays us is a customer list, so it stays out.
+ */
+export function ledgerBuyersDaily(wallets) {
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external, payer FROM transfers WHERE wallet = ?");
+  const chains = walletPairs(wallets);
+  const byDay = new Map(); // day -> Set(payer)
+  const unattributed = new Map(); // day -> count
+  const firstSeen = new Map(); // payer -> earliest day ever, across ALL history
+
+  for (const [chain, wallet] of chains) {
+    if (!wallet) continue;
+    const cur = getCursor.get(chain, wallet);
+    const anchorBlock = cur?.next_block ?? null;
+    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
+    const cadence = BLOCK_MS[chain] || 2000;
+    for (const t of rows.all(wallet)) {
+      if (t.chain !== chain || !t.external) continue;
+      let ms = t.when_ts ? t.when_ts * 1000 : null;
+      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
+      if (ms == null) continue; // undateable row — skip rather than guess
+      const day = new Date(ms).toISOString().slice(0, 10);
+      // EVM addresses are case-insensitive; base58/Stellar are NOT (see
+      // src/payer.js — never lowercase those or two buyers merge into one).
+      const raw = t.payer || null;
+      if (!raw) { unattributed.set(day, (unattributed.get(day) || 0) + 1); continue; }
+      const payer = /^0x[0-9a-fA-F]{40}$/.test(raw) ? raw.toLowerCase() : raw;
+      if (!byDay.has(day)) byDay.set(day, new Set());
+      byDay.get(day).add(payer);
+      const prev = firstSeen.get(payer);
+      if (!prev || day < prev) firstSeen.set(payer, day);
+    }
+  }
+
+  const start = process.env.REVENUE_DAILY_START || "2026-06-15";
+  const allDays = [...new Set([...byDay.keys(), ...unattributed.keys()])].sort();
+  const seen = new Set();
+  const out = [];
+  for (const day of allDays) {
+    const set = byDay.get(day) || new Set();
+    for (const p of set) seen.add(p); // union BEFORE the window filter, so the
+    // cumulative line is a true all-time distinct count rather than restarting
+    // at the chart epoch.
+    if (day < start) continue;
+    let fresh = 0;
+    for (const p of set) if (firstSeen.get(p) === day) fresh++;
+    out.push({
+      day,
+      buyers: set.size,
+      newBuyers: fresh,
+      returningBuyers: set.size - fresh,
+      cumulative: seen.size,
+      unattributed: unattributed.get(day) || 0,
+    });
+  }
+  return out;
+}
+
+/**
+ * Buyer concentration over the charted window: how much of our external volume
+ * comes from the biggest few wallets.
+ *
+ * The daily series answers "how many buyers"; this answers the other half,
+ * "does it matter". Two hundred buyers where one wallet is 80% of payments is a
+ * single-customer business wearing a crowd as a costume, and only this number
+ * says so.
+ *
+ * Shares are of PAYMENT COUNT, not dollars: at sub-cent prices a single
+ * expensive call would otherwise masquerade as concentration. Counts and
+ * percentages only, never addresses.
+ */
+export function ledgerBuyerConcentration(wallets) {
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE wallet = ?");
+  const chains = walletPairs(wallets);
+  const start = process.env.REVENUE_DAILY_START || "2026-06-15";
+  const counts = new Map();
+  let payments = 0;
+  for (const [chain, wallet] of chains) {
+    if (!wallet) continue;
+    const cur = getCursor.get(chain, wallet);
+    const anchorBlock = cur?.next_block ?? null;
+    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
+    const cadence = BLOCK_MS[chain] || 2000;
+    for (const t of rows.all(wallet)) {
+      if (t.chain !== chain || !t.external || !t.payer) continue;
+      let ms = t.when_ts ? t.when_ts * 1000 : null;
+      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
+      if (ms == null) continue;
+      if (new Date(ms).toISOString().slice(0, 10) < start) continue;
+      const payer = /^0x[0-9a-fA-F]{40}$/.test(t.payer) ? t.payer.toLowerCase() : t.payer;
+      counts.set(payer, (counts.get(payer) || 0) + 1);
+      payments++;
+    }
+  }
+  if (!payments) return { buyers: 0, payments: 0, topSharePct: null, top5SharePct: null };
+  const sorted = [...counts.values()].sort((a, b) => b - a);
+  const pct = (n) => Math.round((n / payments) * 1000) / 10;
+  return {
+    buyers: counts.size,
+    payments,
+    topSharePct: pct(sorted[0]),
+    top5SharePct: pct(sorted.slice(0, 5).reduce((a, b) => a + b, 0)),
+  };
+}
+
 export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [] }) {
   const enabled = HAS_DATA_DIR || process.env.REVENUE_LEDGER === "true";
   if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet && !algorandWallet)) return false;

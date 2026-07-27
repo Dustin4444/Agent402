@@ -1135,8 +1135,8 @@ function salesSection(sales) {
 export function revenueChartSection() {
   return `
   <style>
-  .rvz{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;--sfree:#8a8f98;--vsurf:var(--card)}
-  :root[data-theme="dark"] .rvz{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;--sfree:#9aa0aa;--vsurf:var(--card)}
+  .rvz{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;--sfree:#8a8f98;--snewbuyers:#1baf7a;--sretbuyers:#4a3aa7;--scumbuyers:#2a78d6;--vsurf:var(--card)}
+  :root[data-theme="dark"] .rvz{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;--sfree:#9aa0aa;--snewbuyers:#199e70;--sretbuyers:#9085e9;--scumbuyers:#3987e5;--vsurf:var(--card)}
   .rvz{border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin:0 0 26px}
   .rvz-controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
   .rvz-seg{display:inline-flex;border:1.5px solid var(--ink)}
@@ -1162,11 +1162,12 @@ export function revenueChartSection() {
     </div>
     <div class="rvz-controls" style="margin-top:12px">
       <span class="rvz-seg" id="rvzMode"><button data-v="cum" class="on">Cumulative</button><button data-v="daily">Daily</button></span>
-      <span class="rvz-seg" id="rvzMetric"><button data-v="usd" class="on">Revenue $</button><button data-v="tx">Transactions</button></span>
+      <span class="rvz-seg" id="rvzMetric"><button data-v="usd" class="on">Revenue $</button><button data-v="tx">Transactions</button><button data-v="buyers">Buyers</button></span>
       <span class="rvz-seg" id="rvzScope"><button data-v="ext" class="on">External</button><button data-v="int">Internal (canary)</button><button data-v="both">Both</button></span>
       <span class="rvz-seg" id="rvzWire"><button data-v="all" class="on">All wires</button><button data-v="x402">x402</button><button data-v="mpp">MPP</button></span>
       <span class="rvz-seg" id="rvzTraffic"><button data-v="paid" class="on">Paid</button><button data-v="free">Free (PoW)</button><button data-v="both">Both</button></span>
     </div>
+    <p id="rvzBuyersNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzFreeNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzWireNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;">MPP-wire settlements are identified by tx hash from the sales ledger, which began recording the wire on 2026-07-24 - earlier days read as x402 because the wire was not recorded, not because no MPP traffic existed.</p>
     <div class="rvz-wrap"><svg id="rvzSvg" viewBox="0 0 940 300" width="100%" role="img" aria-label="Stacked daily revenue by chain"></svg><div class="rvz-tip" id="rvzTip"></div></div>
@@ -1176,11 +1177,18 @@ export function revenueChartSection() {
   <script>
   (function(){
     var SLOTS={base:1,algorand:2,solana:3,polygon:4,stellar:5,arbitrum:6,celo:7};
-    var NAMES={1:"Base",2:"Algorand",3:"Solana",4:"Polygon",5:"Stellar",6:"Arbitrum",7:"Celo",8:"Other",free:"Free tier (PoW)"};
+    var NAMES={1:"Base",2:"Algorand",3:"Solana",4:"Polygon",5:"Stellar",6:"Arbitrum",7:"Celo",8:"Other",free:"Free tier (PoW)",newbuyers:"New buyers",retbuyers:"Returning buyers",cumbuyers:"Distinct buyers to date"};
     // Draw order. "free" is a lane, not a chain - free calls settle nowhere,
     // so it never takes a chain colour and never folds into "Other".
-    var ORDER=[1,2,3,4,5,6,7,8,"free"];
-    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",rows:[],free:[],freeSince:null};
+    var CHAIN_ORDER=[1,2,3,4,5,6,7,8,"free"];
+    // Buyers are people, not chains: a distinct-buyer count cannot be split by
+    // rail without double counting anyone who paid on two. So the buyers view
+    // swaps the whole lane set rather than adding to it.
+    function ORDERS(){
+      if(state.metric!=="buyers")return CHAIN_ORDER;
+      return state.mode==="cum"?["cumbuyers"]:["newbuyers","retbuyers"];
+    }
+    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",rows:[],free:[],freeSince:null,buyers:[],conc:null};
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
     // Wire filter: MPP and x402 settle identically on-chain, so the MPP subset
@@ -1200,6 +1208,16 @@ export function revenueChartSection() {
     function build(){
       var days={};
       function dayOf(k){return days[k]||(days[k]={day:k,slots:{}})}
+      if(state.metric==="buyers"){
+        // Cumulative uses the server's running UNION, never an accumulation of
+        // the daily counts: summing distinct counts double counts every
+        // returning buyer and would draw a rising line over a flat reality.
+        return (state.buyers||[]).map(function(r){
+          return state.mode==="cum"
+            ? {day:r.day,slots:{cumbuyers:r.cumulative}}
+            : {day:r.day,slots:{newbuyers:r.newBuyers,retbuyers:r.returningBuyers}};
+        });
+      }
       if(state.traffic!=="free"){
         state.rows.forEach(function(r){var d=dayOf(r.day);
           var s=slotOf(r.chain); d.slots[s]=(d.slots[s]||0)+val(r)})}
@@ -1211,7 +1229,7 @@ export function revenueChartSection() {
       if(state.traffic!=="paid"&&state.metric==="tx"){
         state.free.forEach(function(r){var d=dayOf(r.day);d.slots.free=(d.slots.free||0)+(r.pow||0)})}
       var list=Object.keys(days).sort().map(function(k){return days[k]});
-      if(state.mode==="cum"){var acc={};list.forEach(function(d){for(var k=0;k<ORDER.length;k++){var s=ORDER[k];
+      if(state.mode==="cum"){var acc={};list.forEach(function(d){var O=ORDERS();for(var k=0;k<O.length;k++){var s=O[k];
         acc[s]=(acc[s]||0)+(d.slots[s]||0);d.slots[s]=acc[s]}})}
       return list;
     }
@@ -1220,7 +1238,8 @@ export function revenueChartSection() {
       var data=build(), svg=document.getElementById("rvzSvg"), tip=document.getElementById("rvzTip");
       if(!data.length){svg.outerHTML="";document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">ledger backfilling - the series appears as settlements sync</div>';return}
       var W=940,H=300,L=52,R=8,T=10,B=26,pw=W-L-R,ph=H-T-B;
-      var max=0;data.forEach(function(d){var t=0;for(var k=0;k<ORDER.length;k++)t+=d.slots[ORDER[k]]||0;if(t>max)max=t});
+      var ORD=ORDERS();
+      var max=0;data.forEach(function(d){var t=0;for(var k=0;k<ORD.length;k++)t+=d.slots[ORD[k]]||0;if(t>max)max=t});
       max=max||1;
       var n=data.length, bw=Math.max(2,Math.min(34,pw/n-2));
       var x=function(i){return L+(pw/n)*i+(pw/n-bw)/2}, y=function(v){return T+ph-(v/max)*ph};
@@ -1232,31 +1251,39 @@ export function revenueChartSection() {
       data.forEach(function(d,i){
         if(i%step===0)out.push('<text x="'+(x(i)+bw/2)+'" y="'+(H-8)+'" text-anchor="middle" font-size="10" fill="var(--faint)" font-family="var(--font-mono)">'+d.day.slice(5)+"</text>");
         var y0=T+ph;
-        for(var k=0;k<ORDER.length;k++){var s=ORDER[k];var v=d.slots[s]||0;if(v<=0)continue;var h=(v/max)*ph;y0-=h;
+        for(var k=0;k<ORD.length;k++){var s=ORD[k];var v=d.slots[s]||0;if(v<=0)continue;var h=(v/max)*ph;y0-=h;
           if(state.mode==="cum"){out.push('<rect x="'+x(i)+'" y="'+y0+'" width="'+bw+'" height="'+Math.max(h,0.5)+'" fill="'+css(s)+'" opacity="0.9"/>')}
           else{out.push('<rect x="'+x(i)+'" y="'+y0+'" width="'+bw+'" height="'+Math.max(h-1,0.5)+'" fill="'+css(s)+'" stroke="var(--vsurf)" stroke-width="1" rx="1"/>')}}
         out.push('<rect x="'+(L+(pw/n)*i)+'" y="'+T+'" width="'+(pw/n)+'" height="'+ph+'" fill="transparent" data-i="'+i+'"/>')});
       svg.innerHTML=out.join("");
       svg.onmousemove=function(ev){var t=ev.target.closest("rect[data-i]");if(!t){tip.style.display="none";return}
         var d=data[+t.dataset.i],rows="",tot=0;
-        for(var k=ORDER.length-1;k>=0;k--){var s=ORDER[k];var v=d.slots[s]||0;if(v<=0)continue;tot+=v;
+        for(var k=ORD.length-1;k>=0;k--){var s=ORD[k];var v=d.slots[s]||0;if(v<=0)continue;tot+=v;
           rows+='<div><i style="display:inline-block;width:8px;height:8px;background:'+css(s)+';margin-right:5px"></i>'+NAMES[s]+" "+fmt(v)+"</div>"}
         tip.innerHTML="<b>"+d.day+"</b>"+rows+"<div style='border-top:1px dashed var(--dark-border2);margin-top:3px'>total "+fmt(tot)+"</div>";
         var wr=document.querySelector(".rvz-wrap").getBoundingClientRect();
         tip.style.display="block";tip.style.left=Math.min(ev.clientX-wr.left+14,wr.width-270)+"px";tip.style.top=(ev.clientY-wr.top+10)+"px"};
       svg.onmouseleave=function(){tip.style.display="none"};
-      var lg="",present={};data.forEach(function(d){for(var k=0;k<ORDER.length;k++)if(d.slots[ORDER[k]])present[ORDER[k]]=1});
+      var lg="",present={};data.forEach(function(d){for(var k=0;k<ORD.length;k++)if(d.slots[ORD[k]])present[ORD[k]]=1});
       Object.keys(present).forEach(function(s){lg+='<span><i style="background:'+css(s)+'"></i>'+NAMES[s]+"</span>"});
       // An empty series under a wire filter is a real answer, not a broken
       // chart - say which filter emptied it rather than showing a blank grid.
       if(!Object.keys(present).length){
-        lg='<span>no '+(state.traffic==="free"?"free-tier calls":
+        lg='<span>no '+(state.metric==="buyers"?"buyers":state.traffic==="free"?"free-tier calls":
           (state.wire==="all"?"":state.wire==="mpp"?"MPP-wire ":"x402-wire ")+
           (state.scope==="ext"?"external":state.scope==="int"?"internal":"")+" settlements")+' in this window</span>'}
       document.getElementById("rvzLegend").innerHTML=lg;
       var tb='<table><tr><th>day</th>';Object.keys(present).forEach(function(s){tb+="<th>"+NAMES[s]+"</th>"});tb+="<th>total</th></tr>";
       data.forEach(function(d){var tot=0;tb+="<tr><td>"+d.day+"</td>";Object.keys(present).forEach(function(s){var v=d.slots[s]||0;tot+=v;tb+="<td>"+fmt(v)+"</td>"});tb+="<td>"+fmt(tot)+"</td></tr>"});
       document.getElementById("rvzTable").innerHTML=tb+"</table>";
+    }
+    function buyersNote(){
+      var el=document.getElementById("rvzBuyersNote");
+      if(state.metric!=="buyers"){el.style.display="none";return}
+      el.style.display="block";
+      var c=state.conc;
+      el.textContent="Distinct external wallets that settled a payment. Someone paying on two chains in one day is one buyer, and the cumulative line is a running union rather than a sum."+
+        (c&&c.buyers?" Over this window: "+c.buyers+" buyers, "+c.payments+" payments, biggest single wallet "+c.topSharePct+"% of them and the top five "+c.top5SharePct+"%.":"");
     }
     function freeNote(){
       var el=document.getElementById("rvzFreeNote");
@@ -1271,12 +1298,17 @@ export function revenueChartSection() {
     seg("rvzMode",function(v){state.mode=v});
     seg("rvzMetric",function(v){state.metric=v;
       // Revenue $ is paid-only: a free call has no dollar value to chart.
-      if(v==="usd"&&state.traffic!=="paid"){state.traffic="paid";setSeg("rvzTraffic","paid")}
-      freeNote()});
-    seg("rvzScope",function(v){state.scope=v});
+      if(v!=="tx"&&state.traffic!=="paid"){state.traffic="paid";setSeg("rvzTraffic","paid")}
+      // Buyers counts settled external wallets, so the internal/canary scope
+      // and the wire split do not apply to it.
+      if(v==="buyers"){if(state.scope!=="ext"){state.scope="ext";setSeg("rvzScope","ext")}
+        if(state.wire!=="all"){state.wire="all";setSeg("rvzWire","all")}}
+      freeNote();buyersNote()});
+    seg("rvzScope",function(v){state.scope=v;
+      if(state.metric==="buyers"){state.metric="tx";setSeg("rvzMetric","tx");buyersNote()}});
     seg("rvzTraffic",function(v){state.traffic=v;
-      if(v!=="paid"&&state.metric==="usd"){state.metric="tx";setSeg("rvzMetric","tx")}
-      freeNote()});
+      if(v!=="paid"&&state.metric!=="tx"){state.metric="tx";setSeg("rvzMetric","tx")}
+      freeNote();buyersNote()});
     seg("rvzWire",function(v){state.wire=v;
       document.getElementById("rvzWireNote").style.display=v==="all"?"none":"block"});
     // The free-tier series is a separate endpoint (free calls never touch the
@@ -1289,6 +1321,8 @@ export function revenueChartSection() {
       state.rows=res[0].days||[];
       state.free=res[1].days||[];
       state.freeSince=res[1].recordingSince||null;
+      state.buyers=res[0].buyers||[];
+      state.conc=res[0].concentration||null;
       render();
     }).catch(function(){document.querySelector(".rvz-wrap").innerHTML='<div class="rvz-empty">series unavailable</div>'});
   })();

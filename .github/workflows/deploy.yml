@@ -856,6 +856,9 @@ jobs:
       - name: Status probe worker (Cloudflare cron observer mapping; stubbed fetch — offline)
         run: node scripts/test-status-probe-worker.js
 
+      - name: Revenue buyers series (distinct-count semantics; seeded ledger — offline)
+        run: node scripts/test-revenue-buyers.js
+
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 
