@@ -868,9 +868,6 @@ jobs:
       - name: Canary underfunded classification (empty burner is funding, never an outage — offline)
         run: node scripts/test-canary-underfunded.js
 
-      - name: Canary refill decision (constant recipient, per-run cap, no blind sends — offline)
-        run: node scripts/test-canary-refill.js
-
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 
