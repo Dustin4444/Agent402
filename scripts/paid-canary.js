@@ -418,20 +418,38 @@ export function classifyCanaryFailure(decision, { balanceUsd = null } = {}) {
   return balanceUsd < cheapestFailed ? "underfunded" : "broken";
 }
 
-/** Burner USDC balance on Base via the public RPC. null on any failure —
- *  callers treat null as "cannot prove underfunding" and page normally. */
+/** Burner USDC balance on Base. null only when EVERY RPC fails — callers
+ *  treat null as "cannot prove underfunding" and page as an outage, so a
+ *  single flaky endpoint must not decide that. Proven live 2026-07-27: the
+ *  burner sat at exactly $0.00, mainnet.base.org rejected the read, and an
+ *  empty wallet paged as "buying looks broken" instead of exiting 3. */
+const BASE_BALANCE_RPCS = [
+  "https://mainnet.base.org",
+  "https://base.blockscout.com/api/eth-rpc",
+  "https://base.llamarpc.com",
+];
 async function baseUsdcBalanceUsd(address) {
-  try {
-    const data = "0x70a08231" + address.toLowerCase().replace("0x", "").padStart(64, "0");
-    const r = await fetch("https://mainnet.base.org", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", data }, "latest"] }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const j = await r.json();
-    if (!j?.result) return null;
-    return parseInt(j.result, 16) / 1e6;
-  } catch { return null; }
+  const data = "0x70a08231" + address.toLowerCase().replace("0x", "").padStart(64, "0");
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", data }, "latest"] });
+  for (const rpc of BASE_BALANCE_RPCS) {
+    try {
+      const r = await fetch(rpc, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "User-Agent": "agent402-paid-canary" },
+        body,
+        signal: AbortSignal.timeout(10000),
+      });
+      const j = await r.json();
+      if (typeof j?.result === "string" && /^0x[0-9a-fA-F]*$/.test(j.result)) {
+        return parseInt(j.result, 16) / 1e6;
+      }
+      console.warn(`WARN  balance read: ${rpc} returned no result (HTTP ${r.status}) — trying next RPC`);
+    } catch (e) {
+      console.warn(`WARN  balance read: ${rpc} failed (${(e?.message || e).toString().slice(0, 80)}) — trying next RPC`);
+    }
+  }
+  console.warn("WARN  balance read: ALL Base RPCs failed — cannot prove underfunding, a funding failure would page as an outage");
+  return null;
 }
 
 export function decideCanary(results, { coreKit = CORE_KIT } = {}) {
@@ -1005,10 +1023,28 @@ async function main() {
       );
       process.exit(3);
     }
-    console.error(`\nPAID CANARY FAILED — buying looks broken:\n  ${decision.reasons.join("\n  ")}`);
+    console.error(
+      `\nPAID CANARY FAILED — buying looks broken:\n  ${decision.reasons.join("\n  ")}\n` +
+        `  (underfunded ruled out: live Base balance ${balanceUsd == null ? "UNREADABLE — see balance-read warnings above" : `$${balanceUsd.toFixed(4)}`})`
+    );
     process.exit(1);
   }
   console.log(`\npaid-canary OK — buying works (${decision.settled}/${results.length} settled${decision.warnings.length ? `; ${decision.warnings.length} upstream warning(s)` : ""}).`);
+  // Low-water check AFTER a green verdict: page for a top-up while buying
+  // still works, instead of discovering starvation as a 27-leg failure
+  // (2026-07-27: the burner silently drained to $0.00 between runs). The
+  // threshold covers roughly two full runs; exit 4 = "green but fund soon",
+  // handled by the workflow as ok-low. A failed balance read never demotes a
+  // green run.
+  const lowWater = Number(process.env.CANARY_LOW_WATER_USD || 2);
+  const endBalance = await baseUsdcBalanceUsd(account.address);
+  if (Number.isFinite(endBalance) && endBalance < lowWater) {
+    console.warn(
+      `\nCANARY BURNER LOW — $${endBalance.toFixed(4)} USDC left on Base (low-water $${lowWater.toFixed(2)}). ` +
+        `Top up ${account.address} before the next run starves. Exiting 4 (green, funding warning).`
+    );
+    process.exit(4);
+  }
   process.exit(0);
 }
 
