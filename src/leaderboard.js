@@ -26,6 +26,8 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
+import { EVM } from "./revenue-live.js";
+import { NETWORKS } from "./payments.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 
 // Base block time is ~2s, so 24h ≈ 43200 blocks and 7d ≈ 302400 blocks. A
@@ -106,17 +108,48 @@ export function payerFromLog(l) {
  * Returns { wallet, network } or null. Wallet is lowercase-normalised so it
  * matches eth_getLogs `to` topics (which are zero-padded lowercase hex).
  */
-export function baseUsdcPayToFromItem(item) {
+export function baseUsdcPayToFromItem(item, chain = { caip2: BASE_MAINNET, token: USDC, key: "base" }) {
   const accepts = Array.isArray(item?.accepts) ? item.accepts : [];
+  const want = String(chain.caip2 || BASE_MAINNET);
+  const token = String(chain.token || USDC).toLowerCase();
   for (const a of accepts) {
-    if (a?.network !== BASE_MAINNET) continue;
+    if (a?.network !== want) continue;
     const asset = String(a.asset || "").toLowerCase();
-    if (asset && asset !== USDC) continue;
+    if (asset && asset !== token) continue;
     const w = a.payTo;
     if (typeof w !== "string" || !/^0x[a-fA-F0-9]{40}$/.test(w)) continue;
-    return { wallet: w.toLowerCase(), network: "base" };
+    return { wallet: w.toLowerCase(), network: chain.key || "base" };
   }
   return null;
+}
+
+/** Scan config for any EVM rail we settle on, assembled from the two places
+ *  that already define them: NETWORKS (CAIP-2) and revenue-live's EVM block
+ *  (USDC address, Alchemy-first RPCs, and a span already tuned to that chain's
+ *  block time — Arbitrum's 0.25s blocks need a very different window from
+ *  Base's 2s, which is the whole reason this is not one constant).
+ *
+ *  Returns null for a chain we have no config for, so a caller can never
+ *  silently scan the wrong token on the wrong rail. */
+export function chainScanConfig(chainKey) {
+  const key = String(chainKey || "base").toLowerCase();
+  const rail = EVM[key];
+  const caip2 = NETWORKS[key];
+  if (!rail || !caip2 || !rail.token || !(rail.rpcs || []).length) return null;
+  return {
+    key,
+    label: rail.label || key,
+    caip2,
+    token: String(rail.token).toLowerCase(),
+    rpcs: rail.rpcs,
+    spanBlocks: rail.span,
+    explorer: rail.explorer,
+  };
+}
+
+/** Every EVM rail we can rank, Base first. */
+export function rankableChains() {
+  return Object.keys(EVM).map(chainScanConfig).filter(Boolean);
 }
 
 /**
@@ -125,7 +158,7 @@ export function baseUsdcPayToFromItem(item) {
  * endpoint. Each row carries: name (most common serviceName across the
  * wallet's endpoints), origins (set of host origins), endpoints (count).
  */
-export function extractWalletsFromBazaar(payload) {
+export function extractWalletsFromBazaar(payload, chain = undefined) {
   const list =
     payload?.resources ||
     payload?.items ||
@@ -133,7 +166,7 @@ export function extractWalletsFromBazaar(payload) {
     (Array.isArray(payload) ? payload : []);
   const byWallet = new Map();
   for (const item of list) {
-    const pay = baseUsdcPayToFromItem(item);
+    const pay = baseUsdcPayToFromItem(item, chain);
     if (!pay) continue;
     const origin = originOf(item?.resource || item?.url || item?.endpoint || item?.homepage);
     if (!byWallet.has(pay.wallet)) {
@@ -454,14 +487,28 @@ const emptySnapshot = (opts, reason) => ({
  * wraps this in a try/catch and serves the last good snapshot on failure.
  */
 export async function runLeaderboard(overrides = {}) {
-  const opts = { ...DEFAULTS, ...overrides };
+  // Which rail are we ranking? Defaults to Base, so every existing caller and
+  // the persisted snapshot shape are untouched. An unknown key is refused
+  // rather than silently falling back to Base with the wrong token.
+  const chain = chainScanConfig(overrides.chain || "base");
+  if (!chain) throw new Error(`leaderboard: no scan config for chain "${overrides.chain}"`);
+  const opts = {
+    ...DEFAULTS,
+    // The rail's own tuned span and RPC list win unless the caller is explicit,
+    // because a single SPAN_BLOCKS across chains is meaningless: identical
+    // block counts are 24h on Base and under 7h on Arbitrum.
+    spanBlocks: overrides.spanBlocks ?? (process.env.SPAN_BLOCKS ? DEFAULTS.spanBlocks : chain.spanBlocks),
+    rpcs: overrides.rpcs ?? chain.rpcs,
+    ...overrides,
+  };
+  opts.chain = chain;
   const onProgress = overrides.onProgress || (() => {});
 
   // 1. Bazaar discovery (paginated) → per-item payTo for Base-mainnet USDC.
   onProgress(`[1/3] Fetching Bazaar discovery (${opts.bazaarUrl})…`);
   const { items, total } = await fetchAllBazaarItems(opts.bazaarUrl, opts);
-  let sellers = extractWalletsFromBazaar({ items });
-  onProgress(`      ${items.length}/${total ?? "?"} listings → ${sellers.length} unique Base-mainnet wallets`);
+  let sellers = extractWalletsFromBazaar({ items }, chain);
+  onProgress(`      ${items.length}/${total ?? "?"} listings → ${sellers.length} unique ${chain.label}-mainnet wallets`);
   if (!sellers.length) return emptySnapshot(opts, "no Base-mainnet payTo wallets found in Bazaar");
 
   // Optional cap: keep the on-chain scan tight by ranking by listing count first.
@@ -473,7 +520,7 @@ export async function runLeaderboard(overrides = {}) {
   // 2. Query USDC transfers — chunk both the block range AND the wallet array,
   //    since free-tier RPCs limit each.
   const wallets = [...new Set(sellers.map((s) => s.wallet))];
-  onProgress(`[2/3] Scanning Base USDC transfers (${opts.spanBlocks} blocks, ${wallets.length} wallets)…`);
+  onProgress(`[2/3] Scanning ${chain.label} USDC transfers (${opts.spanBlocks} blocks, ${wallets.length} wallets)…`);
   const latest = parseInt(await rpcCall(opts.rpcs, "eth_blockNumber", []), 16);
   const padded = wallets.map(pad);
   const walletChunks = [];
@@ -507,7 +554,7 @@ export async function runLeaderboard(overrides = {}) {
         const part = await rpcCall(opts.rpcs, "eth_getLogs", [{
           fromBlock: "0x" + from.toString(16),
           toBlock: "0x" + to.toString(16),
-          address: USDC,
+          address: chain.token,
           topics: [TRANSFER, null, chunk],
         }]);
         if (Array.isArray(part) && part.length) {

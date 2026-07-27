@@ -16,7 +16,8 @@
 //      seller's openapi.json (when present) and caches the result.
 //
 // Design notes:
-//   • In-memory cache (Map) — restart-tolerant by design; no persistence needed.
+//   • In-memory cache (Map), warm-started from /data at boot so a redeploy
+//     never serves a half-crawled ecosystem (see INDEX_CACHE_FILE below).
 //     A crawl warms it in <30s and the data is intentionally transient.
 //   • All outbound HTTP goes through safeFetch (SSRF-guarded, byte-capped).
 //   • Failed crawls log a stale marker; they never crash the process.
@@ -890,14 +891,72 @@ async function runCrawl() {
  *   in registry discovery so we don't waste a crawl slot fetching our own
  *   manifest via the public endpoint.
  */
+// ---------------------------------------------------------------------------
+// Crawl-cache warm-start
+// ---------------------------------------------------------------------------
+// The header above used to claim the in-memory cache was "restart-tolerant by
+// design; no persistence needed". It self-heals, which is not the same thing as
+// being harmless: re-crawling ~2,200 origins takes many minutes, and for that
+// whole window /marketplace, /api/index and the tool catalog render a PARTIAL
+// ecosystem with no hint that they are still filling up. On a day with ten
+// deploys that is most of the day. A visitor saw 569 sellers when the index
+// held 2,169 — not a bug in the counting, just a cache that had barely started.
+//
+// Same fix, same reasoning, same volume as the leaderboard's own warm-start
+// (see LEADERBOARD_SNAPSHOT_FILE): persist the crawl and load it at boot.
+// Stale-but-complete beats empty-and-correct here — a seller reachable an hour
+// ago is almost certainly still reachable, and the next crawl re-verifies it
+// anyway.
+export const INDEX_CACHE_FILE = process.env.INDEX_CACHE_FILE || "/data/x402-index-cache.json";
+
+/** Best-effort persist of the crawl cache. No-op without a /data volume. */
+export function persistIndexCache(file = INDEX_CACHE_FILE) {
+  try {
+    if (cache.size === 0) return false; // never overwrite a good file with nothing
+    const out = [];
+    for (const [origin, v] of cache.entries()) {
+      if (v?.error) continue; // don't re-seed failures; let the crawl re-decide
+      out.push([origin, {
+        manifest: v.manifest ?? null,
+        tools: Array.isArray(v.tools) ? v.tools : [],
+        fetchedAt: v.fetchedAt ?? null,
+        error: null,
+        source: v.source ?? null,
+        history: Array.isArray(v.history) ? v.history.slice(-10) : [],
+      }]);
+    }
+    if (!out.length) return false;
+    writeFileSync(file, JSON.stringify({ savedAt: Date.now(), entries: out }));
+    return true;
+  } catch { return false; }
+}
+
+/** Warm the cache from the last persisted crawl. Never clobbers an entry the
+ *  live crawler has already refreshed in this process. Returns rows loaded. */
+export function loadPersistedIndexCache(file = INDEX_CACHE_FILE) {
+  try {
+    const parsed = JSON.parse(readFileSync(file, "utf8"));
+    const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+    let n = 0;
+    for (const [origin, v] of entries) {
+      if (typeof origin !== "string" || !origin || cache.has(origin)) continue;
+      cache.set(origin, { ...v, warmStarted: true });
+      n++;
+    }
+    return n;
+  } catch { return 0; }
+}
+
 export function startCrawler(opts = {}) {
   if (crawlerTimer) return;
   loadSubmittedSeeds();
+  const warmed = loadPersistedIndexCache();
+  if (warmed) console.log(`[x402-index] warm-started ${warmed} sellers from ${INDEX_CACHE_FILE}`);
   const { selfOrigin = null } = opts;
   // Kick off discovery first so the first crawl has registry-sourced seeds in
   // hand (best-effort — if discovery is slow, the first crawl just uses env seeds).
-  runDiscovery(selfOrigin).then(() => runCrawl());
-  crawlerTimer = setInterval(runCrawl, CRAWL_INTERVAL_MS);
+  runDiscovery(selfOrigin).then(() => runCrawl()).then(() => persistIndexCache());
+  crawlerTimer = setInterval(() => { runCrawl().then(() => persistIndexCache()).catch(() => {}); }, CRAWL_INTERVAL_MS);
   discoveryTimer = setInterval(() => runDiscovery(selfOrigin), DISCOVERY_INTERVAL_MS);
   // Don't keep the event loop alive on shutdown.
   if (typeof crawlerTimer.unref === "function") crawlerTimer.unref();
