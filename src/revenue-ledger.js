@@ -532,6 +532,53 @@ export function ledgerBuyersDaily(wallets) {
   return out;
 }
 
+/**
+ * Buyer concentration over the charted window: how much of our external volume
+ * comes from the biggest few wallets.
+ *
+ * The daily series answers "how many buyers"; this answers the other half,
+ * "does it matter". Two hundred buyers where one wallet is 80% of payments is a
+ * single-customer business wearing a crowd as a costume, and only this number
+ * says so.
+ *
+ * Shares are of PAYMENT COUNT, not dollars: at sub-cent prices a single
+ * expensive call would otherwise masquerade as concentration. Counts and
+ * percentages only, never addresses.
+ */
+export function ledgerBuyerConcentration(wallets) {
+  const rows = db.prepare("SELECT chain, wallet, block, when_ts, external, payer FROM transfers WHERE wallet = ?");
+  const chains = walletPairs(wallets);
+  const start = process.env.REVENUE_DAILY_START || "2026-06-15";
+  const counts = new Map();
+  let payments = 0;
+  for (const [chain, wallet] of chains) {
+    if (!wallet) continue;
+    const cur = getCursor.get(chain, wallet);
+    const anchorBlock = cur?.next_block ?? null;
+    const anchorMs = cur?.updated_ts ? cur.updated_ts * 1000 : Date.now();
+    const cadence = BLOCK_MS[chain] || 2000;
+    for (const t of rows.all(wallet)) {
+      if (t.chain !== chain || !t.external || !t.payer) continue;
+      let ms = t.when_ts ? t.when_ts * 1000 : null;
+      if (ms == null && t.block != null && anchorBlock != null) ms = anchorMs - (anchorBlock - t.block) * cadence;
+      if (ms == null) continue;
+      if (new Date(ms).toISOString().slice(0, 10) < start) continue;
+      const payer = /^0x[0-9a-fA-F]{40}$/.test(t.payer) ? t.payer.toLowerCase() : t.payer;
+      counts.set(payer, (counts.get(payer) || 0) + 1);
+      payments++;
+    }
+  }
+  if (!payments) return { buyers: 0, payments: 0, topSharePct: null, top5SharePct: null };
+  const sorted = [...counts.values()].sort((a, b) => b - a);
+  const pct = (n) => Math.round((n / payments) * 1000) / 10;
+  return {
+    buyers: counts.size,
+    payments,
+    topSharePct: pct(sorted[0]),
+    top5SharePct: pct(sorted.slice(0, 5).reduce((a, b) => a + b, 0)),
+  };
+}
+
 export function startRevenueLedger({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [] }) {
   const enabled = HAS_DATA_DIR || process.env.REVENUE_LEDGER === "true";
   if (loopStarted || !enabled || (!walletAddress && !solanaWallet && !stellarWallet && !algorandWallet)) return false;

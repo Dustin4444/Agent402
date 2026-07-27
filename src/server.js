@@ -173,7 +173,7 @@ import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
-import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily } from "./revenue-ledger.js";
+import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration } from "./revenue-ledger.js";
 import { x402EconomySnapshot } from "./x402-economy.js";
 import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
@@ -1147,6 +1147,8 @@ app.get("/api/revenue/daily", (_req, res) => {
       // Distinct EXTERNAL buyers per day. Counts only, never addresses:
       // a per-day roster of who pays us is a customer list.
       buyers: ledgerBuyersDaily(revenueWallets()),
+      // "200 buyers" means nothing if one wallet is most of the volume.
+      concentration: ledgerBuyerConcentration(revenueWallets()),
     });
   } catch (e) {
     res.status(500).json({ error: "daily series failed", detail: String(e?.message || e).slice(0, 120) });

@@ -235,6 +235,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
+- **Buyer counts on /revenue (`ledgerBuyersDaily` + `ledgerBuyerConcentration`):** a
+  **Buyers** metric answering "more buyers, or the same handful paying more?", which
+  tx counts cannot (200 calls is one whale or fifty customers; the revenue line is
+  identical). Served on `/api/revenue/daily` as `buyers[]` + `concentration`. Distinct
+  counts fail flatteringly, so four invariants are pinned by
+  `scripts/test-revenue-buyers.js` (8 assertions) + `test-revenue-chart.js`: **cumulative
+  is a running UNION, never a sum** of daily counts (summing double-counts every
+  returning buyer and draws a rising line over a flat reality); a buyer paying on **two
+  chains in one day is one buyer** (rows are keyed day+chain, so counting there reports
+  two); **`newBuyers` is measured against ALL history**, not the charted window, so nobody
+  is relabelled new when the epoch moves; and **base58/Stellar addresses are never
+  case-folded** (that merges distinct buyers — same rule as `src/payer.js`). Buyers is
+  external-only and count-only, so selecting it forces scope=ext/wire=all/traffic=paid.
+  `unattributed` surfaces payments whose payer could not be read (measured 0 of 3,945).
+  **Counts only, never addresses** — a per-day roster of who pays us is a customer list.
+  Baseline 2026-07-27: 200 distinct buyers, ~1-6 new/day, majority returning.
 - **Revenue chart free-tier lane (`/revenue`, `src/revenue-live.js` `revenueChartSection`):**
   the chart is built from the settlement ledger, so free (proof-of-work) calls are
   invisible to it — they settle nowhere. A **Paid / Free (PoW) / Both** control merges a

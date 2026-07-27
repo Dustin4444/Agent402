@@ -21,6 +21,11 @@ const REV_DAYS = [
   { day: "2026-06-20", chain: "base", extUsd: 1.5, intUsd: 0.2, extTx: 3, intTx: 1, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0 },
   { day: "2026-06-21", chain: "solana", extUsd: 0.5, intUsd: 0, extTx: 2, intTx: 0, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0 },
 ];
+const BUYER_DAYS = [
+  { day: "2026-06-20", buyers: 3, newBuyers: 3, returningBuyers: 0, cumulative: 3, unattributed: 0 },
+  { day: "2026-06-21", buyers: 4, newBuyers: 1, returningBuyers: 3, cumulative: 4, unattributed: 0 },
+];
+const CONC = { buyers: 4, payments: 40, topSharePct: 55.0, top5SharePct: 100 };
 const FREE_DAYS = [
   { day: "2026-06-20", usdc: 4, pow: 40, heartbeat: 2 },
   { day: "2026-06-21", usdc: 2, pow: 60, heartbeat: 1 },
@@ -42,7 +47,7 @@ async function boot({ freeFails = false } = {}) {
     pretendToBeVisual: true,
     beforeParse(w) {
       w.fetch = (url) => {
-        if (String(url).includes("/api/revenue/daily")) return Promise.resolve({ json: () => Promise.resolve({ days: REV_DAYS }) });
+        if (String(url).includes("/api/revenue/daily")) return Promise.resolve({ json: () => Promise.resolve({ days: REV_DAYS, buyers: BUYER_DAYS, concentration: CONC }) });
         if (String(url).includes("/api/calls/daily")) {
           return freeFails ? Promise.reject(new Error("down"))
             : Promise.resolve({ json: () => Promise.resolve({ days: FREE_DAYS, recordingSince: "2026-06-20" }) });
@@ -122,6 +127,46 @@ console.log("revenue chart — free-tier lane");
     assert.ok(legend(w).includes("Base") || legend(w).includes("Solana"), "revenue lanes should still render");
     const wrap = w.document.querySelector(".rvz-wrap").innerHTML;
     assert.ok(!wrap.includes("series unavailable"), "revenue chart was blanked by the free endpoint failing");
+  });
+}
+
+{
+  const w = await boot();
+  check("Buyers shows new and returning lanes, not chains", () => {
+    click(w, "rvzMode", "daily");
+    click(w, "rvzMetric", "buyers");
+    const l = legend(w);
+    assert.ok(l.includes("New buyers"), "new-buyer lane missing");
+    assert.ok(l.includes("Returning buyers"), "returning lane missing");
+    assert.ok(!l.includes("Base") && !l.includes("Solana"), "buyers must not be split by chain");
+  });
+
+  check("cumulative buyers is the server union, never a sum of daily counts", () => {
+    click(w, "rvzMode", "cum");
+    const txt = w.document.getElementById("rvzTable").textContent;
+    // Daily counts are 3 and 4; summing them would render 7. The true distinct
+    // total is 4, which is what the server's cumulative field carries.
+    assert.ok(txt.includes("4"), "expected the union value 4");
+    assert.ok(!/\b7\b/.test(txt), `summed daily counts leaked into the cumulative view: ${txt.slice(0, 160)}`);
+  });
+
+  check("the note answers the concentration question with real numbers", () => {
+    const n = w.document.getElementById("rvzBuyersNote");
+    assert.notEqual(n.style.display, "none");
+    assert.ok(n.textContent.includes("55"), "top-wallet share missing");
+    assert.ok(/union/i.test(n.textContent), "must explain the cumulative is a union");
+  });
+
+  check("picking an internal scope leaves the buyers view rather than lying", () => {
+    click(w, "rvzScope", "int");
+    assert.equal(w.document.querySelector("#rvzMetric button.on").dataset.v, "tx",
+      "buyers is external-only; an internal scope must switch the metric");
+  });
+
+  check("Buyers forces traffic back to paid (a free call has no buyer wallet)", () => {
+    click(w, "rvzTraffic", "free");
+    click(w, "rvzMetric", "buyers");
+    assert.equal(w.document.querySelector("#rvzTraffic button.on").dataset.v, "paid");
   });
 }
 
