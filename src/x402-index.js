@@ -522,19 +522,26 @@ export function openapiBasePath(openapi, originUrl) {
 export function normaliseOpenapiTools(openapi, originUrl) {
   if (!openapi || typeof openapi !== "object" || !openapi.paths) return [];
   const base = openapiBasePath(openapi, originUrl);
+  const documentDistinguishesPaidOperations = openapiHasPaymentSignal(openapi);
+  const httpMethods = new Set(["get", "post", "put", "patch", "delete", "options", "head"]);
+  const nonToolPath =
+    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
   const out = [];
   for (const [rawPath, methods] of Object.entries(openapi.paths)) {
     // Apply the basePath unless the document already spells it out (some specs
     // repeat the prefix in every path even though servers declares it).
     const pathStr = base && !rawPath.startsWith(base + "/") && rawPath !== base ? base + rawPath : rawPath;
     for (const [method, op] of Object.entries(methods || {})) {
+      if (!httpMethods.has(method.toLowerCase())) continue;
       if (!op || typeof op !== "object") continue;
-      // Heuristics: openapi entries that look like a paid tool route.
-      // Skip pure discovery surfaces. Tested against BOTH the declared path and
-      // the basePath-prefixed one: a spec with servers "/api" declares its
-      // health check as "/health", which only the raw form matches.
-      if (/^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)/.test(rawPath) ||
-          /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)/.test(pathStr)) continue;
+      // A seller that annotates any paid operation is trusted to distinguish
+      // paid from free siblings. Zero-annotation documents retain the legacy
+      // inclusive behavior because many settlement-proven sellers do not use
+      // payment extensions yet. Deprecated operations and obvious discovery
+      // or static-asset paths are excluded in both cases.
+      if (nonToolPath.test(rawPath) || nonToolPath.test(pathStr)) continue;
+      if (op.deprecated === true) continue;
+      if (documentDistinguishesPaidOperations && !openapiOperationHasPaymentSignal(op)) continue;
       const tags = Array.isArray(op.tags) ? op.tags : [];
       out.push({
         seller: originUrl,
@@ -552,6 +559,11 @@ export function normaliseOpenapiTools(openapi, originUrl) {
   return out;
 }
 
+function openapiOperationHasPaymentSignal(op) {
+  return Boolean(op && typeof op === "object" &&
+    (op["x-price"] || op["x-x402-price"] || op["x-payment-info"]));
+}
+
 // Does this openapi document look like a *paid* x402 service rather than any
 // random Swagger site? True when at least one operation carries a payment
 // extension. Gates the openapi-fallback crawl path: without a manifest AND
@@ -561,7 +573,7 @@ export function openapiHasPaymentSignal(openapi) {
   if (!openapi || typeof openapi !== "object" || !openapi.paths) return false;
   for (const methods of Object.values(openapi.paths)) {
     for (const op of Object.values(methods || {})) {
-      if (op && typeof op === "object" && (op["x-price"] || op["x-x402-price"] || op["x-payment-info"])) return true;
+      if (openapiOperationHasPaymentSignal(op)) return true;
     }
   }
   return false;
