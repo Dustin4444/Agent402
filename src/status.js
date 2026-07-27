@@ -316,7 +316,7 @@ export function statusPage(baseUrl, stats, snap) {
   <span class="dot ${DOT[snap.overall]}"></span>
   <span class="hw">${esc(headline)}</span>
   <p class="hm">${measuringSince
-    ? `Probed every 15 minutes since ${esc(measuringSince)}, across ${snap.measurement.totalObservations.toLocaleString()} recorded observation${plural(snap.measurement.totalObservations)}.`
+    ? `Probed every few minutes by two independent observers since ${esc(measuringSince)}, across ${snap.measurement.totalObservations.toLocaleString()} recorded observation${plural(snap.measurement.totalObservations)}.`
     : "No observations recorded yet, so no availability is claimed."}</p>
 </div>
 
@@ -356,7 +356,7 @@ ${ledgerFooterCompact()}`;
   return ledgerShell({
     title: "Status - Agent402",
     description:
-      "Availability for Agent402.Tools, measured every 15 minutes by an observer outside production: per-component uptime history, incidents derived from real probes, and daily real-money payment checks.",
+      "Availability for Agent402.Tools, measured every few minutes by two independent observers outside production: per-component uptime history, incidents derived from real probes, and daily real-money payment checks.",
     canonical: `${baseUrl}/status`,
     baseUrl,
     activePath: "__none__",
