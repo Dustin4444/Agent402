@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/MikeyPetrillo/Agent402.git"
   },
-  "description": "Open-source MCP server exposing Agent402.Tools' catalog — 500+ strong: 400+ self-hostable tools + 100 multi-tool skill packs (security-audit, trend-analysis, structured-scrape, decode-blob, forecasting-bake-off) for AI agents — browser, web search & answers, PDFs, OCR, images, LLM inference, image generation, code execution, STT, embeddings, live financial/crypto/macro data, SEC EDGAR filings, deterministic stats & forecasting, compression, payments. Free via proof-of-work, or pay per call in USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Stellar & Algorand — plus USDG on Robinhood Chain (10 chains total) — via the x402 protocol.",
+  "description": "Open-source MCP server exposing Agent402.Tools' catalog \u2014 500+ strong: 400+ self-hostable tools + 100 multi-tool skill packs (security-audit, trend-analysis, structured-scrape, decode-blob, forecasting-bake-off) for AI agents \u2014 browser, web search & answers, PDFs, OCR, images, LLM inference, image generation, code execution, STT, embeddings, live financial/crypto/macro data, SEC EDGAR filings, deterministic stats & forecasting, compression, payments. Free via proof-of-work, or pay per call in USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Stellar & Algorand \u2014 plus USDG on Robinhood Chain (10 chains total) \u2014 via the x402 protocol.",
   "type": "module",
   "bin": {
     "agent402-mcp": "index.js"
@@ -66,6 +66,10 @@
     "viem": "^2.21.0"
   },
   "overrides": {
-    "ws": "^8.21.0"
+    "ws": "^8.21.0",
+    "hono": "4.12.32",
+    "fast-uri": "3.1.4",
+    "body-parser": "2.3.0",
+    "@hono/node-server": "2.0.12"
   }
 }
