@@ -850,6 +850,9 @@ jobs:
       - name: Revenue chart free-tier lane (free calls never priced as revenue; jsdom — offline)
         run: node scripts/test-revenue-chart.js
 
+      - name: Heartbeat probe mapping (FAILS -> per-component status; stubbed curl — offline)
+        run: bash scripts/test-heartbeat-probe.sh
+
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 

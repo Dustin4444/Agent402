@@ -31,7 +31,9 @@ env:
 jobs:
   health:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Raised for the freshness loop in the final step (4 x 12 min of extra
+    # observations). Everything that can page has already run by then.
+    timeout-minutes: 75
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -50,65 +52,7 @@ jobs:
           # rail (removing the secret) never pages.
           ROBINHOOD_FACILITATOR_URL: ${{ secrets.ROBINHOOD_FACILITATOR_URL }}
         run: |
-          probe() {
-            FAILS=""
-            curl -sf --max-time 15 "$PROD/health" >/dev/null || FAILS="$FAILS /health"
-            N=$(curl -s --max-time 15 "$PROD/api/pricing" | jq '.endpoints | length' 2>/dev/null || echo 0)
-            # Catalog floor tracks "The 500" era (462 curated tools interim,
-            # 500 at launch). The alarm should only fire on a real catalog
-            # collapse (routes failing to mount), never on deliberate curation.
-            [ "${N:-0}" -ge 400 ] || FAILS="$FAILS catalog($N)"
-            MCP=$(curl -s --max-time 15 -X POST "$PROD/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-              -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"heartbeat","version":"0"}}}' \
-              | grep -c '"agent402"' || true)
-            [ "${MCP:-0}" -ge 1 ] || FAILS="$FAILS /mcp"
-            # Paywall must be ENGAGED: a wallet-only tool returns 402 when unpaid.
-            # Catches an accidental FREE_MODE / gate regression that would give
-            # paid tools away for free (a silent revenue-loss incident).
-            PW=$(curl -s --max-time 15 -D /tmp/hb-402.h -o /dev/null -w "%{http_code}" -X POST "$PROD/api/extract" -H 'Content-Type: application/json' -d '{"url":"https://example.com"}')
-            [ "$PW" = "402" ] || FAILS="$FAILS paywall($PW)"
-            # The retired pairwise converters are paid too ($0.001, same as the
-            # unit-convert tool that replaced them) but they are NOT catalog
-            # routes, so the check above can't see them. They served that exact
-            # output for FREE until 2026-07-25 because their handlers were
-            # registered above the paywall middleware — a gap no probe noticed
-            # for weeks. A servable request must 402; an unservable one must
-            # still get the free teaching 410, so both halves are asserted.
-            RC=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" -X POST "$PROD/api/convert/feet-to-meters" -H 'Content-Type: application/json' -d '{"value":10}')
-            [ "$RC" = "402" ] || FAILS="$FAILS retired-convert-paywall($RC)"
-            RG=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" -X POST "$PROD/api/convert/feet-to-meters" -H 'Content-Type: application/json' -d '{}')
-            [ "$RG" = "410" ] || FAILS="$FAILS retired-convert-teaching($RG)"
-            # Payment RAILS must stay in the offer. A rail silently dropping
-            # out of the 402 accepts loses that chain's revenue with no error
-            # anywhere (the 2026-07-02 incident class: buyers simply never see
-            # the option). Base is always required; Robinhood/USDG is required
-            # iff the ROBINHOOD_FACILITATOR_URL secret says the operator
-            # intends the rail.
-            if [ "$PW" = "402" ]; then
-              NETS=$(tr -d '\r' < /tmp/hb-402.h | awk -F': ' 'tolower($1)=="payment-required"{print $2}' | head -1 \
-                | base64 -d 2>/dev/null | jq -r '[.accepts[]?.network] | join(",")' 2>/dev/null || echo "")
-              case "$NETS" in *eip155:8453*) : ;; *) FAILS="$FAILS rails(base-missing:${NETS:-unparsed})";; esac
-              if [ -n "$ROBINHOOD_FACILITATOR_URL" ]; then
-                case "$NETS" in *eip155:4663*) : ;; *) FAILS="$FAILS rails(robinhood-missing:${NETS:-unparsed})";; esac
-              fi
-            fi
-            node --input-type=module -e '
-              const B = process.env.PROD;
-              const { createHash, createHmac } = await import("node:crypto");
-              const lz = (b) => { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
-              const c = await (await fetch(B + "/api/pow/challenge?slug=hash")).json();
-              let n = 0; while (lz(createHash("sha256").update(c.challenge + ":" + n).digest()) < c.difficulty) n++;
-              // X-Heartbeat-Token = HMAC(POW_SECRET, "heartbeat:" + UTC-minute),
-              // truncated to 32 base64url chars. The server verifies with the
-              // same secret and a ±5 minute skew window, so spoofed UAs can no
-              // longer poison the operator dashboard heartbeat rail.
-              const minute = Math.floor(Date.now() / 60000);
-              const hb = createHmac("sha256", process.env.POW_SECRET || "").update("heartbeat:" + minute).digest("base64url").slice(0, 32);
-              const r = await fetch(B + "/api/hash", { method: "POST", headers: { "Content-Type": "application/json", "X-Pow-Solution": c.token + ":" + n, "X-Heartbeat-Token": hb, "User-Agent": "agent402-heartbeat/1.0" }, body: JSON.stringify({ text: "heartbeat" }) });
-              if (r.status !== 200) { console.error("pow call -> " + r.status); process.exit(1); }
-            ' || FAILS="$FAILS pow-paid-call"
-            [ -z "$FAILS" ]
-          }
+          . scripts/heartbeat-probe.sh
           for attempt in 1 2 3; do
             if probe; then echo "status=up" >> "$GITHUB_OUTPUT"; echo "production healthy (attempt $attempt)"; exit 0; fi
             echo "attempt $attempt failed:$FAILS — retrying in 60s"
@@ -132,29 +76,8 @@ jobs:
           FAILS: ${{ steps.probe.outputs.fails }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          [ -n "$OP_TOKEN" ] || { echo "no operator token — skipping status record"; exit 0; }
-          # A component is false only when the final attempt named it in FAILS,
-          # so a check that passed is never marked down by another's failure.
-          has() { case "$FAILS" in *"$1"*) echo false;; *) echo true;; esac; }
-          if [ "$STATUS" = "up" ]; then
-            API=true; CATALOG=true; MCP=true; PAYWALL=true; RAILS=true; PAID=true
-          else
-            API=$(has "/health"); CATALOG=$(has "catalog("); MCP=$(has "/mcp")
-            PAYWALL=$(has "paywall("); RAILS=$(has "rails("); PAID=$(has "pow-paid-call")
-          fi
-          BODY=$(jq -nc --arg u "$RUN_URL" --arg d "$FAILS" \
-            --argjson a "$API" --argjson c "$CATALOG" --argjson m "$MCP" \
-            --argjson w "$PAYWALL" --argjson r "$RAILS" --argjson p "$PAID" \
-            '{source:"heartbeat", ts:(now*1000|floor), url:$u, components:{
-               "api":{ok:$a, detail:(if $a then null else $d end)},
-               "catalog":{ok:$c, detail:(if $c then null else $d end)},
-               "mcp":{ok:$m, detail:(if $m then null else $d end)},
-               "paywall":{ok:$w, detail:(if $w then null else $d end)},
-               "rails":{ok:$r, detail:(if $r then null else $d end)},
-               "paid-call":{ok:$p, detail:(if $p then null else $d end)}}}')
-          curl -sf --max-time 20 -X POST "$PROD/api/status/probe" \
-            -H "Content-Type: application/json" -H "X-Operator-Token: $OP_TOKEN" \
-            -d "$BODY" >/dev/null && echo "probe recorded" || echo "probe not recorded (prod unreachable — the gap is the signal)"
+          . scripts/heartbeat-probe.sh
+          record_observation "$STATUS" "$FAILS"
 
       # Gateway credits: /v1 tiers settle the buyer's USDC before the handler
       # runs, so an empty OpenRouter balance turns every gateway call into
@@ -260,3 +183,36 @@ jobs:
           elif [ -n "$OPEN" ]; then
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: all probes passing at $(date -u +%FT%TZ)."
           fi
+
+      # GitHub delivers this workflow's "*/15" schedule roughly ONCE AN HOUR
+      # (measured 2026-07-27: gaps of 60-72 min, plus one 3.3h stall), while
+      # /status marks these components stale after 45 minutes. The result was a
+      # page reporting "degraded" while production was perfectly healthy -- the
+      # exact threshold-vs-cadence mismatch src/status.js warns about.
+      #
+      # The honest fix is more observations, not a looser alarm, so spread
+      # further real probes across the rest of the hour. This runs LAST on
+      # purpose: the authoritative probe and every issue open/close above have
+      # already completed, so nothing that can page is delayed by it. A failure
+      # here is recorded like any other observation and never fails the run.
+      - name: Keep status observations fresh until the next run
+        if: always()
+        continue-on-error: true
+        env:
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+          ROBINHOOD_FACILITATOR_URL: ${{ secrets.ROBINHOOD_FACILITATOR_URL }}
+          OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$OP_TOKEN" ] || { echo "no operator token - skipping freshness loop"; exit 0; }
+          . scripts/heartbeat-probe.sh
+          for i in 1 2 3 4; do
+            sleep 720
+            if probe; then
+              echo "refresh $i: healthy"
+              record_observation up ""
+            else
+              echo "refresh $i: FAILS=$FAILS"
+              record_observation down "$FAILS"
+            fi
+          done
