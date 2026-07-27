@@ -120,6 +120,34 @@ await check("Celo goes straight to Solvador (PayAI cannot settle it)", async () 
   assert.deepEqual(calls, ["Solvador"]);
 });
 
+await check("thrown 400 (invalid-payload class) never falls back — 402 only", async () => {
+  const err400 = Object.assign(new Error("settle failed (400) invalid payload"), { status: 400 });
+  assert.equal(isPreBroadcastSettleRejection(err400), false);
+  const { out, calls } = await run({ flag: true, primaryError: err400, payai: () => ({ success: true }), solvador: () => ({ success: true }) });
+  assert.equal(out, undefined);
+  assert.deepEqual(calls, []);
+});
+
+await check("graceful {success:false} rejections route to afterSettle, never the fallback", async () => {
+  // Verified against @x402/core's settlePayment: a facilitator returning
+  // { success:false } RETURNS normally — the onSettleFailure catch block is
+  // never reached — so buyer-side failures (insufficient_funds, simulation
+  // failed, failed on-chain) structurally cannot trigger a fallback settle.
+  const prev = process.env.PAYMENT_SETTLE_FALLBACK;
+  process.env.PAYMENT_SETTLE_FALLBACK = "true";
+  const calls = [];
+  const s = fakeServer();
+  registerFacilitatorFailureHooks(
+    s,
+    client("PayAI", () => ({ success: true }), calls),
+    client("Solvador", () => ({ success: true }), calls),
+  );
+  await s.hooks.afterSettle({ requirements: { network: "eip155:8453", scheme: "exact" }, result: { success: false, errorReason: "insufficient_funds" } });
+  if (prev === undefined) delete process.env.PAYMENT_SETTLE_FALLBACK;
+  else process.env.PAYMENT_SETTLE_FALLBACK = prev;
+  assert.deepEqual(calls, [], "a graceful rejection must never reach a fallback client");
+});
+
 await check("no Solvador key: behavior is exactly the old PayAI-only chain", async () => {
   const { out, calls } = await run({ flag: true, primaryError: rejection402(), payai: () => { throw rejection402(); }, solvador: null });
   assert.equal(out, undefined);
