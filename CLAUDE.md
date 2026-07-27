@@ -266,6 +266,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   gives **784 observations, 0 failures, 100.000%** (43 days). The OLD page hardcoded an
   "All systems operational" pill and headlined `process.uptime()` (resets every deploy) —
   never reintroduce either.
+- **Independent status observer (`workers/status-probe`, Cloudflare cron, live 2026-07-27):**
+  a second observer OUTSIDE production on separate infra, because /status is only as
+  trustworthy as its observer and that was a single GitHub schedule. Probes every 5 min
+  (`agent402-status-probe.mikepetrillo1775.workers.dev`; `OPERATOR_TOKEN` secret = Railway's
+  `AGENT402_OPERATOR_TOKEN`), records `source: "cloudflare-cron"` on `POST /api/status/probe`,
+  and covers `api`/`catalog`/`mcp`/`paywall`/`rails`. It deliberately **skips paid-call**:
+  that needs a 16-bit PoW solve plus an `X-Heartbeat-Token` from `POW_SECRET`, and copying
+  that secret to a second platform widens its blast radius while omitting it would count
+  every probe as real external free-tier demand (288/day synthetic vs ~130/day genuine),
+  corrupting the free-tier series on /revenue. So `paid-call`'s `staleAfterMs` is sized to
+  ITS observer (`HOURLY_OBSERVER`, 3h = ~3 missed hourly GitHub runs), not the 45-min
+  default. `POST /run` on the worker is token-gated for manual verification.
+  `scripts/test-status-probe-worker.js` (11 assertions, stubbed fetch, in CI) pins the
+  quiet regressions: a 200 where a 402 is required, a collapsed catalog, a rail silently
+  missing from the offer, and "one dead endpoint must not abort the other checks".
 - **Heartbeat cadence (why /status went amber on a healthy prod):** the workflow's
   cron says `*/15` but GitHub delivers it **about once an hour** (measured 2026-07-27:
   60-72 min gaps plus a 3.3h stall), while `COMPONENTS.staleAfterMs` marks these

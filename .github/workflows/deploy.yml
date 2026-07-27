@@ -853,6 +853,9 @@ jobs:
       - name: Heartbeat probe mapping (FAILS -> per-component status; stubbed curl — offline)
         run: bash scripts/test-heartbeat-probe.sh
 
+      - name: Status probe worker (Cloudflare cron observer mapping; stubbed fetch — offline)
+        run: node scripts/test-status-probe-worker.js
+
       - name: PostHog funnel (discovery→402→settlement capture; paid-mode boot vs mock facilitator — offline)
         run: node scripts/test-posthog-funnel.js
 
