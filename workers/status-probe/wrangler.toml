@@ -1,0 +1,16 @@
+name = "agent402-status-probe"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Every 5 minutes. The /status staleness threshold for these components is 45
+# minutes, so this tolerates eight consecutive misses before the page reports
+# "unknown" — and unlike the GitHub schedule, Cloudflare actually honours it.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+PROD = "https://agent402.tools"
+
+# OPERATOR_TOKEN is a Worker SECRET, never a plaintext var. It must equal
+# AGENT402_OPERATOR_TOKEN on Railway (the same value /api/status/probe checks):
+#   wrangler secret put OPERATOR_TOKEN

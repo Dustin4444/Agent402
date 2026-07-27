@@ -43,13 +43,22 @@ const DAY = 86400000;
 // 45-minute rule would leave settlement reading "unknown" for 23 hours out of
 // every 24 and drag the whole page to "degraded" — a threshold mismatch
 // masquerading as an incident.
-const QUARTER_HOURLY = 45 * 60_000; // ~3 missed heartbeats
+const QUARTER_HOURLY = 45 * 60_000; // ~3 missed observations at the 5-15 min cadence
+// paid-call is the one component NO independent observer covers. The Cloudflare
+// cron probe (workers/status-probe) deliberately skips it: solving the 16-bit
+// PoW needs POW_SECRET on a second platform, and without that token every probe
+// would be counted as genuine external free-tier demand and corrupt the
+// free-tier series on /revenue. So its only observer is the GitHub heartbeat,
+// whose real delivery cadence is ~hourly (measured 2026-07-27: 60-72 min).
+// Sizing it at 45 min would report "unknown" on a healthy paid path every time
+// GitHub is merely late, and drag the whole page to "degraded" with it.
+const HOURLY_OBSERVER = 3 * 3600_000; // ~3 missed hourly heartbeat runs
 const DAILY = 26 * 3600_000; // a day plus slack for a late scheduled run
 
 export const COMPONENTS = [
   { key: "api", label: "Tool serving", blurb: "The paid API answering requests: /health reachable and the catalog mounted.", staleAfterMs: QUARTER_HOURLY },
   { key: "catalog", label: "Catalog", blurb: "Every tool route mounted and advertised on /api/pricing.", staleAfterMs: QUARTER_HOURLY },
-  { key: "paid-call", label: "Paid call path", blurb: "A real end-to-end purchase: challenge, payment, unlock, payload.", staleAfterMs: QUARTER_HOURLY },
+  { key: "paid-call", label: "Paid call path", blurb: "A real end-to-end purchase: challenge, payment, unlock, payload.", staleAfterMs: HOURLY_OBSERVER },
   { key: "mcp", label: "MCP connector", blurb: "The hosted /mcp endpoint agents connect through.", staleAfterMs: QUARTER_HOURLY },
   { key: "paywall", label: "Paywall engaged", blurb: "Paid tools still answer 402 when unpaid, so nothing is given away by accident.", staleAfterMs: QUARTER_HOURLY },
   { key: "rails", label: "Payment rails", blurb: "The chains advertised in a live 402 challenge.", staleAfterMs: QUARTER_HOURLY },
@@ -107,8 +116,8 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
     generatedAt: new Date(nowMs).toISOString(),
     overall: overallState(components),
     measurement: {
-      observer: "GitHub Actions heartbeat, external to production",
-      cadence: "every 15 minutes",
+      observer: "Two independent observers outside production: a Cloudflare cron probe and the GitHub Actions heartbeat",
+      cadence: "every 5 minutes (Cloudflare), plus the GitHub heartbeat for the paid-call path",
       verify: HEARTBEAT_RUNS,
       measuringSince: firstObs ? new Date(firstObs).toISOString() : null,
       totalObservations: totalObservations(),
