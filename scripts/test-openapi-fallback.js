@@ -388,3 +388,64 @@ console.log("openapi-fallback tests passed");
 
   console.log("ok - openapi servers[] basePath is applied, merged, and never double-prefixed");
 }
+
+// ---- 8. per-instance registry rows collapse into templated operations ----
+// Found live 2026-07-27 (cloudworldmodel.ai): the PayAI registry records every
+// settled URL verbatim, so one templated operation appeared as 58 concrete
+// UUID rows and a 42-operation seller listed as "72 tools".
+{
+  const { openapiAllOperationRoutes } = await import("../src/x402-index.js");
+  const origin = "https://sim.example";
+  const doc = {
+    paths: {
+      "/sims/{simId}/step": { post: { operationId: "stepSim", summary: "Step a simulation", "x-payment-info": { price: { amount: "0.001" } } } },
+      "/sims/{simId}/batch": { post: { operationId: "batchSim", summary: "Batch step" } }, // unannotated in an annotated doc -> not indexed
+      "/chaos/run": { post: { operationId: "chaosRun", summary: "Run chaos", "x-payment-info": { price: { amount: "0.002" } } } },
+    },
+  };
+  const openapiTools = normaliseOpenapiTools(doc, origin);
+  ok(openapiTools.length === 2, `annotated doc indexes only paid ops (got ${openapiTools.length})`);
+  const inst = (route) => ({ seller: origin, method: "POST", route, slug: route, name: route, description: "", category: "other", tags: [], price: 0.001 });
+  const registry = [
+    inst("/sims/aaaa-1111/step"),
+    inst("/sims/bbbb-2222/step"),
+    inst("/sims/cccc-3333/step"),
+    inst("/sims/aaaa-1111/batch"),
+    inst("/sims/bbbb-2222/batch"),
+    inst("/unrelated/route"),
+  ];
+  const merged = mergeOpenapiIntoBazaar(openapiTools, registry, { allRoutes: openapiAllOperationRoutes(doc, origin) });
+  const steps = merged.filter((t) => t.route === "/sims/{simId}/step");
+  ok(steps.length === 1, `3 instances of an indexed templated op collapse to ONE row (got ${steps.length})`);
+  ok(steps[0].name === "Step a simulation", "collapsed row carries the operation's metadata");
+  ok(!merged.some((t) => /aaaa|bbbb|cccc/.test(t.route)), "no concrete UUID route survives the collapse");
+  const batches = merged.filter((t) => t.route === "/sims/{simId}/batch");
+  ok(batches.length === 1, `instances of an UNINDEXED doc op keep exactly one representative row (got ${batches.length})`);
+  ok(merged.some((t) => t.route === "/unrelated/route"), "a row matching no template passes through untouched");
+  ok(merged.some((t) => t.route === "/chaos/run"), "unmatched openapi ops still appended");
+  ok(merged.length === 4, `expected 4 rows: step + batch + unrelated + chaos (got ${merged.length})`);
+
+  // Back-compat: the two-argument call keeps working (indexed templates still
+  // collapse; unindexed doc ops have no template list, instances pass through).
+  const legacy = mergeOpenapiIntoBazaar(openapiTools, registry);
+  ok(legacy.filter((t) => t.route === "/sims/{simId}/step").length === 1, "two-arg call still collapses indexed templates");
+  console.log("ok - per-instance registry rows collapse into templated operations");
+}
+
+// ---- 9. x-x402-price-usdc counts as a payment annotation ----
+// 3 of cloudworldmodel's 17 paid operations carried ONLY this key and were
+// silently dropped from an annotated document.
+{
+  const doc = {
+    paths: {
+      "/a": { post: { operationId: "a", "x-payment-info": { price: { amount: "0.001" } } } },
+      "/b": { post: { operationId: "b", "x-x402-price-usdc": "$0.0010" } },
+      "/c": { post: { operationId: "c" } },
+    },
+  };
+  ok(openapiHasPaymentSignal({ paths: { "/b": doc.paths["/b"] } }), "x-x402-price-usdc alone is a payment signal");
+  const tools = normaliseOpenapiTools(doc, "https://sim.example");
+  ok(tools.length === 2, `usdc-annotated op is indexed alongside x-payment-info (got ${tools.length})`);
+  ok(tools.find((t) => t.route === "/b")?.price === "$0.0010", "usdc price flows into the tool price");
+  console.log("ok - x-x402-price-usdc recognized as a paid-operation annotation");
+}
