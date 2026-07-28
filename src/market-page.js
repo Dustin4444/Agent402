@@ -419,7 +419,9 @@ function agoLabel(ms) {
 // 36h reads as proof of life; anything older or missing reads "unavailable"
 // rather than a stale check mark.
 function canaryManifestStatus(rail) {
-  const latest = rail?.recent?.[0] || null;
+  // lastInbound survives scan windows aging past a settle (see revenue-live's
+  // carry-forward); recent[0] stays as the fallback for older snapshots.
+  const latest = rail?.lastInbound || rail?.recent?.[0] || null;
   const ts = latest?.when ? Date.parse(latest.when) : NaN;
   if (!latest || !Number.isFinite(ts)) return { text: "unavailable", color: "var(--muted)" };
   const ageMs = Date.now() - ts;

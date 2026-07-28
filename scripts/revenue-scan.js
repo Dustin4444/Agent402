@@ -86,7 +86,7 @@ const EVM_NETWORKS = {
   },
   optimism: {
     usdc: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
-    rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"],
+    rpcs: [...alchemy("opt-mainnet"), "https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"],
     spanBlocks: 10800, // ~6h at 2s blocks
   },
   monad: {

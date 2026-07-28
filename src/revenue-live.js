@@ -143,7 +143,13 @@ export const EVM = {
     // Optimism (OP mainnet, chain 10), native Circle USDC. ~2s blocks → 10.8k ≈ 6h.
     label: "Optimism", asset: "USDC", span: 10800,
     token: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
-    rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"],
+    // Alchemy first (reliable getLogs, same rule as Polygon/Arbitrum);
+    // publicnode archive-gates getLogs outright and mainnet.optimism.io
+    // rate-limits datacenter egress.
+    rpcs: [
+      ...(process.env.ALCHEMY_API_KEY ? [`https://opt-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`] : []),
+      "https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com",
+    ],
     explorer: (a) => `https://optimistic.etherscan.io/address/${a}`,
     tx: (h) => `https://optimistic.etherscan.io/tx/${h}`,
   },
@@ -959,7 +965,7 @@ function persistLastGood(rails) {
   try {
     const keep = rails
       .filter((r) => Number.isFinite(r.balance))
-      .map((r) => ({ rail: r.rail, balance: r.balance, balanceAsOf: r.balanceAsOf || null, recent: (r.recent || []).slice(0, 10) }));
+      .map((r) => ({ rail: r.rail, balance: r.balance, balanceAsOf: r.balanceAsOf || null, recent: (r.recent || []).slice(0, 10), lastInbound: r.lastInbound || null }));
     if (keep.length) writeFileSync(LASTGOOD_PATH, JSON.stringify({ asOf: new Date().toISOString(), rails: keep }));
   } catch { /* persistence must never break the snapshot */ }
 }
@@ -1014,6 +1020,19 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
   // "unreachable" just because its first post-boot read hit a throttled RPC.
   const prevRails = (cached?.rails?.length ? cached.rails : diskLastGood?.rails) || [];
   const now = new Date().toISOString();
+  // Per-rail lastInbound carry-forward: the newest OBSERVED settle (tx + when)
+  // survives scans whose window has simply aged past it. Without this, a
+  // successfully-empty 6h scan wiped the evidence a daily settle happened,
+  // while a FAILING scan kept it via the balance carry-forward - a working
+  // RPC produced a worse page than a broken one (found live 2026-07-28: the
+  // Optimism "daily canary" row read unavailable hours after a real settle).
+  // The market pages' canary row keys off this, with its own 36h honesty cap.
+  for (const r of rails) {
+    const seen = (r.recent || []).find((t) => t.when);
+    const prev = prevRails.find((p) => p.rail === r.rail);
+    if (seen) r.lastInbound = { when: seen.when, tx: seen.tx || null };
+    else if (prev?.lastInbound) r.lastInbound = prev.lastInbound;
+  }
   for (const r of rails) {
     if (r.balance == null || r.error) {
       const prev = prevRails.find((p) => p.rail === r.rail);
