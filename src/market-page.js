@@ -793,7 +793,12 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   // Switcher strip — one row per chain page that actually exists today
   // (base/solana are index-snapshot rails, not routes). Replaces the old
-  const switcherHtml = chainSwitcherStrip(chainKey);
+  // The chain-switcher strip is deliberately NOT rendered on chain pages
+  // (owner call, 2026-07-28): the filter bar's CHAIN chips directly below do
+  // the identical navigation plus filtering, and the top ticker already names
+  // every rail - three stacked chain lists read as clutter. The strip stays
+  // on /marketplace (the all view), where it carries the MARKETPLACE /
+  // EVERY TOOL INDEXED tabs.
 
   const subheadHtml = `Pay-per-call tools for AI agents - settled in ${esc(C.asset)} on ${esc(C.chainName)} in ${esc(C.settleLatency)}, no signup, no API keys. The wallet is the account.`;
 
@@ -841,7 +846,6 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   </div>`;
 
   const body = `
-${switcherHtml}
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   ${headerHtml}
   <div id="market-panel">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
