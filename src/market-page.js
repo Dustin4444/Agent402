@@ -550,27 +550,6 @@ export function marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, 
   return sellerCardHtml(chainKey, picked, selectedSeller, activity, stat, payTo, leaderboardSnap?.windowLabel) + marketActivityHtml(chainKey, activity, selectedSeller);
 }
 
-/** Persistent top chain-nav strip, identical on the all-view and every chain
- *  page (activeChainKey=null highlights "all chains"). One header at the top of
- *  the marketplace, present on every page — the chain tabs in the filter bar
- *  below are the SORT/SEARCH-scoped control; this is the page-level nav. */
-export function chainSwitcherStrip(activeChainKey) {
-  const chainKeys = Object.keys(CHAIN_PAGES);
-  const allActive = activeChainKey == null;
-  return `
-<div style="border-bottom:1.5px solid var(--ink);background:var(--card);">
-  <div style="max-width:1080px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:18px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;">
-    <a href="/marketplace" style="text-decoration:none;color:${allActive ? "var(--ink)" : "var(--faint)"};font-weight:${allActive ? 700 : 400};letter-spacing:.08em;border-bottom:2px solid ${allActive ? "var(--accent)" : "transparent"};padding-bottom:2px;">MARKETPLACE</a>
-    <a href="/marketplace/tools" style="text-decoration:none;color:var(--faint);letter-spacing:.08em;border-bottom:2px solid transparent;padding-bottom:2px;">EVERY TOOL INDEXED</a>
-    <span style="color:var(--faint);">/</span>
-    ${chainKeys.map((k) => {
-      const active = k === activeChainKey;
-      return `<a href="/${k}" style="text-decoration:none;color:${active ? "var(--ink)" : "var(--muted)"};font-weight:${active ? 700 : 400};border-bottom:2px solid ${active ? "var(--accent)" : "transparent"};padding-bottom:2px;">${esc(k)}</a>`;
-    }).join("")}
-  </div>
-</div>`;
-}
-
 export function marketPage(chainKey, baseUrl, opts = {}) {
   if (chainKey == null) return marketPageAll(baseUrl, opts);
   const { snapshot, rail, activity, selectedSeller, wallet, leaderboardSnap } = opts;
@@ -793,7 +772,11 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   // Switcher strip — one row per chain page that actually exists today
   // (base/solana are index-snapshot rails, not routes). Replaces the old
-  const switcherHtml = chainSwitcherStrip(chainKey);
+  // The chain-switcher strip is GONE everywhere (owner call, 2026-07-28,
+  // audit follow-up): the filter bar's CHAIN chips do its exact navigation
+  // plus filtering, the ticker already names every rail, and its only unique
+  // cargo - the EVERY TOOL INDEXED link - rides the nav dropdown and footer
+  // on every page. Three stacked chain lists read as clutter.
 
   const subheadHtml = `Pay-per-call tools for AI agents - settled in ${esc(C.asset)} on ${esc(C.chainName)} in ${esc(C.settleLatency)}, no signup, no API keys. The wallet is the account.`;
 
@@ -841,7 +824,6 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   </div>`;
 
   const body = `
-${switcherHtml}
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   ${headerHtml}
   <div id="market-panel">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
@@ -1135,7 +1117,6 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   ];
 
   const body = `
-${chainSwitcherStrip(null)}
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   ${headerHtml}
   ${marketFilterBar(null, baseUrl)}
