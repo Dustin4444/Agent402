@@ -70,7 +70,13 @@ async function callOpenAI(prompt, tierSlug) {
     const safe = redactSecrets(text);
     let msg = safe.slice(0, 200);
     try { msg = JSON.parse(safe).error?.message || msg; } catch {}
-    throw bad(`OpenAI error: ${msg}`, 502);
+    // Reaching here means a remaining 4xx - the REQUEST was invalid (bad
+    // temperature, unknown language code, oversized input), not the upstream.
+    // Surfacing it as 502 taught buyers to retry the identical bad request
+    // (observed 2026-07-26: paired retries ~1s apart on temperature:100) and
+    // polluted upstream-failure telemetry. A self-explaining 400 teaches the
+    // agent to fix the request; settlement is cancelled either way.
+    throw bad(`OpenAI rejected the request: ${msg}`, 400);
   }
 
   let data;
