@@ -82,7 +82,8 @@ const EVM_NETWORKS = {
   sei: {
     usdc: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392",
     rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"],
-    spanBlocks: 54000, // ~6h at 0.4s blocks
+    spanBlocks: 40000, // ~4.4h at 0.4s blocks
+    chunkBlocks: 1900, // sei-apis caps getLogs ranges at ~2,000 blocks (2026-07-28)
   },
   optimism: {
     usdc: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
@@ -220,7 +221,9 @@ async function main() {
   // Chunks are capped at 9,000 blocks — Alchemy rejects getLogs ranges over
   // 10k on some chains (Robinhood, verified 2026-07-08) — with a minimum of
   // 4 chunks; a failed chunk degrades to a partial scan, never skips the rail.
-  const LOG_CHUNKS = Math.max(4, Math.ceil(SPAN / 9000));
+  // Per-net chunk cap: default 9,000 (Alchemy bound); nets whose RPCs enforce
+  // tighter getLogs ranges declare chunkBlocks (Sei: 1,900).
+  const LOG_CHUNKS = Math.max(4, Math.ceil(SPAN / (NET.chunkBlocks || 9000)));
   try {
     latest = parseInt(await rpc("eth_blockNumber", []), 16);
   } catch (e) {

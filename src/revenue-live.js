@@ -133,7 +133,12 @@ export const EVM = {
     // Sei (pacific-1), native Circle USDC — NOT Noble's IBC token. ~0.4s
     // blocks → 250k ≈ 28h. No Alchemy lane; the Sei Foundation + publicnode
     // RPCs both serve getLogs over chunked ranges.
-    label: "Sei", asset: "USDC", span: 250000,
+    // sei-apis caps eth_getLogs ranges at ~2,000 blocks (verified 2026-07-28:
+    // a 1,900-block query succeeds where the scan's old 8,929-block chunks
+    // were rejected EVERYWHERE - the 28/28 failure was range-cap, not egress).
+    // 40000 blocks ≈ 4.4h at 0.4s; the lastInbound carry-forward persists any
+    // settle the 10-minute refresh cadence sees, so daily-canary proof holds.
+    label: "Sei", asset: "USDC", span: 40000, chunkBlocks: 1900,
     token: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392",
     // Relay-first when configured: evm-rpc.sei-apis.com errors every getLogs
     // from Railway's egress IPs (28/28 windows, 2026-07-28) while serving
@@ -286,12 +291,16 @@ export async function rpcCall(urls, method, params, timeoutMs = 5000) {
 // window, never an error: the balance (a cheap head read) stays up and the
 // card says the scan was partial instead of parroting vendor text.
 async function recentInbound(c, wallet, latest) {
-  const LOG_CHUNKS = Math.max(4, Math.ceil(c.span / 9000));
+  // Per-chain chunk cap: default 9,000 (the Alchemy bound above); chains whose
+  // RPCs enforce tighter getLogs ranges declare chunkBlocks (Sei: 1,900).
+  const LOG_CHUNKS = Math.max(4, Math.ceil(c.span / (c.chunkBlocks || 9000)));
   const chunk = Math.ceil(c.span / LOG_CHUNKS);
   const deadline = Date.now() + 12_000;
   const logs = [];
   let missed = 0;
+  let attempted = 0;
   for (let i = 0; i < LOG_CHUNKS && logs.length < 8 && Date.now() < deadline; i++) {
+    attempted++;
     const to = latest - i * chunk;
     if (to <= 0) break;
     const from = Math.max(0, to - chunk + 1);
@@ -314,8 +323,16 @@ async function recentInbound(c, wallet, latest) {
         part = await attemptChunk();
       }
       if (Array.isArray(part)) logs.push(...part);
-    } catch {
+    } catch (e) {
       missed++;
+      // One line per rail per process: the scan's missed counter destroyed
+      // the evidence of WHY chunks fail (2026-07-28: Sei read 28/28
+      // unavailable through a relay that answered prod's egress in 39ms,
+      // and nothing said what the actual per-chunk error was).
+      if (!loggedChunkFailure.has(c.label)) {
+        loggedChunkFailure.add(c.label);
+        console.warn(`[revenue] ${c.label} getLogs chunk failed: ${String(e?.message || e).slice(0, 160)}`);
+      }
     }
   }
   const recent = logs
@@ -339,9 +356,14 @@ async function recentInbound(c, wallet, latest) {
       if (blk?.timestamp) t.when = new Date(parseInt(blk.timestamp, 16) * 1000).toISOString();
     } catch { /* timestamp is nice-to-have, not required */ }
   }
+  // Windows never attempted (deadline exit or early stop with zero finds)
+  // count as missed when the scan found NOTHING - a budget cutoff must not
+  // read as a clean empty. Early stop after real finds stays a success.
+  if (logs.length === 0 && attempted < LOG_CHUNKS) missed += LOG_CHUNKS - attempted;
   return { recent, missed, chunks: LOG_CHUNKS };
 }
 
+const loggedChunkFailure = new Set();
 async function evmRail(name, wallet) {
   const c = EVM[name];
   const out = { rail: c.label, asset: c.asset, wallet: wallet || null, explorer: wallet ? c.explorer(wallet) : null, balance: null, recent: [], error: null, scanNote: null };
