@@ -323,8 +323,8 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   LIFETIME counter (~1726) polluted by a since-fixed miscount that logged Robinhood
   settlement *rejections* — where the buyer kept their money — as charged failures. Never
   quote it as current quality; use a recent window from the operator endpoint.**
-- **Paid canary (`scripts/paid-canary.js`):** 31 legs — tools across chains
-  (Base/Solana/Polygon/Arbitrum/Monad/Celo/Stellar/Robinhood), incl. two federal-data legs
+- **Paid canary (`scripts/paid-canary.js`):** 32 legs — tools across all twelve rails
+  (Base/Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand/Robinhood), incl. two federal-data legs
   (vin-decode / geo-lookup) whose Base settlements also seed the gov tools into
   settlement-driven indexes like x402scan, plus llm-nano (failover), llm-stream
   (`raw:true`, asserts SSE `data:`…`[DONE]`), llm-auto (model-less request must carry the
