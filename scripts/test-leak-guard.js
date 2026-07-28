@@ -244,9 +244,19 @@ for (const { slug, handler, input } of HANDLER_CASES) {
     ok(!leaked, `${slug} [${m}] no secret leak`);
     if (leaked) console.error(`  LEAKED >>> ${blob.slice(0, 300)}`);
     ok(sawCanaryCred, `${slug} [${m}] mock upstream actually received the credential (test validity)`);
-    // Upstream failures must surface as clean upstream-attributed errors,
-    // never a raw 500 and never a success.
-    ok(err !== null && [502, 503, 504].includes(err.statusCode), `${slug} [${m}] clean 502/503/504 (got ${err ? err.statusCode : "no error"})`);
+    // Upstream failures must surface as clean, attributed errors — never a
+    // raw 500 and never a success. A remaining upstream 4xx is the BUYER'S
+    // invalid request (2026-07-28: relabeling it 502 taught agents to retry
+    // identical bad requests), so the OpenAI-proxy kits pass it through as a
+    // self-explaining 400. The GATEWAY tiers (v1-*) deliberately keep it
+    // 502: their failover walks anything upstream-shaped so a model-specific
+    // rejection can try the next provider in the chain.
+    // Only the OpenAI-proxy kits adopt the 400 passthrough; the gateway keeps
+    // 502 for failover, and the Brave kits keep their controlled 502 (they
+    // never echo upstream bodies, so a passthrough 400 has nothing to say).
+    const openaiProxy = new Set(["llm", "embed", "image-gen", "tts", "transcribe", "moderate"]);
+    const wantStatuses = m === "bad-request-echo-400" && openaiProxy.has(slug) ? [400] : [502, 503, 504];
+    ok(err !== null && wantStatuses.includes(err.statusCode), `${slug} [${m}] clean ${wantStatuses.join("/")} (got ${err ? err.statusCode : "no error"})`);
   }
 }
 
