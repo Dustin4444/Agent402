@@ -84,6 +84,11 @@ const EVM_NETWORKS = {
     rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"],
     spanBlocks: 54000, // ~6h at 0.4s blocks
   },
+  optimism: {
+    usdc: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
+    rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"],
+    spanBlocks: 10800, // ~6h at 2s blocks
+  },
   monad: {
     usdc: "0x754704bc059f8c67012fed69bc8a327a5aafb603",
     rpcs: [...alchemy("monad-mainnet"), "https://rpc.monad.xyz", "https://rpc2.monad.xyz"],

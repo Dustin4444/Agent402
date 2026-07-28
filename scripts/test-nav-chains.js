@@ -14,9 +14,9 @@ const ok = (cond, msg) => {
   }
 };
 
-const RAILS = ["base", "solana", "polygon", "arbitrum", "monad", "celo", "avalanche", "sei", "stellar", "algorand", "robinhood"];
+const RAILS = ["base", "solana", "polygon", "arbitrum", "monad", "celo", "avalanche", "sei", "optimism", "stellar", "algorand", "robinhood"];
 
-// ---- 1. static fallback (no provider): all 11 rails reachable ----
+// ---- 1. static fallback (no provider): all 12 rails reachable ----
 {
   setNavIndexProvider(null);
   const html = ledgerShell({ title: "t", description: "d", canonical: "https://x/", baseUrl: "https://x", body: "" });
@@ -25,7 +25,7 @@ const RAILS = ["base", "solana", "polygon", "arbitrum", "monad", "celo", "avalan
   }
 }
 
-// ---- 2. live provider with all 11 chains: nothing truncated away ----
+// ---- 2. live provider with all 12 chains: nothing truncated away ----
 {
   setNavIndexProvider(() => ({
     chains: RAILS.map((label) => ({ label, href: `/${label}`, sellers: 5, tools: 9, healthy: true })),
@@ -37,13 +37,13 @@ const RAILS = ["base", "solana", "polygon", "arbitrum", "monad", "celo", "avalan
   }
 }
 
-// ---- 3. far-future ceiling: >12 chains truncates to 11, never below the roster ----
+// ---- 3. far-future ceiling: >12 chains truncates to 12, never below the roster ----
 {
-  const many = [...RAILS, "chain12", "chain13"].map((label) => ({ label, href: `/${label}`, sellers: 1, healthy: true }));
+  const many = [...RAILS, "chain13", "chain14"].map((label) => ({ label, href: `/${label}`, sellers: 1, healthy: true }));
   setNavIndexProvider(() => ({ chains: many }));
   const html = ledgerShell({ title: "t", description: "d", canonical: "https://x/", baseUrl: "https://x", body: "" });
   const shown = many.filter((c) => html.includes(`href="/${c.label}"`)).length;
-  ok(shown === 11, `13 chains truncate to exactly 11 (got ${shown})`);
+  ok(shown === 12, `14 chains truncate to exactly 12 (got ${shown})`);
 }
 
 setNavIndexProvider(null);

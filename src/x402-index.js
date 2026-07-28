@@ -523,6 +523,7 @@ export function normaliseOpenapiTools(openapi, originUrl) {
   if (!openapi || typeof openapi !== "object" || !openapi.paths) return [];
   const base = openapiBasePath(openapi, originUrl);
   const documentDistinguishesPaidOperations = openapiHasPaymentSignal(openapi);
+  logUnknownPaymentKeys(openapi, originUrl);
   const httpMethods = new Set(["get", "post", "put", "patch", "delete", "options", "head"]);
   const nonToolPath =
     /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
@@ -573,6 +574,48 @@ function openapiOperationHasPaymentSignal(op) {
       // variant key on operations that carry no other payment extension —
       // 3 of their 17 paid operations were silently dropped without it.
       op["x-x402-price-usdc"]));
+}
+
+// Annotation-dialect watch. There is no standard for payment extensions, so
+// sellers invent keys — and in an ANNOTATED document an unrecognized price key
+// doesn't inflate anything, it silently DELETES: the op reads as unannotated
+// and drops from the paid set (x-x402-price-usdc hid 3 of a seller's 17 paid
+// ops until they emailed, 2026-07-27). Surface every payment-ish x- key we
+// don't recognize so the next dialect announces itself in the logs instead.
+const RECOGNIZED_PAYMENT_KEYS = new Set(["x-price", "x-x402-price", "x-payment-info", "x-x402-price-usdc"]);
+// Payment-ish by name but known to carry no price — never worth a log line.
+const BENIGN_PAYMENT_LOOKALIKES = new Set(["x-x402-call-type"]);
+const PAYMENTISH = /pric|pay|cost|fee|402|usdc|usd\b/i;
+export function unknownPaymentishKeys(openapi) {
+  if (!openapi || typeof openapi !== "object" || !openapi.paths) return [];
+  const found = new Set();
+  for (const methods of Object.values(openapi.paths)) {
+    for (const op of Object.values(methods || {})) {
+      if (!op || typeof op !== "object") continue;
+      for (const k of Object.keys(op)) {
+        const kl = k.toLowerCase();
+        if (!kl.startsWith("x-")) continue;
+        if (RECOGNIZED_PAYMENT_KEYS.has(kl) || BENIGN_PAYMENT_LOOKALIKES.has(kl)) continue;
+        if (PAYMENTISH.test(kl)) found.add(kl);
+      }
+    }
+  }
+  return [...found].sort();
+}
+// Once per (origin, key) per process — the crawler revisits every 5 minutes
+// and a repeated line would be noise, but a NEW key must always surface.
+const loggedAnnotationKeys = new Set();
+function logUnknownPaymentKeys(openapi, originUrl) {
+  for (const k of unknownPaymentishKeys(openapi)) {
+    const id = `${originUrl} ${k}`;
+    if (loggedAnnotationKeys.has(id)) continue;
+    loggedAnnotationKeys.add(id);
+    console.warn(
+      `[x402-index] unrecognized payment-ish annotation "${k}" at ${originUrl} — ` +
+        `if it prices operations, ops carrying only it are being listed as FREE ` +
+        `(add it to RECOGNIZED_PAYMENT_KEYS after verifying)`
+    );
+  }
 }
 
 // Does this openapi document look like a *paid* x402 service rather than any

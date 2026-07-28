@@ -39,7 +39,7 @@ every release.
 
 > Optionally, the same server can charge per call over the [x402
 > protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche,
-> Sei, Stellar & Algorand, plus USDG on Robinhood Chain — 11 chains) — so the instance you
+> Sei, Optimism, Stellar & Algorand, plus USDG on Robinhood Chain — 12 chains) — so the instance you
 > self-host for free can also be a hosted, monetized one. That part is opt-in;
 > **by default everything runs free.**
 
@@ -300,7 +300,7 @@ instance. Payments are the default posture: a bare `npm start` **fails closed**,
 exiting unless `WALLET_ADDRESS` is set — running without payments is the
 explicit opt-in (`FREE_MODE=true npm start`). To charge, set `WALLET_ADDRESS`
 + CDP facilitator keys (free at [portal.cdp.coinbase.com](https://portal.cdp.coinbase.com))
-and agents pay in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Stellar,
+and agents pay in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar,
 Algorand — or USDG on Robinhood Chain via `PAYMENT_NETWORKS=…,robinhood` +
 `ROBINHOOD_FACILITATOR_URL`) via standard x402 clients:
 
@@ -392,7 +392,7 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 | `src/tools/` | The tool kits (web, PDF, media, images, live data, crypto/x402, 216 pure-CPU utilities) — **add tools here** |
 | `src/mcp-http.js` | Hosted MCP connector (streamable HTTP, authless free tier) |
 | `src/pow.js` | Proof-of-work tier (signed, single-use, slug-scoped challenges) |
-| `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Stellar/Algorand + USDG on Robinhood Chain (11 chains), CDP facilitator, Bazaar discovery |
+| `src/payments.js` | Optional x402 v2 wiring: USDC on Base/Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand + USDG on Robinhood Chain (12 chains), CDP facilitator, Bazaar discovery |
 | `src/x402-index.js` | x402 Index + Smart Order Router: cross-seller crawl, auto-discovery, health-aware routing, per-chain marketplace pages (`/stellar`, `/algorand`) |
 | `src/sell.js` | `/sell` — the seller front door: free self-serve listing (`POST /api/index/register`) or `agent402-tollbooth` for pay-per-crawl |
 | `mcp/` | The `agent402-mcp` npm package (stdio MCP server) |
