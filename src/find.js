@@ -145,3 +145,41 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   const packs = rankSkillPacks(q, { k: 2, baseUrl });
   return { query: String(query), count: results.length, results, packs };
 }
+
+/**
+ * The find->seller bridge: does this query look like the NAME of an indexed
+ * x402 seller rather than (or as well as) a task? Agents search /api/find for
+ * sellers by name - 25 recorded "misses" for "minia2a" were hunts for the
+ * indexed seller minia2a.uk (2026-07-28). Pure lexical matching over the
+ * routable-seller summaries; returns AT MOST max sellers as {host, origin,
+ * toolCount} - no third-party display text rides along, by construction.
+ *
+ * Match rules (tuned against false positives on task-shaped queries):
+ *  - exact host-label match at >=4 chars ("minia2a" === label of minia2a.uk),
+ *    excluding generic labels: "api" exactly matches api.example.com's label
+ *    but an agent searching "api" wants tools, not that seller
+ *  - substring either way at >=5 chars against the compacted host or the
+ *    compacted query ("cloudworldmodel" vs www.cloudworldmodel.ai)
+ * Exact label matches rank first, then higher toolCount.
+ */
+const GENERIC_HOST_LABELS = new Set([
+  "api", "apis", "app", "apps", "web", "www", "tool", "tools", "agent",
+  "agents", "x402", "mcp", "data", "test", "demo", "dev", "io", "ai", "server",
+]);
+export function findRelatedSellers(query, sellers, { max = 3 } = {}) {
+  const qcompact = String(query || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (qcompact.length < 4 || !Array.isArray(sellers) || GENERIC_HOST_LABELS.has(qcompact)) return [];
+  const scored = [];
+  for (const s of sellers) {
+    const host = String(s.host || "").toLowerCase();
+    if (!host) continue;
+    const labels = host.split(".").filter((l) => l && l !== "www");
+    const hostcompact = labels.join("");
+    const exact = labels.some((l) => l.replace(/[^a-z0-9]/g, "") === qcompact);
+    const substr = qcompact.length >= 5 && (hostcompact.includes(qcompact) || (hostcompact.length >= 5 && qcompact.includes(hostcompact)));
+    if (!exact && !substr) continue;
+    scored.push([exact ? 1 : 0, s.toolCount || 0, { host: s.host, origin: s.origin, toolCount: s.toolCount || 0 }]);
+  }
+  scored.sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+  return scored.slice(0, max).map((x) => x[2]);
+}

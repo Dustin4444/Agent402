@@ -1313,6 +1313,21 @@ export function ecosystemMarket({ limit = 12 } = {}) {
  * /api/index, which carries only the count). Matches by full origin or bare
  * host, case-insensitive. Returns null when unknown.
  */
+/** Lightweight routable-seller list for the find->seller bridge: origin,
+ *  host and toolCount only - deliberately NO third-party display text, so a
+ *  consumer can attach it to agent-facing responses without inheriting the
+ *  listing-injection surface. Cheap: one pass over the in-memory cache. */
+export function routableSellerSummaries() {
+  const out = [];
+  for (const [origin, v] of cache.entries()) {
+    if (v?.error || !isRoutable(v)) continue;
+    let host = "";
+    try { host = new URL(origin).host.toLowerCase(); } catch { continue; }
+    out.push({ origin, host, toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0 });
+  }
+  return out;
+}
+
 export function sellerDetail(originOrHost) {
   const q = String(originOrHost || "").trim().toLowerCase().slice(0, 253);
   if (!q) return null;
