@@ -1703,10 +1703,13 @@ app.get("/acp/manifest", (_req, res) =>
 // catalog probably doesn't have what the caller wanted. That's the signal
 // the wish loop exists to capture: log it as a find-miss (rate-limit exempt,
 // fire-and-forget) and tell the caller how to say what they actually needed.
-// Threshold sits below a single tag hit (score 3) or slug-substring hit
-// (score 4) — a real single-term match to a relevant tool should NOT be
-// treated as a miss.
-const FIND_WEAK_SCORE = 5;
+// Threshold sits AT a single tag hit (score 3): an exact tag match to a
+// relevant tool is a SERVED query, not a miss. The old value (5) sat above
+// both a tag hit (3) and a slug-substring hit (4), so every tag-served
+// query ALSO recorded a wish - the "minia2a" cluster self-qualified on 25
+// queries that each got the right tool back, ghost demand for tools that
+// shipped on 2026-07-20 for the very same wish (found 2026-07-28).
+const FIND_WEAK_SCORE = 3;
 const computeFind = (q, k) => {
   const result = findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
   const topScore = result.results[0]?.score ?? 0;
