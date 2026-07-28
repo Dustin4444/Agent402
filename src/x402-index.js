@@ -207,6 +207,14 @@ const DISCOVERY_SOURCES = [
   // self-heals anything dead. synthesizeTools so PayAI sellers with no manifest
   // still list with tools.
   { name: "PayAI facilitator registry", url: "https://facilitator.payai.network/discovery/resources", paginate: true, synthesizeTools: true, strict: true },
+  // Solvador's registry — settlement-harvested like the Bazaar (confirmed
+  // 2026-07-28: our first two Optimism settles auto-registered our routes
+  // within the hour), keyless reads, identical {items, pagination.total}
+  // contract. Their facilitator uniquely covers Optimism, Unichain, World
+  // Chain, Linea, NEAR and XRPL, so this is the discovery home for sellers
+  // on those chains as they appear (watch issue #586). Same hygiene as
+  // PayAI's open registry: paginate + synthesizeTools + strict.
+  { name: "Solvador registry", url: "https://api.solvador.com/discovery/resources", paginate: true, synthesizeTools: true, strict: true },
 ];
 
 // Operator-curated seeds committed in-repo — the version-controlled companion
