@@ -428,10 +428,12 @@ const BASE_BALANCE_RPCS = [
   "https://base.blockscout.com/api/eth-rpc",
   "https://base.llamarpc.com",
 ];
-async function baseUsdcBalanceUsd(address) {
+/** Stablecoin balance (6-decimal ERC-20) via an RPC fallback chain. null only
+ *  when EVERY RPC fails; each failed attempt logs which endpoint and why. */
+async function erc20BalanceUsd(address, { token, rpcs, label = "" }) {
   const data = "0x70a08231" + address.toLowerCase().replace("0x", "").padStart(64, "0");
-  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", data }, "latest"] });
-  for (const rpc of BASE_BALANCE_RPCS) {
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: token, data }, "latest"] });
+  for (const rpc of rpcs) {
     try {
       const r = await fetch(rpc, {
         method: "POST",
@@ -443,13 +445,54 @@ async function baseUsdcBalanceUsd(address) {
       if (typeof j?.result === "string" && /^0x[0-9a-fA-F]*$/.test(j.result)) {
         return parseInt(j.result, 16) / 1e6;
       }
-      console.warn(`WARN  balance read: ${rpc} returned no result (HTTP ${r.status}) — trying next RPC`);
+      console.warn(`WARN  balance read${label ? ` (${label})` : ""}: ${rpc} returned no result (HTTP ${r.status}) — trying next RPC`);
     } catch (e) {
-      console.warn(`WARN  balance read: ${rpc} failed (${(e?.message || e).toString().slice(0, 80)}) — trying next RPC`);
+      console.warn(`WARN  balance read${label ? ` (${label})` : ""}: ${rpc} failed (${(e?.message || e).toString().slice(0, 80)}) — trying next RPC`);
     }
   }
-  console.warn("WARN  balance read: ALL Base RPCs failed — cannot prove underfunding, a funding failure would page as an outage");
   return null;
+}
+async function baseUsdcBalanceUsd(address) {
+  const usd = await erc20BalanceUsd(address, {
+    token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    rpcs: BASE_BALANCE_RPCS,
+    label: "Base",
+  });
+  if (usd == null) console.warn("WARN  balance read: ALL Base RPCs failed — cannot prove underfunding, a funding failure would page as an outage");
+  return usd;
+}
+
+/** Per-chain funding for the informational chain legs (Base is covered by the
+ *  low-water check above; these are the chains where the SAME burner pays the
+ *  daily $0.001-0.002 rail-proof legs). Chain legs WARN and never page, so a
+ *  starved chain wallet fails SILENTLY: the daily settle proof on /revenue
+ *  just stops. This sweep pages ok-low while the rail proof still works —
+ *  the Base starvation lesson (2026-07-27) applied to every chain. Solana,
+ *  Stellar and Algorand legs use separate wallets/signers and are out of
+ *  scope here. Token addresses + RPC chains mirror src/revenue-live.js. */
+export const CHAIN_FUNDING = [
+  { key: "polygon", label: "Polygon", token: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", rpcs: ["https://polygon.drpc.org", "https://polygon.llamarpc.com"] },
+  { key: "arbitrum", label: "Arbitrum", token: "0xaf88d065e77c8cc2239327c5edb3a432268e5831", rpcs: ["https://arb1.arbitrum.io/rpc", "https://arbitrum.llamarpc.com"] },
+  { key: "monad", label: "Monad", token: "0x754704bc059f8c67012fed69bc8a327a5aafb603", rpcs: ["https://rpc.monad.xyz", "https://rpc2.monad.xyz"] },
+  { key: "celo", label: "Celo", token: "0xceba9300f2b948710d2653dd7b07f33a8b32118c", rpcs: ["https://forno.celo.org"] },
+  { key: "avalanche", label: "Avalanche", token: "0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e", rpcs: ["https://api.avax.network/ext/bc/C/rpc", "https://avalanche-c-chain-rpc.publicnode.com"] },
+  { key: "sei", label: "Sei", token: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392", rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"] },
+  { key: "optimism", label: "Optimism", token: "0x0b2c639c533813f4aa9d7837caf62653d097ff85", rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"] },
+  { key: "robinhood", label: "Robinhood Chain (USDG)", token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", rpcs: ["https://rpc.mainnet.chain.robinhood.com"] },
+];
+
+/** Pure verdict over the chain-balance sweep, exported for offline tests:
+ *  low = readable balances under the threshold; unreadable = every-RPC-failed
+ *  chains (reported, never treated as low — an RPC outage must not page as a
+ *  funding problem). */
+export function chainLowWaterReport(balances, { chainLowWater }) {
+  const low = [];
+  const unreadable = [];
+  for (const { key, label, usd } of balances) {
+    if (usd == null) unreadable.push(key);
+    else if (usd < chainLowWater) low.push({ key, label, usd });
+  }
+  return { low, unreadable };
 }
 
 export function decideCanary(results, { coreKit = CORE_KIT } = {}) {
@@ -1039,10 +1082,23 @@ async function main() {
   // green run.
   const lowWater = Number(process.env.CANARY_LOW_WATER_USD || 2);
   const endBalance = await baseUsdcBalanceUsd(account.address);
-  if (Number.isFinite(endBalance) && endBalance < lowWater) {
+  const baseLow = Number.isFinite(endBalance) && endBalance < lowWater;
+  // Per-chain sweep: the informational chain legs never page, so a starved
+  // chain wallet otherwise degrades silently. Threshold default $0.05 —
+  // roughly a month of daily $0.001-0.002 legs of warning.
+  const chainLowWater = Number(process.env.CANARY_CHAIN_LOW_WATER_USD || 0.05);
+  const chainBalances = await Promise.all(
+    CHAIN_FUNDING.map(async (c) => ({ key: c.key, label: c.label, usd: await erc20BalanceUsd(account.address, c) }))
+  );
+  const { low, unreadable } = chainLowWaterReport(chainBalances, { chainLowWater });
+  if (unreadable.length) console.warn(`WARN  chain balance sweep: unreadable on ${unreadable.join(", ")} (all RPCs failed) — not treated as low`);
+  if (baseLow || low.length) {
+    const parts = [];
+    if (baseLow) parts.push(`Base $${endBalance.toFixed(4)} (low-water $${lowWater.toFixed(2)})`);
+    for (const c of low) parts.push(`${c.label} $${c.usd.toFixed(4)} (low-water $${chainLowWater.toFixed(2)})`);
     console.warn(
-      `\nCANARY BURNER LOW — $${endBalance.toFixed(4)} USDC left on Base (low-water $${lowWater.toFixed(2)}). ` +
-        `Top up ${account.address} before the next run starves. Exiting 4 (green, funding warning).`
+      `\nCANARY BURNER LOW — ${parts.join(" · ")}. ` +
+        `Top up ${account.address} before the leg(s) starve. Exiting 4 (green, funding warning).`
     );
     process.exit(4);
   }
