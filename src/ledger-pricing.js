@@ -15,8 +15,8 @@ export function ledgerPricingPage(baseUrl, catalog) {
   const freeCount = tools.filter(isComputePayable).length;
 
   const canonical = baseUrl + "/pricing";
-  const title = `Pricing - Agent402 (${fmtNum(totalCount)} tools)`;
-  const description = `Two ways to pay: free via proof-of-work, or ${RAILS_SHORT} from $0.001/call. No subscription, no signup, no minimum. ${fmtNum(freeCount)} tools free, all ${fmtNum(totalCount)} tools from $0.001.`;
+  const title = `Pricing - x402 pay-per-call, ${fmtNum(totalCount)} tools | Agent402`;
+  const description = `Two ways to pay: free via proof-of-work, or ${RAILS_SHORT} from $0.001/call over x402 or MPP. No subscription, no signup, no minimum. ${fmtNum(freeCount)} tools free, all ${fmtNum(totalCount)} tools from $0.001.`;
 
   // -- feature-list helpers --------------------------------------------------
   const check = (text) =>

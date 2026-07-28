@@ -51,6 +51,9 @@ const usd = (n) => {
 export const CHAIN_PAGES = {
   base: {
     chainName: "Base",
+    // MPP challenges ride this chain's 402s (MPP_CHALLENGE_NETWORKS default
+    // is Base+Celo) - the only chains where "pay via MPP" is advertised truth.
+    mpp: true,
     ticker: "ETH",
     tickerLabel: "BASE · MAINNET",
     caip2: "eip155:8453",
@@ -154,6 +157,8 @@ export const CHAIN_PAGES = {
   },
   celo: {
     chainName: "Celo",
+    mpp: true, // see the note on base - MPP challenges serve on Base+Celo
+
     ticker: "CELO",
     tickerLabel: "CELO · MAINNET",
     caip2: "eip155:42220",
@@ -760,6 +765,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       <div style="display:flex;align-items:center;justify-content:space-between;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· RAIL MANIFEST ··</span><span>${esc(C.tickerLabel)}</span></div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13px;">
         ${manifestRow("network", esc(C.caip2))}
+        ${manifestRow("wires", C.mpp ? "x402 + MPP" : "x402")}
         ${manifestRow("asset", esc(C.asset))}
         ${manifestRow("settle latency", esc(C.settleLatency))}
         ${manifestRow("facilitator", esc(C.facilitatorLabel))}
@@ -869,7 +875,7 @@ ${ledgerFooterCompact()}`;
 
   return ledgerShell({
     title: `The ${C.chainName} x402 marketplace - pay-per-call tools for AI agents`,
-    description: `The ${C.chainName} x402 marketplace: ${tools.length} pay-per-call tools for AI agents, settled in ${C.asset} on ${C.chainName}. No signup, no API keys - the wallet is the account.`,
+    description: `The ${C.chainName} x402 marketplace: ${tools.length} pay-per-call tools for AI agents, settled in ${C.asset} on ${C.chainName}.${C.mpp ? " x402 and MPP (Machine Payments Protocol) both accepted." : ""} No signup, no API keys - the wallet is the account.`,
     canonical: `${baseUrl}/${chainKey}`,
     baseUrl,
     activePath: `/${chainKey}`,
@@ -1128,7 +1134,7 @@ ${ledgerFooterCompact()}`;
 
   return ledgerShell({
     title: "The x402 marketplace - pay-per-call tools for AI agents, every chain",
-    description: "The x402 marketplace: the neutral x402 index of pay-per-call agent tools across every supported chain - every seller, not just Agent402's own catalog.",
+    description: "The x402 marketplace: the neutral x402 index of pay-per-call agent tools across every supported chain - every seller, not just Agent402's own catalog. MPP (Machine Payments Protocol) buyers settle on the same routes.",
     canonical: `${baseUrl}/marketplace`,
     baseUrl,
     activePath: "/marketplace",

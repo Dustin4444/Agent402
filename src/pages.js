@@ -446,7 +446,7 @@ const FAQ_ITEMS = [
 export function faqPage(baseUrl) {
   const e = ledgerEsc;
   const canonical = `${baseUrl}/faq`;
-  const title = "Agent402 FAQ - x402 + MCP server for AI agents";
+  const title = "Agent402 FAQ - x402 + MPP + MCP server for AI agents";
   const description =
     `Frequently asked questions about Agent402: pricing, proof-of-work, x402 and ${RAILS_SHORT}, the OpenAI-compatible /v1 gateway, self-serve listing, MCP, data handling, and self-hosting the open-source server.`;
   const jsonLd = {
