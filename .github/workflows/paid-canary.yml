@@ -131,10 +131,10 @@ jobs:
             exit 0
           fi
           if [ "${{ steps.canary.outputs.result }}" = "ok-low" ]; then
-            LTITLE="Canary burner LOW (Base)"
+            LTITLE="Canary burner LOW"
             LOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$LTITLE\"" --json number --jq '.[0].number // empty')
             if [ -z "$LOPEN" ]; then
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$LTITLE" --body "The paid canary ran fully green but the Base burner is below the low-water mark (see the run log for the balance and address). Top up before it empties - an empty wallet fails the whole run. A green run with a healthy balance closes this. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$LTITLE" --body "The paid canary ran fully green but one or more burner balances are below their low-water marks - the run log names each low chain and balance (the CANARY BURNER LOW line). Top up before it empties - an empty wallet fails the whole run. A green run with a healthy balance closes this. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             else
               gh issue comment "$LOPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             fi
@@ -143,7 +143,7 @@ jobs:
             FTITLE="Canary burner EMPTY (Base)"
             FOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$FTITLE\"" --json number --jq '.[0].number // empty')
             [ -n "$FOPEN" ] && gh issue close "$FOPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: full canary green at $(date -u +%FT%TZ)."
-            LTITLE="Canary burner LOW (Base)"
+            LTITLE="Canary burner LOW"
             LOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$LTITLE\"" --json number --jq '.[0].number // empty')
             [ -n "$LOPEN" ] && gh issue close "$LOPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: green run with a healthy balance at $(date -u +%FT%TZ)."
           fi

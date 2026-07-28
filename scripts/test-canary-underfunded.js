@@ -77,5 +77,38 @@ check("unpriced failed legs: only a truly empty wallet proves underfunding", () 
   assert.equal(classifyCanaryFailure(d, { balanceUsd: 5 }), "broken");
 });
 
+
+// ---- chain low-water sweep verdict (2026-07-28 extension) ----
+// Chain legs WARN and never page, so a starved chain wallet degrades
+// silently; the sweep pages ok-low while the rail proof still works. An
+// unreadable balance (RPC outage) is reported but never counted as low.
+const { chainLowWaterReport } = await import("./paid-canary.js");
+check("chain sweep: only the genuinely low chain is flagged", () => {
+  const r = chainLowWaterReport(
+    [
+      { key: "sei", label: "Sei", usd: 2.9 },
+      { key: "optimism", label: "Optimism", usd: 0.011 },
+      { key: "monad", label: "Monad", usd: null },
+      { key: "celo", label: "Celo", usd: 0.05 },
+    ],
+    { chainLowWater: 0.05 },
+  );
+  assert.equal(r.low.length, 1);
+  assert.equal(r.low[0].key, "optimism");
+});
+check("chain sweep: an unreadable balance is reported, never low", () => {
+  const r = chainLowWaterReport([{ key: "monad", label: "Monad", usd: null }], { chainLowWater: 0.05 });
+  assert.deepEqual(r.unreadable, ["monad"]);
+  assert.equal(r.low.length, 0);
+});
+check("chain sweep: a balance exactly at the threshold is not low", () => {
+  const r = chainLowWaterReport([{ key: "celo", label: "Celo", usd: 0.05 }], { chainLowWater: 0.05 });
+  assert.equal(r.low.length, 0);
+});
+check("chain sweep: empty input is empty output, not a crash", () => {
+  const r = chainLowWaterReport([], { chainLowWater: 0.05 });
+  assert.equal(r.low.length + r.unreadable.length, 0);
+});
+
 console.log(failures ? `\nFAILED (${failures})` : "\nall passed");
 process.exit(failures ? 1 : 0);
