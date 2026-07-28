@@ -605,13 +605,18 @@ export function unknownPaymentishKeys(openapi) {
 // Once per (origin, key) per process — the crawler revisits every 5 minutes
 // and a repeated line would be noise, but a NEW key must always surface.
 const loggedAnnotationKeys = new Set();
+// The key name is THIRD-PARTY text headed for our logs: strip control chars
+// (newlines/ANSI escapes could forge log lines) and cap the length. Same
+// class of hygiene as the router's listing-injection filter — a crawled
+// document must never get to write our operational log for us.
+const safeLogToken = (s) => String(s).replace(/[^\x20-\x7E]/g, "").slice(0, 64);
 function logUnknownPaymentKeys(openapi, originUrl) {
   for (const k of unknownPaymentishKeys(openapi)) {
     const id = `${originUrl} ${k}`;
     if (loggedAnnotationKeys.has(id)) continue;
     loggedAnnotationKeys.add(id);
     console.warn(
-      `[x402-index] unrecognized payment-ish annotation "${k}" at ${originUrl} — ` +
+      `[x402-index] unrecognized payment-ish annotation "${safeLogToken(k)}" at ${originUrl} — ` +
         `if it prices operations, ops carrying only it are being listed as FREE ` +
         `(add it to RECOGNIZED_PAYMENT_KEYS after verifying)`
     );
