@@ -39,7 +39,11 @@ ok(
 );
 ok(!openapiHasPaymentSignal(null) && !openapiHasPaymentSignal({}), "null/empty openapi is not a signal");
 
-// ---- 1b. annotated documents retain only current paid operations ----
+// ---- 1b. annotated documents list free siblings, flagged, and drop deprecated ----
+// Revised 2026-07-27 (seller escalation): unannotated operations in an
+// annotated document are part of the curated surface the seller publishes —
+// they LIST with paid:false (never a buy candidate; routeQuery filters them)
+// instead of vanishing. Deprecated stays excluded.
 {
   const tools = normaliseOpenapiTools({
     paths: {
@@ -61,8 +65,10 @@ ok(!openapiHasPaymentSignal(null) && !openapiHasPaymentSignal({}), "null/empty o
       },
     },
   }, "https://seller.example");
-  ok(tools.length === 1, `only one current paid operation is indexed (got ${tools.length})`);
-  ok(tools[0].slug === "paid", "the current paid operation remains indexed");
+  ok(tools.length === 2, `paid + flagged-free are indexed, deprecated is not (got ${tools.length})`);
+  ok(tools.find((t) => t.slug === "paid")?.paid === true, "the paid operation carries paid:true");
+  ok(tools.find((t) => t.slug === "sample")?.paid === false, "the unannotated sibling lists with paid:false");
+  ok(!tools.some((t) => t.slug === "legacy"), "deprecated operations stay excluded");
 }
 
 // ---- 1c. zero-annotation documents stay inclusive but drop obvious junk ----
@@ -404,7 +410,8 @@ console.log("openapi-fallback tests passed");
     },
   };
   const openapiTools = normaliseOpenapiTools(doc, origin);
-  ok(openapiTools.length === 2, `annotated doc indexes only paid ops (got ${openapiTools.length})`);
+  ok(openapiTools.length === 3, `annotated doc lists paid + flagged-free ops (got ${openapiTools.length})`);
+  ok(openapiTools.find((t) => t.route === "/sims/{simId}/batch")?.paid === false, "the unannotated op carries paid:false");
   const inst = (route) => ({ seller: origin, method: "POST", route, slug: route, name: route, description: "", category: "other", tags: [], price: 0.001 });
   const registry = [
     inst("/sims/aaaa-1111/step"),
@@ -420,7 +427,8 @@ console.log("openapi-fallback tests passed");
   ok(steps[0].name === "Step a simulation", "collapsed row carries the operation's metadata");
   ok(!merged.some((t) => /aaaa|bbbb|cccc/.test(t.route)), "no concrete UUID route survives the collapse");
   const batches = merged.filter((t) => t.route === "/sims/{simId}/batch");
-  ok(batches.length === 1, `instances of an UNINDEXED doc op keep exactly one representative row (got ${batches.length})`);
+  ok(batches.length === 1, `instances of a flagged-free op collapse to one row (got ${batches.length})`);
+  ok(batches[0].paid === true, "a settled registry instance flips the doc's paid:false — observed truth wins");
   ok(merged.some((t) => t.route === "/unrelated/route"), "a row matching no template passes through untouched");
   ok(merged.some((t) => t.route === "/chaos/run"), "unmatched openapi ops still appended");
   ok(merged.length === 4, `expected 4 rows: step + batch + unrelated + chaos (got ${merged.length})`);
@@ -445,7 +453,41 @@ console.log("openapi-fallback tests passed");
   };
   ok(openapiHasPaymentSignal({ paths: { "/b": doc.paths["/b"] } }), "x-x402-price-usdc alone is a payment signal");
   const tools = normaliseOpenapiTools(doc, "https://sim.example");
-  ok(tools.length === 2, `usdc-annotated op is indexed alongside x-payment-info (got ${tools.length})`);
+  ok(tools.length === 3, `usdc-annotated + payment-info + flagged-free are all listed (got ${tools.length})`);
+  ok(tools.find((t) => t.route === "/b")?.paid === true, "usdc-annotated op is paid");
+  ok(tools.find((t) => t.route === "/c")?.paid === false, "unannotated sibling lists as free");
   ok(tools.find((t) => t.route === "/b")?.price === "$0.0010", "usdc price flows into the tool price");
   console.log("ok - x-x402-price-usdc recognized as a paid-operation annotation");
+}
+
+// ---- 10. paid:false tools list but never route, and sellerDetail exposes them ----
+{
+  const { sellerDetail } = await import("../src/x402-index.js");
+  const cache10 = _cacheForTests();
+  cache10.clear();
+  const mk = (route, paid, extra = {}) => ({
+    seller: "https://freemium.example", method: "POST", route,
+    slug: route.replace(/^\//, "").replace(/\//g, "-"),
+    name: `frobnicate ${route}`, description: "frobnicate the widget", category: "other", tags: ["frobnicate"],
+    price: paid === false ? null : 0.005, ...(paid !== undefined ? { paid } : {}), ...extra,
+  });
+  cache10.set("https://freemium.example", {
+    manifest: { name: "freemium.example", homepage: "https://freemium.example" },
+    tools: [mk("/frob-paid", true), mk("/frob-free", false)],
+    fetchedAt: Date.now(),
+    error: null,
+    history: [1, 1, 1, 1, 1],
+  });
+  const ctx10 = { baseUrl: "https://agent402.tools", catalog: {}, prices: {}, network: "base", toolCount: 0, walletName: "w" };
+  const { results } = routeQuery({ query: "frobnicate widget", top: 10, include: "external", ...ctx10 });
+  ok(results.some((r) => r.route === "/frob-paid"), "the paid tool routes");
+  ok(!results.some((r) => r.route === "/frob-free"), "the free-flagged tool is never a buy candidate");
+  const detail = sellerDetail("freemium.example");
+  ok(detail && detail.toolCount === 2, `sellerDetail counts the full listed surface (got ${detail?.toolCount})`);
+  ok(detail.tools.some((t) => t.route === "/frob-free" && t.paid === false), "sellerDetail shows the free tool with its flag");
+  ok(detail.tools.some((t) => t.route === "/frob-paid" && t.paid === true), "sellerDetail shows the paid tool with its flag");
+  ok(sellerDetail("https://freemium.example")?.origin === "https://freemium.example", "full-origin lookup works");
+  ok(sellerDetail("nope.example") === null, "unknown seller is null");
+  cache10.clear();
+  console.log("ok - free-flagged tools list on the seller but never route; sellerDetail drill-down works");
 }
