@@ -552,7 +552,7 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         description: op.description || "",
         category: tags[0] || "other",
         tags,
-        price: op["x-price"] || op["x-x402-price"] || op["x-payment-info"]?.price?.amount || null,
+        price: op["x-price"] || op["x-x402-price"] || op["x-payment-info"]?.price?.amount || op["x-x402-price-usdc"] || null,
       });
     }
   }
@@ -561,7 +561,11 @@ export function normaliseOpenapiTools(openapi, originUrl) {
 
 function openapiOperationHasPaymentSignal(op) {
   return Boolean(op && typeof op === "object" &&
-    (op["x-price"] || op["x-x402-price"] || op["x-payment-info"]));
+    (op["x-price"] || op["x-x402-price"] || op["x-payment-info"] ||
+      // Seen in the wild 2026-07-27 (cloudworldmodel.ai): a price-in-USDC
+      // variant key on operations that carry no other payment extension —
+      // 3 of their 17 paid operations were silently dropped without it.
+      op["x-x402-price-usdc"]));
 }
 
 // Does this openapi document look like a *paid* x402 service rather than any
@@ -590,8 +594,44 @@ export function openapiHasPaymentSignal(openapi) {
 // payment truth when it has an amount; otherwise the OpenAPI payment extension
 // fills the unknown price. Openapi-only routes are appended as-is;
 // Bazaar-only routes pass through untouched.
-export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
-  if (!openapiTools.length) return bazaarTools.slice();
+/** Every operation's {method, route} in a document — NO payment filtering, no
+ *  static-asset skip. Used only to COLLAPSE facilitator-registry rows whose
+ *  concrete URLs instantiate a templated path (see mergeOpenapiIntoBazaar);
+ *  never to list tools. */
+export function openapiAllOperationRoutes(openapi, originUrl) {
+  if (!openapi || typeof openapi !== "object" || !openapi.paths) return [];
+  const base = openapiBasePath(openapi, originUrl);
+  const httpMethods = new Set(["get", "post", "put", "patch", "delete", "options", "head"]);
+  const out = [];
+  for (const [rawPath, methods] of Object.entries(openapi.paths)) {
+    const pathStr = base && !rawPath.startsWith(base + "/") && rawPath !== base ? base + rawPath : rawPath;
+    for (const [method, op] of Object.entries(methods || {})) {
+      if (!httpMethods.has(method.toLowerCase())) continue;
+      if (!op || typeof op !== "object") continue;
+      out.push({ method: method.toUpperCase(), route: pathStr });
+    }
+  }
+  return out;
+}
+
+// Does `concrete` instantiate the templated `route` ("/a/{id}/b" matches
+// "/a/57dc.../b")? Literal segments must match exactly; {param} segments match
+// any non-empty segment. A route with no template is never a template match —
+// literal equality is the exact-match path's job.
+function routeMatchesTemplate(templateRoute, concreteRoute) {
+  if (typeof templateRoute !== "string" || !templateRoute.includes("{")) return false;
+  const t = templateRoute.split("/");
+  const c = String(concreteRoute || "").split("/");
+  if (t.length !== c.length) return false;
+  for (let i = 0; i < t.length; i++) {
+    if (/^\{.+\}$/.test(t[i])) { if (!c[i]) return false; }
+    else if (t[i] !== c[i]) return false;
+  }
+  return true;
+}
+
+export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = [], { allRoutes = [] } = {}) {
+  if (!openapiTools.length && !allRoutes.length) return bazaarTools.slice();
   if (!bazaarTools.length) return openapiTools.slice();
   const exact = new Map();
   const byRoute = new Map();
@@ -602,7 +642,39 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
     if (!byRoute.has(o.route)) byRoute.set(o.route, o);
     else byRoute.set(o.route, null);
   }
+  // Templated operations, for collapsing per-instance registry rows. A
+  // facilitator registry records every settled URL verbatim, so one templated
+  // operation ("/api/simulations/{id}/step") can appear as dozens of concrete
+  // UUID instances — each a real settlement, none a distinct tool. Found live
+  // 2026-07-27: a 42-operation seller listed as "72 tools" because 58
+  // per-instance rows rode alongside their 14 indexed operations.
+  const templatedOps = openapiTools.filter((o) => String(o.route).includes("{"));
+  // Templates from the FULL document (payment-filtered ops included): an
+  // instance of an operation the seller marks unpaid/deprecated still
+  // collapses — to one representative row, since its settlements are real.
+  const docTemplates = allRoutes.filter((r) => String(r.route).includes("{"));
+  const collapsedDocRows = new Map(); // "METHOD template" -> first surviving row
+  const templateMatch = (b, candidates, methodOf) => {
+    const fits = candidates.filter((x) => routeMatchesTemplate(methodOf(x).route, b.route) &&
+      (b.methodInferred || methodOf(x).method === b.method));
+    return fits.length === 1 ? fits[0] : null;
+  };
   const used = new Set();
+  const enrich = (b, o, route) => ({
+    ...b,
+    // Bazaar defaults missing methods to POST. The OpenAPI operation is the
+    // authoritative verb once the route-only fallback finds a match.
+    method: b.methodInferred ? (o.method || b.method) : b.method,
+    route,
+    slug: o.slug || b.slug,
+    name: o.name && o.name !== o.route ? o.name : b.name,
+    description: o.description || b.description,
+    tags: o.tags?.length ? o.tags : b.tags,
+    category: o.tags?.length ? o.category : b.category,
+    // Keep a settlement-observed Bazaar amount (including an explicit free
+    // price of 0); only fill an absent amount from the OpenAPI extension.
+    price: b.price == null ? o.price : b.price,
+  });
   const merged = bazaarTools.map((b) => {
     // Only an inferred Bazaar verb may fall back to a route-only match. An
     // explicit verb must match exactly: GET and POST on the same path can be
@@ -610,23 +682,30 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = []) {
     const o = b.methodInferred
       ? byRoute.get(b.route)
       : exact.get(`${b.method} ${b.route}`);
-    if (!o) return b;
-    used.add(o);
-    return {
-      ...b,
-      // Bazaar defaults missing methods to POST. The OpenAPI operation is the
-      // authoritative verb once the route-only fallback finds a match.
-      method: b.methodInferred ? (o.method || b.method) : b.method,
-      slug: o.slug || b.slug,
-      name: o.name && o.name !== o.route ? o.name : b.name,
-      description: o.description || b.description,
-      tags: o.tags?.length ? o.tags : b.tags,
-      category: o.tags?.length ? o.category : b.category,
-      // Keep a settlement-observed Bazaar amount (including an explicit free
-      // price of 0); only fill an absent amount from the OpenAPI extension.
-      price: b.price == null ? o.price : b.price,
-    };
-  });
+    if (o) { used.add(o); return enrich(b, o, b.route); }
+    // Per-instance collapse, indexed operations first: the first instance
+    // becomes the operation's row (templated route, registry payment truth);
+    // every further instance of the same operation is dropped.
+    const t = templateMatch(b, templatedOps, (x) => x);
+    if (t) {
+      if (used.has(t)) return null;
+      used.add(t);
+      return enrich(b, t, t.route);
+    }
+    // Instances of operations the document declares but we do not index
+    // (unannotated in an annotated doc, deprecated): real settlements, so
+    // keep exactly ONE representative row per operation, on the templated
+    // route so it reads as the operation rather than one UUID of it.
+    const d = templateMatch(b, docTemplates, (x) => x);
+    if (d) {
+      const key = `${d.method} ${d.route}`;
+      if (collapsedDocRows.has(key)) return null;
+      const row = { ...b, route: d.route, slug: d.route.replace(/^\//, "").replace(/\//g, "-") };
+      collapsedDocRows.set(key, row);
+      return row;
+    }
+    return b;
+  }).filter(Boolean);
   for (const o of openapiTools) if (!used.has(o)) merged.push(o);
   return merged;
 }
@@ -669,7 +748,9 @@ async function crawlSeller(originUrl) {
     // a manifest, because their openapi covered 2 of the 9 routes the Bazaar
     // had settled. Openapi metadata still wins per-route; Bazaar rows without
     // an openapi match pass through.
-    tools = mergeOpenapiIntoBazaar(tools, bazaarToolsByOrigin.get(originUrl) || []);
+    tools = mergeOpenapiIntoBazaar(tools, bazaarToolsByOrigin.get(originUrl) || [], {
+      allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
+    });
 
     cache.set(originUrl, {
       manifest,
@@ -711,7 +792,9 @@ async function crawlSeller(originUrl) {
     } catch {
       /* no openapi either — Bazaar-only seller */
     }
-    const tools = mergeOpenapiIntoBazaar(openapiTools, bazaarTools);
+    const tools = mergeOpenapiIntoBazaar(openapiTools, bazaarTools, {
+      allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
+    });
     if (tools.length) {
       // A real (non-synthesized) manifest from a past crawl is kept; a stale
       // synthesized one is rebuilt so a newly appeared openapi title wins.
