@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   recordWish, getWishesAggregate, WISH_THRESHOLD,
-  clusterQualifies, QUALIFY_MIN_SPAN_MS,
+  clusterQualifies, QUALIFY_MIN_SPAN_MS, annotateServed,
   __testSetFilePath, __testSetLineCap, __testState,
 } from "../src/wish.js";
 
@@ -193,6 +193,22 @@ function freshFile(tag) {
 // cleanup: best-effort remove every scratch file this run created.
 for (const f of tmpFiles) {
   try { if (existsSync(f)) unlinkSync(f); } catch { /* best-effort */ }
+}
+
+// ---- served-overlay: a cluster the catalog can now answer is not demand ----
+{
+  const clusters = [
+    { text: "minia2a", count: 25, qualified: true },
+    { text: "quantum teleport tool", count: 7, qualified: true },
+    { text: "broken&amp;query", count: 5 },
+  ];
+  const scores = { "minia2a": { slug: "a2a-card-fetch", score: 3 }, "quantum teleport tool": { slug: "hash", score: 1 } };
+  const out = annotateServed(clusters, (t) => scores[t] || null, 3);
+  ok(out[0].served && out[0].served.slug === "a2a-card-fetch", "a tag-strength match marks the cluster served");
+  ok(!out[1].served, "a weak description-only match does not mark served");
+  ok(!out[2].served, "no match leaves the cluster untouched");
+  const throwing = annotateServed([{ text: "x" }], () => { throw new Error("boom"); }, 3);
+  ok(throwing.length === 1 && !throwing[0].served, "a throwing scoreFn never breaks annotation");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
