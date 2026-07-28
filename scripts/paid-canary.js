@@ -805,6 +805,7 @@ async function main() {
     { key: "celo", caip2: "eip155:42220", sym: "USDC", chainLabel: "Celo", tx: (h) => `https://celoscan.io/tx/${h}` },
     { key: "avalanche", caip2: "eip155:43114", sym: "USDC", chainLabel: "Avalanche", tx: (h) => `https://snowtrace.io/tx/${h}` },
     { key: "sei", caip2: "eip155:1329", sym: "USDC", chainLabel: "Sei", tx: (h) => `https://seitrace.com/tx/${h}?chain=pacific-1` },
+    { key: "optimism", caip2: "eip155:10", sym: "USDC", chainLabel: "Optimism", tx: (h) => `https://optimistic.etherscan.io/tx/${h}` },
   ]) {
     try {
       const { x402HTTPClient } = await import("@x402/core/client");

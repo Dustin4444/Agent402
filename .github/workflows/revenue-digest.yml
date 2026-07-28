@@ -56,7 +56,7 @@ jobs:
           ALGO_PAYTO=$(echo "$CH" | jq -r '[.accepts // [] | .[] | select((.network // "") | startswith("algorand:"))][0].payTo // empty')
           echo "$CH" | jq -r '[.accepts[]?.network] | join(",")' > /tmp/digest/networks.txt || true
           echo "offered: $(cat /tmp/digest/networks.txt) | evm payTo: ${EVM_PAYTO:-none} | solana payTo: ${SOL_PAYTO:-none} | stellar payTo: ${XLM_PAYTO:-none} | algorand payTo: ${ALGO_PAYTO:-none}"
-          for NET in base polygon arbitrum monad celo avalanche sei robinhood; do
+          for NET in base polygon arbitrum monad celo avalanche sei optimism robinhood; do
             case "$NET" in
               base)      CAIP2="eip155:8453" ;;
               polygon)   CAIP2="eip155:137" ;;
@@ -65,6 +65,7 @@ jobs:
               celo)      CAIP2="eip155:42220" ;;
               avalanche) CAIP2="eip155:43114" ;;
               sei)       CAIP2="eip155:1329" ;;
+              optimism)  CAIP2="eip155:10" ;;
               robinhood) CAIP2="eip155:4663" ;;
             esac
             if [ -n "$EVM_PAYTO" ] && grep -q "$CAIP2" /tmp/digest/networks.txt; then
@@ -101,7 +102,7 @@ jobs:
             ["Base", "base", "USDC"], ["Solana", "solana", "USDC"],
             ["Polygon", "polygon", "USDC"], ["Arbitrum", "arbitrum", "USDC"],
             ["Monad", "monad", "USDC"], ["Celo", "celo", "USDC"],
-            ["Avalanche", "avalanche", "USDC"], ["Sei", "sei", "USDC"],
+            ["Avalanche", "avalanche", "USDC"], ["Sei", "sei", "USDC"], ["Optimism", "optimism", "USDC"],
             ["Stellar", "stellar", "USDC"], ["Algorand", "algorand", "USDC"],
             ["Robinhood Chain", "robinhood", "USDG"],
           ];

@@ -45,6 +45,15 @@ const EVM_NETWORKS = {
   // verified on-chain, see TIER1_USDC). OPT-IN via PAYMENT_NETWORKS.
   avalanche: "eip155:43114",
   sei: "eip155:1329",
+  // Optimism (OP mainnet, chain 10). Native Circle USDC with the STANDARD
+  // "USD Coin" v2 domain (verified on-chain 2026-07-28 via mainnet.optimism.io)
+  // but absent from @x402/evm's registry, so it rides the TIER1_USDC parser.
+  // Settlement routes to Solvador (the keyed client wired below) — the ONLY
+  // facilitator we have that settles eip155:10; CDP/PayAI do not. Solvador
+  // charges $0.001/settlement past 1,000/month, so this chain carries a
+  // NETWORK_PRICE_PREMIUMS entry (eip155:10=0.001) per the fee-charging-
+  // primary pricing rule. OPT-IN via PAYMENT_NETWORKS.
+  optimism: "eip155:10",
   "base-sepolia": "eip155:84532",
   // Robinhood Chain (Arbitrum Orbit L2, EVM-equivalent, AI-native RWA chain).
   // NOT in @x402/evm's built-in USDC registry, and settles a non-Circle
@@ -173,6 +182,7 @@ function makeMonadUsdcScheme() {
 const TIER1_USDC = {
   "eip155:43114": { asset: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", decimals: 6, name: "USD Coin", version: "2" }, // Avalanche C-Chain, native Circle
   "eip155:1329": { asset: "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392", decimals: 6, name: "USDC", version: "2" }, // Sei, native Circle (NOT Noble's 0x3894…)
+  "eip155:10": { asset: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85", decimals: 6, name: "USD Coin", version: "2" }, // Optimism, native Circle (verified 2026-07-28)
 };
 function makeTier1UsdcScheme(caip2) {
   const cfg = TIER1_USDC[caip2];
@@ -455,15 +465,14 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     }));
     console.log(`Celo: settling USDC (${CELO_USDC.asset}) via facilitator ${CELO_FACILITATOR_URL}`);
   }
-  // Solvador — settle-FALLBACK ONLY, deliberately NOT in facilitatorClients:
-  // adding it there would let it win primary routes (it advertises Base, which
-  // must stay on CDP for Bazaar indexing, and most of our other rails). Its
-  // value is redundancy: it is the only second facilitator that can settle
-  // Celo, Monad and Robinhood, our three single-facilitator rails. Env-gated on
-  // SOLVADOR_KEY (dashboard.solvador.com, pay-as-you-go: first 1,000
-  // settlements/month free, then $0.001 — a fallback-only client stays far
-  // inside the free tier). Used by registerFacilitatorFailureHooks below, and
-  // only when PAYMENT_SETTLE_FALLBACK is on.
+  // Solvador — settle-FALLBACK for existing rails, deliberately NOT in
+  // facilitatorClients as a general client: it advertises Base (which must
+  // stay on CDP for Bazaar indexing) and most of our other rails, so an
+  // unfiltered client would contend for primary routes. Its fallback value is
+  // redundancy: the only second facilitator that can settle Celo, Monad and
+  // Robinhood. Env-gated on SOLVADOR_KEY (dashboard.solvador.com,
+  // pay-as-you-go: first 1,000 settlements/month free, then $0.001). Used by
+  // registerFacilitatorFailureHooks below when PAYMENT_SETTLE_FALLBACK is on.
   let solvadorClient = null;
   if (process.env.SOLVADOR_KEY) {
     const solvadorAuth = { "X-API-Key": process.env.SOLVADOR_KEY };
@@ -471,6 +480,40 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       url: process.env.SOLVADOR_FACILITATOR_URL || "https://api.solvador.com",
       createAuthHeaders: async () => ({ verify: solvadorAuth, settle: solvadorAuth, supported: solvadorAuth }),
     });
+  }
+  // Solvador as PRIMARY, network-filtered. For chains where Solvador is our
+  // ONLY facilitator (Optimism today; Unichain/World Chain/Linea are the
+  // same shape when funded), a dedicated client advertises JUST that chain —
+  // getSupported is filtered so it can never win a route CDP/PayAI own. Same
+  // drop-don't-break safety as Monad/Celo/Robinhood: enabling the network
+  // without SOLVADOR_KEY drops it from the offer with a loud warning, because
+  // an offered accept no facilitator can settle would 500 every 402.
+  // Fee-charging-primary rule: every chain routed here must carry a
+  // NETWORK_PRICE_PREMIUMS entry so the $0.001 settlement fee is priced into
+  // that chain's accepts quote, never eaten silently.
+  const SOLVADOR_PRIMARY_CAIP2 = ["eip155:10"];
+  class NetworkFilteredFacilitatorClient extends HTTPFacilitatorClient {
+    constructor(cfg, networks) { super(cfg); this._only = new Set(networks); }
+    async getSupported() {
+      const s = await super.getSupported();
+      return { ...s, kinds: (s.kinds || []).filter((k) => this._only.has(k.network)) };
+    }
+  }
+  const solvadorPrimaryWanted = SOLVADOR_PRIMARY_CAIP2.filter((c) => evmCaip2.includes(c));
+  if (solvadorPrimaryWanted.length && !process.env.SOLVADOR_KEY) {
+    console.warn(
+      `WARNING: PAYMENT_NETWORKS enables ${solvadorPrimaryWanted.join(", ")} but SOLVADOR_KEY is unset - ` +
+        "Solvador is the only facilitator settling these chains (keyed: dashboard.solvador.com). " +
+        "Dropping them from the offered networks (other chains unaffected)."
+    );
+    evmCaip2 = evmCaip2.filter((c) => !solvadorPrimaryWanted.includes(c));
+  } else if (solvadorPrimaryWanted.length) {
+    const solvadorAuth = { "X-API-Key": process.env.SOLVADOR_KEY };
+    facilitatorClients.push(new NetworkFilteredFacilitatorClient({
+      url: process.env.SOLVADOR_FACILITATOR_URL || "https://api.solvador.com",
+      createAuthHeaders: async () => ({ verify: solvadorAuth, settle: solvadorAuth, supported: solvadorAuth }),
+    }, solvadorPrimaryWanted));
+    console.log(`Solvador (primary, filtered): settling USDC on ${solvadorPrimaryWanted.join(", ")}`);
   }
   let server = new x402ResourceServer(facilitatorClients)
     .registerExtension(bazaarResourceServerExtension)
@@ -536,8 +579,14 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   }
   registerFacilitatorFailureHooks(server, payAiClient, solvadorClient);
   registerWalletBlocklistHook(server);
+  // Log the OFFERED set, not the requested one: the drop-don't-break guards
+  // above (Robinhood/Monad/Celo/Solvador-primary) may have removed EVM chains,
+  // and a boot log claiming an unoffered rail sends the next debugger the
+  // wrong way (it did, 2026-07-28: a keyless optimism boot logged optimism).
+  const offeredCaip2 = new Set([...evmCaip2, ...svmCaip2, ...stellarCaip2, ...avmCaip2]);
+  const offeredNames = networks.filter((n) => offeredCaip2.has(NETWORKS[n]));
   console.log(
-    `Accepting USDC on: ${networks.join(", ")} (${caip2List.join(", ")})` +
+    `Accepting USDC on: ${offeredNames.join(", ")} (${[...offeredCaip2].join(", ")})` +
       (robinhoodEnabled ? " - note: robinhood settles USDG, not USDC" : "")
   );
 

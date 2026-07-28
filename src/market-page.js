@@ -212,6 +212,27 @@ export const CHAIN_PAGES = {
     canaryLine: "A paid canary buys tools over the Sei rail daily (facilitator: PayAI) - uptime proven with real settlements, not pings.",
     sellParagraphHtml: `Accept the Sei CAIP-2 network (<code>eip155:1329</code>) in your 402 challenge - the PayAI facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
   },
+  optimism: {
+    chainName: "Optimism",
+    ticker: "OP",
+    tickerLabel: "OPTIMISM \u00b7 MAINNET",
+    caip2: "eip155:10",
+    asset: "USDC",
+    settleLatency: "~2 seconds",
+    facilitatorLabel: "Solvador",
+    gasNote: "sponsored",
+    explorerUrl: "optimistic.etherscan.io",
+    explorerWalletUrl: (wallet) => `https://optimistic.etherscan.io/address/${wallet}`,
+    networkParam: "optimism",
+    acceptNetwork: "eip155:10",
+    // OP mainnet CAIP-2 is "eip155:10"; OP Sepolia is a different chain id
+    // ("eip155:11155420"), so an exact match can't be fooled. Settles native
+    // Circle USDC (standard "USD Coin" v2 domain, EIP-3009 verified on-chain).
+    isNetwork: (n) => n === "eip155:10",
+    honestyNetworkPhrase: "the Optimism network",
+    canaryLine: "A paid canary buys tools over the Optimism rail daily (facilitator: Solvador) - uptime proven with real settlements, not pings.",
+    sellParagraphHtml: `Accept the Optimism CAIP-2 network (<code>eip155:10</code>) in your 402 challenge - the Solvador facilitator verifies and settles native Circle USDC, gas sponsored. Use <a href="https://www.npmjs.com/package/@x402/evm" rel="noopener"><code>@x402/evm</code></a> for the server-side scheme, or <a href="/tollbooth"><code>agent402-tollbooth</code></a> to paywall an existing site. Then serve <code>/.well-known/x402</code> - list it on /sell (free) and the index crawler picks it up; ranking is health-based, listing is free. Want a guaranteed crawl? <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">Open a seed request</a>.`,
+  },
   stellar: {
     chainName: "Stellar",
     ticker: "XLM",
