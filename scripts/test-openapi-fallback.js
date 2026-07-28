@@ -521,3 +521,27 @@ console.log("openapi-fallback tests passed");
   cache11.clear();
   console.log("ok - paid split visible on snapshot totals, seller rows, and sellerDetail");
 }
+
+// ---- 12. unrecognized payment-ish annotation keys surface, known ones stay quiet ----
+// In an annotated document an unrecognized price key silently DELETES paid ops
+// (they read as unannotated); the dialect watch makes the next one announce
+// itself in the crawl logs instead of waiting for a seller escalation.
+{
+  const { unknownPaymentishKeys } = await import("../src/x402-index.js");
+  const doc = {
+    paths: {
+      "/a": { post: { "x-payment-info": { price: { amount: "0.01" } }, "x-x402-call-type": "sync" } },
+      "/b": { post: { "x-402-fee-usd": "0.002", "x-codeSamples": [] } },
+      "/c": { get: { "x-pricing-tier": "pro", "x-rate-limit": 10 } },
+    },
+  };
+  const keys = unknownPaymentishKeys(doc);
+  ok(keys.includes("x-402-fee-usd"), "an unknown fee key is flagged");
+  ok(keys.includes("x-pricing-tier"), "an unknown pricing key is flagged");
+  ok(!keys.includes("x-payment-info"), "recognized keys are not flagged");
+  ok(!keys.includes("x-x402-call-type"), "known payment-ish lookalikes stay quiet");
+  ok(!keys.includes("x-codesamples") && !keys.includes("x-rate-limit"), "non-payment x- keys stay quiet");
+  ok(unknownPaymentishKeys({ paths: { "/a": { post: { "x-payment-info": {} } } } }).length === 0, "a fully recognized doc flags nothing");
+  ok(unknownPaymentishKeys(null).length === 0, "null doc is empty, not a crash");
+  console.log("ok - unknown payment-annotation dialects surface, known ones stay quiet");
+}
