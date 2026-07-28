@@ -211,6 +211,28 @@ ${rows.map(([n, cls, v, b]) => `<div class="lrow"><span class="dot ${cls}"></spa
 </div>`;
 }
 
+// Raw probe details are terse fragments ("health The operation was aborted",
+// " /health") - accurate but not descriptive. Translate the known shapes into
+// sentences a visitor can act on; the raw string stays in the cell's title
+// attribute so nothing is hidden.
+export function humanizeDetail(detail) {
+  const d = String(detail || "").trim();
+  if (!d) return d;
+  const m = /^([A-Za-z-]+|\/[\w/-]*)\s*(.*)$/.exec(d);
+  const target = m?.[1] || d;
+  const rest = (m?.[2] || "").trim();
+  const targetLabel = target.startsWith("/") ? `the ${target} endpoint` : `the ${target} probe`;
+  const CAUSES = [
+    [/operation was aborted|aborted due to timeout|timed?\s*out/i, "timed out - no answer before the probe's deadline"],
+    [/ECONNREFUSED|connection refused/i, "was refused - the server did not accept the connection"],
+    [/5\d\d/, (t) => `answered HTTP ${t.match(/5\d\d/)[0]} instead of a healthy response`],
+  ];
+  for (const [re, out] of CAUSES) {
+    if (re.test(rest)) return `${targetLabel} ${typeof out === "function" ? out(rest) : out}`;
+  }
+  return rest ? `${targetLabel} failed: ${rest}` : `${targetLabel} failed`;
+}
+
 function incidentsSection(incidents) {
   if (!incidents.length) {
     return `<h2 id="incidents">Incident history</h2>
@@ -218,14 +240,14 @@ function incidentsSection(incidents) {
   }
   return `<h2 id="incidents">Incident history</h2>
 <p class="lead">Computed from failed probes rather than written by hand, so nothing can be quietly left out. Consecutive failures are grouped into a single incident.</p>
-<table class="inc"><thead><tr><th>Started (UTC)</th><th>Duration</th><th>Failed probes</th><th>What failed</th></tr></thead><tbody>
+<div class="inc-scroll"><table class="inc"><thead><tr><th>Started (UTC)</th><th>Duration</th><th>Failed probes</th><th>What failed</th></tr></thead><tbody>
 ${incidents
     .map(
       (i) =>
-        `<tr><td class="mono">${esc(i.startedAt.replace("T", " ").replace(".000Z", "Z"))}</td><td class="mono">${i.durationMinutes >= 1 ? `${i.durationMinutes} min` : "under 1 min"}</td><td class="mono">${i.failedProbes}</td><td>${i.detail ? esc(i.detail) : '<span class="faint">not recorded</span>'}</td></tr>`,
+        `<tr><td class="mono" title="${esc(i.startedAt)}">${esc(i.startedAt.slice(0, 16).replace("T", " "))}</td><td class="mono">${i.durationMinutes >= 1 ? `${i.durationMinutes} min` : "under 1 min"}</td><td class="mono">${i.failedProbes}</td><td title="${esc(i.detail || "")}">${i.detail ? esc(humanizeDetail(i.detail)) : '<span class="faint">not recorded</span>'}</td></tr>`,
     )
     .join("\n")}
-</tbody></table>`;
+</tbody></table></div>`;
 }
 
 const CSS = `
@@ -258,6 +280,14 @@ const CSS = `
 .bars .b.partial{background:#C98A12}
 .bars .b.down{background:var(--accent)}
 .bars .b.nodata{background:var(--hairline);opacity:.5}
+.bar-legend{display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:-8px 0 18px}
+.bar-legend .b{display:inline-block;width:10px;height:14px;border-radius:1px;background:var(--dash);flex:none}
+.bar-legend .b.up{background:var(--green)}
+.bar-legend .b.partial{background:#C98A12}
+.bar-legend .b.down{background:var(--accent)}
+.bar-legend .b.nodata{background:var(--hairline);opacity:.5}
+.inc-scroll{overflow-x:auto}
+.inc-scroll .inc{min-width:520px}
 .comp-f{display:flex;justify-content:space-between;gap:10px;margin-top:7px;font-size:12px;color:var(--faint);font-family:var(--font-mono)}
 .comp-f .up-n{color:var(--muted)}
 .comp-f em{font-style:normal;color:var(--faint)}
@@ -324,6 +354,7 @@ ${windowList}
 
 <h2 id="components">Components</h2>
 <p class="lead">Each bar is one UTC day; hover for that day's probe count. Grey means no observation was made that day, shown as absence rather than counted as uptime.</p>
+<p class="bar-legend"><i class="b up"></i> every probe passed <i class="b partial"></i> some probes failed <i class="b down"></i> every probe failed <i class="b nodata"></i> no observation</p>
 ${snap.components.map(componentRow).join("\n")}
 
 ${incidentsSection(snap.incidents)}
