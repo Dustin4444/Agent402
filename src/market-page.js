@@ -597,6 +597,10 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   // Roster "· N tx" suffix — only when the leaderboard has settlements for this
   // seller's payTo on this chain (Base today); silent otherwise.
   const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
+  // "42 tools · 21 paid" when the seller's document distinguishes paid from
+  // free: total surface stays honest (x402scan parity) without letting a
+  // padded free surface read as paid depth. Absent when the split is unknown.
+  const paidSuffix = (s) => (s.paidToolCount != null && s.paidToolCount !== s.toolCount ? ` &middot; ${s.paidToolCount} paid` : "");
   // Numeric data-* payload each roster row carries for the filter bar's
   // client-side Sort/search (see the script marketFilterBar emits). Same
   // attributes on the all-chains <tr> rows in marketPageAll.
@@ -669,7 +673,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
     <a href="${activityHref(s)}"${rowData(s)} data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
       <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}</span>
       <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
-      <span class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</span>
+      <span class="mlr-tools">${s.toolCount || 0} tools${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
       <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
     </a>`;
       }).join("")
@@ -684,7 +688,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       </div>
       <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</span>
+        <span style="color:var(--muted);font-family:var(--font-mono);font-size:13px;">${s.toolCount || 0} tools${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
         <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span>
       </div>
       <a href="${activityHref(s)}" data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;margin-top:2px;">${isSelected(s) ? "activity shown above" : "view activity →"}</a>
@@ -957,6 +961,10 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
     return null;
   };
   const txSuffix = (s) => { const st = sellerStat(s); return st && st.calls > 0 ? ` &middot; ${Number(st.calls).toLocaleString("en-US")} tx` : ""; };
+  // "42 tools · 21 paid" when the seller's document distinguishes paid from
+  // free: total surface stays honest (x402scan parity) without letting a
+  // padded free surface read as paid depth. Absent when the split is unknown.
+  const paidSuffix = (s) => (s.paidToolCount != null && s.paidToolCount !== s.toolCount ? ` &middot; ${s.paidToolCount} paid` : "");
 
   // Most settled calls, then healthy, then tool-rich - same ordering rationale
   // as the per-chain roster. THIS HOST is NOT pinned: the neutral-index claim
@@ -1041,7 +1049,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
         <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       </td>
       <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:12.5px;">${chainCell(s)}</td>
-      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);" class="mlr-tools">${s.toolCount || 0} tools${txSuffix(s)}${endpointsNote(s)}</td>
+      <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);" class="mlr-tools">${s.toolCount || 0} tools${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</td>
       <td style="padding:9px 12px;border-bottom:1px solid var(--hairline);"><span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${health}</span></td>
     </tr>`;
   }).join("");

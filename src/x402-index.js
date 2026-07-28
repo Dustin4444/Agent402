@@ -1268,6 +1268,9 @@ export function sellerDetail(originOrHost) {
       displayName: v.manifest?.name || origin.replace(/^https?:\/\//, ""),
       homepage: v.manifest?.homepage || origin,
       toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+      ...(v.tools?.some((t) => t.paid !== undefined)
+        ? { paidToolCount: v.tools.filter((t) => t.paid !== false).length }
+        : {}),
       fetchedAt: v.fetchedAt ?? null,
       error: v.error || null,
       health: healthScore(v),
@@ -1298,6 +1301,12 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     homepage: v.manifest?.homepage || origin,
     network: v.manifest?.payment?.x402?.primaryNetwork || v.manifest?.payment?.primaryNetwork || null,
     toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+    // Present only when the seller's document distinguishes paid from free
+    // (tools carry paid flags): the buyable subset. Display uses it to show
+    // "42 tools · 21 paid" so a padded free surface can't read as paid depth.
+    ...(v.tools?.some((t) => t.paid !== undefined)
+      ? { paidToolCount: v.tools.filter((t) => t.paid !== false).length }
+      : {}),
     fetchedAt: v.fetchedAt,
     error: v.error || null,
     local: false,
@@ -1359,6 +1368,9 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     keep.algorandWallet = keep.algorandWallet || drop.algorandWallet;
     keep.payToByNetwork = { ...(drop.payToByNetwork || {}), ...(keep.payToByNetwork || {}) };
     keep.toolCount = Math.max(keep.toolCount || 0, drop.toolCount || 0);
+    if (keep.paidToolCount != null || drop.paidToolCount != null) {
+      keep.paidToolCount = Math.max(keep.paidToolCount ?? 0, drop.paidToolCount ?? 0);
+    }
     byHost.set(k, keep);
   }
   const sellers = [local, ...byHost.values()];
@@ -1384,6 +1396,11 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     totals: {
       sellers: sellers.length,
       tools: sellers.reduce((s, x) => s + (x.toolCount || 0), 0),
+      // Buyable subset of `tools`. Sellers without paid flags (zero-annotation
+      // docs, registry-synthesized) count fully — their rows route today, so
+      // presuming them paid keeps this the routing-eligible total rather than
+      // an undercount. Diverges from `tools` only as flagged-free rows appear.
+      paidTools: sellers.reduce((s, x) => s + (x.paidToolCount ?? x.toolCount ?? 0), 0),
       crawled: remote.length,
       discovered: discoveredSeeds.size,
       routable: 1 + remote.filter((s) => s.routable).length, // self always routable
@@ -1992,7 +2009,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
 
 <div class="grid">
   <div class="stat"><div class="k">Sellers</div><div class="v">${esc(snapshot.totals.sellers)}</div><div class="s">listed in the Index</div></div>
-  <div class="stat"><div class="k">Tools online</div><div class="v">${esc(snapshot.totals.tools)}</div><div class="s">across all sellers</div></div>
+  <div class="stat"><div class="k">Tools online</div><div class="v">${esc(snapshot.totals.tools)}</div><div class="s">${snapshot.totals.paidTools != null && snapshot.totals.paidTools !== snapshot.totals.tools ? `${esc(snapshot.totals.paidTools)} paid, across all sellers` : "across all sellers"}</div></div>
   <div class="stat"><div class="k">Crawled sellers</div><div class="v">${esc(snapshot.totals.crawled)}</div><div class="s">via /.well-known/x402</div></div>
   <div class="stat"><div class="k">Auto-discovered</div><div class="v">${esc(snapshot.totals.discovered ?? 0)}</div><div class="s">from public registries</div></div>
   <div class="stat"><div class="k">Routable now</div><div class="v">${esc(snapshot.totals.routable ?? 0)}</div><div class="s">${esc(snapshot.totals.unhealthy ?? 0)} unhealthy excluded from router</div></div>

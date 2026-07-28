@@ -491,3 +491,33 @@ console.log("openapi-fallback tests passed");
   cache10.clear();
   console.log("ok - free-flagged tools list on the seller but never route; sellerDetail drill-down works");
 }
+
+// ---- 11. the paid split is visible: paidToolCount on snapshot + sellerDetail ----
+{
+  const { indexSnapshot, sellerDetail } = await import("../src/x402-index.js");
+  const cache11 = _cacheForTests();
+  cache11.clear();
+  const tool = (route, paid) => ({ seller: "https://split.example", method: "POST", route, slug: route.slice(1), name: route, description: "", category: "other", tags: [], price: paid ? 0.005 : null, ...(paid !== undefined ? { paid } : {}) });
+  cache11.set("https://split.example", {
+    manifest: { name: "split.example", homepage: "https://split.example" },
+    tools: [tool("/a", true), tool("/b", false), tool("/c", false)],
+    fetchedAt: Date.now(), error: null, history: [1, 1, 1, 1, 1],
+  });
+  cache11.set("https://noflags.example", {
+    manifest: { name: "noflags.example", homepage: "https://noflags.example" },
+    tools: [tool("/x", undefined), tool("/y", undefined)],
+    fetchedAt: Date.now(), error: null, history: [1, 1, 1, 1, 1],
+  });
+  const ctx11 = { baseUrl: "https://agent402.tools", catalog: {}, prices: {}, network: "base", toolCount: 10, walletName: "w" };
+  const snap = indexSnapshot(ctx11);
+  const split = snap.sellers.find((x) => x.origin === "https://split.example");
+  ok(split.toolCount === 3 && split.paidToolCount === 1, `split seller: 3 tools, 1 paid (got ${split.toolCount}/${split.paidToolCount})`);
+  const noflags = snap.sellers.find((x) => x.origin === "https://noflags.example");
+  ok(noflags.paidToolCount === undefined, "a seller without paid flags reports no split (unknown, not zero)");
+  ok(snap.totals.tools === 15, `totals.tools counts the full surface (got ${snap.totals.tools})`);
+  // paidTools: local 10 + split 1 + noflags 2 (unknown split presumed buyable — those rows route today)
+  ok(snap.totals.paidTools === 13, `totals.paidTools counts the buyable subset (got ${snap.totals.paidTools})`);
+  ok(sellerDetail("split.example")?.paidToolCount === 1, "sellerDetail carries the split too");
+  cache11.clear();
+  console.log("ok - paid split visible on snapshot totals, seller rows, and sellerDetail");
+}
