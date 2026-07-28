@@ -11,6 +11,35 @@
 import { markUntrusted } from "./provenance.js";
 
 const BRAVE_HOST = "https://api.search.brave.com/res/v1";
+
+// ---------------------------------------------------------------------------
+// Outbound Brave call meter. Added 2026-07-28 after a reconciliation that could
+// not be closed from inbound telemetry: Brave billed 5,106 Search requests in
+// July while every inbound accounting surface (tool_call, pack_internal_call,
+// payment_settled, Railway HTTP logs) accounted for at most ~600. The Answers
+// and Autosuggest plans reconciled EXACTLY over the same period, so the
+// accounting method was sound and the gap is specific to the Search plan.
+// Rather than keep theorising, count the calls where they actually leave the
+// process, tagged by path and caller, and expose it to the operator.
+const braveMeter = { since: new Date().toISOString(), total: 0, byPath: Object.create(null), byCaller: Object.create(null) };
+let lastMeterLog = 0;
+function meterBrave(path, caller) {
+  braveMeter.total++;
+  braveMeter.byPath[path] = (braveMeter.byPath[path] || 0) + 1;
+  braveMeter.byCaller[caller] = (braveMeter.byCaller[caller] || 0) + 1;
+  // One line per 10 minutes max: enough to correlate with Brave's daily CSV
+  // without flooding the deploy log.
+  const now = Date.now();
+  if (now - lastMeterLog > 600_000) {
+    lastMeterLog = now;
+    console.log(`[brave-meter] ${braveMeter.total} outbound calls since ${braveMeter.since} - byPath ${JSON.stringify(braveMeter.byPath)} byCaller ${JSON.stringify(braveMeter.byCaller)}`);
+  }
+}
+/** Operator-visible outbound Brave usage (see /__operator/stats). The number
+ *  to compare against the Brave dashboard's daily CSV. */
+export function braveCallMeter() {
+  return { since: braveMeter.since, total: braveMeter.total, byPath: { ...braveMeter.byPath }, byCaller: { ...braveMeter.byCaller } };
+}
 const TIMEOUT_MS = 10000;
 // Answers streams ~5s on average for single-search mode (Brave's published p50)
 // but the SSE response can run longer than the GET routes' fixed budget.
@@ -58,6 +87,7 @@ async function braveAnswerPost(query, opts = {}) {
   }
   let res;
   try {
+    meterBrave("/chat/completions", "answer");
     res = await fetch(`${BRAVE_HOST}/chat/completions`, {
       method: "POST",
       headers: {
@@ -163,7 +193,7 @@ function parseAnswer(raw) {
   return { answer, citations: unique };
 }
 
-async function braveGet(path, params, apiKey) {
+async function braveGet(path, params, apiKey, caller = "unknown") {
   const key = apiKey || process.env.BRAVE_API_KEY;
   if (!key) {
     throw bad("Web search is not configured on this deployment", 503);
@@ -173,6 +203,7 @@ async function braveGet(path, params, apiKey) {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
   }
   let res;
+  meterBrave(path, caller);
   try {
     res = await fetch(url, {
       headers: { "X-Subscription-Token": key, Accept: "application/json" },
@@ -232,7 +263,7 @@ export const SEARCH_TOOLS = [
       const data = await braveGet("/web/search", {
         q, count,
         freshness: FRESHNESS.has(i.freshness) ? i.freshness : undefined,
-      });
+      }, undefined, "search");
       const results = (data.web?.results ?? []).slice(0, count).map((r) => ({
         title: r.title ?? null,
         url: r.url ?? null,
@@ -328,7 +359,7 @@ export const SEARCH_TOOLS = [
       const count = Math.min(Math.max(parseInt(i.count, 10) || 10, 1), 50);
       const safesearch = i.safesearch === "off" ? "off" : "strict";
       const country = typeof i.country === "string" && /^[A-Za-z]{2}$/.test(i.country) ? i.country.toUpperCase() : undefined;
-      const data = await braveGet("/images/search", { q, count, safesearch, country });
+      const data = await braveGet("/images/search", { q, count, safesearch, country }, undefined, "search-images");
       const results = (data.results ?? []).slice(0, count).map((r) => ({
         title: r.title ?? null,
         source: r.url ?? null,
@@ -430,7 +461,7 @@ export const SEARCH_TOOLS = [
       // Brave issues distinct subscription tokens per product SKU; Suggest
       // may need its own key, same pattern as Answers (BRAVE_ANSWERS_API_KEY).
       const key = process.env.BRAVE_SUGGEST_API_KEY || process.env.BRAVE_API_KEY;
-      const data = await braveGet("/suggest/search", { q, count }, key);
+      const data = await braveGet("/suggest/search", { q, count }, key, "search-suggest");
       // Brave returns { results: [{query, ...rich fields requiring paid plan}, ...] }.
       // We surface only the suggestion string — `rich` enrichment requires a
       // separate subscription tier, and a flat string[] is what agents want.
@@ -547,7 +578,7 @@ export const SEARCH_TOOLS = [
         queries.map(async (raw) => {
           const q = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
           if (!q) return { query: "", count: 0, results: [], error: "empty query skipped" };
-          const data = await braveGet("/web/search", { q, count, freshness });
+          const data = await braveGet("/web/search", { q, count, freshness }, undefined, "multi-search");
           const results = (data.web?.results ?? []).slice(0, count).map((r) => ({
             title: r.title ?? null,
             url: r.url ?? null,

@@ -25,6 +25,13 @@ const BRAVE_ROUTES = new Set([
   "/api/skill/crypto-research", "/api/skill/search-and-cite", "/api/skill/company-dossier",
   "/api/skill/crypto-dossier", "/api/skill/earnings-watch", "/api/skill/ipo-watch",
   "/api/skill/brand-protection", "/api/skill/article-digest",
+  // Added 2026-07-28: packs created AFTER the 07-23 audit whose steps also call
+  // a Brave-backed tool. They reopened the leak silently - measured at ~2.3
+  // Brave requests per CI run (down from ~10.4 pre-audit, so the first fix
+  // worked and only the newcomers were missing). scripts/test-brave-leak.js now
+  // fails CI if any pack reaching Brave is absent from this set, so the third
+  // recurrence cannot happen quietly.
+  "/api/skill/earnings-deep-dive", "/api/skill/options-analytics", "/api/skill/defi-protocol-scanner",
 ]);
 const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
 
