@@ -52,9 +52,9 @@ import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTool
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
 import { acpFeed, acpManifest } from "./acp.js";
-import { findTools } from "./find.js";
+import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
-import { indexSnapshot, sellerDetail, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
+import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute } from "./payments.js";
@@ -1723,16 +1723,43 @@ const wishServedScore = (text) => {
   const q = String(text || "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
   const r = findTools(CATALOG, q, { k: 1, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
   const top = r.results?.[0];
-  return top ? { slug: top.slug, score: top.score } : null;
+  if (top) return { slug: top.slug, score: top.score };
+  // A seller-name cluster is served by the seller bridge, not the catalog.
+  try {
+    const seller = findRelatedSellers(q, routableSellerSummaries())[0];
+    if (seller) return { slug: `seller:${seller.host}`, score: FIND_WEAK_SCORE };
+  } catch { /* best-effort */ }
+  return null;
 };
 const computeFind = (q, k) => {
   const result = findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
+  // The seller bridge: a query that looks like an indexed seller's NAME gets
+  // pointed at that seller - /api/find is catalog-only, and 25 recorded
+  // "misses" for "minia2a" were agents hunting the indexed seller minia2a.uk.
+  // Only host/origin/toolCount ride along (never third-party display text),
+  // plus ready-to-follow pointers into the drill-down and the router.
+  try {
+    const related = findRelatedSellers(q, routableSellerSummaries());
+    if (related.length) {
+      result.relatedSellers = related.map((r) => ({
+        ...r,
+        sellerInfo: `${BASE_URL}/api/index?seller=${encodeURIComponent(r.host)}`,
+        routeAcross: `${BASE_URL}/api/route?q=${encodeURIComponent(String(q ?? ""))}&include=external`,
+      }));
+    }
+  } catch { /* bridge is best-effort - find must answer regardless */ }
   const topScore = result.results[0]?.score ?? 0;
   if (result.count === 0 || topScore < FIND_WEAK_SCORE) {
-    result.hint = "POST /api/wish with what you needed";
-    const qStr = String(q ?? "").trim();
-    if (qStr) {
-      try { recordWish({ need: qStr, source: "find-miss" }); } catch { /* best-effort; never break /api/find */ }
+    if (result.relatedSellers) {
+      // A seller-name match IS an answer - point at it instead of recording
+      // a wish for demand the ecosystem already serves.
+      result.hint = "this looks like an indexed seller - see relatedSellers";
+    } else {
+      result.hint = "POST /api/wish with what you needed";
+      const qStr = String(q ?? "").trim();
+      if (qStr) {
+        try { recordWish({ need: qStr, source: "find-miss" }); } catch { /* best-effort; never break /api/find */ }
+      }
     }
   }
   return result;

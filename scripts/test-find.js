@@ -77,5 +77,26 @@ ok(findTools(CATALOG, "x ".repeat(5000) + "extract", {}).results.length >= 0, "l
 // Serializes cleanly (served as JSON).
 JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agent402.tools", powSlugs: POW })));
 
+
+// ---- find->seller bridge: seller-name queries resolve to indexed sellers ----
+// 25 recorded find-misses for "minia2a" were agents hunting the INDEXED
+// seller minia2a.uk; /api/find is catalog-only, so they missed forever.
+{
+  const { findRelatedSellers } = await import("../src/find.js");
+  const sellers = [
+    { host: "minia2a.uk", origin: "https://minia2a.uk", toolCount: 89 },
+    { host: "www.cloudworldmodel.ai", origin: "https://www.cloudworldmodel.ai", toolCount: 42 },
+    { host: "api.example.com", origin: "https://api.example.com", toolCount: 3 },
+    { host: "minia2a.io", origin: "https://minia2a.io", toolCount: 5 },
+  ];
+  const one = findRelatedSellers("minia2a", sellers);
+  ok(one.length === 2 && one[0].host === "minia2a.uk", `exact label match, tool-count ranked (got ${JSON.stringify(one.map((s) => s.host))})`);
+  ok(one[0].toolCount === 89 && !("displayName" in one[0]), "carries only host/origin/toolCount - no third-party text");
+  ok(findRelatedSellers("cloudworldmodel", sellers)[0]?.host === "www.cloudworldmodel.ai", "substring match ignores www. and TLD");
+  ok(findRelatedSellers("extract the article from this url", sellers).length === 0, "a task-shaped query matches no seller");
+  ok(findRelatedSellers("api", sellers).length === 0, "a short generic term does not match a seller label by substring");
+  ok(findRelatedSellers("", sellers).length === 0 && findRelatedSellers("ab", sellers).length === 0, "empty/too-short queries are ignored");
+  ok(findRelatedSellers("minia2a", []).length === 0 && findRelatedSellers("x", null).length === 0, "no sellers / bad input is empty, not a crash");
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

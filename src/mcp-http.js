@@ -19,7 +19,8 @@ import {
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { findTools } from "./find.js";
+import { findTools, findRelatedSellers } from "./find.js";
+import { routableSellerSummaries } from "./x402-index.js";
 import { logSafe } from "./log-safe.js";
 import { recordWish } from "./wish.js";
 import { capturePostHogDiscovery } from "./posthog.js";
@@ -36,7 +37,9 @@ const VERSION = "0.3.0";
 // Mirrors server.js's FIND_WEAK_SCORE: an empty result set, or a top score
 // below this, reads as "the catalog probably doesn't have this" — the
 // trigger for the request_tool hint + a fire-and-forget find-miss wish.
-const FIND_WEAK_SCORE = 5;
+// 3, not 5: a tag or slug-substring match is a SERVED query (see server.js -
+// the old 5 recorded a wish for every tag-served query, the minia2a ghost).
+const FIND_WEAK_SCORE = 3;
 const WISH_HINT_TEXT = "Nothing matched well? Tell us what you needed via POST /api/wish - we cluster demand and build what keeps coming up.";
 
 // Per-IP sliding-window rate limit for tool executions (search/info are free).
@@ -366,6 +369,13 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           capturePostHogDiscovery({ surface: "mcp:find_tool" });
           const taskStr = String(args.task ?? args.query ?? "");
           const r = findTools(catalog, taskStr, { k: args.limit, baseUrl, powSlugs: freeSlugs });
+          // Seller bridge (same as /api/find): a seller-name task points at
+          // the indexed seller and the router instead of missing silently.
+          let relatedSellers;
+          try {
+            const rel = findRelatedSellers(taskStr, routableSellerSummaries());
+            if (rel.length) relatedSellers = rel.map((x) => ({ ...x, sellerInfo: `${baseUrl}/api/index?seller=${encodeURIComponent(x.host)}`, routeAcross: `${baseUrl}/api/route?q=${encodeURIComponent(taskStr)}&include=external` }));
+          } catch { /* best-effort */ }
           const results = r.results.map((t) => ({
             slug: t.slug,
             price: t.price,
@@ -386,7 +396,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // blocks the response.
           const topScore = r.results[0]?.score ?? 0;
           const weak = r.count === 0 || topScore < FIND_WEAK_SCORE;
-          if (weak && taskStr.trim()) {
+          if (weak && taskStr.trim() && !relatedSellers) {
             try { recordWish({ need: taskStr.trim(), source: "find-miss" }); } catch { /* best-effort */ }
           }
           return {
@@ -397,7 +407,8 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                     task: r.query,
                     results,
                     ...(r.packs?.length ? { workflows: r.packs, workflowsUsage: "prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } }" } : {}),
-                    ...(weak ? { hint: WISH_HINT_TEXT } : {}),
+                    ...(relatedSellers ? { relatedSellers } : {}),
+                    ...(weak && !relatedSellers ? { hint: WISH_HINT_TEXT } : {}),
                     usage: "Run call_tool with the chosen {slug, params}. Free results execute here; wallet-only need the agent402-mcp npm server.",
                   }, null, 2)
                 : `No tool matched "${taskStr}". Browse the catalog: ${baseUrl}/tools. ${WISH_HINT_TEXT}`,
