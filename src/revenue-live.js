@@ -314,8 +314,16 @@ async function recentInbound(c, wallet, latest) {
         part = await attemptChunk();
       }
       if (Array.isArray(part)) logs.push(...part);
-    } catch {
+    } catch (e) {
       missed++;
+      // One line per rail per process: the scan's missed counter destroyed
+      // the evidence of WHY chunks fail (2026-07-28: Sei read 28/28
+      // unavailable through a relay that answered prod's egress in 39ms,
+      // and nothing said what the actual per-chunk error was).
+      if (!loggedChunkFailure.has(c.label)) {
+        loggedChunkFailure.add(c.label);
+        console.warn(`[revenue] ${c.label} getLogs chunk failed: ${String(e?.message || e).slice(0, 160)}`);
+      }
     }
   }
   const recent = logs
@@ -342,6 +350,7 @@ async function recentInbound(c, wallet, latest) {
   return { recent, missed, chunks: LOG_CHUNKS };
 }
 
+const loggedChunkFailure = new Set();
 async function evmRail(name, wallet) {
   const c = EVM[name];
   const out = { rail: c.label, asset: c.asset, wallet: wallet || null, explorer: wallet ? c.explorer(wallet) : null, balance: null, recent: [], error: null, scanNote: null };
