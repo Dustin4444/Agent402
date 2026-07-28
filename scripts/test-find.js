@@ -1,5 +1,8 @@
 // Unit tests for the one-call tool resolver (/api/find). Pure, no network.
 import { findTools } from "../src/find.js";
+import { API_TOOLS } from "../src/tools/api-kit.js";
+import { CRYPTO_TOOLS } from "../src/tools/crypto-kit.js";
+import { buildRouteExecuteTool, EXEC_TIERS } from "../src/tools/route-execute.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -98,5 +101,28 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
   ok(findRelatedSellers("", sellers).length === 0 && findRelatedSellers("ab", sellers).length === 0, "empty/too-short queries are ignored");
   ok(findRelatedSellers("minia2a", []).length === 0 && findRelatedSellers("x", null).length === 0, "no sellers / bad input is empty, not a crash");
 }
+// ---- delegated-purchase intent resolves to the Smart Order Router ----
+// Audited 2026-07-28: agents asking the natural way ("buy a tool from another
+// seller", "pay an external api on my behalf") got unrelated tools, because
+// "api" matches every openapi-* slug and "pay" matches "payload". The
+// synthetic "sor" term fixes intent WITHOUT touching ordinary buy/pay queries -
+// both halves are pinned here, and the regression half is the important one.
+{
+  const catalog = {};
+  for (const t of [...API_TOOLS, ...CRYPTO_TOOLS]) catalog[t.route] = t;
+  const re = buildRouteExecuteTool({ getCatalog: () => ({}), baseUrl: "https://x", tier: EXEC_TIERS[0] });
+  catalog[re.route] = re;
+  const top = (q) => findTools(catalog, q, { k: 3, baseUrl: "https://x", powSlugs: new Set() }).results.map((r) => r.slug);
+  for (const q of ["buy a tool from another seller", "purchase from an x402 seller", "outsource this task to a vendor", "pay an external api on my behalf"]) {
+    ok(top(q).includes("route-execute"), `SOR intent resolves: "${q}" -> ${JSON.stringify(top(q))}`);
+  }
+  // The invariant that matters: the DOMAIN tool still wins. route-execute may
+  // appear lower down (it carries buy/purchase tags and genuinely can buy
+  // these), but it must never displace the tool that actually answers.
+  for (const [q, want] of [["buy bitcoin price", "crypto-price"], ["purchase price of ethereum", "crypto-price"], ["order book for a token", "crypto-orderbook"]]) {
+    ok(top(q)[0] === want, `ordinary commerce query still resolves to ${want}: "${q}" -> ${JSON.stringify(top(q))}`);
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

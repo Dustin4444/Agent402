@@ -1529,6 +1529,13 @@ app.get("/__operator/leads", async (req, res) => {
     dbEnabled: leadsDbEnabled(),
   }));
 });
+// Short aliases for the Smart Order Router guide. It is the most linkable
+// thing we have (one payment reaches every proven x402 seller) and both /router
+// and /sor 404'd until 2026-07-28 - a shared link that dies is a discoverability
+// bug, not a nicety. 301 so the guide keeps the SEO weight.
+for (const alias of ["/router", "/sor", "/smart-order-router"]) {
+  app.get(alias, (_req, res) => res.redirect(301, "/guides/smart-order-router"));
+}
 app.get("/guides", (_req, res) => htmlCache(res, 300, 900).send(guidesIndex(BASE_URL)));
 app.get("/guides/:slug", (req, res) => {
   const html = guidePage(BASE_URL, req.params.slug);

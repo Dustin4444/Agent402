@@ -38,6 +38,12 @@ const UNIT_WORDS = new Set(
   ].filter((w) => w.length > 1 && !STOPWORDS.has(w) && w !== "per" && w !== "us")
 );
 
+// Delegated-purchase intent (see the synthetic "sor" term below). Both sets
+// must hit for the term to be appended - "buy bitcoin price" stays a crypto
+// query, and "pay an EXTERNAL api" becomes a router query.
+const DELEGATION_VERBS = new Set(["buy", "purchase", "pay", "order", "hire", "rent", "outsource", "delegate", "call"]);
+const THIRD_PARTY_MARKERS = new Set(["external", "another", "other", "others", "someone", "somebody", "seller", "sellers", "vendor", "third", "party", "third-party", "behalf", "elsewhere", "ecosystem", "marketplace"]);
+
 /**
  * Rank catalog tools against a free-text task description.
  * @param {object} catalog  CATALOG map (route -> def)
@@ -61,6 +67,16 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   // score tie against the other *-convert tools without distorting queries
   // that never mention a unit.
   if (!terms.includes("units") && terms.some((t) => UNIT_WORDS.has(t))) terms.push("units");
+  // Same mechanism for DELEGATED PURCHASE intent: "buy a tool from another
+  // seller", "pay an external api on my behalf" are asking for the Smart Order
+  // Router (it resolves a seller, pays them over x402, relays the result), but
+  // lexically they lose to unrelated tools - "api" matches every openapi-*
+  // slug and "pay" matches "payload" (audited 2026-07-28). Requires BOTH a
+  // delegation verb AND a third-party marker, so ordinary "buy"/"pay" queries
+  // are untouched; the synthetic "sor" term is a curated route-execute tag.
+  if (!terms.includes("sor")
+    && terms.some((t) => DELEGATION_VERBS.has(t))
+    && terms.some((t) => THIRD_PARTY_MARKERS.has(t))) terms.push("sor");
   const limit = Math.min(Math.max(parseInt(k, 10) || 5, 1), 25);
   if (!terms.length) return { query: q, count: 0, results: [] };
 

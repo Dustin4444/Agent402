@@ -134,7 +134,16 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
     price: `$${EXEC_PRICE_USD}`,
     description:
       `Describe a task (or name a slug) and the Smart Order Router resolves the best-matching tool and RUNS it in the same call - flat $${EXEC_PRICE_USD} covering any tool listed at $${UNDERLYING_MAX_USD} or less, from THIS host's catalog or any external x402 seller in the open index (paid over x402 on your behalf, result relayed). One payment, one request, result + receipt. /api/route quotes which tier a task needs; pricier tools return a self-correcting 409 with their direct route.`,
-    tags: ["router", "sor", "execute", "dispatch", "meta", "agent", "x402", ...(routeSuffix ? ["max-tier"] : [])],
+    // Tags are the discoverability surface: a tag hit scores +3 in the ranker
+    // (vs +1 for a description substring), and an audit on 2026-07-28 found
+    // the natural phrasings agents actually use - "buy a tool from another
+    // seller", "pay an external api on my behalf" - resolved to unrelated
+    // tools because none of those words were tags. Each word below is a term
+    // a buyer would type for THIS capability, not a synonym grab.
+    tags: ["router", "sor", "execute", "dispatch", "meta", "agent", "x402",
+      "buy", "purchase", "seller", "external", "behalf", "broker", "delegate",
+      "outsource", "marketplace", "cross-seller",
+      ...(routeSuffix ? ["max-tier"] : [])],
     discovery: {
       bodyType: "json",
       input: { slug: "hash", params: { text: "agent402", algo: "sha256" } },
