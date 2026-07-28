@@ -80,6 +80,7 @@ import { AGENT_TOOLS } from "./tools/agent-kit.js";
 import { SAMPLE_AGENT_CARD } from "./tools/a2a-card.js";
 import { BLOCKSCOUT_TOOLS, upstreamBuyerStatus } from "./tools/blockscout-kit.js";
 import { CAPTCHA_TOOLS } from "./tools/captcha-kit.js";
+import { SQL_GUARD_TOOLS } from "./tools/sql-guard-kit.js";
 import { BARCODE_TOOLS } from "./tools/barcode-kit.js";
 import { DATA_TOOLS } from "./tools/data-kit.js";
 import { IMAGE_TOOLS } from "./tools/image-kit.js";
@@ -180,7 +181,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus } from "./x402-buyer.js";
