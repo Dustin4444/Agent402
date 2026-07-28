@@ -535,13 +535,19 @@ export function normaliseOpenapiTools(openapi, originUrl) {
       if (!httpMethods.has(method.toLowerCase())) continue;
       if (!op || typeof op !== "object") continue;
       // A seller that annotates any paid operation is trusted to distinguish
-      // paid from free siblings. Zero-annotation documents retain the legacy
-      // inclusive behavior because many settlement-proven sellers do not use
-      // payment extensions yet. Deprecated operations and obvious discovery
-      // or static-asset paths are excluded in both cases.
+      // paid from free siblings — but the free siblings are still part of the
+      // curated surface they publish, so they LIST (marked paid:false) rather
+      // than vanish. Hiding them made a 42-operation seller read as 17 while
+      // x402scan showed all 42 (seller escalation, 2026-07-27). What the
+      // annotation gate now controls is the `paid` flag, which in turn gates
+      // paid ROUTING — a free op must never be a buy candidate. Deprecated
+      // operations and obvious discovery/static-asset paths are excluded in
+      // all cases (the junk #478 was aimed at). Zero-annotation documents
+      // retain the legacy inclusive behavior with `paid` unknown, because
+      // many settlement-proven sellers do not use payment extensions yet.
       if (nonToolPath.test(rawPath) || nonToolPath.test(pathStr)) continue;
       if (op.deprecated === true) continue;
-      if (documentDistinguishesPaidOperations && !openapiOperationHasPaymentSignal(op)) continue;
+      const annotated = openapiOperationHasPaymentSignal(op);
       const tags = Array.isArray(op.tags) ? op.tags : [];
       out.push({
         seller: originUrl,
@@ -553,6 +559,7 @@ export function normaliseOpenapiTools(openapi, originUrl) {
         category: tags[0] || "other",
         tags,
         price: op["x-price"] || op["x-x402-price"] || op["x-payment-info"]?.price?.amount || op["x-x402-price-usdc"] || null,
+        ...(documentDistinguishesPaidOperations ? { paid: annotated } : {}),
       });
     }
   }
@@ -674,6 +681,10 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = [], { al
     // Keep a settlement-observed Bazaar amount (including an explicit free
     // price of 0); only fill an absent amount from the OpenAPI extension.
     price: b.price == null ? o.price : b.price,
+    // A registry row IS a settlement record: an operation the document left
+    // unannotated (paid:false) that has real settled payments is buyable —
+    // observed truth beats the doc's silence. An explicit zero price stays free.
+    ...(b.price != null && b.price > 0 ? { paid: true } : o.paid !== undefined ? { paid: o.paid } : {}),
   });
   const merged = bazaarTools.map((b) => {
     // Only an inferred Bazaar verb may fall back to a route-only match. An
@@ -1240,6 +1251,42 @@ export function ecosystemMarket({ limit = 12 } = {}) {
 }
 
 /**
+ * Per-seller detail: the crawled entry PLUS its full tool list. Exists so a
+ * seller disputing their count can see exactly which rows we hold (the
+ * 2026-07-27 "72 tools vs my 42 APIs" escalation was undiagnosable from
+ * /api/index, which carries only the count). Matches by full origin or bare
+ * host, case-insensitive. Returns null when unknown.
+ */
+export function sellerDetail(originOrHost) {
+  const q = String(originOrHost || "").trim().toLowerCase().slice(0, 253);
+  if (!q) return null;
+  const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
+  for (const [origin, v] of cache.entries()) {
+    if (origin.toLowerCase() !== q && hostOf(origin) !== q) continue;
+    return {
+      origin,
+      displayName: v.manifest?.name || origin.replace(/^https?:\/\//, ""),
+      homepage: v.manifest?.homepage || origin,
+      toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+      fetchedAt: v.fetchedAt ?? null,
+      error: v.error || null,
+      health: healthScore(v),
+      routable: isRoutable(v),
+      tools: (v.tools || []).slice(0, 500).map((t) => ({
+        method: t.method || null,
+        route: t.route || null,
+        slug: t.slug || null,
+        name: t.name || null,
+        price: t.price ?? null,
+        ...(t.paid !== undefined ? { paid: t.paid } : {}),
+        networks: t.networks || undefined,
+      })),
+    };
+  }
+  return null;
+}
+
+/**
  * Snapshot for the /index page. Always includes the local catalog (instant,
  * zero-network) plus whatever the crawler has accumulated.
  */
@@ -1398,7 +1445,13 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
     : [...cache.entries()]
         .filter(([origin, v]) => isRoutable(v) && !aliasOrigins.has(origin))
         .flatMap(([, v]) =>
-          (v.tools || []).map((t) => ({
+          (v.tools || [])
+            // paid:false = the seller's own doc says this operation is free.
+            // It lists on the marketplace, but it is never a BUY candidate —
+            // route-execute would 402-dance against an endpoint that never
+            // quotes, and "cheapest tool" rankings would fill with $0 rows.
+            .filter((t) => t.paid !== false)
+            .map((t) => ({
             ...t,
             sellerHome: v.manifest?.homepage || t.seller,
             sellerName: v.manifest?.name || t.seller,

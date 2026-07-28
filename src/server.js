@@ -54,7 +54,7 @@ import { runSelfCheck } from "./selfcheck.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools } from "./find.js";
 import { recordWish, getWishesAggregate } from "./wish.js";
-import { indexSnapshot, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
+import { indexSnapshot, sellerDetail, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute } from "./payments.js";
@@ -2314,9 +2314,16 @@ app.get("/sell", (_req, res) => {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
 });
-app.get("/api/index", (_req, res) =>
-  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(getIndexSnapshot())
-);
+app.get("/api/index", (req, res) => {
+  // ?seller=<origin or host> — the per-seller drill-down (full tool list, paid
+  // flags) so a seller can self-diagnose exactly what we hold for them.
+  if (req.query.seller) {
+    const detail = sellerDetail(String(req.query.seller));
+    if (!detail) return res.status(404).json({ error: "seller not found in the index", seller: String(req.query.seller).slice(0, 253) });
+    return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(detail);
+  }
+  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(getIndexSnapshot());
+});
 // Self-serve listing: validate + rate-limit here; ALL probing happens inside
 // the crawler behind safeFetch (SSRF guard). 5/IP/hour, 30 new probes/hour
 // globally — a public crawl trigger must not become a fetch amplifier. Body
