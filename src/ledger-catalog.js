@@ -89,7 +89,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
 
   // ---- SEO ----
   const canonical = baseUrl + "/tools";
-  const title = `Tool Catalog - ${fmtNum(count)} tools | Agent402`;
+  const title = `Tool Catalog - ${fmtNum(count)} x402 pay-per-call tools | Agent402`;
   const description = `Browse all ${fmtNum(count)} deterministic, pay-per-call API tools. ${fmtNum(freeCount)} free via proof-of-work, the rest from $0.001/call - ${RAILS_SHORT}. No signup, no API key.`;
   const jsonLd = {
     "@context": "https://schema.org",

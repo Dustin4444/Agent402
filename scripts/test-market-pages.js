@@ -94,7 +94,7 @@ for (const c of NEW_CHAINS) {
   // for the other six rails, so a blanket absence check would be wrong.
   ok(html.includes('"asset"</span>: "USDG"'), "robinhood: 402 accept sample carries USDG, not USDC");
   const manifestIdx = html.indexOf("RAIL MANIFEST");
-  const manifestBlock = html.slice(manifestIdx, manifestIdx + 900);
+  const manifestBlock = html.slice(manifestIdx, manifestIdx + 1200); // widened for the wires row (x402 + MPP)
   ok(manifestBlock.includes("USDG") && !manifestBlock.includes("USDC"), "robinhood: rail manifest asset row reads USDG, never USDC");
 }
 

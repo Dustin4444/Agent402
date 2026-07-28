@@ -662,7 +662,7 @@ const GUIDE_PAGE_CSS = `
 `;
 
 export function guidesIndex(baseUrl) {
-  const title = "Guides: payments and memory for AI agents";
+  const title = "Guides: x402 payments, MPP, and memory for AI agents";
   const description = "Practical guides to the machine-to-machine economy: paying APIs with x402 or proof-of-work, and durable wallet-keyed memory for autonomous agents.";
   const canonical = `${baseUrl}/guides`;
 

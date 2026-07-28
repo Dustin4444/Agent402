@@ -14,8 +14,8 @@ export function ledgerDocsPage(baseUrl, catalog) {
   const totalCount = tools.length;
   const freeCount = tools.filter(isComputePayable).length;
   const canonical = baseUrl + "/docs";
-  const title = "Docs - Agent402";
-  const description = `Add ${fmtNum(totalCount)} deterministic tools plus an OpenAI-compatible /v1 gateway to your agent in about a minute. No signup, no API key - start free with proof-of-work, settle ${RAILS_PAREN} when you scale.`;
+  const title = "Docs - Agent402 x402 + MCP server";
+  const description = `Add ${fmtNum(totalCount)} deterministic x402 tools plus an OpenAI-compatible /v1 gateway to your agent in about a minute. No signup, no API key - start free with proof-of-work, settle ${RAILS_PAREN} when you scale.`;
 
   const jsonLd = {
     "@context": "https://schema.org",

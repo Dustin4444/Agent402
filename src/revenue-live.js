@@ -1351,7 +1351,7 @@ export function revenueChartSection() {
 
 export function revenuePage(baseUrl, snap) {
   const canonical = baseUrl + "/revenue";
-  const title = "Live revenue - Agent402";
+  const title = "Live revenue - every x402 rail on-chain | Agent402";
   const description =
     `Consolidated live view of the Agent402 revenue wallets across every payment rail - ${RAILS_AMP}. One page instead of three explorer tabs; every figure links to its on-chain proof.`;
   const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar", Algorand: "algorand" };

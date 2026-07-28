@@ -354,7 +354,7 @@ ${liveSection(snap.live, stats)}
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: "Status - Agent402",
+    title: "Status - Agent402 x402 + MCP server uptime",
     description:
       "Availability for Agent402.Tools, measured every few minutes by two independent observers outside production: per-component uptime history, incidents derived from real probes, and daily real-money payment checks.",
     canonical: `${baseUrl}/status`,

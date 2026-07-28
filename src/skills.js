@@ -3126,7 +3126,7 @@ export function skillsIndex(baseUrl) {
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: "Skill packs: curated multi-tool workflows for AI agents -- Agent402",
+    title: "Skill packs: multi-tool agent workflows, one x402 payment each -- Agent402",
     description: "Pre-built workflows - security audit, email deliverability, financial research, macro economics, DNS health, crypto research, content extraction. Pay per call in USDC or run free with proof-of-work.",
     canonical: `${baseUrl}/skills`,
     baseUrl,
