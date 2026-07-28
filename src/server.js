@@ -53,7 +53,7 @@ import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools } from "./find.js";
-import { recordWish, getWishesAggregate } from "./wish.js";
+import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
 import { indexSnapshot, sellerDetail, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
@@ -1501,7 +1501,9 @@ app.get("/__operator/stats", (req, res) => {
 });
 app.get("/__operator/wishes", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
-  res.type("html").send(operatorWishesPage(BASE_URL, getWishesAggregate({ limit: 500, detailed: true })));
+  const agg = getWishesAggregate({ limit: 500, detailed: true });
+  annotateServed(agg.clusters, wishServedScore, FIND_WEAK_SCORE);
+  res.type("html").send(operatorWishesPage(BASE_URL, agg));
 });
 // Token-gated DETAILED wish feed (per-cluster text/counts/verdicts) — the raw
 // demand board is strategic intel, so the itemized view lives behind the
@@ -1510,7 +1512,9 @@ app.get("/__operator/wishes", (req, res) => {
 app.get("/__operator/wishes.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");
-  res.json(getWishesAggregate({ limit: req.query?.limit, detailed: true }));
+  const agg = getWishesAggregate({ limit: req.query?.limit, detailed: true });
+  annotateServed(agg.clusters, wishServedScore, FIND_WEAK_SCORE);
+  res.json(agg);
 });
 app.get("/__operator/leads", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
@@ -1710,6 +1714,15 @@ app.get("/acp/manifest", (_req, res) =>
 // queries that each got the right tool back, ghost demand for tools that
 // shipped on 2026-07-20 for the very same wish (found 2026-07-28).
 const FIND_WEAK_SCORE = 3;
+// Served-check for the operator wish board: what would /api/find return for
+// this cluster's text right now? Cluster text is stored esc()'d - unescape
+// the few entities so "&amp;" doesn't poison term matching.
+const wishServedScore = (text) => {
+  const q = String(text || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  const r = findTools(CATALOG, q, { k: 1, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
+  const top = r.results?.[0];
+  return top ? { slug: top.slug, score: top.score } : null;
+};
 const computeFind = (q, k) => {
   const result = findTools(CATALOG, q, { k, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
   const topScore = result.results[0]?.score ?? 0;
