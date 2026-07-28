@@ -1718,7 +1718,9 @@ const FIND_WEAK_SCORE = 3;
 // this cluster's text right now? Cluster text is stored esc()'d - unescape
 // the few entities so "&amp;" doesn't poison term matching.
 const wishServedScore = (text) => {
-  const q = String(text || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  // Entity order matters: &amp; must be unescaped LAST or "&amp;lt;" (a wish
+  // containing a literal "&lt;") double-unescapes to "<" (CodeQL #71).
+  const q = String(text || "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
   const r = findTools(CATALOG, q, { k: 1, baseUrl: BASE_URL, powSlugs: POW_SLUGS });
   const top = r.results?.[0];
   return top ? { slug: top.slug, score: top.score } : null;
