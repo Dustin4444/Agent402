@@ -135,7 +135,16 @@ export const EVM = {
     // RPCs both serve getLogs over chunked ranges.
     label: "Sei", asset: "USDC", span: 250000,
     token: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392",
-    rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"],
+    // Relay-first when configured: evm-rpc.sei-apis.com errors every getLogs
+    // from Railway's egress IPs (28/28 windows, 2026-07-28) while serving
+    // residential clients fine, and publicnode archive-gates getLogs. The
+    // Cloudflare relay (workers/sei-rpc-relay) moves the egress to CF's range.
+    rpcs: [
+      ...(process.env.SEI_RELAY_URL && process.env.SEI_RELAY_TOKEN
+        ? [{ url: process.env.SEI_RELAY_URL.replace(/\/+$/, ""), headers: { Authorization: `Bearer ${process.env.SEI_RELAY_TOKEN}` } }]
+        : []),
+      "https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com",
+    ],
     explorer: (a) => `https://seitrace.com/address/${a}?chain=pacific-1`,
     tx: (h) => `https://seitrace.com/tx/${h}?chain=pacific-1`,
   },
@@ -243,13 +252,18 @@ export async function getJsonAcross(bases, path, { timeoutMs = 10000, okStatuses
 
 export const pad = (a) => "0x" + "0".repeat(24) + a.toLowerCase().replace(/^0x/, "");
 
+// Entries are plain URL strings, or { url, headers } for endpoints that need
+// auth (the Sei relay's Bearer token) — same convention as the Algorand
+// relay's getJsonAcross entries.
 export async function rpcCall(urls, method, params, timeoutMs = 5000) {
   let lastErr;
-  for (const url of urls) {
+  for (const entry of urls) {
+    const url = typeof entry === "string" ? entry : entry.url;
+    const extraHeaders = typeof entry === "string" ? {} : entry.headers || {};
     try {
       const r = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...extraHeaders },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -339,7 +353,8 @@ async function evmRail(name, wallet) {
     // Alchemy first there). rpcCall walks the list on error, so a flaky public
     // still falls through to Alchemy — and this all runs in the background
     // refresh, never on a visitor's request path.
-    const cheapRpcs = [...c.rpcs.filter((u) => !u.includes("alchemy")), ...c.rpcs.filter((u) => u.includes("alchemy"))];
+    const urlOf = (u) => (typeof u === "string" ? u : u.url);
+    const cheapRpcs = [...c.rpcs.filter((u) => !urlOf(u).includes("alchemy")), ...c.rpcs.filter((u) => urlOf(u).includes("alchemy"))];
     const balHex = await rpcCall(cheapRpcs, "eth_call", [{ to: c.token, data: "0x70a08231" + pad(wallet).slice(2) }, "latest"]);
     out.balance = Number(BigInt(balHex && balHex !== "0x" ? balHex : "0x0")) / 1e6;
     const latest = parseInt(await rpcCall(cheapRpcs, "eth_blockNumber", []), 16);
