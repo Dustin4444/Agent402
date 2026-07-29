@@ -453,7 +453,7 @@ export const X402_TOOLS = [
     route: "GET /api/ens-resolve", name: "ENS resolve", slug: "ens-resolve", category: "payments", price: "$0.003",
     description:
       "Resolve an ENS name (e.g. vitalik.eth) to its Ethereum address - so an agent can turn a human-readable recipient into a payable address. Read-only on Ethereum mainnet. ?name=vitalik.eth",
-    tags: ["ens", "resolve", "ethereum", "name", "address"],
+    tags: ["ens", "resolve", "ethereum", "name", "address", "lookup"],
     discovery: {
       input: { name: "vitalik.eth" },
       inputSchema: { properties: { name: { type: "string", description: "an ENS name, e.g. name.eth" } }, required: ["name"] },

@@ -15,6 +15,8 @@
 
 import { ssrfDispatcher } from "./fetch-guard.js";
 import { redactSecrets } from "./redact.js";
+import sha3 from "js-sha3"; // CommonJS — default import, then destructure (same as b20-kit)
+const { keccak256 } = sha3;
 
 const TIMEOUT_MS = 10_000;
 
@@ -230,6 +232,53 @@ const EVM_RPC_MAX_PARAMS = 8;
 const EVM_RPC_MAX_PARAMS_BYTES = 4096;
 const EVM_RPC_MAX_RESULT_BYTES = 200_000;
 
+// event-logs bounds: eth_getLogs is the one read that can be unbounded, so the
+// named tool ships with hard caps (evm-rpc rejects the method outright). 2000
+// blocks mirrors the public-RPC chunk ceilings that burned the Sei scanner;
+// 200 logs keeps the response inside the same budget as evm-rpc's result cap.
+const EVENT_LOGS_MAX_SPAN = 2000;
+const EVENT_LOGS_DEFAULT_SPAN = 100;
+const EVENT_LOGS_MAX_RETURNED = 200;
+// Node-side size/range rejections for busy contracts (USDC on Base can exceed
+// a public node's response cap in under 100 blocks). When the CALLER pinned
+// the range we surface the node's verdict; when the range was our default we
+// narrow it and retry - the tool's contract is "always answers", not "always
+// covers the default span".
+const EVENT_LOGS_SIZE_ERR = /too large|response size|limit exceeded|block range|query returned more than/i;
+
+function formatGwei(wei) {
+  const s = wei.toString().padStart(10, "0");
+  const whole = s.slice(0, -9);
+  const frac = s.slice(-9).replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole;
+}
+
+/** Block tag for eth_getBlockByNumber: "latest", decimal, or 0x hex. */
+function takeBlockTag(raw) {
+  if (raw === undefined || raw === null || raw === "" || raw === "latest") return "latest";
+  const s = String(raw).trim().toLowerCase();
+  if (s === "latest") return "latest";
+  if (/^0x[0-9a-f]+$/.test(s)) return s;
+  if (/^\d+$/.test(s)) return "0x" + BigInt(s).toString(16);
+  throw bad(`"block" must be a block number (decimal or 0x hex) or "latest"`);
+}
+
+/** Strict block NUMBER (no "latest") for event-logs range fields. */
+function takeBlockNumber(raw, field) {
+  const s = String(raw).trim().toLowerCase();
+  if (/^0x[0-9a-f]+$/.test(s)) return Number(BigInt(s));
+  if (/^\d+$/.test(s)) return Number(BigInt(s));
+  throw bad(`"${field}" must be a block number (decimal or 0x hex)`);
+}
+
+/** ERC-721 token id: decimal or 0x hex string, returned as BigInt. */
+function takeTokenId(raw) {
+  const s = String(raw ?? "").trim().toLowerCase();
+  if (/^0x[0-9a-f]+$/.test(s)) return BigInt(s);
+  if (/^\d+$/.test(s)) return BigInt(s);
+  throw bad(`"tokenId" must be a decimal or 0x hex token id`);
+}
+
 export const CHAIN_TOOLS = [
   // ===========================================================================
   // wallet-balance — native + ERC-20 balances for an address.
@@ -242,7 +291,7 @@ export const CHAIN_TOOLS = [
     price: "$0.002",
     description:
       "Look up the native coin balance (ETH/MATIC) plus every ERC-20 holding for a wallet address on Ethereum, Base, Polygon, Arbitrum, or Optimism. Returns clean decimal balances (already scaled by token decimals) plus symbol and contract - ready to display in a UI or feed into a portfolio tool.",
-    tags: ["crypto", "wallet", "balance", "erc20", "evm", "base", "ethereum"],
+    tags: ["crypto", "wallet", "balance", "erc20", "evm", "base", "ethereum", "token", "balances"],
     discovery: {
       bodyType: "json",
       input: { address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0", network: "base" },
@@ -729,6 +778,295 @@ export const CHAIN_TOOLS = [
         );
       }
       return { network: network.name, method, result };
+    },
+  },
+
+  // ===========================================================================
+  // Named chain-read primitives (2026-07-29). evm-rpc above already answers
+  // eth_blockNumber etc., but an agent searching "block number" or "event logs"
+  // never finds a whitelist parameter - it finds a TOOL. These are the
+  // first-buy primitives the market proves demand for (api.onesource.io:
+  // 319 distinct buyers/week on a bare page of exactly these reads, measured
+  // on our own leaderboard 2026-07-29), priced at the floor and riding the
+  // same keyless publicJsonRpc failover so they answer on every deployment.
+  // ===========================================================================
+  {
+    route: "GET /api/block-number",
+    name: "Latest block number",
+    slug: "block-number",
+    category: "crypto",
+    price: "$0.001",
+    description:
+      "The latest block number on Ethereum, Base, Polygon, Arbitrum, or Optimism. The cheapest possible on-chain read - the hello world of paid chain access. Keyless multi-endpoint failover. ?network=base",
+    tags: ["crypto", "block", "number", "latest", "height", "rpc", "evm", "chain"],
+    discovery: {
+      input: { network: "base" },
+      inputSchema: {
+        properties: { network: { type: "string", description: "ethereum / base / polygon / arbitrum / optimism (default base)." } },
+        required: [],
+      },
+      output: { example: { network: "base", blockNumber: 27000000, hex: "0x19bfcc0" } },
+    },
+    handler: async (i) => {
+      const network = pickNetwork(i.network);
+      const hex = await publicJsonRpc(network, "eth_blockNumber", []);
+      return { network: network.name, blockNumber: Number(BigInt(hex)), hex };
+    },
+  },
+
+  {
+    route: "GET /api/chain-info",
+    name: "Chain info snapshot",
+    slug: "chain-info",
+    category: "crypto",
+    price: "$0.001",
+    description:
+      "One-call chain state snapshot: chain id, latest block number, and current gas price (wei + gwei) for Ethereum, Base, Polygon, Arbitrum, or Optimism. Keyless multi-endpoint failover. ?network=base",
+    tags: ["crypto", "chain", "info", "chainid", "gas", "price", "block", "rpc", "evm"],
+    discovery: {
+      input: { network: "base" },
+      inputSchema: {
+        properties: { network: { type: "string", description: "ethereum / base / polygon / arbitrum / optimism (default base)." } },
+        required: [],
+      },
+      output: { example: { network: "base", chainId: 8453, latestBlock: 27000000, gasPriceWei: "5000000", gasPriceGwei: "0.005" } },
+    },
+    handler: async (i) => {
+      const network = pickNetwork(i.network);
+      const [chainIdHex, blockHex, gasHex] = await Promise.all([
+        publicJsonRpc(network, "eth_chainId", []),
+        publicJsonRpc(network, "eth_blockNumber", []),
+        publicJsonRpc(network, "eth_gasPrice", []),
+      ]);
+      const gasWei = BigInt(gasHex);
+      return {
+        network: network.name,
+        chainId: Number(BigInt(chainIdHex)),
+        latestBlock: Number(BigInt(blockHex)),
+        gasPriceWei: gasWei.toString(),
+        gasPriceGwei: formatGwei(gasWei),
+      };
+    },
+  },
+
+  {
+    route: "GET /api/block-info",
+    name: "Block info",
+    slug: "block-info",
+    category: "crypto",
+    price: "$0.002",
+    description:
+      "Header-level detail for one block on Ethereum, Base, Polygon, Arbitrum, or Optimism: hash, timestamp (unix + ISO), transaction count, gas used/limit, base fee. Pass a block number, 0x hex, or \"latest\". Keyless multi-endpoint failover. ?block=latest&network=base",
+    tags: ["crypto", "block", "info", "header", "timestamp", "gas", "rpc", "evm"],
+    discovery: {
+      input: { block: "latest", network: "base" },
+      inputSchema: {
+        properties: {
+          block: { type: "string", description: "Block number (decimal or 0x hex) or \"latest\" (default latest)." },
+          network: { type: "string", description: "ethereum / base / polygon / arbitrum / optimism (default base)." },
+        },
+        required: [],
+      },
+      output: {
+        example: {
+          network: "base", number: 27000000, hash: "0x…", timestamp: 1753747200,
+          timestampIso: "2026-07-29T00:00:00.000Z", txCount: 142, gasUsed: "8123456", gasLimit: "180000000", baseFeePerGas: "4100000",
+        },
+      },
+    },
+    handler: async (i) => {
+      const network = pickNetwork(i.network);
+      const block = await publicJsonRpc(network, "eth_getBlockByNumber", [takeBlockTag(i.block), false]);
+      if (!block) throw bad("Block not found - it may not exist yet on this chain", 404);
+      const ts = Number(BigInt(block.timestamp));
+      return {
+        network: network.name,
+        number: Number(BigInt(block.number)),
+        hash: block.hash,
+        timestamp: ts,
+        timestampIso: new Date(ts * 1000).toISOString(),
+        txCount: Array.isArray(block.transactions) ? block.transactions.length : 0,
+        gasUsed: BigInt(block.gasUsed ?? "0x0").toString(),
+        gasLimit: BigInt(block.gasLimit ?? "0x0").toString(),
+        baseFeePerGas: block.baseFeePerGas ? BigInt(block.baseFeePerGas).toString() : null,
+      };
+    },
+  },
+
+  {
+    route: "GET /api/erc721-owner",
+    name: "NFT owner lookup (ERC-721 ownerOf)",
+    slug: "erc721-owner",
+    category: "crypto",
+    price: "$0.002",
+    description:
+      "Who owns this NFT? Calls ownerOf(tokenId) on any ERC-721 contract on Ethereum, Base, Polygon, Arbitrum, or Optimism. Complements nft-holdings (which lists a WALLET's NFTs) - this answers by TOKEN. Keyless multi-endpoint failover. ?contract=0x…&tokenId=123&network=ethereum",
+    tags: ["crypto", "nft", "erc721", "owner", "ownerof", "token", "rpc", "evm"],
+    discovery: {
+      input: {
+        contract: "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85",
+        tokenId: "0xaf2caa1c2ca1d027f1ac823b529d0a67cd144264b2789fa2ea4d63a67c7103cc",
+        network: "ethereum",
+      },
+      inputSchema: {
+        properties: {
+          contract: { type: "string", description: "ERC-721 contract address (0x…)." },
+          tokenId: { type: "string", description: "Token id - decimal or 0x hex string." },
+          network: { type: "string", description: "ethereum / base / polygon / arbitrum / optimism (default base)." },
+        },
+        required: ["contract", "tokenId"],
+      },
+      output: { example: { network: "ethereum", contract: "0x57f1…", tokenId: "0xaf2c…", owner: "0x…" } },
+    },
+    handler: async (i) => {
+      const contract = takeAddress(i.contract, "contract");
+      const tokenId = takeTokenId(i.tokenId);
+      const network = pickNetwork(i.network);
+      const data = "0x6352211e" + tokenId.toString(16).padStart(64, "0");
+      let hex;
+      try {
+        hex = await publicJsonRpc(network, "eth_call", [{ to: contract, data }, "latest"]);
+      } catch (e) {
+        // JSON-RPC code 3 = execution revert: for ownerOf that means the token
+        // does not exist (or the contract is not ERC-721) - a caller error,
+        // not an upstream outage.
+        if (e?.rpcCode === 3) throw bad("ownerOf reverted - the token id does not exist on this contract (or the contract is not ERC-721)", 422);
+        throw e;
+      }
+      if (!hex || hex === "0x" || hex.length < 66) {
+        throw bad("No ownerOf result - the contract is likely not ERC-721", 422);
+      }
+      return { network: network.name, contract, tokenId: "0x" + tokenId.toString(16), owner: "0x" + hex.slice(-40) };
+    },
+  },
+
+  {
+    route: "GET /api/contract-code",
+    name: "Contract bytecode check",
+    slug: "contract-code",
+    category: "crypto",
+    price: "$0.002",
+    description:
+      "Is this address a contract, and what code does it hold? Returns isContract, deployed bytecode size, and the keccak-256 hash of the bytecode (stable fingerprint for comparing deployments) on Ethereum, Base, Polygon, Arbitrum, or Optimism. Keyless multi-endpoint failover. ?address=0x…&network=base",
+    tags: ["crypto", "contract", "bytecode", "code", "keccak", "verify", "rpc", "evm"],
+    discovery: {
+      input: { address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", network: "base" },
+      inputSchema: {
+        properties: {
+          address: { type: "string", description: "EVM address to check (0x…)." },
+          network: { type: "string", description: "ethereum / base / polygon / arbitrum / optimism (default base)." },
+        },
+        required: ["address"],
+      },
+      output: { example: { network: "base", address: "0x8335…", isContract: true, bytecodeBytes: 2148, keccak256: "0x…" } },
+    },
+    handler: async (i) => {
+      const address = takeAddress(i.address);
+      const network = pickNetwork(i.network);
+      const code = await publicJsonRpc(network, "eth_getCode", [address, "latest"]);
+      const hexBody = typeof code === "string" && code.startsWith("0x") ? code.slice(2) : "";
+      const isContract = hexBody.length > 0;
+      return {
+        network: network.name,
+        address,
+        isContract,
+        bytecodeBytes: hexBody.length / 2,
+        keccak256: isContract ? "0x" + keccak256(Buffer.from(hexBody, "hex")) : null,
+      };
+    },
+  },
+
+  {
+    route: "POST /api/event-logs",
+    name: "Contract event logs",
+    slug: "event-logs",
+    category: "crypto",
+    price: "$0.003",
+    description:
+      "Fetch contract event logs (eth_getLogs) on Ethereum, Base, Polygon, Arbitrum, or Optimism - bounded so it always answers: block range capped at 2000 blocks (default: the last 100, auto-narrowed for busy contracts), at most 200 logs returned (truncated flag set if more matched). Filter by contract address and optional topic0 (event signature hash). Keyless multi-endpoint failover.",
+    tags: ["crypto", "event", "events", "logs", "getlogs", "transfer", "topic", "rpc", "evm"],
+    discovery: {
+      bodyType: "json",
+      input: {
+        address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        topic0: "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",
+        network: "base",
+      },
+      inputSchema: {
+        properties: {
+          address: { type: "string", description: "Contract address to read logs from (0x…)." },
+          topic0: { type: "string", description: "Optional event signature hash (32-byte 0x hex), e.g. the ERC-20 Transfer topic." },
+          fromBlock: { type: "string", description: "Start block (decimal or 0x hex). Default: toBlock - 100." },
+          toBlock: { type: "string", description: "End block (decimal, 0x hex, or \"latest\"). Default latest." },
+          network: { type: "string", description: "ethereum / base / polygon / arbitrum / optimism (default base)." },
+        },
+        required: ["address"],
+      },
+      output: {
+        example: {
+          network: "base", address: "0x8335…", fromBlock: 26999500, toBlock: 27000000,
+          count: 87, truncated: false, logs: [{ blockNumber: 26999512, txHash: "0x…", topics: ["0xddf2…"], data: "0x…" }],
+        },
+      },
+    },
+    handler: async (i) => {
+      const address = takeAddress(i.address);
+      const network = pickNetwork(i.network);
+      let topic0 = null;
+      if (i.topic0 !== undefined && i.topic0 !== null && i.topic0 !== "") {
+        if (typeof i.topic0 !== "string" || !/^0x[0-9a-fA-F]{64}$/.test(i.topic0.trim())) {
+          throw bad(`"topic0" must be a 32-byte 0x hex event signature hash`);
+        }
+        topic0 = i.topic0.trim().toLowerCase();
+      }
+      const latestHex = await publicJsonRpc(network, "eth_blockNumber", []);
+      const latest = Number(BigInt(latestHex));
+      const toBlock = i.toBlock === undefined || i.toBlock === "latest" ? latest : takeBlockNumber(i.toBlock, "toBlock");
+      const pinnedFrom = i.fromBlock !== undefined;
+      let fromBlock = pinnedFrom ? takeBlockNumber(i.fromBlock, "fromBlock") : Math.max(0, toBlock - EVENT_LOGS_DEFAULT_SPAN);
+      if (fromBlock > toBlock) throw bad(`"fromBlock" (${fromBlock}) is after "toBlock" (${toBlock})`);
+      if (toBlock - fromBlock + 1 > EVENT_LOGS_MAX_SPAN) {
+        throw bad(`Block range is capped at ${EVENT_LOGS_MAX_SPAN} blocks per call (got ${toBlock - fromBlock + 1}) - page with fromBlock/toBlock`);
+      }
+      const fetchRange = (from) =>
+        publicJsonRpc(network, "eth_getLogs", [{
+          address,
+          fromBlock: "0x" + from.toString(16),
+          toBlock: "0x" + toBlock.toString(16),
+          ...(topic0 ? { topics: [topic0] } : {}),
+        }]);
+      let raw;
+      try {
+        raw = await fetchRange(fromBlock);
+      } catch (e) {
+        if (pinnedFrom || !EVENT_LOGS_SIZE_ERR.test(String(e?.message ?? ""))) throw e;
+        // Default range too busy for the node - narrow toward toBlock until it fits.
+        let span = toBlock - fromBlock + 1;
+        for (;;) {
+          span = Math.floor(span / 2);
+          if (span < 1) throw e;
+          fromBlock = Math.max(0, toBlock - span + 1);
+          try { raw = await fetchRange(fromBlock); break; }
+          catch (e2) { if (!EVENT_LOGS_SIZE_ERR.test(String(e2?.message ?? ""))) throw e2; }
+        }
+      }
+      const all = Array.isArray(raw) ? raw : [];
+      const logs = all.slice(0, EVENT_LOGS_MAX_RETURNED).map((l) => ({
+        blockNumber: Number(BigInt(l.blockNumber)),
+        txHash: l.transactionHash,
+        logIndex: Number(BigInt(l.logIndex ?? "0x0")),
+        topics: l.topics,
+        data: l.data,
+      }));
+      return {
+        network: network.name,
+        address,
+        fromBlock,
+        toBlock,
+        count: logs.length,
+        truncated: all.length > EVENT_LOGS_MAX_RETURNED,
+        logs,
+      };
     },
   },
 ];

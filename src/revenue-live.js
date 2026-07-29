@@ -1242,10 +1242,12 @@ export function revenueChartSection() {
       <span class="rvz-seg" id="rvzScope"><button data-v="ext" class="on">External</button><button data-v="int">Internal (canary)</button><button data-v="both">Both</button></span>
       <span class="rvz-seg" id="rvzWire"><button data-v="all" class="on">All wires</button><button data-v="x402">x402</button><button data-v="mpp">MPP</button></span>
       <span class="rvz-seg" id="rvzTraffic"><button data-v="paid" class="on">Paid</button><button data-v="free">Free (PoW)</button><button data-v="both">Both</button></span>
+      <span class="rvz-seg" id="rvzSettle"><button data-v="all" class="on">All revenue</button><button data-v="sor">SOR (self-funded)</button><button data-v="direct">Direct</button></span>
     </div>
     <p id="rvzBuyersNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzFreeNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzWireNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;">MPP-wire settlements are identified by tx hash from the sales ledger, which began recording the wire on 2026-07-24 - earlier days read as x402 because the wire was not recorded, not because no MPP traffic existed.</p>
+    <p id="rvzSettleNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;">SOR = revenue settled on-chain to the dedicated spending wallet that pays external sellers and upstream data (route-execute tiers + the Blockscout kit) - the self-funding loop. Direct = everything settled to the treasury. The split is by receiving wallet, so revenue from before a tool joined the self-funding set reads as Direct - that is what the chain says, not a gap. The wire split is not tracked within this lane, so selecting it resets the wire filter.</p>
     <div class="rvz-wrap"><svg id="rvzSvg" viewBox="0 0 940 300" width="100%" role="img" aria-label="Stacked daily revenue by chain"></svg><div class="rvz-tip" id="rvzTip"></div></div>
     <div class="rvz-legend" id="rvzLegend"></div>
     <details><summary>view as table</summary><div id="rvzTable" style="overflow-x:auto"></div></details>
@@ -1264,7 +1266,7 @@ export function revenueChartSection() {
       if(state.metric!=="buyers")return CHAIN_ORDER;
       return state.mode==="cum"?["cumbuyers"]:["newbuyers","retbuyers"];
     }
-    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",rows:[],free:[],freeSince:null,buyers:[],conc:null};
+    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",settle:"all",rows:[],free:[],freeSince:null,buyers:[],conc:null};
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
     // Wire filter: MPP and x402 settle identically on-chain, so the MPP subset
@@ -1276,6 +1278,12 @@ export function revenueChartSection() {
       var em=(usd?r.extMppUsd:r.extMppTx)||0, im=(usd?r.intMppUsd:r.intMppTx)||0;
       if(state.wire==="mpp"){e=em;i=im}
       else if(state.wire==="x402"){e=Math.max(0,e-em);i=Math.max(0,i-im)}
+      // Settled-to lane: SOR is the subset received by the spending wallet;
+      // Direct is the remainder, never a separate count - All === SOR + Direct
+      // exactly. Only meaningful at wire="all" (the seg handlers enforce that).
+      var es=(usd?r.extSorUsd:r.extSorTx)||0, is2=(usd?r.intSorUsd:r.intSorTx)||0;
+      if(state.settle==="sor"){e=es;i=is2}
+      else if(state.settle==="direct"){e=Math.max(0,e-es);i=Math.max(0,i-is2)}
       return state.scope==="ext"?e:state.scope==="int"?i:e+i}
     function setSeg(id,v){var el=document.getElementById(id);
       [].slice.call(el.querySelectorAll("button")).forEach(function(b){b.classList.toggle("on",b.dataset.v===v)})}
@@ -1361,6 +1369,10 @@ export function revenueChartSection() {
       el.textContent="Distinct external wallets that settled a payment. Someone paying on two chains in one day is one buyer, and the cumulative line is a running union rather than a sum."+
         (c&&c.buyers?" Over this window: "+c.buyers+" buyers, "+c.payments+" payments, biggest single wallet "+c.topSharePct+"% of them and the top five "+c.top5SharePct+"%.":"");
     }
+    function settleNote(){
+      var el=document.getElementById("rvzSettleNote");
+      el.style.display=state.settle==="all"?"none":"block";
+    }
     function freeNote(){
       var el=document.getElementById("rvzFreeNote");
       if(state.traffic==="paid"){el.style.display="none";return}
@@ -1375,18 +1387,31 @@ export function revenueChartSection() {
     seg("rvzMetric",function(v){state.metric=v;
       // Revenue $ is paid-only: a free call has no dollar value to chart.
       if(v!=="tx"&&state.traffic!=="paid"){state.traffic="paid";setSeg("rvzTraffic","paid")}
-      // Buyers counts settled external wallets, so the internal/canary scope
-      // and the wire split do not apply to it.
+      // Buyers counts settled external wallets, so the internal/canary scope,
+      // the wire split, and the settled-to lane do not apply to it.
       if(v==="buyers"){if(state.scope!=="ext"){state.scope="ext";setSeg("rvzScope","ext")}
-        if(state.wire!=="all"){state.wire="all";setSeg("rvzWire","all")}}
+        if(state.wire!=="all"){state.wire="all";setSeg("rvzWire","all")}
+        if(state.settle!=="all"){state.settle="all";setSeg("rvzSettle","all");settleNote()}}
       freeNote();buyersNote()});
     seg("rvzScope",function(v){state.scope=v;
       if(state.metric==="buyers"){state.metric="tx";setSeg("rvzMetric","tx");buyersNote()}});
     seg("rvzTraffic",function(v){state.traffic=v;
       if(v!=="paid"&&state.metric!=="tx"){state.metric="tx";setSeg("rvzMetric","tx")}
+      if(v!=="paid"&&state.settle!=="all"){state.settle="all";setSeg("rvzSettle","all");settleNote()}
       freeNote();buyersNote()});
     seg("rvzWire",function(v){state.wire=v;
+      // The MPP subset and the SOR subset are not tracked as an intersection -
+      // composing them would fabricate numbers, so they are mutually exclusive.
+      if(v!=="all"&&state.settle!=="all"){state.settle="all";setSeg("rvzSettle","all");settleNote()}
       document.getElementById("rvzWireNote").style.display=v==="all"?"none":"block"});
+    seg("rvzSettle",function(v){state.settle=v;
+      if(v!=="all"){
+        if(state.wire!=="all"){state.wire="all";setSeg("rvzWire","all");document.getElementById("rvzWireNote").style.display="none"}
+        // The SOR lane is settled revenue - the free tier settles nowhere.
+        if(state.traffic!=="paid"){state.traffic="paid";setSeg("rvzTraffic","paid");freeNote()}
+        if(state.metric==="buyers"){state.metric="tx";setSeg("rvzMetric","tx");buyersNote()}
+      }
+      settleNote()});
     // The free-tier series is a separate endpoint (free calls never touch the
     // settlement ledger). A failure there must not blank the revenue chart, so
     // it degrades to an empty free lane rather than rejecting the pair.

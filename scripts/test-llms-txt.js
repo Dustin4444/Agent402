@@ -79,6 +79,12 @@ try {
   // verifying against an unknown address.
   ok(txt.includes("agent402.base.eth"), "llms.txt mentions agent402.base.eth (receiving-wallet trust signal)");
 
+  // The structural no-charge-on-failure guarantee (2026-07-29): the strongest
+  // buyer trust signal we have - competitors market refund PROGRAMS, ours is
+  // settlement ordering. If this line vanishes, agents choosing a seller on
+  // trust copy lose the differentiator.
+  ok(txt.includes("never charged - structurally"), "llms.txt carries the structural no-charge-on-failure guarantee");
+
   // Section count sanity — the file currently has multiple `## ` headers. A
   // floor of 3 catches a regression that collapses the structure into a flat
   // wall of text.

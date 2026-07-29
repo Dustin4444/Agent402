@@ -18,8 +18,9 @@ import { JSDOM } from "jsdom";
 import { revenueChartSection } from "../src/revenue-live.js";
 
 const REV_DAYS = [
-  { day: "2026-06-20", chain: "base", extUsd: 1.5, intUsd: 0.2, extTx: 3, intTx: 1, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0 },
-  { day: "2026-06-21", chain: "solana", extUsd: 0.5, intUsd: 0, extTx: 2, intTx: 0, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0 },
+  // Base day carries a SOR (spending-wallet-settled) subset: $0.50 of the $1.50.
+  { day: "2026-06-20", chain: "base", extUsd: 1.5, intUsd: 0.2, extTx: 3, intTx: 1, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0, extSorUsd: 0.5, extSorTx: 1, intSorUsd: 0, intSorTx: 0 },
+  { day: "2026-06-21", chain: "solana", extUsd: 0.5, intUsd: 0, extTx: 2, intTx: 0, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0, extSorUsd: 0, extSorTx: 0, intSorUsd: 0, intSorTx: 0 },
 ];
 const BUYER_DAYS = [
   { day: "2026-06-20", buyers: 3, newBuyers: 3, returningBuyers: 0, cumulative: 3, unattributed: 0 },
@@ -167,6 +168,57 @@ console.log("revenue chart — free-tier lane");
     click(w, "rvzTraffic", "free");
     click(w, "rvzMetric", "buyers");
     assert.equal(w.document.querySelector("#rvzTraffic button.on").dataset.v, "paid");
+  });
+}
+
+console.log("revenue chart — settled-to (SOR) lane");
+
+{
+  const w = await boot();
+
+  check("SOR lane is the spending-wallet subset ($0.50 of $1.50)", () => {
+    click(w, "rvzSettle", "sor");
+    const txt = w.document.getElementById("rvzTable").textContent;
+    assert.ok(txt.includes("$0.50"), `expected $0.50 SOR revenue, got: ${txt.slice(0, 200)}`);
+    assert.ok(!txt.includes("$1.50"), "SOR view must not show the full total");
+  });
+
+  check("Direct is the remainder, never a separate count (All === SOR + Direct)", () => {
+    click(w, "rvzSettle", "direct");
+    const txt = w.document.getElementById("rvzTable").textContent;
+    // base $1.00 (1.5-0.5) + solana $0.50 → cumulative total $1.50 on day 2
+    assert.ok(txt.includes("$1.00"), `expected $1.00 direct on base, got: ${txt.slice(0, 200)}`);
+  });
+
+  check("SOR lane and wire filter are mutually exclusive (no fabricated intersection)", () => {
+    click(w, "rvzSettle", "all");
+    click(w, "rvzWire", "mpp");
+    click(w, "rvzSettle", "sor");
+    assert.equal(activeOf(w, "rvzWire"), "all", "picking SOR must reset the wire filter");
+    click(w, "rvzWire", "x402");
+    assert.equal(activeOf(w, "rvzSettle"), "all", "picking a wire must reset the SOR lane");
+  });
+
+  check("SOR lane forces paid traffic (free settles nowhere)", () => {
+    click(w, "rvzSettle", "all");
+    click(w, "rvzMetric", "tx");
+    click(w, "rvzTraffic", "free");
+    click(w, "rvzSettle", "sor");
+    assert.equal(activeOf(w, "rvzTraffic"), "paid");
+  });
+
+  check("Buyers metric resets the SOR lane (buyers series has no wallet split)", () => {
+    click(w, "rvzMetric", "buyers");
+    assert.equal(activeOf(w, "rvzSettle"), "all");
+  });
+
+  check("the settle note explains the lane only when active", () => {
+    const note = w.document.getElementById("rvzSettleNote");
+    assert.equal(note.style.display, "none", "note hidden at settle=all");
+    click(w, "rvzMetric", "tx");
+    click(w, "rvzSettle", "sor");
+    assert.equal(note.style.display, "block", "note visible on the SOR lane");
+    assert.ok(note.textContent.includes("spending wallet"), "note names the spending wallet");
   });
 }
 

@@ -59,8 +59,8 @@ const NETWORK = new Set([
   // Blockscout kit: paid x402 upstream — 503 without X402_UPSTREAM_BUYER_KEY
   // (CI boots keyless; the real path costs $0.002/call and is canary-class).
   "/api/contract-inspect", "/api/address-profile", "/api/token-info", "/api/token-holders", "/api/tx-inspect",
-  // route-execute-max: external tier may pay an upstream seller — lenient.
-  "/api/route/execute-max",
+  // route-execute-max/-plus: external tiers may pay an upstream seller — lenient.
+  "/api/route/execute-max", "/api/route/execute-plus",
   // captcha-verify hits a live provider siteverify (egress) — lenient.
   "/api/captcha-verify",
   "/api/pdf-info", "/api/pdf-merge", "/api/pdf-extract-pages", "/api/pdf-rotate", "/api/images-to-pdf",
@@ -242,6 +242,8 @@ const NETWORK = new Set([
   // Image generation kit: every call hits OpenAI GPT Image API upstream.
   // Returns 503 without OPENAI_API_KEY — same tolerance as LLM proxy.
   "/api/image-gen", "/api/image-gen-hd", "/api/image-gen-premium",
+  // Named chain-read primitives (chain-kit 2026-07-29): live public-RPC reads.
+  "/api/block-number", "/api/chain-info", "/api/block-info", "/api/erc721-owner", "/api/contract-code", "/api/event-logs",
   // TTS kit: every call hits OpenAI TTS API upstream.
   "/api/tts", "/api/tts-hd",
   // STT kit: fetches external audio + hits OpenAI transcription API.

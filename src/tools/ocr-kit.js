@@ -101,7 +101,7 @@ export const OCR_TOOLS = [
     price: "$0.01",
     description:
       "Extract text from an image (PNG/JPEG): returns the full text, overall confidence (0-100), and per-line bounding boxes. Send either {image: base64} or {url: 'https://…'}. Pure-CPU Tesseract via tesseract.js - no upstream API, no keys. Default lang 'eng'; pass 'lang' (ISO 639-2) for others.",
-    tags: ["ocr", "image", "text-extraction", "tesseract", "scanned-document", "receipt"],
+    tags: ["ocr", "image", "text-extraction", "tesseract", "scanned-document", "receipt", "extract", "text"],
     discovery: {
       bodyType: "json",
       input: { url: "https://tesseract.projectnaptha.com/img/eng_bw.png" },

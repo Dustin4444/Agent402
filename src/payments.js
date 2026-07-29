@@ -271,7 +271,20 @@ export const isIdentityBoundRoute = (def) =>
 // payTo. Gated on a configured burner address (X402_UPSTREAM_BUYER_ADDRESS) so a
 // clone without one falls back to the treasury, unchanged. A periodic
 // burner->treasury sweep (scripts/sweep-burner.js) keeps the hot wallet bounded.
-export const SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-max"]);
+// EVERY tier must be here: a tier missing from this set settles its revenue
+// to the treasury while its external spends drain the burner - the one-way
+// leak this mechanism exists to close (the plus tier shipped without it for
+// one commit on 2026-07-29; test-route-execute now locks the set against
+// EXEC_TIERS so the next tier cannot repeat that).
+export const SELF_FUNDING_SLUGS = new Set([
+  "route-execute", "route-execute-plus", "route-execute-max",
+  // Blockscout kit (2026-07-29, Mike's rule: everything that spends from the
+  // burner settles to the burner): each call pays Blockscout ~$0.002 upstream
+  // from the same wallet, so treasury-settled revenue was a slow one-way
+  // drain needing manual top-ups. Revenue attribution already handles the
+  // burner on both sides (receiver = revenue, payer/sweeps = internal).
+  "contract-inspect", "address-profile", "token-info", "token-holders", "tx-inspect",
+]);
 const UPSTREAM_BUYER_ADDRESS = (process.env.X402_UPSTREAM_BUYER_ADDRESS || "").trim();
 
 // ---------------------------------------------------------------------------

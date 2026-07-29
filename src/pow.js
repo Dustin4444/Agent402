@@ -98,6 +98,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // x402 payments toolkit — kept off the free connector (paid surface only).
   "x402-quote", "usdc-balance", "tx-status", "gas-estimate", "x402-verify", "transfer-authorization", "ens-resolve", "x402-audit",
   "route-execute-max", // external tier can spend upstream — wallet-only
+  "route-execute-plus", // same reasoning: proportional middle tier, spends upstream
   // x402-trending is the PAID ecosystem-analysis layer (momentum + organic-buyer
   // grade + week-over-week growth); the raw seller ranking stays free at
   // /api/leaderboard. Pay-only so the differentiated analysis is monetized.
@@ -117,6 +118,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   // paid upstream / exhaust the shared quota.
   "wallet-balance", "token-metadata", "token-price", "wallet-transactions",
   "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call", "evm-rpc",
+  // Named chain-read primitives (2026-07-29): same shared public-RPC pool +
+  // Alchemy lane as evm-rpc — PoW would let one client farm the quota.
+  "block-number", "chain-info", "block-info", "erc721-owner", "contract-code", "event-logs",
   // Contract-kit: Sourcify (contract-source / contract-abi), openchain.xyz +
   // 4byte.directory signature DBs (selector-lookup, and calldata-decode's
   // no-ABI fallback path), and the shared keyless public RPC pool

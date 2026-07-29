@@ -42,6 +42,19 @@ const proc = spawn(process.execPath, [join(ROOT, "src", "server.js")], {
 const TOP1 = [
   ["extract article from URL",     "extract"],
   ["make a qr code",                "qr"],
+  // Named chain-read primitives (2026-07-29): before these existed, "block
+  // number" ranked number-format and "event logs" ranked kalshi-event - the
+  // first-buy queries the OneSource cohort proves agents actually type.
+  ["block number",                  "block-number"],
+  ["latest block",                  "block-number"],
+  ["event logs",                    "event-logs"],
+  ["nft owner",                     "erc721-owner"],
+  // Discovery-defense probe (2026-07-29): 20 competitor-alias task phrases
+  // tested against live find; 17 ranked right, these 3 were the misses,
+  // fixed with targeted tags. Locked so they stay fixed.
+  ["extract text from image",       "image-ocr"],
+  ["token balance",                 "wallet-balance"],
+  ["ens lookup",                    "ens-resolve"],
   ["lookup whois for a domain",    "whois"],
   ["geocode an address",            "geocode"],
   ["validate an email address",    "email-validate"],
