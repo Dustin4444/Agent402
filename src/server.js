@@ -62,7 +62,7 @@ import { createMppShim } from "./mpp-shim.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
 import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
-import { SEARCH_TOOLS } from "./tools/search.js";
+import { SEARCH_TOOLS, braveCallMeter } from "./tools/search.js";
 import { PDF_TOOLS } from "./tools/pdf-kit.js";
 import { DEMAND_TOOLS } from "./tools/demand-kit.js";
 import { MEDIA_TOOLS as MEDIA_TOOLS_RAW } from "./tools/media-kit.js";
@@ -1498,7 +1498,11 @@ app.get("/__operator", (req, res) => {
 });
 app.get("/__operator/stats", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
-  res.json(getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS }));
+  // upstreamCalls: outbound PAID-upstream spend counted where it actually
+  // leaves the process. The Brave reconciliation (2026-07-28) could not be
+  // closed from inbound telemetry alone, because calls made by CI never reach
+  // PostHog. This is the number to compare against a provider's own dashboard.
+  res.json({ ...getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS }), upstreamCalls: { brave: braveCallMeter() } });
 });
 app.get("/__operator/wishes", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");

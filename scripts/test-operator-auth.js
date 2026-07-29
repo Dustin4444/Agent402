@@ -25,7 +25,7 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
 
 (async () => {
   let up = false;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 80; i++) {
     try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* */ }
     await wait(250);
   }

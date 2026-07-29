@@ -30,7 +30,7 @@ async function testSigterm() {
 
   // Wait for the server to be listening.
   let up = false;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 80; i++) {
     try {
       const r = await fetch(`http://localhost:${port}/health`);
       if (r.ok) { up = true; break; }

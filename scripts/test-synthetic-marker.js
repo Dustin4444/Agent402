@@ -63,7 +63,7 @@ try {
   // Wait for the listener. /health is a free, unpaywalled endpoint that
   // returns immediately once Express is bound.
   let booted = false;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 80; i++) {
     try {
       const r = await fetch(BASE + "/health");
       if (r.ok) { booted = true; break; }
