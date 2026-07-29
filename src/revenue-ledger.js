@@ -409,6 +409,10 @@ export function ledgerDaily(wallets, mppTx = null) {
   };
   const rows = db.prepare("SELECT chain, wallet, block, when_ts, usd, external, tx_hash FROM transfers WHERE wallet = ?");
   const chains = walletPairs(wallets);
+  // Settled-to split: rows received by the SOR spending wallet (self-funding
+  // slugs: route-execute tiers + Blockscout kit) vs the treasury. On-chain
+  // truth by receiving wallet - the /revenue SOR filter reads these fields.
+  const sorWallets = new Set((wallets.baseExtraWallets || []).filter(Boolean).map((w) => w.toLowerCase()));
   const byDay = new Map(); // "YYYY-MM-DD|chain" -> {extUsd, extTx, intUsd, intTx}
   for (const [chain, wallet] of chains) {
     if (!wallet) continue;
@@ -426,14 +430,18 @@ export function ledgerDaily(wallets, mppTx = null) {
       const b = byDay.get(key) || {
         day, chain, extUsd: 0, extTx: 0, intUsd: 0, intTx: 0,
         extMppUsd: 0, extMppTx: 0, intMppUsd: 0, intMppTx: 0,
+        extSorUsd: 0, extSorTx: 0, intSorUsd: 0, intSorTx: 0,
       };
       const mpp = isMpp(t.tx_hash);
+      const sor = sorWallets.has(wallet);
       if (t.external) {
         b.extUsd += t.usd; b.extTx += 1;
         if (mpp) { b.extMppUsd += t.usd; b.extMppTx += 1; }
+        if (sor) { b.extSorUsd += t.usd; b.extSorTx += 1; }
       } else if (t.usd <= MAX_CALL_USD) { // canary-sized only
         b.intUsd += t.usd; b.intTx += 1;
         if (mpp) { b.intMppUsd += t.usd; b.intMppTx += 1; }
+        if (sor) { b.intSorUsd += t.usd; b.intSorTx += 1; }
       }
       byDay.set(key, b);
     }

@@ -11,7 +11,7 @@ import { join } from "node:path";
 const dir = mkdtempSync(join(tmpdir(), "a402-ledger-"));
 process.env.REVENUE_LEDGER_DB = join(dir, "test-revenue.db");
 
-const { recordTransfer, ledgerSummary, startRevenueLedger } = await import("../src/revenue-ledger.js");
+const { recordTransfer, ledgerSummary, startRevenueLedger, ledgerDaily } = await import("../src/revenue-ledger.js");
 
 let passed = 0, failed = 0;
 const ok = (cond, msg) => {
@@ -65,6 +65,23 @@ if (!existsSync("/data")) {
   ok(startRevenueLedger(wallets) === false, "sync loop self-gates off without /data or REVENUE_LEDGER=true");
 } else {
   console.log("(/data exists on this machine — gate check skipped)");
+}
+
+// --- settled-to (SOR) split in the daily series ------------------------------
+// Rows received by the spending wallet (baseExtraWallets) must land in the
+// extSor/intSor fields AS A SUBSET of ext/int - the /revenue SOR filter's
+// All === SOR + Direct identity depends on it.
+{
+  const SORW = "0x77065d81e18ad403bcd6e9a0616b288e16744121";
+  recordTransfer({ chain: "base", wallet: SORW, txid: "0xeee:0", tx_hash: "0xeee", block: 103, when_ts: 1781956800, payer: "0x3333333333333333333333333333333333333333", usd: 0.05, asset: "USDC", external: true });
+  recordTransfer({ chain: "base", wallet: W, txid: "0xfff:0", tx_hash: "0xfff", block: 104, when_ts: 1781956800, payer: "0x4444444444444444444444444444444444444444", usd: 0.01, asset: "USDC", external: true });
+  const daily = ledgerDaily({ ...wallets, baseExtraWallets: [SORW] });
+  const day = daily.find((d) => d.chain === "base" && d.day === "2026-06-20");
+  ok(!!day, "seeded base day appears in the daily series");
+  ok(day && Math.abs(day.extSorUsd - 0.05) < 1e-9 && day.extSorTx === 1, "spending-wallet inbound lands in the SOR fields");
+  ok(day && day.extUsd >= day.extSorUsd && day.extTx >= day.extSorTx, "SOR is a subset of external, never a separate count");
+  const treasuryOnly = ledgerDaily(wallets);
+  ok(treasuryOnly.every((d) => !(d.extSorUsd > 0 || d.intSorUsd > 0)), "no extra wallets configured -> SOR fields stay zero");
 }
 
 rmSync(dir, { recursive: true, force: true });
