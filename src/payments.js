@@ -276,6 +276,12 @@ export const isIdentityBoundRoute = (def) =>
 // leak this mechanism exists to close (the plus tier shipped without it for
 // one commit on 2026-07-29; test-route-execute now locks the set against
 // EXEC_TIERS so the next tier cannot repeat that).
+// Router tiers only - the subset whose Algorand revenue is chain-matched to
+// the AVM spending wallet (see avmPayToFor). Blockscout stays out: its
+// upstream spend is Base-pinned regardless of the buyer's rail.
+export const AVM_SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-plus", "route-execute-max"]);
+const AVM_UPSTREAM_BUYER_ADDRESS = (process.env.ALGORAND_UPSTREAM_BUYER_ADDRESS || "").trim();
+
 export const SELF_FUNDING_SLUGS = new Set([
   "route-execute", "route-execute-plus", "route-execute-max",
   // Blockscout kit (2026-07-29, Mike's rule: everything that spends from the
@@ -333,8 +339,16 @@ export function priceWithPremium(price, network, premiums = NETWORK_PREMIUMS) {
 export function acceptsForItem(item, rails) {
   const { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet } = rails;
   const burner = rails.upstreamBuyerAddress ?? UPSTREAM_BUYER_ADDRESS;
+  const avmBuyer = rails.avmUpstreamBuyerAddress ?? AVM_UPSTREAM_BUYER_ADDRESS;
   const payToFor = (caip2) =>
     burner && caip2 === "eip155:8453" && SELF_FUNDING_SLUGS.has(item.slug) ? burner : walletAddress;
+  // Chain-matched self-funding for Algorand (2026-07-29, same rule as Base):
+  // an Algorand buyer's route-execute payment funds the AVM spending wallet
+  // that pays Algorand sellers on their behalf. ROUTER TIERS ONLY - the
+  // Blockscout kit's upstream spend is pinned to Base (payX402), so routing
+  // its Algorand revenue to the AVM wallet would fund the wrong wallet.
+  const avmPayToFor = () =>
+    avmBuyer && AVM_SELF_FUNDING_SLUGS.has(item.slug) ? avmBuyer : algorandWallet;
   const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: priceWithPremium(item.price, caip2), network: caip2 }));
   if (item.identityBound) return evm;
   return [
@@ -346,7 +360,7 @@ export function acceptsForItem(item, rails) {
     // Bazaar + leaderboard attribute challenge entries by `extra.tag`, and the
     // challenge-filtered views hide untagged merchants entirely. Scheme-level
     // fields (decimals/feePayer) are merged in by the facilitator downstream.
-    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: algorandWallet, price: priceWithPremium(item.price, caip2), network: caip2, extra: { tag: "x402-global-challenge" } })) : []),
+    ...(algorandWallet ? avmCaip2.map((caip2) => ({ scheme: "exact", payTo: avmPayToFor(), price: priceWithPremium(item.price, caip2), network: caip2, extra: { tag: "x402-global-challenge" } })) : []),
   ];
 }
 

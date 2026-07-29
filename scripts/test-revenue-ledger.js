@@ -82,6 +82,15 @@ if (!existsSync("/data")) {
   ok(day && day.extUsd >= day.extSorUsd && day.extTx >= day.extSorTx, "SOR is a subset of external, never a separate count");
   const treasuryOnly = ledgerDaily(wallets);
   ok(treasuryOnly.every((d) => !(d.extSorUsd > 0 || d.intSorUsd > 0)), "no extra wallets configured -> SOR fields stay zero");
+
+  // Algorand chain-matched self-funding: the AVM spending wallet's inbound
+  // joins the SOR lane WITHOUT case-folding (folding a base58-family address
+  // merges distinct wallets - same rule as src/payer.js).
+  const AVMW = "W4GZHN36X35LGSJTTLNZNFPGSSBLMJKFLCMZK4NBLQGUS6PYPPCDB67UOE";
+  recordTransfer({ chain: "algorand", wallet: AVMW, txid: "ALGOTX1", tx_hash: "ALGOTX1", block: 200, when_ts: 1781956800, payer: "SOMEALGOBUYERXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", usd: 0.02, asset: "USDC", external: true });
+  const withAvm = ledgerDaily({ ...wallets, algorandWallet: "ALGOTREASURYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX", algorandExtraWallets: [AVMW] });
+  const algoDay = withAvm.find((d) => d.chain === "algorand" && d.day === "2026-06-20");
+  ok(!!algoDay && Math.abs(algoDay.extSorUsd - 0.02) < 1e-9, "AVM spending-wallet inbound lands in the SOR fields, address never case-folded");
 }
 
 rmSync(dir, { recursive: true, force: true });

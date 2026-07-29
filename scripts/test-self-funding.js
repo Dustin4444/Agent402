@@ -44,6 +44,36 @@ ok(hash.every((a) => a.network.startsWith("eip155:") ? a.payTo === TREASURY : tr
 const noBurner = acceptsForItem({ slug: "route-execute", price: "$0.01" }, { ...rails, upstreamBuyerAddress: "" });
 ok(noBurner.find((a) => a.network === "eip155:8453").payTo === TREASURY, "no burner address -> route-execute Base falls back to treasury");
 
+// --- chain-matched Algorand self-funding (2026-07-29, same rule as Base) -----
+// An Algorand buyer's route-execute payment settles to the AVM spending wallet
+// that pays Algorand sellers. ROUTER TIERS ONLY: the Blockscout kit spends
+// from the BASE wallet regardless of the buyer's rail, so its Algorand
+// revenue must keep the treasury payTo - routing it to the AVM wallet would
+// fund the wrong wallet.
+{
+  const ALGO_TREASURY = "ALGOTREASURYXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+  const AVM_BUYER = "W4GZHN36X35LGSJTTLNZNFPGSSBLMJKFLCMZK4NBLQGUS6PYPPCDB67UOE";
+  const avmRails = {
+    ...rails,
+    avmCaip2: ["algorand:mainnet"],
+    algorandWallet: ALGO_TREASURY,
+    avmUpstreamBuyerAddress: AVM_BUYER,
+  };
+  for (const slug of ["route-execute", "route-execute-plus", "route-execute-max"]) {
+    const a = acceptsForItem({ slug, price: "$0.01" }, avmRails).find((x) => x.network === "algorand:mainnet");
+    ok(a?.payTo === AVM_BUYER, `${slug} Algorand leg pays the AVM spending wallet (chain-matched self-funding)`);
+  }
+  const bs = acceptsForItem({ slug: "contract-inspect", price: "$0.005" }, avmRails).find((x) => x.network === "algorand:mainnet");
+  ok(bs?.payTo === ALGO_TREASURY, "Blockscout Algorand leg keeps the treasury (its spend is Base-pinned)");
+  const plain = acceptsForItem({ slug: "hash", price: "$0.001" }, avmRails).find((x) => x.network === "algorand:mainnet");
+  ok(plain?.payTo === ALGO_TREASURY, "a normal tool's Algorand leg pays the treasury");
+  const unset = acceptsForItem({ slug: "route-execute", price: "$0.01" }, { ...avmRails, avmUpstreamBuyerAddress: "" })
+    .find((x) => x.network === "algorand:mainnet");
+  ok(unset?.payTo === ALGO_TREASURY, "no AVM buyer address -> Algorand leg falls back to treasury (safe default)");
+  const challengeTag = acceptsForItem({ slug: "route-execute", price: "$0.01" }, avmRails).find((x) => x.network === "algorand:mainnet");
+  ok(challengeTag?.extra?.tag === "x402-global-challenge", "the challenge tag survives the payTo override");
+}
+
 // buyerPaymentNetwork decodes the CAIP-2 from X-PAYMENT — in BOTH real wire
 // shapes. v1 carries `network` top-level; v2 carries the chosen accept under
 // `accepted` with the network inside it. The old test here encoded a payload
