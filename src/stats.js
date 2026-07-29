@@ -42,6 +42,12 @@ db.exec(`
   -- never be the source of a time series. One row per (day, method) — three
   -- methods x 365 days is ~1k rows a year, so this is never pruned.
   CREATE TABLE IF NOT EXISTS daily_calls (day TEXT NOT NULL, method TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, method));
+  -- Outbound PAID-upstream call meter, day-bucketed (2026-07-29). The in-memory
+  -- meter in search.js resets on every redeploy, so it cannot reconcile a
+  -- billing MONTH against the provider's dashboard; this table is the
+  -- deploy-proof series that can. One row per (day, upstream, caller) -
+  -- a handful of upstreams x a handful of callers x 365 days - never pruned.
+  CREATE TABLE IF NOT EXISTS daily_upstream_calls (day TEXT NOT NULL, upstream TEXT NOT NULL, caller TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, upstream, caller));
 `);
 
 const RECENT_KEEP = 200; // rows retained
@@ -73,6 +79,8 @@ const getRecentAll = db.prepare("SELECT slug, method, ts FROM recent_calls ORDER
 // failed and when. Pruned to the most recent 200 events, same as recent_calls.
 const bumpDaily = db.prepare("INSERT INTO daily_calls (day, method, n) VALUES (?, ?, 1) ON CONFLICT(day, method) DO UPDATE SET n = n + 1");
 const allDaily = db.prepare("SELECT day, method, n FROM daily_calls ORDER BY day, method");
+const bumpUpstream = db.prepare("INSERT INTO daily_upstream_calls (day, upstream, caller, n) VALUES (?, ?, ?, 1) ON CONFLICT(day, upstream, caller) DO UPDATE SET n = n + 1");
+const dailyUpstream = db.prepare("SELECT day, caller, n FROM daily_upstream_calls WHERE upstream = ? ORDER BY day, caller");
 const insertChargedFailure = db.prepare("INSERT INTO charged_failures (slug, status, ts) VALUES (?, ?, ?)");
 const pruneChargedFailures = db.prepare("DELETE FROM charged_failures WHERE id <= (SELECT MAX(id) FROM charged_failures) - ?");
 const getChargedFailures = db.prepare("SELECT slug, status, ts FROM charged_failures ORDER BY id DESC LIMIT ?");
@@ -271,6 +279,27 @@ export function getDailyCalls() {
     byDay.set(r.day, d);
   }
   return [...byDay.values()].sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : 0));
+}
+
+/**
+ * Record one outbound call to a paid upstream (e.g. "brave"), day-bucketed in
+ * UTC like daily_calls. Best-effort: metering must never break serving.
+ */
+export function recordUpstreamCall(upstream, caller = "unknown") {
+  try {
+    bumpUpstream.run(new Date().toISOString().slice(0, 10), String(upstream), String(caller));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Day-bucketed outbound-call rows for one upstream: [{day, caller, n}]. */
+export function getDailyUpstreamCalls(upstream) {
+  try {
+    return dailyUpstream.all(String(upstream));
+  } catch {
+    return [];
+  }
 }
 
 /** First day the daily tally recorded anything, or null before the first call. */
