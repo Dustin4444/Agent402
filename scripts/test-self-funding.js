@@ -15,7 +15,17 @@ const rails = {
   upstreamBuyerAddress: BURNER,
 };
 
-ok(SELF_FUNDING_SLUGS.has("route-execute") && SELF_FUNDING_SLUGS.has("route-execute-max"), "both route-execute tiers are self-funding slugs");
+ok(SELF_FUNDING_SLUGS.has("route-execute") && SELF_FUNDING_SLUGS.has("route-execute-plus") && SELF_FUNDING_SLUGS.has("route-execute-max"), "all three route-execute tiers are self-funding slugs");
+// Mike's rule (2026-07-29): everything that SPENDS from the burner SETTLES to
+// the burner. The Blockscout kit pays ~$0.002/call upstream from the same
+// wallet - if any of these five drops out of the set, its revenue goes to the
+// treasury while its costs drain the burner, a one-way leak.
+{
+  const { BLOCKSCOUT_TOOLS } = await import("../src/tools/blockscout-kit.js");
+  for (const t of BLOCKSCOUT_TOOLS) {
+    ok(SELF_FUNDING_SLUGS.has(t.slug), `burner-spending tool ${t.slug} is self-funding (settles to the burner)`);
+  }
+}
 
 // route-execute: Base leg -> burner, other EVM + Solana -> treasury
 const re = acceptsForItem({ slug: "route-execute", price: "$0.01" }, rails);
