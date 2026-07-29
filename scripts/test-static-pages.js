@@ -80,9 +80,9 @@ try {
       // here) — its nav/footer must not link the retired standalone paths.
       ok(!body.includes('href="/economy"'), "/marketplace nav/footer carries no /economy link");
       ok(!body.includes('href="/index"'), "/marketplace nav/footer carries no /index link");
-      // The folded economy strip: three live surfaces link to
-      // /marketplace#economy (footer Economy link + the /economy and
-      // /x402-economy 301s), and the route always renders the anchor —
+      // The folded economy strip: the /economy and /x402-economy 301s land on
+      // /marketplace#economy (the footer's own Economy link was removed
+      // 2026-07-29 as duplicative), and the route always renders the anchor —
       // x402EconomySnapshot never rejects (an errored snapshot keeps the
       // anchor with an honest "unavailable" line).
       ok(body.includes('id="economy"'), '/marketplace renders the id="economy" anchor');

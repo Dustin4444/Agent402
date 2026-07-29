@@ -396,10 +396,10 @@ for (const c of NEW_CHAINS) {
 }
 
 // Economy strip (Task 8) — marketPageAll accepts an optional economySnap and
-// renders a compact stats strip whose container carries id="economy" (three
-// live surfaces link to /marketplace#economy: the footer Economy link and the
-// /economy + /x402-economy 301s, so the anchor must exist when a snapshot
-// renders). Bound to x402EconomySnapshot()'s REAL shape — totals.last7d
+// renders a compact stats strip whose container carries id="economy" (the
+// /economy + /x402-economy 301s land on /marketplace#economy, so the anchor
+// must exist when a snapshot renders; the footer's own Economy link was
+// removed 2026-07-29 as duplicative of the Marketplace link beside it). Bound to x402EconomySnapshot()'s REAL shape — totals.last7d
 // {settlements, payers, merchants, volumeUsd} + totals.last30d {settlements} —
 // defensively: a missing field drops its cell, never NaN/undefined text.
 {
