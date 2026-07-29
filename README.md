@@ -140,8 +140,8 @@ free [`GET /v1/models`](https://agent402.tools/v1/models) listing every model wi
 its tier and caps. A real-money canary buys from every one of these surfaces
 daily — streaming, routing disclosure, and both cache behaviors included.
 
-Two companion tools close the loop: `POST /api/route/execute` ($0.01, or the
-$0.55 `execute-max` tier for pricier tools) resolves a task description to the
+Two companion tools close the loop: `POST /api/route/execute` ($0.01, with
+`execute-plus` $0.05 and `execute-max` $0.55 tiers for pricier tools) resolves a task description to the
 best tool and runs it in one paid call, including, with `include:"external"`,
 tools sold by **other x402 sellers** (it routes only to sellers with proven
 on-chain settled volume, pays them on your behalf **on the chain you paid on** —

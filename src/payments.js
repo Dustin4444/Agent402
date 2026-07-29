@@ -284,7 +284,7 @@ const AVM_UPSTREAM_BUYER_ADDRESS = (process.env.ALGORAND_UPSTREAM_BUYER_ADDRESS 
 
 export const SELF_FUNDING_SLUGS = new Set([
   "route-execute", "route-execute-plus", "route-execute-max",
-  // Blockscout kit (2026-07-29, Mike's rule: everything that spends from the
+  // Blockscout kit (2026-07-29, the house rule: everything that spends from the
   // burner settles to the burner): each call pays Blockscout ~$0.002 upstream
   // from the same wallet, so treasury-settled revenue was a slow one-way
   // drain needing manual top-ups. Revenue attribution already handles the

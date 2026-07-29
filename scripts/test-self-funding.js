@@ -16,7 +16,7 @@ const rails = {
 };
 
 ok(SELF_FUNDING_SLUGS.has("route-execute") && SELF_FUNDING_SLUGS.has("route-execute-plus") && SELF_FUNDING_SLUGS.has("route-execute-max"), "all three route-execute tiers are self-funding slugs");
-// Mike's rule (2026-07-29): everything that SPENDS from the burner SETTLES to
+// House rule (2026-07-29): everything that SPENDS from the burner SETTLES to
 // the burner. The Blockscout kit pays ~$0.002/call upstream from the same
 // wallet - if any of these five drops out of the set, its revenue goes to the
 // treasury while its costs drain the burner, a one-way leak.
