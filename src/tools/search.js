@@ -9,6 +9,7 @@
 // out — the handlers below only differ in path + result shape.
 
 import { markUntrusted } from "./provenance.js";
+import { recordUpstreamCall } from "../stats.js";
 
 const BRAVE_HOST = "https://api.search.brave.com/res/v1";
 
@@ -27,6 +28,9 @@ function meterBrave(path, caller) {
   braveMeter.total++;
   braveMeter.byPath[path] = (braveMeter.byPath[path] || 0) + 1;
   braveMeter.byCaller[caller] = (braveMeter.byCaller[caller] || 0) + 1;
+  // Day-bucketed persistent copy: the in-memory meter above resets on every
+  // redeploy, so only the stats-DB series can reconcile a billing MONTH.
+  recordUpstreamCall("brave", caller);
   // One line per 10 minutes max: enough to correlate with Brave's daily CSV
   // without flooding the deploy log.
   const now = Date.now();

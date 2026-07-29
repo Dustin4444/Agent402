@@ -192,7 +192,7 @@ import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
 // per-IP bucket. PoW redemption on the direct HTTP path goes through here.
 const powHttpLimiter = createRateLimiter("pow-http");
-import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince } from "./stats.js";
+import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
 const PORT = process.env.PORT || 3000;
@@ -1502,7 +1502,9 @@ app.get("/__operator/stats", (req, res) => {
   // leaves the process. The Brave reconciliation (2026-07-28) could not be
   // closed from inbound telemetry alone, because calls made by CI never reach
   // PostHog. This is the number to compare against a provider's own dashboard.
-  res.json({ ...getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS }), upstreamCalls: { brave: braveCallMeter() } });
+  // `daily` is the deploy-proof series (stats DB, UTC day buckets): the number
+  // to sum over a billing month; the in-memory fields reset on every redeploy.
+  res.json({ ...getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS }), upstreamCalls: { brave: { ...braveCallMeter(), daily: getDailyUpstreamCalls("brave") } } });
 });
 app.get("/__operator/wishes", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
