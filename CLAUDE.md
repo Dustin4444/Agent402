@@ -307,7 +307,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   service now has `healthcheckPath=/health` (timeout 120s), so traffic only
   switches to a new container after it actually serves — deploys should no
   longer produce the blip at all (drain side was already covered by
-  `RAILWAY_DEPLOYMENT_DRAINING_SECONDS`).
+  `RAILWAY_DEPLOYMENT_DRAINING_SECONDS`). The GitHub heartbeat prober has the
+  SAME single-retry semantics (`scripts/heartbeat-probe.sh` probe() wraps
+  probe_once(), `PROBE_RETRY_DELAY` default 20s) — added later the same day
+  after a sub-minute incident recorded at 03:40Z proved the worker-only fix
+  left this observer blipping.
   `scripts/test-status-probe-worker.js` (11 assertions, stubbed fetch, in CI) pins the
   quiet regressions: a 200 where a 402 is required, a collapsed catalog, a rail silently
   missing from the offer, and "one dead endpoint must not abort the other checks".
