@@ -346,11 +346,15 @@ export async function syncAlgorand(wallet, { maxPages = 5 } = {}) {
 // treasury-only scan missed entirely.
 // EVM rows are stored lowercase (sync normalizes); Solana base58, Stellar
 // G… addresses, and Algorand base32 addresses are all case-exact.
-function walletPairs({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [] }) {
+function walletPairs({ walletAddress, solanaWallet, stellarWallet, algorandWallet, baseExtraWallets = [], algorandExtraWallets = [] }) {
   return [
     ...Object.keys(EVM).map((k) => [k, walletAddress?.toLowerCase()]),
     ...baseExtraWallets.filter(Boolean).map((w) => ["base", w.toLowerCase()]),
     ["solana", solanaWallet], ["stellar", stellarWallet], ["algorand", algorandWallet],
+    // AVM spending wallet (chain-matched self-funding). Base58-family
+    // addresses are NEVER case-folded - folding merges distinct wallets
+    // (same rule as src/payer.js).
+    ...algorandExtraWallets.filter(Boolean).map((w) => ["algorand", w]),
   ];
 }
 
@@ -412,7 +416,11 @@ export function ledgerDaily(wallets, mppTx = null) {
   // Settled-to split: rows received by the SOR spending wallet (self-funding
   // slugs: route-execute tiers + Blockscout kit) vs the treasury. On-chain
   // truth by receiving wallet - the /revenue SOR filter reads these fields.
-  const sorWallets = new Set((wallets.baseExtraWallets || []).filter(Boolean).map((w) => w.toLowerCase()));
+  const sorWallets = new Set([
+    ...(wallets.baseExtraWallets || []).filter(Boolean).map((w) => w.toLowerCase()),
+    // AVM addresses join verbatim - never case-folded.
+    ...(wallets.algorandExtraWallets || []).filter(Boolean),
+  ]);
   const byDay = new Map(); // "YYYY-MM-DD|chain" -> {extUsd, extTx, intUsd, intTx}
   for (const [chain, wallet] of chains) {
     if (!wallet) continue;

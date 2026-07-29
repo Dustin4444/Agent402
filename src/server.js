@@ -1129,6 +1129,9 @@ const revenueWallets = () => ({
   // on Base only; its sweeps OUT to the treasury classify internal via
   // OUR_EVM_WALLETS.
   baseExtraWallets: [(process.env.X402_UPSTREAM_BUYER_ADDRESS || "").trim() || null].filter(Boolean),
+  // The AVM spending wallet receives route-execute's Algorand leg (chain-
+  // matched self-funding, same rule as Base) — that inbound is revenue.
+  algorandExtraWallets: [(process.env.ALGORAND_UPSTREAM_BUYER_ADDRESS || "").trim() || null].filter(Boolean),
 });
 app.get("/api/revenue", async (_req, res) => {
   try {
