@@ -1149,6 +1149,9 @@ jobs:
       - name: Paid-upstream leak guard (Brave + E2B — every metered route/pack must be skipped — offline)
         run: node scripts/test-brave-leak.js
 
+      - name: Persistent upstream meter (day buckets, caller split, restart survival — offline)
+        run: node scripts/test-upstream-meter.js
+
       - name: SQL execution-certificate firewall (risk catalogue, false-positive guards, cert binding — offline)
         run: node scripts/test-sql-guard.js
 
