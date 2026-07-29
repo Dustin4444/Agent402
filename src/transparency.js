@@ -11,7 +11,39 @@ const CREATION_TX = "0x6cf72dd5caf166c2a5c595b100b3a4ca51e0453489caa1636820bc231
 const CLAIM_TX = "0xf843a85897343ba1888760ecf07398b99d73d4acb4aee84b4c35ef8411d43605";
 const SCOUT = "https://robinhoodchain.blockscout.com";
 
-export function transparencyPage(baseUrl) {
+// GitHub adoption numbers for the "who is taking the code" section. The
+// traffic API needs push-level access, so this is env-gated on
+// GITHUB_TRAFFIC_TOKEN (a fine-grained PAT with repository Administration
+// read, or a classic repo-scope token); unset or under-scoped, the getter
+// returns null and the section is simply omitted - never an error, never a
+// fabricated zero. 1h cache; GitHub's window is a rolling 14 days.
+let trafficCache = { at: 0, data: null };
+export async function repoTraffic() {
+  const token = (process.env.GITHUB_TRAFFIC_TOKEN || "").trim();
+  if (!token) return null;
+  const now = Date.now();
+  if (now - trafficCache.at < 3600_000) return trafficCache.data;
+  try {
+    const hdrs = { Authorization: `Bearer ${token}`, "User-Agent": "agent402-transparency" };
+    const [c, v] = await Promise.all([
+      fetch("https://api.github.com/repos/MikeyPetrillo/Agent402/traffic/clones", { headers: hdrs, signal: AbortSignal.timeout(10000) }),
+      fetch("https://api.github.com/repos/MikeyPetrillo/Agent402/traffic/views", { headers: hdrs, signal: AbortSignal.timeout(10000) }),
+    ]);
+    if (!c.ok || !v.ok) throw new Error(`traffic ${c.status}/${v.status}`);
+    const cj = await c.json(); const vj = await v.json();
+    trafficCache = { at: now, data: {
+      clones: cj.count, uniqueCloners: cj.uniques,
+      views: vj.count, uniqueVisitors: vj.uniques,
+      asOf: new Date(now).toISOString().slice(0, 10),
+    } };
+  } catch (e) {
+    console.warn(`[transparency] repo traffic unavailable: ${String(e?.message || e).slice(0, 80)}`);
+    trafficCache = { at: now, data: trafficCache.data }; // keep stale rather than flap
+  }
+  return trafficCache.data;
+}
+
+export function transparencyPage(baseUrl, traffic = null) {
   const title = "Transparency - Agent402";
   const description =
     "Public disclosures with on-chain receipts: the community-launched $AGENT402 token on Robinhood Chain, the contract address, the claiming wallet, and our commitments.";
@@ -40,6 +72,10 @@ export function transparencyPage(baseUrl) {
 .tp-receipts td a{word-break:break-all}
 .tp-note{border:1.5px solid var(--ink);background:var(--card-bg,transparent);padding:16px 18px;margin:22px 0}
 .tp-note p{margin:0}
+.tp-fold{border:1.5px solid var(--hairline);background:var(--card);padding:14px 18px;margin:0 0 26px}
+.tp-fold summary{cursor:pointer;font-weight:700;font-size:15px;color:var(--ink)}
+.tp-fold[open]{padding-bottom:20px}
+.tp-fold h3{font-size:19px !important;margin:22px 0 8px !important}
 @media(max-width:600px){.tp-h1{font-size:36px !important}}
 `;
 
@@ -47,7 +83,7 @@ export function transparencyPage(baseUrl) {
 <div class="tp-wrap">
 <div class="tp-eyebrow">$ GET /transparency</div>
 <h1 class="tp-h1">Transparency</h1>
-<p class="tp-updated">Agent402 (agent402.tools) · last updated 2026-07-15.</p>
+<p class="tp-updated">Agent402 (agent402.tools) · last updated 2026-07-29.</p>
 
 <div class="tp-body">
 <p>Agent402.Tools is an <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open-source</a> x402 + MCP
@@ -55,8 +91,23 @@ tool server. When something material happens around the project, on-chain or off
 here, with receipts a reader can verify independently. Nothing on this page asks for trust; every factual
 claim links to an immutable on-chain record.</p>
 
-<h2>Community-supported initiatives</h2>
+${traffic ? `<h2>GitHub adoption</h2>
+<p>The code is AGPL and anyone may clone it without forking - and they do. From GitHub's traffic API
+(rolling 14-day window, refreshed hourly, as of ${traffic.asOf}):</p>
+<ul>
+<li><b>${Number(traffic.uniqueCloners).toLocaleString()} unique cloners</b> made ${Number(traffic.clones).toLocaleString()} clones of the repository.</li>
+<li>${Number(traffic.uniqueVisitors).toLocaleString()} unique visitors viewed the repository ${Number(traffic.views).toLocaleString()} times.</li>
+</ul>
+<p>Honest caveat: clone counts include CI systems and crawlers, so the unique-cloner figure is the
+steadier signal, and none of these numbers identify anyone - GitHub reports counts only. The license
+terms that travel with every clone are in the
+<a href="https://github.com/MikeyPetrillo/Agent402/blob/main/LICENSE" rel="noopener">AGPL-3.0 license</a>:
+run a modified copy as a network service and you must publish your source.</p>` : ""}
 
+<h2>Community-supported initiatives</h2>
+<p>Older news, kept in full for the record - every receipt still verifiable. Click to expand.</p>
+<details class="tp-fold">
+<summary>The community-launched $AGENT402 token on Robinhood Chain: full disclosure, receipts, and where we stand</summary>
 <h3>The community-launched $AGENT402 token (Robinhood Chain)</h3>
 
 <p>On <strong>2026-07-07</strong>, a community member with <strong>no relation to the Agent402.Tools team</strong>
@@ -141,6 +192,7 @@ subject to change, and possibly discontinued at any time without notice. This is
 main purpose</strong>, and nothing we try, announce, or ship should create any expectation of further
 development, token growth, or value. If an experiment does move funds, it will be visible from the claiming
 wallet above.</p>
+</details>
 
 <h2>Questions</h2>
 <p>Contact <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a> for further details.</p>

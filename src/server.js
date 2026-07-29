@@ -44,7 +44,7 @@ import { analyticsPage } from "./analytics-page.js";
 import { operatorPage, operatorLoginPage } from "./operator.js";
 import { privacyPage } from "./privacy.js";
 import { termsPage } from "./terms.js";
-import { transparencyPage } from "./transparency.js";
+import { transparencyPage, repoTraffic } from "./transparency.js";
 import { contactPage } from "./contact.js";
 import { quickstartPage } from "./quickstart.js";
 import { whatIsX402Page } from "./what-is-x402.js";
@@ -1110,7 +1110,7 @@ app.get("/.well-known/glama.json", (_req, res) => {
 });
 app.get("/privacy", (_req, res) => htmlCache(res, 300, 900).send(privacyPage(BASE_URL)));
 app.get("/terms", (_req, res) => htmlCache(res, 300, 900).send(termsPage(BASE_URL)));
-app.get("/transparency", (_req, res) => htmlCache(res, 300, 900).send(transparencyPage(BASE_URL)));
+app.get("/transparency", async (_req, res) => htmlCache(res, 300, 900).send(transparencyPage(BASE_URL, await repoTraffic().catch(() => null))));
 app.get("/contact", (_req, res) => htmlCache(res, 300, 900).send(contactPage(BASE_URL)));
 app.get("/quickstart", (_req, res) => htmlCache(res, 300, 900).send(quickstartPage(BASE_URL)));
 app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402Page(BASE_URL)));
