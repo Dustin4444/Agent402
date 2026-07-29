@@ -118,6 +118,24 @@ export async function probe(prod) {
   return { components, fails };
 }
 
+/**
+ * Probe with one retry: a deploy switchover blip lasts seconds, but a recorded
+ * failure ambers the whole day's bar on /status - which reads as "currently
+ * degraded" against a perfectly healthy service (2026-07-29: 6 of 7 amber days
+ * traced to single probes landing inside deploy restarts). Only a failure that
+ * SURVIVES the pause is recorded; a real outage fails both attempts and is
+ * recorded exactly as before. The first attempt's failure still goes to the
+ * worker log, so the blip itself is never invisible.
+ */
+export async function observe(prod, { sleep = (ms) => new Promise((r) => setTimeout(r, ms)), retryDelayMs = 20000 } = {}) {
+  const first = await probe(prod);
+  if (!first.fails.length) return { ...first, retried: false };
+  await sleep(retryDelayMs);
+  const second = await probe(prod);
+  console.log(`status-probe: first attempt FAILS ${first.fails.join(" ")} - after ${retryDelayMs}ms retry: ${second.fails.length ? `FAILS ${second.fails.join(" ")}` : "clean (transient blip, not recorded as down)"}`);
+  return { ...second, retried: true };
+}
+
 /** POST the observation. Returns true only if production accepted it. */
 async function record(prod, token, components, url) {
   const r = await grab(`${prod}/api/status/probe`, {
@@ -136,7 +154,7 @@ async function run(env) {
     console.error("status-probe: OPERATOR_TOKEN is not set — refusing to probe");
     return { ok: false, error: "no OPERATOR_TOKEN" };
   }
-  const { components, fails } = await probe(prod);
+  const { components, fails } = await observe(prod);
   // When production is unreachable this POST cannot land either. That absence
   // is the evidence: /status renders a missing observation as a gap, never as
   // uptime, so there is nothing to fake here.
