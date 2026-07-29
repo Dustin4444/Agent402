@@ -244,7 +244,7 @@ function incidentsSection(incidents) {
 ${incidents
     .map(
       (i) =>
-        `<tr><td class="mono" title="${esc(i.startedAt)}">${esc(i.startedAt.slice(0, 16).replace("T", " "))}</td><td class="mono">${i.durationMinutes >= 1 ? `${i.durationMinutes} min` : "under 1 min"}</td><td class="mono">${i.failedProbes}</td><td title="${esc(i.detail || "")}">${i.detail ? esc(humanizeDetail(i.detail)) : '<span class="faint">not recorded</span>'}</td></tr>`,
+        `<tr><td class="mono" data-l="started" title="${esc(i.startedAt)}">${esc(i.startedAt.slice(0, 16).replace("T", " "))}</td><td class="mono" data-l="duration">${i.durationMinutes >= 1 ? `${i.durationMinutes} min` : "under 1 min"}</td><td class="mono" data-l="failed probes">${i.failedProbes}</td><td data-l="what failed" title="${esc(i.detail || "")}">${i.detail ? esc(humanizeDetail(i.detail)) : '<span class="faint">not recorded</span>'}</td></tr>`,
     )
     .join("\n")}
 </tbody></table></div>`;
@@ -309,7 +309,19 @@ h2{font-family:var(--font-body);font-weight:800;letter-spacing:-.02em;margin:34p
 .st-links{margin-top:26px;color:var(--faint);font-family:var(--font-mono);font-size:13px}
 .st-links a{color:var(--accent);text-decoration:none}
 .st-links a:hover{text-decoration:underline}
-@media(max-width:640px){.st-h1{font-size:34px}.st-wrap{padding:36px 18px}.bars{height:26px}.comp-s{margin-left:0;width:100%}}
+@media(max-width:640px){.st-h1{font-size:34px}.st-wrap{padding:36px 18px}.bars{height:26px}.comp-s{margin-left:0;width:100%}
+/* Incidents reflow to stacked cards on phones: no 520px min-width, no
+   left-right scrolling - each row becomes a bordered card with per-cell
+   labels (data-l), the timestamp wraps instead of forcing width. */
+.inc-scroll{overflow-x:visible}
+.inc-scroll .inc{min-width:0}
+table.inc thead{display:none}
+table.inc,table.inc tbody,table.inc tr,table.inc td{display:block;width:100%}
+table.inc tr{border:1px solid var(--hairline);border-radius:2px;background:var(--card);padding:8px 12px;margin:0 0 8px}
+table.inc td{border:none;padding:2px 0;text-align:left;white-space:normal}
+table.inc td.mono{white-space:normal}
+table.inc td::before{content:attr(data-l) ": ";color:var(--faint);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+}
 `;
 
 /**
