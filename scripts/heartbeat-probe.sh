@@ -17,8 +17,24 @@
 #
 # probe() sets the global FAILS to a space-separated list of what failed and
 # returns 0 only when everything passed.
+#
+# SINGLE-RETRY SEMANTICS (2026-07-29, parity with workers/status-probe): a
+# failed pass re-probes once after PROBE_RETRY_DELAY (default 20s) and only a
+# failure that survives is recorded. A single transient blip (a probe landing
+# inside a deploy restart, one dropped TCP connect) was writing sub-minute
+# incidents into /status history - the 03:40Z entry on 2026-07-29 arrived
+# AFTER the worker got its retry, proving this observer needed the same
+# treatment. A real outage fails both passes and records exactly as before;
+# the first attempt's blip still goes to the job log, so nothing is invisible.
 
 probe() {
+  probe_once && return 0
+  echo "[heartbeat-probe] first attempt FAILS:$FAILS - retrying once in ${PROBE_RETRY_DELAY:-20}s (only a failure that survives is recorded)"
+  sleep "${PROBE_RETRY_DELAY:-20}"
+  probe_once
+}
+
+probe_once() {
   FAILS=""
   curl -sf --max-time 15 "$PROD/health" >/dev/null || FAILS="$FAILS /health"
   N=$(curl -s --max-time 15 "$PROD/api/pricing" | jq '.endpoints | length' 2>/dev/null || echo 0)

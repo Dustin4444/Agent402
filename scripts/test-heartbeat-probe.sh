@@ -78,6 +78,45 @@ ts=$(jq -r .ts < "$CAPTURE")
 rm -f "$CAPTURE"; OP_TOKEN="" record_observation up "" >/dev/null
 [ ! -f "$CAPTURE" ] && ok "no token: records nothing" || bad "no token: records nothing" "posted anyway"
 
+# --- single-retry semantics (2026-07-29, parity with the CF worker) ----------
+# probe() must re-run probe_once ONCE on failure and report the SECOND verdict:
+# a transient blip is never recorded, a sustained failure always is, and a
+# healthy pass never pays the retry.
+echo "heartbeat probe — retry semantics"
+export PROBE_RETRY_DELAY=0
+COUNT_FILE="$TMP/probe-count"; echo 0 > "$COUNT_FILE"
+probe_once() {  # test override: fail on the first call, pass on the second
+  n=$(( $(cat "$COUNT_FILE") + 1 )); echo "$n" > "$COUNT_FILE"
+  if [ "$n" -eq 1 ]; then FAILS=" /health"; return 1; else FAILS=""; return 0; fi
+}
+if probe >/dev/null && [ -z "$FAILS" ] && [ "$(cat "$COUNT_FILE")" = "2" ]; then
+  ok "transient blip: retry succeeds, FAILS empty, exactly two attempts"
+else
+  bad "transient blip: retry succeeds, FAILS empty, exactly two attempts" "rc=$? FAILS='$FAILS' attempts=$(cat "$COUNT_FILE")"
+fi
+
+echo 0 > "$COUNT_FILE"
+probe_once() {  # sustained failure: both attempts fail
+  n=$(( $(cat "$COUNT_FILE") + 1 )); echo "$n" > "$COUNT_FILE"
+  FAILS=" /health"; return 1
+}
+if ! probe >/dev/null && [ "$FAILS" = " /health" ] && [ "$(cat "$COUNT_FILE")" = "2" ]; then
+  ok "sustained failure: recorded down after exactly two attempts"
+else
+  bad "sustained failure: recorded down after exactly two attempts" "FAILS='$FAILS' attempts=$(cat "$COUNT_FILE")"
+fi
+
+echo 0 > "$COUNT_FILE"
+probe_once() {  # healthy: single attempt, no retry
+  n=$(( $(cat "$COUNT_FILE") + 1 )); echo "$n" > "$COUNT_FILE"
+  FAILS=""; return 0
+}
+if probe >/dev/null && [ "$(cat "$COUNT_FILE")" = "1" ]; then
+  ok "healthy pass: exactly one attempt, no retry pause"
+else
+  bad "healthy pass: exactly one attempt, no retry pause" "attempts=$(cat "$COUNT_FILE")"
+fi
+
 echo
 if [ "$FAIL" -eq 0 ]; then echo "all passed ($PASS)"; else echo "FAILED ($FAIL of $((PASS+FAIL)))"; fi
 [ "$FAIL" -eq 0 ]
