@@ -45,7 +45,7 @@ const proc = spawn(process.execPath, [join(ROOT, "tollbooth", "index.js")], {
 try {
   // Wait for the listener — the dashboard route is the cheapest readiness probe.
   let up = false;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < 80; i++) {
     try { const r = await fetch(`${BASE}/__tollbooth`); if (r.ok) { up = true; break; } } catch {}
     await sleep(250);
   }
