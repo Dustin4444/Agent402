@@ -298,6 +298,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   corrupting the free-tier series on /revenue. So `paid-call`'s `staleAfterMs` is sized to
   ITS observer (`HOURLY_OBSERVER`, 3h = ~3 missed hourly GitHub runs), not the 45-min
   default. `POST /run` on the worker is token-gated for manual verification.
+  **Single-retry semantics (2026-07-29):** a failed check is re-probed once after
+  20s and only a failure that survives is recorded — one probe landing inside a
+  deploy restart was ambering the whole day's bar on /status (6 of 7 amber days
+  traced to deploy blips), which reads as "currently degraded" on a healthy
+  service. A real outage fails both attempts and records exactly as before; the
+  first attempt's blip still goes to the worker log. Paired fix: the Railway
+  service now has `healthcheckPath=/health` (timeout 120s), so traffic only
+  switches to a new container after it actually serves — deploys should no
+  longer produce the blip at all (drain side was already covered by
+  `RAILWAY_DEPLOYMENT_DRAINING_SECONDS`).
   `scripts/test-status-probe-worker.js` (11 assertions, stubbed fetch, in CI) pins the
   quiet regressions: a 200 where a 402 is required, a collapsed catalog, a rail silently
   missing from the offer, and "one dead endpoint must not abort the other checks".

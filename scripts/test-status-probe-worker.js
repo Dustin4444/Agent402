@@ -9,7 +9,7 @@
 // rail silently missing from the offer) — the quiet regressions a plain
 // reachability check would wave through.
 import { strict as assert } from "node:assert";
-import { probe } from "../workers/status-probe/src/index.js";
+import { probe, observe } from "../workers/status-probe/src/index.js";
 
 const PROD = "https://prod.test";
 let failures = 0;
@@ -123,6 +123,45 @@ console.log("status-probe worker — observation mapping");
   check("total outage marks every observed component down", () => {
     for (const [k, v] of Object.entries(components)) assert.equal(v.ok, false, `${k} claimed ok during a total outage`);
     assert.ok(Object.keys(components).length >= 5);
+  });
+}
+
+{
+  // Deploy-blip retry (2026-07-29): a single failed attempt that recovers by
+  // the retry is recorded CLEAN — one probe landing inside a deploy restart
+  // must not amber the whole day's bar on /status.
+  let calls = 0;
+  const blip = () => { calls++; if (calls === 1) throw new Error("connection reset"); return new Response("ok", { status: 200 }); };
+  stub({ health: blip });
+  const result = await observe(PROD, { sleep: async () => {} });
+  check("transient blip: retry succeeds and is recorded clean", () => {
+    assert.equal(result.retried, true, "should have retried");
+    assert.equal(result.fails.length, 0, `expected no recorded fails, got: ${result.fails.join(" ")}`);
+    assert.equal(result.components.api.ok, true);
+  });
+}
+
+{
+  // A failure that SURVIVES the retry is a real outage and must be recorded —
+  // the retry may never soften a sustained failure.
+  const dead = () => { throw new Error("down"); };
+  stub({ health: dead });
+  const result = await observe(PROD, { sleep: async () => {} });
+  check("sustained failure: recorded down even after the retry", () => {
+    assert.equal(result.retried, true);
+    assert.equal(result.components.api.ok, false, "a real outage must never be retried away");
+    assert.ok(result.fails.some((f) => f.startsWith("api(")));
+  });
+}
+
+{
+  // Healthy path never pays the retry pause.
+  stub();
+  let slept = false;
+  const result = await observe(PROD, { sleep: async () => { slept = true; } });
+  check("healthy production: no retry, no pause", () => {
+    assert.equal(result.retried, false);
+    assert.equal(slept, false, "healthy path must not sleep");
   });
 }
 
