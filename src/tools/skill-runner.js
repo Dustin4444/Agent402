@@ -96,8 +96,8 @@ export const PACK_PRICES = {
   // Conversion-priced BELOW sum-of-tools ($0.143 a la carte) ON PURPOSE - the
   // one deliberate exception to the premium-multiple rule: this is a RECURRING
   // dashboard refresh, not one-off research. The customer evidence is a
-  // production wallet that bought exactly this 14-tool basket individually
-  // every ~25 minutes; every upstream is keyless/free (FRED, Treasury,
+  // production buyer that repeatedly bought this exact 14-tool basket
+  // individually; every upstream is keyless/free (FRED, Treasury,
   // CoinGecko, public RPC), so $0.10 is still ~full margin.
   "macro-dashboard":       0.10,
   // Standard (~5x)
@@ -1214,7 +1214,7 @@ export const PACK_STEPS = {
     ],
   },
 
-  // The whale basket (see PACK_PRICES note): 14 keyless reads, pure fanout,
+  // The observed-demand basket (see PACK_PRICES note): 14 keyless reads, pure fanout,
   // no step depends on another. NO metered-dollar upstream anywhere in this
   // pack - nothing Brave/E2B/OpenAI-backed - so it introduces no CI-spend
   // surface (test-brave-leak derives reachability from toolSlugs and will
