@@ -105,7 +105,7 @@ terms that travel with every clone are in the
 run a modified copy as a network service and you must publish your source.</p>` : ""}
 
 <details class="tp-fold">
-<summary><strong>A community member independently launched a token using the project's name ($AGENT402, on Robinhood Chain). It was not created, issued, endorsed, or controlled by Agent402.</strong> Full record and on-chain receipts - click to expand.</summary>
+<summary>A community member independently launched a token using the project's name ($AGENT402, on Robinhood Chain). It was not created, issued, endorsed, or controlled by Agent402. Full record and on-chain receipts - click to expand.</summary>
 <h3>The community-launched $AGENT402 token (Robinhood Chain)</h3>
 
 <p>On <strong>2026-07-07</strong>, a community member with <strong>no relation to the Agent402.Tools team</strong>
@@ -148,48 +148,28 @@ and these are the receipts:</p>
 <h3>Where we stand</h3>
 
 <ul>
-  <li><strong>A personal side project.</strong> Agent402.Tools is a fun, personal side project, built and
-  operated on the maintainer's own time with his own resources. It has <strong>no relation to, and is not
-  affiliated with, sponsored by, or endorsed by, the maintainer's employer</strong> or any place of employment.
-  Nothing about this project, including the token described here, represents anyone but the project itself.</li>
   <li><strong>Not an official token.</strong> $AGENT402 is not a product of Agent402.Tools or Havok Holdings LLC.
   We have <strong>no roadmap, no expectations, and no commitments</strong> regarding the token or any use of it.</li>
-  <li><strong>Our role: equal member, not owner.</strong> We support this community initiative and participate
-  in it as <strong>an equal member of the community, nothing more</strong>. We do not own, operate, or control
-  the token, its liquidity, or its market, and we claim no authority over what the community does with it.</li>
+  <li><strong>No involvement.</strong> We do not own, operate, control, or participate in the token, its
+  liquidity, or its market, and we claim no authority over what the community does with it. We do not plan
+  to do anything with the token.</li>
+  <li><strong>No further claims, no commitments.</strong> The fee claim documented above was a one-time test.
+  We do not intend to claim further fees, and we make <strong>no commitments</strong> regarding the amounts
+  already claimed; the claiming wallet above remains publicly auditable, so anyone can verify that inactivity.</li>
   <li><strong>No expectation of growth.</strong> There should be <strong>no expectation of token growth</strong>,
   in price, liquidity, adoption, or anything else. The token's market activity is entirely community-driven
   and outside our control.</li>
   <li><strong>Not investment advice.</strong> Nothing on this page is an offer, endorsement, or recommendation.
   Do not purchase the token with any expectation of profit, utility, or effort from the Agent402.Tools team.</li>
-  <li><strong>Why we acknowledged it publicly.</strong> We spoke about the token
-  <a href="https://x.com/Agent402Tools/status/2077408766652195025" rel="noopener">on X</a> for two reasons:
-  we want to support other builders experimenting with agentic-commerce infrastructure, and we did not want
-  a confusing or negative narrative to form if people found a token profile resembling agent402.tools that
-  carried the wrong logo, the wrong description, or the wrong idea of what this product is about.
-  Acknowledging it and publishing this page keeps the record straight.</li>
+  <li><strong>Why we acknowledged it publicly.</strong> We acknowledged the token publicly at the time so that a confusing
+  or misleading narrative could not form if people found a token profile resembling agent402.tools carrying
+  the wrong logo, the wrong description, or the wrong idea of what this product is about. Acknowledging it and
+  publishing this page keeps the record straight.</li>
   <li><strong>Why this page exists.</strong> We publish this to support and protect our users: to make what
   happened independently verifiable, and to leave no room for impersonation or misinformation.</li>
   <li><strong>Our focus is unchanged.</strong> The project remains about the x402 payment protocol and building
   curated, deterministic tools that serve agents.</li>
 </ul>
-
-<div class="tp-note">
-<p><strong>Fee-proceeds commitment.</strong> If at any time we claim fees arising from trading of this token,
-<strong>all proceeds will be used to accelerate and continue advancing x402 and this project's original
-mission</strong>. The claiming wallet above makes that commitment auditable: anyone can watch where every
-claimed unit goes.</p>
-</div>
-
-<h3>Possible future experiments</h3>
-
-<p>We leave this deliberately open-ended: as a member of the community, we may at any given time help
-explore utilities around the token. One example: testing whether a portion of x402 tool purchases could
-automatically flow into it. Anything of that kind would be an <strong>experiment</strong>: tested first,
-subject to change, and possibly discontinued at any time without notice. This is <strong>not the project's
-main purpose</strong>, and nothing we try, announce, or ship should create any expectation of further
-development, token growth, or value. If an experiment does move funds, it will be visible from the claiming
-wallet above.</p>
 </details>
 
 <h2>Questions</h2>
