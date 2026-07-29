@@ -178,7 +178,15 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
 
 // routeExecuteHint quotes the right tier per underlying price
 {
-  const { routeExecuteHint } = await import("../src/tools/route-execute.js");
+  const { routeExecuteHint, EXEC_TIERS } = await import("../src/tools/route-execute.js");
+  const { SELF_FUNDING_SLUGS } = await import("../src/payments.js");
+  // Self-funding invariant: EVERY exec tier's Base revenue must settle to the
+  // burner that pays its external spends. A tier missing from the set is a
+  // one-way leak - revenue to the treasury, spend from the burner (the plus
+  // tier shipped that way for one commit on 2026-07-29 before this lock).
+  for (const t of EXEC_TIERS) {
+    ok(SELF_FUNDING_SLUGS.has(t.slug), `SELF_FUNDING_SLUGS covers ${t.slug} - burner pays itself, never a one-way drain`);
+  }
   ok(routeExecuteHint(0.003)?.tool === "route-execute", "$0.003 → route-execute tier");
   ok(routeExecuteHint(0.02)?.tool === "route-execute-plus", "$0.02 → route-execute-plus tier (the proportional middle rung)");
   ok(routeExecuteHint(0.04)?.tool === "route-execute-plus", "$0.04 → plus tier boundary inclusive");

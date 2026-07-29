@@ -271,7 +271,12 @@ export const isIdentityBoundRoute = (def) =>
 // payTo. Gated on a configured burner address (X402_UPSTREAM_BUYER_ADDRESS) so a
 // clone without one falls back to the treasury, unchanged. A periodic
 // burner->treasury sweep (scripts/sweep-burner.js) keeps the hot wallet bounded.
-export const SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-max"]);
+// EVERY tier must be here: a tier missing from this set settles its revenue
+// to the treasury while its external spends drain the burner - the one-way
+// leak this mechanism exists to close (the plus tier shipped without it for
+// one commit on 2026-07-29; test-route-execute now locks the set against
+// EXEC_TIERS so the next tier cannot repeat that).
+export const SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-plus", "route-execute-max"]);
 const UPSTREAM_BUYER_ADDRESS = (process.env.X402_UPSTREAM_BUYER_ADDRESS || "").trim();
 
 // ---------------------------------------------------------------------------
