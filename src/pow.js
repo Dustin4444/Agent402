@@ -181,7 +181,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "skill-market-brief", "skill-financial-analysis",
   "skill-financial-research", "skill-sec-filings-deep-dive", "skill-macro-context",
   "skill-crypto-research", "skill-regulatory-watch", "skill-search-and-cite",
-  "skill-macro-economics",
+  "skill-macro-economics", "skill-macro-dashboard",
   "skill-content-extraction", "skill-media-pipeline", "skill-document-intel",
   "skill-trend-analysis", "skill-any-to-markdown", "skill-structured-scrape",
   "skill-forecasting-bake-off", "skill-fraud-signals", "skill-security-audit",

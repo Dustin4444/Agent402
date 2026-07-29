@@ -265,6 +265,39 @@ export const SKILL_PACKS = [
       "Build today's macro dashboard. Use Agent402 to pull the Treasury yield curve, 10Y–2Y and 10Y–3M spreads, latest CPI YoY, unemployment rate, fed funds rate, and the Sahm rule reading. Highlight any indicator that is at a multi-year extreme, and list FRED releases scheduled for this week.",
   },
   {
+    slug: "macro-dashboard",
+    title: "Macro dashboard refresh",
+    tagline:
+      "The full macro + crypto dashboard in one call: 5 FRED series, 5 Treasury reads, yield-curve spread, crypto market/trending/global, and live gas - the 14-tool basket a recurring buyer refreshes every cycle, bundled below its a la carte price.",
+    useCase:
+      "An agent keeping a live macro dashboard warm needs the same basket of reads every refresh cycle. Buying the 14 tools individually costs $0.143 per cycle; this bundle is $0.10 - one call, one payment, every series in one JSON envelope. Built from observed demand: a production agent bought exactly this basket a la carte every ~25 minutes.",
+    promptArgs: [],
+    toolSlugs: [
+      "fred-release-calendar",
+      "fed-funds",
+      "cpi-yoy",
+      "unemployment-rate",
+      "sahm-rule",
+      "yield-curve-spread",
+      "treasury-yield-curve",
+      "treasury-yield-history",
+      "treasury-debt",
+      "treasury-avg-rates",
+      "crypto-market",
+      "crypto-trending",
+      "crypto-global",
+      "gas-estimate",
+    ],
+    workflow: [
+      "Pull the five FRED macro series: upcoming release calendar (14 days), fed funds rate (30 days), CPI year-over-year, unemployment rate (12 months), and the Sahm-rule recession signal.",
+      "Read the Treasury complex: full yield curve, 90 days of yield history, the 10y-2y spread, total public debt, and average interest rates on the debt.",
+      "Snapshot crypto: top coins by market cap, trending coins, and global market stats (total cap, BTC dominance, volume).",
+      "Read live Base gas via gas-estimate so onchain execution cost rides the same refresh.",
+    ],
+    claudePrompt:
+      "Refresh my macro dashboard using Agent402's macro-dashboard skill pack: FRED releases, fed funds, CPI, unemployment, Sahm rule, the full Treasury yield curve and spread, crypto market overview, and current gas. Summarize what changed since the last refresh in one paragraph.",
+  },
+  {
     slug: "dns-network-ops",
     title: "DNS & network ops",
     tagline:

@@ -177,7 +177,7 @@ const NETWORK = new Set([
   // always returns 200 with {pack, args, steps, summary}, so strict mode would
   // also pass — NETWORK membership is a timeout safety hedge. All 39 packs:
   "/api/skill/security-audit", "/api/skill/email-deliverability", "/api/skill/financial-research",
-  "/api/skill/macro-economics", "/api/skill/dns-network-ops", "/api/skill/crypto-research",
+  "/api/skill/macro-economics", "/api/skill/macro-dashboard", "/api/skill/dns-network-ops", "/api/skill/crypto-research",
   "/api/skill/content-extraction", "/api/skill/sec-filings-deep-dive", "/api/skill/structured-scrape",
   "/api/skill/decode-blob", "/api/skill/trend-analysis", "/api/skill/forecasting-bake-off",
   "/api/skill/document-intel", "/api/skill/loan-comparison", "/api/skill/investment-decision",
