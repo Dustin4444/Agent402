@@ -141,6 +141,8 @@ export function whatIsX402Page(baseUrl) {
   <h1 class="wx-title">What is x402? And MPP?</h1>
   <p class="wx-sub">x402 and MPP give the internet a <strong>pay-per-use button</strong>: software can buy exactly what it needs, the moment it needs it, for pennies - with no signups, no subscriptions, and no invoices. They are two dialects of the same idea, and this page explains both in plain English - no crypto background required.</p>
 
+  <div class="wx-callout"><strong>The definition:</strong> <strong>x402</strong> is an open payment standard that lets software pay for web services per request using HTTP status code 402 ("Payment Required"): the server quotes a price in its 402 response, the client retries with a signed stablecoin payment (typically USDC) in a request header, and the server verifies the payment, settles it on-chain, and returns the result - no account, API key, or subscription. <strong>MPP</strong> (the <a href="/what-is-mpp">Machine Payments Protocol</a>) carries the same handshake through HTTP's standard authentication headers.</div>
+
   <h2 class="wx-h2">The 30-second version</h2>
   <p class="wx-p">Everything useful on the internet sits behind a gate. To use a data service today, someone has to create an account, verify an email, enter a credit card, agree to a monthly plan, and manage an API key - fine for a person, <strong>impossible for software acting on its own</strong>.</p>
   <p class="wx-p">That matters now because more and more work is done by <strong>AI agents</strong>: software that completes multi-step jobs without a human driving every click. An agent halfway through a task can't fill in a signup form or wait for procurement to approve a vendor.</p>
