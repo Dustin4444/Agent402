@@ -93,6 +93,13 @@ export const PACK_PRICES = {
   "regulatory-watch":      0.70,
   "search-and-cite":       0.65,
   "macro-economics":       0.65,
+  // Conversion-priced BELOW sum-of-tools ($0.143 a la carte) ON PURPOSE - the
+  // one deliberate exception to the premium-multiple rule: this is a RECURRING
+  // dashboard refresh, not one-off research. The customer evidence is a
+  // production wallet that bought exactly this 14-tool basket individually
+  // every ~25 minutes; every upstream is keyless/free (FRED, Treasury,
+  // CoinGecko, public RPC), so $0.10 is still ~full margin.
+  "macro-dashboard":       0.10,
   // Standard (~5x)
   "content-extraction":    0.30,
   "media-pipeline":        0.25,
@@ -1204,6 +1211,31 @@ export const PACK_STEPS = {
           if (!url) throw Object.assign(new Error("no news URL to extract"), { statusCode: 422 });
           return { url };
       } },
+    ],
+  },
+
+  // The whale basket (see PACK_PRICES note): 14 keyless reads, pure fanout,
+  // no step depends on another. NO metered-dollar upstream anywhere in this
+  // pack - nothing Brave/E2B/OpenAI-backed - so it introduces no CI-spend
+  // surface (test-brave-leak derives reachability from toolSlugs and will
+  // fail the build if that ever changes).
+  "macro-dashboard": {
+    mode: "fanout",
+    steps: [
+      { slug: "fred-release-calendar",  mapInput: () => ({ days: 14 }) },
+      { slug: "fed-funds",              mapInput: () => ({ days: 30 }) },
+      { slug: "cpi-yoy",                mapInput: () => ({}) },
+      { slug: "unemployment-rate",      mapInput: () => ({ months: 12 }) },
+      { slug: "sahm-rule",              mapInput: () => ({}) },
+      { slug: "yield-curve-spread",     mapInput: () => ({}) },
+      { slug: "treasury-yield-curve",   mapInput: () => ({}) },
+      { slug: "treasury-yield-history", mapInput: () => ({ days: 90 }) },
+      { slug: "treasury-debt",          mapInput: () => ({}) },
+      { slug: "treasury-avg-rates",     mapInput: () => ({}) },
+      { slug: "crypto-market",          mapInput: () => ({ limit: 10, currency: "usd" }) },
+      { slug: "crypto-trending",        mapInput: () => ({}) },
+      { slug: "crypto-global",          mapInput: () => ({ currency: "usd" }) },
+      { slug: "gas-estimate",           mapInput: () => ({ network: "base" }) },
     ],
   },
 
