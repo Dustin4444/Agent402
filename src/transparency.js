@@ -73,7 +73,7 @@ export function transparencyPage(baseUrl, traffic = null) {
 .tp-note{border:1.5px solid var(--ink);background:var(--card-bg,transparent);padding:16px 18px;margin:22px 0}
 .tp-note p{margin:0}
 .tp-fold{border:1.5px solid var(--hairline);background:var(--card);padding:14px 18px;margin:0 0 26px}
-.tp-fold summary{cursor:pointer;font-weight:700;font-size:15px;color:var(--ink)}
+.tp-fold summary{cursor:pointer;font-size:15px;color:var(--ink)}
 .tp-fold[open]{padding-bottom:20px}
 .tp-fold h3{font-size:19px !important;margin:22px 0 8px !important}
 @media(max-width:600px){.tp-h1{font-size:36px !important}}
