@@ -50,6 +50,7 @@ ok(encCat && encCat.computePayable === true, "encoding category is compute-payab
 ok(m.mcp.remoteConnector === `${BASE}/mcp`, "mcp connector url");
 ok(m.machineReadable.reliability === `${BASE}/api/reliability`, "links to reliability");
 ok(m.trust.onchainRevenueProof.includes("basescan.org") && m.trust.onchainRevenueProof.includes(WALLET), "onchain proof url");
+ok(m.trust.failedCallsNeverCharged === "structural", "manifest carries the structural no-charge-on-failure guarantee");
 
 // Sepolia + no-wallet edge cases must not throw or fabricate proof links.
 const mTest = serviceManifest({

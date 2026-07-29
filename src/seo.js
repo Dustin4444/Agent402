@@ -232,6 +232,8 @@ Base URL: ${baseUrl}
 
 **Pay with USDC (x402).** Wrap fetch with \`@x402/fetch\`, register the exact EVM scheme with your signer, and call normally - the 402 is decoded, paid, and the result returned. Settlement uses ${RAILS_OR}; gas is sponsored by the facilitator on EVM chains, so callers need only hold the stablecoin. Send an \`Idempotency-Key\` header for safe retries: replaying the same key with the same payment/PoW credential returns the original result without paying again.
 
+**A failed call is never charged - structurally, not as a refund.** Settlement runs AFTER the tool handler and only completes for a successful (under-400) response: an error, a capacity 503, or an upstream 502 cancels settlement inside the payment middleware itself, so no money moves, there is nothing to claim, and no feedback form stands between you and your funds. Combine with the \`Idempotency-Key\` header and retries are safe end to end. (Sellers elsewhere market refund programs; this guarantee is enforced by settlement ordering, not customer service.)
+
 **MPP clients are first-class (dual-stack).** Every paid endpoint also speaks MPP (Machine Payments Protocol, the IETF-track \`Payment\` HTTP auth scheme): the same 402 carries a \`WWW-Authenticate: Payment\` challenge (evm charge, EIP-3009 USDC), \`Authorization: Payment\` credentials settle on-chain identically to x402, and settled responses return a signed \`Payment-Receipt\` header. An \`mppx\` client (\`Fetch.from\` with \`evm.charge\`) works out of the box - same URL, same price, same settlement as x402, whichever dialect your client speaks.
 
 ## Key machine surfaces

@@ -49,6 +49,12 @@ const TOP1 = [
   ["latest block",                  "block-number"],
   ["event logs",                    "event-logs"],
   ["nft owner",                     "erc721-owner"],
+  // Discovery-defense probe (2026-07-29): 20 competitor-alias task phrases
+  // tested against live find; 17 ranked right, these 3 were the misses,
+  // fixed with targeted tags. Locked so they stay fixed.
+  ["extract text from image",       "image-ocr"],
+  ["token balance",                 "wallet-balance"],
+  ["ens lookup",                    "ens-resolve"],
   ["lookup whois for a domain",    "whois"],
   ["geocode an address",            "geocode"],
   ["validate an email address",    "email-validate"],

@@ -227,6 +227,10 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       testedBeforeEveryDeploy: true,
       productionHeartbeatMinutes: 15,
       deterministic: true,
+      // Not a refund program: settlement runs after the handler and only
+      // completes for an under-400 response, so an error cancels payment in
+      // the middleware itself - there is nothing to claim back.
+      failedCallsNeverCharged: "structural",
       details: `${baseUrl}/api/reliability`,
     },
   };

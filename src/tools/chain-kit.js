@@ -291,7 +291,7 @@ export const CHAIN_TOOLS = [
     price: "$0.002",
     description:
       "Look up the native coin balance (ETH/MATIC) plus every ERC-20 holding for a wallet address on Ethereum, Base, Polygon, Arbitrum, or Optimism. Returns clean decimal balances (already scaled by token decimals) plus symbol and contract - ready to display in a UI or feed into a portfolio tool.",
-    tags: ["crypto", "wallet", "balance", "erc20", "evm", "base", "ethereum"],
+    tags: ["crypto", "wallet", "balance", "erc20", "evm", "base", "ethereum", "token", "balances"],
     discovery: {
       bodyType: "json",
       input: { address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0", network: "base" },
