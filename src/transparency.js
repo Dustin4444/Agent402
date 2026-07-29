@@ -105,7 +105,7 @@ terms that travel with every clone are in the
 run a modified copy as a network service and you must publish your source.</p>` : ""}
 
 <details class="tp-fold">
-<summary><strong>A community member independently launched a token using the project's name ($AGENT402, on Robinhood Chain). It was not created, issued, endorsed, or controlled by Agent402.</strong> Full record and on-chain receipts - click to expand.</summary>
+<summary>A community member independently launched a token using the project's name ($AGENT402, on Robinhood Chain). It was not created, issued, endorsed, or controlled by Agent402. Full record and on-chain receipts - click to expand.</summary>
 <h3>The community-launched $AGENT402 token (Robinhood Chain)</h3>
 
 <p>On <strong>2026-07-07</strong>, a community member with <strong>no relation to the Agent402.Tools team</strong>
