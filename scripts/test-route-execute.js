@@ -71,10 +71,13 @@ const expectErr = async (input, statusCode, name, contains) => {
 }
 
 // 3. Guards.
-await expectErr({ slug: "screenshot", params: {} }, 409, "over-cap tool refused with self-correcting 409", "Call it directly");
+await expectErr({ slug: "screenshot", params: {} }, 409, "over-cap tool refused with self-correcting 409", "call it directly");
+// The 409 must ALSO name the tier that covers the price - the proportional
+// ladder is only useful if the refusal points at the right rung.
+await expectErr({ slug: "screenshot", params: {} }, 409, "over-cap 409 names the covering tier", "route-execute-plus");
 await expectErr({ slug: "memory-write", params: {} }, 409, "memory tools refused", "wallet-keyed");
 await expectErr({ slug: "images-to-pdf", params: {} }, 409, "non-JSON bodyType refused", "not dispatchable");
-await expectErr({ slug: "route-execute", params: {} }, 409, "self-dispatch refused", "itself");
+await expectErr({ slug: "route-execute", params: {} }, 409, "self-dispatch refused", "another route-execute tier");
 await expectErr({ slug: "nope-nope", params: {} }, 404, "unknown slug is a 404", "Unknown slug");
 await expectErr({}, 400, "missing task and slug is a 400", "Provide");
 await expectErr({ task: "screenshot a web page in a headless browser" }, 404, "task resolving only to over-cap tools is a 404", "top hit");
@@ -177,6 +180,9 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
 {
   const { routeExecuteHint } = await import("../src/tools/route-execute.js");
   ok(routeExecuteHint(0.003)?.tool === "route-execute", "$0.003 → route-execute tier");
+  ok(routeExecuteHint(0.02)?.tool === "route-execute-plus", "$0.02 → route-execute-plus tier (the proportional middle rung)");
+  ok(routeExecuteHint(0.04)?.tool === "route-execute-plus", "$0.04 → plus tier boundary inclusive");
+  ok(routeExecuteHint(0.05)?.tool === "route-execute-max", "$0.05 → max tier (just over the plus cap)");
   ok(routeExecuteHint(0.12)?.tool === "route-execute-max", "$0.12 → route-execute-max tier");
   ok(routeExecuteHint(0.9) === null, "$0.90 → no tier (above max)");
 }

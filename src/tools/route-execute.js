@@ -32,8 +32,16 @@ import { isIdentityBoundRoute } from "../payments.js";
 // SOR_EXTERNAL_ENABLED until a real external buy proves it.
 export const EXEC_TIERS = [
   { slug: "route-execute", execPriceUsd: 0.01, underlyingMaxUsd: 0.005 },
+  // Proportional middle tier (2026-07-29 leaderboard review): the curve had
+  // exactly two points - $0.01 covering <=$0.005 and $0.55 covering <=$0.50 -
+  // so a $0.02 flight search or a $0.01 Nansen call could only ride the max
+  // tier at a 27x markup. $0.05 covering <=$0.04 keeps the fee proportional
+  // (25% margin at the cap, more below it) and unlocks the mid-priced
+  // external inventory the seller review identified as routable demand.
+  { slug: "route-execute-plus", execPriceUsd: 0.05, underlyingMaxUsd: 0.04 },
   { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
 ];
+const EXEC_SLUGS = new Set(EXEC_TIERS.map((t) => t.slug));
 /** Which execution tier (if any) can run a tool at `underlyingUsd`, and the
  *  price to pay it. Used by /api/route to quote the buyer the exact tier. */
 export function routeExecuteHint(underlyingUsd) {
@@ -103,7 +111,10 @@ const toUsd = (price) => Number(String(price ?? "").replace(/[^0-9.]/g, "")) || 
 // - non-JSON bodies (binary/multipart uploads don't fit the {params} envelope).
 function dispatchable(def) {
   if (!def || typeof def.handler !== "function") return { ok: false, why: "tool has no internal handler" };
-  if (def.slug === "route-execute") return { ok: false, why: "cannot dispatch to itself" };
+  // ANY execution tier, not just the base slug: before 2026-07-29 the max
+  // tier could dispatch route-execute itself (nested routing fees on one
+  // payment) because only the literal base slug was blocked.
+  if (EXEC_SLUGS.has(def.slug)) return { ok: false, why: "cannot dispatch to another route-execute tier" };
   if (def.identityBound || isIdentityBoundRoute(def)) {
     return { ok: false, why: "identity-bound tools are wallet-keyed - call them directly so the signed payment identity is preserved" };
   }
@@ -125,10 +136,10 @@ const EXTERNAL_CHAIN_CAIP2 = Object.fromEntries(Object.entries(EXTERNAL_CHAIN_BY
 export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TIERS[0], resolveExternal = null, payExternal = null, externalEnabled = () => false, externalChains = () => ["base"] }) {
   const EXEC_PRICE_USD = tier.execPriceUsd;
   const UNDERLYING_MAX_USD = tier.underlyingMaxUsd;
-  const routeSuffix = tier.slug === "route-execute" ? "" : "-max";
+  const routeSuffix = tier.slug.replace("route-execute", "");
   return {
     route: `POST /api/route/execute${routeSuffix}`,
-    name: tier.slug === "route-execute" ? "Route and execute" : "Route and execute (max tier)",
+    name: routeSuffix ? `Route and execute (${routeSuffix.slice(1)} tier)` : "Route and execute",
     slug: tier.slug,
     category: "agent",
     price: `$${EXEC_PRICE_USD}`,
@@ -143,7 +154,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
     tags: ["router", "sor", "execute", "dispatch", "meta", "agent", "x402",
       "buy", "purchase", "seller", "external", "behalf", "broker", "delegate",
       "outsource", "marketplace", "cross-seller",
-      ...(routeSuffix ? ["max-tier"] : [])],
+      ...(routeSuffix ? [`${routeSuffix.slice(1)}-tier`] : [])],
     discovery: {
       bodyType: "json",
       input: { slug: "hash", params: { text: "agent402", algo: "sha256" } },
@@ -183,7 +194,8 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
         const d = dispatchable(def);
         if (!d.ok) throw bad(`Tool "${def.slug}" is not dispatchable here: ${d.why}`, 409);
         if (toUsd(def.price) > cap) {
-          throw bad(`Tool "${def.slug}" is listed at $${toUsd(def.price)} - above this endpoint's $${cap} underlying cap. Call it directly: ${def.route}${baseUrl ? ` on ${baseUrl}` : ""}`, 409);
+          const up = routeExecuteHint(toUsd(def.price));
+          throw bad(`Tool "${def.slug}" is listed at $${toUsd(def.price)} - above this endpoint's $${cap} underlying cap.${up && up.tool !== tier.slug ? ` Use ${up.tool} (${up.price}) to run it through the router, or call` : " Call"} it directly: ${def.route}${baseUrl ? ` on ${baseUrl}` : ""}`, 409);
         }
       } else if (typeof input.task === "string" && input.task.trim()) {
         resolvedBy = "task";
@@ -222,7 +234,10 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           const ext = await resolveExternal(input.task, { cap, baseUrl, chain });
           if (!ext) throw bad(`No external x402 seller matched that task${chain !== "base" ? ` on ${chain}` : ""}. Explore /api/route?q=<task>&include=external.`, 404);
           const extUsd = toUsd(ext.price);
-          if (!(extUsd > 0 && extUsd <= cap)) throw bad(`Best external match "${ext.slug}" is ${ext.price} - over this tier's $${cap} cap. Use route-execute-max or raise the tier.`, 409);
+          if (!(extUsd > 0 && extUsd <= cap)) {
+            const up = routeExecuteHint(extUsd);
+            throw bad(`Best external match "${ext.slug}" is ${ext.price} - over this tier's $${cap} cap.${up && up.tool !== tier.slug ? ` Use ${up.tool} (${up.price}).` : " No tier covers that price - call the seller directly."}`, 409);
+          }
           if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes(chainCaip2))) throw bad(`External seller "${ext.seller}" does not offer ${chain} settlement - cannot pay it from the ${chain} spending wallet.`, 409);
           // GET sellers take their input as query params — an HTTP GET cannot
           // carry a body (undici refuses it outright). Only primitives can ride
