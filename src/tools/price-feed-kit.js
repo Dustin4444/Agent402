@@ -66,7 +66,7 @@ export const PRICE_FEED_TOOLS = [
     category: "crypto",
     price: "$0.001",
     description:
-      "Latest aggregated price for one or more Pyth feeds, sourced live from Pyth's Hermes service. Identify feeds by hex feed-id (preferred - full precision) or by a small set of well-known aliases (BTCUSD, ETHUSD, SOLUSD, USDC, USDT). Each feed returns price, confidence interval, and publish-time so an agent can decide whether the quote is fresh enough to act on.",
+      "Latest aggregated price for one or more Pyth feeds, sourced live from Pyth's Hermes service. Use when you need an ORACLE-grade price with a published confidence interval (cross-checking an exchange feed, settling onchain logic); for a plain fiat quote crypto-price is simpler and cheaper. Identify feeds by hex feed-id (preferred - full precision) or by a small set of well-known aliases (BTCUSD, ETHUSD, SOLUSD, USDC, USDT). Each feed returns price, confidence interval, and publish-time so an agent can decide whether the quote is fresh enough to act on.",
     tags: ["crypto", "price", "pyth", "feed", "oracle"],
     discovery: {
       bodyType: "json",
