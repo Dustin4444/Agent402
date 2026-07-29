@@ -20,7 +20,8 @@ And one **paid** executing surface built on the same resolver:
 | Surface | What it does |
 |---|---|
 | `POST /api/route/execute` ($0.01) | Resolve a task description (or explicit slug) to the best-matching catalog tool and run it in the same call. Returns `{result, receipt}` — the receipt names the dispatched slug, its price (capped at $0.005 underlying), and how it was resolved. Underlying tool errors pass through with their own status codes. Wallet-only. |
-| `POST /api/route/execute-max` ($0.55) | Same contract, higher budget: underlying tools priced up to $0.50. `POST /api/route` quotes which tier a task needs via `executeVia` in its response, and a too-expensive tool returns a self-correcting 409 naming its direct route. |
+| `POST /api/route/execute-plus` ($0.05) | Same contract, mid budget: underlying tools priced up to $0.04 - the proportional rung, so a $0.02 tool costs $0.05 through the router rather than $0.55. |
+| `POST /api/route/execute-max` ($0.55) | Same contract, top budget: underlying tools priced up to $0.50. `POST /api/route` quotes which tier a task needs via `executeVia` in its response, and a too-expensive tool returns a self-correcting 409 naming the exact tier that covers it (or its direct route). |
 
 ### External execution: run any proven x402 seller in one call
 

@@ -539,12 +539,13 @@ seller in the open index, **we pay that seller from our own wallet on your
 behalf** and relay the output. Two on-chain settlements, one request, and the
 counterparty risk stays on our side of the fee.
 
-## The two tiers
+## The three tiers
 
 | Route | Price | Covers tools up to |
 | --- | --- | --- |
 | \`POST /api/route/execute\` | $0.01 | $0.005 |
-| \`POST /api/route/execute-max\` | $0.55 | $0.50 (the tier that reaches the external catalog) |
+| \`POST /api/route/execute-plus\` | $0.05 | $0.04 (the proportional middle rung - a $0.02 tool costs $0.05 through the router, not $0.55) |
+| \`POST /api/route/execute-max\` | $0.55 | $0.50 (the top tier) |
 
 \`GET /api/route?q=<task>\` is the free quote: it names the best match and the
 exact tier that can execute it, so there is never any guessing.

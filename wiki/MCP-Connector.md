@@ -40,7 +40,7 @@ It exposes four read-only tools (each carries safety annotations):
 
 High-value tools (`search`, `extract`, `render`, `screenshot`, `pdf`, `meta`, `dns`, the `memory-*` family, …) are first-class MCP tools; the long tail is reachable via `search_tools` + `call_tool` to keep your context window small.
 
-Since 0.12.0 the npm server also exposes **`route_and_execute`** `{ task, params?, maxUsd? }`: describe a task and the Smart Order Router resolves the best tool, from this catalog **or any proven external x402 seller in the open index**, and runs it in one paid call, picking the $0.01 or $0.55 tier from `maxUsd`. External results are relayed marked `untrustedContent`; sellers qualify only with proven on-chain settled volume. See [[x402 Index and Router|x402-Index-and-Router]].
+Since 0.12.0 the npm server also exposes **`route_and_execute`** `{ task, params?, maxUsd? }`: describe a task and the Smart Order Router resolves the best tool, from this catalog **or any proven external x402 seller in the open index**, and runs it in one paid call, picking the $0.01, $0.05, or $0.55 tier from `maxUsd`. External results are relayed marked `untrustedContent`; sellers qualify only with proven on-chain settled volume. See [[x402 Index and Router|x402-Index-and-Router]].
 
 Other env knobs: `AGENT402_URL` (target service), `AGENT402_TOOLS` (override the first-class tool list).
 
