@@ -63,6 +63,12 @@ regexes = [
   '''LEAKCANARY''',
   # Placeholder KDF-output example in the crypto-hash tool docs.
   '''a1b2c3d4e5f6''',
+  # erc721-owner's discovery example tokenId (chain-kit.js): the keccak-256
+  # labelhash of "vitalik" - the PUBLIC ENS registrar token id for
+  # vitalik.eth, recomputable by anyone from the name. On-chain public data,
+  # not a credential; gitleaks' generic-api-key rule trips on the 64-hex
+  # string sitting next to a quoted field.
+  '''0xaf2caa1c2ca1d027f1ac823b529d0a67cd144264b2789fa2ea4d63a67c7103cc''',
 ]
 # The standard demo JWT ({"alg":"HS256","typ":"JWT"} header) used as the
 # decode-jwt tool's worked example in kit.js / kit2.js / skills.js. Stopwords
