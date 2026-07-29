@@ -104,10 +104,8 @@ terms that travel with every clone are in the
 <a href="https://github.com/MikeyPetrillo/Agent402/blob/main/LICENSE" rel="noopener">AGPL-3.0 license</a>:
 run a modified copy as a network service and you must publish your source.</p>` : ""}
 
-<h2>Community-supported initiatives</h2>
-<p>Older news, kept in full for the record - every receipt still verifiable. Click to expand.</p>
 <details class="tp-fold">
-<summary>The community-launched $AGENT402 token on Robinhood Chain: full disclosure, receipts, and where we stand</summary>
+<summary><strong>A community member independently launched a token using the project's name ($AGENT402, on Robinhood Chain). It was not created, issued, endorsed, or controlled by Agent402.</strong> Full record and on-chain receipts - click to expand.</summary>
 <h3>The community-launched $AGENT402 token (Robinhood Chain)</h3>
 
 <p>On <strong>2026-07-07</strong>, a community member with <strong>no relation to the Agent402.Tools team</strong>
