@@ -1146,7 +1146,7 @@ jobs:
       - name: Util-kit tests (jwt-sign, uuid-v5, group-by, json-to-xml, geo-distance, color-contrast)
         run: node scripts/test-util-kit.js
 
-      - name: Brave subscription leak guard (every Brave-reaching pack must be skipped — offline)
+      - name: Paid-upstream leak guard (Brave + E2B — every metered route/pack must be skipped — offline)
         run: node scripts/test-brave-leak.js
 
       - name: SQL execution-certificate firewall (risk catalogue, false-positive guards, cert binding — offline)

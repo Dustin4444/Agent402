@@ -35,6 +35,17 @@ const BRAVE_ROUTES = new Set([
 ]);
 const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
 
+// E2B-backed routes — same leak shape as Brave (found in the 2026-07-29 paid-
+// upstream audit): the CI test job boots the server with the REAL E2B_API_KEY,
+// so this sweep's example calls spin real sandboxes and bill the E2B account
+// invisibly (CI has no PostHog). The old NETWORK-set comment assumed the key
+// was absent in CI; it is not. Live coverage stays in the dedicated
+// scripts/test-code-run-kit.js step, which runs live deliberately in CI.
+const E2B_ROUTES = new Set([
+  "/api/code-run", "/api/code-run-pro",
+]);
+const skipE2b = process.env.E2B_LIVE_TEST !== "1";
+
 const NETWORK = new Set([
   "/api/extract", "/api/meta", "/api/dns", "/api/render", "/api/screenshot", "/api/pdf",
   "/api/http-check", "/api/tls-cert", "/api/whois", "/api/robots-check", "/api/sitemap",
@@ -231,9 +242,6 @@ const NETWORK = new Set([
   // Image generation kit: every call hits OpenAI GPT Image API upstream.
   // Returns 503 without OPENAI_API_KEY — same tolerance as LLM proxy.
   "/api/image-gen", "/api/image-gen-hd", "/api/image-gen-premium",
-  // Code execution kit: every call spins up an E2B sandbox. Returns 503
-  // without E2B_API_KEY — the 502/503/504 tolerance below covers that.
-  "/api/code-run", "/api/code-run-pro",
   // TTS kit: every call hits OpenAI TTS API upstream.
   "/api/tts", "/api/tts-hd",
   // STT kit: fetches external audio + hits OpenAI transcription API.
@@ -293,9 +301,10 @@ function buildGetUrl(path, op) {
   return `${TARGET}${path}${[...qs].length ? `?${qs}` : ""}`;
 }
 
-let braveSkipped = 0;
+let braveSkipped = 0, e2bSkipped = 0;
 for (const [path, methods] of paths) {
   if (skipBrave && BRAVE_ROUTES.has(path)) { braveSkipped += Object.keys(methods).length; continue; }
+  if (skipE2b && E2B_ROUTES.has(path)) { e2bSkipped += Object.keys(methods).length; continue; }
   for (const [method, op] of Object.entries(methods)) {
     const cat = (op.tags && op.tags[0]) || "other";
     // Discovery/composition surfaces (skill packs) live in the OpenAPI spec so
@@ -346,7 +355,7 @@ for (const [path, methods] of paths) {
 }
 
 const totalOps = paths.reduce((a, [, m]) => a + Object.keys(m).length, 0);
-console.log(`\nExercised ${totalOps - braveSkipped} endpoints at ${TARGET}${braveSkipped ? ` (skipped ${braveSkipped} Brave route(s) — set BRAVE_LIVE_TEST=1 to include; paid-canary covers post-deploy verification)` : ""}\n`);
+console.log(`\nExercised ${totalOps - braveSkipped - e2bSkipped} endpoints at ${TARGET}${braveSkipped ? ` (skipped ${braveSkipped} Brave route(s) — set BRAVE_LIVE_TEST=1 to include; paid-canary covers post-deploy verification)` : ""}${e2bSkipped ? ` (skipped ${e2bSkipped} E2B route(s) — set E2B_LIVE_TEST=1 to include; test-code-run-kit covers live in CI)` : ""}\n`);
 for (const [cat, c] of Object.entries(cats).sort()) console.log(`  ${cat.padEnd(12)} ${c.pass}/${c.total} pure-CPU strict-pass`);
 console.log(`\n  strict (pure-CPU): ${strictPass} passed, ${strictFail} failed`);
 console.log(`  lenient (network/memory): ${lenient} exercised, ${serverErr} server errors`);
