@@ -17,10 +17,10 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 // ----------------------------------------------------------------------------
 // Catalog envelope
 // ----------------------------------------------------------------------------
-ok(CHAIN_TOOLS.length === 9, `9 tools exported (got ${CHAIN_TOOLS.length})`);
+ok(CHAIN_TOOLS.length === 15, `15 tools exported (got ${CHAIN_TOOLS.length})`);
 for (const t of CHAIN_TOOLS) {
   ok(typeof t.slug === "string" && t.slug.length > 0, `${t.slug}: has slug`);
-  ok(t.route?.startsWith("POST /api/"), `${t.slug}: POST /api/ route`);
+  ok(/^(GET|POST) \/api\//.test(t.route ?? ""), `${t.slug}: GET or POST /api/ route`);
   ok(t.category === "crypto", `${t.slug}: category=crypto`);
   ok(typeof t.price === "string" && /^\$\d/.test(t.price), `${t.slug}: priced`);
   ok(typeof t.handler === "function", `${t.slug}: has handler`);
@@ -134,6 +134,18 @@ async function live(slug, args, check, label) {
     console.warn(`warn - LIVE ${label}: upstream ${e.statusCode || "?"} ${e.message} — tolerated`);
   }
 }
+
+// ----------------------------------------------------------------------------
+// Named chain-read primitives (2026-07-29) — pre-RPC validation, no network.
+// ----------------------------------------------------------------------------
+await throws(h("block-number")({ network: "solana" }), 400, "block-number: unsupported network rejected");
+await throws(h("chain-info")({ network: "nope" }), 400, "chain-info: unsupported network rejected");
+await throws(h("block-info")({ block: "not-a-block" }), 400, "block-info: malformed block tag rejected");
+await throws(h("erc721-owner")({ contract: "0x123", tokenId: "1" }), 400, "erc721-owner: malformed contract rejected");
+await throws(h("erc721-owner")({ contract: "0x57f1887a8BF19b14fC0dF6Fd9B2acc9Af147eA85", tokenId: "xyz" }), 400, "erc721-owner: malformed tokenId rejected");
+await throws(h("contract-code")({ address: "hello" }), 400, "contract-code: malformed address rejected");
+await throws(h("event-logs")({ address: "0x123" }), 400, "event-logs: malformed address rejected");
+await throws(h("event-logs")({ address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", topic0: "0xshort" }), 400, "event-logs: malformed topic0 rejected");
 
 if (process.env.ALCHEMY_LIVE_TEST === "1" && process.env.ALCHEMY_API_KEY) {
   const ADDR = "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0"; // agent402 receiving wallet

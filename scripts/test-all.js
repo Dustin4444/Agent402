@@ -242,6 +242,8 @@ const NETWORK = new Set([
   // Image generation kit: every call hits OpenAI GPT Image API upstream.
   // Returns 503 without OPENAI_API_KEY — same tolerance as LLM proxy.
   "/api/image-gen", "/api/image-gen-hd", "/api/image-gen-premium",
+  // Named chain-read primitives (chain-kit 2026-07-29): live public-RPC reads.
+  "/api/block-number", "/api/chain-info", "/api/block-info", "/api/erc721-owner", "/api/contract-code", "/api/event-logs",
   // TTS kit: every call hits OpenAI TTS API upstream.
   "/api/tts", "/api/tts-hd",
   // STT kit: fetches external audio + hits OpenAI transcription API.
