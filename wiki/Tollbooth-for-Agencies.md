@@ -137,8 +137,10 @@ The Cloud Team plan ships a monthly PDF per `siteId` with:
 - A graph of bot share over time (the chart you put in next quarter's
   retainer renewal deck)
 
-You can also pull the same data via the `/api/cloud/report` API (Team
-tier and up) to drop into your existing reporting stack.
+A reporting API for pulling the same data into your own stack is planned for
+the hosted Team tier, which is still in early access - join the waitlist at
+https://agent402.tools/tollbooth/cloud. Today, export it from `gate.stats()`
+or the `/__tollbooth/stats` endpoint on your own deployment.
 
 ## Deploying across heterogeneous client stacks
 

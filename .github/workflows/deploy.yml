@@ -844,6 +844,15 @@ jobs:
       - name: Seller-trust honesty invariants (no evidence never reads as a bad verdict; advertised ≠ settled — offline)
         run: node scripts/test-seller-trust.js
 
+      - name: Package integrity (files allowlist covers every import; no sibling dep range excludes what we ship — offline)
+        run: node scripts/test-package-integrity.js
+
+      - name: Docs truth (every documented route, slug and price matches the served catalog)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js
+
+      - name: Public-surface leak gate (no buyer addresses, no per-tool revenue, operator feeds stay 404)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-public-surface-leak.js
+
       - name: Economy history unit tests (daily upsert idempotency + week-over-week math — offline)
         run: node scripts/test-x402-economy.js
 

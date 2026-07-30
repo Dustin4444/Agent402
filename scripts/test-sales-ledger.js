@@ -168,6 +168,27 @@ ok(txFromPaymentResponse("not-base64-json") === null && txFromPaymentResponse(""
   ok(op.topExternal.length === pub.distinctToolsSoldExternal, "the public tool count equals the detailed ranking length");
 }
 
+// --- mppSales is PUBLIC: no payer, ever -------------------------------------
+// /api/revenue/mpp and the /revenue MPP section render this. It shipped a payer
+// address on every settlement row, which is the same customer-list leak the
+// salesSummary contract above refuses - found only after the sales fix, because
+// nothing asserted the rule across surfaces. Seeded here so the assertion is
+// real even on an empty database, where the HTTP-level gate is vacuous.
+{
+  const MPPW = "0x5555555555555555555555555555555555555555";
+  recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "base", payer: MPPW, tx: "0xmpp1", synthetic: false, wire: "mpp" });
+  const feed = mppSales({ limit: 10 });
+  const blob = JSON.stringify(feed);
+  ok(feed.settlements.length > 0, "mpp feed has the seeded settlement to inspect");
+  ok(!blob.includes(MPPW) && !blob.includes(MPPW.toLowerCase()), "mpp feed carries no payer address");
+  ok(!/0x[0-9a-f]{40}(?![0-9a-f])/i.test(blob), "mpp feed contains no EVM-address-shaped value");
+  ok(feed.settlements.every((r) => !("payer" in r)), "no mpp settlement row has a payer field at all");
+  // Find OUR seeded row rather than assuming position: earlier blocks in this
+  // file seed MPP rows too, and the feed is newest-first.
+  const mine = feed.settlements.find((r) => r.tx === "0xmpp1");
+  ok(Boolean(mine), "the settlement tx is still published (that is the on-chain proof)");
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
