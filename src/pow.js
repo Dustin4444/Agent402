@@ -107,8 +107,8 @@ export const WALLET_ONLY_SLUGS = new Set([
   // clusters stay free at /api/wishes, the ranked/classified seller
   // intelligence (signalType, nearThreshold, noise flags) is pay-only.
   "demand-radar",
-  // bestsellers is the same play over our own sales ledger: the raw merchant
-  // feed stays free at /api/sales, the analyzed layer (ranking lenses, trend
+  // bestsellers is the same play over our own sales ledger: aggregate totals
+  // stay free at /api/sales, and everything per-tool (the ranking itself, trend
   // vs previous window, organic-buyer grade, revenue share) is pay-only.
   "bestsellers",
   // B20 kit — RPC egress against Base (b20-feature-id is pure CPU and stays PoW-eligible).

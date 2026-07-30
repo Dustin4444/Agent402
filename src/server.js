@@ -1210,17 +1210,30 @@ app.get("/api/revenue/mpp", (_req, res) => {
 app.get("/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), sales: salesSummary(), mpp: mppSales() }));
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales() }));
   } catch (e) {
     res.status(500).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
   }
 });
-// Sales ledger — what external wallets actually buy, by name. Free and
-// public like /api/stats: payer wallets are already public in the settle
-// txs; slugs and counts are the merchant transparency this catalog sells on.
+// Sales ledger — AGGREGATE beacon: totals, the recording window, and counts.
+// Deliberately carries no per-call rows, no payer addresses, and no per-tool
+// ranking (see salesSummary's contract in src/sales-ledger.js for why each of
+// those three came out). The itemized view is operator-only, below; the
+// analyzed per-tool layer is the paid bestsellers tool.
 app.get("/api/sales", (_req, res) => {
   try {
     res.set("Cache-Control", "public, max-age=60").json(salesSummary());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// Token-gated ITEMIZED sales feed — per-call rows with payer + tx, the per-tool
+// ranking, and repeat-buyer totals. Same posture as /__operator/wishes.json.
+app.get("/__operator/sales.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  try {
+    res.json(salesSummary({ detailed: true }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

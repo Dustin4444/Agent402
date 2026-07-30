@@ -1757,7 +1757,7 @@ export function whatAgentsBuyHtml(buyRows) {
   }).join("");
   const body = rows.length
     ? `<div style="display:flex;flex-direction:column;gap:9px;">${bars}</div>
-       <p class="foot" style="margin:14px 0 0;">The tools the most independent agents reach for are live-data and compute primitives - things an LLM can't do itself. Ranked by distinct verified wallets on the money rails; our own canary and test traffic is excluded. Machine-readable at <a href="/api/sales">/api/sales</a>.</p>`
+       <p class="foot" style="margin:14px 0 0;">The tools the most independent agents reach for are live-data and compute primitives - things an LLM can't do itself. Ranked by distinct verified wallets on the money rails; our own canary and test traffic is excluded.</p>`
     : `<div class="pn">No attributable external sales in the window yet - the first independent wallet purchase populates this.</div>`;
   return `<div class="panel" id="demand">
   <div class="ph">
