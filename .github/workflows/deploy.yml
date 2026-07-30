@@ -2438,17 +2438,50 @@ jobs:
           # Poll until the build+deploy actually completes. The old 'Verify'
           # step probed /health seconds after the trigger — the OLD build
           # answers 200 and the job goes green without prod ever changing.
+          # Three outcomes have to stay distinguishable here, because they call
+          # for different actions and the first version conflated all of them
+          # into "deploy failed":
+          #   1. our build genuinely failed        -> read the Railway build log
+          #   2. Railway never STARTED the build   -> platform delay, wait it out
+          #   3. we could not READ the status      -> tells us nothing at all
+          # Case 3 used to abort the step outright: `gql | jq` exits 5 on a
+          # non-JSON body, which is exactly what the API returns during an
+          # incident, so a degraded platform was reported as our failed deploy
+          # (2026-07-30, Railway "builds and deployments are delayed").
+          READ_FAILS=0
+          QUEUED_TICKS=0
+          LAST_STATUS="none"
           for i in $(seq 1 90); do
-            STATUS=$(jq -n --arg id "$DEPLOY_ID" '{query:"query($id:String!){ deployment(id:$id){ status } }", variables:{id:$id}}' \
-              | gql | jq -r '.data.deployment.status // "UNKNOWN"')
+            RAW=$(jq -n --arg id "$DEPLOY_ID" '{query:"query($id:String!){ deployment(id:$id){ status } }", variables:{id:$id}}' | gql || true)
+            if ! printf '%s' "$RAW" | jq -e . >/dev/null 2>&1; then
+              READ_FAILS=$((READ_FAILS + 1))
+              echo "[$i] Railway API returned a non-JSON body (consecutive read failures: $READ_FAILS)"
+              if [ "$READ_FAILS" -ge 18 ]; then
+                echo "::error::Railway's API was unreadable for $READ_FAILS consecutive polls. This is an UPSTREAM READ failure, not a failed deployment: prod is untouched and still serving the previous build. Check https://status.railway.com before retrying."
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            READ_FAILS=0
+            STATUS=$(printf '%s' "$RAW" | jq -r '.data.deployment.status // "UNKNOWN"')
+            LAST_STATUS="$STATUS"
             echo "[$i] deployment $DEPLOY_ID -> $STATUS"
             case "$STATUS" in
               SUCCESS) echo "new build is LIVE"; exit 0 ;;
               FAILED|CRASHED|REMOVED|SKIPPED) echo "::error::deployment ended $STATUS — prod is still on the previous build (check Railway build logs)"; exit 1 ;;
+              QUEUED) QUEUED_TICKS=$((QUEUED_TICKS + 1)) ;;
             esac
             sleep 10
           done
-          echo "::error::deployment did not reach SUCCESS within 15 minutes"; exit 1
+          # Never left the queue = Railway did not pick the job up. There is no
+          # build log to read, and pushing another deployment only lengthens
+          # their backlog, so say which of the two it was.
+          if [ "$QUEUED_TICKS" -ge 60 ]; then
+            echo "::error::deployment sat in QUEUED for the whole 15-minute window and never started building. That is a Railway-side delay, NOT a failed build: prod is untouched on the previous build and there is no build log to inspect. Check https://status.railway.com; re-triggering adds to the queue rather than clearing it."
+            exit 1
+          fi
+          echo "::error::deployment did not reach SUCCESS within 15 minutes (last status: $LAST_STATUS)"; exit 1
 
       - name: Verify deployment
         run: |
