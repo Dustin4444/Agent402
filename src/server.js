@@ -36,7 +36,7 @@ import { operatorLeadsPage } from "./operator-leads.js";
 import { operatorWishesPage } from "./operator-wishes.js";
 import { initLeadsDb, insertLead, listLeads, countLeads, leadsDbEnabled } from "./leads-db.js";
 import { cacheEnabled, cacheGet, cacheSet, cacheKeyFor, CACHEABLE_ROUTES, noteCacheOutcome, cacheCounters } from "./cache.js";
-import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled } from "./analytics-db.js";
+import { initAnalyticsDb, recordToolCall, getAnalytics, analyticsEnabled, redactAnalytics } from "./analytics-db.js";
 import { baseNotificationsEnabled } from "./base-notifications.js";
 import { initSentry, captureToolError, sentryEnabled } from "./sentry.js";
 import { initPostHog, capturePostHogToolError, capturePostHogToolCall, capturePostHogDiscovery, capturePostHogPaywall, capturePostHogPowChallenge, capturePostHogSettlement, capturePostHogChargedFailure, capturePostHogSettleFailed, capturePostHogToolGone, shutdownPostHog, posthogEnabled } from "./posthog.js";
@@ -2938,9 +2938,7 @@ app.get("/api/analytics", async (req, res) => {
   // Gated NOW, while ANALYTICS_DATABASE_URL is unset and the endpoint returns
   // {enabled:false} - wiring the DB later must not silently publish the table.
   const data = await getAnalytics({ windowHours, top, includeSynthetic, includeProbes });
-  if (operatorAuthed(req)) return res.json(data);
-  const { tools, ...aggregate } = data || {};
-  res.json({ ...aggregate, ...(tools ? { toolsCount: Array.isArray(tools) ? tools.length : undefined } : {}) });
+  res.json(redactAnalytics(data, operatorAuthed(req)));
 });
 
 // Human-readable analytics dashboard. Same data as /api/analytics, rendered as
@@ -2950,8 +2948,11 @@ app.get("/analytics", async (req, res) => {
   const windowHours = Math.max(1, Math.min(720, parseInt(req.query.hours, 10) || 24));
   const includeSynthetic = req.query.include_synthetic === "1" || req.query.include_synthetic === "true";
   const includeProbes = req.query.include_probes === "1" || req.query.include_probes === "true";
+  // Redacted the same way as the JSON route. Gating only the JSON surface would
+  // have been cosmetic: this page renders topTools and errorTools as tables, so
+  // the identical ranking stayed one HTML request away.
   const data = await getAnalytics({ windowHours, top: 25, includeSynthetic, includeProbes });
-  htmlCache(res, 30, 60).send(analyticsPage(data, { baseUrl: BASE_URL }));
+  htmlCache(res, 30, 60).send(analyticsPage(redactAnalytics(data, operatorAuthed(req)), { baseUrl: BASE_URL }));
 });
 
 // Remote MCP connector (streamable HTTP, authless free tier): paste

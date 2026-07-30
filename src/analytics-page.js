@@ -134,11 +134,19 @@ export function analyticsPage(data, { baseUrl }) {
   const rows = top
     .map((r, i) => {
       const safeSlug = esc(r.slug);
-      const cachedPct = r.calls ? fmtPct(r.cached, r.calls) : "-";
-      const clientErrCellPct = r.calls ? fmtPct(r.client_errored, r.calls) : "-";
-      const serverErrCellPct = r.calls ? fmtPct(r.server_errored, r.calls) : "-";
-      const clientErrClass = (Number(r.client_errored || 0) > 0) ? "an-warn" : "an-muted";
-      const serverErrClass = (Number(r.server_errored || 0) > 0) ? "an-danger" : "an-muted";
+      // Prefer an explicit rate when present. The public view ships rates rather
+      // than counts (counts scale with traffic, which is the volume signal that
+      // stays operator-only), so deriving from r.calls alone would blank these
+      // cells for every unauthenticated reader.
+      const pct = (rateField, countField) =>
+        (r[rateField] === null || r[rateField] === undefined)
+          ? (r.calls ? fmtPct(r[countField], r.calls) : "-")
+          : `${(Number(r[rateField]) * 100).toFixed(1)}%`;
+      const cachedPct = pct("cacheRate", "cached");
+      const clientErrCellPct = pct("clientErrorRate", "client_errored");
+      const serverErrCellPct = pct("serverErrorRate", "server_errored");
+      const clientErrClass = (Number(r.client_errored || 0) > 0 || Number(r.clientErrorRate || 0) > 0) ? "an-warn" : "an-muted";
+      const serverErrClass = (Number(r.server_errored || 0) > 0 || Number(r.serverErrorRate || 0) > 0) ? "an-danger" : "an-muted";
       const route = "/api/" + safeSlug;
       return `<tr>
         <td class="num an-muted">${esc(i + 1)}</td>
