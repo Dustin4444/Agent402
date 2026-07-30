@@ -2420,7 +2420,34 @@ app.get("/api/index", (req, res) => {
     if (!detail) return res.status(404).json({ error: "seller not found in the index", seller: String(req.query.seller).slice(0, 253) });
     return res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(detail);
   }
-  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json(getIndexSnapshot());
+  // The full snapshot is ~1.4MB: every crawled origin with its health score,
+  // its re-crawl history and its whole tool list. The per-origin HEALTH and
+  // HISTORY are the accumulated judgement the router's reliability gate is built
+  // on, not raw public data, and shipping all of it in one unauthenticated GET
+  // hands a competing router the crawl-and-score work for free.
+  //
+  // So: paginate, and keep history for the single-seller drill-down above (which
+  // is the surface a seller uses to self-diagnose). Totals and discovery sources
+  // stay whole - "the ecosystem is this big, come sell" is the point of the
+  // index being public. The operator token returns the unpaginated snapshot for
+  // our own tooling.
+  const snap = getIndexSnapshot();
+  if (operatorAuthed(req)) {
+    return res.set("Cache-Control", "no-store").json(snap);
+  }
+  const sellers = Array.isArray(snap.sellers) ? snap.sellers : [];
+  const perPage = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 250);
+  const page = Math.max(parseInt(req.query.page, 10) || 0, 0);
+  const slice = sellers.slice(page * perPage, page * perPage + perPage).map(({ history, ...rest }) => rest);
+  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300").json({
+    ...snap,
+    sellers: slice,
+    page,
+    perPage,
+    sellerCount: sellers.length,
+    pages: Math.ceil(sellers.length / perPage),
+    note: `Paginated: ${slice.length} of ${sellers.length} sellers. Use ?page=N&limit=<=250, or ?seller=<host> for one origin with its full detail.`,
+  });
 });
 // Self-serve listing: validate + rate-limit here; ALL probing happens inside
 // the crawler behind safeFetch (SSRF guard). 5/IP/hour, 30 new probes/hour
@@ -2500,7 +2527,14 @@ app.get("/api/route/external-debug", async (req, res) => {
 const SUPPORTED_WINDOWS = new Set(["24h", "7d", "30d", "all"]);
 app.get("/api/leaderboard", (req, res) => {
   const snap = getLeaderboardSnapshot();
-  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 25, 1), 500);
+  // Free ceiling of 50. Discovery needs the head of the board, not a bulk export
+  // of an hourly ~900-wallet on-chain scan: at top=500 a caller can recompute
+  // the derived signals the paid trending tool sells (organic score and average
+  // ticket are two divisions away from callsSettled/uniqueBuyers/totalUsd), and
+  // nobody choosing a seller needs rank 400. The operator token lifts it for
+  // our own tooling.
+  const topCeiling = operatorAuthed(req) ? 500 : 50;
+  const top = Math.min(Math.max(parseInt(req.query.top, 10) || 25, 1), topCeiling);
   const include = req.query.include === "external" ? "external" : "all";
   const self = (req.query.self || WALLET_ADDRESS || "").toLowerCase();
   const requested = String(req.query.window || "").toLowerCase();

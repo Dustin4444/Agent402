@@ -9,7 +9,7 @@ import { join } from "node:path";
 import {
   recordWish, getWishesAggregate, WISH_THRESHOLD,
   clusterQualifies, QUALIFY_MIN_SPAN_MS, annotateServed,
-  __testSetFilePath, __testSetLineCap, __testState,
+  __testSetFilePath, __testSetLineCap, __testState, __testReset,
 } from "../src/wish.js";
 
 let pass = 0, fail = 0;
@@ -210,6 +210,36 @@ for (const f of tmpFiles) {
   const throwing = annotateServed([{ text: "x" }], () => { throw new Error("boom"); }, 3);
   ok(throwing.length === 1 && !throwing[0].served, "a throwing scoreFn never breaks annotation");
 }
+
+
+// --- find-miss volume bound: floodable board, without breaking search --------
+// find-miss is exempt from the explicit-wish 429 on purpose (a legitimate
+// /api/find miss must not fail the caller's search), but it was also exempt from
+// any VOLUME bound, so one rotating client could fill the 20k cluster cap in
+// ~34 hours and every genuinely new demand signal after that is dropped.
+{
+  __testReset();
+  const IP = "203.0.113.9";
+  let recorded = 0, skipped = 0, threw = 0;
+  for (let i = 0; i < 80; i++) {
+    try {
+      const r = recordWish({ need: `novel unmatched capability number ${i}`, source: "find-miss", ip: IP });
+      if (r.recorded) recorded++; else skipped++;
+    } catch { threw++; }
+  }
+  ok(threw === 0, "a find-miss flood NEVER throws - a search must not fail because the board is busy");
+  ok(recorded > 0 && recorded <= 60, `find-miss recording is bounded per IP per hour (recorded ${recorded} of 80)`);
+  ok(skipped >= 20, `over-limit misses are dropped rather than recorded (skipped ${skipped})`);
+
+  // A different IP still gets its own allowance: the bound is per source, not global.
+  const other = recordWish({ need: "a different clients unmatched need", source: "find-miss", ip: "198.51.100.4" });
+  ok(other.recorded === true, "the bound is per IP - a second client is unaffected");
+
+  // And it must not consume the EXPLICIT wish allowance, which is a separate bucket.
+  const explicit = recordWish({ need: "an explicit request typed by an agent", source: "api", ip: IP });
+  ok(explicit.recorded === true, "a find-miss flood does not consume the explicit-wish allowance");
+}
+
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -32,6 +32,17 @@ const CLUSTER_CAP = 20_000; // bound in-memory distinct-cluster growth
 // penalizing a caller for a search that happened to miss would be wrong.
 const IP_WINDOW_MS = 3_600_000; // 1 hour
 const IP_MAX = 10;
+// find-miss is exempt from the EXPLICIT-wish limit above for a good reason: a
+// caller whose /api/find query legitimately missed must never be punished with
+// a 429 on a search. But exemption from penalty is not a reason for exemption
+// from VOLUME, and it was both: a novel unmatched query wrote a cluster with no
+// per-IP bound at all, so one rotating client could fill CLUSTER_CAP (20k) in
+// about 34 hours, after which every genuinely new demand signal is discarded.
+// This bound is deliberately generous - a real agent exploring the catalog will
+// not approach it - and exceeding it DROPS THE RECORDING rather than failing the
+// caller's request.
+const FIND_MISS_MAX_PER_HOUR = Number(process.env.WISH_FIND_MISS_MAX_PER_HOUR) || 60;
+let findMissHits = new Map(); // ip -> timestamp[]
 const GLOBAL_WINDOW_MS = 24 * 3_600_000; // 1 day
 const GLOBAL_MAX = 100;
 
@@ -99,14 +110,23 @@ function normalize(s) {
   return String(s || "").toLowerCase().trim().replace(/\s+/g, " ");
 }
 
+let overflowWarned = false;
+
 function upsertCluster(key, source, ts) {
   let c = clusters.get(key);
   if (!c) {
     if (clusters.size >= CLUSTER_CAP) {
-      // Overflow guard: never grow the in-memory map without bound. The
-      // caller still gets a normal { recorded: true } response - dropping a
-      // never-before-seen distinct wish silently is preferable to an
-      // unbounded map or a crash.
+      // Overflow guard: never grow the in-memory map without bound. The caller
+      // still gets a normal { recorded: true } response, because failing a
+      // search or a wish submission over OUR capacity limit would be worse.
+      //
+      // But it is logged LOUDLY and once, because a silent drop makes "no new
+      // demand arrived" and "we stopped listening an hour ago" look identical
+      // on the board, and the board is what decides what gets built.
+      if (!overflowWarned) {
+        overflowWarned = true;
+        console.warn(`[wish] cluster cap reached (${CLUSTER_CAP}) - NEW distinct wishes are being DROPPED and the demand board is no longer complete. Investigate before trusting it.`);
+      }
       return { count: 1, firstSeen: ts, lastSeen: ts, sources: { [source]: 1 }, issueOpened: false, __overflow: true };
     }
     c = { count: 0, firstSeen: ts, lastSeen: ts, sources: { api: 0, mcp: 0, "find-miss": 0 }, issueOpened: false };
@@ -188,6 +208,23 @@ function rebuildFromFile() {
 }
 rebuildFromFile();
 
+/** Per-IP hourly bound on IMPLICIT (find-miss) wish recording. Same shape as
+ *  checkRateLimit but a separate bucket, so a flood of misses can never consume
+ *  a legitimate explicit-wish allowance or vice versa. */
+function findMissLimited(ip) {
+  const now = Date.now();
+  const key = ip || "?";
+  const mine = (findMissHits.get(key) || []).filter((t) => now - t < IP_WINDOW_MS);
+  if (mine.length >= FIND_MISS_MAX_PER_HOUR) { findMissHits.set(key, mine); return true; }
+  mine.push(now);
+  findMissHits.set(key, mine);
+  if (findMissHits.size > 5_000) {
+    // Bound the bucket map itself; an IP with no recent hits needs no entry.
+    for (const [k, v] of findMissHits) if (!v.some((t) => now - t < IP_WINDOW_MS)) findMissHits.delete(k);
+  }
+  return false;
+}
+
 function checkRateLimit(ip) {
   const now = Date.now();
   const key = ip || "?";
@@ -243,6 +280,11 @@ export function recordWish({ need, context, source, ip } = {}) {
       e.statusCode = 429;
       throw e;
     }
+  } else if (findMissLimited(ip)) {
+    // Never throw here: this path runs inside /api/find and the MCP find_tool,
+    // and a search must not fail because the demand board is busy. Stop
+    // RECORDING instead, and say so in the return value.
+    return { recorded: false, reason: "find-miss volume limit for this source", cluster: null };
   }
 
   const now = Date.now();
@@ -314,11 +356,15 @@ export function getWishesAggregate({ limit = 200, detailed = false } = {}) {
 export function __testSetFilePath(path) {
   WISH_FILE = path;
   ipHits = new Map();
+  findMissHits = new Map();
+  overflowWarned = false;
   globalHits = [];
   rebuildFromFile();
 }
 export function __testReset() {
   ipHits = new Map();
+  findMissHits = new Map();
+  overflowWarned = false;
   globalHits = [];
   rebuildFromFile();
 }
