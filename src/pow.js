@@ -90,6 +90,16 @@ export const WALLET_ONLY_SLUGS = new Set([
   // Blockscout kit: every call BUYS upstream data over x402 with the server's
   // spending wallet — PoW would let one client drain the upstream buyer.
   "contract-inspect", "address-profile", "token-info", "token-holders", "tx-inspect",
+  // sql-guard MINTS an Ed25519 execution certificate with SQL_CERT_SIGNING_KEY.
+  // Left PoW-eligible it was a free, unlimited signing oracle for our own
+  // certifying identity: anyone could obtain unbounded signed certificates for
+  // nothing, and the certificate - not the verdict - is the thing a database
+  // layer trusts to let a write through. Signing is also exactly what an
+  // attacker wants volume of, so metering it with money rather than CPU is the
+  // point. sql-cert-verify stays PoW-eligible on purpose: it verifies with the
+  // PUBLIC key, mints nothing, and the gate protecting someone's database
+  // should never be the step that fails for want of a wallet.
+  "sql-guard",
   // captcha-verify relays a secret to a provider (egress); captcha-generate
   // is pure-CPU and stays PoW-eligible (NOT listed here).
   "captcha-verify",
