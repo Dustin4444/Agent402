@@ -2474,14 +2474,24 @@ jobs:
             esac
             sleep 10
           done
-          # Never left the queue = Railway did not pick the job up. There is no
-          # build log to read, and pushing another deployment only lengthens
-          # their backlog, so say which of the two it was.
-          if [ "$QUEUED_TICKS" -ge 60 ]; then
-            echo "::error::deployment sat in QUEUED for the whole 15-minute window and never started building. That is a Railway-side delay, NOT a failed build: prod is untouched on the previous build and there is no build log to inspect. Check https://status.railway.com; re-triggering adds to the queue rather than clearing it."
-            exit 1
-          fi
-          echo "::error::deployment did not reach SUCCESS within 15 minutes (last status: $LAST_STATUS)"; exit 1
+          # Classify on the LAST status, never on a cumulative count. The first
+          # version keyed off "was QUEUED for 60+ polls", which reported "never
+          # started building" for a deployment that had queued, then moved to
+          # DEPLOYING, and in fact SUCCEEDED about a minute after the window
+          # closed (2026-07-30). A count says where it has been; only the last
+          # status says where it is.
+          case "$LAST_STATUS" in
+            QUEUED)
+              echo "::error::deployment never left QUEUED in the 15-minute window, so Railway did not pick the job up. That is a platform delay, NOT a failed build: prod is untouched on the previous build and there is no build log to inspect. Check https://status.railway.com; re-triggering adds to their backlog rather than clearing it."
+              ;;
+            BUILDING|DEPLOYING|INITIALIZING|WAITING)
+              echo "::error::deployment was still $LAST_STATUS when the 15-minute window expired, so it is PROGRESSING but slower than this gate waits. It may well reach SUCCESS on its own shortly. Check the live status and prod's build hash before treating this as a failure, and do not re-trigger blindly."
+              ;;
+            *)
+              echo "::error::deployment did not reach SUCCESS within 15 minutes (last status: $LAST_STATUS)"
+              ;;
+          esac
+          exit 1
 
       - name: Verify deployment
         run: |
