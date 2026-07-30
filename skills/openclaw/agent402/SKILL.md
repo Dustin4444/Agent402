@@ -1,6 +1,6 @@
 ---
 name: agent402
-description: "Pay-per-call access to Agent402.Tools: 500+ deterministic web tools (browser rendering, web search, PDFs, OCR, finance, SEC EDGAR, crypto/macro data, an OpenAI-compatible LLM gateway, stats/forecasting, ~210 pure-CPU utilities) plus a neutral Smart Order Router across the wider x402 ecosystem. Discover with GET /api/find?q=<task>, pay per call in USDC on Base (six other chains also accepted) or free via proof-of-work with no wallet at all, dispatch one-shot with POST /api/route/execute. Use when the agent needs a specific deterministic capability instead of reasoning it out itself: scrape a URL, hash a string, look up a stock quote, OCR an image, query SEC EDGAR, run a chat/embeddings/image call through an OpenAI-compatible wire, or pay a small USDC amount for any of the above. Do NOT activate for open-ended reasoning or tasks with no matching tool; POST /api/wish first in that case."
+description: "Pay-per-call access to Agent402.Tools: 500+ deterministic web tools (browser rendering, web search, PDFs, OCR, finance, SEC EDGAR, crypto/macro data, an OpenAI-compatible LLM gateway, stats/forecasting, 200+ pure-CPU utilities) plus a neutral Smart Order Router across the wider x402 ecosystem. Discover with GET /api/find?q=<task>, pay per call in USDC on Base (eleven other chains also accepted) or free via proof-of-work with no wallet at all, dispatch one-shot with POST /api/route/execute. Use when the agent needs a specific deterministic capability instead of reasoning it out itself: scrape a URL, hash a string, look up a stock quote, OCR an image, query SEC EDGAR, run a chat/embeddings/image call through an OpenAI-compatible wire, or pay a small USDC amount for any of the above. Do NOT activate for open-ended reasoning or tasks with no matching tool; POST /api/wish first in that case."
 homepage: https://github.com/MikeyPetrillo/Agent402
 metadata:
   openclaw:
@@ -31,8 +31,8 @@ curl "https://agent402.tools/api/pricing"
 1. **Wallet, USDC on Base**: set `EVM_PRIVATE_KEY` in `.env` to a Base wallet
    funded with USDC (bridge at bridge.base.org or buy at coinbase.com). This is
    the native rail for OpenClaw agents on Virtuals/Base.
-2. **No wallet at all**: solve a proof-of-work puzzle instead of paying. About
-   210 of the 500+ tools are pure-CPU and PoW-eligible; no money, no signup,
+2. **No wallet at all**: solve a proof-of-work puzzle instead of paying. Over
+   200 of the 500+ tools are pure-CPU and PoW-eligible; no money, no signup,
    no funding step. See "Free tier" below.
 
 Never hardcode a price. Treat the runtime `402 Payment Required` response as
@@ -102,8 +102,9 @@ curl -i -X POST https://agent402.tools/api/extract \
 
 Decoded, the challenge's `accepts[]` array lists every rail this tool takes.
 Base is first and is the native rail for an OpenClaw/Base wallet, but the same
-call can also settle on Polygon, Arbitrum, Solana, Stellar, Algorand, or
-Robinhood Chain (USDG) if that's what the agent's wallet is funded with:
+call can also settle on Polygon, Arbitrum, Monad, Celo, Avalanche, Sei,
+Optimism, Solana, Stellar, Algorand, or Robinhood Chain (USDG) if that's what
+the agent's wallet is funded with - twelve rails in total:
 
 ```json
 {
@@ -111,6 +112,11 @@ Robinhood Chain (USDG) if that's what the agent's wallet is funded with:
     { "scheme": "exact", "network": "eip155:8453",  "asset": "0x8335...913", "payTo": "0xaBF4...9D0" },
     { "scheme": "exact", "network": "eip155:137",   "asset": "0x3c49...359" },
     { "scheme": "exact", "network": "eip155:42161", "asset": "0xaf88...831" },
+    { "scheme": "exact", "network": "eip155:143"   },
+    { "scheme": "exact", "network": "eip155:42220" },
+    { "scheme": "exact", "network": "eip155:43114" },
+    { "scheme": "exact", "network": "eip155:1329"  },
+    { "scheme": "exact", "network": "eip155:10"    },
     { "scheme": "exact", "network": "eip155:4663",  "asset": "0x5fc5...168", "extra": { "name": "Global Dollar" } },
     { "scheme": "exact", "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp" },
     { "scheme": "exact", "network": "stellar:pubnet" },
@@ -177,18 +183,19 @@ pure-CPU.
 
 ## LLM gateway: chat, embeddings, images
 
-An OpenAI-compatible wire, five price tiers, same request/response shape as
-`/v1/chat/completions` elsewhere:
+An OpenAI-compatible wire, five chat price tiers plus embeddings, images and
+speech, same request/response shapes as the OpenAI endpoints elsewhere:
 
 | Tier | Route | Price | Notes |
 |---|---|---|---|
 | nano | `POST /v1/nano/chat/completions` | $0.003 | small/fast models, high-frequency loops |
 | auto | `POST /v1/auto/chat/completions` | $0.01 | model optional, deterministic quality-ranked routing |
-| base | `POST /v1/base/chat/completions` | $0.02 | |
+| base | `POST /v1/chat/completions` | $0.02 | |
 | pro | `POST /v1/pro/chat/completions` | $0.10 | |
 | premium | `POST /v1/premium/chat/completions` | $0.50 | |
 | embeddings | `POST /v1/embeddings` | $0.002 | batch up to 64 inputs, cached by default |
 | images | `POST /v1/images/generations` | $0.08 | returns `b64_json` |
+| speech | `POST /v1/audio/speech` | $0.06 | OpenAI TTS wire, up to 2,000 chars in, raw mp3 (default) or pcm bytes out |
 
 `GET /v1/models` lists the allowlisted model ids per tier. Verified live:
 `POST /v1/nano/chat/completions` with no payment answers `402 Payment Required`
@@ -201,9 +208,19 @@ curl "https://agent402.tools/v1/models"
 
 ## One-shot dispatch: `POST /api/route/execute`
 
-Skip the find-then-call round trip. Pay one flat $0.01 and describe the task
+Skip the find-then-call round trip. Pay one flat fee and describe the task
 (or name the exact slug); Agent402 resolves the best match and runs it in the
-same request, covering any underlying tool priced at $0.005 or less.
+same request. Three rungs keep the flat fee proportional to what is being
+bought - pick the cheapest one that covers the underlying tool's price:
+
+| Underlying tool price | Fee | Route |
+|---|---|---|
+| up to $0.005 | $0.01 | `POST /api/route/execute` |
+| up to $0.04 | $0.05 | `POST /api/route/execute-plus` |
+| up to $0.50 | $0.55 | `POST /api/route/execute-max` |
+
+`GET /api/route?q=<task>` (free) quotes which rung a task needs. The examples
+below use the $0.01 rung.
 
 ```bash
 curl -i -X POST https://agent402.tools/api/route/execute \
@@ -220,8 +237,9 @@ curl -i -X POST https://agent402.tools/api/route/execute \
 ```
 
 Pass `task` instead of `slug` to let the same ranker behind `/api/find` pick
-the tool. A tool priced above $0.005 answers a self-correcting 409 naming its
-direct route, so the agent can call it there at list price instead.
+the tool. A tool priced above the rung's ceiling answers a self-correcting 409
+naming its direct route, so the agent can call it there at list price instead
+(or retry on a higher rung).
 
 ## Nothing matches: `POST /api/wish`
 
@@ -236,7 +254,7 @@ exposes the same thing as the `request_tool` tool). Demand is public at
 | Error | Cause | Fix |
 |---|---|---|
 | `402 Payment Required` with no `payment-required` header | Free-tier tool, not priced | Nothing to pay, retry with no changes |
-| `409` from `/api/route/execute` | Underlying tool priced above the $0.005 cap | Call the named direct route at list price |
+| `409` from `/api/route/execute` | Underlying tool priced above that rung's cap ($0.005 / $0.04 / $0.50) | Call the named direct route at list price, or retry on a higher rung |
 | `404` from `/api/find` results (empty `results`) | No lexical match for the query | Broaden the query, or `POST /api/wish` |
 | `413` from a memory tool | Namespace over its 10k-key / 32MB quota | Free space or use a new namespace |
 | PoW `410`/expired token | Challenge TTL (300s) elapsed before submit | Request a fresh challenge and resolve faster |

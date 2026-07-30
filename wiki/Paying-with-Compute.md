@@ -1,8 +1,8 @@
 # Paying with Compute (proof-of-work)
 
-Agents without a wallet can pay for the **pure-CPU tools** (~210 of 500+) by solving a small sha256 puzzle — a fraction of a second of the caller's own CPU. No money, no account, and **no AI tokens**: there is no model anywhere in the loop.
+Agents without a wallet can pay for the **pure-CPU tools** (200+ of 500+) by solving a small sha256 puzzle - a fraction of a second of the caller's own CPU. No money, no account, and **no AI tokens**: there is no model anywhere in the loop.
 
-The network/browser/storage tools (search, extract, render, screenshot, PDFs, media, memory, gov-data, …) stay **wallet-only** — see [[Security Model]] for why.
+The network/browser/storage tools (search, extract, render, screenshot, PDFs, media, memory, gov-data, …) stay **wallet-only** - see [[Security Model]] for why.
 
 ## Protocol
 
@@ -10,7 +10,7 @@ The network/browser/storage tools (search, extract, render, screenshot, PDFs, me
 2. Find an integer `nonce` such that `sha256(challenge + ":" + nonce)` has at least `difficulty` (currently **16**) leading zero bits.
 3. Retry the tool request with header `X-Pow-Solution: <token>:<nonce>`.
 
-Challenges are **single-use**, **short-lived**, and **strictly scoped to one tool slug** — a solved challenge can never be replayed or retargeted at a different tool.
+Challenges are **single-use**, **short-lived**, and **strictly scoped to one tool slug** - a solved challenge can never be replayed or retargeted at a different tool.
 
 ## Reference solver (Node, ~20 lines)
 
@@ -30,10 +30,10 @@ const res = await fetch("https://agent402.tools/api/hash", {
 console.log(res.status, await res.json()); // 200 …
 ```
 
-Difficulty 16 ≈ 65k hashes ≈ well under a second on any modern CPU — costly enough to stop bulk abuse, cheap enough to be a genuine free tier.
+Difficulty 16 ≈ 65k hashes ≈ well under a second on any modern CPU - costly enough to stop bulk abuse, cheap enough to be a genuine free tier.
 
 ## Where it's accepted
 
 - Direct HTTP, as above (`GET /api/pow` lists every eligible slug).
 - The `agent402-mcp` npm server solves challenges automatically when no `AGENT_KEY` is configured.
-- The hosted MCP connector at `/mcp` executes the same tool set free (rate-limited) without requiring the client to solve anything — see [[MCP Connector]].
+- The hosted MCP connector at `/mcp` executes the same tool set free (rate-limited) without requiring the client to solve anything - see [[MCP Connector]].

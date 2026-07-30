@@ -2,7 +2,7 @@
   "name": "agent402",
   "version": "1.0.0",
   "private": true,
-  "description": "Agent402.Tools \u2014 the open-source, self-hostable x402 + MCP server: 500+ tools + 100 skill packs for AI agents, plus a pay-per-crawl tollbooth. Run free, or charge per call over x402 (USDC on Base, Solana, Polygon, Arbitrum & Stellar \u2014 plus USDG on Robinhood Chain). 6 chains supported.",
+  "description": "Agent402.Tools - the open-source, self-hostable x402 + MCP server: 500+ tools + 100+ skill packs for AI agents, plus a pay-per-crawl tollbooth. Run free, or charge per call over x402 (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand - plus USDG on Robinhood Chain). 12 chains supported.",
   "main": "src/server.js",
   "engines": {
     "node": ">=20"
@@ -46,7 +46,13 @@
     "robinhood-chain",
     "usdg",
     "multi-chain",
-    "stellar"
+    "stellar",
+    "monad",
+    "celo",
+    "avalanche",
+    "sei",
+    "optimism",
+    "algorand"
   ],
   "author": "Havok Holdings LLC <mike@agent402.tools> (https://agent402.tools)",
   "license": "AGPL-3.0-or-later",

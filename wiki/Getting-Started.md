@@ -41,13 +41,13 @@ To settle in real USDC instead, fund a wallet on Base and run `AGENT_KEY=0xYOUR_
 
 | You are… | Use |
 |---|---|
-| A Claude user | Paste `https://agent402.tools/mcp` into Settings → Connectors — see [[MCP Connector]] |
-| A Cursor / ChatGPT (Pro+) / VS Code Copilot user | Paste the same URL into the MCP connector settings — see [[MCP Connector]] |
-| An MCP-based agent | `npx -y agent402-mcp` with optional `AGENT_KEY` — see [[MCP Connector]] |
-| On OpenAI / Anthropic / Vercel AI SDK / LangChain / LlamaIndex | One of the framework adapter packages — see [[Adapters]] |
-| Calling over HTTP with a wallet | One x402-wrapped fetch — see [[Paying with x402]] |
-| Wallet-less / sandboxed | Proof-of-work on ~210 tools — see [[Paying with Compute]] |
+| A Claude user | Paste `https://agent402.tools/mcp` into Settings → Connectors - see [[MCP Connector]] |
+| A Cursor / ChatGPT (Pro+) / VS Code Copilot user | Paste the same URL into the MCP connector settings - see [[MCP Connector]] |
+| An MCP-based agent | `npx -y agent402-mcp` with optional `AGENT_KEY` - see [[MCP Connector]] |
+| On OpenAI / Anthropic / Vercel AI SDK / LangChain / LlamaIndex | One of the framework adapter packages - see [[Adapters]] |
+| Calling over HTTP with a wallet | One x402-wrapped fetch - see [[Paying with x402]] |
+| Wallet-less / sandboxed | Proof-of-work on 200+ tools - see [[Paying with Compute]] |
 
 ## What things cost
 
-Flat per-call prices from **$0.001** (utilities, conversions); most tools are **$0.001–$0.02** (e.g. browser rendering), with premium AI, media, and multi-tool skill packs priced higher. No tiers, no subscriptions, no rate-limit plans — every call settles on-chain in seconds and the next one is independent. Prices are in the catalog and in every 402 response.
+Flat per-call prices from **$0.001** (utilities, conversions); most tools are **$0.001–$0.02** (e.g. browser rendering), with premium AI, media, and multi-tool skill packs priced higher. No tiers, no subscriptions, no rate-limit plans - every call settles on-chain in seconds and the next one is independent. Prices are in the catalog and in every 402 response.

@@ -1,4 +1,4 @@
-# Ecosystem listing PRs — ready to submit
+# Ecosystem listing PRs - ready to submit
 
 Two high-signal directories accept PRs. Both need your GitHub account (forking
 external repos), so the content below is copy-paste ready.
@@ -17,10 +17,10 @@ alphabetical by repo name; legend: 📇 = TypeScript/JavaScript, ☁️ = cloud/
 2. In the Aggregators section, insert alphabetically:
 
 ```markdown
-- [MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402) 📇 ☁️ 🏠 - The headless browser, live web search, OCR, and durable wallet-keyed memory an agent's sandbox doesn't have — a catalog of 500+: 400+ pay-per-call tools + 100 curated skill packs, every one tested, priced, and settled on-chain — rented per call via x402 (USDC on Base + 10 more chains (Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand), or USDG on Robinhood Chain — 12 chains) or free with proof-of-work on the 216 pure-CPU tools. Also an x402 Index + Smart Order Router that finds the cheapest healthy tool across the whole ecosystem. Hosted remote connector at agent402.tools/mcp.
+- [MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402) 📇 ☁️ 🏠 - The headless browser, live web search, OCR, and durable wallet-keyed memory an agent's sandbox doesn't have - a catalog of 500+: 400+ pay-per-call tools + 100+ curated skill packs, every one tested, priced, and settled on-chain - rented per call via x402 (USDC on Base + 10 more chains (Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand), or USDG on Robinhood Chain - 12 chains) or free with proof-of-work on the 200+ pure-CPU tools. Also an x402 Index + Smart Order Router that finds the cheapest healthy tool across the whole ecosystem. Hosted remote connector at agent402.tools/mcp.
 ```
 
-3. PR title: `Add Agent402 (aggregator: 400+ x402 pay-per-call tools + 100 skill packs)`
+3. PR title: `Add Agent402 (aggregator: 400+ x402 pay-per-call tools + 100+ skill packs)`
 
 ---
 
@@ -33,13 +33,13 @@ Coinbase reviews within ~5 business days. Category: **Services/Endpoints**.
 2. Download the logo: https://agent402.tools/logo.png → save as
    `typescript/site/public/logos/agent402.png`.
 3. Create `typescript/site/app/ecosystem/partners-data/agent402/metadata.json`
-   (check a sibling directory for the exact filename convention — copy whatever
+   (check a sibling directory for the exact filename convention - copy whatever
    an existing entry like `metadata.json` uses):
 
 ```json
 {
   "name": "Agent402",
-  "description": "500+ pay-per-call endpoints for AI agents over x402 — 400+ tools + 100 skill packs, every one tested, priced, and settled on-chain — headless browser, live web search, OCR, PDFs, financial/SEC/macro data, durable wallet-keyed memory, and an OpenAI-compatible LLM gateway (/v1: chat, embeddings, auto-routing) — USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand, USDG on Robinhood Chain (12 chains), or free via proof-of-work. Also an x402 Index + Smart Order Router that ranks the cheapest healthy tool across the ecosystem (auto-discovered from the CDP Bazaar). Open source, self-hostable, MCP server included.",
+  "description": "500+ pay-per-call endpoints for AI agents over x402 - 400+ tools + 100+ skill packs, every one tested, priced, and settled on-chain - headless browser, live web search, OCR, PDFs, financial/SEC/macro data, durable wallet-keyed memory, and an OpenAI-compatible LLM gateway (/v1: chat, embeddings, auto-routing) - USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand, USDG on Robinhood Chain (12 chains), or free via proof-of-work. Also an x402 Index + Smart Order Router that ranks the cheapest healthy tool across the ecosystem (auto-discovered from the CDP Bazaar). Open source, self-hostable, MCP server included.",
   "logoUrl": "/logos/agent402.png",
   "websiteUrl": "https://agent402.tools",
   "category": "Services/Endpoints"
@@ -47,16 +47,16 @@ Coinbase reviews within ~5 business days. Category: **Services/Endpoints**.
 ```
 
 4. PR title: `Ecosystem: add Agent402 (Services/Endpoints)`
-   PR body: one paragraph + a proof line — e.g. "Live since 2026; revenue
+   PR body: one paragraph + a proof line - e.g. "Live since 2026; revenue
    wallet and settled calls verifiable on Basescan:
-   https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns —
+   https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns -
    also discoverable via the CDP Bazaar discovery endpoint."
 
 ---
 
 ## 3. Smithery (smithery.ai)
 
-Smithery auto-scans MCP servers — no PR needed, no `smithery.yaml` required.
+Smithery auto-scans MCP servers - no PR needed, no `smithery.yaml` required.
 The whole submission is one form post.
 
 **Steps**
@@ -71,7 +71,7 @@ The whole submission is one form post.
    the proposed name (`@MikeyPetrillo/agent402` or similar) and submit.
 
 If the auto-scan ever fails, the fallback is to serve a
-`/.well-known/mcp/server-card.json` from agent402.tools. Not needed today —
+`/.well-known/mcp/server-card.json` from agent402.tools. Not needed today -
 the catalog endpoint already returns proper MCP capabilities.
 
 **CLI alternative** (same result; needs `npm install -g @smithery/cli`):
@@ -85,7 +85,7 @@ smithery mcp publish "https://agent402.tools/mcp" -n @MikeyPetrillo/agent402
 ## 4. AWS Bedrock AgentCore samples (awslabs/agentcore-samples)
 
 AWS Labs' official sample repo accepts third-party integration entries
-(identity providers, observability platforms, etc.). Agent402 fits — the
+(identity providers, observability platforms, etc.). Agent402 fits - the
 buy side is a Strands agent calling Agent402 tools; the sell side is a
 tollbooth-gated endpoint paid by an AgentCore agent.
 
@@ -95,10 +95,10 @@ tollbooth-gated endpoint paid by an AgentCore agent.
 
    Draft body:
 
-   > **Proposal: Add `integrations/agent402/` sample — x402 buy + sell side**
+   > **Proposal: Add `integrations/agent402/` sample - x402 buy + sell side**
    >
    > Agent402 is an open-source x402 + MCP server with a catalog of 500+
-   > pay-per-call endpoints (400+ tools + 100 skill packs), plus
+   > pay-per-call endpoints (400+ tools + 100+ skill packs), plus
    > `agent402-tollbooth` for pay-per-crawl on the other side.
    > Both speak vanilla x402, so an AgentCore-hosted Strands agent works
    > end-to-end with no protocol bridging.
@@ -121,18 +121,18 @@ tollbooth-gated endpoint paid by an AgentCore agent.
    > Will follow this issue with a PR once you confirm the folder location.
 
 2. After the issue is acked, open a PR adding `integrations/agent402/`:
-   - `README.md` — short overview + link to the wiki guide + the two example
+   - `README.md` - short overview + link to the wiki guide + the two example
      subfolder links.
-   - `buy-side/` — copy of `examples/agentcore/`.
-   - `sell-side/` — copy of `examples/agentcore-tollbooth/`.
+   - `buy-side/` - copy of `examples/agentcore/`.
+   - `sell-side/` - copy of `examples/agentcore-tollbooth/`.
 
    Code is already prepared in this repo; the PR is a copy + path edits.
 
 ---
 
-## 5. mcpservers.org (Awesome MCP Servers — hosted site)
+## 5. mcpservers.org (Awesome MCP Servers - hosted site)
 
-A curated MCP server site (separate from `punkpeye/awesome-mcp-servers` —
+A curated MCP server site (separate from `punkpeye/awesome-mcp-servers` -
 mcpservers.org maintains its own index). Submission is a single form post
 that takes a GitHub repo URL; no PR, no fork.
 
@@ -154,13 +154,13 @@ that takes a GitHub repo URL; no PR, no fork.
      Agent402 gives AI agents the headless browser, live web search + answers
      with citations, OCR, PDF text extraction, financial/crypto/macro data
      (Yahoo, CoinGecko, FRED, ECB, World Bank), SEC EDGAR filings, DNS/TLS/WHOIS,
-     wallet-keyed shared memory, and 216 deterministic utilities (hash, JWT,
-     regex, compression, forecasting, statistics, finance math, etc.) — paid per
+     wallet-keyed shared memory, and 200+ deterministic utilities (hash, JWT,
+     regex, compression, forecasting, statistics, finance math, etc.) - paid per
      call in USDC on Base (or Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar,
-     Algorand) — plus USDG on Robinhood Chain — 12 chains total via the x402
-     protocol, or free via built-in proof-of-work for the 216 pure-CPU tools.
+     Algorand) - plus USDG on Robinhood Chain - 12 chains total via the x402
+     protocol, or free via built-in proof-of-work for the 200+ pure-CPU tools.
 
-     The catalog is 500+ strong — 400+ tools + 100 curated multi-tool skill packs
+     The catalog is 500+ strong - 400+ tools + 100+ curated multi-tool skill packs
      (published as MCP prompts); every one is tested against its own example on
      every deploy. One config block, no per-tool signups, no API keys.
      Self-hostable (open source AGPL-3.0) or use the hosted remote at
@@ -177,7 +177,7 @@ that takes a GitHub repo URL; no PR, no fork.
 
 ---
 
-## 6. x402scan (x402scan.com) — the explorer featured on solana.com/x402
+## 6. x402scan (x402scan.com) - the explorer featured on solana.com/x402
 
 Merit Systems' x402 ecosystem explorer; solana.com/x402 points buyers here.
 Registration is self-serve and automatic: submit a URL, and if it returns a
@@ -200,32 +200,32 @@ Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand, Rob
 3. Verify the listing shows all twelve networks (Base, Solana, Polygon,
    Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand, Robinhood Chain) in the accepts. Also check
    https://www.x402scan.com/facilitator/payAI once the first Solana
-   settlement lands — PayAI-settled traffic appears under that view.
+   settlement lands - PayAI-settled traffic appears under that view.
 
 ---
 
-## 7. awesome-x402 (xpaysh/awesome-x402) — STALE ENTRY, needs 8-chain + The-500 update
+## 7. awesome-x402 (xpaysh/awesome-x402) - STALE ENTRY, needs 12-chain + The-500 update
 
-We are already listed, but the entry predates the full 8-chain roster and the
+We are already listed, but the entry predates the full 12-chain roster and the
 500+ strong catalog. PR a one-word-class fix:
 
 **Steps**
 1. Fork https://github.com/xpaysh/awesome-x402, find the Agent402 entry.
 2. Update the chain list to "USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism,
-   Stellar, Algorand — plus USDG on Robinhood Chain (12 chains)" and, if the
-   entry cites a tool count, set it to "500+ — 400 pay-per-call tools +
-   100 skill packs".
-3. PR title: `Update Agent402 entry — 12-chain settlement (USDC + USDG) + 500+ strong catalog`
+   Stellar, Algorand - plus USDG on Robinhood Chain (12 chains)" and, if the
+   entry cites a tool count, set it to "500+ - 400+ pay-per-call tools +
+   100+ skill packs".
+3. PR title: `Update Agent402 entry - 12-chain settlement (USDC + USDG) + 500+ strong catalog`
 
 ---
 
-## 7b. Robinhood Chain visibility (no directory yet — mainnet is days old)
+## 7b. Robinhood Chain visibility (no directory yet - mainnet is days old)
 
 There is no public Robinhood Chain ecosystem directory to submit to yet.
 Until one exists, the discoverable surfaces are:
 
 1. **On-chain identity**: Blockscout (robinhoodchain.blockscout.com) accepts
-   public name tags for addresses — request a tag for the revenue wallet so
+   public name tags for addresses - request a tag for the revenue wallet so
    settlements attribute to "Agent402.Tools".
 2. **The 402 itself**: every paid route already advertises eip155:4663 in its
    `accepts`, so any Robinhood-side indexer that crawls x402 sellers will find
@@ -247,7 +247,7 @@ The directory solana.com/x402 cross-links. Form submission, no PR.
    - **One-liner:**
 
      ```
-     500+ strong: 400+ pay-per-call web tools + 100 skill packs for AI agents over x402, every one tested and settled on-chain — USDC on Solana (and Base/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand) plus USDG on Robinhood Chain — 12 chains — or free via proof-of-work. Open-source, self-hostable, MCP-native.
+     500+ strong: 400+ pay-per-call web tools + 100+ skill packs for AI agents over x402, every one tested and settled on-chain - USDC on Solana (and Base/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand) plus USDG on Robinhood Chain - 12 chains - or free via proof-of-work. Open-source, self-hostable, MCP-native.
      ```
 
    - **Description:** reuse the mcpservers.org long description above; lead
@@ -255,7 +255,7 @@ The directory solana.com/x402 cross-links. Form submission, no PR.
      agent402-mcp buyer, Solana payTo in every 402).
    - **Website:** https://agent402.tools · **Repo:** github.com/MikeyPetrillo/Agent402
 3. Getting *featured* on solana.com/x402 itself (like PayAI/x402scan/T54) is
-   curated — after the directory listing exists, ping the Solana Foundation
+   curated - after the directory listing exists, ping the Solana Foundation
    devrel with the on-chain proof (Solana settlements via PayAI + the open
    tollbooth story). The x402scan listing showing live Solana volume is the
    strongest supporting evidence.
@@ -263,7 +263,7 @@ The directory solana.com/x402 cross-links. Form submission, no PR.
 ---
 
 Solana-surface status: PayAI facilitator auto-lists merchants in the x402
-Bazaar (active since the multi-chain routing deploy — first Solana settlement
+Bazaar (active since the multi-chain routing deploy - first Solana settlement
 will populate it; fund SOLANA_BURNER_KEY so the daily canary provides that
 settlement). x402scan indexes our 402s (re-register after chain changes).
 
@@ -274,8 +274,8 @@ npm, Coinbase CDP Bazaar discovery (verified 2026-06-16: 64 Agent402 endpoints
 in the public Bazaar index), Glama, mcp.so
 (verified 2026-06-21: live at mcp.so/server/agent402).
 Pending review: Cline MCP Marketplace (filed 2026-06-21 as
-cline/mcp-marketplace#1849) — any follow-up copy on that issue should use the
-The-500 framing above (500+: 400+ tools + 100 skill packs, 12 chains).
+cline/mcp-marketplace#1849) - any follow-up copy on that issue should use the
+The-500 framing above (500+: 400+ tools + 100+ skill packs, 12 chains).
 Not a submittable directory: Cursor (users add MCP servers to their own
 `~/.cursor/mcp.json`; cursor.directory is a third-party Cursor *rules* site,
 not an MCP listing).
@@ -284,58 +284,58 @@ Next up once submitted: the Anthropic connector directory
 
 ---
 
-## 9. July 2026 scour — new surfaces since this playbook was written
+## 9. July 2026 scour - new surfaces since this playbook was written
 
 ### Auto-indexed (verify, don't submit)
 
-- **Agentic.Market (Coinbase)** — the new consumer-facing public directory of
+- **Agentic.Market (Coinbase)** - the new consumer-facing public directory of
   x402 services (live pricing, volume, top lists). Indexes AUTOMATICALLY from
-  CDP-facilitator payments on Bazaar-discovery-enabled endpoints — our 64
+  CDP-facilitator payments on Bazaar-discovery-enabled endpoints - our 64
   Bazaar-registered routes should already be present. Action: browse
   agentic.market for the Agent402 entries, confirm metadata quality and that
   the accepts show all twelve chains.
-- **Onyx Bazaar** — free public leaderboard of every paid x402 service,
+- **Onyx Bazaar** - free public leaderboard of every paid x402 service,
   re-derived from the CDP discovery API every 15 minutes. No submission
   surface; we appear iff the Bazaar entry is healthy.
-- **kenoodl.com/agentic-market** — third-party mirror of the Agentic.Market
+- **kenoodl.com/agentic-market** - third-party mirror of the Agentic.Market
   catalog. Rides the same index; no action.
 
 ### Open submission, all chains (good non-EVM visibility)
 
-- **402 Index** — no signature, no chain allowlist: non-EVM families (Stellar,
+- **402 Index** - no signature, no chain allowlist: non-EVM families (Stellar,
   Robinhood Chain via custom { id, rpcUrl }) are listable and findable. One of
-  the few places the FULL ten-chain roster can be first-class.
-- **PipRail Discovery (piprail.com/discovery)** — one POST to list, no auth,
+  the few places the FULL twelve-chain roster can be first-class.
+- **PipRail Discovery (piprail.com/discovery)** - one POST to list, no auth,
   no fee, every chain; probed on submit, domain verification for instant go-live.
 
 ### Curated directories (apply/PR)
 
-- **gold-402 (24K Labs)** — curated x402 directory, 300+ entries, editorial
+- **gold-402 (24K Labs)** - curated x402 directory, 300+ entries, editorial
   writeups + "verified" badges for production-confirmed services. Apply with
   the on-chain revenue proof.
-- **awesome-agentic-commerce (Merit-Systems)** — the same maintainers as
+- **awesome-agentic-commerce (Merit-Systems)** - the same maintainers as
   x402scan; PR an Agent402 entry (aggregator/seller + tollbooth sell-side).
 
 ### Identity / reputation registries (per-chain trust layer)
 
-- **AgentZone** — unified explorer combining ERC-8004 identity, x402 payment
+- **AgentZone** - unified explorer combining ERC-8004 identity, x402 payment
   history, reputation, live status across **Base and Arbitrum**. Register an
   erc8004 identity and claim it on AgentZone so Base + Arbitrum settlements
   attribute to it.
 - **Solana Agent Registry (solana.com/agent-registry)** + **8004-solana
-  (QuantuLabs/PayAI)** — the ERC-8004 port on Solana with on-chain feedback
+  (QuantuLabs/PayAI)** - the ERC-8004 port on Solana with on-chain feedback
   and trust tiers, integrated with PayAI (our Solana facilitator). Register
   the Solana revenue wallet as an agent identity; PayAI-settled traffic then
   builds portable reputation.
 
 ### Watchlist (no action yet)
 
-- **x402station** — x402 analytics/monitoring platform; check for a
+- **x402station** - x402 analytics/monitoring platform; check for a
   registration surface once it matures.
-- **RelAI (relai.fi)** — "x402 API marketplace" still on their roadmap.
-- **Google AP2 x x402** — agents paying via Google's Agent Payments Protocol
+- **RelAI (relai.fi)** - "x402 API marketplace" still on their roadmap.
+- **Google AP2 x x402** - agents paying via Google's Agent Payments Protocol
   settle over x402; no public AP2 merchant directory yet. Revisit when one
   exists.
-- **CoinGecko "x402 ecosystem" category** — token listings only; N/A (no token).
-- **Robinhood Chain** — still no ecosystem directory (see 7b); 402 Index /
+- **CoinGecko "x402 ecosystem" category** - token listings only; N/A (no token).
+- **Robinhood Chain** - still no ecosystem directory (see 7b); 402 Index /
   PipRail are the interim places its rail can be advertised.

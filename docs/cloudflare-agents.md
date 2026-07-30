@@ -1,7 +1,7 @@
-# Cloudflare Agents + Agent402 — integration guide
+# Cloudflare Agents + Agent402 - integration guide
 
 Cloudflare's Agents SDK has native x402 support (`withX402`, `paidTool`,
-`x402-hono` middleware). Agent402 is an x402 seller — 500+ pay-per-call
+`x402-hono` middleware). Agent402 is an x402 seller - 500+ pay-per-call
 tools at `https://agent402.tools`. This guide shows how a Cloudflare Worker
 or Agent can discover and call Agent402 tools, paying per request in USDC.
 
@@ -15,7 +15,7 @@ A minimal Worker that calls Agent402's `/api/stock-quote` endpoint using
 `@x402/fetch` for automatic payment:
 
 ```ts
-// src/index.ts — Cloudflare Worker
+// src/index.ts - Cloudflare Worker
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { x402Client } from "@x402/core/client";
 import { registerExactEvmScheme } from "@x402/evm/exact/client";
@@ -30,7 +30,7 @@ export default {
     });
     const payFetch = wrapFetchWithPayment(fetch, client);
 
-    // Call Agent402 — the 402 challenge + USDC payment happen transparently
+    // Call Agent402 - the 402 challenge + USDC payment happen transparently
     const res = await payFetch(
       "https://agent402.tools/api/stock-quote?symbol=AAPL"
     );
@@ -46,8 +46,9 @@ interface Env {
 ```
 
 The Worker receives a 402 response from Agent402, signs a USDC payment on
-Base (or Solana/Polygon/Arbitrum/Stellar), and replays the request with a valid
-payment header — all handled by `@x402/fetch`.
+Base (or Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand,
+or USDG on Robinhood Chain), and replays the request with a valid
+payment header - all handled by `@x402/fetch`.
 
 ---
 
@@ -66,13 +67,27 @@ const MyAgent = withX402(
       const findRes = await fetch(
         `https://agent402.tools/api/find?q=${encodeURIComponent(msg)}&k=1`
       );
-      const [tool] = await findRes.json();
+      // /api/find returns { query, count, results: [...] } - take the top hit.
+      const { results } = await findRes.json();
+      const tool = results[0];
+      if (!tool) return { error: "no matching tool" };
 
-      // Call it — withX402 handles the payment challenge automatically
-      const res = await this.fetch(tool.route, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(tool.example),
+      // callExample carries the exact method, path and body/query to use.
+      const { method, path, body, query } = tool.callExample;
+      const url = new URL(path, "https://agent402.tools");
+      for (const [k, v] of Object.entries(query ?? {})) {
+        url.searchParams.set(k, String(v));
+      }
+
+      // Call it - withX402 handles the payment challenge automatically
+      const res = await this.fetch(url.toString(), {
+        method,
+        ...(method === "POST"
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body ?? {}),
+            }
+          : {}),
       });
       return await res.json();
     }
@@ -91,8 +106,10 @@ Agent402 exposes a hosted MCP endpoint at:
 https://agent402.tools/mcp
 ```
 
-This is a streamable-HTTP MCP server with four tools: `search_tools`,
-`find_tool`, `call_tool`, and `about_agent402`. Any Cloudflare Agent that
+This is a streamable-HTTP MCP server. Four meta-tools drive it - `search_tools`
+(browse candidates), `find_tool` (resolve a task to one pick), `call_tool` (run
+by slug) and `get_payment_info` (how paying and spend caps work) - alongside a
+handful of popular tools listed first-class by name. Any Cloudflare Agent that
 supports remote MCP servers can connect directly.
 
 In your `wrangler.jsonc` (or equivalent config):
@@ -109,19 +126,19 @@ In your `wrangler.jsonc` (or equivalent config):
 }
 ```
 
-The MCP surface handles discovery and invocation — `call_tool` solves
+The MCP surface handles discovery and invocation - `call_tool` solves
 proof-of-work automatically for free-tier tools. For wallet-only tools
 (search, browser, PDF, memory), pass your x402 payment header via the
 `payment` field in the `call_tool` input.
 
 ---
 
-## 4. Tollbooth — charge Workers that crawl your content
+## 4. Tollbooth - charge Workers that crawl your content
 
 Site owners who want to charge AI agents (including Cloudflare Workers) for
 crawling their content can deploy `agent402-tollbooth`. It is a lightweight
 middleware that returns a 402 challenge to bot traffic and settles USDC via
-x402 before serving the page. Works with any origin — Express, Next.js,
+x402 before serving the page. Works with any origin - Express, Next.js,
 Cloudflare Workers, or Docker. See
 [github.com/MikeyPetrillo/Agent402/tree/main/tollbooth](https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth)
 for the npm package and deploy templates.
@@ -139,4 +156,7 @@ for the npm package and deploy templates.
 | Any paid tool | `GET\|POST /api/{slug}` | x402 (USDC) |
 | x402 manifest | `GET /.well-known/x402` | None |
 
-Prices: $0.001–$0.02 per call. Networks: Base, Solana, Polygon, Arbitrum, Stellar.
+Prices: most tools $0.001–$0.02 per call; the priciest single tool is $0.55 and
+multi-tool skill packs run up to $1.50. Networks: Base, Solana, Polygon,
+Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar and Algorand (USDC),
+plus Robinhood Chain (USDG) - 12 in total.

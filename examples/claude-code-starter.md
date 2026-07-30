@@ -9,9 +9,17 @@ claude mcp add agent402 -- npx agent402-mcp
 ```
 
 That's it. Claude Code now has access to:
-- `search_tools` — find the right tool for any task
-- `call_tool` — execute it (free via proof-of-work)
-- `find_tool` — get full schema for a specific tool
+- `search_tools` - find the right tool for any task (returns slug, price and
+  input schema; task-shaped queries also surface matching skill packs)
+- `call_tool` - execute it (free via proof-of-work on the pure-CPU tools)
+- `payment_info` - which mode the server is in, the spend caps, and what a
+  funded wallet unlocks
+- `top_x402_sellers` - the live x402 seller leaderboard by settled USDC (free)
+- `route_and_execute` - resolve and pay a proven external x402 seller in one
+  call, result relayed back (needs a funded wallet)
+
+Skill packs (multi-tool workflows) arrive as MCP prompts, so they show up in
+Claude Code's slash-command list without any extra wiring.
 
 ## Example prompts
 

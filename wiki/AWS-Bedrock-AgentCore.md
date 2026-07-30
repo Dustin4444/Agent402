@@ -1,32 +1,32 @@
 # AWS Bedrock AgentCore
 
-[AWS Bedrock AgentCore Payments](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/payments.html) is a fully-managed orchestrator for **x402** — the same protocol [Agent402](https://agent402.tools) speaks natively. That means Agent402 snaps into AgentCore as a first-class tool source with **no protocol bridging code**: AgentCore handles the wallet and the signing, Agent402 supplies the catalog and serves the 402 challenges.
+[AWS Bedrock AgentCore Payments](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/payments.html) is a fully-managed orchestrator for **x402** - the same protocol [Agent402](https://agent402.tools) speaks natively. That means Agent402 snaps into AgentCore as a first-class tool source with **no protocol bridging code**: AgentCore handles the wallet and the signing, Agent402 supplies the catalog and serves the 402 challenges.
 
-This page is a 5-minute recipe to wire the two together — buy side (let an AgentCore agent call Agent402 tools) and sell side (charge AgentCore agents that crawl *your* site, using `agent402-tollbooth`).
+This page is a 5-minute recipe to wire the two together - buy side (let an AgentCore agent call Agent402 tools) and sell side (charge AgentCore agents that crawl *your* site, using `agent402-tollbooth`).
 
 ## What you get out of the box
 
-- 500+ deterministic, pay-per-call tools + 100 multi-tool skill packs from Agent402, callable from an AgentCore-hosted agent
+- 500+ deterministic, pay-per-call tools + 100+ multi-tool skill packs from Agent402, callable from an AgentCore-hosted agent
 - Free tier with **no wallet** (proof-of-work; AgentCore Identity is optional for that path)
 - USDC-on-Base settlement for wallet-only tools, via AgentCore's `PaymentCredentialProvider` + CDP
 - CloudWatch observability for every payment (AgentCore handles this)
-- Strands SDK as the agent framework — AgentCore's preferred Python/TS surface
+- Strands SDK as the agent framework - AgentCore's preferred Python/TS surface
 
 ## Option 1: Gateway target (zero code, all 500+ tools)
 
 The fastest path. Agent402 exposes a hosted [MCP](https://modelcontextprotocol.io) endpoint at `https://agent402.tools/mcp`; point AgentCore Gateway at it and every tool shows up in your agent.
 
-1. **Identity:** in AgentCore Identity, create a `PaymentCredentialProvider` of type `coinbaseCdp` (or `stripe` / `privy` — your choice). Paste your CDP API key id + secret. AgentCore stores them encrypted.
+1. **Identity:** in AgentCore Identity, create a `PaymentCredentialProvider` of type `coinbaseCdp` (or `stripe` / `privy` - your choice). Paste your CDP API key id + secret. AgentCore stores them encrypted.
 2. **Gateway target:** in AgentCore Gateway, add an MCP target:
    - URL: `https://agent402.tools/mcp`
    - Auth: none (free tier) or attach the `PaymentCredentialProvider` from step 1 (wallet tier)
-3. **Done.** Your agent sees the four Agent402 MCP tools (`search_tools`, `find_tool`, `call_tool`, `about_agent402`) plus, via `call_tool`, the full 500+ tool catalog. Payments — proof-of-work for free tools, USDC for wallet-only — happen in the request path; AgentCore logs every settled call to CloudWatch.
+3. **Done.** Your agent sees the four Agent402 MCP tools (`search_tools`, `find_tool`, `call_tool`, `about_agent402`) plus, via `call_tool`, the full 500+ tool catalog. Payments - proof-of-work for free tools, USDC for wallet-only - happen in the request path; AgentCore logs every settled call to CloudWatch.
 
 > Want to host the catalog yourself instead? Run Agent402 anywhere (`FREE_MODE=false` with `WALLET_ADDRESS` + CDP keys), and point Gateway at `https://your-host/mcp` the same way.
 
 ## Option 2: Strands adapter (curated tool subset, embedded in the agent)
 
-When you want to ship a small, curated set of tools rather than the whole catalog — better tool-selection accuracy, smaller token cost. Use [`agent402-strands`](https://www.npmjs.com/package/agent402-strands), the drop-in adapter:
+When you want to ship a small, curated set of tools rather than the whole catalog - better tool-selection accuracy, smaller token cost. Use [`agent402-strands`](https://www.npmjs.com/package/agent402-strands), the drop-in adapter:
 
 ```bash
 npm install agent402-strands @strands-agents/sdk zod
@@ -36,7 +36,7 @@ npm install agent402-strands @strands-agents/sdk zod
 import { Agent } from "@strands-agents/sdk";
 import { agent402Tools } from "agent402-strands";
 
-// AgentCore deploys this exact Strands Agent — no extra glue.
+// AgentCore deploys this exact Strands Agent - no extra glue.
 const { tools } = await agent402Tools({
   slugs: ["extract", "hash", "render", "screenshot"],
 });
@@ -45,7 +45,7 @@ const agent = new Agent({ tools });
 const out = await agent.invoke("Extract the article at https://example.com/post");
 ```
 
-Free-tier tools (~210 of them) pay automatically via proof-of-work — **no wallet required**. For the ~250 wallet-only tools, pass an `@x402/fetch`-wrapped `fetch`; AgentCore Payments signs with the CDP-backed key in Identity, so you never see private keys in your code.
+Free-tier tools (200+ of them) pay automatically via proof-of-work - **no wallet required**. For the 300+ wallet-only tools, pass an `@x402/fetch`-wrapped `fetch`; AgentCore Payments signs with the CDP-backed key in Identity, so you never see private keys in your code.
 
 ```ts
 const { tools } = await agent402Tools({
@@ -54,29 +54,36 @@ const { tools } = await agent402Tools({
 });
 ```
 
-That's the whole adapter. Same shape as the sibling adapters ([OpenAI](https://www.npmjs.com/package/agent402-openai-tools), [Anthropic](https://www.npmjs.com/package/agent402-anthropic-tools), [LangChain](https://www.npmjs.com/package/agent402-langchain), [LlamaIndex](https://www.npmjs.com/package/agent402-llamaindex), [Vercel AI SDK](https://www.npmjs.com/package/agent402-ai-sdk)) — pick the one your code already uses.
+That's the whole adapter. Same shape as the sibling adapters ([OpenAI](https://www.npmjs.com/package/agent402-openai-tools), [Anthropic](https://www.npmjs.com/package/agent402-anthropic-tools), [LangChain](https://www.npmjs.com/package/agent402-langchain), [LlamaIndex](https://www.npmjs.com/package/agent402-llamaindex), [Vercel AI SDK](https://www.npmjs.com/package/agent402-ai-sdk)) - pick the one your code already uses.
 
-## Option 3: Sell side — charge AgentCore agents with `agent402-tollbooth`
+## Option 3: Sell side - charge AgentCore agents with `agent402-tollbooth`
 
 AgentCore Payments doesn't just spend; it also identifies AI traffic. If you run a site or API, [`agent402-tollbooth`](https://www.npmjs.com/package/agent402-tollbooth) is an open-source pay-per-crawl gate that fits the other half of the loop. AgentCore-hosted agents pay it the same way they pay anything else over x402.
 
 ```js
-// Express app — humans browse free, AgentCore-hosted (and any other) AI agents pay per request.
+// Express app - humans browse free, AgentCore-hosted (and any other) AI agents pay per request.
 import express from "express";
-import { tollbooth } from "agent402-tollbooth";
+import { createTollbooth } from "agent402-tollbooth";
 
 const app = express();
-app.use(tollbooth({
-  walletAddress: "0xYourWallet",       // where USDC lands
+const gate = createTollbooth({
+  payTo: "0xYourWallet",               // where USDC lands
   network: "base",
-  pricePerRequest: "$0.001",
-  mode: "observe",                     // safe default; flip to "bots" or "all" when ready
-}));
+  price: "$0.001",
+  observe: true,                       // safe default; delete it, then set mode, when ready
+  // mode: "bots",                     // bots | all | strict (default: bots)
+});
+app.get("/__stats", (_req, res) => res.json(gate.stats()));  // gate this with a token
+app.use(gate);
 app.get("/", (_req, res) => res.send("hello"));
 app.listen(3000);
 ```
 
-Three modes, three blast radii: `observe` (count + log only — recommended for the first 24h), `bots` (charge known AI user agents), `all` / `strict` (charge everything except humans). Adaptive proof-of-work means cash-poor agents can still pay in CPU. Edge-deployable to Cloudflare Workers and Next.js middleware. Stats are at `/__tollbooth` (token-gated dashboard) and machine-readable at `/__tollbooth/stats?token=...`.
+The exported factory is **`createTollbooth`** (there is no `tollbooth` export), and the options are **`payTo`** and **`price`** (not `walletAddress` / `pricePerRequest`).
+
+`observe` is a **boolean** and is independent of `mode`: leave `observe: true` to classify and count without ever returning a 402, then remove it and pick a `mode`. `mode` is `bots` (default, charges the `AI_BOTS` user-agents), `strict` (charges anything that is not a real-browser request, i.e. no `Mozilla/5.0` UA plus `text/html` Accept), or `all` (charges every client, browsers included). `mode: "observe"` is not valid and would leave you charging on the `bots` default.
+
+Adaptive proof-of-work means cash-poor agents can still pay in CPU. Edge-deployable to Cloudflare Workers and Next.js middleware. As Express middleware the gate registers **no routes**, so read counters from `gate.stats()` / `gate.snapshot()` and serve them yourself. Run the package as a reverse proxy instead (`TOLLBOOTH_UPSTREAM=… npx agent402-tollbooth`) and you get `/__tollbooth` plus `/__tollbooth/stats`, authed with `Authorization: Bearer <TOLLBOOTH_ADMIN_TOKEN>` or `X-Admin-Token`, never a `?token=` query string.
 
 This is one of the few public open-source gates that AgentCore agents can pay end-to-end today.
 
@@ -105,21 +112,21 @@ This is one of the few public open-source gates that AgentCore agents can pay en
 └──────────────────────────────────────────────────────────────┘
 ```
 
-No bridging code, no protocol translation — x402 on both ends.
+No bridging code, no protocol translation - x402 on both ends.
 
 ## Why this works without glue
 
 - **AgentCore Payments speaks x402.** Per the AWS docs, AgentCore orchestrates payments using `HTTP 402 Payment Required` (x402) with the `exact` scheme. That's exactly what Agent402 emits.
 - **Agent402 is x402 v2 native.** The same paywall middleware that powers `agent402.tools` is what AgentCore expects to negotiate against.
-- **CDP is a supported credential provider** in AgentCore Identity. That's the same CDP facilitator Agent402's hosted instance uses — same network (Base), same token (USDC), same `PaymentRequirements` shape.
+- **CDP is a supported credential provider** in AgentCore Identity. That's the same CDP facilitator Agent402's hosted instance uses - same network (Base), same token (USDC), same `PaymentRequirements` shape.
 - **Strands is AgentCore's preferred SDK.** The `agent402-strands` adapter returns native `tool({...})` instances, so a Strands Agent can be deployed straight onto AgentCore with no shape changes.
 
 ## See also
 
-- [[Adapters]] — sibling adapters for OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex
-- [[MCP Connector]] — the hosted MCP path used in Option 1
-- [[Pay-per-crawl]] — `agent402-tollbooth` deep dive (deploy templates, modes, dashboard)
-- [[Paying with x402]] · [[Paying with Compute]] — the two payment paths
+- [[Adapters]] - sibling adapters for OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex
+- [[MCP Connector]] - the hosted MCP path used in Option 1
+- [[Pay-per-crawl]] - `agent402-tollbooth` deep dive (deploy templates, modes, dashboard)
+- [[Paying with x402]] · [[Paying with Compute]] - the two payment paths
 - [AWS docs: AgentCore Payments overview](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/payments.html)
 - [AWS docs: AgentCore Identity (credential providers)](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/identity.html)
 - [x402 protocol](https://x402.org) · [Strands Agents](https://strandsagents.com)

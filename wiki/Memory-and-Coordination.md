@@ -1,6 +1,6 @@
 # Memory and Coordination
 
-The retention product. Agent sessions are ephemeral — the container is gone an hour later. `/api/memory` is durable state where **the paying wallet is the identity**: no API key to store, leak, or rotate. Write from one machine today, read from another next week, with nothing but the same private key.
+The retention product. Agent sessions are ephemeral - the container is gone an hour later. `/api/memory` is durable state where **the paying wallet is the identity**: no API key to store, leak, or rotate. Write from one machine today, read from another next week, with nothing but the same private key.
 
 All memory tools are wallet-only (payment = authentication, so there's no proof-of-work mode).
 
@@ -15,15 +15,15 @@ GET  /api/memory?key=deploy-fix
 POST /api/memory            {"key":"deploy-fix","delete":true}
 # atomic counter
 POST /api/memory/incr       {"key":"jobs-done","by":3}
-# atomic compare-and-set — the primitive for locks + optimistic concurrency
+# atomic compare-and-set - the primitive for locks + optimistic concurrency
 POST /api/memory/cas        {"key":"locks/import","expected":null,"value":"agent-7","ttlSeconds":30}
 ```
 
-Namespaces are isolated per wallet: only the wallet that wrote a key can read it — unless it grants access.
+Namespaces are isolated per wallet: only the wallet that wrote a key can read it - unless it grants access.
 
 ### Distributed locks & safe updates (`/api/memory/cas`)
 
-Compare-and-set writes (or, with no `value`, deletes) a key **only if its current value equals `expected`** — the building block multi-agent coordination needs:
+Compare-and-set writes (or, with no `value`, deletes) a key **only if its current value equals `expected`** - the building block multi-agent coordination needs:
 
 ```bash
 # acquire a lock: succeeds only if the key is unset/expired, with a TTL lease
@@ -58,7 +58,7 @@ GET /api/memory/log?limit=100
 
 ## Semantic memory
 
-Store prose now, search it by meaning later (deterministic lexical scoring — no embeddings API, no LLM):
+Store prose now, search it by meaning later (deterministic lexical scoring - no embeddings API, no LLM):
 
 ```bash
 POST /api/memory/remember   {"text":"Railway deploy failed: build out of memory","meta":{"sev":"high"}}
@@ -66,9 +66,22 @@ POST /api/memory/recall     {"query":"why did the deploy break?","k":3}
 POST /api/memory/forget     {"id":"<doc id>"}
 ```
 
+## Namespace quotas (both return `413`)
+
+A namespace is bounded on two axes at once, and hitting **either** returns `413 Payload Too Large` rather than silently dropping data:
+
+| Limit | Env var | Default | Why |
+|---|---|---|---|
+| Keys per namespace | `MEMORY_MAX_NS_KEYS` | 10,000 | Bounds index growth for one wallet |
+| Total value bytes per namespace | `MEMORY_MAX_NS_BYTES` | 32 MB | The disk-fill guard for the shared `/data` volume: a key count alone does not bound size, since one key can hold a very large value |
+
+Individual items are capped too: 256 bytes of key and 64 KB of value.
+
+Both quotas are read at call time, so an operator can change them without a redeploy, and both **reclaim expired rows before rejecting**, so a namespace full of TTL'd keys frees itself rather than wedging. A shrinking or same-size overwrite is always allowed. A `413` is a `4xx`, so it **cancels settlement**: a write that bounces off a full namespace does not charge you. Free space by deleting keys (`{"key":"…","delete":true}`), shrinking values, or letting `ttlSeconds` expire them.
+
 ## Properties
 
-- **Durable:** stored in SQLite on a persistent volume — survives redeploys and restarts.
+- **Durable:** stored in SQLite on a persistent volume - survives redeploys and restarts.
 - **Private by default:** wallet-scoped; grants are explicit, revocable, and logged.
-- **Cheap:** $0.002–$0.003 per call.
+- **Cheap:** $0.001–$0.003 per call.
 - **Identity without accounts:** the x402 payment on each request proves control of the wallet; there is no signup surface to attack.

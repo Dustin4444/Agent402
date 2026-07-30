@@ -1,4 +1,4 @@
-# Integration Playbook — Agent402 Ecosystem Expansion
+# Integration Playbook - Agent402 Ecosystem Expansion
 
 Quick-reference for registering Agent402 on platforms and marketplaces.
 
@@ -8,7 +8,7 @@ Quick-reference for registering Agent402 on platforms and marketplaces.
 **Status:** Not yet listed
 
 Circle's Agent Marketplace lets AI agents discover, evaluate, and pay for services
-via x402 + USDC nanopayments. Agent402 is a natural fit — we already speak x402.
+via x402 + USDC nanopayments. Agent402 is a natural fit - we already speak x402.
 
 **Steps:**
 1. Visit https://agents.circle.com/services
@@ -17,13 +17,15 @@ via x402 + USDC nanopayments. Agent402 is a natural fit — we already speak x40
    - Service name: `Agent402.Tools`
    - URL: `https://agent402.tools`
    - Description: "500+ deterministic pay-per-call tools for AI agents (search, finance, EDGAR, crypto, PDFs, OCR, and more). x402 native."
-   - Payment: x402 / USDC on Base (primary), Solana, Polygon, Arbitrum
+   - Payment: x402 / USDC on Base (primary), Solana, Polygon, Arbitrum, Monad,
+     Celo, Avalanche, Sei, Optimism, Stellar, Algorand, plus USDG on Robinhood
+     Chain (12 chains)
    - MCP endpoint: `https://agent402.tools/mcp`
    - Discovery: `https://agent402.tools/.well-known/x402`
-   - Tool count: 500+ (400+ tools + 100 skill packs)
+   - Tool count: 500+ (400+ tools + 100+ skill packs)
 4. Reference our Bazaar registration (already indexed by Coinbase CDP)
 
-**Why it matters:** Circle has "high enterprise visibility" — their marketplace is where
+**Why it matters:** Circle has "high enterprise visibility" - their marketplace is where
 corporate agents look first. Being listed here = discovery by enterprise buyers.
 
 ---
@@ -57,7 +59,7 @@ Agent402 is one of the most active x402 sellers by endpoint count.
 **Status:** Already discoverable (via Bazaar MCP server in AgentCore)
 **Opportunity:** Get featured in AWS docs/blog as an example x402 seller
 
-AgentCore ships a managed Bazaar MCP server — Agent402's 500+ endpoints are already
+AgentCore ships a managed Bazaar MCP server - Agent402's 500+ endpoints are already
 in the Bazaar. The opportunity is being a *featured* example in the AWS getting-started
 guide for AgentCore Payments.
 
