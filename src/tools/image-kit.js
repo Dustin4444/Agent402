@@ -29,16 +29,80 @@ function decodeB64(field) {
   return buf;
 }
 
-async function readImage(buf) {
+/** Declared pixel dimensions from the container HEADER, without decoding.
+ *  Returns null when the format carries no cheap size field (Jimp then decodes
+ *  and the post-decode cap still applies). PNG: IHDR is always the first chunk.
+ *  JPEG: the first SOF marker. BMP: the DIB header. GIF: the logical screen
+ *  descriptor. All are fixed offsets, so this is a few byte reads. */
+export function declaredDimensions(buf) {
+  try {
+    const format = sniffFormat(buf);
+    if (format === "png" && buf.length >= 24 && buf.toString("ascii", 12, 16) === "IHDR") {
+      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
+    }
+    if (format === "bmp" && buf.length >= 26) {
+      return { width: Math.abs(buf.readInt32LE(18)), height: Math.abs(buf.readInt32LE(22)) };
+    }
+    if (format === "gif" && buf.length >= 10) {
+      return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
+    }
+    if (format === "jpeg") {
+      // Walk the marker chain to the first Start-Of-Frame; bounded by length.
+      let i = 2;
+      while (i + 9 < buf.length) {
+        if (buf[i] !== 0xff) { i++; continue; }
+        const marker = buf[i + 1];
+        if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+        const len = buf.readUInt16BE(i + 2);
+        // SOF0/1/2/3/5/6/7/9/10/11/13/14/15 — every non-differential and
+        // differential frame header carries height then width at +5.
+        if ((marker >= 0xc0 && marker <= 0xcf) && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
+        }
+        if (len < 2) break;
+        i += 2 + len;
+      }
+    }
+  } catch { /* malformed header — fall through to the decoder's own error */ }
+  return null;
+}
+
+async function readImage(buf, { maxPixels = MAX_SRC_PIXELS } = {}) {
+  // Refuse oversized images from the HEADER, before decoding. The post-decode
+  // check below is the same cap but it arrives too late to protect the process:
+  // Jimp's decode is pure JS and synchronous, so a small file declaring a huge
+  // canvas (a ~100KB solid-colour PNG can declare 25M pixels) blocks the single
+  // Node thread for seconds and stalls every other request behind it, including
+  // paid calls and the paywall itself. These handlers are pure-CPU and
+  // therefore free on the authless connector and PoW-eligible over HTTP, so
+  // that cost is reachable without payment. Checking the declared size costs a
+  // few byte reads.
+  const declared = declaredDimensions(buf);
+  if (declared && declared.width > 0 && declared.height > 0 && declared.width * declared.height > maxPixels) {
+    throw bad(`source image too large (${declared.width}x${declared.height}; max ${maxPixels} pixels)`);
+  }
   let img;
   try { img = await Jimp.read(buf); }
   catch (e) { throw bad(`could not decode image: ${e.message}`); }
-  if (img.width * img.height > MAX_SRC_PIXELS) throw bad(`source image too large (${img.width}x${img.height})`);
+  if (img.width * img.height > maxPixels) throw bad(`source image too large (${img.width}x${img.height})`);
   return img;
 }
 
+// Source-pixel ceiling for the base64-only loader, which is used by exactly the
+// three compute-payable image tools (resize/convert/thumbnail) - i.e. the ones
+// reachable FREE on the authless connector and via proof-of-work. Jimp decodes
+// in pure JS on the main thread, so source pixels translate directly into
+// blocking milliseconds for every other request in the process. 16M (4000x4000)
+// still covers a resize up to the 4096 output cap while refusing the small-file
+// /huge-canvas shape (a ~100KB solid-colour PNG can declare 25M pixels). The
+// URL-capable loader below keeps the full MAX_SRC_PIXELS - those slugs are
+// wallet-only. This bounds the cost; it does not remove it. Moving the decode
+// off-thread (see src/tools/regex-worker.js for the in-repo pattern) is what
+// actually stops a free caller from occupying the event loop.
+const FREE_MAX_SRC_PIXELS = 16_000_000;
+
 async function loadImage(field) {
-  return readImage(decodeB64(field));
+  return readImage(decodeB64(field), { maxPixels: FREE_MAX_SRC_PIXELS });
 }
 
 // Newer tools accept EITHER a public image URL (fetched via safeFetch — SSRF

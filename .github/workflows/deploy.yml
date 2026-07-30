@@ -1561,6 +1561,12 @@ jobs:
           npm ci
           npm --prefix mcp ci
           node mcp/test.js
+      - name: MCP package gate (pack → install the tarball → real initialize handshake)
+        # mcp/test.js runs from the working tree, so a module missing from
+        # package.json's `files` allowlist is invisible to it. That shipped a
+        # package that threw ERR_MODULE_NOT_FOUND on its first line. This packs
+        # and installs the actual artifact and drives a handshake against it.
+        run: node scripts/test-mcp-package.js
       - name: mcp version consistency (package.json ↔ server.json)
         # Guards against the drift that bit us once already: mcp-publisher reads
         # server.json's version, npm reads package.json's, and the registry
