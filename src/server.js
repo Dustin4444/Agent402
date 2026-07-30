@@ -3239,6 +3239,25 @@ app.use((req, res, next) => {
   res.json = (body) => { captured = body; return origJson(body); };
   res.on("finish", () => {
     if (res.statusCode !== 200 || captured === undefined) return;
+    // Only a credential the server actually VERIFIED may seed the cache.
+    //
+    // idemHashKey binds the entry to `x-pow-solution` as presented, and this
+    // middleware runs BEFORE the PoW gate, so at key time that header is just
+    // an attacker-chosen string. That was safe only because an unauthenticated
+    // caller could never reach a 200 to seed anything - the bogus solution
+    // produced X-Pow-Error and a 402. The trial changed that: it returns 200
+    // with no credential at all, so one trial plus a made-up solution seeded an
+    // entry that ANY client could then replay, unpaid, for the whole TTL -
+    // defeating the "1 per tool per hour" bound the trial advertises.
+    //
+    // At finish the verdict is known, so require it here: a settled payment, or
+    // a PoW the gate accepted. A trial NEVER seeds the cache - it is one call,
+    // not a reusable receipt. (FREE_MODE has no paywall to bind to and is
+    // dev/test only, so it keeps caching.)
+    if (res.getHeader("X-Trial-Accepted") === "true") return;
+    const powVerified = res.getHeader("X-Pow-Accepted") === "true";
+    const paid = Boolean(req.header("x-payment") || req.header("payment-signature"));
+    if (!FREE_MODE && !paid && !powVerified) return;
     let bytes = 0;
     try { bytes = Buffer.byteLength(JSON.stringify(captured), "utf8"); } catch { bytes = 0; }
     if (!bytes || bytes > IDEM_MAX_BODY_BYTES) return;

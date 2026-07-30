@@ -98,10 +98,11 @@ const done = (code) => {
       `  ...and is ${computePayable ? "compute-payable (trialable)" : "wallet-only (never trialable)"}: ${p}`);
     return Boolean(e);
   };
-  const TRIAL_A = "/api/uuid", TRIAL_B = "/api/ulid";
+  const TRIAL_A = "/api/uuid", TRIAL_B = "/api/ulid", TRIAL_C = "/api/password";
   const WALLET_ONLY = ["/api/dns?name=example.com", "/api/memory?key=k", "/api/search?q=a"];
   mustExist("GET", TRIAL_A, true);
   mustExist("GET", TRIAL_B, true);
+  mustExist("GET", TRIAL_C, true);
   for (const w of WALLET_ONLY) mustExist("GET", w.split("?")[0], false);
 
   // The paywall must actually be up, or everything below is vacuous.
@@ -145,6 +146,33 @@ const done = (code) => {
     ok(r.status === 402, `wallet-only route still demands payment: ${path.split("?")[0]} (got ${r.status})`);
     ok(r.headers.get("x-trial-accepted") !== "true", `  ...and no trial was granted: ${path.split("?")[0]}`);
     ok(!r.headers.get("x-trial-available"), `  ...and no trial is even advertised: ${path.split("?")[0]}`);
+  }
+
+  // 6a. A trial must not become a REUSABLE RECEIPT via the idempotency cache.
+  //
+  // idemHashKey binds a cached entry to the `x-pow-solution` header AS
+  // PRESENTED - the idempotency middleware runs before the PoW gate, so at key
+  // time that string is whatever the caller typed. That was safe only while an
+  // unauthenticated caller could never reach a 200 to seed the cache. The trial
+  // returns 200 with no credential, so one trial plus a made-up solution seeded
+  // an entry that any client could replay unpaid for the full TTL, defeating
+  // the "1 per tool per hour" bound this feature advertises.
+  {
+    const KEY = `trial-amp-${process.pid}`;
+    const forged = { "idempotency-key": KEY, "x-pow-solution": "i-made-this-up:0" };
+    const seed = await fetch(`${base}${TRIAL_C}?trial=1`, { headers: forged });
+    ok(seed.status === 200 && seed.headers.get("x-trial-accepted") === "true",
+      `a fresh tool grants its trial while carrying an idempotency key (got ${seed.status})`);
+
+    // Same key, trial now spent: must NOT replay, must be back behind the paywall.
+    const replay = await fetch(`${base}${TRIAL_C}?trial=1`, { headers: forged });
+    ok(replay.headers.get("x-idempotent-replay") !== "true",
+      "the trial response was NOT committed to the idempotency cache");
+    ok(replay.status === 402, `and the exhausted trial pays like any other (got ${replay.status})`);
+
+    // And no unrelated caller can spend it either.
+    const third = await fetch(`${base}${TRIAL_C}`, { headers: forged });
+    ok(third.status === 402, `an unrelated caller cannot replay a trial via the key (got ${third.status})`);
   }
 
   // 6. The per-client cap bounds a catalog sweep. Ten distinct tools are
