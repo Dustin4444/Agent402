@@ -10,17 +10,38 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PORT = 3520 + (process.pid % 300);
 const base = `http://localhost:${PORT}`;
+// stdio was "ignore", so a boot failure printed "FAIL - server booted" and
+// nothing else - no exit code, no stack, no port. This failed once in CI and
+// PASSED on the same commit in the parallel run, and the log could not say why
+// because the evidence was discarded at spawn. Capture it and print it on
+// failure; a boot that fails silently is unfixable by construction.
+//
+// X402_INDEX_CRAWL=off because this test has nothing to do with the seller
+// crawl: leaving it on sets thousands of third-party fetches racing the boot
+// this test is timing, on a shared CI runner already hosting other spawned
+// servers. Slower boot, noisier neighbours, no coverage gained.
+let childLog = "";
 const child = spawn(process.execPath, ["src/server.js"], {
-  env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false" },
-  stdio: "ignore",
+  env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false", X402_INDEX_CRAWL: "off" },
+  stdio: ["ignore", "pipe", "pipe"],
 });
+child.stdout.on("data", (d) => { childLog += d; });
+child.stderr.on("data", (d) => { childLog += d; });
+let exited = null;
+child.on("exit", (code, signal) => { exited = `exit=${code} signal=${signal}`; });
 const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.exit(code); };
 
 (async () => {
   let up = false;
-  for (let i = 0; i < 80; i++) { try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* */ } await wait(250); }
-  ok(up, "server booted");
-  if (!up) return done(1);
+  // 60s, not 20s: the budget has to cover a cold boot on a loaded runner, and
+  // the old one was tight enough that ordinary contention read as a failure.
+  for (let i = 0; i < 240; i++) { try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* */ } await wait(250); }
+  ok(up, `server booted${up ? "" : ` on :${PORT}`}`);
+  if (!up) {
+    console.error(`--- server never answered /health on :${PORT} (${exited || "still running"}) ---`);
+    console.error(childLog.slice(-3000) || "(child produced no output)");
+    return done(1);
+  }
 
   // A402-13: no X-Powered-By on any response.
   const home = await fetch(`${base}/`);
