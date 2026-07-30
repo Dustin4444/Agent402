@@ -6,7 +6,11 @@ const lz = (bytes) => { let n = 0; for (const b of bytes) { if (b === 0) { n += 
 const sha = async (s) => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)));
 const solve = async (chal, diff) => { let n = 0; while (lz(await sha(`${chal}:${n}`)) < diff) n++; return n; };
 
-const gate = createEdgeTollbooth({ secret: "test-secret", powDifficulty: 16, payTo: "0x000000000000000000000000000000000000dEaD" });
+// verifyX402 is required for this build to ADVERTISE a usdc quote: it used to
+// emit one whenever payTo was set, with no code path able to accept a payment,
+// so a crawler that paid was 402d forever. This gate offers both rails, so it
+// supplies a verifier; the withheld-quote case is asserted in features.test.js.
+const gate = createEdgeTollbooth({ secret: "test-secret", powDifficulty: 16, payTo: "0x000000000000000000000000000000000000dEaD", verifyX402: async () => false });
 const req = (ua, extra = {}) => new Request("https://site.test/article", { headers: { "user-agent": ua, ...extra } });
 const HUMAN = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 const BOT = "Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)";

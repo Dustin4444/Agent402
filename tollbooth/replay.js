@@ -100,8 +100,43 @@ export function redisReplayStore(client, { prefix = "tollbooth:pow:" } = {}) {
   // mode of guessing wrong is not an exception but a SET without the NX flag,
   // which overwrites the record and grants every replay.
   const isIoredis = typeof client.defineCommand === "function";
+  const isNodeRedis = typeof client.sendCommand === "function" || typeof client.sSet === "function" || Boolean(client.options && client.options.socket);
+  if (!isIoredis && !isNodeRedis) {
+    // Fail CLOSED on an unrecognised client instead of guessing a SET shape.
+    // The failure mode of a wrong guess is not an exception: the flag argument
+    // is silently ignored, the key is overwritten every time, and single-use
+    // stops existing while everything still looks healthy.
+    throw new TypeError(
+      "redisReplayStore(client): could not identify this client as node-redis or ioredis. " +
+      "Pass one of those, or supply your own { claim(token, expiresAtMs) } store - guessing the SET argument shape risks dropping NX and granting every replay."
+    );
+  }
+  // Prove NX is actually being honoured, once, before this store is trusted.
+  // Detection above is a heuristic; this is the observation. Two claims of a
+  // throwaway key must produce a win and then a refusal. Anything else means
+  // single-use is not working, and the store refuses rather than pretending.
+  let nxProven = null;
+  const proveNx = async () => {
+    if (nxProven !== null) return nxProven;
+    const probe = `${prefix}__nxselftest__${Math.random().toString(36).slice(2)}${Date.now()}`;
+    const px = 5000;
+    const set = (k) => (isIoredis ? client.set(k, "1", "PX", px, "NX") : client.set(k, "1", { NX: true, PX: px }));
+    const first = await set(probe);
+    const second = await set(probe);
+    const firstWon = first === "OK" || first === true;
+    const secondRefused = !(second === "OK" || second === true);
+    nxProven = firstWon && secondRefused;
+    if (!nxProven) {
+      throw new Error(
+        "redisReplayStore: SET NX did not behave as required (first claim won: " + firstWon + ", second refused: " + secondRefused + "). " +
+        "Proof-of-work single-use cannot be enforced against this client, so the gate refuses rather than granting replays."
+      );
+    }
+    return nxProven;
+  };
   return {
     claim: async (token, expiresAtMs) => {
+      await proveNx();
       const key = prefix + token;
       // Floor of 1ms: Redis rejects a non-positive PX. pow.js has already
       // refused anything actually expired, so a tiny window here just means the

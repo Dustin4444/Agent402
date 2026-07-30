@@ -344,16 +344,71 @@ ok(html.includes("initProbes") && html.includes("navigator.clipboard"), "probes 
   // is dropped, so every replay overwrites the key and passes. Stub clients pin
   // the call shape without a Redis server or a driver dependency.
   const nodeRedisCalls = [];
-  const nodeRedis = { set: async (...args) => { nodeRedisCalls.push(args); return nodeRedisCalls.length === 1 ? "OK" : null; } };
+  // sendCommand is the node-redis marker; detection is positive now, because an
+  // unidentified client used to fall through to a guessed SET shape.
+  const nodeRedis = { sendCommand() {}, set: async (...args) => { nodeRedisCalls.push(args); return args[0].includes("__nxselftest__") ? (nodeRedisCalls.filter((a) => a[0] === args[0]).length === 1 ? "OK" : null) : (nodeRedisCalls.filter((a) => a[0] === args[0]).length === 1 ? "OK" : null); } };
   const nrStore = redisReplayStore(nodeRedis, { prefix: "tb:" });
   ok((await nrStore.claim("tok", Date.now() + 60_000)) === true, "redis store (node-redis shape): a fresh token is granted");
   ok((await nrStore.claim("tok", Date.now() + 60_000)) === false, "redis store (node-redis shape): a declined SET NX is a refusal");
-  ok(nodeRedisCalls[0][0] === "tb:tok", "redis store: the key carries the configured prefix");
-  ok(nodeRedisCalls[0][2]?.NX === true && nodeRedisCalls[0][2]?.PX > 0, `redis store (node-redis shape): SET carries NX + a positive PX (got ${JSON.stringify(nodeRedisCalls[0][2])})`);
+  const nrTok = nodeRedisCalls.filter((a) => !String(a[0]).includes("__nxselftest__"));
+  ok(nrTok[0][0] === "tb:tok", "redis store: the key carries the configured prefix");
+  ok(nrTok[0][2]?.NX === true && nrTok[0][2]?.PX > 0, `redis store (node-redis shape): SET carries NX + a positive PX (got ${JSON.stringify(nrTok[0][2])})`);
   const ioredisCalls = [];
-  const ioredis = { defineCommand() {}, set: async (...args) => { ioredisCalls.push(args); return "OK"; } };
+  const ioredis = { defineCommand() {}, set: async (...args) => { ioredisCalls.push(args); return ioredisCalls.filter((a) => a[0] === args[0]).length === 1 ? "OK" : null; } };
   ok((await redisReplayStore(ioredis).claim("tok", Date.now() + 60_000)) === true, "redis store (ioredis shape): a fresh token is granted");
-  ok(ioredisCalls[0][2] === "PX" && Number(ioredisCalls[0][3]) > 0 && ioredisCalls[0][4] === "NX", `redis store (ioredis shape): SET uses the positional PX/NX form (got ${JSON.stringify(ioredisCalls[0].slice(2))})`);
+  const ioTok = ioredisCalls.filter((a) => !String(a[0]).includes("__nxselftest__"));
+  ok(ioTok[0][2] === "PX" && Number(ioTok[0][3]) > 0 && ioTok[0][4] === "NX", `redis store (ioredis shape): SET uses the positional PX/NX form (got ${JSON.stringify(ioTok[0].slice(2))})`);
+}
+
+// --- edge build: never quote a price it cannot take ---------------------------
+// edge.js emitted an accepts block whenever payTo was set, but had no code path
+// that read a payment header at all. A crawler that paid correctly was 402'd
+// forever: no money moved, nobody was charged, and the operator believed the
+// gate was earning.
+{
+  const { createEdgeTollbooth } = await import("./edge.js");
+  const PAYTO = "0x1111111111111111111111111111111111111111";
+  const req = (headers = {}) => new Request("https://seller.example/paid", { headers: { "user-agent": "GPTBot/1.0", ...headers } });
+
+  const noVerifier = createEdgeTollbooth({ secret: "s", payTo: PAYTO, pow: false });
+  const r1 = await noVerifier(req());
+  const b1 = await r1.clone().json();
+  ok(r1.status === 402, "edge still charges without a verifier");
+  ok(Array.isArray(b1.accepts) && b1.accepts.length === 0, "no verifier means NO usdc quote is advertised");
+
+  const withVerifier = createEdgeTollbooth({ secret: "s", payTo: PAYTO, pow: false, verifyX402: async () => true });
+  const r2 = await withVerifier(req());
+  const b2 = await r2.clone().json();
+  ok(b2.accepts.length === 1 && b2.accepts[0].payTo === PAYTO, "a verifier means the usdc quote IS advertised");
+
+  const paid = await withVerifier(req({ "payment-signature": "sig" }));
+  ok(paid === null, "a presented payment is accepted on the PAYMENT-SIGNATURE header");
+  const paidLegacy = await withVerifier(req({ "x-payment": "sig" }));
+  ok(paidLegacy === null, "and on the legacy X-PAYMENT header");
+
+  const throwing = createEdgeTollbooth({ secret: "s", payTo: PAYTO, pow: false, verifyX402: async () => { throw new Error("facilitator down"); } });
+  const r3 = await throwing(req({ "payment-signature": "sig" }));
+  ok(r3 !== null && r3.status === 402, "a verifier that throws fails CLOSED");
+}
+
+// --- redis replay store must fail closed on a client it cannot trust ---------
+{
+  const { redisReplayStore } = await import("./replay.js");
+  let threw = false;
+  try { redisReplayStore({ set: async () => "OK" }); } catch { threw = true; }
+  ok(threw, "an unrecognised redis client is refused rather than guessed at");
+
+  // A client that ignores NX would grant every replay. The one-time proof
+  // catches it before the store is trusted.
+  const ignoresNx = redisReplayStore({ sendCommand() {}, set: async () => "OK" });
+  let refused = false;
+  try { await ignoresNx.claim("t", Date.now() + 60_000); } catch { refused = true; }
+  ok(refused, "a client that ignores NX is caught by the self-test and refuses");
+
+  const seen = new Set();
+  const good = redisReplayStore({ sendCommand() {}, async set(k) { if (seen.has(k)) return null; seen.add(k); return "OK"; } });
+  ok((await good.claim("t1", Date.now() + 60_000)) === true, "a correct client claims once");
+  ok((await good.claim("t1", Date.now() + 60_000)) === false, "and refuses the replay");
 }
 
 console.log(`\n${pass} passed`);

@@ -130,6 +130,11 @@ export function createEdgeTollbooth(config = {}) {
     powDifficulty,
     secret,
     store,
+    // Same contract as the Node build's verifyX402: (request, requirements) =>
+    // boolean | Promise<boolean>. Without it this build has NO way to accept a
+    // payment, which is why the accepts block below is withheld when it is
+    // absent - see the note there.
+    verifyX402 = null,
     botUserAgents = AI_BOTS,
     // "bots" (default, charge AI crawler UAs) | "all" (charge all but free()) |
     // "strict" (charge anything that isn't a real-browser request). An explicit
@@ -147,6 +152,16 @@ export function createEdgeTollbooth(config = {}) {
     statsSink,
     message = "This resource charges automated / AI clients per request. Humans browse free; bots pay in USDC via x402 or by solving a proof-of-work.",
   } = config;
+
+  // Say it at construction, not when a buyer gives up. An operator who sets a
+  // payTo here reasonably believes they are charging; without a verifier this
+  // build can only ever serve proof-of-work, and the price would be fiction.
+  if (payTo && !verifyX402) {
+    console.warn(
+      "agent402-tollbooth: payTo is set but no verifyX402 was supplied, so this edge build cannot accept a USDC payment. " +
+      "The USDC quote is being WITHHELD from the 402 (proof-of-work still works). Pass verifyX402 to charge, or drop payTo to stop implying it."
+    );
+  }
 
   const isBot = makeBotMatcher(botUserAgents);
   const powEngine = pow ? createEdgePow({ secret, difficulty: powDifficulty, store }) : null;
@@ -194,6 +209,21 @@ export function createEdgeTollbooth(config = {}) {
     // stays a plain URL for wire compatibility).
     const powResource = `${request.method || "GET"} ${resource}`;
 
+    // An x402 payment presented on either header name. @x402/core emits
+    // PAYMENT-SIGNATURE while older clients send X-PAYMENT, and a gate that
+    // reads only one of them refuses buyers who did everything right.
+    const paymentHeader = request.headers.get("payment-signature") || request.headers.get("x-payment");
+    if (paymentHeader && verifyX402) {
+      let paid = false;
+      try {
+        paid = await verifyX402(request, { price, network, asset, payTo, resource });
+      } catch {
+        // Fail CLOSED: a verifier that throws must not open the gate.
+        paid = false;
+      }
+      if (paid) { incr("paid"); return null; }
+    }
+
     const sol = request.headers.get("x-pow-solution");
     if (powEngine && sol) {
       const r = await powEngine.verify(sol, powResource);
@@ -204,7 +234,12 @@ export function createEdgeTollbooth(config = {}) {
     const body = {
       error: "Payment Required",
       message,
-      accepts: payTo ? [{ scheme: "exact", network, maxAmountRequired: String(price), asset, payTo, resource }] : [],
+      // Only advertise USDC when this build can actually ACCEPT it. Emitting an
+      // accepts block with no verifier configured published a price that no
+      // code path could honour: a crawler that paid correctly was 402'd
+      // forever, money never moved, and the operator believed they were
+      // charging. Quoting a price you cannot take is worse than quoting none.
+      accepts: (payTo && verifyX402) ? [{ scheme: "exact", network, maxAmountRequired: String(price), asset, payTo, resource }] : [],
     };
     if (powEngine) body.proofOfWork = await powEngine.challenge(powResource);
     return new Response(JSON.stringify(body), {
