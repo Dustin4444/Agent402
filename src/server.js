@@ -1493,15 +1493,31 @@ setInterval(() => {
 //
 // Exhausting the budget is treated as NOT authorised, so a public route falls
 // back to its public view rather than erroring: fail closed, stay usable.
+//
+// ORDER IS THE WHOLE CONTROL. The first version of this counted failures into a
+// bucket and then returned false regardless - the budget was recorded and never
+// consulted, so the guess rate stayed exactly as unbounded as before the limiter
+// existed, under a commit message saying otherwise. Refusing to EVALUATE is the
+// only thing that bounds guessing: a limiter consulted AFTER the comparison
+// cannot change the answer, because both paths already return false.
+//
+// So: peek (spend nothing) -> refuse outright if the budget is gone -> compare
+// -> charge only a wrong credential. A correct credential never spends budget,
+// which is why an operator with the right token is never throttled, and
+// anonymous traffic never reaches the limiter at all.
 const operatorAttemptLimiter = createRateLimiter("operator-attempt", { perMin: 10, perHour: 60 });
+const operatorAttemptIp = (req) => req.ip || req.socket?.remoteAddress || "unknown";
 
 function operatorAuthed(req) {
   const presented = Boolean(getOperatorToken(req)) || Boolean(readCookie(req, OPERATOR_COOKIE));
   if (!presented) return false;  // anonymous: nothing to brute-force, nothing to count
+  const ip = operatorAttemptIp(req);
+  // Budget already spent: refuse without looking at the credential at all.
+  if (operatorAttemptLimiter.peek(ip).limited) return false;
   if (operatorTokenOk(getOperatorToken(req))) return true;         // header token
   if (operatorSessionValid(readCookie(req, OPERATOR_COOKIE))) return true; // browser session
   // Only a WRONG credential consumes budget.
-  operatorAttemptLimiter.check(req.ip || req.socket?.remoteAddress || "unknown");
+  operatorAttemptLimiter.check(ip);
   return false;
 }
 const reqIsHttps = (req) =>
@@ -1534,6 +1550,14 @@ app.post("/__operator/login", (req, res) => {
   if (operatorLoginLimiter.check(ip).limited) return res.status(429).json({ ok: false, error: "too many attempts, slow down" });
   const token = typeof req.body?.token === "string" ? req.body.token : "";
   if (!operatorTokenOk(token)) return res.status(401).json({ ok: false, error: "invalid token" });
+  // A correct root token supersedes whatever failures this IP has accumulated.
+  // Without this the operator can lock themselves out with no way back: an
+  // EXPIRED session cookie is indistinguishable from a guessed one, so a browser
+  // still holding a stale a402_op spends the whole budget in ten page loads, and
+  // a fresh cookie would then be refused before it was ever examined. Logging in
+  // is a strictly stronger proof than the cookie it replaces, and it has its own
+  // (tighter) limiter, so clearing here cannot be used to refill the budget.
+  operatorAttemptLimiter.reset(ip);
   // Exchange the token for an opaque session id; the cookie never holds the token.
   const sid = newOperatorSession();
   const attrs = `Path=/__operator; HttpOnly; SameSite=Strict; Max-Age=${8 * 3600}${operatorCookieSecure(req) ? "; Secure" : ""}`;
