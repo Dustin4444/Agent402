@@ -1480,9 +1480,29 @@ setInterval(() => {
 }, 30 * 60 * 1000).unref();
 // Operator auth: a raw token via header (curl/API), OR a valid session cookie
 // (browser). Both funnel through here so every gated route agrees.
+// Brute-force bound on FAILED credential presentations only.
+//
+// The login route has always been limited, but these credentials are also
+// accepted directly on routes that carry an operator branch, which bypasses
+// that limiter entirely. Four of those routes are PUBLIC discovery surfaces
+// with an elevation check rather than a login, so limiting the route itself
+// would throttle ordinary agent traffic - the opposite of what this service is
+// for. Counting only presentations that FAIL leaves anonymous and successful
+// traffic completely untouched while still bounding a guessing loop, and it
+// removes the dependency on the token's entropy being high.
+//
+// Exhausting the budget is treated as NOT authorised, so a public route falls
+// back to its public view rather than erroring: fail closed, stay usable.
+const operatorAttemptLimiter = createRateLimiter("operator-attempt", { perMin: 10, perHour: 60 });
+
 function operatorAuthed(req) {
+  const presented = Boolean(getOperatorToken(req)) || Boolean(readCookie(req, OPERATOR_COOKIE));
+  if (!presented) return false;  // anonymous: nothing to brute-force, nothing to count
   if (operatorTokenOk(getOperatorToken(req))) return true;         // header token
-  return operatorSessionValid(readCookie(req, OPERATOR_COOKIE));    // browser session
+  if (operatorSessionValid(readCookie(req, OPERATOR_COOKIE))) return true; // browser session
+  // Only a WRONG credential consumes budget.
+  operatorAttemptLimiter.check(req.ip || req.socket?.remoteAddress || "unknown");
+  return false;
 }
 const reqIsHttps = (req) =>
   req.secure || (req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https";
