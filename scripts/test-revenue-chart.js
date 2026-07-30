@@ -21,6 +21,10 @@ const REV_DAYS = [
   // Base day carries a SOR (spending-wallet-settled) subset: $0.50 of the $1.50.
   { day: "2026-06-20", chain: "base", extUsd: 1.5, intUsd: 0.2, extTx: 3, intTx: 1, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0, extSorUsd: 0.5, extSorTx: 1, intSorUsd: 0, intSorTx: 0 },
   { day: "2026-06-21", chain: "solana", extUsd: 0.5, intUsd: 0, extTx: 2, intTx: 0, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0, extSorUsd: 0, extSorTx: 0, intSorUsd: 0, intSorTx: 0 },
+  // Internal-only canary buys on rails outside the 8 named palette slots —
+  // they fold into "Other" on the chart but must stay itemized there.
+  { day: "2026-06-21", chain: "sei", extUsd: 0, intUsd: 0.003, extTx: 0, intTx: 3, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0, extSorUsd: 0, extSorTx: 0, intSorUsd: 0, intSorTx: 0 },
+  { day: "2026-06-21", chain: "optimism", extUsd: 0, intUsd: 0.002, extTx: 0, intTx: 2, extMppUsd: 0, intMppUsd: 0, extMppTx: 0, intMppTx: 0, extSorUsd: 0, extSorTx: 0, intSorUsd: 0, intSorTx: 0 },
 ];
 const BUYER_DAYS = [
   { day: "2026-06-20", buyers: 3, newBuyers: 3, returningBuyers: 0, cumulative: 3, unattributed: 0 },
@@ -219,6 +223,37 @@ console.log("revenue chart — settled-to (SOR) lane");
     click(w, "rvzSettle", "sor");
     assert.equal(note.style.display, "block", "note visible on the SOR lane");
     assert.ok(note.textContent.includes("spending wallet"), "note names the spending wallet");
+  });
+}
+
+// --- "Other" stays itemized: the 8-hue fold is visual, never informational ----
+{
+  const w = await boot();
+
+  check("legend names the chains folded into Other", () => {
+    click(w, "rvzMetric", "tx");
+    click(w, "rvzScope", "int");
+    const l = legend(w);
+    assert.ok(l.includes("Other"), "Other lane missing from the legend");
+    assert.ok(l.includes("Optimism") && l.includes("Sei"), `legend must name the folded chains: ${l}`);
+  });
+
+  check("table breaks Other down per chain without double counting the total", () => {
+    const tb = w.document.getElementById("rvzTable");
+    assert.ok(tb.textContent.includes("· Optimism") && tb.textContent.includes("· Sei"), "Other sub-columns missing");
+    const rows = tb.querySelectorAll("tr");
+    const cells = [...rows[rows.length - 1].querySelectorAll("td")].map((t) => t.textContent);
+    // day, Base, Other, · Optimism, · Sei, total (cumulative int tx; Solana
+    // has no internal rows so its column drops out under this scope)
+    assert.equal(cells[2], "5", `Other aggregate should be 5 (got ${cells[2]})`);
+    assert.equal(cells[3], "2", `Optimism sub-column should be 2 (got ${cells[3]})`);
+    assert.equal(cells[4], "3", `Sei sub-column should be 3 (got ${cells[4]})`);
+    assert.equal(cells[cells.length - 1], "6", `sub-columns must not inflate the total (got ${cells[cells.length - 1]})`);
+  });
+
+  check("internal-only folded chains never leak into the external view", () => {
+    click(w, "rvzScope", "ext");
+    assert.ok(!legend(w).includes("Sei"), "internal-only Sei leaked into the external legend");
   });
 }
 

@@ -93,6 +93,22 @@ if (!existsSync("/data")) {
   ok(!!algoDay && Math.abs(algoDay.extSorUsd - 0.02) < 1e-9, "AVM spending-wallet inbound lands in the SOR fields, address never case-folded");
 }
 
+// --- getLogs chunk sizing honors the per-chain RPC range cap -------------------
+// Sei's RPCs reject ranges over ~2,000 blocks; ignoring chunkBlocks here made
+// every Sei sync tick fail and the cursor never advance (zero rows ever
+// despite daily canary settles, found 2026-07-30).
+{
+  const { ledgerChunkBlocks } = await import("../src/revenue-ledger.js");
+  const { EVM } = await import("../src/revenue-live.js");
+  ok(ledgerChunkBlocks(EVM.sei) === 1900, `sei chunks at its declared 1,900-block RPC cap (got ${ledgerChunkBlocks(EVM.sei)})`);
+  ok(ledgerChunkBlocks(EVM.sei) <= (EVM.sei.chunkBlocks || 9000), "sei chunk never exceeds the declared cap");
+  ok(ledgerChunkBlocks(EVM.robinhood) === 9000, `chains without a declared cap keep the 9,000 ceiling (got ${ledgerChunkBlocks(EVM.robinhood)})`);
+  ok(ledgerChunkBlocks(EVM.optimism) === Math.ceil(EVM.optimism.span / 4), "short-span chains still chunk at span/4");
+  for (const [name, c] of Object.entries(EVM)) {
+    ok(ledgerChunkBlocks(c) <= (c.chunkBlocks || 9000), `${name} ledger chunk respects its RPC range cap`);
+  }
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
