@@ -383,6 +383,26 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   no settle receipt) because external sellers publish no example inputs the way our bazaar
   extension does; `algo.netintel.dev` alone accounted for 42. A failed third-party buy
   never pages (their outage, not our defect).
+- **Image transforms run OFF the main thread (`src/tools/image-pool.js`,
+  `image-worker.js`, `image-ops.js`):** Jimp decodes in pure JS and
+  SYNCHRONOUSLY, and the three compute-payable image tools (resize/convert/
+  thumbnail) are reachable free on the authless connector and via PoW - so a
+  free caller could occupy the only thread. Measured before the fix: eight
+  concurrent 16M-pixel resizes put `/health` at a 363ms median with only 7-8
+  probes landing in 3.2s; after, 2ms median with ~60 probes. A 2-worker pool
+  (the memory ceiling, not a throughput knob: 16M px is a 64MB RGBA bitmap per
+  in-flight job), a 32-deep queue, and a 5s per-job timeout that
+  `terminate()`s - the only lever that works on a thread stuck inside a
+  synchronous decode. Overflow and timeout answer **503, not 400**: the input
+  was fine, and a >=400 cancels settlement so nobody is charged. Primitives
+  live in `image-ops.js` and are imported by BOTH sides, so output bytes and
+  error strings cannot drift; `statusCode` rides back on the worker message so
+  a 400 stays a 400. URL-taking image tools (exif/dominant-color/crop) stay
+  inline: they are wallet-only, so payment already bounds them. Guarded by an
+  offline event-loop probe in `scripts/test-image.js` and end-to-end by
+  `scripts/test-image-concurrency.js`. NB the naive lag metric scored total
+  starvation as a perfect 0ms because the probe callback never ran - the test
+  reads the outstanding timer's lateness instead.
 - **X ops (post + read, all via Actions — keys never local):** `scripts/tweet.js` is a
   dependency-free OAuth 1.0a CLI (`--text/--file/--quote/--reply-to/--media/--delete/
   --verify/--force`, `DRY_RUN=1`; secrets `X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/

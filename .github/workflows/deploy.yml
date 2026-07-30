@@ -847,6 +847,12 @@ jobs:
       - name: Package integrity (files allowlist covers every import; no sibling dep range excludes what we ship — offline)
         run: node scripts/test-package-integrity.js
 
+      - name: Image work stays off the event loop (concurrent transforms must not stall /health)
+        # Boots its own server on 3221. The offline probe in scripts/test-image.js
+        # guards the same property, but only this one proves it end to end
+        # through HTTP, which is where a buyer would feel the stall.
+        run: node scripts/test-image-concurrency.js
+
       - name: Docs truth (every documented route, slug and price matches the served catalog)
         run: TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js
 
