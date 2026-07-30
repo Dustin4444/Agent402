@@ -1137,18 +1137,38 @@ const netName = (n) => NET_ALIAS[n] || n;
 // Same on-chain USDC settlements as x402 — this just filters to the MPP wire so
 // MPP adoption is visible and independently verifiable on-chain.
 function mppSection(mpp) {
-  const list = (mpp && mpp.settlements) || [];
-  const rowsHtml = list.slice(0, 30).map((s) => {
-    const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
-    const tag = s.internal ? ' · <span style="color:var(--muted);">canary</span>' : "";
-    return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
-  }).join("");
-  const body = list.length
-    ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;margin-top:12px;">${rowsHtml}</div>`
+  // The page is PUBLIC, so it renders the same aggregate /api/revenue/mpp
+  // serves unauthenticated callers - a per-settlement list pairing tool with
+  // price is a purchase feed, which is what the rest of this page was already
+  // reduced to stop publishing.
+  //
+  // Count 0 and "we withhold the rows" are different statements, and the
+  // section must never make the first one when it means the second: with rows
+  // present but withheld, the old empty-state read "No MPP-wire settlements
+  // recorded yet", which would have been simply untrue.
+  const count = Number(mpp?.count || 0);
+  const txs = (mpp && mpp.txs) || [];
+  const byNetwork = (mpp && mpp.byNetwork) || {};
+  const rails = Object.entries(byNetwork).sort((a, b) => b[1] - a[1]);
+  const window = mpp?.firstAt && mpp?.lastAt
+    ? `${esc(String(mpp.firstAt).slice(0, 10))} to ${esc(String(mpp.lastAt).slice(0, 10))}`
+    : null;
+  const txLinks = txs.slice(0, 12).map((tx, i) => {
+    const net = rails.length === 1 ? rails[0][0] : null;
+    const href = net ? txHref(net, tx) : null;
+    return href ? `<a href="${esc(href)}" rel="noopener">tx${i + 1}</a>` : `<span>${esc(String(tx).slice(0, 10))}…</span>`;
+  }).join(" · ");
+  const body = count
+    ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;margin-top:12px;">
+         <div><strong>${count}</strong> settlement${count === 1 ? "" : "s"} over the MPP wire${window ? ` · ${window}` : ""}</div>
+         ${rails.length ? `<div>rails: ${rails.map(([n, c]) => `${esc(netName(n) || n)} (${c})`).join(" · ")}</div>` : ""}
+         <div>external (non-canary): <strong>${Number(mpp?.externalCount || 0)}</strong></div>
+         ${txLinks ? `<div style="color:var(--muted);">verify on-chain: ${txLinks}</div>` : ""}
+       </div>`
     : `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin-top:12px;">No MPP-wire settlements recorded yet - they appear here as MPP clients pay (the daily canary settles Base + Celo native-wire legs).</p>`;
   return `
     <details style="margin-top:20px;">
-      <summary style="display:inline-block;cursor:pointer;list-style:none;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font-weight:700;font-size:14px;padding:10px 18px;user-select:none;">MPP transactions${list.length ? ` (${list.length})` : ""} &rsaquo;</summary>
+      <summary style="display:inline-block;cursor:pointer;list-style:none;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font-weight:700;font-size:14px;padding:10px 18px;user-select:none;">MPP transactions${count ? ` (${count})` : ""} &rsaquo;</summary>
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin-top:10px;">
         <p style="font-size:13.5px;color:var(--muted);margin:0;">Settlements whose credential arrived over the <strong>MPP</strong> wire (<code>Authorization: Payment</code>) rather than x402's <code>PAYMENT-SIGNATURE</code>. Same on-chain USDC settlement either way - this just filters to the MPP dialect. Machine-readable: <a href="/api/revenue/mpp">/api/revenue/mpp</a>.</p>
         ${body}

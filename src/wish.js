@@ -110,6 +110,23 @@ function normalize(s) {
   return String(s || "").toLowerCase().trim().replace(/\s+/g, " ");
 }
 
+// Exact JS stringification artifacts. These are what a broken caller sends,
+// never what a person types when they want something built.
+const NON_QUERY = new Set([
+  "undefined", "null", "nan", "[object object]", "true", "false",
+  "none", "n/a", "na", "-", "--", "...", "?",
+]);
+
+/** Is this normalized string a client bug rather than a capability request? */
+export function isNonQuery(key) {
+  const k = String(key || "").trim();
+  if (!k) return true;
+  if (NON_QUERY.has(k)) return true;
+  if (k.length < 2) return true;          // "a", "0", "-"
+  if (!/[a-z]/i.test(k)) return true;     // "18", "0", "30", "1.5", "!!!"
+  return false;
+}
+
 let overflowWarned = false;
 
 function upsertCluster(key, source, ts) {
@@ -268,6 +285,23 @@ export function recordWish({ need, context, source, ip } = {}) {
   const key = normalize(needTrimmed);
   if (!key) {
     const e = new Error("`need` has no usable content after normalization");
+    e.statusCode = 400;
+    throw e;
+  }
+  if (isNonQuery(key)) {
+    // A caller's BUG is not a market signal. The board was recording
+    // "[object object]", "undefined", "null" and bare integers as demand -
+    // a client that stringified a JS value into the query, arriving as
+    // evidence that somebody wants a tool. This board decides what gets
+    // built, so junk in it is not cosmetic.
+    //
+    // Deliberately NARROW. Only two things are rejected: strings with no
+    // letter at all, and the exact set of JS stringification artifacts.
+    // Real words are never filtered even when they look like a bug in
+    // context ("object", "function", "request"), because "object" from a
+    // broken client and "object" from someone wanting object detection are
+    // indistinguishable here, and dropping a real need is the worse error.
+    const e = new Error("`need` must describe a capability, not a placeholder value");
     e.statusCode = 400;
     throw e;
   }

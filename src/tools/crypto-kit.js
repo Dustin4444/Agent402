@@ -457,7 +457,19 @@ export const CRYPTO_TOOLS = [
       const data = await jsonGet(`https://api.exchange.coinbase.com/products/${encodeURIComponent(pair)}/book?level=2`, "Coinbase Exchange");
       if (!Array.isArray(data?.bids) || !Array.isArray(data?.asks)) throw bad("Coinbase Exchange returned unexpected shape for the order book", 502);
       // Levels arrive as [price, size, numOrders] string triples, best-first.
-      const mapLevel = ([price, size, orders]) => ({ price: +price, size: +size, orders: orders ?? null });
+      //
+      // The ELEMENTS are checked, not just the enclosing arrays. Destructuring
+      // a level that is not an array (null, or an object shape) throws a
+      // TypeError, which leaves the handler as an unmapped 500 - i.e. an
+      // upstream sending something unexpected gets reported as OUR server
+      // erroring. Every other upstream condition in this kit maps to 502/503/
+      // 504/422; this was the one path that did not, and a 500 both misreports
+      // whose fault it is and is the shape a caller cannot act on.
+      const mapLevel = (lvl) => {
+        if (!Array.isArray(lvl)) throw bad("Coinbase Exchange returned an unexpected order-book level shape", 502);
+        const [price, size, orders] = lvl;
+        return { price: +price, size: +size, orders: orders ?? null };
+      };
       const bids = data.bids.slice(0, depth).map(mapLevel);
       const asks = data.asks.slice(0, depth).map(mapLevel);
       const bestBid = bids[0]?.price ?? null;

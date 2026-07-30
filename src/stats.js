@@ -93,7 +93,15 @@ const recordCall = db.transaction((slug, method, network, wire) => {
   // Three rails: USDC (real revenue), external PoW (real free-tier adoption),
   // heartbeat (our own probe — pays via PoW but we track it separately so the
   // operator dashboard reflects external traffic only).
-  const counterKey = method === "pow" ? "viaProofOfWork" : method === "heartbeat" ? "viaHeartbeat" : "viaUSDC";
+  // "trial" is its OWN class and must never fall through to viaUSDC. A trial
+  // call moves no money, so counting it as USDC would inflate the paid series
+  // with revenue that does not exist - the else-branch here is `usdc`, so a new
+  // free path that forgets to name itself is silently booked as a sale.
+  const counterKey =
+    method === "pow" ? "viaProofOfWork"
+      : method === "heartbeat" ? "viaHeartbeat"
+        : method === "trial" ? "viaTrial"
+          : "viaUSDC";
   bumpCounter.run(counterKey);
   bumpTool.run(slug);
   if (method === "usdc") bumpPaidTool.run(slug); // USDC purchases — what people actually BUY
@@ -114,7 +122,10 @@ const recordCall = db.transaction((slug, method, network, wire) => {
   pruneRecent.run(RECENT_KEEP);
   // Same transaction as the counters above: the daily series and the lifetime
   // totals are written together or not at all, so they cannot drift apart.
-  bumpDaily.run(new Date().toISOString().slice(0, 10), method === "pow" ? "pow" : method === "heartbeat" ? "heartbeat" : "usdc");
+  bumpDaily.run(
+    new Date().toISOString().slice(0, 10),
+    method === "pow" ? "pow" : method === "heartbeat" ? "heartbeat" : method === "trial" ? "trial" : "usdc"
+  );
   setMetaIfAbsent.run("firstServed", String(Date.now()));
 });
 
@@ -244,6 +255,7 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       // Solana/Polygon/…" without an explorer scan per chain.
       viaUSDCByNetwork: Object.fromEntries(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
       viaProofOfWork: num("viaProofOfWork"),
+      viaTrial: num("viaTrial"), // one-per-tool-per-IP-per-hour wallet-free trials — free, never revenue
       viaHeartbeat: num("viaHeartbeat"), // internal probe traffic (PoW path, agent402-heartbeat UA)
       // Subset of viaUSDC whose credential arrived over the MPP wire
       // (Authorization: Payment, translated by src/mpp-shim.js) instead of
@@ -348,6 +360,7 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
       viaUSDC: getCounter.get("viaUSDC")?.n ?? 0,
       viaUSDCByNetwork: Object.fromEntries(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
       viaProofOfWork: getCounter.get("viaProofOfWork")?.n ?? 0,
+      viaTrial: getCounter.get("viaTrial")?.n ?? 0,
       viaHeartbeat: getCounter.get("viaHeartbeat")?.n ?? 0,
       estimatedRevenueUsd: +tools.reduce((s, t) => s + t.revenueUsd, 0).toFixed(4),
       toolsServed: tools.length,

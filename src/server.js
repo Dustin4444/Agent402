@@ -194,6 +194,17 @@ import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
 // Shared with the MCP free tier (src/mcp-http.js) — same policy, separate
 // per-IP bucket. PoW redemption on the direct HTTP path goes through here.
 const powHttpLimiter = createRateLimiter("pow-http");
+// Wallet-free trial. The first call is the whole conversion problem: an agent
+// evaluating us has to acquire USDC, or implement a PoW solver, before it can
+// see a single response. This removes that step for ONE call per tool.
+//
+// Two buckets, both required: per (client, tool) so one tool cannot be farmed,
+// and per client overall so the catalog cannot be swept. Deliberately tight -
+// this is an evaluation aid, not a free tier; the free tier is PoW and is
+// unlimited by comparison.
+const trialToolLimiter = createRateLimiter("trial-tool", { perMin: 1, perHour: 1 });
+const trialIpLimiter = createRateLimiter("trial-ip", { perMin: 3, perHour: 10 });
+const TRIAL_LIMITS_LABEL = "1 per tool per hour, 10 per hour per client";
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
@@ -1200,9 +1211,14 @@ app.get("/api/calls/daily", (_req, res) => {
 });
 // Machine-readable MPP-wire settlements (behind the /revenue "MPP transactions"
 // button) — same on-chain USDC settlements as x402, filtered to the MPP wire.
-app.get("/api/revenue/mpp", (_req, res) => {
+app.get("/api/revenue/mpp", (req, res) => {
   try {
-    res.set("Cache-Control", "public, max-age=60").json(mppSales());
+    // Itemized rows (tool + price per settlement) are operator-only; everyone
+    // else gets the adoption aggregate plus the tx hashes that prove it.
+    const authed = operatorAuthed(req);
+    res.set("Cache-Control", authed ? "no-store, private" : "public, max-age=60")
+      .set("Vary", "Cookie, Authorization")
+      .json(mppSales({ detailed: authed }));
   } catch (e) {
     res.status(500).json({ error: "mpp settlements failed", detail: String(e?.message || e).slice(0, 120) });
   }
@@ -1210,7 +1226,7 @@ app.get("/api/revenue/mpp", (_req, res) => {
 app.get("/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales() }));
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }) }));
   } catch (e) {
     res.status(500).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
   }
@@ -3496,7 +3512,35 @@ if (FREE_MODE) {
         }
         res.setHeader("X-Pow-Error", result.reason);
       }
+      // Wallet-free trial: ?trial=1, one call per tool per client per hour, no
+      // payment and no solve.
+      //
+      // SCOPE IS THE SAFETY PROPERTY, and it is structural rather than a list:
+      // this block sits inside `if (slug)`, and `slug` is only set for
+      // PoW-eligible routes - i.e. exactly the pure-CPU set. Wallet-only tools
+      // (upstream spend, egress, signing) never reach this line, so a trial
+      // gives away a hash computation the caller could already have had free by
+      // solving a challenge. It never gives away money we paid upstream. If a
+      // tool is ever wrongly marked compute-payable, that is already a free-tier
+      // leak (scripts/test-free-tier-egress.js) - this adds no new exposure.
+      if (String(req.query.trial ?? "") === "1") {
+        const tip = req.ip || "unknown";
+        const perTool = `${tip}|${slug}`;
+        // peek BOTH before charging EITHER: charging the per-tool bucket and
+        // then bouncing off the per-client cap would burn a trial the caller
+        // never received.
+        if (!trialToolLimiter.peek(perTool).limited && !trialIpLimiter.peek(tip).limited) {
+          trialToolLimiter.check(perTool);
+          trialIpLimiter.check(tip);
+          res.setHeader("X-Trial-Accepted", "true");
+          res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+          return next(); // trial granted — skip the USDC paywall
+        }
+        res.setHeader("X-Trial-Exhausted", "true");
+        res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+      }
       res.setHeader("X-Pow-Challenge", `${BASE_URL}/api/pow/challenge?slug=${slug}`);
+      res.setHeader("X-Trial-Available", `${BASE_URL}${req.path}?trial=1`);
     }
     // Payment-nonce replay guard (M3, defends "Five Attacks on x402" Attack II —
     // replay / insufficient idempotency). Reached only on the genuine x402 path:
@@ -3575,8 +3619,11 @@ app.use((req, res, next) => {
       const settleReceipt = res.getHeader("PAYMENT-RESPONSE") || res.getHeader("X-PAYMENT-RESPONSE");
       if (res.statusCode === 200) {
         const powAccepted = res.getHeader("X-Pow-Accepted") === "true";
+        const trialAccepted = res.getHeader("X-Trial-Accepted") === "true";
         const isHeartbeat = powAccepted && verifyHeartbeatToken(req.header("x-heartbeat-token"));
-        const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : "usdc";
+        // "usdc" is the ELSE branch, so any free path that forgets to name
+        // itself here is booked as a sale. A trial moves no money.
+        const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : trialAccepted ? "trial" : "usdc";
         // For USDC, also attribute the settlement chain from the settle receipt
         // (multi-chain x402: Base vs Solana vs Polygon…) so /api/stats can
         // answer "did anyone pay on <chain>" without per-chain explorer scans.
@@ -3769,9 +3816,13 @@ const memHandler = (fn) => async (req, res) => {
   // too. Memory's whole identity model is "the paying wallet IS the caller",
   // so accepting a PoW-only request would silently let an anonymous solver
   // write to whatever owner namespace they chose.
-  if (req.header("x-pow-accepted") || res.getHeader("X-Pow-Accepted")) {
+  // Both wallet-free paths, not just PoW. A trial establishes no payer either,
+  // so if WALLET_ONLY_SLUGS ever drifted and a memory route became
+  // compute-payable, a trial would otherwise walk in with no namespace owner -
+  // which is the exact hole this guard exists to cover.
+  if (req.header("x-pow-accepted") || res.getHeader("X-Pow-Accepted") || res.getHeader("X-Trial-Accepted")) {
     return res.status(402).json({
-      error: "Memory tools are wallet-only (identity = payment). Pay via x402; proof-of-work cannot establish a namespace owner.",
+      error: "Memory tools are wallet-only (identity = payment). Pay via x402; proof-of-work and trials cannot establish a namespace owner.",
     });
   }
   const actor = memoryActor(req, res);
