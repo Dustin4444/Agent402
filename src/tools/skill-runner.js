@@ -119,9 +119,17 @@ export const PACK_PRICES = {
   "schema-evolution":      0.06,
   // Strategy additions (2026-07): premium agent jobs on the newest kits —
   // priced by the same sum-of-tools × tier rule as the rest of the registry.
-  "company-dossier":       0.50, // 6-tool chain: quote + financials + EDGAR + insider + search + extract
-  "domain-intel":          0.25, // 7-tool fanout: whois + dns + tls + headers + tech + robots + CT
-  "crypto-dossier":        0.30, // 6-tool chain: price + history + trending + global + search + extract
+  // Repriced 2026-07-30 from $0.50 (6.8x the $0.073 parts sum). The pack pages
+  // now show the bundle price beside every member and its route, so the parts
+  // are one comparison away: a multiple the member list cannot justify asks a
+  // buyer to pay for not checking. Rule applied here: parts sum plus $0.01 per
+  // settlement avoided (5 tools = 4 avoided), which prices the real saving -
+  // one signature and one settlement instead of five - and still clears cost.
+  "company-dossier":       0.12, // 5-tool chain: quote + financials + EDGAR + insider + search
+  // Was $0.25 against a $0.023 parts sum (10.9x), the widest gap in the catalog.
+  "domain-intel":          0.075, // 6-tool fanout: whois + dns + tls + headers + tech + CT
+  // Was $0.30 against a $0.071 parts sum (4.2x).
+  "crypto-dossier":        0.12, // 6-tool chain: price + history + trending + global + search
   "onchain-analyst":       0.20, // onchain-sql is $0.02 upstream-billed CDP SQL
   "seo-audit":             0.07, // six network reads (~$0.014 × 5)
   "wallet-readiness":      0.05, // CDP-indexed balance reads + onramp session
