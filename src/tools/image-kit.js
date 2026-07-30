@@ -5,17 +5,27 @@
 // public image URL fetched through safeFetch (SSRF-guarded; those slugs are
 // WALLET_ONLY in pow.js). Binary outputs use the same contract as /api/qr and
 // /api/screenshot. Covered by scripts/test-image.js.
-import { Jimp, JimpMime } from "jimp";
+//
+// The three compute-payable tools (resize/convert/thumbnail) run their whole
+// decode/transform/encode pipeline in a worker thread via image-pool.js. Jimp is
+// pure JS and synchronous, and those slugs are free on the authless MCP connector
+// and free via proof-of-work, so on the main thread an unauthenticated caller
+// could occupy the single Node thread and stall paid traffic and the paywall with
+// it. The remaining tools here take a URL, so they are wallet-only and stay
+// inline. Shared primitives live in image-ops.js so both sides run one
+// implementation.
+import { Jimp } from "jimp";
 import { safeFetch } from "./fetch-guard.js";
+import {
+  bad, MAX_DIM, declaredDimensions, posInt, readImage, sniffFormat, toBuffer,
+} from "./image-ops.js";
+import { runImageOffThread } from "./image-pool.js";
 
-function bad(message) {
-  return Object.assign(new Error(message), { statusCode: 400 });
-}
+// Re-exported for scripts/test-image.js, which imports the parser surface from
+// this module.
+export { declaredDimensions, sniffFormat };
 
 const MAX_B64 = 12_000_000; // ~9 MB encoded
-const MAX_SRC_PIXELS = 40_000_000; // ~6300x6300 source cap
-const MAX_DIM = 4096; // output dimension cap
-const MIME = { png: JimpMime.png, jpeg: JimpMime.jpeg, jpg: JimpMime.jpeg, bmp: JimpMime.bmp };
 
 function decodeB64(field) {
   if (typeof field !== "string" || !field.trim()) throw bad('Missing "image" (base64 PNG/JPEG/BMP, optionally a data: URL)');
@@ -29,80 +39,12 @@ function decodeB64(field) {
   return buf;
 }
 
-/** Declared pixel dimensions from the container HEADER, without decoding.
- *  Returns null when the format carries no cheap size field (Jimp then decodes
- *  and the post-decode cap still applies). PNG: IHDR is always the first chunk.
- *  JPEG: the first SOF marker. BMP: the DIB header. GIF: the logical screen
- *  descriptor. All are fixed offsets, so this is a few byte reads. */
-export function declaredDimensions(buf) {
-  try {
-    const format = sniffFormat(buf);
-    if (format === "png" && buf.length >= 24 && buf.toString("ascii", 12, 16) === "IHDR") {
-      return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
-    }
-    if (format === "bmp" && buf.length >= 26) {
-      return { width: Math.abs(buf.readInt32LE(18)), height: Math.abs(buf.readInt32LE(22)) };
-    }
-    if (format === "gif" && buf.length >= 10) {
-      return { width: buf.readUInt16LE(6), height: buf.readUInt16LE(8) };
-    }
-    if (format === "jpeg") {
-      // Walk the marker chain to the first Start-Of-Frame; bounded by length.
-      let i = 2;
-      while (i + 9 < buf.length) {
-        if (buf[i] !== 0xff) { i++; continue; }
-        const marker = buf[i + 1];
-        if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
-        const len = buf.readUInt16BE(i + 2);
-        // SOF0/1/2/3/5/6/7/9/10/11/13/14/15 — every non-differential and
-        // differential frame header carries height then width at +5.
-        if ((marker >= 0xc0 && marker <= 0xcf) && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
-          return { height: buf.readUInt16BE(i + 5), width: buf.readUInt16BE(i + 7) };
-        }
-        if (len < 2) break;
-        i += 2 + len;
-      }
-    }
-  } catch { /* malformed header — fall through to the decoder's own error */ }
-  return null;
-}
-
-async function readImage(buf, { maxPixels = MAX_SRC_PIXELS } = {}) {
-  // Refuse oversized images from the HEADER, before decoding. The post-decode
-  // check below is the same cap but it arrives too late to protect the process:
-  // Jimp's decode is pure JS and synchronous, so a small file declaring a huge
-  // canvas (a ~100KB solid-colour PNG can declare 25M pixels) blocks the single
-  // Node thread for seconds and stalls every other request behind it, including
-  // paid calls and the paywall itself. These handlers are pure-CPU and
-  // therefore free on the authless connector and PoW-eligible over HTTP, so
-  // that cost is reachable without payment. Checking the declared size costs a
-  // few byte reads.
-  const declared = declaredDimensions(buf);
-  if (declared && declared.width > 0 && declared.height > 0 && declared.width * declared.height > maxPixels) {
-    throw bad(`source image too large (${declared.width}x${declared.height}; max ${maxPixels} pixels)`);
-  }
-  let img;
-  try { img = await Jimp.read(buf); }
-  catch (e) { throw bad(`could not decode image: ${e.message}`); }
-  if (img.width * img.height > maxPixels) throw bad(`source image too large (${img.width}x${img.height})`);
-  return img;
-}
-
-// Source-pixel ceiling for the base64-only loader, which is used by exactly the
-// three compute-payable image tools (resize/convert/thumbnail) - i.e. the ones
-// reachable FREE on the authless connector and via proof-of-work. Jimp decodes
-// in pure JS on the main thread, so source pixels translate directly into
-// blocking milliseconds for every other request in the process. 16M (4000x4000)
-// still covers a resize up to the 4096 output cap while refusing the small-file
-// /huge-canvas shape (a ~100KB solid-colour PNG can declare 25M pixels). The
-// URL-capable loader below keeps the full MAX_SRC_PIXELS - those slugs are
-// wallet-only. This bounds the cost; it does not remove it. Moving the decode
-// off-thread (see src/tools/regex-worker.js for the in-repo pattern) is what
-// actually stops a free caller from occupying the event loop.
-const FREE_MAX_SRC_PIXELS = 16_000_000;
-
-async function loadImage(field) {
-  return readImage(decodeB64(field), { maxPixels: FREE_MAX_SRC_PIXELS });
+// The base64-only path for the three compute-payable tools. The bytes are decoded
+// here (native base64, cheap) and everything expensive happens in the worker; the
+// pool applies FREE_MAX_SRC_PIXELS and re-runs the header pre-check before a
+// worker is even handed the job.
+function transformOffThread(op, image, params) {
+  return runImageOffThread({ op, buffer: decodeB64(image), params });
 }
 
 // Newer tools accept EITHER a public image URL (fetched via safeFetch — SSRF
@@ -120,20 +62,12 @@ async function inputBuffer(i) {
   return decodeB64(i.image);
 }
 
-// --- container sniffing + minimal EXIF (TIFF IFD) parser --------------------
+// --- minimal EXIF (TIFF IFD) parser -----------------------------------------
 // No new dependency: EXIF is a TIFF structure embedded in a JPEG APP1 segment
 // (or a PNG eXIf chunk, or the file itself for TIFF). We parse the common,
 // useful subset of IFD0 + the Exif and GPS sub-IFDs. Stripped images yield an
-// empty result, not an error. Exported for scripts/test-image.js.
-export function sniffFormat(buf) {
-  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpeg";
-  if (buf.length >= 8 && buf.readUInt32BE(0) === 0x89504e47) return "png";
-  if (buf.length >= 6 && buf.toString("ascii", 0, 3) === "GIF") return "gif";
-  if (buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP") return "webp";
-  if (buf.length >= 2 && buf.toString("ascii", 0, 2) === "BM") return "bmp";
-  if (buf.length >= 4 && (buf.toString("ascii", 0, 4) === "II*\0" || buf.toString("ascii", 0, 4) === "MM\0*")) return "tiff";
-  return "unknown";
-}
+// empty result, not an error. Exported for scripts/test-image.js. Pure byte
+// reads, so this stays on the main thread even though it serves paid tools.
 
 /** Locate the raw TIFF/EXIF payload inside a container. Returns a Buffer or null. */
 export function extractExifBuffer(buf) {
@@ -271,17 +205,6 @@ function gpsDecimal(gps) {
 
 const EXAMPLE_IMAGE_URL = "https://raw.githubusercontent.com/ianare/exif-samples/master/jpg/Canon_40D.jpg";
 
-const posInt = (v) => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : null; };
-
-async function toBuffer(img, format, quality) {
-  const fmt = String(format || "png").toLowerCase();
-  const mime = MIME[fmt];
-  if (!mime) throw bad('format must be "png", "jpeg", or "bmp"');
-  const opts = mime === JimpMime.jpeg ? { quality: Math.min(Math.max(posInt(quality) || 80, 1), 100) } : undefined;
-  const buffer = await img.getBuffer(mime, opts);
-  return { __binary: buffer, contentType: mime };
-}
-
 export const IMAGE_TOOLS = [
   {
     route: "POST /api/image-resize", name: "Image resize", slug: "image-resize", category: "web", price: "$0.005",
@@ -302,18 +225,8 @@ export const IMAGE_TOOLS = [
       },
       output: { example: { __note: "returns the resized image as binary (Content-Type set accordingly)" } },
     },
-    handler: async (i) => {
-      const img = await loadImage(i.image);
-      let w = posInt(i.width), h = posInt(i.height);
-      if (!w && !h) throw bad("provide width and/or height");
-      if (w && w > MAX_DIM) w = MAX_DIM;
-      if (h && h > MAX_DIM) h = MAX_DIM;
-      // One dimension → scale proportionally from the source aspect ratio.
-      if (w && !h) h = Math.max(1, Math.round(img.height * (w / img.width)));
-      if (h && !w) w = Math.max(1, Math.round(img.width * (h / img.height)));
-      img.resize({ w, h });
-      return toBuffer(img, i.format, i.quality);
-    },
+    handler: async (i) =>
+      transformOffThread("resize", i.image, { width: i.width, height: i.height, format: i.format, quality: i.quality }),
   },
   {
     route: "POST /api/image-convert", name: "Image convert", slug: "image-convert", category: "web", price: "$0.005",
@@ -335,8 +248,7 @@ export const IMAGE_TOOLS = [
     },
     handler: async (i) => {
       if (!i.format) throw bad('Missing "format" (png, jpeg, or bmp)');
-      const img = await loadImage(i.image);
-      return toBuffer(img, i.format, i.quality);
+      return transformOffThread("convert", i.image, { format: i.format, quality: i.quality });
     },
   },
   {
@@ -357,12 +269,8 @@ export const IMAGE_TOOLS = [
       },
       output: { example: { __note: "returns the square thumbnail as binary" } },
     },
-    handler: async (i) => {
-      const img = await loadImage(i.image);
-      const size = Math.min(Math.max(posInt(i.size) || 128, 1), 1024);
-      img.cover({ w: size, h: size });
-      return toBuffer(img, i.format, i.quality);
-    },
+    handler: async (i) =>
+      transformOffThread("thumbnail", i.image, { size: i.size, format: i.format, quality: i.quality }),
   },
   {
     route: "POST /api/image-exif", name: "Image EXIF", slug: "image-exif", category: "web", price: "$0.003",

@@ -114,6 +114,20 @@ for (const file of files) {
     }
     const pricesOnLine = [...line.matchAll(/\$(\d+\.\d+)/g)].map((m) => m[1]);
 
+    // Pack price tables key on a /skills/<slug> LINK, not a route and not a
+    // backticked slug, so neither check above looked at them - found when a
+    // reprice left three wiki rows stale and this gate stayed green.
+    if (pricesOnLine.length === 1) {
+      const packs = [...line.matchAll(/\/skills\/([a-z0-9-]+)/g)].map((m) => m[1]).filter((sl) => priceBySlug.has(`skill-${sl}`));
+      if (new Set(packs).size === 1) {
+        const real = String(priceBySlug.get(`skill-${packs[0]}`)).replace("$", "");
+        if (Number(pricesOnLine[0]) !== Number(real)) {
+          priceMismatches++;
+          if (priceMismatches <= 12) console.error(`  price: ${rel} -> pack ${packs[0]} says $${pricesOnLine[0]}, catalog says $${real}`);
+        }
+      }
+    }
+
     // Slug-keyed price tables. The catalog table that carried TWELVE wrong
     // prices states them next to `slug` in backticks, not next to a /api/ route,
     // so a route-only check never looked at the worst file in the repo.

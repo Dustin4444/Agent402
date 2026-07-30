@@ -30,7 +30,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**email-deliverability**](https://agent402.tools/skills/email-deliverability) | $0.10 | Diagnose why a domain's email lands in spam: SPF, DMARC, DKIM strength, MX, composite score. |
 | [**fraud-signals**](https://agent402.tools/skills/fraud-signals) | $0.15 | Is this domain a phishing site / typosquat / scam? Pull the reputation signals before you click. |
 | [**jwt-forensics**](https://agent402.tools/skills/jwt-forensics) | $0.050 | "Is this JWT valid?" Decode, render the time claims, compute expiry, then HMAC-verify against the secret. |
-| [**domain-intel**](https://agent402.tools/skills/domain-intel) | $0.25 | Full domain security + SEO intel: WHOIS, DNS, TLS, headers, tech stack, robots, certificate transparency. |
+| [**domain-intel**](https://agent402.tools/skills/domain-intel) | $0.075 | Full domain security + SEO intel: WHOIS, DNS, TLS, headers, tech stack, robots, certificate transparency. |
 | [**ssl-audit**](https://agent402.tools/skills/ssl-audit) | $0.10 | TLS/SSL posture: live certificate inspection, HTTP security headers, and CAA DNS records. |
 | [**email-security**](https://agent402.tools/skills/email-security) | $0.10 | Full email auth posture: SPF, DMARC, DKIM, and a composite deliverability score. |
 | [**brand-protection**](https://agent402.tools/skills/brand-protection) | $0.20 | Is this domain legitimate? WHOIS age, DNS, scam/phishing search, and HTTP headers for a trust read. |
@@ -69,7 +69,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 | [**investment-decision**](https://agent402.tools/skills/investment-decision) | $0.050 | Run a capital-allocation decision - NPV at your hurdle rate, IRR, opportunity cost, levered cashflow. |
 | [**retirement-planning**](https://agent402.tools/skills/retirement-planning) | $0.050 | Will my plan work? Project accumulation with compound interest, then model the drawdown phase. |
 | [**savings-goal**](https://agent402.tools/skills/savings-goal) | $0.050 | How much to save each month to hit $X in N years? Pin down the required contribution. |
-| [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.50 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
+| [**company-dossier**](https://agent402.tools/skills/company-dossier) | $0.12 | Comprehensive company research in one call: quote, financials, filings, insider trades, news. |
 | [**earnings-watch**](https://agent402.tools/skills/earnings-watch) | $0.10 | Is this company reporting soon and what's the consensus? Earnings calendar, quote, recent results. |
 | [**earnings-deep-dive**](https://agent402.tools/skills/earnings-deep-dive) | $0.050 | Everything before a company reports: the upcoming date, latest financials, recent filings, live quote, and fresh news in one pass. |
 | [**insider-alert**](https://agent402.tools/skills/insider-alert) | $0.15 | Insider buying/selling for a stock: Form 4 trades, live quote, and recent SEC filings. |
@@ -109,7 +109,7 @@ Every pack is **also a single paid endpoint**, `POST /api/skill/{slug}`, which r
 |---|---|---|
 | [**market-brief**](https://agent402.tools/skills/market-brief) | $0.050 | Quick crypto snapshot: price for a coin, trending coins, and global market stats in one call. |
 | [**crypto-research**](https://agent402.tools/skills/crypto-research) | $0.70 | Live price, market structure, OHLC history, trending status, global context, and news for a coin. |
-| [**crypto-dossier**](https://agent402.tools/skills/crypto-dossier) | $0.30 | Everything about a coin: live price, 90-day history, trending status, market context, news + top article. |
+| [**crypto-dossier**](https://agent402.tools/skills/crypto-dossier) | $0.12 | Everything about a coin: live price, 90-day history, trending status, market context, news + top article. |
 | [**defi-protocol-scanner**](https://agent402.tools/skills/defi-protocol-scanner) | $0.050 | Due-diligence a DeFi protocol: live token price, market context, protocol TVL across chains, and recent news. |
 | [**defi-dashboard**](https://agent402.tools/skills/defi-dashboard) | $0.15 | DeFi overview: total TVL, ETH price, Base gas, and global crypto stats. |
 | [**nft-portfolio**](https://agent402.tools/skills/nft-portfolio) | $0.15 | NFT + wallet snapshot: NFT holdings, native balance, and ETH price for an address. |

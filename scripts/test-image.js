@@ -101,5 +101,57 @@ catch (e) { ok(e.statusCode === 400, "garbage image throws 400"); }
 try { await tool("image-exif")({}); ok(false, "missing url+image should throw"); }
 catch (e) { ok(e.statusCode === 400, "image-exif without url/image throws 400"); }
 
+// The three compute-payable tools run in a worker thread (src/tools/image-pool.js),
+// so their rejections cross a postMessage boundary. These three pin that the
+// crossing preserves both the message and the statusCode: a caller must not be
+// able to tell that the work moved off the main thread.
+{
+  // Parameter validation happens after the decode, inside the worker.
+  try { await tool("image-resize")({ image: srcB64 }); ok(false, "resize with no dimensions should throw"); }
+  catch (e) { ok(e.statusCode === 400 && e.message === "provide width and/or height", `resize with no dimensions throws 400 (got ${e.statusCode} ${e.message})`); }
+
+  // Encode-side validation, also inside the worker.
+  try { await tool("image-convert")({ image: srcB64, format: "tiff" }); ok(false, "unsupported format should throw"); }
+  catch (e) { ok(e.statusCode === 400 && /^format must be/.test(e.message), `unsupported output format throws 400 (got ${e.statusCode} ${e.message})`); }
+
+  // Header pre-check: rewrite the IHDR to declare 5000x5000 (25M pixels, over the
+  // 16M free-tier cap). This must be refused from the header alone, before any
+  // decode, so the worker is never handed the job at all. The CRC is left stale
+  // on purpose - reaching the decoder would be the failure this asserts against.
+  const png = await src.getBuffer(JimpMime.png);
+  const lying = Buffer.from(png);
+  lying.writeUInt32BE(5000, 16);
+  lying.writeUInt32BE(5000, 20);
+  try { await tool("image-resize")({ image: lying.toString("base64"), width: 64 }); ok(false, "oversized declared canvas should throw"); }
+  catch (e) { ok(e.statusCode === 400 && /^source image too large \(5000x5000/.test(e.message), `header declaring 25M pixels throws 400 before decoding (got ${e.statusCode} ${e.message})`); }
+}
+
+// Event-loop availability, offline. The server-level version of this check lives
+// in scripts/test-image-concurrency.js (it measures a real /health during a
+// burst); this one needs no server, so it guards the property on every run of
+// this file. A timer scheduled every 25ms cannot fire on time while a
+// synchronous jimp decode holds the thread, so its worst lag IS the blocking a
+// concurrent request would have seen. Source: a solid 4000x4000 PNG, i.e. 67KB
+// on the wire but 16M pixels to decode, the most a free caller may send.
+// Measured lag with the decode inline: 1154-1231ms, and the probe fired ZERO
+// times in the whole 1.3s burst. With the decode in a worker: 2ms, 28 ticks.
+{
+  const bigB64 = (await new Jimp({ width: 4000, height: 4000, color: 0x3366ffff }).getBuffer(JimpMime.png)).toString("base64");
+  let worstLag = 0, ticking = true, due = 0;
+  const tick = () => {
+    due = Date.now() + 25;
+    setTimeout(() => { worstLag = Math.max(worstLag, Date.now() - due); if (ticking) tick(); }, 25);
+  };
+  tick();
+  const burst = await Promise.all([1, 2, 3, 4].map(() => tool("image-resize")({ image: bigB64, width: 256 })));
+  ticking = false;
+  // Total starvation shows up as a probe that never ran at all, which a
+  // callback-only metric would score as a perfect 0ms. The still-pending timer's
+  // overdue-by is the honest reading in that case.
+  worstLag = Math.max(worstLag, Date.now() - due);
+  ok(burst.every((b) => b.__binary.length > 0), `4 concurrent 16M-pixel resizes all returned bytes (${burst.map((b) => b.__binary.length).join(",")})`);
+  ok(worstLag < 250, `event loop stayed responsive during the burst (worst timer lag ${worstLag}ms < 250ms)`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

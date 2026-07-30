@@ -21,6 +21,7 @@ import { memorySink } from "./sinks.js";
 export { AI_BOTS, makeBotMatcher } from "./bots.js";
 export { createPow, leadingZeroBits } from "./pow.js";
 export { memorySink, kvStatsSink, httpStatsSink } from "./sinks.js";
+export { sqliteReplayStore, redisReplayStore } from "./replay.js";
 
 const VERIFY_TIMEOUT_MS = Number(process.env.TOLLBOOTH_VERIFY_TIMEOUT_MS) || 10_000;
 
@@ -87,6 +88,8 @@ const STRIP_INBOUND = new Set([
  * @param {string} [config.asset="USDC"]        stablecoin symbol in the quote (USDG on Robinhood Chain)
  * @param {boolean} [config.pow=true]          enable the free proof-of-work rail
  * @param {number} [config.powDifficulty]      PoW difficulty in leading zero bits
+ * @param {object} [config.replayStore]        shared single-use PoW backend, `{ claim(token, expiresAtMs) => boolean|Promise<boolean> }`.
+ *                                             Default is THIS PROCESS'S memory; required for multi-worker / multi-instance / serverless. See replay.js.
  * @param {string[]} [config.botUserAgents]    user-agents to charge (default: AI_BOTS)
  * @param {(req)=>boolean} [config.charge]     custom "should this client pay?" predicate
  * @param {(req)=>boolean} [config.free]       custom force-allow predicate (wins over charge)
@@ -108,6 +111,12 @@ export function createTollbooth(config = {}) {
     pow = true,
     powDifficulty,
     powSecret,
+    // Shared single-use record for solved proof-of-work tokens. Unset means
+    // per-process memory, which is only single-use within ONE process: a stable
+    // TOLLBOOTH_SECRET (needed so tokens verify across workers at all) then makes
+    // one solve redeemable once per worker inside the token TTL. Pass a store
+    // from replay.js for any deploy with more than one process.
+    replayStore,
     botUserAgents = AI_BOTS,
     // Who pays. Default "bots" = the original behavior (charge AI crawler UAs).
     //  "all"    — charge every client except a `free()` match (UA detection is
@@ -137,7 +146,7 @@ export function createTollbooth(config = {}) {
   } = config;
 
   const isBot = makeBotMatcher(botUserAgents);
-  const powEngine = pow ? createPow({ difficulty: powDifficulty, secret: powSecret }) : null;
+  const powEngine = pow ? createPow({ difficulty: powDifficulty, secret: powSecret, replayStore }) : null;
 
   // Passive analytics — never affects request handling, just counts what happens.
   // `mem` is an always-on in-process mirror so `.stats()` stays synchronous for
@@ -224,35 +233,56 @@ export function createTollbooth(config = {}) {
       res.status(402).json(body);
     };
 
+    // Paid rail: x402 (USDC). Settlement verification is operator-supplied so
+    // we reuse the standard, audited x402 stack rather than reinvent it. Reached
+    // either directly or after the free rail declined, so it lives in a function
+    // the (possibly async) proof-of-work branch can hand control back to.
+    const paidRail = () => {
+      const payHeader = req.headers["x-payment"] || req.headers["payment-signature"];
+      if (payTo && typeof verifyX402 === "function" && payHeader) {
+        // Bound verification time so a slow/hung verifier can't exhaust resources.
+        // F19: pass an AbortSignal and ABORT it on timeout, so a slow verifier that
+        // also SETTLES cannot move money after we have already returned 402 (a
+        // charged denial). A pure-verification callback may ignore the signal; a
+        // settling one MUST cancel/drain in-flight work on it before returning.
+        const ac = new AbortController();
+        const timeout = new Promise((resolve) => setTimeout(() => { ac.abort(); resolve(false); }, VERIFY_TIMEOUT_MS));
+        return Promise.race([Promise.resolve(verifyX402(req, { price, network, asset, payTo, resource, signal: ac.signal })), timeout])
+          .then((ok) => {
+            ac.abort(); // verification resolved: cancel anything still in flight
+            if (ok) { incr("x402Paid"); res.setHeader("X-Tollbooth-Paid", "x402"); return next(); }
+            send402();
+          })
+          .catch(() => { ac.abort(); res.setHeader("X-Tollbooth-Error", "x402-verify-failed"); send402(); });
+      }
+
+      return send402();
+    };
+
     // Free rail: proof-of-work.
     const powHeader = req.headers["x-pow-solution"];
     if (powEngine && powHeader) {
+      const afterPow = (r) => {
+        if (r.ok) { incr("powSolved"); res.setHeader("X-Tollbooth-Paid", "pow"); return next(); }
+        res.setHeader("X-Pow-Error", r.reason);
+        return paidRail();
+      };
+      // pow.verify is synchronous with the default in-process replay store and
+      // returns a promise when a shared store (SQLite/Redis) answers with one.
+      // Branch on the shape instead of awaiting unconditionally: the default path
+      // must keep resolving inside this tick, because a synchronous caller (and
+      // our own single-process tests) would otherwise see the middleware return
+      // before it has decided anything.
       const r = powEngine.verify(powHeader, powResource);
-      if (r.ok) { incr("powSolved"); res.setHeader("X-Tollbooth-Paid", "pow"); return next(); }
-      res.setHeader("X-Pow-Error", r.reason);
+      if (r && typeof r.then === "function") {
+        // A rejected verify would leave the request hanging with no response, so
+        // it degrades to the same refusal the store-throw path produces.
+        return r.then(afterPow, () => afterPow({ ok: false, reason: "replay store unavailable" }));
+      }
+      return afterPow(r);
     }
 
-    // Paid rail: x402 (USDC). Settlement verification is operator-supplied so
-    // we reuse the standard, audited x402 stack rather than reinvent it.
-    const payHeader = req.headers["x-payment"] || req.headers["payment-signature"];
-    if (payTo && typeof verifyX402 === "function" && payHeader) {
-      // Bound verification time so a slow/hung verifier can't exhaust resources.
-      // F19: pass an AbortSignal and ABORT it on timeout, so a slow verifier that
-      // also SETTLES cannot move money after we have already returned 402 (a
-      // charged denial). A pure-verification callback may ignore the signal; a
-      // settling one MUST cancel/drain in-flight work on it before returning.
-      const ac = new AbortController();
-      const timeout = new Promise((resolve) => setTimeout(() => { ac.abort(); resolve(false); }, VERIFY_TIMEOUT_MS));
-      return Promise.race([Promise.resolve(verifyX402(req, { price, network, asset, payTo, resource, signal: ac.signal })), timeout])
-        .then((ok) => {
-          ac.abort(); // verification resolved: cancel anything still in flight
-          if (ok) { incr("x402Paid"); res.setHeader("X-Tollbooth-Paid", "x402"); return next(); }
-          send402();
-        })
-        .catch(() => { ac.abort(); res.setHeader("X-Tollbooth-Error", "x402-verify-failed"); send402(); });
-    }
-
-    return send402();
+    return paidRail();
   }
 
   tollbooth.shouldCharge = shouldCharge;
@@ -335,9 +365,60 @@ async function startCli() {
     console.error("✖ TOLLBOOTH_SECRET is the public placeholder from the deploy template. It is readable by anyone, so proof-of-work tokens can be forged and your gate bypassed for free. Refusing to start. Generate a real secret: openssl rand -hex 32");
     process.exit(1);
   }
+  // A stable secret makes one solved token verifiable by EVERY process sharing
+  // it, and the single-use record defaults to this process's memory, so behind a
+  // load balancer, or under `cluster`, one solve buys a free request per process
+  // for the token's lifetime. TOLLBOOTH_REPLAY_SQLITE points every process at one
+  // claim table and closes that. Opt-in, because a single-process proxy (the
+  // common case for this CLI) needs no file and no extra dependency.
+  let replayStore;
+  const replayPath = process.env.TOLLBOOTH_REPLAY_SQLITE;
+  if (replayPath) {
+    const { sqliteReplayStore } = await import("./replay.js");
+    // node:sqlite is built in (Node 22.5+); better-sqlite3 covers older Node and
+    // is what many operators already have installed. Neither is a dependency of
+    // this package: the store is opt-in, so its driver is too.
+    let db = null;
+    try {
+      const { DatabaseSync } = await import("node:sqlite");
+      db = new DatabaseSync(replayPath);
+    } catch {
+      try {
+        const { default: Database } = await import("better-sqlite3");
+        db = new Database(replayPath);
+      } catch { db = null; }
+    }
+    if (!db) {
+      // The operator asked for a shared store; starting without one would leave
+      // the replay hole open while the config says it is closed. Fail closed.
+      console.error(`✖ TOLLBOOTH_REPLAY_SQLITE=${replayPath} was set but no SQLite driver could be opened. Run Node 22.5+ (built-in node:sqlite) or install better-sqlite3. Refusing to start.`);
+      process.exit(1);
+    }
+    try {
+      // busy_timeout matters more than it looks: a claim that hits SQLITE_BUSY
+      // throws, pow.js fails closed on a throw, and the refusal lands on a
+      // crawler that did the work. WAL is best-effort because converting a
+      // brand-new file needs an exclusive lock a sibling worker may hold
+      // (measured: 2 of 160 simultaneous boots lost that lock); the winner writes
+      // the mode into the file, so the losers inherit it and nothing is lost.
+      db.exec("PRAGMA busy_timeout = 5000");
+      try { db.exec("PRAGMA journal_mode = WAL"); } catch { /* a sibling worker is setting it */ }
+      replayStore = sqliteReplayStore(db);
+    } catch (e) {
+      // Not retried: the failure this actually produces is a permanently broken
+      // file (for example an orphaned -wal/-shm left beside a deleted database),
+      // which no number of attempts clears. Refuse to start rather than serve
+      // with per-process-only replay protection while the config claims otherwise.
+      console.error(`✖ TOLLBOOTH_REPLAY_SQLITE=${replayPath} could not be initialised: ${e.message}. If a stale ${replayPath}-wal / -shm pair is present without its database, remove them. Refusing to start.`);
+      process.exit(1);
+    }
+    console.log(`shared proof-of-work replay store: sqlite ${replayPath}`);
+  } else if (_secret) {
+    console.warn("⚠ No shared proof-of-work replay store (TOLLBOOTH_REPLAY_SQLITE unset): solved tokens are single-use PER PROCESS only. Fine for one process; behind a load balancer or under `cluster`, one solve is redeemable once per process within its 5-minute TTL.");
+  }
   const { default: express } = await import("express");
   const app = express();
-  const gate = createTollbooth({ resourceBaseUrl: process.env.TOLLBOOTH_RESOURCE_BASE || upstream || "" });
+  const gate = createTollbooth({ resourceBaseUrl: process.env.TOLLBOOTH_RESOURCE_BASE || upstream || "", replayStore });
   // Operator analytics — aggregate counts only (no per-request data), mounted
   // before the gate so they're always reachable and never themselves charged.
   // Two opt-in admin tokens (legacy `TOLLBOOTH_STATS_TOKEN` covers /stats only;

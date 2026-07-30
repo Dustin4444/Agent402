@@ -383,6 +383,44 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   no settle receipt) because external sellers publish no example inputs the way our bazaar
   extension does; `algo.netintel.dev` alone accounted for 42. A failed third-party buy
   never pages (their outage, not our defect).
+- **Free-tier egress is a TESTED invariant, not a list
+  (`scripts/test-free-tier-egress.js` + `egress-probe-preload.js`):** the free
+  tier's safety rests on `WALLET_ONLY_SLUGS`, which is hand-maintained - a kit
+  whose author forgets to list an egressing slug is permanently free, and the
+  Brave and E2B CI-spend leaks are the evidence that hand-maintenance fails. The
+  probe boots the server under a preload that enters an AsyncLocalStorage
+  context per inbound request and records every fetch/http/socket/DNS/
+  child_process call inside one, so background work (which has no request
+  context) is ignored rather than blamed on a tool. It then drives all 222
+  compute-payable tools with their own documented examples and requires ZERO
+  attributed egress; a failure names the tool and the target. It self-checks
+  first with a fetch-based control tool and REFUSES to report a clean run if the
+  probe is blind - the first version reported nothing while working perfectly,
+  because the control used node:dns and never called fetch. Verified by planting
+  a real leak (removing a fetching slug from WALLET_ONLY_SLUGS), which it caught.
+  `X402_INDEX_CRAWL=off` skips the index crawler: it exists for this test's
+  attribution, and it also stops CI crawling thousands of third-party origins on
+  every boot for nothing.
+- **Image transforms run OFF the main thread (`src/tools/image-pool.js`,
+  `image-worker.js`, `image-ops.js`):** Jimp decodes in pure JS and
+  SYNCHRONOUSLY, and the three compute-payable image tools (resize/convert/
+  thumbnail) are reachable free on the authless connector and via PoW - so a
+  free caller could occupy the only thread. Measured before the fix: eight
+  concurrent 16M-pixel resizes put `/health` at a 363ms median with only 7-8
+  probes landing in 3.2s; after, 2ms median with ~60 probes. A 2-worker pool
+  (the memory ceiling, not a throughput knob: 16M px is a 64MB RGBA bitmap per
+  in-flight job), a 32-deep queue, and a 5s per-job timeout that
+  `terminate()`s - the only lever that works on a thread stuck inside a
+  synchronous decode. Overflow and timeout answer **503, not 400**: the input
+  was fine, and a >=400 cancels settlement so nobody is charged. Primitives
+  live in `image-ops.js` and are imported by BOTH sides, so output bytes and
+  error strings cannot drift; `statusCode` rides back on the worker message so
+  a 400 stays a 400. URL-taking image tools (exif/dominant-color/crop) stay
+  inline: they are wallet-only, so payment already bounds them. Guarded by an
+  offline event-loop probe in `scripts/test-image.js` and end-to-end by
+  `scripts/test-image-concurrency.js`. NB the naive lag metric scored total
+  starvation as a perfect 0ms because the probe callback never ran - the test
+  reads the outstanding timer's lateness instead.
 - **X ops (post + read, all via Actions — keys never local):** `scripts/tweet.js` is a
   dependency-free OAuth 1.0a CLI (`--text/--file/--quote/--reply-to/--media/--delete/
   --verify/--force`, `DRY_RUN=1`; secrets `X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/

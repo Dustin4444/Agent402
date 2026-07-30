@@ -194,6 +194,7 @@ on abort. (PoW is checked first, so an agent without a wallet always has a free 
 | `resourceBaseUrl` | `""` | Absolute base used for the `resource` field / PoW binding |
 | `observe` | `false` | Observe-only: classify and count, but never 402. For pre-launch traffic measurement. |
 | `statsSink` | in-memory | Durable stats backend. Built-ins: `memorySink`, `kvStatsSink(kv)`, `httpStatsSink(url)`. |
+| `replayStore` | **this process's memory** | Shared single-use record for solved proof-of-work tokens. Required for multi-worker / multi-instance / serverless. Built-ins: `sqliteReplayStore(db)`, `redisReplayStore(client)`. See below. |
 
 ### Environment variables
 
@@ -211,6 +212,7 @@ Read by the bundled proxy / Express entry point (`index.js`):
 | `TOLLBOOTH_ADAPTIVE` | `false` | Raise PoW difficulty as charged-request load climbs |
 | `TOLLBOOTH_ADAPTIVE_PER_BIT` | `300` | +1 difficulty bit per N charged requests/min |
 | `TOLLBOOTH_SECRET` | random | HMAC secret binding PoW challenges (set it to survive restarts / run multiple instances) |
+| `TOLLBOOTH_REPLAY_SQLITE` | – | Path to a SQLite file every process shares as the single-use PoW record. Set it whenever more than one process serves the same `TOLLBOOTH_SECRET`. Needs Node 22.5+ (built-in `node:sqlite`) or an installed `better-sqlite3`; refuses to start if neither can open the file |
 | `TOLLBOOTH_RESOURCE_BASE` | `TOLLBOOTH_UPSTREAM` | Absolute base used for the `resource` field / PoW binding |
 | `TOLLBOOTH_VERIFY_TIMEOUT_MS` | `10000` | Abort an x402 settlement check after this long |
 | `TOLLBOOTH_OBSERVE` | `false` | Observe-only: classify and count, never 402 |
@@ -319,6 +321,88 @@ type StatsSink = {
 };
 ```
 
+## Single-use proof-of-work across workers and instances (`replayStore`)
+
+**The default single-use record lives in ONE PROCESS'S MEMORY.** Read that
+sentence twice if you run more than one process, because the two settings
+interact:
+
+- A stable `TOLLBOOTH_SECRET` is what makes a token minted by worker 1 verify on
+  worker 2. Without it, multi-process deploys reject every solution.
+- With it, and with no shared replay store, each process keeps its own
+  "already used" list. One 18-bit solve is then redeemable **once per process**
+  inside the token's 5-minute TTL, and again after a worker recycles. Four
+  workers means four requests for one solve.
+
+Pass a `replayStore` and every process claims against the same record:
+
+```js
+// Several Node workers on one host (cluster, pm2, one container with N processes).
+import Database from "better-sqlite3";                 // or node:sqlite on Node 22.5+
+import { createTollbooth, sqliteReplayStore } from "agent402-tollbooth";
+
+const db = new Database("/var/lib/tollbooth/replay.db");
+db.pragma("journal_mode = WAL");     // concurrent writers
+db.pragma("busy_timeout = 5000");    // wait for the write lock instead of throwing
+
+app.use(createTollbooth({ replayStore: sqliteReplayStore(db) }));
+```
+
+```js
+// Instances across hosts, or a serverless runtime that can reach Redis.
+import { createClient } from "redis";
+import { createTollbooth, redisReplayStore } from "agent402-tollbooth";
+
+const redis = createClient({ url: process.env.REDIS_URL });
+await redis.connect();
+app.use(createTollbooth({ replayStore: redisReplayStore(redis) }));
+```
+
+`redisReplayStore` also accepts an ioredis client (their `SET` signatures differ;
+the factory detects which one it was handed). Neither driver is a dependency of
+this package: you pass a client you already opened, so the tollbooth still
+installs with nothing but Express.
+
+The bundled reverse proxy takes the SQLite path from the environment, so the CLI
+needs no code:
+
+```bash
+TOLLBOOTH_SECRET=$(openssl rand -hex 32) \
+TOLLBOOTH_REPLAY_SQLITE=/var/lib/tollbooth/replay.db \
+TOLLBOOTH_UPSTREAM=https://your-origin.example \
+npx agent402-tollbooth
+```
+
+Store interface (build your own against Postgres, DynamoDB, a Durable Object -
+this is the same contract the edge gate's `store` option uses, so an
+implementation ports between the two unchanged):
+
+```ts
+type ReplayStore = {
+  // MUST be atomic: true only the first time this token is seen, false after.
+  claim(token: string, expiresAtMs: number): boolean | Promise<boolean>;
+};
+```
+
+Three things worth knowing before you write one:
+
+- **It may be async.** `claim` can return a promise; `verify()` then returns a
+  promise too, and the gate awaits it. A synchronous store keeps the gate
+  synchronous, so existing single-process deploys are unaffected.
+- **A throw is a refusal, not a pass.** If `claim` throws or rejects, the gate
+  answers `402` with `X-Pow-Error: replay store unavailable`. Let your store
+  throw when its backend is unreachable - guessing "probably unused" would hand
+  out exactly the free passes the store exists to stop.
+- **Non-atomic is not enough.** A separate "read, then write" pair lets two
+  concurrent redemptions of one token both see "unseen" and both pass. SQLite's
+  `INSERT OR IGNORE` on a primary key and Redis `SET NX` are atomic; a plain
+  eventually-consistent key/value `get` + `put` is not.
+
+Scope note: the SQLite store's guarantee is per **database file**, which covers
+many processes sharing a disk. It does not cover hosts sharing a network
+filesystem (SQLite locking is not reliable there) - use Redis or Postgres for
+that shape.
+
 ## Edge analytics (Cloudflare Worker / Next.js)
 
 The Cloudflare Worker entry (`worker.js`) auto-mounts both the dashboard and
@@ -341,10 +425,17 @@ as drop-in copyable snippets.
 - **Set a stable `TOLLBOOTH_SECRET`.** Required for any multi-process/clustered
   Node deploy and for all edge deploys - without it, proof-of-work tokens use a
   random per-process secret and are rejected across restarts/workers/isolates.
-- **For serverless/edge, supply a durable replay `store`** (e.g. bind a Cloudflare
-  KV namespace as `TOLLBOOTH_KV`). The in-memory default is per-isolate, so a
-  solved token could be reused across isolates within its TTL. The Worker entry
-  warns when no KV is bound.
+- **If more than one process shares that secret, supply a `replayStore`.** The
+  default single-use record is per process, so a stable secret plus no shared
+  store means one solve buys one free request per worker within its TTL. Node:
+  `replayStore: sqliteReplayStore(db)` / `redisReplayStore(client)`, or
+  `TOLLBOOTH_REPLAY_SQLITE=<path>` for the bundled proxy
+  ([details](#single-use-proof-of-work-across-workers-and-instances-replaystore)).
+- **For serverless/edge, supply a durable replay `store`** (bind a Durable Object
+  as `TOLLBOOTH_REPLAY` for atomic claims; KV is eventually consistent and the
+  Worker entry refuses to enforce on it without an explicit override). The
+  in-memory default is per-isolate, so a solved token could otherwise be reused
+  across isolates within its TTL.
 - **The reverse proxy pins the host** to your configured upstream (a client can't
   redirect it elsewhere) and **strips client-forged trust/forwarding headers**
   (`X-Tollbooth-Paid`, `X-Forwarded-Host`, etc.) before forwarding.
@@ -357,7 +448,8 @@ as drop-in copyable snippets.
 
 - Proof-of-work tokens are HMAC-signed, expiry-checked, single-use, and bound to
   the exact resource (path + query, dots and all) - a solution for one URL can't
-  be replayed or reused on another.
+  be replayed or reused on another. Single-use is recorded **per process** unless
+  you pass a `replayStore`.
 - MIT licensed. Part of [Agent402](https://github.com/MikeyPetrillo/Agent402).
 
 ## Charge in USDG on Robinhood Chain

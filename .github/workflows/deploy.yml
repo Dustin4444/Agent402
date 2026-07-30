@@ -847,6 +847,28 @@ jobs:
       - name: Package integrity (files allowlist covers every import; no sibling dep range excludes what we ship — offline)
         run: node scripts/test-package-integrity.js
 
+      - name: Discoverability (every tool reachable on every surface an agent reads)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-discoverability.js
+
+      - name: Gate integrity (each regression gate must FAIL when its own defect is reintroduced)
+        # A gate that cannot fail turns "we never checked" into "we checked and it
+        # was fine". This mutates each invariant and requires a non-zero exit,
+        # then asserts every mutated file was restored.
+        run: TARGET_URL=http://localhost:3000 node scripts/test-gates.js
+
+      - name: Free tier makes no outbound calls (every compute-payable tool, instrumented)
+        # Boots its own instrumented server on 3231. WALLET_ONLY_SLUGS is a
+        # hand-maintained list, and a kit whose author forgets to list an
+        # egressing slug is permanently free. This is the structural check that
+        # a list cannot be.
+        run: node scripts/test-free-tier-egress.js
+
+      - name: Image work stays off the event loop (concurrent transforms must not stall /health)
+        # Boots its own server on 3221. The offline probe in scripts/test-image.js
+        # guards the same property, but only this one proves it end to end
+        # through HTTP, which is where a buyer would feel the stall.
+        run: node scripts/test-image-concurrency.js
+
       - name: Docs truth (every documented route, slug and price matches the served catalog)
         run: TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js
 
