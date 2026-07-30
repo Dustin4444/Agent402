@@ -108,11 +108,11 @@ run a modified copy as a network service and you must publish your source.</p>` 
 <summary>A community member independently launched a token using the project's name ($AGENT402, on Robinhood Chain). It was not created, issued, endorsed, or controlled by Agent402. Full record and on-chain receipts - click to expand.</summary>
 <h3>The community-launched $AGENT402 token (Robinhood Chain)</h3>
 
-<p>On <strong>2026-07-07</strong>, a community member with <strong>no relation to the Agent402.Tools team</strong>
+<p>On 2026-07-07, a community member with no relation to the Agent402.Tools team
 launched an ERC-20 token named <code>AGENT402</code> on Robinhood Chain using
 <a href="https://bankr.bot" rel="noopener">Bankr</a>'s token-launch infrastructure, in the spirit of this project.
 The Agent402.Tools team did not create, commission, request, or endorse this token. We did not discover
-that it existed, or that this launch capability existed on Bankr at all, until <strong>2026-07-14</strong>.</p>
+that it existed, or that this launch capability existed on Bankr at all, until 2026-07-14.</p>
 
 <div class="tp-ca-label">Contract address (created by the community, not by the Agent402.Tools team)</div>
 <div class="tp-ca">${TOKEN_CA}</div>
@@ -125,10 +125,10 @@ launched by <a href="${SCOUT}/address/${LAUNCHER}" rel="noopener">${LAUNCHER.sli
 
 <p>Bankr's launch mechanics designate a fee recipient, and because the token was pointed at this project,
 accrued trading fees became claimable by a project wallet. At the time we reviewed it, the token had
-accrued roughly <strong>$17 in trading fees (0.0101 WETH)</strong> plus a token allocation of about
+accrued roughly $17 in trading fees (0.0101 WETH) plus a token allocation of about
 81.48M AGENT402.</p>
 
-<p>On <strong>2026-07-15</strong>, as a one-time test to determine whether the claim mechanism was viable,
+<p>On 2026-07-15, as a one-time test to determine whether the claim mechanism was viable,
 we executed the claim function. It worked: both amounts moved into the claiming wallet in a single
 transaction, linked below.</p>
 
@@ -148,26 +148,26 @@ and these are the receipts:</p>
 <h3>Where we stand</h3>
 
 <ul>
-  <li><strong>Not an official token.</strong> $AGENT402 is not a product of Agent402.Tools or Havok Holdings LLC.
-  We have <strong>no roadmap, no expectations, and no commitments</strong> regarding the token or any use of it.</li>
-  <li><strong>No involvement.</strong> We do not own, operate, control, or participate in the token, its
+  <li>Not an official token. $AGENT402 is not a product of Agent402.Tools or Havok Holdings LLC.
+  We have no roadmap, no expectations, and no commitments regarding the token or any use of it.</li>
+  <li>No involvement. We do not own, operate, control, or participate in the token, its
   liquidity, or its market, and we claim no authority over what the community does with it. We do not plan
   to do anything with the token.</li>
-  <li><strong>No further claims, no commitments.</strong> The fee claim documented above was a one-time test.
-  We do not intend to claim further fees, and we make <strong>no commitments</strong> regarding the amounts
+  <li>No further claims, no commitments. The fee claim documented above was a one-time test.
+  We do not intend to claim further fees, and we make no commitments regarding the amounts
   already claimed; the claiming wallet above remains publicly auditable, so anyone can verify that inactivity.</li>
-  <li><strong>No expectation of growth.</strong> There should be <strong>no expectation of token growth</strong>,
+  <li>No expectation of growth. There should be no expectation of token growth,
   in price, liquidity, adoption, or anything else. The token's market activity is entirely community-driven
   and outside our control.</li>
-  <li><strong>Not investment advice.</strong> Nothing on this page is an offer, endorsement, or recommendation.
+  <li>Not investment advice. Nothing on this page is an offer, endorsement, or recommendation.
   Do not purchase the token with any expectation of profit, utility, or effort from the Agent402.Tools team.</li>
-  <li><strong>Why we acknowledged it publicly.</strong> We acknowledged the token publicly at the time so that a confusing
+  <li>Why we acknowledged it publicly. We acknowledged the token publicly at the time so that a confusing
   or misleading narrative could not form if people found a token profile resembling agent402.tools carrying
   the wrong logo, the wrong description, or the wrong idea of what this product is about. Acknowledging it and
   publishing this page keeps the record straight.</li>
-  <li><strong>Why this page exists.</strong> We publish this to support and protect our users: to make what
+  <li>Why this page exists. We publish this to support and protect our users: to make what
   happened independently verifiable, and to leave no room for impersonation or misinformation.</li>
-  <li><strong>Our focus is unchanged.</strong> The project remains about the x402 payment protocol and building
+  <li>Our focus is unchanged. The project remains about the x402 payment protocol and building
   curated, deterministic tools that serve agents.</li>
 </ul>
 </details>
