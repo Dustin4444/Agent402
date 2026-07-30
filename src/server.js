@@ -2957,6 +2957,19 @@ mountMcp(app, CATALOG, {
   },
 });
 
+// Editorial notes for the /v1 gateway tiers, keyed by path. Prices and the
+// tier list itself are derived from CATALOG (see below) so they cannot drift;
+// only the prose lives here.
+const V1_TIER_NOTES = {
+  "/v1/nano/chat/completions": "cheap fast models",
+  "/v1/auto/chat/completions": "model optional - deterministic eval-ranked routing",
+  "/v1/chat/completions": "base tier",
+  "/v1/pro/chat/completions": "frontier models",
+  "/v1/premium/chat/completions": "largest models",
+  "/v1/embeddings": "batch \u226464, cached by default",
+  "/v1/images/generations": "b64_json out",
+  "/v1/audio/speech": "OpenAI TTS wire, mp3/pcm bytes out",
+};
 app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
@@ -2970,15 +2983,16 @@ app.get("/api/pricing", (_req, res) => {
       wire: "OpenAI-compatible",
       base: `${BASE_URL}/v1`,
       pricing: "flat per call - never token-metered",
-      tiers: [
-        { path: "/v1/nano/chat/completions", price: "$0.003", note: "cheap fast models" },
-        { path: "/v1/auto/chat/completions", price: "$0.01", note: "model optional - deterministic eval-ranked routing" },
-        { path: "/v1/chat/completions", price: "$0.02", note: "base tier" },
-        { path: "/v1/pro/chat/completions", price: "$0.10", note: "frontier models" },
-        { path: "/v1/premium/chat/completions", price: "$0.50", note: "largest models" },
-        { path: "/v1/embeddings", price: "$0.002", note: "batch ≤64, cached by default" },
-        { path: "/v1/images/generations", price: "$0.08", note: "b64_json out" },
-      ],
+      // DERIVED from the catalog, never hand-listed: as a literal array this
+      // drifted and omitted /v1/audio/speech, a live sellable tier. Deriving
+      // also means an env-gated tier that is switched off is absent here rather
+      // than advertised, and the price is always the price actually charged.
+      // Notes stay editorial, keyed by path; a path with no note still lists.
+      tiers: Object.entries(CATALOG)
+        .map(([route, def]) => ({ path: route.split(" ")[1], price: def.price }))
+        .filter((t) => t.path.startsWith("/v1/"))
+        .sort((a, b) => Number(a.price.replace("$", "")) - Number(b.price.replace("$", "")))
+        .map((t) => ({ ...t, note: V1_TIER_NOTES[t.path] || undefined })),
       docs: `${BASE_URL}/tools/category/llm`,
     },
     payment: { protocol: "x402", version: 2, network: NETWORK, currency: "USDC", networks: enabledNetworks(NETWORK) },

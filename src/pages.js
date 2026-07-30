@@ -19,7 +19,24 @@ export const CATEGORIES = {
   identifiers: { label: "Generators & IDs", blurb: "UUIDs, ULIDs, passwords, secure randomness, QR codes." },
   time: { label: "Time & scheduling", blurb: "Timezone-aware clocks, epoch conversion, cron parsing, durations." },
   validation: { label: "Validation & parsing", blurb: "Emails (with MX), URLs, IPs, user agents, colors, semver, IBAN, card numbers." },
-  llm: { label: "LLM gateway", blurb: "OpenAI-compatible pay-per-call inference over x402 - five quality tiers plus embeddings and image generation, model-optional auto-routing, streaming, and a default-on prompt cache. See /v1 in the OpenAPI spec for the full wire format." },
+  llm: { label: "LLM gateway", blurb: "OpenAI-compatible pay-per-call inference over x402 - five quality tiers plus embeddings, image generation and text-to-speech, model-optional auto-routing, streaming, and a default-on prompt cache. See /v1 in the OpenAPI spec for the full wire format." },
+  // Every category the catalog actually uses must have an entry here. This map
+  // is the source for the /tools category pages, the /api/pricing categories
+  // map, /.well-known/x402 capabilities, and llms.txt - so a category missing
+  // from it is a 404 page, an unlabelled price row, a capabilities total that
+  // does not reconcile, and tools absent from the agent-readable catalog. It
+  // was short by ten keys covering 195 entries (37% of the catalog), which is
+  // why seller-trust and the chain-read primitives were invisible to agents.
+  crypto: { label: "Crypto & onchain data", blurb: "Keyless reads across chains: token prices and metadata, order books, stablecoin peg health, wallet balances and transaction history, NFT holdings and metadata, gas snapshots." },
+  chain: { label: "Contract & address inspection", blurb: "Deeper onchain reads: verified contract source and ABI, address profiles, token holders, transaction inspection - plus the named block and log primitives (block number, block info, event logs, ERC-721 owner, contract code)." },
+  wallet: { label: "Wallet operations", blurb: "Multi-chain balance reads, testnet funding, onramp links, and SQL over onchain data. Non-custodial: the agent signs with its own key." },
+  ai: { label: "AI & compute", blurb: "Inference, generation and sandboxed execution priced per call: chat tiers, image generation, text-to-speech, speech-to-text, and code execution in an isolated sandbox." },
+  "skill-pack": { label: "Skill packs", blurb: "Multi-tool workflows that run server-side in one request: one payment, one settlement, and a single response with a partial-success envelope if a step fails. Cheaper to integrate than orchestrating the steps yourself." },
+  "date-time": { label: "Calendar & date math", blurb: "ISO weeks, leap years, day-of-year, epoch conversion, and movable-feast dates - the calendar edge cases that are easy to get subtly wrong." },
+  research: { label: "Market & demand research", blurb: "Analyzed reads over this catalog's own demand and the open x402 ecosystem: what agents ask for, what sells, and company research." },
+  agent: { label: "Routing & delegation", blurb: "The Smart Order Router: describe a task and it resolves the best-matching tool and runs it in one call, from this catalog or from an external x402 seller paid on your behalf. Three tiers by underlying price." },
+  api: { label: "API primitives", blurb: "Building blocks for services that front an agent: CAPTCHA generation and verification." },
+  x402: { label: "x402 seller intelligence", blurb: "Evidence about other x402 sellers: crawl health, advertised chains, and observed on-chain settlement counts - the same gate the router applies before it spends on an external seller." },
 };
 
 /** Flatten the catalog into renderable tool descriptors. */
@@ -425,7 +442,7 @@ ${ledgerFooterCompact()}`;
 // contain simple inline HTML (links) — allowed in FAQPage and rendered as-is.
 const FAQ_ITEMS = [
   { q: "Do I need an account or API key?", a: "No. Nothing here has a signup. Payment - USDC or proof-of-work - is the only credential, charged per call." },
-  { q: "What does it cost?", a: 'Flat per-call prices, $0.001–$0.02, published in <a href="/api/pricing">/api/pricing</a> and quoted exactly in every HTTP 402 response. No subscriptions or tiers.' },
+  { q: "What does it cost?", a: 'Flat per-call prices from $0.001. Most tools are $0.001–$0.02; premium AI and media tiers and multi-tool skill packs run higher, up to $1.50. Every price is published in <a href="/api/pricing">/api/pricing</a> and quoted exactly in every HTTP 402 response. No subscriptions, and nothing is token-metered.' },
   { q: "Can I use it without any money or a wallet?", a: "Yes. Most pure-CPU tools accept proof-of-work - a sub-second sha256 puzzle solved by your own CPU - and the hosted MCP connector runs that same set for free (rate-limited)." },
   { q: "What is x402?", a: 'An open HTTP payment standard built on the 402 Payment Required status code, for machine-to-machine pay-per-call payments in stablecoins, with settlement infrastructure from Coinbase. Plain-English explainer: <a href="/what-is-x402">/what-is-x402</a>.' },
   { q: "What is MPP, and does Agent402 support it?", a: 'Yes - every paid endpoint is dual-stack. MPP (Machine Payments Protocol, the IETF-track Payment HTTP authentication scheme) carries the same pay-per-call handshake through the web&rsquo;s standard auth headers: the 402 carries a <code>WWW-Authenticate: Payment</code> challenge, the client pays via <code>Authorization: Payment</code>, and settled responses return a signed <code>Payment-Receipt</code>. Same URL, same price, same on-chain USDC settlement as x402 - the buyer&rsquo;s client picks the dialect. How the two compare: <a href="/what-is-x402">/what-is-x402</a>; the full MPP explainer: <a href="/what-is-mpp">/what-is-mpp</a>.' },

@@ -118,7 +118,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       operatingSystem: "Any",
       // AggregateOffer (not a single Offer): the catalog spans $0.001 tool
       // calls to $0.50 premium-tier calls, and offerCount is the catalog size.
-      offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "0.50", priceCurrency: "USD", description: `Per-call micropayments ${RAILS_AMP}, or free with proof-of-work` },
+      offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "1.50", priceCurrency: "USD", description: `Per-call micropayments ${RAILS_AMP}, or free with proof-of-work` },
     },
     {
       "@context": "https://schema.org",

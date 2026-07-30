@@ -31,7 +31,7 @@ end to end. **The payment is the identity** - no account ever existed.
 \`\`\`bash
 curl -i -X POST https://agent402.tools/api/extract \\
   -H 'Content-Type: application/json' -d '{"url":"https://example.com"}'
-# HTTP/2 402 … {"x402Version":2,"accepts":[{"price":"$0.005","network":"eip155:8453",…}]}
+# HTTP/2 402 … {"x402Version":2,"accepts":[{"price":"$0.010","network":"eip155:8453",…}]}
 \`\`\`
 
 ## Pay it (JavaScript)
@@ -57,7 +57,7 @@ console.log(await res.json()); // { title, markdown, wordCount, … }
 \`\`\`
 
 That one wrapped \`fetch\` now covers 500+ tools - browser rendering,
-live search, PDFs, durable memory - each a flat $0.001–$0.02 per call.
+live search, PDFs, durable memory - most a flat $0.001–$0.02 per call, with premium AI, media and multi-tool packs priced higher.
 The full catalog is machine-readable at
 [/api/pricing](https://agent402.tools/api/pricing).
 
@@ -419,7 +419,7 @@ A real example - the settlement that verified this guide:
 
 Agent402's keyless chain tools speak Robinhood Chain too - \`tx-status\` and
 \`gas-estimate\` accept \`network=robinhood\` against the public RPC, so an
-agent can verify its own settlement for $0.001 without an RPC key.
+agent can verify its own settlement for a fraction of a cent without an RPC key.
 `,
   },
   {

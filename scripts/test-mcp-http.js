@@ -36,19 +36,28 @@ assert(init.result?.serverInfo?.name === "agent402", `initialize returns serverI
 
 const list = await rpc("tools/list", {});
 const names = (list.result?.tools ?? []).map((t) => t.name).sort();
-// The connector exposes a deliberately TIGHT, curated 15-tool surface: MCP
-// directories (Glama) score a well-scoped server at 3-15 tools, and the full
-// 500-tool catalog lives behind search_tools/find_tool/call_tool by design.
-// Names are uniformly verb_noun (action-first) — the pattern Glama's naming-
-// consistency rubric names as the target. Every prior spelling still routes.
-const EXPECTED_15 = [
+// The connector exposes a deliberately TIGHT, curated surface: MCP directories
+// (Glama) score a well-scoped server at 3-15 tools, and the full 500-tool
+// catalog lives behind search_tools/find_tool/call_tool by design. Names are
+// uniformly verb_noun (action-first) — the pattern Glama's naming-consistency
+// rubric names as the target. Every prior spelling still routes.
+//
+// Now 17, not 15: about_agent402 and top_x402_sellers had working handlers but
+// were absent from tools/list, which is the ONLY surface an MCP client can
+// discover from — and the service manifest already advertised
+// top_x402_sellers, so it was promised and unreachable. Listing them trades
+// two tools of directory-scoring headroom for capabilities that were being
+// paid for in documentation and not delivered. Keep this list tight: anything
+// further belongs behind call_tool.
+const EXPECTED_LIST = [
   "search_tools", "find_tool", "call_tool", "get_payment_info",
   "generate_hash", "convert_units", "generate_qr", "format_json", "decode_jwt", "convert_base64", "generate_uuid", "parse_csv", "convert_timezone",
   "get_wallet_balances", "get_wallet_transactions",
+  "about_agent402", "top_x402_sellers",
 ].sort();
 assert(
-  names.length === 15 && EXPECTED_15.every((n) => names.includes(n)),
-  `tools/list is the curated 15 (got ${names.length}: ${names.join(",")})`
+  names.length === EXPECTED_LIST.length && EXPECTED_LIST.every((n) => names.includes(n)),
+  `tools/list is the curated set (got ${names.length}: ${names.join(",")})`
 );
 assert(
   (list.result?.tools ?? []).every((t) => t.title && t.annotations?.readOnlyHint === true),

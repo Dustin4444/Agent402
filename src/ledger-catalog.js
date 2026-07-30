@@ -18,7 +18,7 @@ const fmtPrice = (p) => {
 // ---------------------------------------------------------------------------
 
 const SAMPLE_ENDPOINTS = [
-  { method: "POST", route: "/api/extract", note: "$0.004 \u00b7 clean markdown out" },
+  { method: "POST", route: "/api/extract", note: "$0.010 \u00b7 clean markdown out" },
   { method: "POST", route: "/api/render", note: "$0.02 \u00b7 headless browser, JS executed" },
   { method: "POST", route: "/api/unit-convert", note: "$0.001 · every unit pair, one route" },
   { method: "POST", route: "/api/memory", note: "$0.002 \u00b7 durable, wallet-keyed" },

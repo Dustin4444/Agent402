@@ -80,8 +80,8 @@ const TASKS = [
   {
     goal: "Persist state across calls",
     answer: "Wallet-keyed KV with TTL and atomic counters. The wallet IS the identity - no signup, no API key. Grant access to other agents by their wallet.",
-    slugs: ["memory-write", "memory-read", "memory-incr", "memory-cas", "memory-grant", "memory-recall"],
-    example: "/api/memory-write",
+    slugs: ["memory", "memory-read", "memory-incr", "memory-cas", "memory-grant", "memory-recall"],
+    example: "/api/memory",
   },
   {
     goal: "Pay another x402 seller",
@@ -107,6 +107,16 @@ function priceTag(tool) {
     : `<span class="paidtag">USDC</span> ${esc(tool.price)}`;
 }
 
+// The verb for an example URL, read from the catalog rather than assumed. The
+// examples were all rendered with a hardcoded "GET", which was wrong for the
+// POST-only routes (extract, pdf-to-markdown, http-check) and told buyers to
+// call them the one way that 404s.
+function exampleMethod(example, catalog) {
+  const path = String(example || "").split("?")[0];
+  const hit = Object.keys(catalog || {}).find((route) => route.split(" ")[1] === path);
+  return hit ? hit.split(" ")[0] : "GET";
+}
+
 function renderTask(task, catalog) {
   const tools = task.slugs
     .map((slug) => Object.values(catalog).find((t) => t.slug === slug))
@@ -130,7 +140,7 @@ function renderTask(task, catalog) {
         .join(" · ")}</div>`
     : "";
   const exampleBlock = task.example
-    ? `<div class="task-example"><code>GET ${esc(task.example)}</code></div>`
+    ? `<div class="task-example"><code>${exampleMethod(task.example, catalog)} ${esc(task.example)}</code></div>`
     : "";
 
   return `<section class="task">
@@ -231,7 +241,7 @@ function renderTaskLedger(task, catalog) {
         .join(" \u00b7 ")}</div>`
     : "";
   const exampleBlock = task.example
-    ? `<div class="sh-task-example"><code>GET ${e(task.example)}</code></div>`
+    ? `<div class="sh-task-example"><code>${exampleMethod(task.example, catalog)} ${e(task.example)}</code></div>`
     : "";
 
   return `<section class="sh-task">
