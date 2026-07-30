@@ -177,16 +177,25 @@ ok(txFromPaymentResponse("not-base64-json") === null && txFromPaymentResponse(""
 {
   const MPPW = "0x5555555555555555555555555555555555555555";
   recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "base", payer: MPPW, tx: "0xmpp1", synthetic: false, wire: "mpp" });
+  // PUBLIC view: adoption evidence, never a purchase feed. Dropping the payer
+  // was not sufficient - a row pairing slug with priceUsd is itself a per-call
+  // purchase list, which is what salesSummary was reduced for.
   const feed = mppSales({ limit: 10 });
   const blob = JSON.stringify(feed);
-  ok(feed.settlements.length > 0, "mpp feed has the seeded settlement to inspect");
+  ok(feed.count > 0, "public mpp feed still reports that settlements exist");
+  ok(feed.settlements === undefined, "public mpp feed carries NO per-settlement rows");
+  ok(!/"slug"/.test(blob) && !/"priceUsd"/.test(blob), "public mpp feed pairs no tool name with a price");
+  ok(Array.isArray(feed.txs) && feed.txs.includes("0xmpp1"), "the settlement tx is still published (that is the on-chain proof)");
   ok(!blob.includes(MPPW) && !blob.includes(MPPW.toLowerCase()), "mpp feed carries no payer address");
   ok(!/0x[0-9a-f]{40}(?![0-9a-f])/i.test(blob), "mpp feed contains no EVM-address-shaped value");
-  ok(feed.settlements.every((r) => !("payer" in r)), "no mpp settlement row has a payer field at all");
-  // Find OUR seeded row rather than assuming position: earlier blocks in this
-  // file seed MPP rows too, and the feed is newest-first.
-  const mine = feed.settlements.find((r) => r.tx === "0xmpp1");
-  ok(Boolean(mine), "the settlement tx is still published (that is the on-chain proof)");
+
+  // OPERATOR view: the itemized rows survive, still without a payer.
+  const opFeed = mppSales({ limit: 10, detailed: true });
+  const opBlob = JSON.stringify(opFeed);
+  ok(Array.isArray(opFeed.settlements) && opFeed.settlements.length > 0, "operator mpp feed keeps the per-settlement rows");
+  ok(opFeed.settlements.every((r) => !("payer" in r)), "no mpp settlement row has a payer field at all, even for the operator");
+  ok(!/0x[0-9a-f]{40}(?![0-9a-f])/i.test(opBlob), "operator mpp feed contains no EVM-address-shaped value either");
+  ok(Boolean(opFeed.settlements.find((r) => r.tx === "0xmpp1")), "the seeded settlement is present in the operator view");
 }
 
 rmSync(dir, { recursive: true, force: true });

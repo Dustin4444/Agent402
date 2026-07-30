@@ -405,6 +405,33 @@ ok(html.includes("initProbes") && html.includes("navigator.clipboard"), "probes 
   try { await ignoresNx.claim("t", Date.now() + 60_000); } catch { refused = true; }
   ok(refused, "a client that ignores NX is caught by the self-test and refuses");
 
+  // ...and KEEPS refusing. Calling claim() once was the whole coverage here,
+  // which is why a verdict that refused exactly once and then granted every
+  // replay forever read as a working guard. A gate that fails closed only on
+  // its first request is not failing closed.
+  let stillRefusing = true;
+  for (let i = 0; i < 3; i++) {
+    try { await ignoresNx.claim(`t${i}`, Date.now() + 60_000); stillRefusing = false; } catch { /* expected */ }
+  }
+  ok(stillRefusing, "and every subsequent claim is refused too, not just the first");
+
+  // A probe that THROWS is a Redis outage, not a verdict: the next call must
+  // re-probe rather than remember a failure that was never observed.
+  let attempts = 0;
+  const flaky = redisReplayStore({
+    sendCommand() {},
+    async set(k) {
+      attempts++;
+      if (attempts === 1) throw new Error("ECONNREFUSED");
+      if (String(k).includes("__nxselftest__")) return attempts === 2 ? "OK" : null;
+      return "OK";
+    },
+  });
+  let firstFailed = false;
+  try { await flaky.claim("x", Date.now() + 60_000); } catch { firstFailed = true; }
+  ok(firstFailed, "a claim during a redis outage fails closed");
+  ok((await flaky.claim("x", Date.now() + 60_000)) === true, "and the store recovers once redis returns — an outage is not a verdict");
+
   const seen = new Set();
   const good = redisReplayStore({ sendCommand() {}, async set(k) { if (seen.has(k)) return null; seen.add(k); return "OK"; } });
   ok((await good.claim("t1", Date.now() + 60_000)) === true, "a correct client claims once");

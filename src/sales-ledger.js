@@ -262,8 +262,32 @@ export function mppTxHashes() {
 }
 
 /** Recent MPP-wire settlements (Authorization: Payment) with on-chain tx + payer. */
-export function mppSales({ limit = 30 } = {}) {
+export function mppSales({ limit = 30, detailed = false } = {}) {
   const rows = qMppRecent.all(Math.min(Math.max(1, limit | 0), 100));
+  // Dropping the payer was not enough. Each row still pairs a TOOL NAME with a
+  // PRICE and a TIMESTAMP, which is a per-call purchase feed - the same thing
+  // salesSummary was reduced to aggregates for, and the same thing the paid
+  // bestsellers tool sells. This endpoint was missed in that pass, and it only
+  // surfaced later because the leak gate had no MPP rows to look at and was
+  // passing vacuously.
+  //
+  // The feed exists to make MPP-wire adoption VERIFIABLE, and that needs a
+  // count and chain-resolvable tx hashes, not a shopping list. Unauthenticated
+  // callers get exactly that; the operator view keeps the full rows.
+  if (!detailed) {
+    return {
+      persistent: salesPersistent,
+      count: rows.length,
+      // Adoption evidence without the purchase pattern: WHEN the wire was used,
+      // on WHICH rails, and the tx hashes that prove it on-chain.
+      firstAt: rows.length ? new Date(rows[rows.length - 1].ts).toISOString() : null,
+      lastAt: rows.length ? new Date(rows[0].ts).toISOString() : null,
+      byNetwork: rows.reduce((a, r) => { a[r.network || "unknown"] = (a[r.network || "unknown"] || 0) + 1; return a; }, {}),
+      externalCount: rows.filter((r) => !r.internal).length,
+      txs: rows.map((r) => r.tx).filter(Boolean),
+      note: "Aggregate view. Per-settlement tool/price rows are operator-only; the tx hashes above resolve on-chain for independent verification.",
+    };
+  }
   return {
     persistent: salesPersistent,
     count: rows.length,

@@ -725,6 +725,18 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
 
   // X402_SYNC_ON_START=false skips the facilitator handshake at boot —
   // only for local testing where the facilitator is unreachable.
+  //
+  // NEVER SET THIS IN PRODUCTION. The handshake is what loads the facilitator's
+  // supported scheme/network kinds, and @x402/core refuses to BUILD a 402 for a
+  // pair it has not seen — so without it EVERY unpaid request answers 500
+  // instead of 402. That is a total revenue outage wearing the costume of a
+  // startup optimization: no buyer can read a price, nobody can pay, and
+  // because a 5xx cancels settlement it is not even chargeable. Measured
+  // directly: same server, same stub facilitator, this flag alone flips every
+  // unpaid response from 402 to 500.
+  //
+  // Test scripts set it freely because they run FREE_MODE (no paywall to build)
+  // or only exercise the PoW path, which never asks for a quote.
   const syncOnStart = process.env.X402_SYNC_ON_START !== "false";
   return paymentMiddleware(routes, server, undefined, undefined, syncOnStart);
 }

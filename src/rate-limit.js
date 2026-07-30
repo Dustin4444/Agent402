@@ -21,21 +21,36 @@ export const MAX_CALLS_PER_BURST =
 // even for buyers). Separate buckets, shared policy.
 export function createLimiter(name = "default", { perMin = MAX_CALLS_PER_BURST, perHour = MAX_CALLS_PER_WINDOW } = {}) {
   const buckets = new Map(); // ip -> number[] timestamps
+  const prune = (hits, now) => { while (hits.length && hits[0] < now - WINDOW_MS) hits.shift(); };
+  const over = (hits, now) =>
+    hits.length >= perHour || hits.filter((t) => t > now - BURST_WINDOW_MS).length >= perMin;
   function check(ip) {
     const now = Date.now();
     let hits = buckets.get(ip);
     if (!hits) buckets.set(ip, (hits = []));
-    while (hits.length && hits[0] < now - WINDOW_MS) hits.shift();
-    const inBurst = hits.filter((t) => t > now - BURST_WINDOW_MS).length;
-    if (
-      hits.length >= perHour ||
-      inBurst >= perMin
-    ) {
-      return { limited: true, name };
-    }
+    prune(hits, now);
+    if (over(hits, now)) return { limited: true, name };
     hits.push(now);
     return { limited: false, name };
   }
+  // Is this key ALREADY over budget, WITHOUT spending any of it?
+  //
+  // check() is test-and-record in one step, which is right when every call is
+  // the thing being metered. It is wrong when the budget must be consulted on a
+  // request that should not itself count - notably an auth gate that meters only
+  // FAILURES: calling check() there would charge the successful operator for
+  // every page load and lock them out of their own dashboard.
+  function peek(ip) {
+    const now = Date.now();
+    const hits = buckets.get(ip);
+    if (!hits) return { limited: false, name };
+    prune(hits, now);
+    return { limited: over(hits, now), name };
+  }
+  // Forget a key's history. For flows where a stronger proof of identity
+  // supersedes the failures counted so far (e.g. a successful login), so a
+  // legitimate operator always has a way back in.
+  const reset = (ip) => { buckets.delete(ip); };
   // Bound the table: drop empty/stale buckets occasionally.
   setInterval(() => {
     const cutoff = Date.now() - WINDOW_MS;
@@ -44,7 +59,7 @@ export function createLimiter(name = "default", { perMin = MAX_CALLS_PER_BURST, 
       if (!hits.length) buckets.delete(ip);
     }
   }, 10 * 60 * 1000).unref();
-  return { check };
+  return { check, peek, reset };
 }
 
 export const LIMITS_LABEL = `${MAX_CALLS_PER_BURST}/min, ${MAX_CALLS_PER_WINDOW}/hour per client`;

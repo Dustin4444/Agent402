@@ -72,6 +72,49 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
   // same cookie value fails (server-side revocation, not just a client clear).
   ok((await status("/__operator", { headers: { cookie } })) === 404, "the logged-out session is revoked server-side (cookie no longer works)");
 
+  // 5b. Credential guessing on the ELEVATION path is bounded.
+  //
+  // These routes accept the same credentials without going through the login
+  // form, so the login limiter never sees them. The first attempt at this
+  // shipped as a no-op: it recorded failures into a bucket and then returned
+  // false regardless, which is indistinguishable from having no limiter. The
+  // only observable proof that a bound exists is that guessing eventually stops
+  // the gate from EVALUATING at all - so that is what these assert, and it is
+  // why a burst must end with the CORRECT token being refused.
+  const bearer = { authorization: `Bearer ${TOKEN}` };
+
+  // A correct credential must never be throttled. Well past the 10/min budget:
+  // if success consumed budget, the operator would lock themselves out of their
+  // own dashboard just by using it.
+  let goodAllOk = true;
+  for (let i = 0; i < 15; i++) if ((await status("/__operator", { headers: bearer })) !== 200) goodAllOk = false;
+  ok(goodAllOk, "a correct token is never throttled (15 straight requests all authenticate)");
+
+  // Anonymous traffic must never reach the limiter. /api/leaderboard is a PUBLIC
+  // route carrying an operator branch - throttling it would throttle ordinary
+  // agent traffic, which is the opposite of what this service is for.
+  let anonAllOk = true;
+  for (let i = 0; i < 15; i++) if ((await status("/api/leaderboard")) !== 200) anonAllOk = false;
+  ok(anonAllOk, "anonymous traffic on a public route with an operator branch is never limited");
+
+  // Now guess. After the budget is gone the gate must refuse the correct token,
+  // because it is no longer looking at credentials at all.
+  let lockedOut = false;
+  for (let i = 0; i < 40; i++) {
+    await status("/__operator", { headers: { authorization: `Bearer wrong-guess-${i}` } });
+    if ((await status("/__operator", { headers: bearer })) === 404) { lockedOut = true; break; }
+  }
+  ok(lockedOut, "guessing exhausts the budget and the gate stops evaluating — even a correct token is refused");
+  ok((await status("/api/leaderboard")) === 200, "a locked-out IP still gets the PUBLIC view (fail closed, stay usable)");
+
+  // ...and a real login is the way back in, or a stale cookie could lock the
+  // operator out permanently.
+  const reLogin = await fetch(`${base}/__operator/login`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: TOKEN }),
+  });
+  ok(reLogin.status === 200, "a correct login still succeeds while the elevation budget is exhausted");
+  ok((await status("/__operator", { headers: bearer })) === 200, "a successful login clears the lockout");
+
   // 6. Login is rate-limited (audit R-12): a burst of attempts from one IP 429s.
   let saw429 = false;
   for (let i = 0; i < 8; i++) {

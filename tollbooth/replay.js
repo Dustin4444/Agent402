@@ -115,12 +115,29 @@ export function redisReplayStore(client, { prefix = "tollbooth:pow:" } = {}) {
   // Detection above is a heuristic; this is the observation. Two claims of a
   // throwaway key must produce a win and then a refusal. Anything else means
   // single-use is not working, and the store refuses rather than pretending.
+  // Tri-state on PURPOSE: null = not yet observed, true = proven, false = proven
+  // BROKEN and permanently refused.
+  //
+  // A verdict of false must keep throwing on EVERY later call, not just the one
+  // that discovered it. Memoising false and returning it as a resolved value
+  // would make the store refuse exactly once and then grant every replay
+  // forever - the precise failure this self-test exists to prevent, reached one
+  // request later. A caller that solves one challenge could then replay that
+  // token for its whole TTL.
+  //
+  // A probe that THROWS (Redis unreachable) leaves the verdict at null so the
+  // next call re-probes: a transient outage must not be remembered as a verdict.
   let nxProven = null;
+  const NX_BROKEN =
+    "redisReplayStore: SET NX is not honoured by this client, so proof-of-work single-use cannot be enforced. " +
+    "The gate refuses rather than granting replays. Pass a client whose SET supports NX, or supply your own { claim(token, expiresAtMs) } store.";
   const proveNx = async () => {
-    if (nxProven !== null) return nxProven;
+    if (nxProven === true) return true;
+    if (nxProven === false) throw new Error(NX_BROKEN);
     const probe = `${prefix}__nxselftest__${Math.random().toString(36).slice(2)}${Date.now()}`;
     const px = 5000;
     const set = (k) => (isIoredis ? client.set(k, "1", "PX", px, "NX") : client.set(k, "1", { NX: true, PX: px }));
+    // Deliberately NOT wrapped: a throw here leaves nxProven null (re-probe).
     const first = await set(probe);
     const second = await set(probe);
     const firstWon = first === "OK" || first === true;
@@ -128,15 +145,16 @@ export function redisReplayStore(client, { prefix = "tollbooth:pow:" } = {}) {
     nxProven = firstWon && secondRefused;
     if (!nxProven) {
       throw new Error(
-        "redisReplayStore: SET NX did not behave as required (first claim won: " + firstWon + ", second refused: " + secondRefused + "). " +
-        "Proof-of-work single-use cannot be enforced against this client, so the gate refuses rather than granting replays."
+        `${NX_BROKEN} (first claim won: ${firstWon}, second refused: ${secondRefused})`
       );
     }
-    return nxProven;
+    return true;
   };
   return {
     claim: async (token, expiresAtMs) => {
-      await proveNx();
+      // Respect the verdict: proveNx throws when unproven, but assert anyway so
+      // no future refactor can turn "unproven" into a silently ignored value.
+      if ((await proveNx()) !== true) throw new Error(NX_BROKEN);
       const key = prefix + token;
       // Floor of 1ms: Redis rejects a non-positive PX. pow.js has already
       // refused anything actually expired, so a tiny window here just means the
