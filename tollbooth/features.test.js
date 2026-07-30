@@ -4,6 +4,7 @@
 // kicks in when explicitly enabled. Drives the middleware directly with mocks.
 import { createHash } from "node:crypto";
 import { createTollbooth, createPow, memorySink, httpStatsSink } from "./index.js";
+import { sqliteReplayStore, redisReplayStore } from "./replay.js";
 import { dashboardHtml } from "./dashboard.js";
 
 const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
@@ -245,4 +246,138 @@ ok(html.includes("initProbes") && html.includes("navigator.clipboard"), "probes 
   ok(engine.verify(`${hard.token}:${n2}`, resource).ok === true, "a token above the floor still verifies (adaptive raises)");
 }
 
+// --- shared proof-of-work replay store ---------------------------------------
+// Single-use is only as wide as the store that records it. With a stable secret
+// (which multi-worker deploys need so tokens verify at all) the per-process
+// default makes one solved token redeemable ONCE PER PROCESS inside its TTL.
+// These assertions cover the default, the shared-store fix, the fail-closed
+// posture, and the async-store shape.
+{
+  const bits = (b) => { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
+  const solveFor = (chal, diff) => { let n = 0; while (bits(createHash("sha256").update(`${chal}:${n}`).digest()) < diff) n++; return n; };
+  const secret = "shared-replay-store-test-secret";
+  const resource = "GET https://seller.example/paid";
+  const solved = (engine) => {
+    const c = engine.challenge(resource);
+    return `${c.token}:${solveFor(c.challenge, c.difficulty)}`;
+  };
+
+  // 1. Default (no store): unchanged single-process behavior.
+  const solo = createPow({ difficulty: 10, secret });
+  const soloSolution = solved(solo);
+  ok(solo.verify(soloSolution, resource).ok === true, "default store: first use of a solved token is accepted");
+  const soloReplay = solo.verify(soloSolution, resource);
+  ok(soloReplay.ok === false && soloReplay.reason === "already used", `default store: second use is refused (got ${JSON.stringify(soloReplay)})`);
+
+  // 2. THE DEFECT: two engines with the SAME secret are two workers behind one
+  // load balancer. Without a shared store each keeps its own record, so one
+  // solve is redeemed twice.
+  const workerA = createPow({ difficulty: 10, secret });
+  const workerB = createPow({ difficulty: 10, secret });
+  const crossSolution = solved(workerA);
+  ok(workerA.verify(crossSolution, resource).ok === true, "two engines, no shared store: worker A accepts the solve");
+  ok(workerB.verify(crossSolution, resource).ok === true, "two engines, no shared store: worker B ALSO accepts it (the per-process limit this option exists to close)");
+
+  // 3. THE FIX: one shared store, two independent engines, one redemption.
+  const shared = sqliteReplayStore(await openTestDb(), { table: "replay_two_workers" });
+  const sharedA = createPow({ difficulty: 10, secret, replayStore: shared });
+  const sharedB = createPow({ difficulty: 10, secret, replayStore: shared });
+  const sharedSolution = solved(sharedA);
+  ok(sharedA.verify(sharedSolution, resource).ok === true, "shared store: worker A redeems the solve");
+  const refused = sharedB.verify(sharedSolution, resource);
+  ok(refused.ok === false && refused.reason === "already used", `shared store: worker B is refused the same token (got ${JSON.stringify(refused)})`);
+  // A worker restart must not reopen the hole: a fresh engine on the same store
+  // is the recycled-worker case, and the record outlives the process memory.
+  const sharedC = createPow({ difficulty: 10, secret, replayStore: shared });
+  ok(sharedC.verify(sharedSolution, resource).ok === false, "shared store: a freshly constructed engine (recycled worker) is refused too");
+  // An unrelated solve still works, so the store refuses replays and not traffic.
+  ok(sharedB.verify(solved(sharedB), resource).ok === true, "shared store: a different solved token still verifies");
+
+  // 4. FAIL CLOSED: a store that cannot answer must produce a refusal, never a
+  // pass. An unavailable store means we do not know whether the token was spent.
+  const boom = createPow({ difficulty: 10, secret, replayStore: { claim() { throw new Error("store down"); } } });
+  const boomResult = boom.verify(solved(boom), resource);
+  ok(boomResult.ok === false, `throwing claim() refuses the request (got ${JSON.stringify(boomResult)})`);
+  ok(boomResult.reason === "replay store unavailable", `refusal names the store outage (got ${boomResult.reason})`);
+  const rejects = createPow({ difficulty: 10, secret, replayStore: { claim: async () => { throw new Error("store down"); } } });
+  const rejectResult = await rejects.verify(solved(rejects), resource);
+  ok(rejectResult.ok === false && rejectResult.reason === "replay store unavailable", `a REJECTING async claim() also refuses (got ${JSON.stringify(rejectResult)})`);
+
+  // 5. Async store: claim returns a promise, so verify returns one.
+  const seen = new Map();
+  const asyncStore = {
+    claim: async (token, expMs) => {
+      await new Promise((r) => setTimeout(r, 1));
+      if (seen.has(token)) return false;
+      seen.set(token, expMs);
+      return true;
+    },
+  };
+  const asyncA = createPow({ difficulty: 10, secret, replayStore: asyncStore });
+  const asyncB = createPow({ difficulty: 10, secret, replayStore: asyncStore });
+  const asyncSolution = solved(asyncA);
+  const pending = asyncA.verify(asyncSolution, resource);
+  ok(typeof pending.then === "function", "async store: verify returns a thenable (never a bare object hiding an unresolved claim)");
+  ok((await pending).ok === true, "async store: first use is accepted");
+  ok((await asyncB.verify(asyncSolution, resource)).ok === false, "async store: a second engine is refused the same token");
+  // A misconfigured store must be loud, not silently downgraded to per-process.
+  let shapeRejected = false;
+  try { createPow({ secret, replayStore: {} }); } catch (e) { shapeRejected = /claim/.test(e.message); }
+  ok(shapeRejected, "createPow refuses a replayStore without claim() instead of silently using process memory");
+
+  // 6. End to end through the middleware: an async store must not let the gate
+  // answer before the claim resolves. `run()` is synchronous, so a promise-blind
+  // gate would show up here as no response and no next().
+  const gateStore = { claim: async (t) => (seen.has(t) ? false : (seen.set(t, 1), true)) };
+  const g1 = createTollbooth({ mode: "all", powDifficulty: 10, powSecret: secret, replayStore: gateStore, resourceBaseUrl: "https://seller.example" });
+  const g2 = createTollbooth({ mode: "all", powDifficulty: 10, powSecret: secret, replayStore: gateStore, resourceBaseUrl: "https://seller.example" });
+  const quote = run(g1, mockReq({})).body.proofOfWork;
+  const header = `${quote.token}:${solveFor(quote.challenge, quote.difficulty)}`;
+  const firstHit = await runAsync(g1, mockReq({ "x-pow-solution": header }));
+  ok(firstHit.nexted === true && firstHit.hdrs["X-Tollbooth-Paid"] === "pow", `gate + async store: solved request passes through (got ${JSON.stringify(firstHit)})`);
+  const secondHit = await runAsync(g2, mockReq({ "x-pow-solution": header }));
+  ok(secondHit.nexted === false && secondHit.status === 402, `gate + async store: the second worker 402s the replay (got status ${secondHit.status}, nexted ${secondHit.nexted})`);
+  ok(secondHit.hdrs["X-Pow-Error"] === "already used", `gate + async store: refusal reason reaches the client header (got ${secondHit.hdrs["X-Pow-Error"]})`);
+
+  // 7. redisReplayStore builds the right SET for each client. The dangerous bug
+  // here is silent: send node-redis's options object to ioredis and the NX flag
+  // is dropped, so every replay overwrites the key and passes. Stub clients pin
+  // the call shape without a Redis server or a driver dependency.
+  const nodeRedisCalls = [];
+  const nodeRedis = { set: async (...args) => { nodeRedisCalls.push(args); return nodeRedisCalls.length === 1 ? "OK" : null; } };
+  const nrStore = redisReplayStore(nodeRedis, { prefix: "tb:" });
+  ok((await nrStore.claim("tok", Date.now() + 60_000)) === true, "redis store (node-redis shape): a fresh token is granted");
+  ok((await nrStore.claim("tok", Date.now() + 60_000)) === false, "redis store (node-redis shape): a declined SET NX is a refusal");
+  ok(nodeRedisCalls[0][0] === "tb:tok", "redis store: the key carries the configured prefix");
+  ok(nodeRedisCalls[0][2]?.NX === true && nodeRedisCalls[0][2]?.PX > 0, `redis store (node-redis shape): SET carries NX + a positive PX (got ${JSON.stringify(nodeRedisCalls[0][2])})`);
+  const ioredisCalls = [];
+  const ioredis = { defineCommand() {}, set: async (...args) => { ioredisCalls.push(args); return "OK"; } };
+  ok((await redisReplayStore(ioredis).claim("tok", Date.now() + 60_000)) === true, "redis store (ioredis shape): a fresh token is granted");
+  ok(ioredisCalls[0][2] === "PX" && Number(ioredisCalls[0][3]) > 0 && ioredisCalls[0][4] === "NX", `redis store (ioredis shape): SET uses the positional PX/NX form (got ${JSON.stringify(ioredisCalls[0].slice(2))})`);
+}
+
 console.log(`\n${pass} passed`);
+
+// In-memory SQLite for the shared-store assertions. Prefers the built-in
+// node:sqlite (Node 22.5+) and falls back to better-sqlite3, so the test adds no
+// dependency to the tollbooth package. Neither available is a hard failure: the
+// shared store is a security fix and an untested security fix is worse than a
+// noisy one.
+async function openTestDb() {
+  try {
+    const { DatabaseSync } = await import("node:sqlite");
+    return new DatabaseSync(":memory:");
+  } catch { /* fall through to better-sqlite3 */ }
+  const { default: Database } = await import("better-sqlite3");
+  return new Database(":memory:");
+}
+
+// Async-aware variant of run(): the middleware returns a promise when a shared
+// replay store answers with one, and the whole point of the assertions above is
+// that the response has landed by the time we look at it.
+async function runAsync(gate, req) {
+  let nexted = false, status = 200, body = null; const hdrs = {};
+  const res = { status(n) { status = n; return this; }, json(o) { body = o; return this; }, setHeader(k, v) { hdrs[k] = v; } };
+  await gate(req, res, () => { nexted = true; });
+  return { nexted, status, body, hdrs };
+}
