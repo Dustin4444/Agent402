@@ -383,6 +383,24 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   no settle receipt) because external sellers publish no example inputs the way our bazaar
   extension does; `algo.netintel.dev` alone accounted for 42. A failed third-party buy
   never pages (their outage, not our defect).
+- **Free-tier egress is a TESTED invariant, not a list
+  (`scripts/test-free-tier-egress.js` + `egress-probe-preload.js`):** the free
+  tier's safety rests on `WALLET_ONLY_SLUGS`, which is hand-maintained - a kit
+  whose author forgets to list an egressing slug is permanently free, and the
+  Brave and E2B CI-spend leaks are the evidence that hand-maintenance fails. The
+  probe boots the server under a preload that enters an AsyncLocalStorage
+  context per inbound request and records every fetch/http/socket/DNS/
+  child_process call inside one, so background work (which has no request
+  context) is ignored rather than blamed on a tool. It then drives all 222
+  compute-payable tools with their own documented examples and requires ZERO
+  attributed egress; a failure names the tool and the target. It self-checks
+  first with a fetch-based control tool and REFUSES to report a clean run if the
+  probe is blind - the first version reported nothing while working perfectly,
+  because the control used node:dns and never called fetch. Verified by planting
+  a real leak (removing a fetching slug from WALLET_ONLY_SLUGS), which it caught.
+  `X402_INDEX_CRAWL=off` skips the index crawler: it exists for this test's
+  attribution, and it also stops CI crawling thousands of third-party origins on
+  every boot for nothing.
 - **Image transforms run OFF the main thread (`src/tools/image-pool.js`,
   `image-worker.js`, `image-ops.js`):** Jimp decodes in pure JS and
   SYNCHRONOUSLY, and the three compute-payable image tools (resize/convert/

@@ -3966,7 +3966,16 @@ else console.log(`[posthog] disabled (${posthogInit.reason || "unknown"})`);
 // origins pulled from public x402 registries (Coinbase CDP Bazaar, etc.).
 // selfOrigin is passed so the discovery feeder skips our own listings. Fire-and-
 // forget so a slow upstream can't delay boot or /health.
-startCrawler({ selfOrigin: BASE_URL });
+// X402_INDEX_CRAWL=off skips it entirely. Two reasons this switch exists: a
+// test that must attribute outbound traffic to a specific handler cannot do so
+// while a background crawler is dialling thousands of origins, and CI booted a
+// server on every run and crawled the whole third-party index for nothing -
+// outbound load on other people's hosts that no test ever looked at.
+if (String(process.env.X402_INDEX_CRAWL || "").toLowerCase() === "off") {
+  console.log("[index] crawler disabled (X402_INDEX_CRAWL=off)");
+} else {
+  startCrawler({ selfOrigin: BASE_URL });
+}
 
 // Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot serves
 // stale-while-revalidating, so the only request that could ever block on the
