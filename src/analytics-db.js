@@ -271,3 +271,28 @@ export async function getAnalytics({ windowHours = 24, top = 25, includeSyntheti
     return { ok: false, enabled: true, error: "query-failed" };
   }
 }
+
+/**
+ * Strip the per-tool tables from an analytics payload for unauthenticated
+ * callers. ONE implementation, used by both the JSON route and the HTML
+ * dashboard, because the first version of this control lived only in the JSON
+ * route and named a key (`tools`) that this module never returns: the rest
+ * spread copied `topTools` and `errorTools` through untouched, so the gate was
+ * a no-op that read as enforced. Deriving the key names here, next to the
+ * function that produces them, is what stops the two drifting again.
+ *
+ * The per-tool table is a ranked demand-and-failure map (which tools have
+ * traffic, which are erroring, how slow each upstream is), the same class of
+ * data /api/sales and /api/stats were reduced to stop publishing. Aggregate
+ * totals and the timeseries stay public - they carry no per-tool attribution.
+ */
+export function redactAnalytics(data, authed) {
+  if (authed || !data || typeof data !== "object") return data;
+  const { topTools, errorTools, ...aggregate } = data;
+  return {
+    ...aggregate,
+    // Counts only: enough to show the dashboard is live without ranking anything.
+    ...(Array.isArray(topTools) ? { toolsCount: topTools.length } : {}),
+    ...(Array.isArray(errorTools) ? { errorToolsCount: errorTools.length } : {}),
+  };
+}

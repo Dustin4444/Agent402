@@ -76,6 +76,13 @@ const GATES = [
     defect: "absence of evidence reported as a bad verdict",
   },
   {
+    gate: "test-analytics-redaction.js",
+    file: "src/analytics-db.js",
+    from: "const { topTools, errorTools, ...aggregate } = data;",
+    to: "const { tools, ...aggregate } = data;",
+    defect: "the analytics redaction filtering a key name the payload does not contain (the original defect)",
+  },
+  {
     gate: "test-discoverability.js",
     needsServer: true,
     file: "src/pages.js",
@@ -93,7 +100,7 @@ let serverUp = false;
 try { serverUp = (await fetch(`${TARGET}/health`)).ok; } catch { serverUp = false; }
 if (!serverUp) console.log(`note: no server at ${TARGET} - server-dependent gates will be reported as UNCHECKED, not passed`);
 
-const touched = new Set();
+const touched = new Map(); // file -> exact content before any mutation
 for (const g of GATES) {
   if (g.needsServer && !serverUp) {
     failed++;
@@ -108,7 +115,7 @@ for (const g of GATES) {
     console.error(`FAIL - cannot mutate ${g.file}: anchor missing, so ${g.gate} was NOT verified (anchor: ${g.from.slice(0, 60)})`);
     continue;
   }
-  touched.add(g.file);
+  if (!touched.has(g.file)) touched.set(g.file, original);
   let caught = false;
   let mutant = null, mutantTarget = TARGET;
   try {
@@ -152,9 +159,15 @@ for (const g of GATES) {
 
 // The mutations must leave no trace. A gate suite that corrupts the tree is its
 // own outage.
-for (const file of touched) {
-  const dirty = execSync(`git diff --name-only -- ${JSON.stringify(file)}`, { cwd: ROOT, encoding: "utf8" }).trim();
-  ok(dirty === "", `${file} restored exactly after mutation`);
+//
+// Compare against the content captured BEFORE the mutation, not against git.
+// The first version asked `git diff --name-only`, which cannot distinguish "my
+// mutation leaked" from "this file already had uncommitted work" - so running
+// the suite on a dirty tree reported a false corruption, which is precisely the
+// kind of untrustworthy signal that gets a gate ignored.
+for (const [file, before] of touched) {
+  const now = readFileSync(join(ROOT, file), "utf8");
+  ok(now === before, `${file} restored byte-for-byte after mutation`);
 }
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
