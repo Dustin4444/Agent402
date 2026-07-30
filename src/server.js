@@ -2979,8 +2979,12 @@ app.get("/api/analytics", async (req, res) => {
   // traffic, which are erroring, and how slow each upstream is. That is the
   // same class of data /api/sales and /api/stats were reduced to stop giving
   // away, so it is operator-only. Unauthenticated callers get the aggregate.
-  // Gated NOW, while ANALYTICS_DATABASE_URL is unset and the endpoint returns
-  // {enabled:false} - wiring the DB later must not silently publish the table.
+  // Gate the table unconditionally, not "for now". Do NOT reason about whether
+  // a database is currently wired: the deployment env and the running process
+  // can disagree (a variable set after the last boot, a failed connection), so
+  // any comment claiming the endpoint is dormant will eventually be wrong and
+  // will be believed. The payload's `reason` field is the observable state;
+  // this branch does not consult it.
   const data = await getAnalytics({ windowHours, top, includeSynthetic, includeProbes });
   res.json(redactAnalytics(data, operatorAuthed(req)));
 });

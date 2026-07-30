@@ -136,11 +136,21 @@ export async function recordToolCall({ slug, latencyMs, cached, errored, status,
 // smoke tests can never inflate the public error rate. Pass true to see the
 // full picture (useful when verifying that synthetic traffic is being tagged).
 export async function getAnalytics({ windowHours = 24, top = 25, includeSynthetic = false, includeProbes = false } = {}) {
-  if (!ANALYTICS_URL || unavailable) return { ok: false, enabled: false };
+  // "Never configured" and "configured but the connection failed" are the same
+  // shape to a reader and mean opposite things: one is a deliberate choice, the
+  // other is an outage wearing its costume. Both used to return a bare
+  // {enabled:false}. The boot line (server.js) does name the reason, but a boot
+  // line is only readable while it is still in the log buffer - hours later, a
+  // live "not enabled" is unattributable, and the two readings call for opposite
+  // responses. Reporting it per-request makes the state observable whenever it
+  // is asked about. Same rule /status follows for uptime gaps: absence of data
+  // is reported as absence, never as a state.
+  if (!ANALYTICS_URL) return { ok: false, enabled: false, reason: "not-configured" };
+  if (unavailable) return { ok: false, enabled: false, reason: "init-failed" };
   try {
     await ensureSchema();
     const p = getPool();
-    if (!p) return { ok: false, enabled: false };
+    if (!p) return { ok: false, enabled: false, reason: "no-pool" };
     const hours = Math.max(1, Math.min(24 * 30, windowHours | 0));
     const topN = Math.max(1, Math.min(200, top | 0));
     const since = `now() - interval '${hours} hours'`;
