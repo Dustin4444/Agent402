@@ -10,7 +10,7 @@
 //   SMOKE_BODY    JSON string for POST                       (optional)
 //   SMOKE_EXPECT  a substring the response JSON must contain (optional extra assert)
 //   SMOKE_TARGET  full origin to buy from INSTEAD of production (an external
-//                 x402 seller compatibility check, e.g. https://api.utilia.ink).
+//                 x402 seller compatibility check, e.g. https://seller.example).
 //                 The internal-traffic marker is suppressed for external
 //                 targets - it is OUR ledger convention, not theirs.
 //

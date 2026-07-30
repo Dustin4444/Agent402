@@ -841,6 +841,9 @@ jobs:
       - name: CDP kit unit tests (JWT signing both key formats, validation, faucet gate — offline)
         run: node scripts/test-cdp-kit.js
 
+      - name: Seller-trust honesty invariants (no evidence never reads as a bad verdict; advertised ≠ settled — offline)
+        run: node scripts/test-seller-trust.js
+
       - name: Economy history unit tests (daily upsert idempotency + week-over-week math — offline)
         run: node scripts/test-x402-economy.js
 
