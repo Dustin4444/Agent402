@@ -250,6 +250,19 @@ function startEconomyRefresh() {
 // cache is served immediately while a background rebuild runs, so no visitor
 // ever waits on the on-chain read; only a cold cache (the first request after
 // boot) awaits the build.
+/**
+ * The cached snapshot, or null — SYNCHRONOUS, and never triggers a fetch.
+ *
+ * For callers on a request-serving path that want on-chain evidence if it is
+ * already in hand but must not block on a ~500ms CDP query to get it (the
+ * router's proven-ness join). Returning null when cold is deliberate: a caller
+ * that cannot tell "no evidence yet" from "no evidence exists" would treat a
+ * cold boot as proof that nobody has settled.
+ */
+export function economySnapshotCached() {
+  return cached;
+}
+
 export async function x402EconomySnapshot() {
   if (cached && Date.now() - cachedAt < ECONOMY_FRESH_MS) return cached;
   if (cached) {

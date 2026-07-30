@@ -1,0 +1,100 @@
+#!/usr/bin/env node
+// The router's proven-ness must come from money we watched move, not from a
+// registry's membership list.
+//
+//   node scripts/test-settlement-proof.js
+//
+// WHY: SOR_MIN_SETTLED_TX exists so we never spend a buyer's money on an
+// unproven seller. Its evidence came only from the Bazaar-derived leaderboard,
+// which quietly turned the question "has this seller settled?" into "is this
+// seller in a registry we crawl?". A seller registering nowhere scored 0 no
+// matter how much it settled — and the #2 merchant on Base by settlement count
+// is exactly that seller. The gate said "unproven" where the truth was
+// "unlooked", which is the same error as calling an empty scan a clean one.
+//
+// These assertions pin the join and, just as importantly, the honesty of the
+// gap measurement: a scan that returned nothing must never be reported as a
+// blind spot of size zero.
+import { provenByChain, unattributedMerchants, merchantsByAddress, baseNetworkPayTo } from "../src/settlement-proof.js";
+
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
+
+const BASE = "eip155:8453";
+const A = "0xAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaaAAaa";
+const B = "0xBbbbBBbbBBbbBBbbBBbbBBbbBBbbBBbbBBbbBBbb";
+const OURS = "0xCcccCCccCCccCCccCCccCCccCCccCCccCCccCCcc";
+const seller = (origin, payTo) => ({ origin, payToByNetwork: payTo ? { [BASE]: payTo } : {} });
+const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, payments, payers, volumeUsd });
+
+// --- the join: registry membership is irrelevant --------------------------
+{
+  // `unlisted` appears in NO registry — it is only in our crawl. Before this
+  // module it scored 0 and could never be routed to.
+  const sellers = [seller("https://unlisted.example", A), seller("https://listed.example", B)];
+  const proven = provenByChain({ sellers, merchants: [merchant(A, 198_543), merchant(B, 91)] });
+  ok(proven.get("https://unlisted.example")?.settled === 198543,
+    "an origin in no registry is proven by its own on-chain settlements");
+  ok(proven.get("https://unlisted.example")?.source === "chain", "and the evidence is labelled as chain-derived");
+  ok(proven.get("https://listed.example")?.settled === 91, "a second origin joins independently");
+}
+
+// --- case handling: EVM folds, everything else must NOT --------------------
+{
+  // The advertised payTo and the on-chain merchant row routinely differ in
+  // checksum case. EVM addresses are case-insensitive so they must still join.
+  const proven = provenByChain({
+    sellers: [seller("https://mixed.example", A.toUpperCase())],
+    merchants: [merchant(A.toLowerCase(), 500)],
+  });
+  ok(proven.get("https://mixed.example")?.settled === 500, "EVM addresses join case-insensitively");
+
+  // base58/Stellar are case-SENSITIVE; folding them merges distinct wallets
+  // (same rule as src/payer.js). Non-EVM rows must be ignored, never folded.
+  const svm = merchantsByAddress([{ merchant: "J7aN3PLJnTCF5qpEnvJHJsnCjcGuqC2rYtEM8Gv3xwg", payments: 999 }]);
+  ok(svm.size === 0, "a non-EVM merchant address is skipped, never case-folded into the EVM map");
+  ok(baseNetworkPayTo(seller("https://x.example", "not-an-address")) === null, "a malformed payTo yields no join key");
+}
+
+// --- no payTo, no evidence -------------------------------------------------
+{
+  const proven = provenByChain({ sellers: [seller("https://nopayto.example", null)], merchants: [merchant(A, 900)] });
+  ok(proven.size === 0, "an origin advertising no Base payTo is never credited with someone else's settlements");
+}
+
+// --- the gap measurement ---------------------------------------------------
+{
+  const sellers = [seller("https://known.example", A)];
+  const merchants = [merchant(A, 1000), merchant(B, 700), merchant(OURS, 400)];
+  const gap = unattributedMerchants({ sellers, merchants, ourAddresses: [OURS], minPayments: 50 });
+  ok(gap.unattributedCount === 1, `only the unknown merchant is unattributed (got ${gap.unattributedCount})`);
+  ok(gap.unattributed[0].merchant === B.toLowerCase(), "and it is the one matching no crawled origin");
+  ok(!gap.unattributed.some((r) => r.merchant === OURS.toLowerCase()), "our own treasury is not a discovery gap");
+  ok(gap.unattributedShareOfPayments === Number((700 / 2100).toFixed(4)),
+    `the share of settlement activity we cannot route to is reported (got ${gap.unattributedShareOfPayments})`);
+
+  const quiet = unattributedMerchants({ sellers, merchants: [merchant(B, 10)], minPayments: 50 });
+  ok(quiet.unattributedCount === 0, "a merchant below the threshold is not counted as a gap");
+}
+
+// --- THE HONESTY INVARIANT -------------------------------------------------
+// An empty scan and a scan showing nothing unattributed are different facts.
+// Reporting "0 unattributed" for a scan that never ran is precisely the vacuous
+// green this codebase keeps having to re-learn.
+{
+  ok(unattributedMerchants({ sellers: [], merchants: [] }) === null,
+    "no merchant data returns null — an unknown blind spot is never reported as zero");
+  ok(unattributedMerchants({ sellers: [], merchants: null }) === null, "a missing scan is also null, not zero");
+  const real = unattributedMerchants({ sellers: [], merchants: [merchant(A, 60)], minPayments: 50 });
+  ok(real && real.unattributedCount === 1, "...but a scan WITH data still reports a real gap");
+}
+
+// --- degenerate inputs must not throw --------------------------------------
+{
+  ok(provenByChain({}).size === 0, "no inputs yields an empty proof map");
+  ok(provenByChain({ sellers: null, merchants: null }).size === 0, "null inputs are handled");
+  ok(merchantsByAddress(undefined).size === 0, "undefined merchants handled");
+}
+
+console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

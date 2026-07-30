@@ -176,7 +176,8 @@ import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration } from "./revenue-ledger.js";
-import { x402EconomySnapshot } from "./x402-economy.js";
+import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
+import { provenByChain, unattributedMerchants } from "./settlement-proof.js";
 import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
@@ -668,6 +669,20 @@ function buildSettledByOrigin() {
       if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, row.callsSettled || 0));
     }
   }
+  // Third source, and the only one that does not depend on a registry listing
+  // us a seller: join each CRAWLED origin's advertised Base payTo against the
+  // merchants we ourselves observed settling on-chain. The two sources above
+  // both derive from the Bazaar, so before this an unregistered seller scored
+  // 0 settled calls however much money it actually moved — "unproven" where the
+  // truth was "unlooked". Max-merged, so this can only ever widen the evidence.
+  try {
+    const econ = economySnapshotCached();
+    if (econ?.topMerchants?.length) {
+      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
+        m.set(norm(origin), Math.max(m.get(norm(origin)) || 0, ev.settled || 0));
+      }
+    }
+  } catch { /* evidence is additive; never break routing when a source is down */ }
   return m;
 }
 async function resolveExternalSeller(task, { cap, chain = "base" }) {
@@ -1615,6 +1630,31 @@ app.get("/__operator/wishes", (req, res) => {
 // demand board is strategic intel, so the itemized view lives behind the
 // operator token, same as the dashboard. The wish-issues bridge reads THIS
 // (with AGENT402_OPERATOR_TOKEN) instead of the now-aggregate-only /api/wishes.
+// What our router CANNOT see. Merchants observed settling on Base whose address
+// matches no origin in our crawl — money moving at sellers we could never route
+// to, and until this existed the number was unobservable rather than zero.
+// Operator-only: it is a map of where demand is going, which is the same class
+// of intelligence /api/sales and the analytics table were reduced for.
+app.get("/__operator/discovery-gap.json", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store, private").set("Vary", "Cookie, Authorization");
+  try {
+    const econ = await x402EconomySnapshot();
+    const gap = unattributedMerchants({
+      sellers: routableSellerSummaries(),
+      merchants: econ?.topMerchants || [],
+      ourAddresses: [WALLET_ADDRESS, process.env.X402_UPSTREAM_BUYER_ADDRESS].filter(Boolean),
+      minPayments: Math.max(1, Math.min(10000, parseInt(req.query.min, 10) || SOR_MIN_SETTLED_TX)),
+    });
+    if (!gap) {
+      // Absence of data, said plainly. Never "0 unattributed".
+      return res.json({ ok: false, reason: "no-merchant-data", note: "The on-chain merchant scan returned nothing, so the size of the blind spot is UNKNOWN — not zero.", errors: econ?.errors || [] });
+    }
+    res.json({ ok: true, asOf: new Date().toISOString(), ...gap });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: String(e?.message || e).slice(0, 200) });
+  }
+});
 app.get("/__operator/wishes.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");
