@@ -2438,17 +2438,60 @@ jobs:
           # Poll until the build+deploy actually completes. The old 'Verify'
           # step probed /health seconds after the trigger — the OLD build
           # answers 200 and the job goes green without prod ever changing.
+          # Three outcomes have to stay distinguishable here, because they call
+          # for different actions and the first version conflated all of them
+          # into "deploy failed":
+          #   1. our build genuinely failed        -> read the Railway build log
+          #   2. Railway never STARTED the build   -> platform delay, wait it out
+          #   3. we could not READ the status      -> tells us nothing at all
+          # Case 3 used to abort the step outright: `gql | jq` exits 5 on a
+          # non-JSON body, which is exactly what the API returns during an
+          # incident, so a degraded platform was reported as our failed deploy
+          # (2026-07-30, Railway "builds and deployments are delayed").
+          READ_FAILS=0
+          QUEUED_TICKS=0
+          LAST_STATUS="none"
           for i in $(seq 1 90); do
-            STATUS=$(jq -n --arg id "$DEPLOY_ID" '{query:"query($id:String!){ deployment(id:$id){ status } }", variables:{id:$id}}' \
-              | gql | jq -r '.data.deployment.status // "UNKNOWN"')
+            RAW=$(jq -n --arg id "$DEPLOY_ID" '{query:"query($id:String!){ deployment(id:$id){ status } }", variables:{id:$id}}' | gql || true)
+            if ! printf '%s' "$RAW" | jq -e . >/dev/null 2>&1; then
+              READ_FAILS=$((READ_FAILS + 1))
+              echo "[$i] Railway API returned a non-JSON body (consecutive read failures: $READ_FAILS)"
+              if [ "$READ_FAILS" -ge 18 ]; then
+                echo "::error::Railway's API was unreadable for $READ_FAILS consecutive polls. This is an UPSTREAM READ failure, not a failed deployment: prod is untouched and still serving the previous build. Check https://status.railway.com before retrying."
+                exit 1
+              fi
+              sleep 10
+              continue
+            fi
+            READ_FAILS=0
+            STATUS=$(printf '%s' "$RAW" | jq -r '.data.deployment.status // "UNKNOWN"')
+            LAST_STATUS="$STATUS"
             echo "[$i] deployment $DEPLOY_ID -> $STATUS"
             case "$STATUS" in
               SUCCESS) echo "new build is LIVE"; exit 0 ;;
               FAILED|CRASHED|REMOVED|SKIPPED) echo "::error::deployment ended $STATUS — prod is still on the previous build (check Railway build logs)"; exit 1 ;;
+              QUEUED) QUEUED_TICKS=$((QUEUED_TICKS + 1)) ;;
             esac
             sleep 10
           done
-          echo "::error::deployment did not reach SUCCESS within 15 minutes"; exit 1
+          # Classify on the LAST status, never on a cumulative count. The first
+          # version keyed off "was QUEUED for 60+ polls", which reported "never
+          # started building" for a deployment that had queued, then moved to
+          # DEPLOYING, and in fact SUCCEEDED about a minute after the window
+          # closed (2026-07-30). A count says where it has been; only the last
+          # status says where it is.
+          case "$LAST_STATUS" in
+            QUEUED)
+              echo "::error::deployment never left QUEUED in the 15-minute window, so Railway did not pick the job up. That is a platform delay, NOT a failed build: prod is untouched on the previous build and there is no build log to inspect. Check https://status.railway.com; re-triggering adds to their backlog rather than clearing it."
+              ;;
+            BUILDING|DEPLOYING|INITIALIZING|WAITING)
+              echo "::error::deployment was still $LAST_STATUS when the 15-minute window expired, so it is PROGRESSING but slower than this gate waits. It may well reach SUCCESS on its own shortly. Check the live status and prod's build hash before treating this as a failure, and do not re-trigger blindly."
+              ;;
+            *)
+              echo "::error::deployment did not reach SUCCESS within 15 minutes (last status: $LAST_STATUS)"
+              ;;
+          esac
+          exit 1
 
       - name: Verify deployment
         run: |
