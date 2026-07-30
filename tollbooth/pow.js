@@ -73,8 +73,15 @@ export function createPow({
     if (res !== resource) return { ok: false, reason: "wrong resource" };
     if (Date.now() > Number(expStr)) return { ok: false, reason: "expired" };
     if (used.has(token)) return { ok: false, reason: "already used" };
+    // Defence in depth: the difficulty rides INSIDE the signed token, so a
+    // forged or downgraded token could claim difficulty 0 and pass with no work
+    // at all. Hold every solution to the configured difficulty as well, so a
+    // leaked or placeholder secret still costs a real solve instead of handing
+    // over free passage.
+    const claimed = Number(diffStr);
+    if (!Number.isFinite(claimed) || claimed < difficulty) return { ok: false, reason: "difficulty below policy" };
     const hash = createHash("sha256").update(`${chal}:${nonce}`).digest();
-    if (leadingZeroBits(hash) < Number(diffStr)) return { ok: false, reason: "insufficient work" };
+    if (leadingZeroBits(hash) < claimed) return { ok: false, reason: "insufficient work" };
     used.set(token, Number(expStr));
     return { ok: true };
   }

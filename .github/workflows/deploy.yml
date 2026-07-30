@@ -1626,7 +1626,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          node tollbooth/test.js && node tollbooth/edge.test.js   # gate: node + edge logic must pass before shipping
+          node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js   # gate: node + edge + feature/security assertions must pass before shipping
           cd tollbooth
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.

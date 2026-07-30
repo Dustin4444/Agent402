@@ -213,4 +213,36 @@ ok(html.includes("initProbes") && html.includes("navigator.clipboard"), "probes 
   ok(r3.body?.accepts?.[0]?.asset === "USDC" && r3.body?.accepts?.[0]?.network === "base", "defaults still USDC on base");
 }
 
+// --- proof-of-work difficulty floor -----------------------------------------
+// The difficulty rides INSIDE the signed token, so a forged or downgraded token
+// could claim difficulty 0 and pass with no work at all. verify() must hold
+// every solution to the configured difficulty regardless of what the token says.
+{
+  const secret = "test-secret-for-difficulty-floor";
+  const engine = createPow({ difficulty: 12, secret });
+  const resource = "GET https://example.test/paid";
+
+  // A legitimate solve at the configured difficulty still passes.
+  const chal = engine.challenge(resource);
+  let nonce = 0;
+  const bits = (b) => { let t = 0; for (const x of b) { if (!x) { t += 8; continue; } t += Math.clz32(x) - 24; break; } return t; };
+  while (bits(createHash("sha256").update(`${chal.challenge}:${nonce}`).digest()) < chal.difficulty) nonce++;
+  ok(engine.verify(`${chal.token}:${nonce}`, resource).ok === true, "a real solve at the configured difficulty verifies");
+
+  // A token whose difficulty field is downgraded to 0 must be refused even
+  // though it is signed with the real secret and its nonce trivially "solves"
+  // the zero-bit requirement. This is the leaked/placeholder-secret case.
+  const forged = createPow({ difficulty: 0, secret });
+  const weak = forged.challenge(resource, 0);
+  const v = engine.verify(`${weak.token}:0`, resource);
+  ok(v.ok === false, `a difficulty-0 token is refused by a difficulty-12 gate (got ${JSON.stringify(v)})`);
+  ok(v.reason === "difficulty below policy", `refusal names the policy (got ${v.reason})`);
+
+  // Adaptive difficulty only ever RAISES, so a higher-difficulty token is fine.
+  const hard = engine.challenge(resource, 14);
+  let n2 = 0;
+  while (bits(createHash("sha256").update(`${hard.challenge}:${n2}`).digest()) < hard.difficulty) n2++;
+  ok(engine.verify(`${hard.token}:${n2}`, resource).ok === true, "a token above the floor still verifies (adaptive raises)");
+}
+
 console.log(`\n${pass} passed`);
