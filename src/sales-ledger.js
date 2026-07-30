@@ -267,9 +267,14 @@ export function mppSales({ limit = 30 } = {}) {
   return {
     persistent: salesPersistent,
     count: rows.length,
+    // No payer. This feed is public (the /revenue MPP section + /api/revenue/mpp)
+    // and exists to make MPP-wire adoption verifiable, which the tx hash does on
+    // its own - anyone who wants chain truth can resolve the payer from the tx.
+    // Carrying the address here made this a per-call customer list on a public
+    // route, which is the same thing salesSummary's contract below refuses.
     settlements: rows.map((r) => ({
       at: new Date(r.ts).toISOString(), slug: r.slug, priceUsd: r.price_usd,
-      rail: r.rail, network: r.network, payer: r.payer, tx: r.tx, internal: !!r.internal,
+      rail: r.rail, network: r.network, tx: r.tx, internal: !!r.internal,
     })),
   };
 }

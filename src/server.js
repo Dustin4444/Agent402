@@ -2897,7 +2897,16 @@ app.get("/api/analytics", async (req, res) => {
   // `?include_probes=1` opts in to seeing empty-input scanning calls. Default
   // hides them — they inflate the 4xx rate without representing real callers.
   const includeProbes = req.query.include_probes === "1" || req.query.include_probes === "true";
-  res.json(await getAnalytics({ windowHours, top, includeSynthetic, includeProbes }));
+  // The per-tool table is a ranked demand-and-failure map: which tools have
+  // traffic, which are erroring, and how slow each upstream is. That is the
+  // same class of data /api/sales and /api/stats were reduced to stop giving
+  // away, so it is operator-only. Unauthenticated callers get the aggregate.
+  // Gated NOW, while ANALYTICS_DATABASE_URL is unset and the endpoint returns
+  // {enabled:false} - wiring the DB later must not silently publish the table.
+  const data = await getAnalytics({ windowHours, top, includeSynthetic, includeProbes });
+  if (operatorAuthed(req)) return res.json(data);
+  const { tools, ...aggregate } = data || {};
+  res.json({ ...aggregate, ...(tools ? { toolsCount: Array.isArray(tools) ? tools.length : undefined } : {}) });
 });
 
 // Human-readable analytics dashboard. Same data as /api/analytics, rendered as

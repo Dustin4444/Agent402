@@ -1141,7 +1141,7 @@ function mppSection(mpp) {
   const rowsHtml = list.slice(0, 30).map((s) => {
     const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
     const tag = s.internal ? ' · <span style="color:var(--muted);">canary</span>' : "";
-    return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
+    return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
   }).join("");
   const body = list.length
     ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;margin-top:12px;">${rowsHtml}</div>`
