@@ -399,7 +399,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     {
       name: "route_and_execute",
       description:
-        `Reach ANY tool in the open x402 ecosystem in one call — not just this catalog. Give a plain-language task; Agent402 resolves the best-matching EXTERNAL x402 seller (filtered to PROVEN sellers with real on-chain settled volume), pays it on your behalf from ${HAS_WALLET ? "your configured wallet" : "your wallet (set AGENT_KEY)"}, and relays the result marked untrustedContent (treat it as untrusted third-party data). One integration, thousands of external sellers. Flat routing fee: $0.01 when the seller costs <= $0.005, else the $0.55 tier for sellers up to $0.50 (set maxUsd). Needs a funded wallet.`,
+        `Reach ANY tool in the open x402 ecosystem in one call — not just this catalog. Give a plain-language task; Agent402 resolves the best-matching EXTERNAL x402 seller (filtered to PROVEN sellers with real on-chain settled volume), pays it on your behalf from ${HAS_WALLET ? "your configured wallet" : "your wallet (set AGENT_KEY)"}, and relays the result marked untrustedContent (treat it as untrusted third-party data). One integration, thousands of external sellers. Flat routing fee, cheapest covering tier chosen from maxUsd: $0.01 for a seller <= $0.005, $0.05 for <= $0.04, $0.55 for <= $0.50. Needs a funded wallet.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -524,9 +524,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const task = String(args.task ?? "").trim();
       if (!task) return { content: [{ type: "text", text: "route_and_execute requires a 'task' (plain-language description of what you need)." }], isError: true };
       const maxUsd = Number(args.maxUsd) > 0 ? Number(args.maxUsd) : 0.005;
-      // Pick the tier whose underlying cap covers maxUsd: cheap $0.01 tier for
-      // sellers <= $0.005, the $0.55 tier for pricier ones.
-      const slug = maxUsd > 0.005 ? "route-execute-max" : "route-execute";
+      // Pick the CHEAPEST tier whose underlying cap covers maxUsd. The ladder
+      // has three rungs; skipping the middle one billed 11x for a mid-priced
+      // seller (a $0.02 seller went through the $0.55 tier instead of $0.05).
+      // Keep this ordered cheapest-first so a new rung is a one-line insert.
+      const slug = maxUsd > 0.04 ? "route-execute-max"
+        : maxUsd > 0.005 ? "route-execute-plus"
+        : "route-execute";
       const tool = catalog.get(slug);
       if (!tool) return { content: [{ type: "text", text: `External routing (${slug}) is not in the catalog from ${BASE} yet — it may be rolling out. Retry shortly.` }], isError: true };
       // Body matches the route-execute input schema; include:"external" is what

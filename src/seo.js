@@ -199,8 +199,15 @@ export function llmsTxt(baseUrl, catalog) {
     .map(([key, { label }]) => {
       const inCat = tools.filter((t) => t.category === key);
       if (!inCat.length) return "";
+      // Large categories drop the DESCRIPTIONS, not the tools. Collapsing them
+      // to a single summary link made 165 endpoints unfindable by name in the
+      // agent-readable catalog - including tools added specifically to be
+      // discoverable. Name, link and price per line keeps every endpoint
+      // listed at roughly a tenth of the bytes; the pointer below still leads
+      // to the full schemas.
       if (inCat.length > 40) {
-        return `## Tools - ${label}\n\n- [${inCat.length} ${label} endpoints](${baseUrl}/api/pricing): full list with routes, prices, and input schemas in the OpenAPI spec and pricing JSON`;
+        const compact = inCat.map((t) => `- [${t.name}](${baseUrl}/tools/${t.slug}): ${t.price}/call`).join("\n");
+        return `## Tools - ${label}\n\n${compact}\n\n- [Full input schemas for all ${inCat.length} ${label} endpoints](${baseUrl}/api/pricing)`;
       }
       const items = inCat.map(
         (t) => `- [${t.name}](${baseUrl}/tools/${t.slug}): ${t.price}/call. ${t.description}`
@@ -220,7 +227,7 @@ export function llmsTxt(baseUrl, catalog) {
 
   return `# Agent402.Tools
 
-> Pay-per-call web tools for AI agents. Call an endpoint, receive an HTTP 402 with exact payment requirements, and settle from your own wallet in USDC via the x402 protocol - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Prices $0.001–$0.02 per call.
+> Pay-per-call web tools for AI agents. Call an endpoint, receive an HTTP 402 with exact payment requirements, and settle from your own wallet in USDC via the x402 protocol - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
 
 Base URL: ${baseUrl}
 

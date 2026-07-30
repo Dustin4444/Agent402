@@ -32,7 +32,7 @@ The server starts on port 3000 by default (`PORT` env var overrides).
 ### Docker
 
 ```dockerfile
-FROM node:20-slim
+FROM node:22-slim
 WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
@@ -110,7 +110,7 @@ Stats, memory namespaces, and PoW replay protection use SQLite (better-sqlite3, 
 
 ## Health checks
 
-- **`GET /health`** -- returns `200` with server status, uptime, and feature flags (including `yahooRelay` activation). Use this as your load-balancer or container health probe.
+- **`GET /health`** -- returns `200` and a deliberately small public body: `{ ok, meta: { toolCount, build } }`. Process uptime and the operating-mode/feature flags are **operator-only** and appear only on the token-authenticated response. Use this path as your load-balancer or container health probe.
 - **CI heartbeat** -- the repo's `heartbeat.yml` workflow probes the hosted instance every 15 minutes and auto-opens a GitHub issue on failure. You can adapt the same workflow for your own deployment.
 
 ## Verifying your deployment

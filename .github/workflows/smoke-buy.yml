@@ -28,7 +28,7 @@ on:
         required: false
         default: ""
       target:
-        description: "Optional external seller origin to buy from instead of production (x402 compatibility check, e.g. https://api.utilia.ink)"
+        description: "Optional external seller origin to buy from instead of production (x402 compatibility check, e.g. https://seller.example)"
         required: false
         default: ""
 

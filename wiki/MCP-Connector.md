@@ -2,7 +2,7 @@
 
 Agent402 speaks [MCP](https://modelcontextprotocol.io) two ways. Both are listed in the [official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402) under `io.github.MikeyPetrillo/agent402`.
 
-## 1. Hosted connector — zero install (the free tier)
+## 1. Hosted connector - zero install (the free tier)
 
 Add **`https://agent402.tools/mcp`** as a remote MCP server:
 
@@ -11,24 +11,24 @@ Add **`https://agent402.tools/mcp`** as a remote MCP server:
 - **Cursor:** Settings → MCP → *Add new MCP server* → name `agent402`, transport `streamable-http`, URL `https://agent402.tools/mcp`. (Or add directly to `~/.cursor/mcp.json`.)
 - **ChatGPT (Pro/Team/Enterprise):** Settings → Connectors → *Add custom connector* → that URL, no auth.
 - **VS Code (GitHub Copilot Chat with MCP):** *MCP: Add Server* → HTTP → `https://agent402.tools/mcp`.
-- Any client speaking **streamable HTTP** (the endpoint is stateless — every JSON-RPC message is self-contained).
+- Any client speaking **streamable HTTP** (the endpoint is stateless - every JSON-RPC message is self-contained).
 
 It exposes four read-only tools (each carries safety annotations):
 
 | Tool | Does |
 |---|---|
-| `find_tool` | Describe a task in plain language; returns the best-matching tool(s) **ready to call** — slug, price, input schema, an example, and the exact `call_tool` invocation. Skips the token-heavy "explore to find a tool" step |
+| `find_tool` | Describe a task in plain language; returns the best-matching tool(s) **ready to call** - slug, price, input schema, an example, and the exact `call_tool` invocation. Skips the token-heavy "explore to find a tool" step |
 | `search_tools` | Find tools by description across the catalog; returns slugs + input schemas |
-| `call_tool` | Execute a tool by slug. The ~210 pure-CPU tools run **free** (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
+| `call_tool` | Execute a tool by slug. The 200+ pure-CPU tools run **free** (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
 | `about_agent402` | Service description, free-vs-paid breakdown |
 
-## 2. `agent402-mcp` (npm) — the full catalog, payment underneath
+## 2. `agent402-mcp` (npm) - the full catalog, payment underneath
 
 ```json
 { "mcpServers": { "agent402": {
   "command": "npx", "args": ["-y", "agent402-mcp"],
   "env": {
-    "AGENT_KEY": "0x<funded wallet key — optional>",
+    "AGENT_KEY": "0x<funded wallet key - optional>",
     "AGENT402_BUDGET": "1.00",
     "AGENT402_MAX_PER_CALL": "0.01"
   }
@@ -40,7 +40,9 @@ It exposes four read-only tools (each carries safety annotations):
 
 High-value tools (`search`, `extract`, `render`, `screenshot`, `pdf`, `meta`, `dns`, the `memory-*` family, …) are first-class MCP tools; the long tail is reachable via `search_tools` + `call_tool` to keep your context window small.
 
-Since 0.12.0 the npm server also exposes **`route_and_execute`** `{ task, params?, maxUsd? }`: describe a task and the Smart Order Router resolves the best tool, from this catalog **or any proven external x402 seller in the open index**, and runs it in one paid call, picking the $0.01, $0.05, or $0.55 tier from `maxUsd`. External results are relayed marked `untrustedContent`; sellers qualify only with proven on-chain settled volume. See [[x402 Index and Router|x402-Index-and-Router]].
+Since 0.12.0 the npm server also exposes **`route_and_execute`** `{ task, params?, maxUsd? }`: describe a task and the Smart Order Router resolves the best-matching **external** x402 seller (the MCP tool always sends `include: "external"`; for this catalog's own tools, call the tool directly), pays it from your configured wallet, and relays the result marked `untrustedContent`. Sellers qualify only with proven on-chain settled volume. See [[x402 Index and Router|x402-Index-and-Router]].
+
+`maxUsd` is the cap on the **underlying seller's** price and defaults to `0.005`. From it the server picks the cheapest routing rung that covers it, exactly as the HTTP ladder does: `maxUsd ≤ 0.005` → the $0.01 tier, `> 0.005` and `≤ 0.04` → the $0.05 tier, `> 0.04` → the $0.55 tier (underlying up to $0.50). Needs a funded wallet.
 
 Other env knobs: `AGENT402_URL` (target service), `AGENT402_TOOLS` (override the first-class tool list).
 
@@ -58,11 +60,11 @@ Other env knobs: `AGENT402_URL` (target service), `AGENT402_TOOLS` (override the
 
 | Symptom | Cause / fix |
 |---|---|
-| **Connector won't connect** in claude.ai/Claude Code | Confirm the URL is exactly `https://agent402.tools/mcp` (HTTPS, no trailing path). In Claude Code, `claude mcp list` should show `agent402 ✓ Connected`. If it's mid-deploy it can briefly drop — retry in ~60s. |
+| **Connector won't connect** in claude.ai/Claude Code | Confirm the URL is exactly `https://agent402.tools/mcp` (HTTPS, no trailing path). In Claude Code, `claude mcp list` should show `agent402 ✓ Connected`. If it's mid-deploy it can briefly drop - retry in ~60s. |
 | **"Error occurred during tool execution"** (transient) | Usually a redeploy window on the host; the same call succeeds on retry. The endpoint is health-gated in CI on every deploy. |
 | **`call_tool` says a field is missing / "must be a number"** | Pass `params` as a JSON object, e.g. `{"slug":"unit-convert","params":{"value":42,"from":"kilometers","to":"miles"}}`. A stringified object (`"{\"value\":42}"`) is also accepted. |
 | **A tool returns "wallet required" / paid-path guidance** | That tool (live search, browser render, screenshots, PDFs, durable memory) isn't in the hosted free tier. Run the npm server `npx -y agent402-mcp` with `AGENT_KEY` set to a funded Base wallet, or call it over HTTP with any x402 client. |
 | **"Free-tier rate limit reached"** | The hosted connector is capped at 20 calls/min, 120/hour per client. Wait, or use the npm server with a wallet for unmetered access. |
-| **Finding the right tool** | Call `find_tool` with a plain-language task — it returns the best match ready to call (slug + example + the exact `call_tool` invocation). `search_tools` is the broader, lower-level search. |
+| **Finding the right tool** | Call `find_tool` with a plain-language task - it returns the best match ready to call (slug + example + the exact `call_tool` invocation). `search_tools` is the broader, lower-level search. |
 
 More: [[Paying with x402]] · [[Paying with Compute]] · [Open an issue](https://github.com/MikeyPetrillo/Agent402/issues).

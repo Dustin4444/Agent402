@@ -329,6 +329,32 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             inputSchema: schemaOf(def),
           };
         }),
+        // Both of these have working handlers below but were never listed, so an
+        // MCP client could not see them - tools/list is the only discovery
+        // surface a client has. The service manifest already advertises
+        // top_x402_sellers, so it was promised and unreachable.
+        {
+          name: "about_agent402",
+          title: "About this Agent402 connector",
+          annotations: { title: "About this Agent402 connector", ...SAFE },
+          description: "[free] What this connector is and how to pay for the tools it fronts: catalog size, the free compute tier and its limits, the payment rails accepted, and the machine-readable discovery URLs. Call this first if you need to know whether a wallet is required.",
+          inputSchema: { type: "object", properties: {}, additionalProperties: false },
+        },
+        ...(getLeaderboard ? [{
+          name: "top_x402_sellers",
+          title: "Top x402 sellers",
+          annotations: { title: "Top x402 sellers", ...SAFE },
+          description: "[free] Ranked x402 sellers from the on-chain settlement leaderboard: settled call counts, USDC totals and distinct buyers per seller. Use it to find other services in the open x402 ecosystem. This host's own wallet is excluded unless include is set to all.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              limit: { type: "integer", minimum: 1, maximum: 50, description: "How many sellers to return (default 10)." },
+              sort: { type: "string", enum: ["usd", "calls"], description: "Rank by settled USDC (default) or by settled call count." },
+              include: { type: "string", enum: ["external", "all"], description: "external (default) hides this host's own wallet; all includes it." },
+            },
+            additionalProperties: false,
+          },
+        }] : []),
       ],
     }));
 
@@ -463,7 +489,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                   })),
                 },
                 clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
-                paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; most tools $0.001–$0.02/call (LLM gateway tiers $0.002–$0.50).`,
+                paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50.`,
                 ...(getLeaderboard ? { ecosystem: "Call top_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog." } : {}),
                 missingATool: "Call request_tool (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
                 docs: `${baseUrl}/llms.txt`,
@@ -539,7 +565,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 model: "HTTP 402 + x402, settled in USDC on-chain, non-custodial (you hold the key)",
                 rails: RAILS_PAREN,
                 setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
-                prices: "most tools $0.001–$0.02 per call (LLM gateway tiers $0.002–$0.50) - see each tool's exact price in search_tools results",
+                prices: "most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50 - see each tool's exact price in search_tools results",
                 llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way - point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
               },
               spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },

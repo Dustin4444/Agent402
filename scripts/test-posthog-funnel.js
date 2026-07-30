@@ -179,9 +179,19 @@ try {
   for (let i = 0; i < 60; i++) { try { if ((await fetch(`${B}/api/pow`)).ok) { up = true; break; } } catch {} await sleep(500); }
   ok(up, "paid-mode server booted against the mock facilitator");
 
-  // Stage 1: discovery.
-  ok((await fetch(`${B}/llms.txt`)).ok, "GET /llms.txt serves");
-  ok((await fetch(`${B}/api/pricing`)).ok, "GET /api/pricing serves");
+  // Stage 1: discovery. DRAIN each body before asserting: the server captures
+  // discovery from res.on("finish"), which only fires once the response has
+  // actually been written out — and an unread body leaves the response
+  // half-consumed, so "finish" can lag past this test's observation window.
+  // /llms.txt (~107 KB) happened to win that race while /api/pricing (~258 KB)
+  // did not, which is why the pricing assertion failed only on CI runners and
+  // only as the catalog grew. Reading the body makes both deterministic.
+  const llms = await fetch(`${B}/llms.txt`);
+  await llms.text();
+  ok(llms.ok, "GET /llms.txt serves");
+  const pricing = await fetch(`${B}/api/pricing`);
+  await pricing.text();
+  ok(pricing.ok, "GET /api/pricing serves");
 
   // Stage 2: an unpaid catalog call must get a REAL 402 (not a 500 — that
   // would mean the kind sync failed, the exact bug the wallet E2E hit).

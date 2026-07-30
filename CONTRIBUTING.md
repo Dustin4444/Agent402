@@ -1,22 +1,22 @@
 # Contributing to Agent402
 
 Thanks for being here. The fastest, most valuable contribution is **a new
-tool** — Agent402 is a catalog, and every good tool makes the whole thing more
+tool** - Agent402 is a catalog, and every good tool makes the whole thing more
 useful to every agent that connects. Bug fixes and docs are just as welcome.
 
 Issues and tool ideas: [open an issue](https://github.com/MikeyPetrillo/Agent402/issues).
 For anything that doesn't fit a public issue, email **mike@agent402.tools**.
 Licensing (inbound = outbound): by contributing you agree your contribution is
-licensed under the same license as the component you're changing — AGPL-3.0 for
+licensed under the same license as the component you're changing - AGPL-3.0 for
 the server (the repository root, where most tool contributions land) and MIT for
 the `client/`, `mcp/`, and `tollbooth/` packages. You keep the copyright on your
-code. The "Agent402" name and logo are trademarks of Havok Holdings LLC — see
+code. The "Agent402" name and logo are trademarks of Havok Holdings LLC - see
 [TRADEMARKS.md](TRADEMARKS.md).
 
 **Developer Certificate of Origin (DCO):** every commit must be signed off
 (`git commit -s`), which adds a `Signed-off-by: Your Name <email>` line
 certifying you wrote the change or otherwise have the right to submit it under
-the project's license — the industry-standard [DCO 1.1](https://developercertificate.org/).
+the project's license - the industry-standard [DCO 1.1](https://developercertificate.org/).
 It is a provenance certification, not a copyright assignment: you still keep
 your copyright. Forgot it? `git commit --amend -s && git push -f` fixes the
 last commit. CI checks this on every PR.
@@ -27,10 +27,10 @@ Running your own x402 service? Get it into the index in one line:
 
 1. Publish a service manifest at `/.well-known/x402` (identity + payment options).
 2. Add your origin to `DEFAULT_SEEDS` in
-   [`src/x402-index.js`](src/x402-index.js) — **stable HTTPS origins only** (no
+   [`src/x402-index.js`](src/x402-index.js) - **stable HTTPS origins only** (no
    ephemeral tunnels like `*.trycloudflare.com`; they flap to `STALE`).
 3. Open a PR. The index crawls and health-checks it automatically every few
-   minutes — a dead origin just shows `STALE`, so there's nothing to maintain.
+   minutes - a dead origin just shows `STALE`, so there's nothing to maintain.
 
 ## Dev quickstart
 
@@ -50,7 +50,7 @@ curl -s -X POST localhost:3000/api/hash -H 'content-type: application/json' \
 
 A tool is a plain object in one of the kit arrays under
 [`src/tools/`](src/tools). Each kit array is already spread into `ALL_KIT` in
-`src/server.js`, so **appending an object is all it takes** — it's routed, its
+`src/server.js`, so **appending an object is all it takes** - it's routed, its
 schema is published to `/openapi.json` and `/api/pricing`, it's exposed over MCP,
 and CI's "every tool answers its own example" check picks it up automatically.
 
@@ -59,7 +59,7 @@ The simplest home for a pure-CPU tool is `AGENT_TOOLS` in
 
 ```js
 {
-  route: "POST /api/reverse",          // METHOD /path — must be unique
+  route: "POST /api/reverse",          // METHOD /path - must be unique
   name: "Reverse text",
   slug: "reverse",                     // unique; how MCP/PoW refer to it
   category: "text",                    // see the category list below
@@ -67,7 +67,7 @@ The simplest home for a pure-CPU tool is `AGENT_TOOLS` in
   description: 'Reverse a string. Example: {"text":"abc"} → {"reversed":"cba"}',
   discovery: {
     inputSchema: { properties: { text: { type: "string" } }, required: ["text"] },
-    example: { text: "abc" },          // CI POSTs this and asserts it works — keep it valid
+    example: { text: "abc" },          // CI POSTs this and asserts it works - keep it valid
   },
   handler: (input) => {
     if (typeof input.text !== "string") {
@@ -80,7 +80,7 @@ The simplest home for a pure-CPU tool is `AGENT_TOOLS` in
 
 ### The handler contract
 
-- **Input:** `handler(input, ctx)` — `input` is the merged query + JSON body.
+- **Input:** `handler(input, ctx)` - `input` is the merged query + JSON body.
   `ctx` carries `{ headers, query, body, ip }` if you need it; most tools don't.
 - **Success:** return any JSON-serializable value. For binary output, return
   `{ __binary: Buffer, contentType: "image/png" }`.
@@ -89,27 +89,35 @@ The simplest home for a pure-CPU tool is `AGENT_TOOLS` in
 
 ### Ground rules (a tool ships only if it can be served *honestly*)
 
-1. **Deterministic** — no LLM in the serving path; same input, same output.
-2. **Self-describing** — price, description, `inputSchema`, and a working
+1. **Deterministic** - no LLM in the serving path; same input, same output.
+2. **Self-describing** - price, description, `inputSchema`, and a working
    `example` all live in the one catalog entry. Docs, OpenAPI, llms.txt, MCP
    exposure, and CI tests are generated from it.
-3. **Tested against its own example** — CI calls every endpoint with its
+3. **Tested against its own example** - CI calls every endpoint with its
    `discovery.example` and blocks the build on any failure, so keep it valid.
-4. **Reliable** — if an upstream is flaky from datacenter IPs, the tool gets
+4. **Reliable** - if an upstream is flaky from datacenter IPs, the tool gets
    removed rather than charge-and-502.
-5. **Free-tier safe or wallet-only** — by default a tool is pure-CPU and free
+5. **Free-tier safe or wallet-only** - by default a tool is pure-CPU and free
    via proof-of-work. Anything that spends real resources per call (browser,
    network egress, paid APIs, disk) must add its `slug` to `WALLET_ONLY_SLUGS`
    in [`src/pow.js`](src/pow.js), and route every caller-supplied URL through
    `safeFetch`/`assertPublicUrl` from
-   [`src/tools/fetch-guard.js`](src/tools/fetch-guard.js) — never raw `fetch`
+   [`src/tools/fetch-guard.js`](src/tools/fetch-guard.js) - never raw `fetch`
    (that's the SSRF guard).
 
 ### Categories
 
 `web`, `memory`, `network`, `data`, `payments`, `conversion`, `text`, `math`,
-`convert`, `encoding`, `identifiers`, `time`, `validation` — defined in
-[`src/pages.js`](src/pages.js); add a new one there if nothing fits.
+`encoding`, `identifiers`, `time`, `validation`, `llm`, `crypto`, `skill-pack`,
+`ai`, `date-time`, `chain`, `wallet`, `research`, `agent`, `api`, `x402`.
+Defined in `CATEGORIES` in [`src/pages.js`](src/pages.js); add a new one there if
+nothing fits.
+
+Every category the catalog uses **must** have an entry in that map: it is the
+source for the `/tools` category pages, the `/api/pricing` categories map, the
+`/.well-known/x402` capabilities list, and `llms.txt`. A category missing from it
+means a 404 category page, an unlabelled price row, a capabilities total that
+doesn't reconcile, and tools that are invisible to agents.
 
 ## Test your change
 
@@ -121,7 +129,7 @@ node scripts/test-mcp-all.js             # every tool through the MCP connector
 ```
 
 Each kit also has a focused test under [`scripts/`](scripts) (e.g.
-`test-agent-kit.js`) — add or extend one if your tool has interesting edge cases.
+`test-agent-kit.js`) - add or extend one if your tool has interesting edge cases.
 
 ## Open a PR
 
@@ -130,4 +138,4 @@ Each kit also has a focused test under [`scripts/`](scripts) (e.g.
 3. Open a PR describing what the tool does and why it's useful to agents.
 
 Small, focused PRs merge fastest. The wiki is edited in [`wiki/`](wiki) in this
-repo (CI syncs it) — don't edit the GitHub wiki directly.
+repo (CI syncs it) - don't edit the GitHub wiki directly.

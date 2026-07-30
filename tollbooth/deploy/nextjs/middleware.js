@@ -45,8 +45,15 @@ const gate = process.env.TOLLBOOTH_SECRET
 
 export async function middleware(request) {
   if (!gate) {
-    console.warn("agent402-tollbooth: TOLLBOOTH_SECRET is not set — pay-per-crawl is DISABLED (failing open). Set it in your env to start charging crawlers.");
-    return NextResponse.next();
+    // FAIL CLOSED on a missing secret. This used to serve every request for
+    // free with one warning in an edge log - so a preview-to-production
+    // promotion that dropped the env var silently disabled the paywall while
+    // the operator believed it was charging. The Cloudflare worker template
+    // already refuses in this situation; both now behave the same way. Set
+    // TOLLBOOTH_OBSERVE=true if you deliberately want traffic to pass while
+    // you measure.
+    console.error("agent402-tollbooth: TOLLBOOTH_SECRET is not set. Refusing requests rather than serving protected content for free. Set TOLLBOOTH_SECRET (openssl rand -hex 32), or set TOLLBOOTH_OBSERVE=true to pass traffic through deliberately.");
+    return new NextResponse("Payment gate misconfigured", { status: 503 });
   }
   const blocked = await gate(request);
   // Best-effort: flush buffered stats while the isolate is still alive. On

@@ -1,7 +1,7 @@
 {
   "name": "agent402-langchain",
-  "version": "0.2.3",
-  "description": "LangChain.js tools for Agent402.Tools: turn its catalog — 500+ strong: 400+ x402 pay-per-call tools + 100 skill packs (browser, web search, OCR, PDFs, memory) — into LangChain tools via four meta-tools (find/route/call/about), plus the cross-seller x402 Smart Order Router. Free via proof-of-work or pay per call in USDC on Base + 6 more chains, or USDG on Robinhood Chain (8 chains total).",
+  "version": "0.2.4",
+  "description": "LangChain.js tools for Agent402.Tools: turn its catalog - 500+ strong: 400+ x402 pay-per-call tools + 100+ skill packs (browser, web search, OCR, PDFs, memory) - into LangChain tools via four meta-tools (find/route/call/about), plus the cross-seller x402 Smart Order Router. Free via proof-of-work or pay per call in USDC on Base + 11 more chains, or USDG on Robinhood Chain (12 chains total).",
   "type": "module",
   "main": "index.js",
   "exports": {

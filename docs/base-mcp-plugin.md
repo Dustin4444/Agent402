@@ -1,6 +1,6 @@
 ---
 title: "Agent402 Plugin"
-description: "Discover and call 500+ pay-per-call web tools via x402 payments (USDC on Base, Solana, Polygon, Arbitrum & Stellar; USDG on Robinhood Chain) through Agent402.tools"
+description: "Discover and call 500+ pay-per-call web tools via x402 payments (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand; USDG on Robinhood Chain - 12 chains) through Agent402.tools"
 tags: [x402, tools, api, payments, agents]
 name: agent402
 version: 0.1.0
@@ -16,14 +16,14 @@ risk: []
 ---
 
 > [!IMPORTANT]
-> ## STOP — COMPLETE ONBOARDING BEFORE USING THIS PLUGIN
+> ## STOP - COMPLETE ONBOARDING BEFORE USING THIS PLUGIN
 > Complete the Base MCP onboarding in SKILL.md first. You must have a funded Base wallet with USDC to call paid tools. Run `get_wallets` to confirm your wallet address and USDC balance before proceeding.
 
 ## Overview
 
-Agent402 is an open-source x402 tool server hosting 500+ deterministic, pay-per-call web tools for AI agents at `https://agent402.tools`. Tools span browser rendering, web search, PDFs, OCR, image processing, financial data, crypto analytics, SEC EDGAR filings, unit conversions, encoding, hashing, and wallet-keyed memory. Every tool is called over HTTP: the agent receives an HTTP 402 response with exact USDC payment terms, pays via x402, and gets the result. Prices range $0.001--$0.02 per call. No signup, no API key -- the payment is the only credential.
+Agent402 is an open-source x402 tool server hosting 500+ deterministic, pay-per-call web tools for AI agents at `https://agent402.tools`. Tools span browser rendering, web search, PDFs, OCR, image processing, financial data, crypto analytics, SEC EDGAR filings, unit conversions, encoding, hashing, and wallet-keyed memory. Every tool is called over HTTP: the agent receives an HTTP 402 response with exact USDC payment terms, pays via x402, and gets the result. Most single tools cost $0.001--$0.02 per call; the priciest single tool is $0.55 and multi-tool skill packs reach $1.50. No signup, no API key -- the payment is the only credential.
 
-Agent402 exposes free discovery endpoints (no payment required) that resolve tasks to the right tool, plus paid tool endpoints that settle via x402 in USDC on Base, Solana, Polygon, Arbitrum, or Stellar (or USDG on Robinhood Chain). This plugin teaches agents to discover tools, understand pricing, and call any tool using Base MCP's `initiate_x402_request` / `complete_x402_request` flow.
+Agent402 exposes free discovery endpoints (no payment required) that resolve tasks to the right tool, plus paid tool endpoints that settle via x402 in USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, or Algorand (or USDG on Robinhood Chain - 12 chains in total). This plugin teaches agents to discover tools, understand pricing, and call any tool using Base MCP's `initiate_x402_request` / `complete_x402_request` flow.
 
 ## Surface Routing
 
@@ -191,6 +191,25 @@ Example: `https://agent402.tools/api/dns?name=example.com&type=A`
 **POST tools** (browser, search, extract, memory): pass parameters as JSON body.
 Example: `https://agent402.tools/api/extract` with body `{"url": "https://example.com"}`
 
+### Route-and-execute (one paid call, tool resolved for you)
+
+Instead of discovering a tool and then calling it, hand the router a task and it
+resolves the best-matching tool and runs it in the same paid request, returning
+`{ result, receipt }`. With `include: "external"` the underlying tool may belong
+to another x402 seller, which the router pays on your behalf and relays.
+
+There are three rungs, so the flat routing fee stays proportional to what is
+being bought. Pick the cheapest rung that covers the underlying tool's price:
+
+| Underlying tool price | Fee | Route |
+|---|---|---|
+| ≤ $0.005 | $0.01 | `POST /api/route/execute` |
+| ≤ $0.04 | $0.05 | `POST /api/route/execute-plus` |
+| ≤ $0.50 | $0.55 | `POST /api/route/execute-max` |
+
+A tool priced above the rung's ceiling returns a self-correcting HTTP 409 naming
+its direct route. `GET /api/route?q={task}` (free) quotes which rung a task needs.
+
 ## Orchestration
 
 ### Discovering the right tool
@@ -278,9 +297,9 @@ Then call `complete_x402_request` with the returned `requestId` to get the resul
 **Prompt:** "Extract the main article content from https://example.com/blog/post"
 
 1. Discover: `GET https://agent402.tools/api/find?q=extract%20article%20from%20url`
-2. Top result is `extract` (POST /api/extract, $0.004/call)
-3. Call `initiate_x402_request` with url `https://agent402.tools/api/extract`, method POST, body `{"url": "https://example.com/blog/post"}`, maxPayment `"0.01"`
-4. User approves the ~$0.004 USDC payment
+2. Top result is `extract` (POST /api/extract, $0.010/call)
+3. Call `initiate_x402_request` with url `https://agent402.tools/api/extract`, method POST, body `{"url": "https://example.com/blog/post"}`, maxPayment `"0.02"`
+4. User approves the ~$0.010 USDC payment
 5. Call `complete_x402_request` to get clean markdown of the article
 
 **Prompt:** "What are the top x402 sellers right now?"
@@ -292,9 +311,9 @@ Then call `complete_x402_request` with the returned `requestId` to get the resul
 **Prompt:** "Search the web for recent news about Base blockchain"
 
 1. Discover: `GET https://agent402.tools/api/find?q=web%20search%20news`
-2. Top result is `search-news` (POST /api/search/news, $0.005/call)
-3. Call `initiate_x402_request` with url `https://agent402.tools/api/search/news`, method POST, body `{"q": "Base blockchain"}`, maxPayment `"0.01"`
-4. User approves the ~$0.005 USDC payment
+2. Top result is `search-news` (GET /api/search-news, $0.02/call)
+3. Call `initiate_x402_request` with url `https://agent402.tools/api/search-news?q=Base%20blockchain`, method GET, maxPayment `"0.03"`
+4. User approves the ~$0.02 USDC payment
 5. Call `complete_x402_request` to get the search results
 
 ## Notes
@@ -302,7 +321,7 @@ Then call `complete_x402_request` with the returned `requestId` to get the resul
 - **No signup or API key required.** The USDC payment via x402 is the only credential. The wallet address is the identity.
 - **Deterministic tools.** No LLM in the serving path -- same input always yields the same output. Results are trustworthy and reproducible.
 - **Idempotency.** For safe retries, pass an `Idempotency-Key` header. If the same key + endpoint is replayed, the cached result is returned without re-charging.
-- **Price range.** Most single tools cost $0.001--$0.02, but premium AI/media tools run up to $0.50, and multi-tool skill packs up to $1.50. **Don't hardcode a `maxPayment` cap** — read the exact price from `/api/pricing` (or the `402` quote) before paying, so you never under-cap and fail a legitimate call.
+- **Price range.** Most single tools cost $0.001--$0.02; the priciest single tool is $0.55 (`route-execute-max`), and multi-tool skill packs run up to $1.50. **Don't hardcode a `maxPayment` cap** - read the exact price from `/api/pricing` (or the `402` quote) before paying, so you never under-cap and fail a legitimate call.
 - **Free discovery.** The endpoints `/api/find`, `/api/pricing`, `/api/route`, `/api/leaderboard`, `/.well-known/x402`, and `/api/reliability` are all free and require no payment.
 - **MCP connector.** For direct MCP access (outside Base MCP), paste `https://agent402.tools/mcp` into any MCP client. Pure-CPU tools run free there (rate-limited); paid tools require the `agent402-mcp` npm package with a funded wallet.
 - **Open source.** The full server is AGPL-3.0-licensed at https://github.com/MikeyPetrillo/Agent402 -- read every line, self-host, or fork.

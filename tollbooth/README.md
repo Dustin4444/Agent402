@@ -1,19 +1,19 @@
 # agent402-tollbooth
 
 **Open-source, self-hostable x402 "pay-per-crawl". Put it in front of any site or
-API: humans browse free, AI crawlers and agents pay per request** — either in
+API: humans browse free, AI crawlers and agents pay per request** - either in
 USDC over the [x402 protocol](https://x402.org), or for free by solving a
 proof-of-work. No Cloudflare, no Stripe, no Merchant-of-Record, no signup.
 
 The big platforms are converging on the same model: Cloudflare's
 [pay-per-crawl](https://stackoverflow.blog/2026/02/26/how-pay-per-crawl-is-reshaping-data-monetization/)
 and now its [Monetization Gateway](https://blog.cloudflare.com/monetization-gateway/)
-(launched July 2026 — x402 charging in USDC on Base for anything behind Cloudflare:
+(launched July 2026 - x402 charging in USDC on Base for anything behind Cloudflare:
 pages, APIs, datasets, MCP tools) confirm that pay-per-request is the business model
 of the agentic web. Tollbooth is the **open-source monetization gateway**: the same
 idea, but MIT-licensed and live today, running in
 front of *any* origin (even a Cloudflare Worker), non-custodial (you hold the wallet,
-no signup or Merchant-of-Record), and — the wedge the platform gateways don't offer —
+no signup or Merchant-of-Record), and - the wedge the platform gateways don't offer -
 with a **proof-of-work free tier** so a walletless agent still has a path through.
 Built on the same hardened 402 + proof-of-work machinery as
 [Agent402](https://github.com/MikeyPetrillo/Agent402).
@@ -25,10 +25,10 @@ npx agent402-tollbooth   # then, in the repo:  npm run --prefix tollbooth demo
 ```
 
 ```text
-agent402-tollbooth — live pay-per-crawl demo
+agent402-tollbooth - live pay-per-crawl demo
 
 ① A human opens the page (normal browser)
-   → HTTP 200 FREE  "📄 The Future of Machine Payments — full article text…"
+   → HTTP 200 FREE  "📄 The Future of Machine Payments - full article text…"
    Humans are never charged.
 
 ② An AI crawler hits the same page (ClaudeBot)
@@ -38,9 +38,9 @@ agent402-tollbooth — live pay-per-crawl demo
 
 ③ The crawler has no wallet, so it spends CPU instead
    solved in 0.32s (nonce=100208)
-   → HTTP 200 OK (paid via pow)  "📄 The Future of Machine Payments — full article text…"
+   → HTTP 200 OK (paid via pow)  "📄 The Future of Machine Payments - full article text…"
 
-✓ Pay-per-crawl, end to end — humans free, bots pay (USDC or compute).
+✓ Pay-per-crawl, end to end - humans free, bots pay (USDC or compute).
 ```
 
 ## Install
@@ -81,12 +81,12 @@ The 402 body advertises both rails:
 ```
 
 A crawler that can't (or won't) pay USDC solves the puzzle and retries with
-`X-Pow-Solution: <token>:<nonce>` — sub-second of CPU, single-use, bound to that
+`X-Pow-Solution: <token>:<nonce>` - sub-second of CPU, single-use, bound to that
 exact URL.
 
 ## Use it as a reverse proxy (any language/framework)
 
-Point it at your existing site — no code changes there:
+Point it at your existing site - no code changes there:
 
 ```bash
 TOLLBOOTH_UPSTREAM=https://your-site.com \
@@ -97,17 +97,17 @@ npx agent402-tollbooth          # listens on :4021, proxies humans free, charges
 ## Run on the edge (Cloudflare Workers, Next.js, Deno, Bun)
 
 The same gate is also built on the Web Crypto + Fetch APIs (`edge.js`), so it runs
-anywhere — no Node required. The gate returns a `402 Response` when the client
+anywhere - no Node required. The gate returns a `402 Response` when the client
 must pay, or `null` to let it through.
 
 **Ready-to-deploy templates** (copy a folder, don't assemble from docs):
 
-- **Cloudflare Workers** → [`deploy/cloudflare/`](deploy/cloudflare/) — a ready
+- **Cloudflare Workers** → [`deploy/cloudflare/`](deploy/cloudflare/) - a ready
   `wrangler.toml` + a 3-step deploy guide (the open pay-per-crawl, on the
   incumbent's own platform).
-- **Next.js / Vercel** → [`deploy/nextjs/`](deploy/nextjs/) — a drop-in
+- **Next.js / Vercel** → [`deploy/nextjs/`](deploy/nextjs/) - a drop-in
   `middleware.js` + a 3-step deploy guide.
-- **Docker** → [`deploy/docker/`](deploy/docker/) — a `Dockerfile` +
+- **Docker** → [`deploy/docker/`](deploy/docker/) - a `Dockerfile` +
   `docker-compose.yml` to run the reverse proxy in front of any site with
   `docker compose up -d` (includes the live `/__tollbooth` dashboard).
 
@@ -141,12 +141,12 @@ export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)
 
 > On the edge, pass a stable `secret` (PoW tokens are HMAC-signed). For
 > single-use replay protection across stateless invocations, supply a `store`
-> (e.g. a Cloudflare KV wrapper — the Worker entry wires this for you).
+> (e.g. a Cloudflare KV wrapper - the Worker entry wires this for you).
 
 ## Accepting USDC (x402)
 
 The proof-of-work rail works with **zero config**. To also settle real USDC,
-set `payTo` and supply `verifyX402` — wire it to the standard, audited x402
+set `payTo` and supply `verifyX402` - wire it to the standard, audited x402
 server stack (`@x402/express` / your facilitator) rather than reinventing
 settlement:
 
@@ -195,10 +195,37 @@ on abort. (PoW is checked first, so an agent without a wallet always has a free 
 | `observe` | `false` | Observe-only: classify and count, but never 402. For pre-launch traffic measurement. |
 | `statsSink` | in-memory | Durable stats backend. Built-ins: `memorySink`, `kvStatsSink(kv)`, `httpStatsSink(url)`. |
 
-Environment variables: `TOLLBOOTH_UPSTREAM`, `TOLLBOOTH_PAYTO`, `TOLLBOOTH_PRICE`,
-`TOLLBOOTH_NETWORK`, `TOLLBOOTH_POW_BITS`, `TOLLBOOTH_MODE`, `TOLLBOOTH_ADAPTIVE`,
-`TOLLBOOTH_MAX_POW_BITS`, `TOLLBOOTH_ADAPTIVE_PER_BIT`, `TOLLBOOTH_SECRET`,
-`TOLLBOOTH_OBSERVE`, `TOLLBOOTH_STATS_TOKEN`, `TOLLBOOTH_STATS_BUCKET`, `PORT`.
+### Environment variables
+
+Read by the bundled proxy / Express entry point (`index.js`):
+
+| env | default | meaning |
+|---|---|---|
+| `TOLLBOOTH_UPSTREAM` | – | Origin the built-in reverse proxy forwards to |
+| `TOLLBOOTH_PAYTO` | – | Wallet address; set to advertise a USDC x402 quote |
+| `TOLLBOOTH_PRICE` | `"$0.001"` | Advertised price per request |
+| `TOLLBOOTH_NETWORK` | `"base"` | x402 network |
+| `TOLLBOOTH_ASSET` | `"USDC"` | Asset symbol in the quote (`USDG` charges in USDG on Robinhood Chain) |
+| `TOLLBOOTH_POW_BITS` | `18` | Proof-of-work difficulty in leading zero bits |
+| `TOLLBOOTH_MODE` | `"bots"` | Who pays: `bots` · `all` · `strict` |
+| `TOLLBOOTH_ADAPTIVE` | `false` | Raise PoW difficulty as charged-request load climbs |
+| `TOLLBOOTH_ADAPTIVE_PER_BIT` | `300` | +1 difficulty bit per N charged requests/min |
+| `TOLLBOOTH_SECRET` | random | HMAC secret binding PoW challenges (set it to survive restarts / run multiple instances) |
+| `TOLLBOOTH_RESOURCE_BASE` | `TOLLBOOTH_UPSTREAM` | Absolute base used for the `resource` field / PoW binding |
+| `TOLLBOOTH_VERIFY_TIMEOUT_MS` | `10000` | Abort an x402 settlement check after this long |
+| `TOLLBOOTH_OBSERVE` | `false` | Observe-only: classify and count, never 402 |
+| `TOLLBOOTH_ADMIN_TOKEN` | – | Token gating the `/__tollbooth` dashboard **and** `/__tollbooth/stats`. Unset logs a warning and leaves the dashboard publicly reachable (aggregate counts only) |
+| `TOLLBOOTH_STATS_TOKEN` | – | Legacy token gating `/__tollbooth/stats` only |
+| `PORT` | `4021` | Listen port |
+
+Cloudflare Worker only (`worker.js`, bound in `wrangler.toml`):
+
+| binding / env | meaning |
+|---|---|
+| `TOLLBOOTH_REPLAY` | Durable Object binding giving **atomic**, strict single-use PoW replay protection across isolates. Required in enforcing mode |
+| `TOLLBOOTH_ALLOW_NON_ATOMIC_REPLAY` | `"true"` explicitly accepts non-atomic (KV or per-isolate) replay protection instead of a Durable Object. Without it, enforcing mode refuses to start |
+| `TOLLBOOTH_KV` | KV namespace for durable stats |
+| `TOLLBOOTH_STATS_BUCKET` | Stats bucket name within `TOLLBOOTH_KV` (default `"default"`) |
 
 ## How it decides who pays
 
@@ -208,25 +235,25 @@ Google-Extended, Amazonbot, …). Classic search indexers (Googlebot, Bingbot) a
 intentionally **not** charged so your SEO indexing stays free.
 
 **Don't want to play whack-a-mole with bot detection?** That's the point of the
-other modes — you stop trying to *identify* bots and instead make access *cost
+other modes - you stop trying to *identify* bots and instead make access *cost
 something*:
 - `mode: "all"` charges every client (except a `free()` match). A "more
-  sophisticated" bot gains nothing by disguising itself — everyone pays or solves
+  sophisticated" bot gains nothing by disguising itself - everyone pays or solves
   a proof-of-work.
 - `mode: "strict"` charges anything that isn't a real-browser request (browser-like
   UA **and** an HTML `Accept`), letting genuine human page-loads through free.
-  Heads-up: that's a heuristic, not a security boundary — a bot that sets
+  Heads-up: that's a heuristic, not a security boundary - a bot that sets
   `User-Agent: Mozilla/5.0 …` + `Accept: text/html` gets the same free pass a
   human gets. Use `mode: "all"` (or your own `charge:` predicate) for hard
   guarantees.
 - `adaptive: true` makes proof-of-work **harder as load climbs**, so a high-volume
-  scraper pays escalating CPU per request regardless of how it looks — detection is
+  scraper pays escalating CPU per request regardless of how it looks - detection is
   cat-and-mouse, economics isn't.
 
 ## Observe before charging
 
 Don't want to flip a meter on cold? **Run the gate in observe-only mode for a
-week first** — every request is still classified (bot vs. human) and counted,
+week first** - every request is still classified (bot vs. human) and counted,
 but nothing ever gets a 402:
 
 ```js
@@ -235,8 +262,8 @@ app.use(createTollbooth({ observe: true })); // or: TOLLBOOTH_OBSERVE=true
 
 On the edge / Cloudflare Worker / Next.js: set `TOLLBOOTH_OBSERVE=true` in env.
 
-The dashboard grows a **"Would charge"** counter so you can show your team —
-or your client — exactly how much of their traffic is AI bots **before** you
+The dashboard grows a **"Would charge"** counter so you can show your team -
+or your client - exactly how much of their traffic is AI bots **before** you
 start returning 402s. Removing the flag flips on enforcement with no other
 changes. Bots see a `X-Tollbooth-Observed: would-charge` header in observe mode
 (handy for log filtering); humans see nothing.
@@ -249,12 +276,12 @@ The middleware keeps aggregate counters (no per-request data):
 - `gate.flush()` → flush any buffered deltas to the durable sink (call inside `ctx.waitUntil` on edge runtimes).
 
 The reverse-proxy CLI exposes them as JSON at **`/__tollbooth/stats`** and as a
-live **dashboard at `/__tollbooth`** — requests, how many were charged,
+live **dashboard at `/__tollbooth`** - requests, how many were charged,
 proof-of-work solves, USDC collected, and what share of your traffic is bots.
 
 ## Durable stats (survive restart, aggregate across instances)
 
-By default, stats live in process memory — fine for single-instance Node,
+By default, stats live in process memory - fine for single-instance Node,
 useless across multiple replicas or on the edge. Pass a `statsSink` to make
 them survive:
 
@@ -281,7 +308,7 @@ app.use(createTollbooth({
 }));
 ```
 
-Sink interface (build your own — e.g. a Cloudflare Durable Object for strict
+Sink interface (build your own - e.g. a Cloudflare Durable Object for strict
 consistency):
 
 ```ts
@@ -301,7 +328,7 @@ JSON endpoint, BEFORE the gate so they're never paywalled:
 - **`/__tollbooth/stats`** → JSON snapshot (gate with `TOLLBOOTH_STATS_TOKEN` for bearer-auth)
 
 With a `TOLLBOOTH_KV` namespace bound, the stats aggregate across all isolates
-of all Cloudflare colos serving the Worker — one consistent view.
+of all Cloudflare colos serving the Worker - one consistent view.
 
 On Next.js / Vercel Edge, middleware can't mount dashboards itself (it'd gate
 them), so a companion **route handler** at `app/__tollbooth/stats/route.js`
@@ -312,7 +339,7 @@ as drop-in copyable snippets.
 ## Production checklist (read this)
 
 - **Set a stable `TOLLBOOTH_SECRET`.** Required for any multi-process/clustered
-  Node deploy and for all edge deploys — without it, proof-of-work tokens use a
+  Node deploy and for all edge deploys - without it, proof-of-work tokens use a
   random per-process secret and are rejected across restarts/workers/isolates.
 - **For serverless/edge, supply a durable replay `store`** (e.g. bind a Cloudflare
   KV namespace as `TOLLBOOTH_KV`). The in-memory default is per-isolate, so a
@@ -321,7 +348,7 @@ as drop-in copyable snippets.
 - **The reverse proxy pins the host** to your configured upstream (a client can't
   redirect it elsewhere) and **strips client-forged trust/forwarding headers**
   (`X-Tollbooth-Paid`, `X-Forwarded-Host`, etc.) before forwarding.
-- **UA matching is the default, not a security boundary** — a bot can forge a
+- **UA matching is the default, not a security boundary** - a bot can forge a
   human UA to get the *same free access a human gets* (it gains nothing more). To
   stop relying on detection entirely, use `mode: "all"` / `mode: "strict"`, and
   turn on `adaptive` so high-volume abuse pays escalating proof-of-work.
@@ -329,7 +356,7 @@ as drop-in copyable snippets.
 ## Notes
 
 - Proof-of-work tokens are HMAC-signed, expiry-checked, single-use, and bound to
-  the exact resource (path + query, dots and all) — a solution for one URL can't
+  the exact resource (path + query, dots and all) - a solution for one URL can't
   be replayed or reused on another.
 - MIT licensed. Part of [Agent402](https://github.com/MikeyPetrillo/Agent402).
 

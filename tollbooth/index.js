@@ -327,7 +327,13 @@ async function startCli() {
   if (!_secret) {
     console.warn("⚠ TOLLBOOTH_SECRET not set — proof-of-work tokens use a random per-process secret: they won't survive a restart and will be rejected across multiple workers/instances. Set a stable TOLLBOOTH_SECRET in production.");
   } else if (/^change-me/i.test(_secret) || _secret === "change-me-to-a-long-random-string") {
-    console.warn("⚠ TOLLBOOTH_SECRET is the public placeholder from the deploy template — it's readable by anyone, so proof-of-work tokens can be FORGED to bypass your gate for free. Set a real random secret: `openssl rand -hex 32`.");
+    // FATAL, not a warning. The placeholder is published in our own deploy
+    // template, so anyone can read it, mint a token with difficulty 0 and walk
+    // through the gate without doing any work - the operator believes they are
+    // charging while everything is free. A warning scrolls past in a container
+    // log; refusing to start cannot be missed, and it fails CLOSED.
+    console.error("✖ TOLLBOOTH_SECRET is the public placeholder from the deploy template. It is readable by anyone, so proof-of-work tokens can be forged and your gate bypassed for free. Refusing to start. Generate a real secret: openssl rand -hex 32");
+    process.exit(1);
   }
   const { default: express } = await import("express");
   const app = express();

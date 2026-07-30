@@ -267,14 +267,34 @@ export function mppSales({ limit = 30 } = {}) {
   return {
     persistent: salesPersistent,
     count: rows.length,
+    // No payer. This feed is public (the /revenue MPP section + /api/revenue/mpp)
+    // and exists to make MPP-wire adoption verifiable, which the tx hash does on
+    // its own - anyone who wants chain truth can resolve the payer from the tx.
+    // Carrying the address here made this a per-call customer list on a public
+    // route, which is the same thing salesSummary's contract below refuses.
     settlements: rows.map((r) => ({
       at: new Date(r.ts).toISOString(), slug: r.slug, priceUsd: r.price_usd,
-      rail: r.rail, network: r.network, payer: r.payer, tx: r.tx, internal: !!r.internal,
+      rail: r.rail, network: r.network, tx: r.tx, internal: !!r.internal,
     })),
   };
 }
 
-export function salesSummary({ days = 30 } = {}) {
+/**
+ * Sales summary. Two modes, same rule the wish board follows:
+ *
+ *  - default (PUBLIC): aggregate only — totals, recording window, and COUNTS.
+ *    "Real demand exists, come sell" stays public because it pulls buyers and
+ *    sellers in; "who pays us, how often, and which tools earn most" does not.
+ *    Three things kept this out of the public shape: per-call rows carry payer
+ *    addresses (a customer list, however public the chain is, and the /revenue
+ *    Buyers metric is counts-only for exactly this reason), repeatBuyers ranked
+ *    our own customers by spend, and topExternal is the ranking the PAID
+ *    bestsellers tool sells — serving it free undercut our own product.
+ *
+ *  - detailed:true (OPERATOR ONLY): the itemized rows. Never wire this to a
+ *    public route; it lives behind the operator token at /__operator/sales.json.
+ */
+export function salesSummary({ days = 30, detailed = false } = {}) {
   const since = Date.now() - days * 86_400_000;
   const totals = { external: { sales: 0, revenueUsd: 0 }, internal: { sales: 0, revenueUsd: 0 }, byRail: {} };
   for (const r of qTotals.all(since)) {
@@ -288,11 +308,20 @@ export function salesSummary({ days = 30 } = {}) {
   }
   totals.external.revenueUsd = +totals.external.revenueUsd.toFixed(4);
   totals.internal.revenueUsd = +totals.internal.revenueUsd.toFixed(4);
-  return {
+  const byPayer = qExtByPayer.all(since);
+  const base = {
     days,
     persistent: salesPersistent,
     recordingSince: qFirstTs.get()?.ts ?? null,
     totals,
+    // Counts, never rosters or rankings: enough to show the market is real
+    // without naming a single buyer or ranking a single tool.
+    distinctExternalBuyers: byPayer.length,
+    distinctToolsSoldExternal: qExtBySlug.all(since).length,
+  };
+  if (!detailed) return base;
+  return {
+    ...base,
     topExternal: qExtBySlug.all(since).map((r) => ({
       slug: r.slug, sales: r.sales, revenueUsd: +r.revenue.toFixed(4), lastAt: new Date(r.last_ts).toISOString(),
     })),
@@ -304,7 +333,7 @@ export function salesSummary({ days = 30 } = {}) {
       at: new Date(r.ts).toISOString(), slug: r.slug, priceUsd: r.price_usd, rail: r.rail,
       network: r.network, payer: r.payer, tx: r.tx,
     })),
-    repeatBuyers: qExtByPayer.all(since).map((r) => ({
+    repeatBuyers: byPayer.map((r) => ({
       payer: r.payer, sales: r.sales, revenueUsd: +r.revenue.toFixed(4), lastAt: new Date(r.last_ts).toISOString(),
     })),
   };

@@ -1,8 +1,8 @@
 # agent402-ai-sdk
 
-Vercel AI SDK tools for [Agent402](https://agent402.tools) — the open-source
+Vercel AI SDK tools for [Agent402](https://agent402.tools) - the open-source
 x402 + MCP server with 500+ pay-per-call web tools (browser, web search,
-OCR, PDFs, durable memory, ~1,000 pure-CPU utilities) **and** the cross-seller
+OCR, PDFs, durable memory, 200+ pure-CPU utilities) **and** the cross-seller
 [Smart Order Router](https://agent402.tools/index) that ranks tools across the
 whole x402 ecosystem.
 
@@ -31,20 +31,20 @@ const { text } = await generateText({
 });
 ```
 
-## What you get — four meta tools
+## What you get - four meta tools
 
 The LLM picks tasks; the router picks sellers; the caller handles payment.
 
 | Tool | Purpose |
 |---|---|
-| `agent402_find` | Resolve a plain-language task to the best **local** Agent402 tool — slug, route, price, input schema, and a ready example. |
-| `agent402_route` | **Cross-seller x402 router**: rank tools across every x402 seller (Agent402 + other auto-discovered sellers from the Coinbase CDP Bazaar). `include: "external"` excludes Agent402 itself — neutral discovery API over the rest of the ecosystem. |
+| `agent402_find` | Resolve a plain-language task to the best **local** Agent402 tool - slug, route, price, input schema, and a ready example. |
+| `agent402_route` | **Cross-seller x402 router**: rank tools across every x402 seller (Agent402 + other auto-discovered sellers from the Coinbase CDP Bazaar). `include: "external"` excludes Agent402 itself - neutral discovery API over the rest of the ecosystem. |
 | `agent402_call` | Call a tool by slug. Pays automatically: pure-CPU tools via proof-of-work; wallet-only via your x402 fetch. |
-| `agent402_about` | The Agent402 service manifest — payment options, capability map, MCP connector, trust signals. |
+| `agent402_about` | The Agent402 service manifest - payment options, capability map, MCP connector, trust signals. |
 
 Why four meta tools and not one tool per slug? Registering 500+ individual
 tools blows past most agents' tool-budget and the LLM can't reason over
-hundreds of entries. Routing-as-discovery scales — the LLM describes the
+hundreds of entries. Routing-as-discovery scales - the LLM describes the
 task, the router picks the cheapest healthy seller, the caller handles
 payment.
 
@@ -52,7 +52,7 @@ payment.
 
 `agent402-ai-sdk@0.2.0` replaces the per-slug tool generator with the four-
 meta-tool pattern. If you were using `agent402Tools({ slugs: [...] })`, the
-new entry point is just `agent402Tools()` — the LLM picks slugs at runtime
+new entry point is just `agent402Tools()` - the LLM picks slugs at runtime
 via `agent402_find` and `agent402_route`.
 
 ## Framework-agnostic specs
@@ -84,4 +84,4 @@ agent402Tools({
 
 ## License
 
-MIT — part of [Agent402](https://github.com/MikeyPetrillo/Agent402).
+MIT - part of [Agent402](https://github.com/MikeyPetrillo/Agent402).

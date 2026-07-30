@@ -31,8 +31,8 @@ export function ledgerPricingPage(baseUrl, catalog) {
   const receiptRows = [
     ["Most tools - text, math, encoding, time, validation, convert", "$0.001"],
     ["Agent memory - write, recall, grant, audit", "$0.002"],
-    ["Payments & x402 - decode, verify, settle", "$0.002"],
-    ["Article extract - clean markdown out", "$0.004"],
+    ["Payments & x402 - decode, verify, settle", "from $0.002"],
+    ["Article extract - clean markdown out", "$0.010"],
     ["Headless browser - render & screenshot (real Chromium)", "$0.02"],
   ];
 
@@ -42,6 +42,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
     ["/v1/auto/chat/completions - model optional, eval-ranked routing", "$0.01"],
     ["/v1/chat/completions - budget/mid models", "$0.02"],
     ["/v1/images/generations - one image per call", "$0.08"],
+    ["/v1/audio/speech - OpenAI TTS wire, mp3/pcm bytes out", "$0.06"],
     ["/v1/pro/chat/completions - gpt-4o, claude sonnet, gemini pro", "$0.10"],
     ["/v1/premium/chat/completions - gpt-5, o3/o4, claude opus", "$0.50"],
   ];

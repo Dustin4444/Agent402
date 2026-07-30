@@ -3126,6 +3126,12 @@ const SKILLS_CSS = `
 .sk-tl .name { font-weight:700; color:var(--ink); }
 .sk-tl .name a { color:var(--ink); text-decoration:none; }
 .sk-tl .name a:hover { color:var(--accent); }
+.sk-buy { border:1.5px solid var(--ink); background:var(--card); padding:18px 20px; margin:24px 0 0; max-width:720px; }
+.sk-buy-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+.sk-buy-price { font-family:var(--font-mono); font-size:26px; font-weight:700; color:var(--accent); }
+.sk-buy-unit { color:var(--muted); font-size:14px; }
+.sk-buy-route { font-family:var(--font-mono); font-size:13px; color:var(--ink); margin-top:6px; }
+.sk-buy-note { color:var(--muted); font-size:14px; line-height:1.7; margin:10px 0 0; }
 .sk-tl .price { color:var(--accent); font-family:var(--font-mono); font-size:13px; }
 .sk-tl .route { color:var(--faint); font-family:var(--font-mono); font-size:12px; }
 .sk-tl .desc { display:block; margin-top:6px; color:var(--muted); font-size:14px; line-height:1.55; }
@@ -3177,10 +3183,15 @@ function renderToolList(pack, ix) {
       if (!t) {
         return `<li><span class="row"><span class="name">${e(slug)}</span> <span class="missing">-- tool not currently in catalog</span></span></li>`;
       }
+      // No per-member price here. This page sells the BUNDLE (one call, one
+      // payment, priced above); a column of member prices next to it read as
+      // an itemised bill for buying the parts separately instead - pricing
+      // advice against the product the page exists to sell. Each member's own
+      // price is one click away on its tool page, and /api/pricing carries
+      // every price for agents that need them.
       return `<li>
   <span class="row">
     <span class="name"><a href="/tools/${e(slug)}">${e(t.name)}</a></span>
-    <span class="price">${e(t.price)}</span>
     <span class="route">${e(t.route)}</span>
   </span>
   <span class="desc">${e(t.description)}</span>
@@ -3196,6 +3207,11 @@ export function skillPackPage(baseUrl, slug, catalog) {
   const ix = indexCatalog(catalog);
   const tools = renderToolList(pack, ix);
   const steps = pack.workflow.map((s) => `<li>${e(s)}</li>`).join("\n");
+  // The pack's OWN endpoint, read from the served catalog so the page can never
+  // quote a price the server doesn't charge. Absent only if the pack has no
+  // bundled route registered, in which case the block is skipped rather than
+  // rendered empty.
+  const packTool = ix.get(`skill-${pack.slug}`);
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -3213,15 +3229,30 @@ export function skillPackPage(baseUrl, slug, catalog) {
   const body = `<div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
 <h1 style="font-family:var(--font-body);font-weight:800;font-size:38px;line-height:1;letter-spacing:-.02em;margin-bottom:10px;">${e(pack.title)}</h1>
 <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;">${e(pack.tagline)}</p>
+${packTool ? `
+<div class="sk-buy">
+  <div class="sk-buy-head">
+    <span class="sk-buy-price">${e(packTool.price)}</span>
+    <span class="sk-buy-unit">per call &middot; one payment for the whole workflow</span>
+  </div>
+  <div class="sk-buy-route">${e(packTool.route)}</div>
+  <p class="sk-buy-note">${pack.toolSlugs.length} tools run server-side in one request. You pay once, settle once, and get a single response - no orchestration, no per-step payments, and a partial-success envelope if any step fails. USDC over x402 on any supported chain.</p>
+</div>` : ""}
 
 <h2 style="font-weight:800;font-size:22px;margin-top:40px;letter-spacing:-.01em;">When to use this pack</h2>
 <p style="color:var(--muted);font-size:15px;line-height:1.7;">${e(pack.useCase)}</p>
 
 <h2 style="font-weight:800;font-size:22px;margin-top:40px;letter-spacing:-.01em;">Tools in this pack</h2>
+<p style="color:var(--muted);font-size:14.5px;line-height:1.7;margin:0 0 4px;">${packTool ? `All ${pack.toolSlugs.length} run inside the single ${e(packTool.price)} call above.` : `The ${pack.toolSlugs.length} tools this workflow composes.`} Each is also callable on its own if you only need one part.</p>
 <ul class="sk-tl">${tools}</ul>
 
 <h2 style="font-weight:800;font-size:22px;margin-top:40px;letter-spacing:-.01em;">Workflow</h2>
 <ol class="sk-wf">${steps}</ol>
+
+${packTool ? `
+<h2 style="font-weight:800;font-size:22px;margin-top:40px;letter-spacing:-.01em;">Call it directly</h2>
+<p style="color:var(--muted);font-size:15px;line-height:1.7;">Any x402 client pays the 402 and gets the whole workflow back in one response:</p>
+<pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:18px 20px;font-size:13px;line-height:1.6;border:none;margin-top:12px;overflow-x:auto;">npx agent402-client call ${e(pack.slug)} ${e(JSON.stringify(Object.fromEntries((pack.promptArgs || []).map((a) => [a.name, a.substitute ?? "..."]))))}</pre>` : ""}
 
 <h2 style="font-weight:800;font-size:22px;margin-top:40px;letter-spacing:-.01em;">Run it in Claude</h2>
 <pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:18px 20px;font-size:13px;line-height:1.6;border:none;margin-top:12px;">claude mcp add agent402 -s user -- npx -y agent402-mcp@latest</pre>
@@ -3330,6 +3361,13 @@ export function buildPromptMessages(pack, args = {}, { freeSlugs } = {}) {
         `For paid access, use the agent402-mcp npm server with AGENT_KEY set, or call over HTTP with any x402 client.`
     );
 
+  // Lead with the BUNDLE. This prompt used to open with the per-step plan,
+  // which told the agent to make one paid call per tool - more round-trips for
+  // the agent, more settlements to sign, and it routed around the single
+  // bundled endpoint that exists to do exactly this. The per-step plan stays
+  // as the fallback for a client that cannot reach the bundled route (and it
+  // is what the free compute-only tier can still run).
+  const bundledSlug = `skill-${pack.slug}`;
   const text = [
     body,
     "",
@@ -3337,7 +3375,13 @@ export function buildPromptMessages(pack, args = {}, { freeSlugs } = {}) {
     "",
     `Context - ${pack.title}: ${useCase}`,
     "",
-    "Tool plan (call each via the `call_tool` tool on this connector):",
+    "Preferred - run the whole workflow in ONE paid call:",
+    "",
+    `  call_tool { slug: "${bundledSlug}" }`,
+    "",
+    `All ${pack.toolSlugs.length} steps run server-side and come back in a single response, so this is one payment and one settlement instead of ${pack.toolSlugs.length}. Partial failures come back in the envelope rather than losing the run.`,
+    "",
+    "Fallback - if that route is unavailable to your client, run the steps yourself:",
     "",
     plan,
     ...(accessLines.length ? ["", "Access:", ...accessLines] : []),

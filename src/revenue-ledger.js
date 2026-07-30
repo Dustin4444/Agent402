@@ -114,6 +114,15 @@ const startBlockFor = (chain, head) => {
   return Math.max(0, head - Math.ceil((Date.now() - LEDGER_EPOCH_MS) / (BLOCK_MS[chain] || 2000)));
 };
 
+/** getLogs window for one chain's ledger sync. Chains whose RPCs enforce a
+ *  tighter range declare chunkBlocks (Sei: 1,900) — both other scanners
+ *  honored it, this one didn't, so every Sei tick sent a 9,000-block range,
+ *  the primary rejected it, the fallback walk ended on publicnode's archive
+ *  gate, and the cursor never advanced: ZERO Sei rows ever despite daily
+ *  canary settles (verified on-chain 2026-07-30). sei-apis serves any depth
+ *  at ≤1,900 blocks per request, so backfill needs no archive lane. */
+export const ledgerChunkBlocks = (c) => Math.min(c.chunkBlocks || 9000, 9000, Math.ceil(c.span / 4));
+
 /** Advance one EVM chain's cursor by up to `maxChunks` getLogs windows. */
 async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
   const c = EVM[chain];
@@ -126,7 +135,7 @@ async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
   // cursor gap wider than the RPC limit (≈25 min of downtime at Robinhood's
   // 0.15s blocks) made every subsequent getLogs request span the whole gap,
   // fail, and never advance — the all-time figure froze with ↺ forever.
-  const chunkSize = Math.min(9000, Math.ceil(c.span / 4));
+  const chunkSize = ledgerChunkBlocks(c);
   let chunks = 0;
   while (next <= head && chunks < maxChunks) {
     const to = Math.min(next + chunkSize - 1, head);

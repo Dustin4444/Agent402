@@ -185,6 +185,7 @@ import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
+import { buildSellerTrustTool } from "./tools/seller-trust.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus } from "./x402-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
@@ -763,6 +764,26 @@ for (const tier of EXEC_TIERS) {
   ALL_KIT.push(tool);
 }
 
+// Seller trust check — the same evidence the router above gates on, sold as a
+// read. Both accessors are injected so the tool stays pure and testable: the
+// crawler cache (sellerDetail) and the on-chain settlement counts
+// (buildSettledByOrigin, which already merges the committed seed floor with the
+// live leaderboard). Thresholds come from the router's own constants, so the
+// tool can never disagree with what the router actually does.
+{
+  const tool = buildSellerTrustTool({
+    getSellerDetail: (host) => sellerDetail(host),
+    getSettledCalls: (origin) => buildSettledByOrigin().get(norm(origin)) || 0,
+    sorThreshold: SOR_MIN_SETTLED_TX,
+    sorCap: EXEC_TIERS[0].underlyingMaxUsd,
+    settlementNetwork: "eip155:8453",
+    selfHost: (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })(),
+  });
+  if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
+  CATALOG[tool.route] = tool;
+  ALL_KIT.push(tool);
+}
+
 // Security audit A402-03: the wallet-scoped memory family and the wallet-keyed
 // my-usage report derive the caller's identity from the SIGNED EVM
 // authorization (payerFromRequest, EVM-only). Advertising a non-EVM rail on
@@ -1189,17 +1210,30 @@ app.get("/api/revenue/mpp", (_req, res) => {
 app.get("/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), sales: salesSummary(), mpp: mppSales() }));
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales() }));
   } catch (e) {
     res.status(500).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
   }
 });
-// Sales ledger — what external wallets actually buy, by name. Free and
-// public like /api/stats: payer wallets are already public in the settle
-// txs; slugs and counts are the merchant transparency this catalog sells on.
+// Sales ledger — AGGREGATE beacon: totals, the recording window, and counts.
+// Deliberately carries no per-call rows, no payer addresses, and no per-tool
+// ranking (see salesSummary's contract in src/sales-ledger.js for why each of
+// those three came out). The itemized view is operator-only, below; the
+// analyzed per-tool layer is the paid bestsellers tool.
 app.get("/api/sales", (_req, res) => {
   try {
     res.set("Cache-Control", "public, max-age=60").json(salesSummary());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+// Token-gated ITEMIZED sales feed — per-call rows with payer + tx, the per-tool
+// ranking, and repeat-buyer totals. Same posture as /__operator/wishes.json.
+app.get("/__operator/sales.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  try {
+    res.json(salesSummary({ detailed: true }));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2863,7 +2897,16 @@ app.get("/api/analytics", async (req, res) => {
   // `?include_probes=1` opts in to seeing empty-input scanning calls. Default
   // hides them — they inflate the 4xx rate without representing real callers.
   const includeProbes = req.query.include_probes === "1" || req.query.include_probes === "true";
-  res.json(await getAnalytics({ windowHours, top, includeSynthetic, includeProbes }));
+  // The per-tool table is a ranked demand-and-failure map: which tools have
+  // traffic, which are erroring, and how slow each upstream is. That is the
+  // same class of data /api/sales and /api/stats were reduced to stop giving
+  // away, so it is operator-only. Unauthenticated callers get the aggregate.
+  // Gated NOW, while ANALYTICS_DATABASE_URL is unset and the endpoint returns
+  // {enabled:false} - wiring the DB later must not silently publish the table.
+  const data = await getAnalytics({ windowHours, top, includeSynthetic, includeProbes });
+  if (operatorAuthed(req)) return res.json(data);
+  const { tools, ...aggregate } = data || {};
+  res.json({ ...aggregate, ...(tools ? { toolsCount: Array.isArray(tools) ? tools.length : undefined } : {}) });
 });
 
 // Human-readable analytics dashboard. Same data as /api/analytics, rendered as
@@ -2914,6 +2957,19 @@ mountMcp(app, CATALOG, {
   },
 });
 
+// Editorial notes for the /v1 gateway tiers, keyed by path. Prices and the
+// tier list itself are derived from CATALOG (see below) so they cannot drift;
+// only the prose lives here.
+const V1_TIER_NOTES = {
+  "/v1/nano/chat/completions": "cheap fast models",
+  "/v1/auto/chat/completions": "model optional - deterministic eval-ranked routing",
+  "/v1/chat/completions": "base tier",
+  "/v1/pro/chat/completions": "frontier models",
+  "/v1/premium/chat/completions": "largest models",
+  "/v1/embeddings": "batch \u226464, cached by default",
+  "/v1/images/generations": "b64_json out",
+  "/v1/audio/speech": "OpenAI TTS wire, mp3/pcm bytes out",
+};
 app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
@@ -2927,15 +2983,16 @@ app.get("/api/pricing", (_req, res) => {
       wire: "OpenAI-compatible",
       base: `${BASE_URL}/v1`,
       pricing: "flat per call - never token-metered",
-      tiers: [
-        { path: "/v1/nano/chat/completions", price: "$0.003", note: "cheap fast models" },
-        { path: "/v1/auto/chat/completions", price: "$0.01", note: "model optional - deterministic eval-ranked routing" },
-        { path: "/v1/chat/completions", price: "$0.02", note: "base tier" },
-        { path: "/v1/pro/chat/completions", price: "$0.10", note: "frontier models" },
-        { path: "/v1/premium/chat/completions", price: "$0.50", note: "largest models" },
-        { path: "/v1/embeddings", price: "$0.002", note: "batch ≤64, cached by default" },
-        { path: "/v1/images/generations", price: "$0.08", note: "b64_json out" },
-      ],
+      // DERIVED from the catalog, never hand-listed: as a literal array this
+      // drifted and omitted /v1/audio/speech, a live sellable tier. Deriving
+      // also means an env-gated tier that is switched off is absent here rather
+      // than advertised, and the price is always the price actually charged.
+      // Notes stay editorial, keyed by path; a path with no note still lists.
+      tiers: Object.entries(CATALOG)
+        .map(([route, def]) => ({ path: route.split(" ")[1], price: def.price }))
+        .filter((t) => t.path.startsWith("/v1/"))
+        .sort((a, b) => Number(a.price.replace("$", "")) - Number(b.price.replace("$", "")))
+        .map((t) => ({ ...t, note: V1_TIER_NOTES[t.path] || undefined })),
       docs: `${BASE_URL}/tools/category/llm`,
     },
     payment: { protocol: "x402", version: 2, network: NETWORK, currency: "USDC", networks: enabledNetworks(NETWORK) },

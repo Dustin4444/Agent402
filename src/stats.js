@@ -218,7 +218,13 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
   const num = (k) => getCounter.get(k)?.n ?? 0;
   const priceOf = (slug) => (prices && Number(prices[slug])) || 0;
   const estimatedRevenueUsd = +allPaid.all().reduce((s, r) => s + r.n * priceOf(r.slug), 0).toFixed(4);
-  const topPaidTools = topPaid.all().map((r) => ({ slug: r.slug, purchases: r.n, revenueUsd: +(r.n * priceOf(r.slug)).toFixed(4) }));
+  // Public rows carry the PURCHASE COUNT only. Per-tool revenue is what the paid
+  // bestsellers tool sells and what /api/sales was reduced to stop giving away;
+  // publishing it here too was the same leak on a different route, and it named
+  // our highest-earning tools as a ranked clone target. The full per-tool
+  // revenue table (plus pow/heartbeat splits and prices) stays available to the
+  // operator via getOperatorBreakdown.
+  const topPaidTools = topPaid.all().map((r) => ({ slug: r.slug, purchases: r.n }));
   const firstServed = parseInt(getMeta.get("firstServed")?.v ?? Date.now(), 10);
   const explorer = network === "base-sepolia" ? "https://sepolia.basescan.org" : "https://basescan.org";
   return {
@@ -249,7 +255,7 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
     // and a daily CI check both alert when this is nonzero.
     chargedButFailed: num("chargedButFailedTotal"),
     topTools: allTools.all(),
-    topPaidTools, // most-PURCHASED tools (USDC only), with estimated revenue
+    topPaidTools, // most-PURCHASED tools (USDC only) - counts only, no per-tool revenue
     estimatedRevenueUsd, // sum of price × USDC-purchase count (counters; chain is source of truth)
     recentCalls: getRecent.all(RECENT_SHOW).map((r) => ({
       slug: r.slug,

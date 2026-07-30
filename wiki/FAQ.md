@@ -4,41 +4,41 @@
 No. Nothing here has a signup. Payment (USDC or proof-of-work) is the only credential, per call.
 
 **What does it cost?**
-Flat per-call prices, $0.001–$0.02, published in [`/api/pricing`](https://agent402.tools/api/pricing) and quoted exactly in every 402 response. No subscriptions or tiers.
+Flat per-call prices starting at **$0.001**. Most tools are $0.001–$0.02; premium inference, media, and multi-tool skill packs are priced higher (up to $1.50 for the biggest pack). Every price is published in [`/api/pricing`](https://agent402.tools/api/pricing) and quoted exactly in every 402 response. No subscriptions or tiers.
 
 **Can I use it without any money?**
-Yes — ~210 pure-CPU tools accept proof-of-work (sub-second of your CPU), and the hosted MCP connector runs the same set free (rate-limited). See [[Paying with Compute]].
+Yes: 200+ pure-CPU tools accept proof-of-work (sub-second of your CPU), and the hosted MCP connector runs the same set free (rate-limited). See [[Paying with Compute]].
 
 **What is x402?**
 An open HTTP payment standard built on the `402 Payment Required` status code, with settlement infrastructure from Coinbase and open client tooling from Stripe. See [[Paying with x402]].
 
 **Which chain/asset?**
-USDC on Base (primary), Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, or Algorand — plus USDG (Global Dollar) on Robinhood Chain. The buyer needs only the stablecoin — gas/fees are sponsored by the facilitator on every rail.
+USDC on Base (primary), Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, or Algorand - plus USDG (Global Dollar) on Robinhood Chain. The buyer needs only the stablecoin - gas/fees are sponsored by the facilitator on every rail.
 
 **Does using this spend my AI tokens?**
-No. There's no LLM anywhere in the serving path — every tool is deterministic code. Proof-of-work spends your CPU; x402 spends USDC.
+No. There's no LLM anywhere in the serving path - every tool is deterministic code. Proof-of-work spends your CPU; x402 spends USDC.
 
 **Is my data stored?**
-Tool inputs are processed in memory and not persisted — except the memory tools, whose purpose is storage (wallet-keyed, owner-deletable, TTL-able). Full policy: [agent402.tools/privacy](https://agent402.tools/privacy).
+Tool inputs are processed in memory and not persisted - except the memory tools, whose purpose is storage (wallet-keyed, owner-deletable, TTL-able). Full policy: [agent402.tools/privacy](https://agent402.tools/privacy).
 
 **How do I know the service is honest?**
-The server is fully open source; CI re-tests every endpoint against its own documented example before each deploy; and revenue settles on-chain to **`agent402.base.eth`** (the named public receiving wallet) — anyone can audit it on [Basescan](https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns).
+The server is fully open source; CI re-tests every endpoint against its own documented example before each deploy; and revenue settles on-chain to **`agent402.base.eth`** (the named public receiving wallet) - anyone can audit it on [Basescan](https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns).
 
 **What if a tool fails after I paid?**
-x402 settles before the handler runs, so the operating principle is: anything that can't be served reliably is removed from the catalog rather than left to charge-and-502. Failure rates are watched by CI and a 15-minute production heartbeat.
+Then you weren't charged. The paywall runs the **handler first and settles afterwards**, and it settles only a response with a status below `400`. Any `4xx` or `5xx` cancels settlement, so a failed call takes no money. (A `200` is charged only once settlement succeeds; if settlement itself fails you get a `402`, not a bill.) On top of that, anything that can't be served reliably is removed from the catalog rather than left to fail repeatedly. Failure rates are watched by CI and a 15-minute production heartbeat.
 
 **Can I list my own service alongside this, or integrate?**
 Agent402 is listed on the Coinbase CDP Bazaar; the catalog is consumable via OpenAPI/x402 discovery. Open an [issue](https://github.com/MikeyPetrillo/Agent402/issues) to talk integrations.
 
 **Can I find tools on other x402 sellers from here?**
-Yes — Agent402 is also an [[x402 Index + Smart Order Router|x402-Index-and-Router]]. `POST /api/route` ranks tools across every x402 seller it has crawled (auto-discovered from the Coinbase CDP Bazaar, refreshed hourly), filters out unhealthy ones, and tiebreaks on health then price. Browse the live index at [`/index`](https://agent402.tools/index).
+Yes - Agent402 is also an [[x402 Index + Smart Order Router|x402-Index-and-Router]]. `POST /api/route` ranks tools across every x402 seller it has crawled (auto-discovered from the Coinbase CDP Bazaar, refreshed hourly), filters out unhealthy ones, and tiebreaks on health then price. Browse the live index at [`/marketplace`](https://agent402.tools/marketplace).
 
 **How do I see which x402 sellers are most used?**
-[`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) returns the live on-chain ranking of every x402 seller by **Base USDC settled volume** (calls served, totalUsd, unique buyers per seller). The pipeline walks every page of the Coinbase CDP Bazaar, queries `eth_getLogs` on Base USDC for each seller's `payTo` wallet, filters per-call settlements within a $0.50 ceiling (larger inbound is funding, not buys), and aggregates. Snapshot refreshes hourly. Use `?include=external` to exclude Agent402 itself. Full details in [[x402-Leaderboard]].
+[`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) returns the live on-chain ranking of every x402 seller by **Base USDC settled volume** (calls served, totalUsd, unique buyers per seller). The pipeline walks every page of the Coinbase CDP Bazaar, queries `eth_getLogs` on Base USDC for each seller's `payTo` wallet, filters per-call settlements within the per-call ceiling reported as `maxCallUsd` (**$0.75** by default; larger inbound is funding, not buys), and aggregates. Snapshot refreshes hourly. Use `?include=external` to exclude Agent402 itself. Full details in [[x402-Leaderboard]].
 
 **Who runs this?**
-[Havok Holdings LLC](https://github.com/MikeyPetrillo/Agent402) — a public, contactable maintainer. Contact: [mike@agent402.tools](mailto:mike@agent402.tools) · [@Agent402Tools on X](https://x.com/Agent402Tools).
+[Havok Holdings LLC](https://github.com/MikeyPetrillo/Agent402) - a public, contactable maintainer. Contact: [mike@agent402.tools](mailto:mike@agent402.tools) · [@Agent402Tools on X](https://x.com/Agent402Tools).
 
 **Is there an acceptable-use policy? Who is responsible for generated content?**
-Yes — the hosted instance's [Terms of Service](https://agent402.tools/terms) include a generative-content acceptable-use policy (and the upstream model providers' usage policies apply to `/v1` traffic). Outputs are generated by third-party models from the inputs you send: Agent402 doesn't review, own, publish, or retain them, and you are responsible for your inputs and how you use the outputs. Wallets used for prohibited content are blocked before settlement, so they are never charged. Report abuse: [mike@agent402.tools](mailto:mike@agent402.tools).
+Yes - the hosted instance's [Terms of Service](https://agent402.tools/terms) include a generative-content acceptable-use policy (and the upstream model providers' usage policies apply to `/v1` traffic). Outputs are generated by third-party models from the inputs you send: Agent402 doesn't review, own, publish, or retain them, and you are responsible for your inputs and how you use the outputs. Wallets used for prohibited content are blocked before settlement, so they are never charged. Report abuse: [mike@agent402.tools](mailto:mike@agent402.tools).
 

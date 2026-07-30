@@ -1103,10 +1103,8 @@ async function refreshSnapshot({ walletAddress, solanaWallet }) {
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const short = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "-");
 
-// "What's selling" - the sales ledger's merchant view (src/sales-ledger.js):
-// external paid calls BY NAME. The on-chain cards above prove the money;
-// this section names the products. Renders nothing until the first
-// externally-paid call lands (recording started 2026-07-04).
+// Explorer links for a settlement's tx hash, keyed by rail. Used by the
+// MPP-wire section below.
 const SALE_TX_URL = {
   base: (h) => `https://basescan.org/tx/${h}`,
   celo: (h) => `https://celoscan.io/tx/${h}`,
@@ -1143,7 +1141,7 @@ function mppSection(mpp) {
   const rowsHtml = list.slice(0, 30).map((s) => {
     const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
     const tag = s.internal ? ' · <span style="color:var(--muted);">canary</span>' : "";
-    return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
+    return `<div style="${s.internal ? "opacity:.7;" : ""}"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${link} · ${esc(s.at.slice(0, 16))}Z${tag}</div>`;
   }).join("");
   const body = list.length
     ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;margin-top:12px;">${rowsHtml}</div>`
@@ -1158,45 +1156,6 @@ function mppSection(mpp) {
     </details>`;
 }
 
-function salesSection(sales) {
-  if (!sales) return "";
-  const rows = sales.topExternal || [];
-  const recent = sales.recentExternal || [];
-  const internal = sales.recentInternal || [];
-  const since = sales.recordingSince ? new Date(sales.recordingSince).toISOString().slice(0, 10) : null;
-  const empty = !rows.length && !recent.length && !internal.length;
-  return `
-    <h2 style="font-family:var(--font-body);font-weight:800;font-size:26px;margin:44px 0 6px;">What's selling</h2>
-    <p style="font-size:14px;color:var(--muted);margin:0 0 16px;">Every paid call recorded by name at settle time${since ? ` (recording since ${esc(since)})` : ""} - external demand plus internal canary/test activity. Machine-readable: <a href="/api/sales">/api/sales</a>.</p>
-    ${empty
-      ? `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);">no paid calls recorded yet - the ledger names each one as it lands</p>`
-      : `<div class="ml-2col" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
-      <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed var(--dash);padding-bottom:8px;margin-bottom:10px;">top bought (30d) - $${(sales.totals?.external?.revenueUsd ?? 0).toFixed(4)} external</div>
-        <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
-          ${rows.map((r) => `<div><a href="/tools/${esc(r.slug)}">${esc(r.slug)}</a> × ${r.sales} · $${r.revenueUsd.toFixed(4)}</div>`).join("") || '<div style="color:var(--muted);">-</div>'}
-        </div>
-      </div>
-      <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed var(--dash);padding-bottom:8px;margin-bottom:10px;">recent external sales</div>
-        <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
-          ${recent.slice(0, 10).map((s) => {
-            const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
-            return `<div><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
-          }).join("") || '<div style="color:var(--muted);">-</div>'}
-        </div>
-      </div>
-      <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-        <div style="font-weight:800;font-size:15px;border-bottom:1px dashed var(--dash);padding-bottom:8px;margin-bottom:10px;">recent internal (canary/test) - $${(sales.totals?.internal?.revenueUsd ?? 0).toFixed(4)}</div>
-        <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
-          ${internal.slice(0, 10).map((s) => {
-            const link = txHref(s.network, s.tx) ? ` · <a href="${esc(txHref(s.network, s.tx))}" rel="noopener">tx</a>` : "";
-            return `<div style="opacity:.62;"><a href="/tools/${esc(s.slug)}">${esc(s.slug)}</a> $${s.priceUsd} · ${esc(netName(s.network) || s.rail)}${s.payer ? ` · <code>${esc(short(s.payer))}</code>` : ""}${link} · ${esc(s.at.slice(0, 16))}Z</div>`;
-          }).join("") || '<div style="color:var(--muted);">-</div>'}
-        </div>
-      </div>
-    </div>`}`;
-}
 
 // Revenue chart — stacked-by-chain daily/cumulative series from
 // /api/revenue/daily. Hand-rolled SVG, no libraries. Palette: the validated
@@ -1269,6 +1228,7 @@ export function revenueChartSection() {
     var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",settle:"all",rows:[],free:[],freeSince:null,buyers:[],conc:null};
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
+    function chainName(c){return c==="robinhood"?"Robinhood":c.charAt(0).toUpperCase()+c.slice(1)}
     // Wire filter: MPP and x402 settle identically on-chain, so the MPP subset
     // is joined in by tx hash server-side. x402 is the remainder, never a
     // separate count - that keeps All === x402 + MPP exactly.
@@ -1304,7 +1264,11 @@ export function revenueChartSection() {
       }
       if(state.traffic!=="free"){
         state.rows.forEach(function(r){var d=dayOf(r.day);
-          var s=slotOf(r.chain); d.slots[s]=(d.slots[s]||0)+val(r)})}
+          var s=slotOf(r.chain); d.slots[s]=(d.slots[s]||0)+val(r);
+          // Chains folded into "Other" keep their identity in a per-day
+          // breakdown - the fold is a palette constraint (8 validated hues),
+          // not a licence to hide which rails the money arrived on.
+          if(s===8){var v8=val(r);if(v8>0){d.oth=d.oth||{};d.oth[r.chain]=(d.oth[r.chain]||0)+v8}}})}
       // Free calls are counts, never dollars - a free call earns $0 by
       // definition, so the lane is absent under the Revenue $ metric rather
       // than drawn as a bar pretending call count is revenue. The metric/
@@ -1313,8 +1277,10 @@ export function revenueChartSection() {
       if(state.traffic!=="paid"&&state.metric==="tx"){
         state.free.forEach(function(r){var d=dayOf(r.day);d.slots.free=(d.slots.free||0)+(r.pow||0)})}
       var list=Object.keys(days).sort().map(function(k){return days[k]});
-      if(state.mode==="cum"){var acc={};list.forEach(function(d){var O=ORDERS();for(var k=0;k<O.length;k++){var s=O[k];
-        acc[s]=(acc[s]||0)+(d.slots[s]||0);d.slots[s]=acc[s]}})}
+      if(state.mode==="cum"){var acc={},accO={};list.forEach(function(d){var O=ORDERS();for(var k=0;k<O.length;k++){var s=O[k];
+        acc[s]=(acc[s]||0)+(d.slots[s]||0);d.slots[s]=acc[s]}
+        if(d.oth){for(var c in d.oth)accO[c]=(accO[c]||0)+d.oth[c]}
+        d.oth={};for(var c2 in accO)d.oth[c2]=accO[c2]})}
       return list;
     }
     function fmt(v){return state.metric==="usd"?(v>=1?"$"+v.toFixed(2):"$"+v.toFixed(4)):String(Math.round(v))}
@@ -1343,13 +1309,20 @@ export function revenueChartSection() {
       svg.onmousemove=function(ev){var t=ev.target.closest("rect[data-i]");if(!t){tip.style.display="none";return}
         var d=data[+t.dataset.i],rows="",tot=0;
         for(var k=ORD.length-1;k>=0;k--){var s=ORD[k];var v=d.slots[s]||0;if(v<=0)continue;tot+=v;
-          rows+='<div><i style="display:inline-block;width:8px;height:8px;background:'+css(s)+';margin-right:5px"></i>'+NAMES[s]+" "+fmt(v)+"</div>"}
+          rows+='<div><i style="display:inline-block;width:8px;height:8px;background:'+css(s)+';margin-right:5px"></i>'+NAMES[s]+" "+fmt(v)+"</div>";
+          if(s===8&&d.oth){Object.keys(d.oth).sort().forEach(function(c){if(d.oth[c]>0)
+            rows+='<div style="padding-left:13px;color:var(--muted)">'+chainName(c)+" "+fmt(d.oth[c])+"</div>"})}}
         tip.innerHTML="<b>"+d.day+"</b>"+rows+"<div style='border-top:1px dashed var(--dark-border2);margin-top:3px'>total "+fmt(tot)+"</div>";
         var wr=document.querySelector(".rvz-wrap").getBoundingClientRect();
         tip.style.display="block";tip.style.left=Math.min(ev.clientX-wr.left+14,wr.width-270)+"px";tip.style.top=(ev.clientY-wr.top+10)+"px"};
       svg.onmouseleave=function(){tip.style.display="none"};
-      var lg="",present={};data.forEach(function(d){for(var k=0;k<ORD.length;k++)if(d.slots[ORD[k]])present[ORD[k]]=1});
-      Object.keys(present).forEach(function(s){lg+='<span><i style="background:'+css(s)+'"></i>'+NAMES[s]+"</span>"});
+      var lg="",present={},othChains={};data.forEach(function(d){for(var k=0;k<ORD.length;k++)if(d.slots[ORD[k]])present[ORD[k]]=1;
+        if(d.oth)Object.keys(d.oth).forEach(function(c){if(d.oth[c]>0)othChains[c]=1})});
+      Object.keys(present).forEach(function(s){
+        var label=NAMES[s];
+        // Name what "Other" holds - the fold is visual, never informational.
+        if(String(s)==="8"&&Object.keys(othChains).length)label+=" ("+Object.keys(othChains).sort().map(chainName).join(", ")+")";
+        lg+='<span><i style="background:'+css(s)+'"></i>'+label+"</span>"});
       // An empty series under a wire filter is a real answer, not a broken
       // chart - say which filter emptied it rather than showing a blank grid.
       if(!Object.keys(present).length){
@@ -1357,8 +1330,13 @@ export function revenueChartSection() {
           (state.wire==="all"?"":state.wire==="mpp"?"MPP-wire ":"x402-wire ")+
           (state.scope==="ext"?"external":state.scope==="int"?"internal":"")+" settlements")+' in this window</span>'}
       document.getElementById("rvzLegend").innerHTML=lg;
-      var tb='<table><tr><th>day</th>';Object.keys(present).forEach(function(s){tb+="<th>"+NAMES[s]+"</th>"});tb+="<th>total</th></tr>";
-      data.forEach(function(d){var tot=0;tb+="<tr><td>"+d.day+"</td>";Object.keys(present).forEach(function(s){var v=d.slots[s]||0;tot+=v;tb+="<td>"+fmt(v)+"</td>"});tb+="<td>"+fmt(tot)+"</td></tr>"});
+      // "Other" gets one muted sub-column per folded chain (a subset of the
+      // Other column, so they never add to the row total).
+      var othList=Object.keys(othChains).sort();
+      var tb='<table><tr><th>day</th>';Object.keys(present).forEach(function(s){tb+="<th>"+NAMES[s]+"</th>";
+        if(String(s)==="8")othList.forEach(function(c){tb+='<th style="color:var(--muted)">· '+chainName(c)+"</th>"})});tb+="<th>total</th></tr>";
+      data.forEach(function(d){var tot=0;tb+="<tr><td>"+d.day+"</td>";Object.keys(present).forEach(function(s){var v=d.slots[s]||0;tot+=v;tb+="<td>"+fmt(v)+"</td>";
+        if(String(s)==="8")othList.forEach(function(c){tb+='<td style="color:var(--muted)">'+fmt((d.oth||{})[c]||0)+"</td>"})});tb+="<td>"+fmt(tot)+"</td></tr>"});
       document.getElementById("rvzTable").innerHTML=tb+"</table>";
     }
     function buyersNote(){
@@ -1463,6 +1441,10 @@ export function revenuePage(baseUrl, snap) {
         ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable - public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
         : r.recent.length
           ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">${r.recent
+              // Cards cap at the 5 newest transfers so the grid stays even;
+              // the cut is announced below, never silent, and /api/revenue
+              // carries the full window.
+              .slice(0, 5)
               .map((t) => {
                 const tag = t.usd === undefined ? ""
                   : t.external ? ` · <strong style="color:var(--accent);">external</strong>`
@@ -1474,7 +1456,7 @@ export function revenuePage(baseUrl, snap) {
                   ? `<div style="${dim}">+$${t.usd ?? "?"} from <code>${esc(short(t.from))}</code> · <a href="${esc(t.tx)}" rel="noopener">tx</a>${tag}${when}</div>`
                   : `<div><a href="${esc(t.tx)}" rel="noopener">tx</a>${when}${t.err ? " · failed" : ""}</div>`;
               })
-              .join("")}</div>`
+              .join("")}${r.recent.length > 5 ? `<div style="color:var(--muted);">+ ${r.recent.length - 5} more in the window · <a href="/api/revenue">full list</a></div>` : ""}</div>`
           : `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">chain live, balance settling - no per-call activity in the recent scan window</div>`}
       ${r.scanNote ? `<div style="margin-top:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">${esc(r.scanNote)}</div>` : ""}
       ${r.explorer ? `<div style="margin-top:12px;font-family:var(--font-mono);font-size:12px;"><a href="${esc(r.explorer)}" rel="noopener">open in explorer →</a></div>` : ""}
@@ -1496,7 +1478,6 @@ export function revenuePage(baseUrl, snap) {
     </div>
     <p style="font-size:13.5px;color:var(--muted);margin-top:26px;">Recent-window transfers are the last few hours of inbound stablecoin on each rail, classified with the same rule as the daily revenue digest: a payment is <strong>external</strong> only if it comes from a wallet that isn't ours (canary/test burners are excluded) and is per-call-sized (≤ $${MAX_CALL_USD}); bigger inbound is funding or tests, not a buy. Rails read best-effort: a flaky public RPC marks that rail unavailable without hiding the others.</p>
     <p style="font-size:13.5px;color:var(--muted);margin-top:10px;">Don't take our word for it: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our on-chain settlements independently →</a> Their totals count <em>all</em> traffic to our wallets - including our own canary and test buys - so they read higher than the external-only figures above. Both are correct; they measure different things.</p>
-    ${salesSection(snap.sales)}
     ${mppSection(snap.mpp)}
   </main>
   ${ledgerFooterCompact(baseUrl)}`;

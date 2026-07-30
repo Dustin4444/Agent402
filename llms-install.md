@@ -1,4 +1,4 @@
-# Agent402 — install instructions for AI agents
+# Agent402 - install instructions for AI agents
 
 This file tells an AI coding agent how to install the Agent402 MCP server
 into the client the user is running, with no API keys and no signup. The
@@ -91,23 +91,34 @@ Add to `.vscode/mcp.json` in the workspace, or to the user-level `mcp.json`:
 
 ## What you get
 
-Four MCP tools that cover all 500+ underlying Agent402 tools:
+Five MCP tools that cover all 500+ underlying Agent402 tools:
 
-- `search_tools(query)` — lexical search across the catalog.
-- `find_tool(query)` — the single best-match tool with its input schema.
-- `call_tool(slug, input)` — invoke any tool; the server handles
+- `search_tools(query)` - lexical search across the catalog. Task-shaped
+  queries also return matching multi-tool skill packs, which the server
+  publishes as MCP prompts (`prompts/list` / `prompts/get`).
+- `call_tool(slug, input)` - invoke any tool; the server handles
   proof-of-work (free tier) or x402 payment (paid tier) under the hood.
-- `about_agent402` — server metadata, pricing model, links.
+- `payment_info` - which mode the server is in (proof-of-work or wallet),
+  the spend caps in force, what has been spent, and what a wallet unlocks.
+- `top_x402_sellers` - the live x402 seller leaderboard by settled USDC.
+  Free to call, no payment and no proof-of-work.
+- `route_and_execute(task, params, maxUsd)` - reach a tool OUTSIDE this
+  catalog: Agent402 resolves a proven external x402 seller, pays it on your
+  behalf, and relays the result marked `untrustedContent`. Needs a funded
+  wallet. Flat routing fee by rung: $0.01 for an underlying seller at
+  $0.005 or less, $0.05 up to $0.04, $0.55 up to $0.50.
 
-Pure-CPU tools (~1,040 of them — hashing, encoding, parsing, regex, date
+Pure-CPU tools (200+ of them - hashing, encoding, parsing, regex, date
 math, validators, converters, geo math) are free via proof-of-work and
 need no wallet. Paid tools (browser rendering, web search, PDF tooling,
-live data, crypto reads) cost $0.001–$0.02 in USDC on Base (or Solana/Polygon/Arbitrum/Stellar — plus USDG on Robinhood Chain); see
-`https://agent402.tools/api/pricing`.
+live data, crypto reads) mostly cost $0.001–$0.02 in USDC on Base (or
+Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand
+ - plus USDG on Robinhood Chain, 12 chains in all); multi-tool skill packs
+run up to $1.50. See `https://agent402.tools/api/pricing` for exact prices.
 
 ## Verifying it works
 
-After install, ask the agent to run a free tool — e.g. "use agent402 to
+After install, ask the agent to run a free tool - e.g. "use agent402 to
 hash the string `hello world` with sha256". A successful response means
 the MCP wiring + free tier are working.
 
