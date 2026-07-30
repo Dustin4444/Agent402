@@ -1482,6 +1482,10 @@ export function revenuePage(baseUrl, snap) {
         ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable - public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
         : r.recent.length
           ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">${r.recent
+              // Cards cap at the 5 newest transfers so the grid stays even;
+              // the cut is announced below, never silent, and /api/revenue
+              // carries the full window.
+              .slice(0, 5)
               .map((t) => {
                 const tag = t.usd === undefined ? ""
                   : t.external ? ` · <strong style="color:var(--accent);">external</strong>`
@@ -1493,7 +1497,7 @@ export function revenuePage(baseUrl, snap) {
                   ? `<div style="${dim}">+$${t.usd ?? "?"} from <code>${esc(short(t.from))}</code> · <a href="${esc(t.tx)}" rel="noopener">tx</a>${tag}${when}</div>`
                   : `<div><a href="${esc(t.tx)}" rel="noopener">tx</a>${when}${t.err ? " · failed" : ""}</div>`;
               })
-              .join("")}</div>`
+              .join("")}${r.recent.length > 5 ? `<div style="color:var(--muted);">+ ${r.recent.length - 5} more in the window · <a href="/api/revenue">full list</a></div>` : ""}</div>`
           : `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">chain live, balance settling - no per-call activity in the recent scan window</div>`}
       ${r.scanNote ? `<div style="margin-top:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">${esc(r.scanNote)}</div>` : ""}
       ${r.explorer ? `<div style="margin-top:12px;font-family:var(--font-mono);font-size:12px;"><a href="${esc(r.explorer)}" rel="noopener">open in explorer →</a></div>` : ""}
