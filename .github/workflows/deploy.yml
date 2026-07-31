@@ -1299,6 +1299,9 @@ jobs:
       - name: Index seller count is not instance-inflated (origins vs operators)
         run: node scripts/test-index-inflation.js
 
+      - name: Producer/consumer shape contract (no consumer reads a field nothing emits)
+        run: node scripts/test-producer-shapes.js
+
       - name: Every test script is wired into CI (no orphaned suites)
         run: node scripts/test-ci-coverage.js
 

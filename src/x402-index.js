@@ -817,20 +817,31 @@ function paywallProbeDue() {
 }
 
 async function probePaywall(tools) {
+  // A cached tool row has NO `url` field — the callable URL is derived as
+  // seller + route, the same way routeQuery builds it (see the `url:` mapping
+  // further down this file). The first version of this filtered on
+  // `typeof t.url === "string"`, which no producer ever sets, so the probe
+  // returned null for every seller and `paywall` was permanently null. It read
+  // as "not probed yet" and was really "never probes anything" — the same
+  // inert-feature defect this module's own header warns about, one field over.
   const paid = (Array.isArray(tools) ? tools : []).filter(
-    (t) => t && typeof t.url === "string" && Number(t.price) > 0
+    (t) => t
+      && typeof t.seller === "string" && t.seller !== LOCAL_SELLER  // never probe ourselves
+      && typeof t.route === "string" && t.route.startsWith("/")
+      && Number(t.price) > 0
   );
   // Prefer a GET: no body to guess, and a wrong body shape would produce a 400
   // that says nothing about the paywall.
   const pick = paid.find((t) => String(t.method || "GET").toUpperCase() === "GET") || paid[0];
   if (!pick) return null;
   const method = String(pick.method || "GET").toUpperCase();
+  const target = `${pick.seller}${pick.route}`;
   try {
     const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
     // Same guard as the router's live probe: crawled URLs are external data and
     // could DNS-rebind between crawl and now, so validate then pin.
-    await assertPublicUrl(pick.url);
-    const res = await fetch(pick.url, {
+    await assertPublicUrl(target);
+    const res = await fetch(target, {
       method,
       headers: { Accept: "application/json", ...(method !== "GET" ? { "Content-Type": "application/json" } : {}) },
       ...(method !== "GET" ? { body: "{}" } : {}),
@@ -840,9 +851,9 @@ async function probePaywall(tools) {
     });
     // 402 is the ONLY healthy answer for an unpaid call to a paid route. A 200
     // means the route is not actually paywalled; a 5xx means it is broken.
-    return { ok: res.status === 402, status: res.status, url: pick.url, at: Date.now() };
+    return { ok: res.status === 402, status: res.status, url: target, at: Date.now() };
   } catch (e) {
-    return { ok: false, status: 0, url: pick.url, at: Date.now(), error: String(e?.message || e).slice(0, 120) };
+    return { ok: false, status: 0, url: target, at: Date.now(), error: String(e?.message || e).slice(0, 120) };
   }
 }
 
@@ -1430,6 +1441,16 @@ export function sellerDetail(originOrHost) {
       // says the manifest parsed; a seller whose every paid route 500s scores a
       // perfect 1.0 on it. null = not probed yet (never assume healthy).
       paywall: v.paywall || null,
+      // payTo per advertised network. Registry-sourced only (bazaarItemToTool);
+      // a seller's own crawled manifest never contributes one. Omitting it made
+      // advertisedPayToEvidence inert: server.js passes THIS object as `seller`,
+      // so baseNetworkPayTo() read undefined and the paid seller-trust tool
+      // reported "advertises no payTo" for every seller, including the many that
+      // plainly do.
+      payToByNetwork: (v.tools || []).reduce((acc, t) => {
+        for (const [net, addr] of Object.entries(t.payToByNetwork || {})) if (!acc[net]) acc[net] = addr;
+        return acc;
+      }, {}),
       routable: isRoutable(v),
       tools: (v.tools || []).slice(0, 500).map((t) => ({
         method: t.method || null,
