@@ -1,6 +1,7 @@
 import { paymentMiddleware } from "@x402/express";
 import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
+import { UptoEvmScheme } from "@x402/evm/upto/server";
 import { ExactSvmScheme } from "@x402/svm/exact/server";
 import { ExactStellarScheme } from "@x402/stellar/exact/server";
 import { ExactAvmScheme } from "@x402/avm/exact/server";
@@ -196,6 +197,43 @@ function makeTier1UsdcScheme(caip2) {
   });
 }
 
+// ONE money table for EVERY scheme registered on a chain.
+//
+// The per-scheme factories above were written when `exact` was the only scheme,
+// so the override lived on the factory rather than the chain. Adding `upto`
+// registered the STOCK scheme with no parser, which falls back to
+// @x402/evm's default-asset registry — and that registry has no entry for
+// Celo, Robinhood, Optimism, Avalanche or Sei, so parsePrice THROWS on five of
+// nine EVM rails.
+//
+// That is not a per-chain outage. buildPaymentRequirementsFromOptions has no
+// per-option try/catch, so one throwing option aborts the WHOLE accepts array:
+// a Base-priced route 500s because a Celo option threw. Site-wide, no
+// payment-required header, nobody can pay - while /health stays green, so a
+// healthcheck accepts the deploy.
+//
+// Keyed by chain, applied to whatever scheme is being registered, so a future
+// scheme cannot silently miss the override the way upto just did.
+function moneyOverrideFor(caip2) {
+  if (caip2 === ROBINHOOD_CAIP2) return USDG;
+  if (caip2 === MONAD_CAIP2) return MONAD_USDC;
+  if (caip2 === CELO_CAIP2) return CELO_USDC;
+  return TIER1_USDC[caip2] || null;
+}
+/** Apply the chain's money override to any EVM scheme instance. */
+function withMoney(scheme, caip2) {
+  const cfg = moneyOverrideFor(caip2);
+  if (!cfg) return scheme;
+  return scheme.registerMoneyParser((amount, network) => {
+    if (String(network) !== caip2) return null;
+    return {
+      amount: convertToTokenAmount(numberToDecimalString(amount), cfg.decimals),
+      asset: cfg.asset,
+      extra: { name: cfg.name, version: cfg.version },
+    };
+  });
+}
+
 // Celo USDC with the CORRECT on-chain EIP-712 name ("USDC") and the asset
 // address @x402/evm's registry lacks. Same override mechanism as Monad.
 function makeCeloUsdcScheme() {
@@ -350,9 +388,30 @@ export function acceptsForItem(item, rails) {
   const avmPayToFor = () =>
     avmBuyer && AVM_SELF_FUNDING_SLUGS.has(item.slug) ? avmBuyer : algorandWallet;
   const evm = evmCaip2.map((caip2) => ({ scheme: "exact", payTo: payToFor(caip2), price: priceWithPremium(item.price, caip2), network: caip2 }));
+  // `upto` rides ALONGSIDE `exact` on the gated networks, at the identical
+  // price and payTo. The scheme is chosen per payment-option, not per
+  // registration, so dual-advertising means emitting a second option - which is
+  // what makes the upgrade additive: an exact-only buyer sees the entry it
+  // always saw, at the amount it always saw, and negotiates unchanged.
+  //
+  // For a fixed-price tool the ceiling IS the price, so `upto` currently buys
+  // the buyer nothing here beyond the option. It exists so the wire is proven
+  // before anything is priced variably; metered pricing is a separate change on
+  // top of a scheme that already settles.
+  const uptoNets = Array.isArray(rails.uptoCaip2) ? rails.uptoCaip2 : [];
+  const upto = uptoNets
+    .filter((caip2) => evmCaip2.includes(caip2))
+    .map((caip2) => ({ scheme: "upto", payTo: payToFor(caip2), price: priceWithPremium(item.price, caip2), network: caip2 }));
+  // Identity-bound routes stay EVM-`exact` ONLY (security audit A402-03): the
+  // handler derives the caller from the signed EIP-3009 authorization.from, and
+  // upto's payload is Permit2-shaped (permit2Authorization.from), which
+  // payerFromRequest deliberately does not read. Advertising upto here offers a
+  // rail these routes structurally cannot serve - it fails closed at a 400 with
+  // nobody charged, but a rail that cannot work should not be advertised.
   if (item.identityBound) return evm;
   return [
     ...evm,
+    ...upto,
     ...(solanaWallet ? svmCaip2.map((caip2) => ({ scheme: "exact", payTo: solanaWallet, price: priceWithPremium(item.price, caip2), network: caip2 })) : []),
     ...(stellarWallet ? stellarCaip2.map((caip2) => ({ scheme: "exact", payTo: stellarWallet, price: priceWithPremium(item.price, caip2), network: caip2 })) : []),
     // The Algorand accepts carry the x402 Global Challenge tag (Algorand
@@ -542,6 +601,64 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     }, solvadorPrimaryWanted));
     console.log(`Solvador (primary, filtered): settling USDC on ${solvadorPrimaryWanted.join(", ")}`);
   }
+  // Which networks may offer `upto`. Two gates, both required:
+  //   1. Operator opt-in — X402_UPTO_NETWORKS (CSV of CAIP-2 ids, or "all").
+  //      Unset means the scheme is never registered and every 402 is
+  //      byte-identical to today.
+  //   2. A configured facilitator must ADVERTISE upto for that network at
+  //      /supported. Advertising a scheme nobody can settle is worse than not
+  //      offering it: the buyer signs, the settle fails, and they are refused a
+  //      service they tried to pay for. @x402/core also refuses to BUILD a 402
+  //      for an unadvertised pair, which turns every unpaid request into a 500
+  //      (measured while building the trial test).
+  const uptoWanted = String(process.env.X402_UPTO_NETWORKS || "").trim();
+  let uptoCaip2 = [];
+  if (uptoWanted) {
+    const wanted = uptoWanted.toLowerCase() === "all"
+      ? evmCaip2
+      : uptoWanted.split(",").map((x) => x.trim()).filter(Boolean).filter((c) => evmCaip2.includes(c));
+    // Ask each facilitator CLIENT, not its URL.
+    //
+    // The first version fetched `${url}/supported` directly, which bypasses
+    // NetworkFilteredFacilitatorClient.getSupported() - the subclass that
+    // exists so a fallback facilitator can only win the networks we actually
+    // route to it. Solvador advertises upto on eleven chains while being
+    // network-filtered to one, so the raw fetch credited it with ten it is
+    // deliberately not routed for. Going through the client honours the same
+    // filter the settle path uses, so the gate can only ever agree with where
+    // payments will really go.
+    const advertised = new Set();
+    await Promise.all(facilitatorClients.map(async (client) => {
+      try {
+        const kinds = (await client.getSupported())?.kinds || [];
+        for (const k of kinds) {
+          if (String(k?.scheme || "").toLowerCase() === "upto" && k?.network) advertised.add(String(k.network));
+        }
+      } catch { /* a facilitator that cannot be reached advertises nothing */ }
+    }));
+    const claimed = wanted.filter((c) => advertised.has(c));
+
+    // PROVE it, do not take its word. A facilitator advertising upto says
+    // nothing about whether WE can price the asset on that chain: the scheme
+    // needs a money override, and a missing one throws inside parsePrice while
+    // the 402 is being built. Since one throwing option aborts the entire
+    // accepts array, an unpriceable chain does not degrade - it 500s every paid
+    // route on every chain. So each candidate is priced here, once, at boot,
+    // and anything that throws is dropped with the same loud refusal.
+    for (const caip2 of claimed) {
+      try {
+        await withMoney(new UptoEvmScheme(), caip2).parsePrice(0.001, caip2);
+        uptoCaip2.push(caip2);
+      } catch (e) {
+        console.warn(`x402 upto: REFUSING ${caip2} — cannot price it (${String(e?.message || e).slice(0, 120)}). Offering it would abort the whole accepts array and 500 every paid route.`);
+      }
+    }
+    const refused = wanted.filter((c) => !uptoCaip2.includes(c));
+    if (refused.length) {
+      console.warn(`x402 upto: REFUSING to offer upto on ${refused.join(", ")} — not advertised by a facilitator we route through, or not priceable here.`);
+    }
+  }
+
   let server = new x402ResourceServer(facilitatorClients)
     .registerExtension(bazaarResourceServerExtension)
     .registerExtension(builderCodeResourceServerExtension);
@@ -552,6 +669,31 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       : TIER1_USDC[caip2] ? makeTier1UsdcScheme(caip2)
       : new ExactEvmScheme();
     server = server.register(caip2, scheme);
+  }
+  // `upto` — variable-amount settlement. The buyer signs a Permit2
+  // authorization for a CEILING and the facilitator settles the amount the
+  // seller names at settle time, never above it. `exact` cannot express that:
+  // the price is fixed in the 402 before the handler runs, which is why the
+  // gateway prices in flat tiers and clamps max_tokens to defend margin instead
+  // of billing what a call actually cost.
+  //
+  // SHIPS DARK. Registering a scheme adds an accepts entry to EVERY 402 on the
+  // affected network, so this changes the payment negotiation of every buyer on
+  // the site. On a service where a malformed 402 means nobody can pay, that is
+  // not a change to make implicitly. Default OFF; enable per-network via
+  // X402_UPTO_NETWORKS once a canary has settled a real sub-ceiling payment.
+  //
+  // Registration is ADDITIVE, never a replacement: `exact` stays registered for
+  // the same network, so both appear in accepts at the same amount and an
+  // exact-only buyer negotiates exactly as it does today. Same
+  // backwards-compatible shape as the MPP shim.
+  //
+  // Advertising a scheme our facilitator cannot settle would be worse than not
+  // offering it, so a network is only registered when a configured facilitator
+  // actually advertises upto for it at /supported.
+  for (const caip2 of uptoCaip2) {
+    server = server.register(caip2, withMoney(new UptoEvmScheme(), caip2));
+    console.log(`x402 upto: variable-amount settlement offered on ${caip2}`);
   }
   for (const caip2 of svmCaip2) server = server.register(caip2, new ExactSvmScheme());
   // Stellar — settlement via the OpenZeppelin-operated x402 facilitator on pubnet.
@@ -637,7 +779,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // One payment option per enabled chain — agents pick the chain they hold funds on.
   // Identity-bound routes are the exception (EVM-only) — see acceptsForItem.
   const acceptsFor = (item) =>
-    acceptsForItem(item, { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet });
+    acceptsForItem(item, { evmCaip2, svmCaip2, stellarCaip2, avmCaip2, walletAddress, solanaWallet, stellarWallet, algorandWallet, uptoCaip2 });
 
   // The payment-required header is one base64-encoded JSON blob carrying
   // description + discovery extensions.  Skill packs and tools with rich

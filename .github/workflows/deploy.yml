@@ -853,6 +853,9 @@ jobs:
       - name: Discoverability (every tool reachable on every surface an agent reads)
         run: TARGET_URL=http://localhost:3000 node scripts/test-discoverability.js
 
+      - name: Legacy surfaces still redirect (needs the booted server)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-redirects.js
+
       - name: Gate integrity (each regression gate must FAIL when its own defect is reintroduced)
         # A gate that cannot fail turns "we never checked" into "we checked and it
         # was fine". This mutates each invariant and requires a non-zero exit,
@@ -1236,6 +1239,62 @@ jobs:
 
       - name: Agent wish loop tests (caps, dedup clustering, rate limits, file cap, aggregate shape — offline)
         run: node scripts/test-wish.js
+
+      - name: Wish-board input hygiene (a client bug is not market demand)
+        run: node scripts/test-wish-hygiene.js
+
+      - name: Settlement-derived proven-ness + discovery-gap honesty
+        run: node scripts/test-settlement-proof.js
+
+      - name: Wallet-free trial (scope, bounds, never counted as revenue)
+        run: node scripts/test-trial.js
+
+      - name: upto scheme ships dark, refuses what it cannot price
+        run: node scripts/test-upto-scheme.js
+
+      - name: Previously-orphaned kit suites (offline, no upstream spend)
+        # These 31 suites existed but no workflow ran them. All verified offline
+        # and spend-free: test-blockscout-kit deletes X402_UPSTREAM_BUYER_KEY
+        # itself, test-enrich-kit gates live calls behind ENRICH_LIVE_TEST.
+        # Listed one per line ON PURPOSE - a for-loop over a variable hides
+        # which suites actually run, and test-ci-coverage.js requires the
+        # literal path so the wiring stays greppable.
+        run: |
+          set -e
+          node scripts/test-a2a-card.js
+          node scripts/test-api-kit.js
+          node scripts/test-captcha-kit.js
+          node scripts/test-chain-logos.js
+          node scripts/test-color-kit.js
+          node scripts/test-date-time-kit.js
+          node scripts/test-encoding-kit.js
+          node scripts/test-math-kit.js
+          node scripts/test-theme.js
+          node scripts/test-validation-kit.js
+          node scripts/test-text-analysis-kit.js
+          node scripts/test-heartbeat-token.js
+          node scripts/test-lb-warmstart.js
+          node scripts/test-sor-seed.js
+          node scripts/test-self-funding.js
+          node scripts/test-x402-buyer.js
+          node scripts/test-synthetic-marker.js
+          node scripts/test-router-health.js
+          node scripts/test-chain-kit.js
+          node scripts/test-contract-kit.js
+          node scripts/test-dex-kit.js
+          node scripts/test-forecast-kit.js
+          node scripts/test-mev-and-l2-kit.js
+          node scripts/test-nft-market-kit.js
+          node scripts/test-onchain-identity-kit.js
+          node scripts/test-prediction-market-kit.js
+          node scripts/test-price-feed-kit.js
+          node scripts/test-weather-kit.js
+          node scripts/test-web-kit.js
+          node scripts/test-enrich-kit.js
+          node scripts/test-blockscout-kit.js
+
+      - name: Every test script is wired into CI (no orphaned suites)
+        run: node scripts/test-ci-coverage.js
 
       - name: Stellar activity scan tests (offline, fixture Horizon records)
         run: node scripts/test-stellar-activity.js

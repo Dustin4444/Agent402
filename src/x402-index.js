@@ -1323,7 +1323,24 @@ export function routableSellerSummaries() {
     if (v?.error || !isRoutable(v)) continue;
     let host = "";
     try { host = new URL(origin).host.toLowerCase(); } catch { continue; }
-    out.push({ origin, host, toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0 });
+    out.push({
+      origin,
+      host,
+      toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+      // payTo per advertised network, so callers can join an origin to on-chain
+      // settlements it received. Sourced ONLY from facilitator discovery-registry
+      // items (bazaarItemToRow) - a seller's own crawled manifest never
+      // contributes one - so this carries exactly the same trust as the
+      // leaderboard's registry-declared payTo, no more.
+      //
+      // Omitting it silently broke the router's chain-derived proven-ness join:
+      // baseNetworkPayTo() returned null for every seller, so the evidence
+      // source contributed nothing, always, and looked identical to "no data".
+      payToByNetwork: (v.tools || []).reduce((acc, t) => {
+        for (const [net, addr] of Object.entries(t.payToByNetwork || {})) if (!acc[net]) acc[net] = addr;
+        return acc;
+      }, {}),
+    });
   }
   return out;
 }
