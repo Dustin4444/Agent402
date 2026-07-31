@@ -15,7 +15,7 @@
 // These assertions pin the join and, just as importantly, the honesty of the
 // gap measurement: a scan that returned nothing must never be reported as a
 // blind spot of size zero.
-import { provenByChain, unattributedMerchants, merchantsByAddress, baseNetworkPayTo, advertisedPayToEvidence } from "../src/settlement-proof.js";
+import { provenByChain, unattributedMerchants, merchantsByAddress, baseNetworkPayTo, advertisedPayToEvidence, sharedPayToClaims, payToFromLive402, provenPayToMatches } from "../src/settlement-proof.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -94,6 +94,49 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
   ok(provenByChain({}).size === 0, "no inputs yields an empty proof map");
   ok(provenByChain({ sellers: null, merchants: null }).size === 0, "null inputs are handled");
   ok(merchantsByAddress(undefined).size === 0, "undefined merchants handled");
+}
+
+// --- a SHARED address proves nothing about any one origin -------------------
+// A settlement count is evidence an ADDRESS received money, not that a given
+// origin delivered the service. Measured on our own index: 858 of 2,008
+// payTo-bearing origins shared an address, and ONE address was claimed by 144
+// origins - each of which would otherwise inherit the whole platform's history
+// and clear the spend gate on it.
+{
+  const sellers = [seller("https://a.test", A), seller("https://b.test", A), seller("https://solo.test", B)];
+  const merchants = [merchant(A, 198_543), merchant(B, 120)];
+  const proven = provenByChain({ sellers, merchants });
+  ok(!proven.has("https://a.test") && !proven.has("https://b.test"),
+    "neither origin sharing an address gets chain proof — the count is unattributable");
+  ok(proven.get("https://solo.test")?.settled === 120,
+    "a sole claimant still earns its own evidence");
+  ok(proven.size === 1, `only the attributable origin is credited (got ${proven.size})`);
+
+  // Dividing would invent an attribution we cannot make; the exclusion must be
+  // visible rather than silent.
+  const shared = sharedPayToClaims({ sellers });
+  ok(shared.length === 1 && shared[0].claimedBy === 2,
+    "the withheld address is reportable, so the exclusion is not silent");
+  ok(shared[0].origins.length === 2, "and names the origins claiming it");
+}
+
+// --- trust earned by one address must be spent at that address --------------
+{
+  const hdr = Buffer.from(JSON.stringify({ accepts: [{ network: BASE, payTo: A }] })).toString("base64");
+  ok(payToFromLive402({ header: hdr }) === A, "reads the payTo from an x402 v2 header quote");
+  ok(payToFromLive402({ body: JSON.stringify({ accepts: [{ network: BASE, payTo: B }] }) }) === B,
+    "falls back to a body quote for sellers that do not use the header");
+  ok(payToFromLive402({ header: "!!!", body: "nope" }) === null,
+    "an unreadable quote yields null — never a guessed address");
+
+  ok(provenPayToMatches({ provenPayTo: A, livePayTo: A.toUpperCase() }).verdict === "match",
+    "checksum case does not create a false mismatch");
+  ok(provenPayToMatches({ provenPayTo: A, livePayTo: B }).verdict === "mismatch",
+    "earning trust on one address and billing at another is a MISMATCH");
+  ok(provenPayToMatches({ provenPayTo: null, livePayTo: A }).verdict === "unknown",
+    "no proven address on record is UNKNOWN, not a pass");
+  ok(provenPayToMatches({ provenPayTo: A, livePayTo: null }).verdict === "unknown",
+    "an unreadable live quote is UNKNOWN, not a pass — and the router only refuses on a positive mismatch");
 }
 
 // --- advertised payTo vs observed receipts ---------------------------------
