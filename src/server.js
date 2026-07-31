@@ -178,6 +178,7 @@ import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
+import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
 import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
@@ -3642,7 +3643,7 @@ if (FREE_MODE) {
   // sliding-window rate-limited per IP using the SAME limiter+policy as the
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
   // on /mcp could keep hammering /api/* with fresh PoW solutions for free.
-  app.use((req, res, next) => {
+  app.use(async (req, res, next) => {
     // Retired converters aren't catalog routes, so POW_ROUTES can't know them —
     // which briefly made them the only paid paths on the site with NO free
     // tier, while unit-convert (the identical work, same engine, same table)
@@ -3685,10 +3686,41 @@ if (FREE_MODE) {
       if (String(req.query.trial ?? "") === "1") {
         const tip = req.ip || "unknown";
         const perTool = `${tip}|${slug}`;
-        // peek BOTH before charging EITHER: charging the per-tool bucket and
-        // then bouncing off the per-client cap would burn a trial the caller
-        // never received.
-        if (!trialToolLimiter.peek(perTool).limited && !trialIpLimiter.peek(tip).limited) {
+        // SHARED counters when Redis is available. The in-memory limiter cannot
+        // express a cap of 1 across replicas: it holds one bucket per process,
+        // and the RATE_LIMIT_REPLICAS divisor floors at 1, so "1 per tool per
+        // hour" was really N per hour with N replicas. Measured in production
+        // as the same tool granting two trials.
+        //
+        // Redis unreachable => spend() reports limited, so the trial is simply
+        // not offered and the caller pays. Failing the other way would turn a
+        // Redis outage into unmetered free access.
+        if (sharedLimitEnabled()) {
+          const toolHit = await sharedSpend("trial-tool", perTool, TRIAL_PER_TOOL_HOUR, 3600);
+          if (toolHit.limited) {
+            res.setHeader("X-Trial-Exhausted", "true");
+            res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+          } else {
+            const ipHit = await sharedSpend("trial-ip", tip, TRIAL_IP_HOUR, 3600);
+            if (ipHit.limited) {
+              // Give the per-tool unit back: the caller never received a trial,
+              // so it must not count against the tool they were refused.
+              await sharedRefund("trial-tool", perTool, 3600);
+              res.setHeader("X-Trial-Exhausted", "true");
+              res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+            } else {
+              res.setHeader("X-Trial-Accepted", "true");
+              res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+              res.on("finish", () => {
+                if (res.statusCode >= 400) {
+                  sharedRefund("trial-tool", perTool, 3600).catch(() => {});
+                  sharedRefund("trial-ip", tip, 3600).catch(() => {});
+                }
+              });
+              return next();
+            }
+          }
+        } else if (!trialToolLimiter.peek(perTool).limited && !trialIpLimiter.peek(tip).limited) {
           trialToolLimiter.check(perTool);
           trialIpLimiter.check(tip);
           res.setHeader("X-Trial-Accepted", "true");

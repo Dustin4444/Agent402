@@ -1314,6 +1314,9 @@ jobs:
       - name: Rate limits are per-process; replicas must not multiply them
         run: node scripts/test-limiter-replicas.js
 
+      - name: Shared trial counter (a cap of 1 must mean 1 across replicas)
+        run: node scripts/test-shared-limit.js
+
       - name: Every test script is wired into CI (no orphaned suites)
         run: node scripts/test-ci-coverage.js
 
