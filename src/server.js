@@ -1201,6 +1201,13 @@ app.get("/health", (req, res) => {
     // OpenAI-compatible LLM gateway upstream (OpenRouter). False = the three
     // /v1/*chat/completions routes 503 at call time.
     llmGateway: Boolean((process.env.OPENROUTER_API_KEY || "").trim()),
+    // Is the SHARED (cross-replica) limiter live? Without it a cap of 1 is
+    // really 1-per-replica, and the only symptom is a number nobody is looking
+    // at. Shipped because the shared counter went in, measured 2 grants in
+    // production anyway, and nothing on any surface could say whether Redis was
+    // reached — the state has to be observable to be debuggable.
+    sharedLimit: sharedLimitEnabled(),
+    replicaDivisor: Math.max(1, Number(process.env.RATE_LIMIT_REPLICAS) || 1),
     baseNotifications: baseNotificationsEnabled(),
   };
   res.status(ok ? 200 : 503).json({ ok, checks, flags, meta: { ...meta, ...diagnostics } });
