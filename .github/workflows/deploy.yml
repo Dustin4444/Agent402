@@ -1296,6 +1296,9 @@ jobs:
           node scripts/test-enrich-kit.js
           node scripts/test-blockscout-kit.js
 
+      - name: Index seller count is not instance-inflated (origins vs operators)
+        run: node scripts/test-index-inflation.js
+
       - name: Every test script is wired into CI (no orphaned suites)
         run: node scripts/test-ci-coverage.js
 

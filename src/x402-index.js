@@ -1550,7 +1550,32 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     sellers,
     discoverySources,
     totals: {
+      // NOTE: `sellers` counts indexed ORIGINS, not operators. One operator can
+      // publish many hostnames — a custom domain plus the raw platform host it
+      // aliases, or a template stamped across dozens of subdomains — and each
+      // is a separate origin here. Measured 2026-07-31: 858 of 2,008 origins
+      // carrying a Base payTo shared that address with at least one other, and
+      // a single address spanned 144 origins.
+      //
+      // That is the same instance inflation we document in third-party
+      // registries ("registries record settled URLs verbatim"), and publishing
+      // only the origin count under the word "sellers" reproduces it on our own
+      // machine-readable surface. So the operator-level number is published
+      // beside it rather than instead of it: both are true, they answer
+      // different questions, and a consumer can now tell which one it is
+      // reading. /marketplace already names both populations for the same
+      // reason.
       sellers: sellers.length,
+      // Distinct Base payTo across indexed origins — the closest proxy we have
+      // for OPERATORS. An undercount where one operator uses several wallets,
+      // an overcount where a platform settles many independent sellers to one
+      // address; stated as a proxy, never as a headcount.
+      distinctBasePayees: new Set(
+        sellers
+          .map((x) => x?.payToByNetwork?.["eip155:8453"])
+          .filter((a) => typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a))
+          .map((a) => a.toLowerCase())
+      ).size,
       tools: sellers.reduce((s, x) => s + (x.toolCount || 0), 0),
       // Buyable subset of `tools`. Sellers without paid flags (zero-annotation
       // docs, registry-synthesized) count fully — their rows route today, so
