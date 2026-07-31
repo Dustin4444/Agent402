@@ -50,7 +50,7 @@ export function assessSeller({ origin, detail, settledCalls, sorThreshold, sorCa
   };
 }
 
-export function buildSellerTrustTool({ getSellerDetail, getSettledCalls, sorThreshold = 50, sorCap = 0.005, settlementNetwork = "eip155:8453", selfHost = "" }) {
+export function buildSellerTrustTool({ getSellerDetail, getSettledCalls, getPayToEvidence, sorThreshold = 50, sorCap = 0.005, settlementNetwork = "eip155:8453", selfHost = "" }) {
   return {
     route: "GET /api/x402/seller-trust",
     name: "Check an x402 seller's trust evidence",
@@ -120,12 +120,19 @@ export function buildSellerTrustTool({ getSellerDetail, getSettledCalls, sorThre
         manifestParsed: !detail.error,
         crawlError: detail.error || null,
         healthScore: detail.health,
+        // Crawl health only says the manifest parsed. A seller whose every paid
+        // route 500s scores a perfect 1.0 on it, which is why paywall liveness
+        // is reported separately rather than folded in. null = not probed.
+        paywall: detail.paywall || null,
         lastCrawledAt: detail.fetchedAt ? new Date(detail.fetchedAt).toISOString() : null,
         toolCount: detail.toolCount,
         paidToolCount: a.paidToolCount,
         priceRangeUsd: a.priceRangeUsd,
         advertisedNetworks: a.advertisedNetworks,
         settledCallsObserved: a.gate.settledCalls,
+        // What the seller CLAIMS as its payTo, against what we have observed
+        // receiving money. A claim is not a receipt.
+        ...(typeof getPayToEvidence === "function" ? { advertisedPayTo: getPayToEvidence(detail) } : {}),
         routerGate: a.gate,
         routableByOurRouter: isSelf ? false : a.routableByOurRouter,
         blockers: isSelf ? ["this host is the local catalog - call its tools directly"] : a.blockers,
@@ -134,7 +141,8 @@ export function buildSellerTrustTool({ getSellerDetail, getSettledCalls, sorThre
         caveats: [
           "settledCallsObserved counts on-chain payments we have observed to this seller's payTo; it is a floor, not a total",
           "advertisedNetworks is what the seller publishes, which is not proof it settles there",
-          "no liveness probe is performed at call time - a listed seller can still be down right now",
+          "no liveness probe is performed at call time - a listed seller can still be down right now; `paywall` is from the last crawl, and null means not yet probed rather than healthy",
+          "healthScore measures whether the manifest parsed, NOT whether paid routes work - read it with `paywall`, never instead of it",
         ],
         evidenceSource: "x402 seller crawl + on-chain settlement counts",
       };

@@ -15,7 +15,7 @@
 // These assertions pin the join and, just as importantly, the honesty of the
 // gap measurement: a scan that returned nothing must never be reported as a
 // blind spot of size zero.
-import { provenByChain, unattributedMerchants, merchantsByAddress, baseNetworkPayTo } from "../src/settlement-proof.js";
+import { provenByChain, unattributedMerchants, merchantsByAddress, baseNetworkPayTo, advertisedPayToEvidence } from "../src/settlement-proof.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -94,6 +94,29 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
   ok(provenByChain({}).size === 0, "no inputs yields an empty proof map");
   ok(provenByChain({ sellers: null, merchants: null }).size === 0, "null inputs are handled");
   ok(merchantsByAddress(undefined).size === 0, "undefined merchants handled");
+}
+
+// --- advertised payTo vs observed receipts ---------------------------------
+// A seller publishes a payTo; that is a claim, not a receipt. One live seller
+// advertised one address while every settlement we traced went to another.
+{
+  const M = [merchant(A, 900)];
+  const seen = advertisedPayToEvidence({ seller: seller("https://a.example", A), merchants: M });
+  ok(seen.checked === true && seen.observedAtAdvertisedAddress === true && seen.settlementsObserved === 900,
+    "an advertised address we have observed receiving money is reported as observed");
+
+  const unseen = advertisedPayToEvidence({ seller: seller("https://b.example", B), merchants: M });
+  ok(unseen.checked === true && unseen.observedAtAdvertisedAddress === false,
+    "an advertised address with no observed receipts is reported as unobserved");
+  ok(/not proof of anything by itself/.test(unseen.note),
+    "...and says so WITHOUT calling it fraud — absence of evidence has innocent explanations");
+
+  // The honesty invariant again: an empty scan must never read as a clean bill.
+  const noScan = advertisedPayToEvidence({ seller: seller("https://a.example", A), merchants: [] });
+  ok(noScan.checked === false && noScan.observedAtAdvertisedAddress === undefined,
+    "no merchant scan reports checked:false, never a clean bill");
+  const noAddr = advertisedPayToEvidence({ seller: seller("https://c.example", null), merchants: M });
+  ok(noAddr.checked === false, "a seller advertising no payTo is not judged either");
 }
 
 // --- THE SHAPE INVARIANT: drive the REAL production accessor ---------------
