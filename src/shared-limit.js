@@ -64,8 +64,19 @@ async function getClient() {
 
 /** Is a shared counter actually available? Callers use this to decide whether
  *  the feature can be offered at all, rather than silently degrading. */
+let announced = false;
 export function sharedLimitEnabled() {
-  return Boolean(testClient) || (Boolean(REDIS_URL) && !unavailable);
+  const on = Boolean(testClient) || (Boolean(REDIS_URL) && !unavailable);
+  // Say which path is live, once. This shipped believing Redis was in use while
+  // production kept granting one trial PER REPLICA, and no surface — logs,
+  // /health, the response — could say whether the shared counter was reached.
+  // A limiter whose backing store is unknowable is a limiter you cannot debug.
+  if (!announced) {
+    announced = true;
+    console.log(`[shared-limit] ${on ? "SHARED (redis)" : "PER-PROCESS (in-memory fallback)"}` +
+      `${REDIS_URL ? "" : " — REDIS_URL unset"}${unavailable ? " — redis marked unavailable" : ""}`);
+  }
+  return on;
 }
 
 /** Window-bucketed key: all replicas in the same wall-clock window agree. */
