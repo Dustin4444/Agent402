@@ -2015,7 +2015,11 @@ const computeFind = (q, k) => {
     }
   } catch { /* bridge is best-effort - find must answer regardless */ }
   const topScore = result.results[0]?.score ?? 0;
-  if (result.count === 0 || topScore < FIND_WEAK_SCORE) {
+  // `rarestTermCovered === false` means the top hit never mentions the word that
+  // DEFINES the task, so a high score came from common words alone. Without it
+  // the miss branch was unreachable for any real capability gap: every one of
+  // eighteen impossible tasks scored 4-42 against a floor of 3.
+  if (result.count === 0 || topScore < FIND_WEAK_SCORE || result.rarestTermCovered === false) {
     if (result.relatedSellers) {
       // A seller-name match IS an answer - point at it instead of recording
       // a wish for demand the ecosystem already serves.
