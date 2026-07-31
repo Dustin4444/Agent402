@@ -265,7 +265,26 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
     // Charged on-chain but handler returned non-200 — should always be 0. Any
     // value here means we billed the buyer and gave them an error. The dashboard
     // and a daily CI check both alert when this is nonzero.
+    //
+    // PUBLISHED WITH ITS DEFECT NAMED. This lifetime counter is polluted: before
+    // the fix, a settlement REJECTION (facilitator declines, buyer keeps their
+    // money, we get a 402) was recorded here as if we had charged and failed.
+    // Every one of the 200 retained events is a 402, and there has been none
+    // since the fix. So the raw number reads as a ~6.7% "took payment, delivered
+    // nothing" rate against viaUSDC, and that rate is false.
+    //
+    // We could not un-pollute it — the pre-fix events carry no marker — so the
+    // honest move is to publish the number that IS meaningful beside it and say
+    // plainly which is which. Quoting the lifetime figure as current quality
+    // would be exactly the self-reported-metric problem we criticise elsewhere.
     chargedButFailed: num("chargedButFailedTotal"),
+    // Genuine charged failures in the retained event log: a 402 there means the
+    // buyer was never charged, so it is excluded. THIS is the reliability
+    // number; the lifetime counter above is not.
+    chargedButFailedGenuine: (getChargedFailures.all(RECENT_KEEP) || [])
+      .filter((r) => Number(r.status) !== 402).length,
+    chargedButFailedNote:
+      "chargedButFailed is a LIFETIME counter containing a since-fixed miscount: settlement REJECTIONS (buyer keeps their money) were recorded as charged failures. Use chargedButFailedGenuine, which excludes them, for current quality.",
     topTools: allTools.all(),
     topPaidTools, // most-PURCHASED tools (USDC only) - counts only, no per-tool revenue
     estimatedRevenueUsd, // sum of price × USDC-purchase count (counters; chain is source of truth)
