@@ -32,9 +32,19 @@ let unavailable = false;
 let testClient = null;
 export function __setTestClient(c) { testClient = c; unavailable = false; }
 
+// A failed connect used to set `unavailable = true` FOREVER, so one timeout
+// during container start disabled the shared counter for the life of the
+// process. Railway's private network is IPv6-only and takes a moment to come up
+// after boot, so a timeout there is expected and transient — exactly the case
+// that must not become permanent. Retry after a cooldown instead.
+const RETRY_COOLDOWN_MS = 30_000;
+let unavailableUntil = 0;
+
 async function getClient() {
   if (testClient) return testClient;
-  if (!REDIS_URL || unavailable) return null;
+  if (!REDIS_URL) return null;
+  if (unavailable && Date.now() < unavailableUntil) return null;
+  if (unavailable) { unavailable = false; }   // cooldown elapsed — try again
   if (client && client.isReady) return client;
   if (connecting) return connecting;
   connecting = (async () => {
@@ -42,7 +52,13 @@ async function getClient() {
       const c = createClient({
         url: REDIS_URL,
         socket: {
-          connectTimeout: 3_000,
+          // Railway private hostnames (*.railway.internal) resolve AAAA-only.
+          // Node's default happy-eyeballs can spend the whole timeout on an A
+          // record that will never exist, which is what "Connection timeout"
+          // looked like in production. `family: 6` goes straight to IPv6 there
+          // and is left alone for any other host.
+          ...(/\.railway\.internal(:|$)/.test(REDIS_URL) ? { family: 6 } : {}),
+          connectTimeout: 10_000,
           reconnectStrategy: (retries) =>
             retries > 5 ? new Error("redis: too many reconnects") : Math.min(retries * 200, 2_000),
         },
@@ -60,8 +76,9 @@ async function getClient() {
     } catch (e) {
       state.connected = false;
       state.lastError = e.message;
-      console.error("[shared-limit] connect failed (FAILING CLOSED — trials will be refused):", e.message);
+      console.error(`[shared-limit] connect failed (FAILING CLOSED — trials refused, retrying in ${RETRY_COOLDOWN_MS / 1000}s):`, e.message);
       unavailable = true;
+      unavailableUntil = Date.now() + RETRY_COOLDOWN_MS;
       return null;
     } finally {
       connecting = null;
@@ -80,7 +97,21 @@ async function getClient() {
  *  `degraded`. Do not read a true here as "the shared counter is working." */
 let announced = false;
 export function sharedLimitEnabled() {
-  const on = Boolean(testClient) || (Boolean(REDIS_URL) && !unavailable);
+  // CONFIGURED, not reachable — and that distinction is the whole point.
+  //
+  // This used to return false once `unavailable` was set, which silently sent
+  // the caller down the per-process branch. That branch GRANTS, so a replica
+  // that could not reach Redis stopped refusing and started handing out its own
+  // private allowance: fail-OPEN, the precise opposite of the property at the
+  // top of this file, reached by a route the fail-closed code could not see.
+  // Observed in production as one tool granting two trials in a row while the
+  // logs showed connection timeouts.
+  //
+  // If a shared store is configured, the shared path is the only path. When it
+  // cannot be reached, spend() answers "limited" and the caller pays. Falling
+  // back to a per-process counter is never correct here, because a per-process
+  // counter cannot express the cap that made this module necessary.
+  const on = Boolean(testClient) || Boolean(REDIS_URL);
   // Say which path was CHOSEN, once — and say plainly that choosing it is not
   // the same as reaching it. The previous line logged "SHARED (redis)" purely
   // because REDIS_URL was set, which is true even when every single INCR is
