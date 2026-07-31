@@ -371,7 +371,12 @@ const CATALOG = {
     price: "$0.002",
     description:
       "Persistent key-value memory for agents, scoped to the paying wallet. Your x402 payment IS your authentication: the wallet that pays owns the namespace. No signup, no API keys. Exact-key storage for structured state - when you want retrieval by MEANING rather than key, use memory-remember + memory-recall instead. Body: {\"key\":\"…\",\"value\":any JSON,\"ttlSeconds\":3600?} to write (optional TTL), or {\"key\":\"…\",\"delete\":true} to remove. Add \"owner\":\"0x…\" to write into another wallet's namespace you've been granted. Values up to 64KB.",
-    tags: ["memory", "storage", "state", "key-value", "persistence", "ttl"],
+    // Agents phrase this as "store data between sessions" / "remember this
+    // across runs". None of those words appeared anywhere in the tool, so
+    // the query matched `gov-data` on the word "data" instead. Memory is our
+    // stickiest product by repeat rate; being unfindable by its own use case
+    // is the expensive kind of gap.
+    tags: ["memory", "storage", "state", "key-value", "persistence", "ttl", "store", "save", "remember", "session", "sessions", "between", "across", "data"],
     discovery: {
       bodyType: "json",
       input: { key: "research/task-42", value: { status: "done", findings: ["…"] }, ttlSeconds: 86400 },

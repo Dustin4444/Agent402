@@ -187,5 +187,45 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
     "without a price source the pack stays buyable but claims no comparison");
 }
 
+// --- A common word must not outrank a distinguishing one -------------------
+//
+// Two scoring defects, found by running realistic agent tasks through the
+// resolver we advertise as the entry point and reading the answers:
+//
+//   * an INCIDENTAL SUBSTRING scored like a real match, so "check" inside
+//     `checksum` and "data" inside `wikidata-entity` beat `http-check` and the
+//     memory tools.
+//   * every term counted equally, so a word shared by dozens of tools ("check")
+//     outvoted the one word that actually narrowed it ("website").
+//
+// A wrong top result is not cosmetic: an agent that trusts /api/find pays for
+// the wrong tool and gets something useless on its FIRST call.
+{
+  const C = {
+    "POST /api/checksum": { name: "Checksum", slug: "checksum", category: "encoding", price: "$0.001", description: "CRC32 and Adler checksums of text.", tags: ["crc", "checksum"], discovery: {} },
+    "POST /api/http-check": { name: "HTTP check", slug: "http-check", category: "network", price: "$0.003", description: "Check any public URL: status code, latency, redirects.", tags: ["uptime", "website", "up", "status"], discovery: {} },
+    "POST /api/spf-check": { name: "SPF check", slug: "spf-check", category: "network", price: "$0.003", description: "Validate a domain's SPF record.", tags: ["spf", "email", "dns"], discovery: {} },
+    "POST /api/wikidata-entity": { name: "Wikidata entity", slug: "wikidata-entity", category: "data", price: "$0.005", description: "Look up a Wikidata entity.", tags: ["wikidata", "entity"], discovery: {} },
+    "POST /api/memory": { name: "Memory write", slug: "memory-write", category: "memory", price: "$0.002", description: "Persistent key-value memory for agents.", tags: ["memory", "store", "session", "sessions", "state"], discovery: {} },
+  };
+  const top1 = (q) => findTools(C, q, { baseUrl: "https://agent402.tools" }).results[0]?.slug;
+
+  ok(top1("check if a website is up") === "http-check",
+    `"check if a website is up" -> http-check, not a tool that merely contains "check" (got ${top1("check if a website is up")})`);
+  ok(top1("store data between sessions") === "memory-write",
+    `"store data between sessions" -> memory-write, not a slug containing "data" (got ${top1("store data between sessions")})`);
+
+  // The mechanism, asserted directly so the fix cannot be silently undone:
+  // a whole slug segment must outscore an incidental substring.
+  const seg = findTools(C, "check", { baseUrl: "" }).results.map((r) => r.slug);
+  ok(seg.indexOf("http-check") < seg.indexOf("checksum") || !seg.includes("checksum"),
+    `a slug SEGMENT ("http-check") outranks an accidental substring ("checksum") for "check" (${seg.join(",")})`);
+
+  // And a term shared by many tools must carry less weight than a rare one.
+  // "check" appears in three of five here; "website" in one. The rare word wins.
+  ok(top1("website check") === "http-check",
+    `the rarer term decides when a common one is shared (got ${top1("website check")})`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
