@@ -1305,6 +1305,9 @@ jobs:
       - name: Router gate needs breadth, not just a manufacturable count
         run: node scripts/test-sor-breadth.js
 
+      - name: A registry listing is not a seller answering (origin-responded)
+        run: node scripts/test-origin-responded.js
+
       - name: Every test script is wired into CI (no orphaned suites)
         run: node scripts/test-ci-coverage.js
 

@@ -897,6 +897,8 @@ async function crawlSeller(originUrl) {
       fetchedAt: Date.now(),
       error: null,
       history: rollHistory(prev, true),
+      // The ORIGIN itself served /.well-known/x402 — it answered us.
+      originResponded: true,
       // Not this seller's turn: carry the last reading forward rather than
       // dropping it — null must mean "never probed", not "not probed today".
       paywall: paywallProbeDue() ? await probePaywall(tools) : (prev?.paywall ?? null),
@@ -953,6 +955,19 @@ async function crawlSeller(originUrl) {
         error: null,
         source: openapiTools.length ? "openapi-fallback" : "bazaar-fallback",
         history: rollHistory(prev, true),
+        // Did the ORIGIN serve us anything, or is this record purely a registry
+        // listing about it?
+        //
+        // `openapi-fallback` means we fetched THEIR OpenAPI doc: the origin
+        // answered. `bazaar-fallback` means the manifest fetch failed AND the
+        // OpenAPI fetch failed, and every field here was synthesised from a
+        // third-party registry row. We tried twice and got nothing.
+        //
+        // rollHistory(prev, true) marks the CRAWL successful either way, which
+        // is how ~32% of the index came to sit at health 1 / routable true
+        // while never having responded — and the marketplace rendered them
+        // "healthy". A crawl completing is not a seller answering.
+        originResponded: openapiTools.length > 0,
         paywall: paywallProbeDue() ? await probePaywall(tools) : (prev?.paywall ?? null),
       });
       return;
@@ -1012,6 +1027,11 @@ function healthScore(entry) {
 function isRoutable(entry) {
   const h = entry?.history;
   if (!Array.isArray(h) || h.length === 0) return true; // never-crawled: give benefit of doubt
+  // A record synthesised entirely from a registry is not evidence the seller
+  // works. `originResponded === false` means we asked twice and got nothing;
+  // undefined means the entry predates this field and keeps the old behaviour
+  // rather than being demoted on absence of data.
+  if (entry?.originResponded === false) return false;
   return h[h.length - 1] === 1;
 }
 
@@ -1402,6 +1422,8 @@ export function routableSellerSummaries() {
       origin,
       host,
       toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+      // Did the origin ever answer us, or is this a registry listing about it?
+      originResponded: v.originResponded !== false,
       // payTo per advertised network, so callers can join an origin to on-chain
       // settlements it received. Sourced ONLY from facilitator discovery-registry
       // items (bazaarItemToRow) - a seller's own crawled manifest never
@@ -1441,6 +1463,10 @@ export function sellerDetail(originOrHost) {
       // says the manifest parsed; a seller whose every paid route 500s scores a
       // perfect 1.0 on it. null = not probed yet (never assume healthy).
       paywall: v.paywall || null,
+      // Registry-only records (the origin never answered) are not evidence the
+      // seller works. Surfaced so a consumer can tell a crawled seller from a
+      // listed one.
+      originResponded: v.originResponded !== false,
       // payTo per advertised network. Registry-sourced only (bazaarItemToTool);
       // a seller's own crawled manifest never contributes one. Omitting it made
       // advertisedPayToEvidence inert: server.js passes THIS object as `seller`,
@@ -1478,6 +1504,12 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     homepage: v.manifest?.homepage || origin,
     network: v.manifest?.payment?.x402?.primaryNetwork || v.manifest?.payment?.primaryNetwork || null,
     toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
+    // Did the ORIGIN answer, or is this a registry listing about it? Read by
+    // the marketplace label and by totals.respondedOrigins. Added here as well
+    // as on the other accessors because /api/index and the market pages read
+    // THIS projection, and a field present on two of three accessors is the
+    // inert-signal defect this file has already produced twice.
+    originResponded: v.originResponded !== false,
     // Present only when the seller's document distinguishes paid from free
     // (tools carry paid flags): the buyable subset. Display uses it to show
     // "42 tools · 21 paid" so a padded free surface can't read as paid depth.
@@ -1591,6 +1623,10 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
       // for OPERATORS. An undercount where one operator uses several wallets,
       // an overcount where a platform settles many independent sellers to one
       // address; stated as a proxy, never as a headcount.
+      // Origins that ACTUALLY answered us, vs records synthesised from a
+      // registry. Before this, a registry-only listing counted as a healthy
+      // routable seller and the marketplace rendered it "healthy".
+      respondedOrigins: sellers.filter((x) => x?.originResponded !== false).length,
       distinctBasePayees: new Set(
         sellers
           .map((x) => x?.payToByNetwork?.["eip155:8453"])
