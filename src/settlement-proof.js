@@ -66,20 +66,72 @@ export function merchantsByAddress(merchants) {
  */
 export function provenByChain({ sellers, merchants, network = "eip155:8453" } = {}) {
   const byAddr = merchantsByAddress(merchants);
+
+  // How many DISTINCT origins claim each address?
+  //
+  // A settlement count is evidence that an ADDRESS received money. It says
+  // nothing about which origin delivered the service. When several origins
+  // advertise the same payTo, crediting each with the full count asserts a
+  // thing we did not observe: that every one of them earned all of it.
+  //
+  // This is not a corner case. Measured on our own index 2026-07-31: 858 of
+  // 2,008 payTo-bearing origins shared an address with at least one other, and
+  // ONE address was claimed by 144 origins. Under the old rule each of those
+  // 144 inherited the whole platform's settlement history - including origins
+  // that never delivered a paid call - and each then cleared the router's
+  // spend gate on the strength of it.
+  //
+  // Dividing the count would be inventing an attribution we cannot make. So a
+  // shared address yields NO chain-derived proof, and says why. Absence of
+  // attribution reported as absence, the same rule the discovery gap and
+  // /status follow. Sellers on a shared address are not blocked - they simply
+  // have to earn proven-ness through a source that CAN attribute delivery.
+  const claimants = new Map(); // addr -> Set(origin)
+  const normOrigin = (s) => (typeof s?.origin === "string" ? s.origin.replace(/\/+$/, "").toLowerCase() : "");
+  for (const s of Array.isArray(sellers) ? sellers : []) {
+    const origin = normOrigin(s);
+    const payTo = origin ? baseNetworkPayTo(s, network) : null;
+    if (!payTo) continue;
+    if (!claimants.has(payTo)) claimants.set(payTo, new Set());
+    claimants.get(payTo).add(origin);
+  }
+
   const out = new Map();
   for (const s of Array.isArray(sellers) ? sellers : []) {
-    const origin = typeof s?.origin === "string" ? s.origin.replace(/\/+$/, "").toLowerCase() : "";
+    const origin = normOrigin(s);
     if (!origin) continue;
     const payTo = baseNetworkPayTo(s, network);
     if (!payTo) continue;
     const hit = byAddr.get(payTo);
     if (!hit) continue;
+    const sharedBy = claimants.get(payTo)?.size || 1;
+    if (sharedBy > 1) continue; // unattributable — see above
     const prev = out.get(origin);
     if (!prev || hit.payments > prev.settled) {
       out.set(origin, { settled: hit.payments, payers: hit.payers, volumeUsd: hit.volumeUsd, payTo, source: "chain" });
     }
   }
   return out;
+}
+
+/**
+ * Addresses claimed by more than one indexed origin, with the origins claiming
+ * them. Exported so the operator surface can show what chain evidence was
+ * withheld and why, rather than the exclusion being silent.
+ */
+export function sharedPayToClaims({ sellers, network = "eip155:8453" } = {}) {
+  const claimants = new Map();
+  for (const s of Array.isArray(sellers) ? sellers : []) {
+    const origin = typeof s?.origin === "string" ? s.origin.replace(/\/+$/, "").toLowerCase() : "";
+    const payTo = origin ? baseNetworkPayTo(s, network) : null;
+    if (!payTo) continue;
+    if (!claimants.has(payTo)) claimants.set(payTo, new Set());
+    claimants.get(payTo).add(origin);
+  }
+  return [...claimants.entries()]
+    .filter(([, origins]) => origins.size > 1)
+    .map(([payTo, origins]) => ({ payTo, claimedBy: origins.size, origins: [...origins].sort() }))
+    .sort((a, b) => b.claimedBy - a.claimedBy);
 }
 
 /**
@@ -158,4 +210,58 @@ export function advertisedPayToEvidence({ seller, merchants, network = "eip155:8
       ? "the address this seller advertises is one we have observed receiving settlements"
       : "we have observed no settlements at the address this seller advertises; the merchant scan covers the busiest receivers on Base only, so this is not proof of anything by itself",
   };
+}
+
+/**
+ * Decode the payTo a live 402 actually asks us to pay, for one network.
+ *
+ * x402 v2 carries the quote in a base64 `payment-required` HEADER with an empty
+ * body; older/other sellers put it in the JSON body. Try both, return null when
+ * neither parses — an unreadable quote is "unknown", never "matches".
+ */
+export function payToFromLive402({ header, body, network = "eip155:8453" } = {}) {
+  const pick = (obj) => {
+    const accepts = Array.isArray(obj?.accepts) ? obj.accepts : [];
+    const hit = accepts.find((a) => String(a?.network) === network && a?.payTo);
+    return hit ? String(hit.payTo) : null;
+  };
+  if (typeof header === "string" && header) {
+    try {
+      const got = pick(JSON.parse(Buffer.from(header, "base64").toString("utf8")));
+      if (got) return got;
+    } catch { /* fall through to the body */ }
+  }
+  if (typeof body === "string" && body) {
+    try {
+      const got = pick(JSON.parse(body));
+      if (got) return got;
+    } catch { /* unreadable */ }
+  }
+  return null;
+}
+
+/**
+ * Does the address that EARNED a seller's proven-ness match the one its live
+ * 402 asks us to pay?
+ *
+ * The reliability gate says "this address has been observed receiving money".
+ * Nothing previously required the seller to then ask for payment AT that
+ * address — so a seller could earn trust with one address and be paid at
+ * another, and the evidence would be about a wallet with no connection to
+ * where our money went.
+ *
+ * Three outcomes, and the middle one matters: match, mismatch, and UNKNOWN.
+ * Unknown (no proven address on record, or an unreadable quote) is not a pass
+ * and not a failure — the caller decides, and the reason travels with it.
+ */
+export function provenPayToMatches({ provenPayTo, livePayTo } = {}) {
+  const norm = (a) => (typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a) ? a.toLowerCase() : null);
+  const proven = norm(provenPayTo);
+  const live = norm(livePayTo);
+  if (!proven) return { verdict: "unknown", reason: "no chain-derived address on record for this origin" };
+  if (!live) return { verdict: "unknown", reason: "could not read a payTo for this network from the live 402" };
+  return proven === live
+    ? { verdict: "match", provenPayTo: proven, livePayTo: live }
+    : { verdict: "mismatch", provenPayTo: proven, livePayTo: live,
+        reason: "the address that earned this seller's proven-ness is not the address its live 402 asks us to pay" };
 }

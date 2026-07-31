@@ -177,7 +177,7 @@ import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPane
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
-import { provenByChain, unattributedMerchants, advertisedPayToEvidence } from "./settlement-proof.js";
+import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches } from "./settlement-proof.js";
 import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
@@ -661,6 +661,23 @@ const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 // origin -> proven settled-tx count: committed seed as the floor, then the live
 // (or /data warm-started) leaderboard overlaid, max per origin (counts only
 // grow, so max is the best known and can't be regressed by a stale source).
+// origin -> the address whose observed settlements earned that origin its
+// chain-derived proven-ness. Used at probe time to check the seller then asks
+// for payment AT that address; without it, trust earned by one wallet could be
+// spent at another.
+function buildProvenPayToByOrigin() {
+  const m = new Map();
+  try {
+    const econ = economySnapshotCached();
+    if (econ?.topMerchants?.length) {
+      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
+        if (ev?.payTo) m.set(norm(origin), ev.payTo);
+      }
+    }
+  } catch { /* evidence is additive; never break routing */ }
+  return m;
+}
+
 function buildSettledByOrigin() {
   const m = new Map();
   for (const [o, c] of Object.entries(SOR_SEED_ORIGINS)) m.set(norm(o), Number(c) || 0);
@@ -707,6 +724,7 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
   } else {
     const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
     const settledByOrigin = buildSettledByOrigin();
+    var provenPayToByOrigin = buildProvenPayToByOrigin();
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
@@ -735,6 +753,28 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
         signal: AbortSignal.timeout(6000),
       });
       live = probe.status === 402;
+      if (live) {
+        // The address that EARNED proven-ness must be the address being paid.
+        // Otherwise a seller can build trust on one wallet's settlement history
+        // and collect at another, and the evidence describes a wallet with no
+        // connection to where our money goes.
+        //
+        // Bounded read: the quote rides a header on x402 v2 and a body on
+        // older sellers, so read both, capped. UNKNOWN does not block - we
+        // only refuse on a positive MISMATCH, so sellers proven by a source
+        // that cannot name an address are unaffected.
+        const provenPayTo = provenPayToByOrigin.get(norm(r.seller));
+        if (provenPayTo) {
+          let body = "";
+          try { body = (await probe.text()).slice(0, 4000); } catch { /* header-only quote */ }
+          const livePayTo = payToFromLive402({ header: probe.headers.get("payment-required"), body });
+          const verdict = provenPayToMatches({ provenPayTo, livePayTo });
+          if (verdict.verdict === "mismatch") {
+            console.warn(`[sor] refusing ${r.seller}: ${verdict.reason} (proven ${verdict.provenPayTo}, live ${verdict.livePayTo})`);
+            live = false;
+          }
+        }
+      }
     } catch { live = false; }
     if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled };
   }
