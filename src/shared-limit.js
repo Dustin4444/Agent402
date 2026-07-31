@@ -40,14 +40,44 @@ export function __setTestClient(c) { testClient = c; unavailable = false; }
 const RETRY_COOLDOWN_MS = 30_000;
 let unavailableUntil = 0;
 
+// How long a REQUEST may wait on a connect attempt, as opposed to how long the
+// attempt itself may take. These are deliberately different numbers.
+//
+// A dead Redis would otherwise park an inbound request for the full connect
+// timeout: the caller is on the hot path of the trial gate, and raising the
+// connect timeout to 10s (needed so a slow IPv6 private network is not
+// mistaken for an outage) handed that same 10s to a buyer. Waiting is also
+// pointless, because the answer on failure is "refused" either way.
+//
+// So the request waits a short beat, and the connect keeps running in the
+// background with the full budget. A healthy Redis resolves in milliseconds
+// and nothing changes; a dead one refuses fast and fails closed, while the
+// background attempt still records the outcome for the next caller.
+const CONNECT_WAIT_MS = 1_000;
+
+/** Resolve `p`, or null if it takes longer than `ms`. The promise is NOT
+ *  cancelled: it keeps running so its result is cached for the next caller. */
+function withDeadline(p, ms) {
+  return Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms).unref?.())]);
+}
+
 async function getClient() {
   if (testClient) return testClient;
   if (!REDIS_URL) return null;
   if (unavailable && Date.now() < unavailableUntil) return null;
   if (unavailable) { unavailable = false; }   // cooldown elapsed — try again
   if (client && client.isReady) return client;
-  if (connecting) return connecting;
+  if (connecting) return withDeadline(connecting, CONNECT_WAIT_MS);
   connecting = (async () => {
+    // Retire a stale client before replacing it. `isReady` false with a live
+    // socket underneath meant the old one was dropped on the floor, and each
+    // cooldown retry leaked another. quit() is best-effort: a client that
+    // cannot connect also cannot close cleanly, and that must not throw here.
+    if (client) {
+      const stale = client;
+      client = null;
+      try { await stale.quit(); } catch { try { stale.destroy?.(); } catch { /* already gone */ } }
+    }
     try {
       const c = createClient({
         url: REDIS_URL,
@@ -84,7 +114,7 @@ async function getClient() {
       connecting = null;
     }
   })();
-  return connecting;
+  return withDeadline(connecting, CONNECT_WAIT_MS);
 }
 
 /** Is a shared counter CONFIGURED? Callers use this to pick the shared path

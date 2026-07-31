@@ -112,10 +112,18 @@ const makeStore = () => {
     // unavailable, and the SECOND request is the one that used to be told
     // "not shared" and sent down the granting per-process branch. Checking
     // enabled before any connect attempt observes nothing.
+    const t0 = Date.now();
     const first = await spend("trial-tool", "k", 1, 3600);
+    const waitedMs = Date.now() - t0;
     const enabled = sharedLimitEnabled();
     const second = await spend("trial-tool", "k", 1, 3600);
-    console.log(JSON.stringify({ enabled, limited: second.limited, degraded: second.degraded, first: first.limited, st: connectionState() }));
+    // The request path refuses on a short deadline while the connect keeps
+    // running in the background, so the OUTCOME is recorded a moment later.
+    // Poll for it rather than reading too early and asserting a null.
+    for (let i = 0; i < 100 && connectionState().connected === null; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    console.log(JSON.stringify({ enabled, limited: second.limited, degraded: second.degraded, first: first.limited, waitedMs, st: connectionState() }));
   `;
   let out = {};
   try {
@@ -131,6 +139,13 @@ const makeStore = () => {
   ok(out.limited === true, "...and the call is REFUSED rather than granted (fail closed holds end to end)");
   ok(out.degraded === true, "...and the refusal is marked degraded so it is attributable, not silent");
   ok(out.st?.connected === false, "connectionState reports the store was NOT reached, separately from being configured");
+  // The request must not inherit the connect budget. connectTimeout is 10s so a
+  // slow IPv6 private network is not mistaken for an outage, but a buyer on the
+  // trial gate must never wait that long for an answer that is "refused"
+  // regardless. node-redis also backs off ~3s across its reconnect attempts,
+  // which is exactly the wait this deadline exists to cap.
+  ok(typeof out.waitedMs === "number" && out.waitedMs < 2500,
+    `a refused call returns on a SHORT deadline, not the connect timeout (waited ${out.waitedMs}ms)`);
 }
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
