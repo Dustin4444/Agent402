@@ -265,3 +265,31 @@ export function provenPayToMatches({ provenPayTo, livePayTo } = {}) {
     : { verdict: "mismatch", provenPayTo: proven, livePayTo: live,
         reason: "the address that earned this seller's proven-ness is not the address its live 402 asks us to pay" };
 }
+
+/**
+ * The router's reliability gate, as ONE implementation.
+ *
+ * Previously the rule lived in server.js and its test re-implemented it, so a
+ * test could pass while the router had drifted — the same "fixture is fiction"
+ * failure this module's own header warns about. Both now call this.
+ *
+ * Two floors:
+ *  - `settled`: settlements observed. A COUNT is manufacturable (one wallet
+ *    settling N times), so it is necessary but not sufficient.
+ *  - `payers`: distinct payers, which cost a funded wallet each. Enforced ONLY
+ *    when known: `undefined` means we hold no breadth evidence, which is not
+ *    the same as zero, and refusing there would punish a seller for a gap in
+ *    OUR data.
+ *
+ * Honest about scope: this defeats the single-wallet loop, the cheap attack. It
+ * does NOT defeat a funded fleet of wallets, which needs funding-graph analysis
+ * this does not attempt.
+ */
+export function meetsRouterGate({ settled, payers, minSettled = 50, minPayers = 3 } = {}) {
+  const n = Number(settled || 0);
+  if (!(n >= minSettled)) return { ok: false, reason: "below the settlement floor" };
+  if (payers !== undefined && payers !== null && Number(payers) < minPayers) {
+    return { ok: false, reason: `only ${Number(payers)} distinct payer(s) observed; a count one wallet can manufacture is not proof` };
+  }
+  return { ok: true };
+}
