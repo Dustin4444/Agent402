@@ -424,14 +424,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **X ops (post + read, all via Actions — keys never local):** `scripts/tweet.js` is a
   dependency-free OAuth 1.0a CLI (`--text/--file/--quote/--reply-to/--media/--delete/
   --verify/--force`, `DRY_RUN=1`; secrets `X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/
-  X_ACCESS_SECRET`, Actions-only). The X App is **Free tier**: POST /2/tweets + GET
-  /2/users/me only — `--quote`/`--reply-to` against a post that doesn't mention us 403s
-  ("only … mentioned or are the author"), and API tweet READS are unavailable. Both
-  workarounds verified live 2026-07-17: **quote anyone** = append the target post URL as
-  the LAST line of the text (X renders a trailing status URL as a real quote embed);
-  **read any public post** = dispatch `x-read.yml` (credential-free, prints the post's
-  JSON via fxtwitter → vxtwitter from the runner — the CC-web sandbox can't reach x.com
-  or the mirrors). Char counting: X weighs EVERY URL at 23 chars (incl. bare
+  X_ACCESS_SECRET`, Actions-only). The X App is on a **PAID API plan** — we pay for
+  usage. `--reply-to` works against ANY public post, including one that does not
+  mention us: verified live 2026-07-31 replying to a third party's quote-tweet
+  (posted clean, no 403). This entry previously said "Free tier: POST /2/tweets +
+  GET /2/users/me only" and that was WRONG and acted on — do not reintroduce it,
+  and do not infer the tier from this file without checking, since the plan can
+  change. The trailing-URL trick (append a status URL as the LAST line and X
+  renders a real quote embed) still works and is still useful for quoting inside
+  a longer post, but it is a formatting choice now, not a workaround for a
+  restriction. Reading posts: `x-read.yml` (credential-free, fxtwitter →
+  vxtwitter from the runner) remains the easiest path and needs no API quota;
+  the mirrors are also reachable from a local terminal. Char counting: X weighs EVERY URL at 23 chars (incl. bare
   `agent402.tools`); tweet.js's guard counts raw length, so copy that's ≤280 weighted but
   >280 raw needs `force`. **`announce.yml` dispatch (ref main) posts with NO repo
   commit** — inputs: `text` (inline copy) | `file` | `media` | `card` = `bestsellers`
