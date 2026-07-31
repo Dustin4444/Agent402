@@ -1305,6 +1305,15 @@ jobs:
       - name: Router gate needs breadth, not just a manufacturable count
         run: node scripts/test-sor-breadth.js
 
+      - name: A registry listing is not a seller answering (origin-responded)
+        run: node scripts/test-origin-responded.js
+
+      - name: A settlement rejection is not a charged failure (public stats honesty)
+        run: STATS_ALLOW_EPHEMERAL=true node scripts/test-charged-failure-honesty.js
+
+      - name: Rate limits are per-process; replicas must not multiply them
+        run: node scripts/test-limiter-replicas.js
+
       - name: Every test script is wired into CI (no orphaned suites)
         run: node scripts/test-ci-coverage.js
 

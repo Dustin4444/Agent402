@@ -19,7 +19,29 @@ export const MAX_CALLS_PER_BURST =
 // but mixing them in one bucket would mean an MCP burst silently throttles a
 // later x402-paid call on the same IP (because some routes are PoW-eligible
 // even for buyers). Separate buckets, shared policy.
+// Buckets live in THIS process's memory, so every replica keeps its own copy
+// and the effective system-wide limit is (configured limit x replica count).
+// Scaling from 1 to 2 replicas silently doubled every limit here - including
+// the operator credential-guessing bound - and no test could catch it, because
+// every test runs a single process.
+//
+// Dividing the budget by the replica count keeps the SYSTEM-WIDE total equal to
+// the configured intent. It is an approximation, and deliberately the
+// conservative one: a client pinned to a single replica gets its share rather
+// than the whole budget, so the limiter is never MORE permissive than
+// configured. For a security bound that is the right direction to be wrong in.
+//
+// The real fix is shared state (Redis is provisioned), but `check` is called
+// synchronously from auth paths; making it async is a wider change than this
+// warrants tonight. RATE_LIMIT_REPLICAS must be kept in step with the deployed
+// replica count - if it drifts low, limits loosen.
+const REPLICAS = Math.max(1, Number(process.env.RATE_LIMIT_REPLICAS) || 1);
+/** Per-replica share of a system-wide budget. Never below 1. */
+export const perReplica = (n) => Math.max(1, Math.floor(Number(n) / REPLICAS));
+
 export function createLimiter(name = "default", { perMin = MAX_CALLS_PER_BURST, perHour = MAX_CALLS_PER_WINDOW } = {}) {
+  perMin = perReplica(perMin);
+  perHour = perReplica(perHour);
   const buckets = new Map(); // ip -> number[] timestamps
   const prune = (hits, now) => { while (hits.length && hits[0] < now - WINDOW_MS) hits.shift(); };
   const over = (hits, now) =>
@@ -51,6 +73,20 @@ export function createLimiter(name = "default", { perMin = MAX_CALLS_PER_BURST, 
   // supersedes the failures counted so far (e.g. a successful login), so a
   // legitimate operator always has a way back in.
   const reset = (ip) => { buckets.delete(ip); };
+  /**
+   * Give back the most recent charge for a key.
+   *
+   * For budgets that meter a GRANT rather than an attempt: if the granted thing
+   * then failed, the caller never received what they paid for. The trial charged
+   * at grant time, so a malformed request that returned 400 burned the caller's
+   * one free call and their first CORRECT call hit the paywall - the opposite of
+   * what the feature is for, and inconsistent with settlement ordering, where a
+   * >=400 means a paying buyer is not charged either.
+   */
+  const refund = (ip) => {
+    const hits = buckets.get(ip);
+    if (Array.isArray(hits) && hits.length) hits.pop();
+  };
   // Bound the table: drop empty/stale buckets occasionally.
   setInterval(() => {
     const cutoff = Date.now() - WINDOW_MS;
@@ -59,7 +95,7 @@ export function createLimiter(name = "default", { perMin = MAX_CALLS_PER_BURST, 
       if (!hits.length) buckets.delete(ip);
     }
   }, 10 * 60 * 1000).unref();
-  return { check, peek, reset };
+  return { check, peek, reset, refund };
 }
 
 export const LIMITS_LABEL = `${MAX_CALLS_PER_BURST}/min, ${MAX_CALLS_PER_WINDOW}/hour per client`;

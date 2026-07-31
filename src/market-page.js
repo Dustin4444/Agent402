@@ -506,7 +506,13 @@ export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, win
   const buyers = Number(fromLb ? stat.buyers : t.buyers ?? 0);
   const winLabel = fromLb ? (windowLabel || "7d") : `${activity?.days || 30}d`;
   const toolN = seller.toolCount || 0;
-  const health = seller.routable ? "healthy" : "unreachable";
+  // Three states, not two. A registry-only record (the origin never answered
+  // us) is neither "healthy" nor proven dead: we hold a third party's listing
+  // and nothing from the seller. Calling that "healthy" is what put ~32% of the
+  // index on this page wearing a green dot.
+  const health = seller.routable
+    ? "healthy"
+    : (seller.originResponded === false ? "listed, unverified" : "unreachable");
   const firstSeen = (Array.isArray(activity?.buckets) ? activity.buckets.find((b) => Number(b.tx) > 0) : null)?.date || null;
   const host = String(sel.host || "");
   const name = sel.name || seller.displayName || host;
