@@ -158,7 +158,17 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   // about a multi-tool task (e.g. "audit a domain") sees the whole workflow,
   // not just the highest-scoring single tool. Empty array when nothing matches
   // strongly — packs only show up when the lexical signal is real.
-  const packs = rankSkillPacks(q, { k: 2, baseUrl });
+  // Price each pack's steps from the SAME catalog we just ranked, so the
+  // a la carte comparison is live rather than a second copy of the price list.
+  const priceIndex = new Map();
+  for (const t of toolList(catalog)) {
+    const n = Number(String(t.price ?? "").replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(n)) priceIndex.set(String(t.slug).toLowerCase(), n);
+  }
+  const packs = rankSkillPacks(q, {
+    k: 2, baseUrl,
+    toolPriceUsd: (slug) => priceIndex.get(String(slug).toLowerCase()) ?? null,
+  });
   return { query: String(query), count: results.length, results, packs };
 }
 

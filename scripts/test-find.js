@@ -124,5 +124,68 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
   }
 }
 
+// --- Skill packs must be BUYABLE where they are recommended, and the
+//     recommendation must not flatter them. --------------------------------
+//
+// A recommended pack used to carry only {slug,title,tagline,toolSlugs,url,
+// promptName}. The one actionable field was promptName, which means "run the
+// steps yourself" — so the bundled endpoint, which is the whole product, was
+// invisible at the exact moment an agent was choosing what to do.
+//
+// The second half matters more. Measured across the catalog, 99 of 102 packs
+// cost MORE than their tools bought individually, several by 12-30x. Surfacing
+// packs harder while staying quiet about that would be an upsell wearing the
+// costume of an answer. So the a la carte total rides along, and the wording
+// must never claim a saving that the arithmetic contradicts.
+{
+  const { rankSkillPacks, PACK_PRICES } = await import("../src/skills.js");
+  const usd = (s) => Number(String(s).replace(/[^0-9.]/g, ""));
+
+  const packs = rankSkillPacks("audit the security of a domain", {
+    baseUrl: "https://agent402.tools",
+    toolPriceUsd: () => 0.005, // every step a known price -> comparison computable
+  });
+  ok(packs.length > 0, `a task query recommends at least one pack (got ${packs.length})`);
+
+  for (const p of packs) {
+    ok(p.method === "POST" && p.route === `/api/skill/${p.slug}`,
+      `${p.slug}: recommendation names the callable bundled route`);
+    ok(typeof p.price === "string" && usd(p.price) > 0,
+      `${p.slug}: recommendation states the one-call price (${p.price})`);
+    ok(usd(p.price) === (PACK_PRICES[p.slug] ?? 0.05),
+      `${p.slug}: the quoted price is the price actually charged, not a second copy`);
+    ok(typeof p.aLaCarteUsd === "number",
+      `${p.slug}: states what the same steps cost individually ($${p.aLaCarteUsd})`);
+
+    // THE HONESTY INVARIANT. If the bundle is dearer, the copy must say so and
+    // must not assert the opposite.
+    const dearer = p.aLaCarteUsd < usd(p.price);
+    if (dearer) {
+      ok(/cheaper a la carte/.test(p.oneCall),
+        `${p.slug}: a dearer bundle SAYS it is dearer (pack $${usd(p.price)} vs $${p.aLaCarteUsd})`);
+      ok(!/bundle is also the cheaper path/.test(p.oneCall),
+        `${p.slug}: a dearer bundle never claims to be the cheaper path`);
+    } else {
+      ok(/bundle is also the cheaper path/.test(p.oneCall),
+        `${p.slug}: a genuinely cheaper bundle is allowed to say so`);
+    }
+  }
+
+  // A partial price lookup must yield NO total rather than an understated one:
+  // a sum missing a step would make a la carte look cheaper than it is, which
+  // biases the comparison in the bundle's favour — the exact failure mode.
+  const partial = rankSkillPacks("audit the security of a domain", {
+    baseUrl: "https://agent402.tools",
+    toolPriceUsd: (s) => (s === "whois" ? null : 0.005),
+  });
+  ok(partial.every((p) => p.aLaCarteUsd === undefined || !(p.toolSlugs || []).includes("whois")),
+    "an unpriceable step suppresses the comparison instead of understating it");
+
+  // ...and with no lookup at all we still hand back a buyable route.
+  const bare = rankSkillPacks("audit the security of a domain", { baseUrl: "https://agent402.tools" });
+  ok(bare.every((p) => p.route && p.price && p.aLaCarteUsd === undefined),
+    "without a price source the pack stays buyable but claims no comparison");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

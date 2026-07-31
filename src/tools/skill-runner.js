@@ -27,7 +27,7 @@
 //   standard ($0.06–$0.30)  network/render mix
 //   light    ($0.05 floor)  pure-CPU bundles, PoW-eligible
 //
-import { SKILL_PACKS } from "../skills.js";
+import { SKILL_PACKS, PACK_PRICES } from "../skills.js";
 import { safeFetch } from "./fetch-guard.js";
 import { capturePostHogPackStep } from "../posthog.js";
 
@@ -82,146 +82,12 @@ export function defaultMapInput(args, tool) {
 //   light $0.05 floor (pure-CPU, PoW-eligible — all underlying tools wallet-free)
 // Round to clean USD-cent values.
 // ──────────────────────────────────────────────────────────────────────────
-export const PACK_PRICES = {
-  // Premium (~8x sum-of-tools)
-  "market-brief":         0.05,  // 3-tool bundle (crypto-price $0.01 + crypto-trending $0.008 + crypto-global $0.008 = $0.026); priced at premium for the convenience
-  "financial-analysis":   0.08,  // 3-tool bundle (stock-quote $0.01 + company-financials $0.02 + earnings-calendar $0.015 = $0.045); smaller discount but still below 2x à la carte
-  "financial-research":   1.50,
-  "sec-filings-deep-dive": 0.85,
-  "macro-context":         0.75,
-  "crypto-research":       0.70,
-  "regulatory-watch":      0.70,
-  "search-and-cite":       0.65,
-  "macro-economics":       0.65,
-  // Conversion-priced BELOW sum-of-tools ($0.143 a la carte) ON PURPOSE - the
-  // one deliberate exception to the premium-multiple rule: this is a RECURRING
-  // dashboard refresh, not one-off research. The customer evidence is a
-  // production buyer that repeatedly bought this exact 14-tool basket
-  // individually; every upstream is keyless/free (FRED, Treasury,
-  // CoinGecko, public RPC), so $0.10 is still ~full margin.
-  "macro-dashboard":       0.10,
-  // Standard (~5x)
-  "content-extraction":    0.30,
-  "media-pipeline":        0.25,
-  "document-intel":        0.20,
-  "trend-analysis":        0.20,
-  "any-to-markdown":       0.20,
-  "structured-scrape":     0.20,
-  "forecasting-bake-off":  0.20,
-  "fraud-signals":         0.15,
-  "security-audit":        0.12,
-  "link-preview":          0.12,
-  "api-investigation":     0.10,
-  "email-deliverability":  0.10,
-  "location-intel":        0.10,
-  "dns-network-ops":       0.08,
-  "status-snapshot":       0.07,
-  "schema-evolution":      0.06,
-  // Strategy additions (2026-07): premium agent jobs on the newest kits —
-  // priced by the same sum-of-tools × tier rule as the rest of the registry.
-  // Repriced 2026-07-30 from $0.50 (6.8x the $0.073 parts sum). The pack pages
-  // now show the bundle price beside every member and its route, so the parts
-  // are one comparison away: a multiple the member list cannot justify asks a
-  // buyer to pay for not checking. Rule applied here: parts sum plus $0.01 per
-  // settlement avoided (5 tools = 4 avoided), which prices the real saving -
-  // one signature and one settlement instead of five - and still clears cost.
-  "company-dossier":       0.12, // 5-tool chain: quote + financials + EDGAR + insider + search
-  // Was $0.25 against a $0.023 parts sum (10.9x), the widest gap in the catalog.
-  "domain-intel":          0.075, // 6-tool fanout: whois + dns + tls + headers + tech + CT
-  // Was $0.30 against a $0.071 parts sum (4.2x).
-  "crypto-dossier":        0.12, // 6-tool chain: price + history + trending + global + search
-  "onchain-analyst":       0.20, // onchain-sql is $0.02 upstream-billed CDP SQL
-  "seo-audit":             0.07, // six network reads (~$0.014 × 5)
-  "wallet-readiness":      0.05, // CDP-indexed balance reads + onramp session
-  "cheapest-rail":         0.05, // four live chain reads
-  // Premium skill packs (2026-07): high-value multi-tool bundles
-  "earnings-watch":        0.10, // 3-tool fanout: earnings-calendar + stock-quote + search
-  "insider-alert":         0.15, // 3-tool fanout: edgar-insider-trades + stock-quote + edgar-filings
-  "ipo-watch":             0.15, // 2-tool fanout: edgar-recent-ipos + search
-  "yield-dashboard":       0.10, // 3-tool fanout: treasury-yield-curve + yield-curve-spread + treasury-avg-rates
-  "inflation-check":       0.10, // 4-tool fanout: cpi-yoy + fed-funds + unemployment-rate + sahm-rule
-  "fx-monitor":            0.15, // 4-tool fanout: fx-rate ×3 + fx-dashboard
-  "defi-dashboard":        0.15, // 4-tool fanout: defi-tvl + crypto-price + gas-snapshot + crypto-global
-  "nft-portfolio":         0.15, // 3-tool fanout: nft-holdings + wallet-balance + crypto-price
-  "wallet-audit":          0.15, // 3-tool fanout: wallet-balance + wallet-transactions + token-metadata
-  "gas-optimizer":         0.10, // 4-tool fanout: gas-snapshot ×2 + gas-estimate + crypto-price
-  "ssl-audit":             0.10, // 3-tool fanout: tls-cert + http-headers + dns-lookup
-  "email-security":        0.10, // 4-tool fanout: spf-check + dmarc-check + dkim-lookup + email-deliverability
-  "brand-protection":      0.20, // 4-tool fanout: whois + dns-lookup + search + http-headers
-  "competitor-scan":       0.15, // 4-tool fanout: tech-stack + http-headers + whois + meta
-  "page-audit":            0.12, // 5-tool fanout: extract + meta + http-headers + robots-check + sitemap
-  // Standard-tier batch 2 (2026-07): mid-value bundles ($0.05–$0.12)
-  "article-digest":        0.10, // 2-tool fanout: search + answer. Upstream is ~$0.066
-  // measured (search $0.005 + answer ~$0.061 — the 2026-07-22 Brave reconciliation);
-  // the old $0.08 left ~17% margin after the answer-cost correction, $0.10 clears ~34%
-  // and still matches the $0.10 sum of buying the two tools individually.
-  "pdf-pipeline":          0.06, // 3-tool fanout: pdf-info + pdf-to-markdown + pdf-extract-pages
-  "url-inspector":         0.06, // 3-tool fanout: url-parse + http-check + meta
-  "content-grade":         0.08, // 2-tool chain: extract + keywords (keywords needs extracted text)
-  "openapi-audit":         0.06, // 2-tool fanout: openapi-lint + openapi-validate-payload
-  "json-pipeline":         0.05, // 3-tool fanout: json-validate + json-format + json-to-csv
-  "data-convert":          0.05, // 2-tool chain: csv-to-json + json-to-yaml
-  "api-health":            0.06, // 3-tool fanout: http-check + http-headers + tls-cert
-  "world-data":            0.08, // 2-tool fanout: world-bank-indicator ×2 (GDP + population)
-  "fred-snapshot":         0.10, // 3-tool fanout: fred-series ×3 (FEDFUNDS + UNRATE + CPIAUCSL)
-  "contact-verify":        0.06, // 2-tool fanout: email-validate + dns-lookup (MX)
-  "domain-age":            0.06, // 3-tool fanout: whois + dns-lookup + tls-cert
-  "hash-verify":           0.05, // 3-tool fanout: hash ×3 (sha256 + sha512 + md5)
-  "encoding-suite":        0.05, // 3-tool fanout: base64 + hex + url-code
-  "jwt-toolkit":           0.05, // 2-tool fanout: jwt-decode + jwt-verify
-  "timezone-planner":      0.05, // 3-tool fanout: time-convert + business-days + cron-next
-  "text-analyze":          0.05, // 3-tool fanout: text-stats + keywords + token-count
-  "content-clean":         0.05, // 3-tool fanout: redact + dedupe-lines + sort-lines
-  "weather-brief":         0.06, // 3-tool fanout: weather-current + weather-daily + weather-air-quality
-  "price-monitor":         0.08, // 5-tool fanout: stock-quote + stock-history + crypto-price + crypto-history + date-format
-  "content-quality":       0.05, // 3-tool fanout: readability-score + word-frequency + slug-generate (pure-CPU)
-  // Light ($0.05 floor — pure-CPU bundles, PoW-eligible)
-  "text-hygiene":          0.05,
-  "decode-blob":           0.05,
-  "csv-profile":           0.05,
-  "meeting-scheduler":     0.05,
-  "jwt-forensics":         0.05,
-  "user-onboarding":       0.05,
-  "data-interchange":      0.05,
-  "rag-prep":              0.05,
-  "webhook-debug":         0.05,
-  "webhook-intake":        0.05, // 5-tool chain: webhook-verify + json-validate + hash + time-convert + redact (pure CPU)
-  "a11y-audit":            0.05,
-  "trip-planner":          0.05,
-  "identity-mint":         0.05,
-  "loan-comparison":       0.05,
-  "investment-decision":   0.05,
-  "retirement-planning":   0.05,
-  "savings-goal":          0.05,
-  // Light tier — batch 2 (2026-07)
-  "color-palette":         0.05,
-  "password-audit":        0.05,
-  "uuid-suite":            0.05,
-  "regex-test":            0.05,
-  "math-suite":            0.05,
-  "date-math":             0.05,
-  "semver-check":          0.05,
-  "lorem-gen":             0.05,
-  "qr-gen":                0.05,
-  "number-crunch":         0.05,
-  "finance-calc":          0.05,
-  "text-transform":        0.05,
-  "markdown-convert":      0.05,
-  "xml-json":              0.05,
-  "checksum-suite":        0.05,
-  "validator-suite":       0.05,
-  // "The 500" phase-2 packs (2026-07): whole-agent jobs on the new
-  // contract / finance / enrich / web / conversion tools. Priced per the
-  // additions shortlist (sum-of-tools × tier rule).
-  "contract-audit":        0.15, // 5-tool chain: contract-source + solidity-scan + selector-lookup + address-label + tx-simulate
-  "tx-forensics":          0.10, // 5-tool chain: tx-status + evm-rpc + calldata-decode + selector-lookup + address-label
-  "market-open":           0.12, // 5-tool fanout: stock-quote + premarket-quote + options-chain + stock-dividends + earnings-calendar
-  "entity-enrich":         0.15, // 6-tool fanout: wikidata-entity + lei-lookup + edgar-company-lookup + whois + tech-stack + favicon-grab
-  "feed-watch":            0.08, // 4-tool chain: feed-parse + extract + keywords + text-diff
-  "schema-guard":          0.05, // 4-tool chain: json-validate + json-schema-infer + json-diff + json-format (pure CPU)
-  "subtitle-pipeline":     0.10, // 3-tool chain: transcribe + srt-convert + text-stats
-  "locale-brief":          0.05, // 4-tool chain: country-info + public-holidays + business-days + timezone-convert
-};
+// PACK_PRICES moved to src/skills.js so the pack data and its PRICE live in
+// one module. rankSkillPacks() needs the price to tell a buyer what the
+// one-call purchase costs, and skills.js cannot import from tools/ without a
+// cycle (this file already imports SKILL_PACKS from there). Re-exported here
+// because ledger-home.js and landing.js import it from this path.
+export { PACK_PRICES };
 
 // ──────────────────────────────────────────────────────────────────────────
 // Parsers for natural-language pack args.

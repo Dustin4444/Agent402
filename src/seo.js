@@ -1,7 +1,7 @@
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable, POW_DIFFICULTY } from "./pow.js";
 import { guideSlugs } from "./guides.js";
-import { skillSlugs, SKILL_PACKS } from "./skills.js";
+import { skillSlugs, SKILL_PACKS, PACK_PRICES } from "./skills.js";
 import { BLOG_POSTS } from "./blog.js";
 import { ADAPTERS } from "./adapter-docs.js";
 import { RAILS, RAILS_OR } from "./rails.js";
@@ -217,8 +217,15 @@ export function llmsTxt(baseUrl, catalog) {
     .filter(Boolean)
     .join("\n\n");
 
+  // Name the CALLABLE route and the price, not just the page. An agent reading
+  // llms.txt could see that a pack existed but had to make another hop to learn
+  // what it cost or how to invoke it, so the one-call purchase was a paragraph
+  // of prose instead of an address.
   const packItems = SKILL_PACKS
-    .map((p) => `- [${p.title}](${baseUrl}/skills/${p.slug}): ${p.tagline} (\`${p.slug}\`, ${p.toolSlugs.length} tools, one x402 payment)`)
+    .map((p) => {
+      const price = PACK_PRICES[p.slug] ?? 0.05;
+      return `- [${p.title}](${baseUrl}/skills/${p.slug}): ${p.tagline} (\`${p.slug}\`, ${p.toolSlugs.length} tools in one call: \`POST ${baseUrl}/api/skill/${p.slug}\`, $${price.toFixed(price < 0.1 ? 3 : 2)}, one x402 payment)`;
+    })
     .join("\n");
 
   const chainItems = Object.entries(CHAIN_PAGES)
