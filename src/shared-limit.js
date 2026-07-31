@@ -47,12 +47,20 @@ async function getClient() {
             retries > 5 ? new Error("redis: too many reconnects") : Math.min(retries * 200, 2_000),
         },
       });
-      c.on("error", (err) => console.error("[shared-limit] redis error:", err.message));
+      c.on("error", (err) => {
+        state.lastError = err.message;
+        console.error("[shared-limit] redis error:", err.message);
+      });
       await c.connect();
       client = c;
+      // The confirmation the announce line deliberately does NOT make.
+      if (state.connected !== true) console.log("[shared-limit] redis CONNECTED — counters are shared");
+      state.connected = true;
       return c;
     } catch (e) {
-      console.error("[shared-limit] connect failed:", e.message);
+      state.connected = false;
+      state.lastError = e.message;
+      console.error("[shared-limit] connect failed (FAILING CLOSED — trials will be refused):", e.message);
       unavailable = true;
       return null;
     } finally {
@@ -62,21 +70,45 @@ async function getClient() {
   return connecting;
 }
 
-/** Is a shared counter actually available? Callers use this to decide whether
- *  the feature can be offered at all, rather than silently degrading. */
+/** Is a shared counter CONFIGURED? Callers use this to pick the shared path
+ *  over the per-process fallback.
+ *
+ *  Note the word: CONFIGURED, not connected. This is a synchronous check on the
+ *  gate's hot path, so it cannot await a socket — it can only report whether a
+ *  URL exists and whether we have already given up on it. Whether the counter
+ *  was actually REACHED is knowable only per call, and `spend()` reports it via
+ *  `degraded`. Do not read a true here as "the shared counter is working." */
 let announced = false;
 export function sharedLimitEnabled() {
   const on = Boolean(testClient) || (Boolean(REDIS_URL) && !unavailable);
-  // Say which path is live, once. This shipped believing Redis was in use while
-  // production kept granting one trial PER REPLICA, and no surface — logs,
-  // /health, the response — could say whether the shared counter was reached.
-  // A limiter whose backing store is unknowable is a limiter you cannot debug.
+  // Say which path was CHOSEN, once — and say plainly that choosing it is not
+  // the same as reaching it. The previous line logged "SHARED (redis)" purely
+  // because REDIS_URL was set, which is true even when every single INCR is
+  // failing and the limiter is refusing everyone. A limiter that reports health
+  // it has not verified is worse than one that reports nothing, because it ends
+  // the investigation. The confirmation comes from connectionState() below.
   if (!announced) {
     announced = true;
-    console.log(`[shared-limit] ${on ? "SHARED (redis)" : "PER-PROCESS (in-memory fallback)"}` +
-      `${REDIS_URL ? "" : " — REDIS_URL unset"}${unavailable ? " — redis marked unavailable" : ""}`);
+    console.log(`[shared-limit] path=${on ? "shared" : "per-process"}` +
+      `${REDIS_URL ? " (redis configured, not yet contacted)" : " — REDIS_URL unset"}` +
+      `${unavailable ? " — redis marked unavailable" : ""}`);
   }
   return on;
+}
+
+// The verified half of the story. `getClient()` sets this the first time it
+// actually reaches (or fails to reach) Redis, and `spend()` records the first
+// degraded call. Exposed so an operator surface can show the TRUE state rather
+// than the configured one.
+let state = { connected: null, lastError: null, degradedCalls: 0 };
+export function connectionState() { return { ...state, configured: Boolean(REDIS_URL) }; }
+
+/** The fail-closed answer, counted. Every caller that cannot reach the shared
+ *  counter goes through here so "how often are we refusing because the store is
+ *  down?" has an answer instead of being invisible. */
+function degradedResult() {
+  state.degradedCalls++;
+  return { limited: true, count: null, degraded: true };
 }
 
 /** Window-bucketed key: all replicas in the same wall-clock window agree. */
@@ -94,7 +126,7 @@ export function windowKey(name, key, windowSeconds) {
  */
 export async function spend(name, key, limit, windowSeconds) {
   const c = await getClient();
-  if (!c) return { limited: true, count: null, degraded: true };
+  if (!c) return degradedResult();
   const k = windowKey(name, key, windowSeconds);
   try {
     const n = await c.incr(k);
@@ -110,21 +142,21 @@ export async function spend(name, key, limit, windowSeconds) {
     return { limited: false, count: n, degraded: false };
   } catch (e) {
     console.error("[shared-limit] spend failed:", e.message);
-    return { limited: true, count: null, degraded: true };
+    return degradedResult();
   }
 }
 
 /** Read without spending. Same fail-closed rule. */
 export async function peek(name, key, limit, windowSeconds) {
   const c = await getClient();
-  if (!c) return { limited: true, count: null, degraded: true };
+  if (!c) return degradedResult();
   try {
     const raw = await c.get(windowKey(name, key, windowSeconds));
     const n = Number(raw || 0);
     return { limited: n >= limit, count: n, degraded: false };
   } catch (e) {
     console.error("[shared-limit] peek failed:", e.message);
-    return { limited: true, count: null, degraded: true };
+    return degradedResult();
   }
 }
 

@@ -217,6 +217,38 @@ const done = (code) => {
   ok(blocked > 0 || served < sweepTools.length,
     `the per-client cap stops a catalog sweep (served ${served}/${sweepTools.length}, blocked ${blocked})`);
 
+  // 7. We must never advertise a trial in the same breath as refusing one.
+  //    X-Trial-Available rode on EVERY 402, including the refusals, so a caller
+  //    that had just been told "exhausted" was handed a link straight back to
+  //    the URL that refused it. An agent that follows the link retries forever;
+  //    one that reads both headers catches us contradicting ourselves on its
+  //    very first unpaid request. The two headers are mutually exclusive.
+  {
+    const sweep = await fetch(`${base}${TRIAL_A}?trial=1`);      // grant (or already spent)
+    let refused = null;
+    for (let i = 0; i < 4 && !refused; i++) {
+      const r = await fetch(`${base}${TRIAL_A}?trial=1`);
+      if (r.headers.get("x-trial-exhausted") === "true") refused = r;
+    }
+    ok(Boolean(refused), "a repeat trial on the same tool is eventually refused (setup for the contradiction check)");
+    if (refused) {
+      ok(!refused.headers.get("x-trial-available"),
+        "a REFUSED trial does not also advertise X-Trial-Available (no retry loop, no self-contradiction)");
+    }
+    // ...and the positive half: a 402 that has NOT refused a trial still tells
+    // the buyer the trial exists. Removing the contradiction must not remove
+    // the advertisement, which is the only thing that makes the trial findable.
+    const fresh = pricing.endpoints.find((e) =>
+      e.method === "GET" && e.computePayable === true &&
+      ![TRIAL_A, TRIAL_B, ...sweepTools].includes(e.path));
+    if (fresh) {
+      const plain = await fetch(`${base}${fresh.path}`);          // no ?trial=1
+      ok(plain.status === 402 && Boolean(plain.headers.get("x-trial-available")),
+        "an ordinary 402 still advertises the trial (the feature stays discoverable)");
+    }
+    void sweep;
+  }
+
   console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
   done(fail ? 1 : 0);
 })().catch((e) => { console.error(e); console.error(log.slice(-1500)); done(1); });

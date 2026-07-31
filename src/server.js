@@ -3752,7 +3752,16 @@ if (FREE_MODE) {
         res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
       }
       res.setHeader("X-Pow-Challenge", `${BASE_URL}/api/pow/challenge?slug=${slug}`);
-      res.setHeader("X-Trial-Available", `${BASE_URL}${req.path}?trial=1`);
+      // Advertise the trial ONLY when it is actually available. This header used
+      // to ride on every 402, including the one that had just REFUSED a trial —
+      // so a caller that had exhausted its allowance was handed a link back to
+      // the exact URL that refused it, next to X-Trial-Exhausted saying it would
+      // not work. An agent that trusts the header retries in a loop; one that
+      // reads both sees us contradict ourselves. Neither is a first impression
+      // worth giving, and this fires on the buyer's FIRST unpaid request.
+      if (res.getHeader("X-Trial-Exhausted") !== "true") {
+        res.setHeader("X-Trial-Available", `${BASE_URL}${req.path}?trial=1`);
+      }
     }
     // Payment-nonce replay guard (M3, defends "Five Attacks on x402" Attack II —
     // replay / insufficient idempotency). Reached only on the genuine x402 path:
