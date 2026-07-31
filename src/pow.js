@@ -329,6 +329,15 @@ export function issueChallenge(slug) {
     ttlSeconds: TTL_SECONDS,
     submitHeader: "X-Pow-Solution",
     submitFormat: "<token>:<nonce>",
+    // You HASH one field and SEND a different one. Everything above describes
+    // the work; without this line the two strings are easy to conflate, and
+    // doing so yields a 402 indistinguishable from not having paid at all.
+    // Spelled out here because this response is the only thing a wallet-less
+    // agent reads before its first successful call.
+    submitNote:
+      "Hash the `challenge` field; submit the `token` field. They are different values: " +
+      "`challenge` is the 32-hex puzzle input, `token` is the signed credential the server accepts. " +
+      `Send header ${"X-Pow-Solution"}: <the token field>:<your nonce>`,
     token,
   };
 }
@@ -346,7 +355,24 @@ export function verifySolution(headerValue, slug) {
   if (!nonce) return { ok: false, reason: "missing nonce" };
 
   const parts = token.split(".");
-  if (parts.length !== 5) return { ok: false, reason: "malformed token" };
+  if (parts.length !== 5) {
+    // THE FREE TIER'S ONE SHARP EDGE, named instead of shrugged at.
+    //
+    // The challenge response carries two different strings: `challenge` (the
+    // 32-hex value you HASH) and `token` (the signed value you SEND). An agent
+    // that hashes `challenge` and then submits `challenge` has done the work
+    // correctly and gets a 402 that is byte-identical to "you did not pay" —
+    // a silent failure on the exact path meant to turn a wallet-less agent
+    // into a user. "malformed token" did not hint at which of the two it
+    // wanted. This costs one regex and converts a dead end into an instruction.
+    const looksLikeChallenge = /^[0-9a-f]{32}$/i.test(token);
+    return {
+      ok: false,
+      reason: looksLikeChallenge
+        ? "sent the 'challenge' field; send the 'token' field instead - hash `challenge`, submit `token` (they are two different values in the challenge response)"
+        : "malformed token - submit the `token` field from the challenge response verbatim, as `<token>:<nonce>`",
+    };
+  }
   const [challenge, expStr, diffStr, tokSlug, sig] = parts;
   const payload = `${challenge}.${expStr}.${diffStr}.${tokSlug}`;
 

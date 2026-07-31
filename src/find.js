@@ -97,20 +97,69 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
     return s;
   };
 
+  // How INFORMATIVE is each query term? A term that matches half the catalog
+  // ("check", "data", "text") says almost nothing about which tool is wanted; a
+  // term that matches three ("sessions", "website", "transcribe") says almost
+  // everything. Scoring them equally is why "check if a website is up" resolved
+  // to `spf-check` — three tools share the word "check", the one distinguishing
+  // word "website" counted for one point, and the common word decided it.
+  //
+  // Standard inverse-document-frequency, computed live from the catalog itself
+  // so it needs no tuning table and cannot go stale as tools are added. Fully
+  // deterministic: same catalog and same query give the same ranking, which the
+  // no-LLM contract requires.
+  //
+  // Each tool is normalized ONCE here. The document-frequency pass is
+  // O(terms x tools), so anything rebuilt inside it is rebuilt up to ~17,000
+  // times per request (32 terms x 527 tools); concatenating the haystack per
+  // pair measured 23ms p50 on a worst-case query. Hoisting it is the difference
+  // between a scoring improvement and a latency regression on the entry point
+  // we tell every agent to use.
+  const all = toolList(catalog).map((t) => ({
+    t,
+    slug: t.slug.toLowerCase(),
+    name: (t.name || "").toLowerCase(),
+    segs: new Set(t.slug.toLowerCase().split("-")),
+    tagSet: new Set((t.tags || []).map((tg) => String(tg).toLowerCase())),
+    hay: `${t.name} ${t.description} ${t.category} ${(t.tags || []).join(" ")}`.toLowerCase(),
+  }));
+  const N = all.length || 1;
+  const idf = new Map();
+  for (const term of terms) {
+    let df = 0;
+    for (const e of all) if (e.slug.includes(term) || e.hay.includes(term)) df++;
+    // log((N+1)/(df+1)): ~5.6 for a term unique to one tool, ~1.0 for one that
+    // matches 200. Floored so a ubiquitous term still nudges rather than
+    // flipping sign or vanishing entirely.
+    idf.set(term, Math.max(0.25, Math.log((N + 1) / (df + 1))));
+  }
+
   const scored = [];
-  for (const t of toolList(catalog)) {
-    const slug = t.slug.toLowerCase();
-    const name = (t.name || "").toLowerCase();
-    const tagSet = new Set((t.tags || []).map((tg) => String(tg).toLowerCase()));
-    const hay = `${t.name} ${t.description} ${t.category} ${(t.tags || []).join(" ")}`.toLowerCase();
+  for (const e of all) {
+    const { t, slug, name, tagSet, hay } = e;
+    // Slugs are hyphenated words, so a WHOLE segment matching a query term is a
+    // real signal while an incidental substring is usually an accident:
+    // "check" sits inside "checksum", "data" inside "wikidata-entity", "detect"
+    // inside "base-detect". Those accidents used to score the same +4 as a
+    // genuine match, which is how "check if a website is up" resolved to
+    // `checksum`/`spf-check` while `http-check` lost, and "store data between
+    // sessions" resolved to `wikidata-entity` while the memory tools lost.
+    //
+    // A wrong top result is not a cosmetic problem here: /api/find is the entry
+    // point we advertise everywhere, and an agent that trusts it pays for the
+    // wrong tool and gets something useless on its first call.
+    const segs = e.segs;
     let score = 0;
     for (const term of terms) {
-      if (slug === term) score += 10;
-      else if (slug.includes(term)) score += 4;
-      if (name.includes(term)) score += 2;
+      let s = 0;
+      if (slug === term) s += 10;
+      else if (segs.has(term)) s += 6;      // a whole word of the slug
+      else if (slug.includes(term)) s += 2; // incidental substring, kept but demoted
+      if (name.includes(term)) s += 2;
       // A curated tag is a stronger signal than a stray hit in the description.
-      if (tagSet.has(term)) score += 3;
-      if (hay.includes(term)) score += 1;
+      if (tagSet.has(term)) s += 3;
+      if (hay.includes(term)) s += 1;
+      score += s * idf.get(term);           // weight by how much the term narrows things
     }
     if (score > 0) scored.push([score, t, directionScore(slug)]);
   }
@@ -158,7 +207,17 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   // about a multi-tool task (e.g. "audit a domain") sees the whole workflow,
   // not just the highest-scoring single tool. Empty array when nothing matches
   // strongly — packs only show up when the lexical signal is real.
-  const packs = rankSkillPacks(q, { k: 2, baseUrl });
+  // Price each pack's steps from the SAME catalog we just ranked, so the
+  // a la carte comparison is live rather than a second copy of the price list.
+  const priceIndex = new Map();
+  for (const t of toolList(catalog)) {
+    const n = Number(String(t.price ?? "").replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(n)) priceIndex.set(String(t.slug).toLowerCase(), n);
+  }
+  const packs = rankSkillPacks(q, {
+    k: 2, baseUrl,
+    toolPriceUsd: (slug) => priceIndex.get(String(slug).toLowerCase()) ?? null,
+  });
   return { query: String(query), count: results.length, results, packs };
 }
 

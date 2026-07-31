@@ -1926,7 +1926,10 @@ const networkTools = [
     category: "network",
     price: "$0.003",
     description: "Check any public URL: status code, latency, final URL after redirects, and response headers. The uptime primitive for agent monitors.",
-    tags: ["uptime", "monitoring", "http", "headers", "latency"],
+    // "website"/"site"/"up"/"down" are how an agent phrases this ("check if a
+    // website is up"); the description says "public URL", so the query words
+    // appeared nowhere and spf-check won on the shared word "check".
+    tags: ["uptime", "monitoring", "http", "headers", "latency", "website", "site", "up", "down", "status", "reachable"],
     discovery: {
       bodyType: "json",
       input: { url: "https://example.com" },

@@ -1,7 +1,7 @@
 import { toolList, CATEGORIES } from "./pages.js";
 import { isComputePayable, POW_DIFFICULTY } from "./pow.js";
 import { guideSlugs } from "./guides.js";
-import { skillSlugs, SKILL_PACKS } from "./skills.js";
+import { skillSlugs, SKILL_PACKS, PACK_PRICES } from "./skills.js";
 import { BLOG_POSTS } from "./blog.js";
 import { ADAPTERS } from "./adapter-docs.js";
 import { RAILS, RAILS_OR } from "./rails.js";
@@ -217,8 +217,15 @@ export function llmsTxt(baseUrl, catalog) {
     .filter(Boolean)
     .join("\n\n");
 
+  // Name the CALLABLE route and the price, not just the page. An agent reading
+  // llms.txt could see that a pack existed but had to make another hop to learn
+  // what it cost or how to invoke it, so the one-call purchase was a paragraph
+  // of prose instead of an address.
   const packItems = SKILL_PACKS
-    .map((p) => `- [${p.title}](${baseUrl}/skills/${p.slug}): ${p.tagline} (\`${p.slug}\`, ${p.toolSlugs.length} tools, one x402 payment)`)
+    .map((p) => {
+      const price = PACK_PRICES[p.slug] ?? 0.05;
+      return `- [${p.title}](${baseUrl}/skills/${p.slug}): ${p.tagline} (\`${p.slug}\`, ${p.toolSlugs.length} tools in one call: \`POST ${baseUrl}/api/skill/${p.slug}\`, $${price.toFixed(price < 0.1 ? 3 : 2)}, one x402 payment)`;
+    })
     .join("\n");
 
   const chainItems = Object.entries(CHAIN_PAGES)
@@ -237,7 +244,7 @@ Base URL: ${baseUrl}
 
 **Why agents use this instead of building it themselves.** You cannot sign up for anything: the useful web hides behind signups, captchas, API keys, and credit cards, none of which an autonomous agent can obtain - every capability here needs only the credential an agent already holds (its wallet, or its CPU). Capabilities your sandbox lacks (a headless browser, network egress, durable disk) are here because agents cannot self-host them mid-task. State survives the session and even crosses owners via wallet-keyed \`/api/memory\`. One x402-wrapped fetch (or the MCP server) covers the whole catalog - deterministic outputs, flat per-call prices, tested before every deploy, billed verifiably on-chain.
 
-**No wallet? Pay with compute (proof-of-work).** ${powCount} of the ${tools.length} tools accept a sha256 proof-of-work puzzle (a fraction of a second of CPU) instead of USDC - no money and no AI tokens (there is no LLM in the serving path). Get a challenge at \`${baseUrl}/api/pow/challenge?slug=hash\`, find an integer nonce so that \`sha256(challenge + ":" + nonce)\` has at least ${POW_DIFFICULTY} leading zero bits, then resend the request with header \`X-Pow-Solution: <token>:<nonce>\`. The network / browser / storage tools that need wallet-bound identity or live egress stay wallet-only.
+**No wallet? Pay with compute (proof-of-work).** ${powCount} of the ${tools.length} tools accept a sha256 proof-of-work puzzle (a fraction of a second of CPU) instead of USDC - no money and no AI tokens (there is no LLM in the serving path). Get a challenge at \`${baseUrl}/api/pow/challenge?slug=hash\`, find an integer nonce so that \`sha256(challenge + ":" + nonce)\` has at least ${POW_DIFFICULTY} leading zero bits, then resend the request with header \`X-Pow-Solution: <token>:<nonce>\`. **The response has two different fields and you use both: hash the \`challenge\` (32 hex chars), submit the \`token\` (the longer signed string).** Submitting the challenge you just hashed returns a 402 that looks exactly like an unpaid request, so this is the one step worth reading twice. The network / browser / storage tools that need wallet-bound identity or live egress stay wallet-only.
 
 **Pay with USDC (x402).** Wrap fetch with \`@x402/fetch\`, register the exact EVM scheme with your signer, and call normally - the 402 is decoded, paid, and the result returned. Settlement uses ${RAILS_OR}; gas is sponsored by the facilitator on EVM chains, so callers need only hold the stablecoin. Send an \`Idempotency-Key\` header for safe retries: replaying the same key with the same payment/PoW credential returns the original result without paying again.
 

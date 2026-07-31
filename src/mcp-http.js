@@ -79,6 +79,15 @@ let mcpInFlight = 0;
  * both the stats counters and the analytics dashboard with full per-call meta.
  */
 export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null }) {
+  // Live per-tool prices for the skill-pack a la carte comparison. Built once
+  // from the same catalog this connector serves, so the number an agent sees
+  // next to a pack is the price it would actually pay for the steps.
+  const packPriceIndex = new Map();
+  for (const def of Object.values(catalog)) {
+    const n = Number(String(def?.price ?? "").replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(n) && def?.slug) packPriceIndex.set(String(def.slug).toLowerCase(), n);
+  }
+  const toolPriceUsd = (slug) => packPriceIndex.get(String(slug).toLowerCase()) ?? null;
   const tools = new Map(); // slug -> { def, free }
   for (const def of Object.values(catalog)) {
     tools.set(def.slug, { def, free: isComputePayable(def) });
@@ -369,8 +378,9 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           const { rows: results, topScore } = searchTools(q, args.limit);
           // Multi-tool workflows that match the same query — surface them so an
           // agent asking "audit a domain" sees the whole security-audit pack
-          // (callable via prompts/get on this connector) alongside the tools.
-          const workflows = rankSkillPacks(q, { k: 2, baseUrl });
+          // (callable in ONE payment via skill-<slug>, or step-by-step via
+          // prompts/get) alongside the tools.
+          const workflows = rankSkillPacks(q, { k: 2, baseUrl, toolPriceUsd });
           // Weak/empty match: nudge toward request_tool instead of a dead
           // end. No wish recorded here — search_tools is a looser lexical
           // search than find_tool, not a task-intent signal; the explicit
@@ -383,7 +393,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
               text: results.length || workflows.length
                 ? JSON.stringify({
                     results,
-                    ...(workflows.length ? { workflows, workflowsUsage: "prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } }" } : {}),
+                    ...(workflows.length ? { workflows, workflowsUsage: "One call: call_tool { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
                     ...(weak ? { hint: WISH_HINT_TEXT } : {}),
                     usage: 'call_tool {"slug": …, "params": …}',
                   }, null, 2)
@@ -432,7 +442,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
                 ? JSON.stringify({
                     task: r.query,
                     results,
-                    ...(r.packs?.length ? { workflows: r.packs, workflowsUsage: "prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } }" } : {}),
+                    ...(r.packs?.length ? { workflows: r.packs, workflowsUsage: "One call: call_tool { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
                     ...(relatedSellers ? { relatedSellers } : {}),
                     ...(weak && !relatedSellers ? { hint: WISH_HINT_TEXT } : {}),
                     usage: "Run call_tool with the chosen {slug, params}. Free results execute here; wallet-only need the agent402-mcp npm server.",

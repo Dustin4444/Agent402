@@ -124,5 +124,108 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
   }
 }
 
+// --- Skill packs must be BUYABLE where they are recommended, and the
+//     recommendation must not flatter them. --------------------------------
+//
+// A recommended pack used to carry only {slug,title,tagline,toolSlugs,url,
+// promptName}. The one actionable field was promptName, which means "run the
+// steps yourself" — so the bundled endpoint, which is the whole product, was
+// invisible at the exact moment an agent was choosing what to do.
+//
+// The second half matters more. Measured across the catalog, 99 of 102 packs
+// cost MORE than their tools bought individually, several by 12-30x. Surfacing
+// packs harder while staying quiet about that would be an upsell wearing the
+// costume of an answer. So the a la carte total rides along, and the wording
+// must never claim a saving that the arithmetic contradicts.
+{
+  const { rankSkillPacks, PACK_PRICES } = await import("../src/skills.js");
+  const usd = (s) => Number(String(s).replace(/[^0-9.]/g, ""));
+
+  const packs = rankSkillPacks("audit the security of a domain", {
+    baseUrl: "https://agent402.tools",
+    toolPriceUsd: () => 0.005, // every step a known price -> comparison computable
+  });
+  ok(packs.length > 0, `a task query recommends at least one pack (got ${packs.length})`);
+
+  for (const p of packs) {
+    ok(p.method === "POST" && p.route === `/api/skill/${p.slug}`,
+      `${p.slug}: recommendation names the callable bundled route`);
+    ok(typeof p.price === "string" && usd(p.price) > 0,
+      `${p.slug}: recommendation states the one-call price (${p.price})`);
+    ok(usd(p.price) === (PACK_PRICES[p.slug] ?? 0.05),
+      `${p.slug}: the quoted price is the price actually charged, not a second copy`);
+    ok(typeof p.aLaCarteUsd === "number",
+      `${p.slug}: states what the same steps cost individually ($${p.aLaCarteUsd})`);
+
+    // THE HONESTY INVARIANT. If the bundle is dearer, the copy must say so and
+    // must not assert the opposite.
+    const dearer = p.aLaCarteUsd < usd(p.price);
+    if (dearer) {
+      ok(/cheaper a la carte/.test(p.oneCall),
+        `${p.slug}: a dearer bundle SAYS it is dearer (pack $${usd(p.price)} vs $${p.aLaCarteUsd})`);
+      ok(!/bundle is also the cheaper path/.test(p.oneCall),
+        `${p.slug}: a dearer bundle never claims to be the cheaper path`);
+    } else {
+      ok(/bundle is also the cheaper path/.test(p.oneCall),
+        `${p.slug}: a genuinely cheaper bundle is allowed to say so`);
+    }
+  }
+
+  // A partial price lookup must yield NO total rather than an understated one:
+  // a sum missing a step would make a la carte look cheaper than it is, which
+  // biases the comparison in the bundle's favour — the exact failure mode.
+  const partial = rankSkillPacks("audit the security of a domain", {
+    baseUrl: "https://agent402.tools",
+    toolPriceUsd: (s) => (s === "whois" ? null : 0.005),
+  });
+  ok(partial.every((p) => p.aLaCarteUsd === undefined || !(p.toolSlugs || []).includes("whois")),
+    "an unpriceable step suppresses the comparison instead of understating it");
+
+  // ...and with no lookup at all we still hand back a buyable route.
+  const bare = rankSkillPacks("audit the security of a domain", { baseUrl: "https://agent402.tools" });
+  ok(bare.every((p) => p.route && p.price && p.aLaCarteUsd === undefined),
+    "without a price source the pack stays buyable but claims no comparison");
+}
+
+// --- A common word must not outrank a distinguishing one -------------------
+//
+// Two scoring defects, found by running realistic agent tasks through the
+// resolver we advertise as the entry point and reading the answers:
+//
+//   * an INCIDENTAL SUBSTRING scored like a real match, so "check" inside
+//     `checksum` and "data" inside `wikidata-entity` beat `http-check` and the
+//     memory tools.
+//   * every term counted equally, so a word shared by dozens of tools ("check")
+//     outvoted the one word that actually narrowed it ("website").
+//
+// A wrong top result is not cosmetic: an agent that trusts /api/find pays for
+// the wrong tool and gets something useless on its FIRST call.
+{
+  const C = {
+    "POST /api/checksum": { name: "Checksum", slug: "checksum", category: "encoding", price: "$0.001", description: "CRC32 and Adler checksums of text.", tags: ["crc", "checksum"], discovery: {} },
+    "POST /api/http-check": { name: "HTTP check", slug: "http-check", category: "network", price: "$0.003", description: "Check any public URL: status code, latency, redirects.", tags: ["uptime", "website", "up", "status"], discovery: {} },
+    "POST /api/spf-check": { name: "SPF check", slug: "spf-check", category: "network", price: "$0.003", description: "Validate a domain's SPF record.", tags: ["spf", "email", "dns"], discovery: {} },
+    "POST /api/wikidata-entity": { name: "Wikidata entity", slug: "wikidata-entity", category: "data", price: "$0.005", description: "Look up a Wikidata entity.", tags: ["wikidata", "entity"], discovery: {} },
+    "POST /api/memory": { name: "Memory write", slug: "memory-write", category: "memory", price: "$0.002", description: "Persistent key-value memory for agents.", tags: ["memory", "store", "session", "sessions", "state"], discovery: {} },
+  };
+  const top1 = (q) => findTools(C, q, { baseUrl: "https://agent402.tools" }).results[0]?.slug;
+
+  ok(top1("check if a website is up") === "http-check",
+    `"check if a website is up" -> http-check, not a tool that merely contains "check" (got ${top1("check if a website is up")})`);
+  ok(top1("store data between sessions") === "memory-write",
+    `"store data between sessions" -> memory-write, not a slug containing "data" (got ${top1("store data between sessions")})`);
+
+  // The mechanism, asserted directly so the fix cannot be silently undone:
+  // a whole slug segment must outscore an incidental substring.
+  const seg = findTools(C, "check", { baseUrl: "" }).results.map((r) => r.slug);
+  ok(seg.indexOf("http-check") < seg.indexOf("checksum") || !seg.includes("checksum"),
+    `a slug SEGMENT ("http-check") outranks an accidental substring ("checksum") for "check" (${seg.join(",")})`);
+
+  // And a term shared by many tools must carry less weight than a rare one.
+  // "check" appears in three of five here; "website" in one. The rare word wins.
+  ok(top1("website check") === "http-check",
+    `the rarer term decides when a common one is shared (got ${top1("website check")})`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
