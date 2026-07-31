@@ -155,5 +155,54 @@ check("assessSeller is pure and tolerates a detail with no tools", () => {
   assert.equal(a.routableByOurRouter, false);
 });
 
+// --- health is NOT paywall liveness -----------------------------------------
+// Crawl health only says the manifest parsed. A seller whose every paid route
+// 500s scores a perfect 1.0 on it — one live seller sat at health 1 in our
+// index while every paid route returned a facilitator error. The tool must
+// report paywall liveness SEPARATELY so a reader cannot mistake one for the
+// other.
+const DEAD_PAYWALL = {
+  origin: "https://dead.example", displayName: "Dead", health: 1, toolCount: 3,
+  fetchedAt: Date.now(), error: null,
+  paywall: { ok: false, status: 500, url: "https://dead.example/api/x", at: Date.now() },
+  tools: [{ price: 0.002, paid: true, networks: ["eip155:8453"] }],
+};
+
+check("a broken paywall is reported separately from a perfect health score", () => {
+  const t = build([DEAD_PAYWALL], { "https://dead.example": 999 });
+  const r = t.handler({ origin: "dead.example" });
+  assert.equal(r.healthScore, 1, "health stays 1 — that is precisely the trap");
+  assert.ok(r.paywall, "paywall liveness must be present");
+  assert.equal(r.paywall.ok, false);
+  assert.equal(r.paywall.status, 500);
+  assert.ok(
+    r.caveats.some((c) => /healthScore measures whether the manifest parsed/.test(c)),
+    "caveats must state what healthScore does and does not mean"
+  );
+});
+
+check("an unprobed paywall is null — absence, never a pass", () => {
+  const t = build([{ ...DEAD_PAYWALL, paywall: null }], { "https://dead.example": 999 });
+  assert.equal(t.handler({ origin: "dead.example" }).paywall, null);
+});
+
+check("the advertised payTo carries its own on-chain evidence", () => {
+  const t = build([DEAD_PAYWALL], { "https://dead.example": 999 }, {
+    getPayToEvidence: () => ({
+      advertisedPayTo: "0x" + "a".repeat(40), checked: true,
+      settlementsObserved: 0, observedAtAdvertisedAddress: false, note: "n",
+    }),
+  });
+  const r = t.handler({ origin: "dead.example" });
+  assert.ok(r.advertisedPayTo, "must surface the advertised-address evidence");
+  assert.equal(r.advertisedPayTo.observedAtAdvertisedAddress, false);
+});
+
+check("without a payTo-evidence source the field is omitted, not faked", () => {
+  const t = build([DEAD_PAYWALL], { "https://dead.example": 999 });
+  assert.ok(!("advertisedPayTo" in t.handler({ origin: "dead.example" })));
+});
+
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

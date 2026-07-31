@@ -125,3 +125,37 @@ export function unattributedMerchants({ sellers, merchants, ourAddresses = [], m
     note: "Merchants observed settling on Base whose address matches no origin in our crawl. A settlement carries no URL, so these cannot be resolved to a seller from chain data alone — they need an origin from somewhere before the router can ever consider them.",
   };
 }
+
+/**
+ * Is there any on-chain evidence for the address a seller ADVERTISES?
+ *
+ * A seller publishes a payTo in its manifest; that is a claim, not a receipt.
+ * We separately observe which addresses actually receive USDC on Base. When a
+ * seller advertises an address that has received nothing we have ever seen,
+ * that is worth saying plainly — one live case advertised one address while
+ * every settlement we traced went to a different one.
+ *
+ * Deliberately NOT framed as fraud detection. "No settlements observed at the
+ * advertised address" has innocent explanations: a fresh seller, a rail we do
+ * not scan, or a merchant list we truncate. So it reports what was looked for
+ * and what was found, and says when it cannot tell — the same rule /status
+ * follows for uptime gaps.
+ */
+export function advertisedPayToEvidence({ seller, merchants, network = "eip155:8453" } = {}) {
+  const advertised = baseNetworkPayTo(seller, network);
+  if (!advertised) return { advertisedPayTo: null, checked: false, reason: "seller advertises no payTo on this network" };
+  if (!Array.isArray(merchants) || merchants.length === 0) {
+    // No scan is not "no evidence against them" — it is no scan.
+    return { advertisedPayTo: advertised, checked: false, reason: "no on-chain merchant scan available" };
+  }
+  const hit = merchantsByAddress(merchants).get(advertised);
+  return {
+    advertisedPayTo: advertised,
+    checked: true,
+    settlementsObserved: hit ? hit.payments : 0,
+    observedAtAdvertisedAddress: Boolean(hit),
+    note: hit
+      ? "the address this seller advertises is one we have observed receiving settlements"
+      : "we have observed no settlements at the address this seller advertises; the merchant scan covers the busiest receivers on Base only, so this is not proof of anything by itself",
+  };
+}

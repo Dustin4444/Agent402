@@ -786,6 +786,66 @@ function rollHistory(prev, ok) {
   return h;
 }
 
+// Does this seller's PAYWALL actually work?
+//
+// Crawl health measures one thing: did /.well-known/x402 parse. A seller whose
+// every paid route answers 500 scores a perfect 1.0 and reads as healthy,
+// because the manifest is free and the paywall is never touched. That is not
+// hypothetical - a seller with ~49k claimed lifetime calls sat at health 1 in
+// our index while every paid route returned
+// "no supported payment kinds loaded from any facilitator".
+//
+// One unpaid request per seller per crawl. It costs the seller nothing (an
+// unpaid 402 is the normal way to read a price) and it is the only signal that
+// distinguishes "serving" from "serving its brochure".
+//
+// Recorded SEPARATELY from `history` on purpose: crawl health drives routing
+// and is already tuned, and folding a new failure mode into it would silently
+// re-rank the whole index. This reports; it does not re-weight.
+// Bounded per cycle. The first version probed EVERY seller on EVERY crawl,
+// which doubled the crawler's outbound requests across ~2,250 origins — a cost
+// I noted in passing instead of sizing, and it lands on third parties as well
+// as on us. A rotating cap keeps total outbound near 1x while still covering
+// the whole index over successive cycles: every seller is probed eventually,
+// none is probed every time.
+const PAYWALL_PROBES_PER_CYCLE = Math.max(0, Number(process.env.X402_PAYWALL_PROBES_PER_CYCLE ?? 25));
+let paywallProbeCursor = 0;
+/** Round-robin: is this seller's turn to be probed on this cycle? */
+function paywallProbeDue() {
+  if (PAYWALL_PROBES_PER_CYCLE === 0) return false; // 0 disables it entirely
+  return paywallProbeCursor++ % Math.max(1, Math.ceil(cache.size / PAYWALL_PROBES_PER_CYCLE) || 1) === 0;
+}
+
+async function probePaywall(tools) {
+  const paid = (Array.isArray(tools) ? tools : []).filter(
+    (t) => t && typeof t.url === "string" && Number(t.price) > 0
+  );
+  // Prefer a GET: no body to guess, and a wrong body shape would produce a 400
+  // that says nothing about the paywall.
+  const pick = paid.find((t) => String(t.method || "GET").toUpperCase() === "GET") || paid[0];
+  if (!pick) return null;
+  const method = String(pick.method || "GET").toUpperCase();
+  try {
+    const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
+    // Same guard as the router's live probe: crawled URLs are external data and
+    // could DNS-rebind between crawl and now, so validate then pin.
+    await assertPublicUrl(pick.url);
+    const res = await fetch(pick.url, {
+      method,
+      headers: { Accept: "application/json", ...(method !== "GET" ? { "Content-Type": "application/json" } : {}) },
+      ...(method !== "GET" ? { body: "{}" } : {}),
+      dispatcher: ssrfDispatcher,
+      redirect: "manual",
+      signal: AbortSignal.timeout(8000),
+    });
+    // 402 is the ONLY healthy answer for an unpaid call to a paid route. A 200
+    // means the route is not actually paywalled; a 5xx means it is broken.
+    return { ok: res.status === 402, status: res.status, url: pick.url, at: Date.now() };
+  } catch (e) {
+    return { ok: false, status: 0, url: pick.url, at: Date.now(), error: String(e?.message || e).slice(0, 120) };
+  }
+}
+
 async function crawlSeller(originUrl) {
   const prev = cache.get(originUrl);
   try {
@@ -826,6 +886,9 @@ async function crawlSeller(originUrl) {
       fetchedAt: Date.now(),
       error: null,
       history: rollHistory(prev, true),
+      // Not this seller's turn: carry the last reading forward rather than
+      // dropping it — null must mean "never probed", not "not probed today".
+      paywall: paywallProbeDue() ? await probePaywall(tools) : (prev?.paywall ?? null),
     });
   } catch (e) {
     // No /.well-known/x402 — two fallback surfaces, richest metadata wins:
@@ -879,6 +942,7 @@ async function crawlSeller(originUrl) {
         error: null,
         source: openapiTools.length ? "openapi-fallback" : "bazaar-fallback",
         history: rollHistory(prev, true),
+        paywall: paywallProbeDue() ? await probePaywall(tools) : (prev?.paywall ?? null),
       });
       return;
     }
@@ -1362,6 +1426,10 @@ export function sellerDetail(originOrHost) {
       fetchedAt: v.fetchedAt ?? null,
       error: v.error || null,
       health: healthScore(v),
+      // Paywall liveness, measured separately from crawl health. `health` only
+      // says the manifest parsed; a seller whose every paid route 500s scores a
+      // perfect 1.0 on it. null = not probed yet (never assume healthy).
+      paywall: v.paywall || null,
       routable: isRoutable(v),
       tools: (v.tools || []).slice(0, 500).map((t) => ({
         method: t.method || null,
@@ -1482,7 +1550,32 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     sellers,
     discoverySources,
     totals: {
+      // NOTE: `sellers` counts indexed ORIGINS, not operators. One operator can
+      // publish many hostnames — a custom domain plus the raw platform host it
+      // aliases, or a template stamped across dozens of subdomains — and each
+      // is a separate origin here. Measured 2026-07-31: 858 of 2,008 origins
+      // carrying a Base payTo shared that address with at least one other, and
+      // a single address spanned 144 origins.
+      //
+      // That is the same instance inflation we document in third-party
+      // registries ("registries record settled URLs verbatim"), and publishing
+      // only the origin count under the word "sellers" reproduces it on our own
+      // machine-readable surface. So the operator-level number is published
+      // beside it rather than instead of it: both are true, they answer
+      // different questions, and a consumer can now tell which one it is
+      // reading. /marketplace already names both populations for the same
+      // reason.
       sellers: sellers.length,
+      // Distinct Base payTo across indexed origins — the closest proxy we have
+      // for OPERATORS. An undercount where one operator uses several wallets,
+      // an overcount where a platform settles many independent sellers to one
+      // address; stated as a proxy, never as a headcount.
+      distinctBasePayees: new Set(
+        sellers
+          .map((x) => x?.payToByNetwork?.["eip155:8453"])
+          .filter((a) => typeof a === "string" && /^0x[0-9a-f]{40}$/i.test(a))
+          .map((a) => a.toLowerCase())
+      ).size,
       tools: sellers.reduce((s, x) => s + (x.toolCount || 0), 0),
       // Buyable subset of `tools`. Sellers without paid flags (zero-annotation
       // docs, registry-synthesized) count fully — their rows route today, so

@@ -177,7 +177,7 @@ import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPane
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
-import { provenByChain, unattributedMerchants } from "./settlement-proof.js";
+import { provenByChain, unattributedMerchants, advertisedPayToEvidence } from "./settlement-proof.js";
 import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
@@ -800,6 +800,11 @@ for (const tier of EXEC_TIERS) {
   const tool = buildSellerTrustTool({
     getSellerDetail: (host) => sellerDetail(host),
     getSettledCalls: (origin) => buildSettledByOrigin().get(norm(origin)) || 0,
+    // Evidence for the address the seller ADVERTISES, from the cached on-chain
+    // merchant scan. Never fetches — a cold cache reports "not checked", never
+    // a clean bill.
+    getPayToEvidence: (detail) =>
+      advertisedPayToEvidence({ seller: detail, merchants: economySnapshotCached()?.topMerchants || [] }),
     sorThreshold: SOR_MIN_SETTLED_TX,
     sorCap: EXEC_TIERS[0].underlyingMaxUsd,
     settlementNetwork: "eip155:8453",
