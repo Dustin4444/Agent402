@@ -431,7 +431,10 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // find-miss wish — fire-and-forget, rate-limit exempt, never
           // blocks the response.
           const topScore = r.results[0]?.score ?? 0;
-          const weak = r.count === 0 || topScore < FIND_WEAK_SCORE;
+          // A capability gap phrased in English never cleared the score floor,
+          // so this signal only ever captured gibberish. The rarest-term check
+          // is what makes a genuine miss observable.
+          const weak = r.count === 0 || topScore < FIND_WEAK_SCORE || r.rarestTermCovered === false;
           if (weak && taskStr.trim() && !relatedSellers) {
             try { recordWish({ need: taskStr.trim(), source: "find-miss" }); } catch { /* best-effort */ }
           }

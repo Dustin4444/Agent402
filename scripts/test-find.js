@@ -227,5 +227,56 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
     `the rarer term decides when a common one is shared (got ${top1("website check")})`);
 }
 
+// --- A capability gap must be OBSERVABLE ------------------------------------
+//
+// The miss signal keyed on an absolute score floor of 3. Measured against the
+// live catalog, eighteen tasks this service cannot do — "order me a pizza",
+// "call my mother", "write my thesis" — all returned confident top hits scoring
+// 4 to 42. "call" matched `eth-call`, "car" matched `card-validate`, "write"
+// matched `memory-write`. Not one was recorded as a miss.
+//
+// So the demand board's find-miss source could never fire for a real gap: it
+// captured only gibberish ("undefined", "[object object]") and was structurally
+// blind to what we should build. "No demand for X" was unfalsifiable — which is
+// how a missing capability stays missing.
+//
+// The rarest query term is the one that defines the task. If the top hit never
+// mentions it, we did not serve the query however high the score climbed on
+// common words. Ranking is deliberately NOT changed by this: results are still
+// returned, so a false flag only over-records demand and never withholds an
+// answer from a buyer.
+{
+  const C = {
+    "POST /api/hash": { name: "Hash", slug: "hash", category: "encoding", price: "$0.001", description: "Hash text with sha256, sha512, md5.", tags: ["sha256", "digest"], discovery: {} },
+    "POST /api/eth-call": { name: "Eth call", slug: "eth-call", category: "chain", price: "$0.003", description: "Execute a read-only contract call on an EVM chain.", tags: ["evm", "contract"], discovery: {} },
+    "POST /api/memory": { name: "Memory write", slug: "memory-write", category: "memory", price: "$0.002", description: "Persistent key-value memory for agents.", tags: ["memory", "store"], discovery: {} },
+    // `sessions` appears ONLY in tags - not in the slug, name or description.
+    // That is exactly the case the API response cannot see.
+    "POST /api/keep": { name: "Keep", slug: "keep", category: "memory", price: "$0.002", description: "Durable storage for agents.", tags: ["sessions"], discovery: {} },
+  };
+  const f = (q) => findTools(C, q, { baseUrl: "https://agent402.tools" });
+
+  // A task the catalog cannot serve: "mother" appears nowhere, so the high
+  // score on "call" (which does hit eth-call) must not read as an answer.
+  const impossible = f("call my mother");
+  ok(impossible.results.length > 0, "an unservable query still RETURNS results (ranking is untouched)");
+  ok(impossible.rarestTerm === "mother", `the defining term is identified (got ${impossible.rarestTerm})`);
+  ok(impossible.rarestTermCovered === false,
+    "...and is reported as NOT covered, which is what makes the gap observable");
+
+  // A task the catalog does serve must not be flagged.
+  const real = f("hash text with sha256");
+  ok(real.results[0].slug === "hash", "a servable query resolves normally");
+  ok(real.rarestTermCovered === true, "...and is NOT flagged as a miss");
+
+  // The coverage check must read the FULL record including TAGS. An earlier
+  // version tested the API response, which omits `tags`, and so reported a
+  // 40% false-miss rate that did not exist.
+  const viaTag = f("keep sessions");
+  ok(viaTag.results[0].slug === "keep", `tag-only query resolves (got ${viaTag.results[0]?.slug})`);
+  ok(viaTag.rarestTermCovered === true,
+    `a match that lives only in a TAG counts as covered - the check reads the catalog record, not the API response, which omits tags (rarest=${viaTag.rarestTerm})`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

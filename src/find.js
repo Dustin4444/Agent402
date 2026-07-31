@@ -218,7 +218,50 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
     k: 2, baseUrl,
     toolPriceUsd: (slug) => priceIndex.get(String(slug).toLowerCase()) ?? null,
   });
-  return { query: String(query), count: results.length, results, packs };
+  // DID WE ACTUALLY SERVE THE QUERY, or just score well on its common words?
+  //
+  // The absolute score cannot answer that. Measured against the live catalog,
+  // eighteen tasks this service genuinely cannot do — "order me a pizza",
+  // "call my mother", "write my thesis", "detect the language of text" — every
+  // one returned a confident top hit scoring 4 to 42, far above the weak-match
+  // floor of 3. "call" matched `eth-call`, "car" matched `card-validate`,
+  // "write" matched `memory-write`. Nothing was ever recorded as a miss.
+  //
+  // Two consequences, and the second is the expensive one:
+  //   * a buyer who trusts the top hit pays for a tool that cannot help;
+  //   * the demand board's find-miss signal can NEVER fire for a capability
+  //     gap phrased in plain English, so it only ever captured gibberish
+  //     ("undefined", "[object object]") and is structurally blind to what we
+  //     should build next. "No demand for X" was unfalsifiable.
+  //
+  // The rarest term is the one that defines the task: "language" in "detect the
+  // language of text", "pizza" in "order me a pizza". If the top result does
+  // not mention it ANYWHERE — slug, name, description, tags, category — we did
+  // not serve the query, however high the score climbed on "detect" or "order".
+  //
+  // This is ADDITIVE. Ranking is untouched and every result is still returned;
+  // it only lets the caller tell a real answer from a lexical coincidence.
+  let rarestTerm = null, rarestTermCovered = true;
+  if (results.length && terms.length) {
+    rarestTerm = terms.reduce((a, b) => (idf.get(b) > idf.get(a) ? b : a));
+    const top = all.find((e) => e.t.slug === results[0].slug);
+    // Check the FULL catalog record. An earlier attempt tested the API response,
+    // which omits `tags` — so tools whose match lives in a tag looked like
+    // misses, and the rule appeared to have a 40% false-positive rate it did
+    // not have.
+    rarestTermCovered = top
+      ? top.slug.includes(rarestTerm) || top.hay.includes(rarestTerm) || top.tagSet.has(rarestTerm)
+      : false;
+  }
+
+  return {
+    query: String(query),
+    count: results.length,
+    results,
+    packs,
+    rarestTerm,
+    rarestTermCovered,
+  };
 }
 
 /**
