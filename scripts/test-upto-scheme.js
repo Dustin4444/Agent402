@@ -136,5 +136,97 @@ const P = 3960 + (process.pid % 20);
   ok(!schemes.includes("upto"), "a network we do not serve never gains a scheme");
 }
 
+// --- 5. Identity-bound routes NEVER offer upto (security audit A402-03) -----
+// Those handlers derive the caller from the signed EIP-3009 authorization.from;
+// upto's payload is Permit2-shaped and payerFromRequest deliberately cannot read
+// it. Advertising upto there offers a rail the route structurally cannot serve.
+// The first version of this feature broke that invariant precisely because this
+// suite only ever probed /api/uuid.
+{
+  const fac = await stubFacilitator(P + 45, [kind("exact"), kind("upto")]);
+  const port = P + 5;
+  const child = spawn(process.execPath, ["src/server.js"], {
+    env: {
+      ...process.env, PORT: String(port), FREE_MODE: "", NETWORK: "base",
+      PAYMENT_NETWORKS: "base", FACILITATOR_URL: `http://127.0.0.1:${P + 45}`,
+      CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "",
+      WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD",
+      X402_INDEX_CRAWL: "off", STATS_ALLOW_EPHEMERAL: "true",
+      X402_UPTO_NETWORKS: BASE_CAIP2,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const base = `http://localhost:${port}`;
+  let up = false;
+  for (let i = 0; i < 240; i++) {
+    try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* booting */ }
+    await wait(250);
+  }
+  ok(up, "server booted for the identity-bound check");
+  const schemesOn = async (path) => {
+    const r = await fetch(`${base}${path}`);
+    const hdr = r.headers.get("payment-required");
+    if (!hdr) return { status: r.status, schemes: [] };
+    try { return { status: r.status, schemes: [...new Set((JSON.parse(Buffer.from(hdr, "base64").toString("utf8")).accepts || []).map((a) => a.scheme))] }; }
+    catch { return { status: r.status, schemes: [] }; }
+  };
+  const mem = await schemesOn("/api/memory?key=k");
+  ok(mem.status === 402, `an identity-bound route still demands payment (got ${mem.status})`);
+  ok(!mem.schemes.includes("upto"),
+    `an identity-bound route offers NO upto even with the gate on (got ${mem.schemes.join(",")})`);
+  ok(mem.schemes.includes("exact"), "and still offers exact, so it remains payable");
+  const norm = await schemesOn("/api/uuid");
+  ok(norm.schemes.includes("upto"), "while an ordinary tool on the same server does offer upto");
+  try { child.kill("SIGKILL"); } catch { /* */ }
+  try { fac.close(); } catch { /* */ }
+  await wait(200);
+}
+
+// --- 6. A chain we cannot PRICE is refused, not offered ---------------------
+// A facilitator advertising upto says nothing about whether we can price the
+// asset. The stock scheme has no money override for Celo/Robinhood/Optimism/
+// Avalanche/Sei, so parsePrice throws while the 402 is built - and because one
+// throwing option aborts the WHOLE accepts array, that 500s every paid route on
+// every chain, not just the offending one. The gate must prove pricing, not
+// trust the advertisement.
+{
+  const facPort = P + 46;
+  const fac = await stubFacilitator(facPort, [
+    kind("exact"), kind("upto"),
+    { x402Version: 2, scheme: "exact", network: "eip155:42220" },
+    { x402Version: 2, scheme: "upto", network: "eip155:42220" }, // Celo: unpriceable by the stock scheme
+  ]);
+  const port = P + 6;
+  let log = "";
+  const child = spawn(process.execPath, ["src/server.js"], {
+    env: {
+      ...process.env, PORT: String(port), FREE_MODE: "", NETWORK: "base",
+      PAYMENT_NETWORKS: "base,celo", FACILITATOR_URL: `http://127.0.0.1:${facPort}`,
+      CELO_FACILITATOR_URL: `http://127.0.0.1:${facPort}`, CELO_FACILITATOR_KEY: "test",
+      CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "",
+      WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD",
+      X402_INDEX_CRAWL: "off", STATS_ALLOW_EPHEMERAL: "true",
+      X402_UPTO_NETWORKS: "all",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  child.stdout.on("data", (d) => { log += d; });
+  child.stderr.on("data", (d) => { log += d; });
+  const base = `http://localhost:${port}`;
+  let up = false;
+  for (let i = 0; i < 240; i++) {
+    try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* booting */ }
+    await wait(250);
+  }
+  ok(up, "server booted with an unpriceable chain opted in");
+  const r = await fetch(`${base}/api/uuid`);
+  ok(r.status === 402,
+    `THE SITE-WIDE GUARD: a Base route still returns 402, not 500, when an unpriceable chain was opted in (got ${r.status})`);
+  ok(Boolean(r.headers.get("payment-required")), "and the 402 still carries a payable quote");
+  try { child.kill("SIGKILL"); } catch { /* */ }
+  try { fac.close(); } catch { /* */ }
+  await wait(200);
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

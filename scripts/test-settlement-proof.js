@@ -96,5 +96,45 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
   ok(merchantsByAddress(undefined).size === 0, "undefined merchants handled");
 }
 
+// --- THE SHAPE INVARIANT: drive the REAL production accessor ---------------
+//
+// Everything above builds sellers by hand. That is exactly how this shipped
+// broken: routableSellerSummaries() did not carry payToByNetwork, so
+// provenByChain returned an empty Map in production forever while these
+// assertions passed green against a shape nothing emits. A unit test over a
+// fixture cannot notice that its fixture is fiction.
+//
+// So this block imports the real accessor, warm-starts the real crawl cache,
+// and asserts the join works on whatever THAT returns.
+{
+  const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync(join(tmpdir(), "a402-join-"));
+  const cacheFile = join(dir, "cache.json");
+  const ADDR = "0xDdddDDddDDddDDddDDddDDddDDddDDddDDddDDdd";
+  writeFileSync(cacheFile, JSON.stringify({
+    entries: [["https://unlisted.example", {
+      origin: "https://unlisted.example", fetchedAt: Date.now(), health: 1,
+      tools: [{ slug: "t", name: "t", price: 0.002, method: "GET", url: "https://unlisted.example/api/t",
+        networks: [BASE], payToByNetwork: { [BASE]: ADDR } }],
+    }]],
+  }));
+  const idx = await import("../src/x402-index.js");
+  idx.loadPersistedIndexCache(cacheFile);
+  const realSellers = idx.routableSellerSummaries();
+
+  ok(realSellers.length > 0, "the real accessor returns the warm-started seller");
+  ok(realSellers.every((r) => r.payToByNetwork && typeof r.payToByNetwork === "object"),
+    "routableSellerSummaries() carries payToByNetwork — the field the join depends on");
+  const realProven = provenByChain({ sellers: realSellers, merchants: [merchant(ADDR, 12_345)] });
+  ok(realProven.get("https://unlisted.example")?.settled === 12345,
+    `the join produces evidence from the REAL accessor, not just a fixture (got ${realProven.get("https://unlisted.example")?.settled})`);
+  const realGap = unattributedMerchants({ sellers: realSellers, merchants: [merchant(ADDR, 12_345)], minPayments: 50 });
+  ok(realGap.originsWithKnownPayTo >= 1,
+    `the gap metric sees the seller's payTo through the real accessor (got ${realGap.originsWithKnownPayTo})`);
+  rmSync(dir, { recursive: true, force: true });
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
