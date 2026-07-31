@@ -91,5 +91,47 @@ const makeStore = () => {
   ok(!threw, "a refund against a dead store never throws into the response path");
 }
 
+// --- An UNREACHABLE store must still take the shared path -------------------
+//
+// The fail-closed guarantee at the top of src/shared-limit.js was defeated by
+// the branch that CHOSE it. sharedLimitEnabled() returned false once a connect
+// failed, and the caller's `else` is the per-process limiter — which GRANTS. So
+// a replica that could not reach Redis stopped refusing and began handing out
+// its own private allowance: fail-OPEN, reached by a route the fail-closed code
+// could not see. Observed in production as one tool granting two trials in a
+// row while the logs showed connection timeouts.
+//
+// REDIS_URL is read at module load, so this runs in a child process with an
+// unreachable address — the only way to observe the real boot-time behaviour.
+{
+  const { execFileSync } = await import("node:child_process");
+  const probe = `
+    import { sharedLimitEnabled, spend, connectionState } from "${new URL("../src/shared-limit.js", import.meta.url).pathname}";
+    // Order matters, and it is the order production actually sees: the FIRST
+    // request finds the flag clear, its spend fails and marks the store
+    // unavailable, and the SECOND request is the one that used to be told
+    // "not shared" and sent down the granting per-process branch. Checking
+    // enabled before any connect attempt observes nothing.
+    const first = await spend("trial-tool", "k", 1, 3600);
+    const enabled = sharedLimitEnabled();
+    const second = await spend("trial-tool", "k", 1, 3600);
+    console.log(JSON.stringify({ enabled, limited: second.limited, degraded: second.degraded, first: first.limited, st: connectionState() }));
+  `;
+  let out = {};
+  try {
+    const raw = execFileSync(process.execPath, ["--input-type=module", "-e", probe], {
+      env: { ...process.env, REDIS_URL: "redis://127.0.0.1:6390" }, // nothing listening
+      encoding: "utf8", timeout: 60_000, stdio: ["ignore", "pipe", "pipe"],
+    });
+    out = JSON.parse(raw.trim().split("\n").pop());
+  } catch (e) { console.error("probe failed:", e.message); }
+
+  ok(out.enabled === true,
+    "a CONFIGURED but unreachable store still reports the shared path — never silently downgrades to the per-process limiter that grants");
+  ok(out.limited === true, "...and the call is REFUSED rather than granted (fail closed holds end to end)");
+  ok(out.degraded === true, "...and the refusal is marked degraded so it is attributable, not silent");
+  ok(out.st?.connected === false, "connectionState reports the store was NOT reached, separately from being configured");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
