@@ -856,6 +856,9 @@ jobs:
       - name: Legacy surfaces still redirect (needs the booted server)
         run: TARGET_URL=http://localhost:3000 node scripts/test-redirects.js
 
+      - name: Retry-safety contract is true, verifiable, and not re-absolutised
+        run: TARGET_URL=http://localhost:3000 node scripts/test-retry-contract.js
+
       - name: Gate integrity (each regression gate must FAIL when its own defect is reintroduced)
         # A gate that cannot fail turns "we never checked" into "we checked and it
         # was fine". This mutates each invariant and requires a non-zero exit,

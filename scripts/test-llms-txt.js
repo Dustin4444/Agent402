@@ -79,11 +79,25 @@ try {
   // verifying against an unknown address.
   ok(txt.includes("agent402.base.eth"), "llms.txt mentions agent402.base.eth (receiving-wallet trust signal)");
 
-  // The structural no-charge-on-failure guarantee (2026-07-29): the strongest
-  // buyer trust signal we have - competitors market refund PROGRAMS, ours is
-  // settlement ordering. If this line vanishes, agents choosing a seller on
-  // trust copy lose the differentiator.
-  ok(txt.includes("never charged - structurally"), "llms.txt carries the structural no-charge-on-failure guarantee");
+  // The structural no-charge-on-failure guarantee: the strongest buyer trust
+  // signal we have - a refund PROGRAM is customer service, ours is settlement
+  // ordering. If this vanishes, agents choosing a seller on trust copy lose the
+  // differentiator.
+  //
+  // Guards the SUBSTANCE, not the old wording. The copy used to read "a failed
+  // call is NEVER charged - structurally", and that absolute is refuted by our
+  // own charged-failure detector: a non-200 carrying a settle receipt that does
+  // not say success:false is counted as charged-but-failed and paged on.
+  // Publishing an absolute while operating a detector for its exception is an
+  // overclaim, so the guarantee is now stated with the residual case disclosed
+  // and made checkable from the response. Assert the mechanism and the
+  // verifiability; test-retry-contract.js pins the four branches.
+  ok(/settlement runs AFTER the tool handler/i.test(txt) && /cancels settlement/i.test(txt),
+    "llms.txt carries the structural no-charge-on-failure guarantee (settlement ordering, not a refund programme)");
+  ok(/PAYMENT-RESPONSE/.test(txt),
+    "...and tells the buyer how to VERIFY it from the response rather than trust the claim");
+  ok(!/never charged - structurally/.test(txt),
+    "...without re-publishing the absolute our own charged-failure alarm refutes");
 
   // Section count sanity — the file currently has multiple `## ` headers. A
   // floor of 3 catches a regression that collapses the structure into a flat
