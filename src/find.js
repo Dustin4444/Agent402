@@ -108,18 +108,26 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   // so it needs no tuning table and cannot go stale as tools are added. Fully
   // deterministic: same catalog and same query give the same ranking, which the
   // no-LLM contract requires.
-  const all = toolList(catalog);
+  //
+  // Each tool is normalized ONCE here. The document-frequency pass is
+  // O(terms x tools), so anything rebuilt inside it is rebuilt up to ~17,000
+  // times per request (32 terms x 527 tools); concatenating the haystack per
+  // pair measured 23ms p50 on a worst-case query. Hoisting it is the difference
+  // between a scoring improvement and a latency regression on the entry point
+  // we tell every agent to use.
+  const all = toolList(catalog).map((t) => ({
+    t,
+    slug: t.slug.toLowerCase(),
+    name: (t.name || "").toLowerCase(),
+    segs: new Set(t.slug.toLowerCase().split("-")),
+    tagSet: new Set((t.tags || []).map((tg) => String(tg).toLowerCase())),
+    hay: `${t.name} ${t.description} ${t.category} ${(t.tags || []).join(" ")}`.toLowerCase(),
+  }));
   const N = all.length || 1;
-  const matchesTerm = (t, term) => {
-    const slug = t.slug.toLowerCase();
-    if (slug.includes(term)) return true;
-    if ((t.name || "").toLowerCase().includes(term)) return true;
-    return `${t.name} ${t.description} ${t.category} ${(t.tags || []).join(" ")}`.toLowerCase().includes(term);
-  };
   const idf = new Map();
   for (const term of terms) {
     let df = 0;
-    for (const t of all) if (matchesTerm(t, term)) df++;
+    for (const e of all) if (e.slug.includes(term) || e.hay.includes(term)) df++;
     // log((N+1)/(df+1)): ~5.6 for a term unique to one tool, ~1.0 for one that
     // matches 200. Floored so a ubiquitous term still nudges rather than
     // flipping sign or vanishing entirely.
@@ -127,11 +135,8 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   }
 
   const scored = [];
-  for (const t of all) {
-    const slug = t.slug.toLowerCase();
-    const name = (t.name || "").toLowerCase();
-    const tagSet = new Set((t.tags || []).map((tg) => String(tg).toLowerCase()));
-    const hay = `${t.name} ${t.description} ${t.category} ${(t.tags || []).join(" ")}`.toLowerCase();
+  for (const e of all) {
+    const { t, slug, name, tagSet, hay } = e;
     // Slugs are hyphenated words, so a WHOLE segment matching a query term is a
     // real signal while an incidental substring is usually an accident:
     // "check" sits inside "checksum", "data" inside "wikidata-entity", "detect"
@@ -143,7 +148,7 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
     // A wrong top result is not a cosmetic problem here: /api/find is the entry
     // point we advertise everywhere, and an agent that trusts it pays for the
     // wrong tool and gets something useless on its first call.
-    const segs = new Set(slug.split("-"));
+    const segs = e.segs;
     let score = 0;
     for (const term of terms) {
       let s = 0;
