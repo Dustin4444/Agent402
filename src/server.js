@@ -177,7 +177,7 @@ import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPane
 import { sellPage } from "./sell.js";
 import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
-import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches } from "./settlement-proof.js";
+import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
@@ -646,6 +646,22 @@ const SOR_EXTERNAL_ENABLED = /^(1|true|yes|on)$/i.test((process.env.SOR_EXTERNAL
 // Candidates are sorted most-proven first. (A future upgrade: x402scan's uptime
 // feed could sharpen this beyond settled-volume as a reliability proxy.)
 const SOR_MIN_SETTLED_TX = Number(process.env.SOR_MIN_SETTLED_TX || "50");
+// A settlement COUNT is manufacturable: one wallet settling 50 times clears a
+// count-only floor exactly like 50 buyers settling once, so the gate could be
+// passed by a seller paying itself. Distinct payers cannot be faked as cheaply
+// - each one is a separate funded wallet - so the floor is now count AND
+// breadth.
+//
+// Deliberately LOW (3). This defeats the single-wallet loop, which is the cheap
+// attack; it does not defeat a funded fleet of wallets, which needs
+// funding-graph analysis we do not do here. Claiming otherwise would be the
+// overclaim this codebase keeps having to walk back.
+//
+// Enforced ONLY where payer data exists. An origin proven by a source that
+// cannot report distinct payers is unknown, not failing, and keeps the old
+// behaviour - same rule as the payTo match: refuse on positive evidence
+// against, never on absence of evidence.
+const SOR_MIN_DISTINCT_PAYERS = Number(process.env.SOR_MIN_DISTINCT_PAYERS || "3");
 // Durable proven-seller FLOOR for the reliability gate (scripts/gen-sor-seed.js).
 // The live leaderboard snapshot is empty for the minutes its first on-chain scan
 // takes after a boot, and /data warm-start only helps once a file exists — so on
@@ -665,6 +681,30 @@ const norm = (u) => String(u || "").replace(/\/+$/, "").toLowerCase();
 // chain-derived proven-ness. Used at probe time to check the seller then asks
 // for payment AT that address; without it, trust earned by one wallet could be
 // spent at another.
+// origin -> distinct payers observed. Two sources, max-merged: the leaderboard
+// exposes uniqueBuyers per operator, and the chain join carries payers per
+// merchant address. An origin absent from both has no payer evidence, which is
+// different from having zero payers.
+function buildPayersByOrigin() {
+  const m = new Map();
+  for (const row of (getLeaderboardSnapshot()?.leaderboard || [])) {
+    const n = Number(row.uniqueBuyers || 0);
+    if (!n) continue;
+    for (const o of (Array.isArray(row.origins) ? row.origins : [row.homepage])) {
+      if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n));
+    }
+  }
+  try {
+    const econ = economySnapshotCached();
+    if (econ?.topMerchants?.length) {
+      for (const [origin, ev] of provenByChain({ sellers: routableSellerSummaries(), merchants: econ.topMerchants })) {
+        if (ev?.payers) m.set(norm(origin), Math.max(m.get(norm(origin)) || 0, ev.payers));
+      }
+    }
+  } catch { /* additive evidence; never break routing */ }
+  return m;
+}
+
 function buildProvenPayToByOrigin() {
   const m = new Map();
   try {
@@ -724,12 +764,15 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
   } else {
     const { results } = routeQuery({ query: task, top: 20, include: "external", ...indexCtx() });
     const settledByOrigin = buildSettledByOrigin();
+    const payersByOrigin = buildPayersByOrigin();
     var provenPayToByOrigin = buildProvenPayToByOrigin();
     candidates = (results || [])
       .filter((r) => r.seller && r.url && r.priceUsd > 0 && r.priceUsd <= cap && Array.isArray(r.networks) && r.networks.includes("eip155:8453"))
       .filter((r) => hostOf(r.url) && hostOf(r.url) !== ourHost)
-      .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0 }))
-      .filter((r) => r.settled >= SOR_MIN_SETTLED_TX) // proven deliverers only
+      .map((r) => ({ ...r, settled: settledByOrigin.get(norm(r.seller)) || 0, payers: payersByOrigin.get(norm(r.seller)) }))
+      // Count AND breadth. One implementation, shared with the test, so the
+      // rule cannot drift from what is asserted about it.
+      .filter((r) => meetsRouterGate({ settled: r.settled, payers: r.payers, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS }).ok)
       .sort((a, b) => b.settled - a.settled)
       .slice(0, 5);
   }
@@ -794,10 +837,16 @@ async function diagnoseExternalSeller(task, { cap }) {
   const rows = [];
   for (const r of (results || []).slice(0, 12)) {
     const settled = settledByOrigin.get(norm(r.seller)) || 0;
+    const payers = payersByOrigin.get(norm(r.seller));
     const withinCap = r.priceUsd > 0 && r.priceUsd <= cap;
     const hasBase = Array.isArray(r.networks) && r.networks.includes("eip155:8453");
     const isSelf = !hostOf(r.url) || hostOf(r.url) === ourHost;
-    const passesFilters = withinCap && hasBase && !isSelf && settled >= SOR_MIN_SETTLED_TX;
+    // undefined payers = no breadth evidence, which passes; a KNOWN count below
+    // the floor is a refusal. The diagnostic must distinguish the two or an
+    // operator cannot tell "we have no data" from "this seller looks manufactured".
+    const gate = meetsRouterGate({ settled, payers, minSettled: SOR_MIN_SETTLED_TX, minPayers: SOR_MIN_DISTINCT_PAYERS });
+    const meetsBreadth = payers === undefined || payers >= SOR_MIN_DISTINCT_PAYERS;
+    const passesFilters = withinCap && hasBase && !isSelf && gate.ok;
     let probe = null;
     if (passesFilters) {
       try {
@@ -811,9 +860,9 @@ async function diagnoseExternalSeller(task, { cap }) {
         probe = { status: p.status, live: p.status === 402 };
       } catch (e) { probe = { error: String(e?.message || e).slice(0, 120) }; }
     }
-    rows.push({ seller: r.seller, url: r.url, priceUsd: r.priceUsd, networks: r.networks, settled, withinCap, hasBase, isSelf, meetsThreshold: settled >= SOR_MIN_SETTLED_TX, passesFilters, probe });
+    rows.push({ seller: r.seller, url: r.url, priceUsd: r.priceUsd, networks: r.networks, settled, payers: payers ?? null, withinCap, hasBase, isSelf, meetsThreshold: settled >= SOR_MIN_SETTLED_TX, meetsBreadth, passesFilters, probe });
   }
-  return { task, cap, threshold: SOR_MIN_SETTLED_TX, snapshotOrigins: settledByOrigin.size, rawResults: (results || []).length, candidates: rows };
+  return { task, cap, threshold: SOR_MIN_SETTLED_TX, minDistinctPayers: SOR_MIN_DISTINCT_PAYERS, snapshotOrigins: settledByOrigin.size, rawResults: (results || []).length, candidates: rows };
 }
 for (const tier of EXEC_TIERS) {
   const tool = buildRouteExecuteTool({

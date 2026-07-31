@@ -1302,6 +1302,9 @@ jobs:
       - name: Producer/consumer shape contract (no consumer reads a field nothing emits)
         run: node scripts/test-producer-shapes.js
 
+      - name: Router gate needs breadth, not just a manufacturable count
+        run: node scripts/test-sor-breadth.js
+
       - name: Every test script is wired into CI (no orphaned suites)
         run: node scripts/test-ci-coverage.js
 
