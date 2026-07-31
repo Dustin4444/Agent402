@@ -802,6 +802,20 @@ function rollHistory(prev, ok) {
 // Recorded SEPARATELY from `history` on purpose: crawl health drives routing
 // and is already tuned, and folding a new failure mode into it would silently
 // re-rank the whole index. This reports; it does not re-weight.
+// Bounded per cycle. The first version probed EVERY seller on EVERY crawl,
+// which doubled the crawler's outbound requests across ~2,250 origins — a cost
+// I noted in passing instead of sizing, and it lands on third parties as well
+// as on us. A rotating cap keeps total outbound near 1x while still covering
+// the whole index over successive cycles: every seller is probed eventually,
+// none is probed every time.
+const PAYWALL_PROBES_PER_CYCLE = Math.max(0, Number(process.env.X402_PAYWALL_PROBES_PER_CYCLE ?? 25));
+let paywallProbeCursor = 0;
+/** Round-robin: is this seller's turn to be probed on this cycle? */
+function paywallProbeDue() {
+  if (PAYWALL_PROBES_PER_CYCLE === 0) return false; // 0 disables it entirely
+  return paywallProbeCursor++ % Math.max(1, Math.ceil(cache.size / PAYWALL_PROBES_PER_CYCLE) || 1) === 0;
+}
+
 async function probePaywall(tools) {
   const paid = (Array.isArray(tools) ? tools : []).filter(
     (t) => t && typeof t.url === "string" && Number(t.price) > 0
@@ -872,7 +886,9 @@ async function crawlSeller(originUrl) {
       fetchedAt: Date.now(),
       error: null,
       history: rollHistory(prev, true),
-      paywall: await probePaywall(tools),
+      // Not this seller's turn: carry the last reading forward rather than
+      // dropping it — null must mean "never probed", not "not probed today".
+      paywall: paywallProbeDue() ? await probePaywall(tools) : (prev?.paywall ?? null),
     });
   } catch (e) {
     // No /.well-known/x402 — two fallback surfaces, richest metadata wins:
@@ -926,7 +942,7 @@ async function crawlSeller(originUrl) {
         error: null,
         source: openapiTools.length ? "openapi-fallback" : "bazaar-fallback",
         history: rollHistory(prev, true),
-        paywall: await probePaywall(tools),
+        paywall: paywallProbeDue() ? await probePaywall(tools) : (prev?.paywall ?? null),
       });
       return;
     }
