@@ -203,9 +203,15 @@ const powHttpLimiter = createRateLimiter("pow-http");
 // and per client overall so the catalog cannot be swept. Deliberately tight -
 // this is an evaluation aid, not a free tier; the free tier is PoW and is
 // unlimited by comparison.
-const trialToolLimiter = createRateLimiter("trial-tool", { perMin: 1, perHour: 1 });
-const trialIpLimiter = createRateLimiter("trial-ip", { perMin: 3, perHour: 10 });
-const TRIAL_LIMITS_LABEL = "1 per tool per hour, 10 per hour per client";
+// Env-tunable so the caps can be tightened or loosened without a deploy, and so
+// a test can exercise several trial behaviours in one server without the blocks
+// starving each other on a shared per-client budget.
+const TRIAL_PER_TOOL_HOUR = Math.max(1, Number(process.env.TRIAL_PER_TOOL_PER_HOUR) || 1);
+const TRIAL_IP_MIN = Math.max(1, Number(process.env.TRIAL_PER_IP_PER_MIN) || 3);
+const TRIAL_IP_HOUR = Math.max(1, Number(process.env.TRIAL_PER_IP_PER_HOUR) || 10);
+const trialToolLimiter = createRateLimiter("trial-tool", { perMin: TRIAL_PER_TOOL_HOUR, perHour: TRIAL_PER_TOOL_HOUR });
+const trialIpLimiter = createRateLimiter("trial-ip", { perMin: TRIAL_IP_MIN, perHour: TRIAL_IP_HOUR });
+const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
@@ -3687,6 +3693,20 @@ if (FREE_MODE) {
           trialIpLimiter.check(tip);
           res.setHeader("X-Trial-Accepted", "true");
           res.setHeader("X-Trial-Limits", TRIAL_LIMITS_LABEL);
+          // REFUND on failure. The trial is charged at GRANT time, so without
+          // this a malformed first probe returned a self-explaining 400 AND
+          // burned the caller's one free call — their first CORRECT call then
+          // hit the paywall, which is the opposite of what the feature is for.
+          //
+          // It also contradicted the invariant it shipped beside: a >=400
+          // cancels settlement, so a PAYING buyer is never charged for a bad
+          // request. A trial user was. Same rule now applies to both.
+          res.on("finish", () => {
+            if (res.statusCode >= 400) {
+              trialToolLimiter.refund(perTool);
+              trialIpLimiter.refund(tip);
+            }
+          });
           return next(); // trial granted — skip the USDC paywall
         }
         res.setHeader("X-Trial-Exhausted", "true");

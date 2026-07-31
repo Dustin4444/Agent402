@@ -63,6 +63,10 @@ const child = spawn(process.execPath, ["src/server.js"], {
     // test would be asserting against a broken paywall rather than a real one.
     WALLET_ADDRESS: "0x000000000000000000000000000000000000dEaD",
     STATS_ALLOW_EPHEMERAL: "true",
+    // Headroom on the per-CLIENT budget so earlier blocks do not starve later
+    // ones; the per-TOOL cap stays at its default of 1, and the sweep block
+    // below still proves the client cap by exceeding it.
+    TRIAL_PER_IP_PER_MIN: "8", TRIAL_PER_IP_PER_HOUR: "8",
   },
   stdio: ["ignore", "pipe", "pipe"],
 });
@@ -99,10 +103,13 @@ const done = (code) => {
     return Boolean(e);
   };
   const TRIAL_A = "/api/uuid", TRIAL_B = "/api/ulid", TRIAL_C = "/api/password";
+  // A tool that 400s without input, so the refund path can be exercised.
+  const TRIAL_D = "/api/random", TRIAL_D_QUERY = "min=1&max=6";
   const WALLET_ONLY = ["/api/dns?name=example.com", "/api/memory?key=k", "/api/search?q=a"];
   mustExist("GET", TRIAL_A, true);
   mustExist("GET", TRIAL_B, true);
   mustExist("GET", TRIAL_C, true);
+  mustExist("GET", TRIAL_D, true);
   for (const w of WALLET_ONLY) mustExist("GET", w.split("?")[0], false);
 
   // The paywall must actually be up, or everything below is vacuous.
@@ -146,6 +153,26 @@ const done = (code) => {
     ok(r.status === 402, `wallet-only route still demands payment: ${path.split("?")[0]} (got ${r.status})`);
     ok(r.headers.get("x-trial-accepted") !== "true", `  ...and no trial was granted: ${path.split("?")[0]}`);
     ok(!r.headers.get("x-trial-available"), `  ...and no trial is even advertised: ${path.split("?")[0]}`);
+  }
+
+  // 6z. A FAILED trial call is refunded.
+  //
+  // The trial is charged at grant time, so a malformed probe used to return a
+  // self-explaining 400 AND burn the caller's one free call — their first
+  // CORRECT call then hit the paywall. That also contradicted the invariant it
+  // shipped beside: a >=400 cancels settlement, so a paying buyer is never
+  // charged for a bad request, while a trial user was.
+  {
+    const BAD = `${base}${TRIAL_D}?trial=1`;          // missing required input -> 400
+    const GOOD = `${base}${TRIAL_D}?${TRIAL_D_QUERY}&trial=1`;
+    const r1 = await fetch(BAD);
+    ok(r1.status >= 400 && r1.status < 500, `a malformed trial call errors (got ${r1.status})`);
+    ok(r1.headers.get("x-trial-accepted") === "true", "and the trial WAS granted for it");
+    const r2 = await fetch(GOOD);
+    ok(r2.status === 200,
+      `the caller's first CORRECT call still gets its trial — the failed one was refunded (got ${r2.status})`);
+    const r3 = await fetch(GOOD);
+    ok(r3.status === 402, `and only THEN is the trial spent (got ${r3.status})`);
   }
 
   // 6a. A trial must not become a REUSABLE RECEIPT via the idempotency cache.
