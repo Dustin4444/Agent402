@@ -124,6 +124,76 @@ const startBlockFor = (chain, head) => {
 export const ledgerChunkBlocks = (c) => Math.min(c.chunkBlocks || 9000, 9000, Math.ceil(c.span / 4));
 
 /** Advance one EVM chain's cursor by up to `maxChunks` getLogs windows. */
+// Providers disagree, loudly and in their own words, about how many blocks one
+// eth_getLogs may span. Measured against the ledger's own 9,000-block chunk:
+//
+//   avalanche  "requested too many blocks"
+//   celo       "query exceeds range, retry smaller (max blocks ...)"
+//   monad      "eth_getLogs is limited to a 100 range"
+//
+// Only `sei` ever declared a chunkBlocks, so every other chain's FALLBACK RPCs
+// were unusable: the moment the first lane (Alchemy, where configured) has a
+// bad day, rpcCall walks to a public RPC that rejects the range outright, the
+// whole tick throws, and the chain simply stops reporting revenue.
+//
+// So a range rejection is no longer fatal. Parse the limit the provider names,
+// or halve, and retry the SAME range smaller. The caller narrows its chunk for
+// the rest of the run so one probe teaches the whole tick.
+//
+// The cursor is untouched here on purpose. It advances only after a range has
+// actually been scanned, so a chunk that can never succeed throws and gets
+// logged rather than silently skipping blocks - the one outcome that would
+// lose revenue permanently.
+const RANGE_ERR = /too many blocks|exceeds? range|limited to a \d+ range|range too large|block range|query returned more than/i;
+const MIN_CHUNK = 100;
+
+/**
+ * Given a provider's rejection and the span we tried, what should we try next?
+ * Returns null when the error is NOT a range complaint, so genuine failures
+ * (auth, archive gates, network) still propagate instead of being retried into
+ * a smaller shape that will fail identically.
+ *
+ * Exported because these three strings are real, measured provider output, and
+ * a regex that stops matching them is how the fallback lanes silently die again.
+ */
+export function nextChunkSpan(message, span) {
+  const msg = String(message || "");
+  if (!RANGE_ERR.test(msg) || span <= MIN_CHUNK) return null;
+  // Prefer the number the provider states ("limited to a 100 range") over a
+  // blind reduction: it converges in one step instead of several.
+  const stated = Number((msg.match(/(\d{2,6})\s*(?:block)?\s*range/i) || msg.match(/max blocks?\D{0,12}(\d{2,6})/i) || [])[1]);
+  if (Number.isFinite(stated) && stated >= MIN_CHUNK && stated < span) return stated;
+  return Math.max(MIN_CHUNK, Math.floor(span / 4));
+}
+
+async function getLogsAdaptive(c, wallet, from, to, onNarrow) {
+  let span = to - from + 1;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const hi = from + span - 1;
+    try {
+      const scannedTo = Math.min(hi, to);
+      const logs = await rpcCall(c.rpcs, "eth_getLogs", [{
+        address: c.token,
+        topics: [TRANSFER_TOPIC, null, pad(wallet)],
+        fromBlock: "0x" + from.toString(16),
+        toBlock: "0x" + scannedTo.toString(16),
+      }], 8000);
+      // Return the range actually covered. A narrowed retry scans LESS than the
+      // caller asked for, and advancing the cursor past what was scanned would
+      // skip those blocks forever - silently, since nothing throws.
+      return { logs, scannedTo };
+    } catch (e) {
+      const msg = String(e?.message || e);
+      const narrowed = nextChunkSpan(msg, span);
+      if (narrowed === null) throw e;
+      span = narrowed;
+      onNarrow?.(span);
+      console.warn(`revenue-ledger: ${c.label} narrowed getLogs chunk to ${span} blocks (provider: ${msg.slice(0, 60)})`);
+    }
+  }
+  throw new Error(`${c.label}: getLogs kept failing down to ${span}-block ranges`);
+}
+
 async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
   const c = EVM[chain];
   const head = parseInt(await rpcCall(c.rpcs, "eth_blockNumber", [], 6000), 16);
@@ -135,16 +205,11 @@ async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
   // cursor gap wider than the RPC limit (≈25 min of downtime at Robinhood's
   // 0.15s blocks) made every subsequent getLogs request span the whole gap,
   // fail, and never advance — the all-time figure froze with ↺ forever.
-  const chunkSize = ledgerChunkBlocks(c);
+  let chunkSize = ledgerChunkBlocks(c);
   let chunks = 0;
   while (next <= head && chunks < maxChunks) {
     const to = Math.min(next + chunkSize - 1, head);
-    const logs = await rpcCall(c.rpcs, "eth_getLogs", [{
-      address: c.token,
-      topics: [TRANSFER_TOPIC, null, pad(wallet)],
-      fromBlock: "0x" + next.toString(16),
-      toBlock: "0x" + to.toString(16),
-    }], 8000);
+    const { logs, scannedTo } = await getLogsAdaptive(c, wallet, next, to, (smaller) => { chunkSize = smaller; });
     for (const l of Array.isArray(logs) ? logs : []) {
       const usd = Number(BigInt(l.data && l.data !== "0x" ? l.data : "0x0")) / 1e6;
       const payer = l.topics?.[1] ? ("0x" + l.topics[1].slice(-40)).toLowerCase() : null;
@@ -157,7 +222,7 @@ async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
         external: isExternalPayment({ payer, usd }, { ourWallets: OUR_EVM_WALLETS, maxUsd: MAX_CALL_USD }),
       });
     }
-    next = to + 1;
+    next = scannedTo + 1;   // only past what was actually scanned
     chunks++;
     putCursor.run({
       chain, wallet, next_block: next, newest_sig: null, backfilled: 1,

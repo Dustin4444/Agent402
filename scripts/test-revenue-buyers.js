@@ -20,7 +20,7 @@ const dir = mkdtempSync(join(tmpdir(), "a402-buyers-"));
 process.env.REVENUE_LEDGER_DB = join(dir, "ledger.db");
 process.env.REVENUE_DAILY_START = "2026-06-15";
 
-const { recordTransfer, ledgerBuyersDaily, ledgerSyncState } = await import("../src/revenue-ledger.js");
+const { recordTransfer, ledgerBuyersDaily, ledgerSyncState, nextChunkSpan } = await import("../src/revenue-ledger.js");
 
 const WALLET = "0xwallet";
 const day = (d) => Math.floor(Date.parse(`${d}T12:00:00Z`) / 1000);
@@ -129,6 +129,32 @@ check("sync rows expose only a wallet PREFIX, never a full address", () => {
   for (const r of ledgerSyncState()) {
     assert.ok(typeof r.wallet === "string" && r.wallet.length <= 10, `wallet: ${r.wallet}`);
   }
+});
+
+// --- a provider's range limit must narrow the scan, not kill the chain -----
+//
+// These three strings are REAL, measured provider output against the ledger's
+// 9,000-block chunk. Only `sei` ever declared a chunkBlocks, so on every other
+// chain the fallback RPCs were unusable: the moment the first lane has a bad
+// day, rpcCall reaches a public RPC that rejects the range, the tick throws,
+// and the chain stops reporting revenue entirely.
+check("avalanche's range complaint narrows the chunk", () => {
+  assert.ok(nextChunkSpan("requested too many blocks from 1 to 9000", 9000) < 9000);
+});
+check("celo's range complaint narrows the chunk", () => {
+  assert.ok(nextChunkSpan("query exceeds range, retry smaller (max blocks 1000)", 9000) < 9000);
+});
+check("monad's stated limit is honoured exactly, not guessed at", () => {
+  assert.equal(nextChunkSpan("eth_getLogs is limited to a 100 range", 9000), 100);
+});
+check("a NON-range failure propagates instead of being retried smaller", () => {
+  // The Sei archive gate is an entitlement problem. Retrying it in a smaller
+  // shape fails identically and would bury the real reason.
+  assert.equal(nextChunkSpan("Archive requests require a personal token", 9000), null);
+  assert.equal(nextChunkSpan("fetch failed", 9000), null);
+});
+check("narrowing has a floor, so it cannot spin toward zero", () => {
+  assert.equal(nextChunkSpan("too many blocks", 100), null);
 });
 
 rmSync(dir, { recursive: true, force: true });
