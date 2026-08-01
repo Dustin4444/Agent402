@@ -262,6 +262,7 @@ export const pad = (a) => "0x" + "0".repeat(24) + a.toLowerCase().replace(/^0x/,
 // relay's getJsonAcross entries.
 export async function rpcCall(urls, method, params, timeoutMs = 5000) {
   let lastErr;
+  const failures = [];
   for (const entry of urls) {
     const url = typeof entry === "string" ? entry : entry.url;
     const extraHeaders = typeof entry === "string" ? {} : entry.headers || {};
@@ -278,8 +279,26 @@ export async function rpcCall(urls, method, params, timeoutMs = 5000) {
     } catch (e) {
       lastErr = e;
     }
+    // Remember WHICH lane said what. Reporting only the last failure means the
+    // error you see comes from the least-capable fallback, which actively
+    // misleads: every Sei outage surfaced as publicnode's "Archive requests
+    // require a personal token", so it read as an entitlement problem on a
+    // chain whose relay and primary were both fine and had merely blipped.
+    // Hours went into the wrong lane because of that one string.
+    failures.push(`${laneName(entry)}: ${String(lastErr?.message || lastErr).slice(0, 90)}`);
   }
-  throw lastErr || new Error("all RPCs failed");
+  // Name every lane that failed, in order tried, so the primary's reason is
+  // visible instead of being buried under the last fallback's.
+  const err = new Error(`all ${urls.length} RPCs failed - ${failures.join(" | ")}`);
+  err.lanes = failures;
+  throw err;
+}
+
+/** Host-only label for an RPC entry: enough to identify the lane, never the
+ *  token that may be embedded in the URL or its auth header. */
+function laneName(entry) {
+  const url = typeof entry === "string" ? entry : entry?.url || "?";
+  try { return new URL(url).host; } catch { return "rpc"; }
 }
 
 // One eth_getLogs over the whole span trips free-RPC range/"archive" caps
