@@ -20,7 +20,7 @@ const dir = mkdtempSync(join(tmpdir(), "a402-buyers-"));
 process.env.REVENUE_LEDGER_DB = join(dir, "ledger.db");
 process.env.REVENUE_DAILY_START = "2026-06-15";
 
-const { recordTransfer, ledgerBuyersDaily } = await import("../src/revenue-ledger.js");
+const { recordTransfer, ledgerBuyersDaily, ledgerDaily, ledgerSyncState, nextChunkSpan, LEDGER_BLOCK_MS } = await import("../src/revenue-ledger.js");
 
 const WALLET = "0xwallet";
 const day = (d) => Math.floor(Date.parse(`${d}T12:00:00Z`) / 1000);
@@ -106,6 +106,82 @@ check("a buyer first seen BEFORE the window is not relabelled new inside it", ()
   assert.equal(d21.newBuyers, 1, "bob only; alice's history predates the epoch but she is not new");
   assert.equal(d21.cumulative, 2, "cumulative counts alice even though her first day is outside the window");
   process.env.REVENUE_DAILY_START = "2026-06-15";
+});
+
+// --- per-chain sync state must be inspectable, and must not leak wallets ----
+//
+// A chain that is merely BEHIND yields no rows and throws no error, which is
+// indistinguishable from a chain with no activity. That is how canary
+// settlements verified on-chain (two $0.001 Celo transfers to the treasury)
+// went missing from /revenue while the daily digest still printed "Scan: ok".
+// lagBlocks is the number that separates "not there yet" from "nothing
+// happened"; nothing exposed it before.
+check("ledgerSyncState returns an inspectable array", () => {
+  assert.ok(Array.isArray(ledgerSyncState()));
+});
+check("every sync row names its chain and carries cursor + staleness", () => {
+  for (const r of ledgerSyncState()) {
+    assert.ok(typeof r.chain === "string" && r.chain.length > 0, `chain: ${r.chain}`);
+    assert.ok("nextBlock" in r && "caughtUp" in r && "staleSeconds" in r, "cursor fields present");
+  }
+});
+check("sync rows expose only a wallet PREFIX, never a full address", () => {
+  for (const r of ledgerSyncState()) {
+    assert.ok(typeof r.wallet === "string" && r.wallet.length <= 10, `wallet: ${r.wallet}`);
+  }
+});
+
+// --- a provider's range limit must narrow the scan, not kill the chain -----
+//
+// These three strings are REAL, measured provider output against the ledger's
+// 9,000-block chunk. Only `sei` ever declared a chunkBlocks, so on every other
+// chain the fallback RPCs were unusable: the moment the first lane has a bad
+// day, rpcCall reaches a public RPC that rejects the range, the tick throws,
+// and the chain stops reporting revenue entirely.
+check("avalanche's range complaint narrows the chunk", () => {
+  assert.ok(nextChunkSpan("requested too many blocks from 1 to 9000", 9000) < 9000);
+});
+check("celo's range complaint narrows the chunk", () => {
+  assert.ok(nextChunkSpan("query exceeds range, retry smaller (max blocks 1000)", 9000) < 9000);
+});
+check("monad's stated limit is honoured exactly, not guessed at", () => {
+  assert.equal(nextChunkSpan("eth_getLogs is limited to a 100 range", 9000), 100);
+});
+check("a NON-range failure propagates instead of being retried smaller", () => {
+  // The Sei archive gate is an entitlement problem. Retrying it in a smaller
+  // shape fails identically and would bury the real reason.
+  assert.equal(nextChunkSpan("Archive requests require a personal token", 9000), null);
+  assert.equal(nextChunkSpan("fetch failed", 9000), null);
+});
+check("narrowing has a floor, so it cannot spin toward zero", () => {
+  assert.equal(nextChunkSpan("too many blocks", 100), null);
+});
+
+// --- an EVM row's DATE decides whether it is ever seen ---------------------
+//
+// EVM transfers carry no chain timestamp, so ledgerDaily dates them from block
+// height. Every chain missing from BLOCK_MS fell back to 2000ms, and that set
+// is exactly the set that vanished from /revenue. Measured 2026-08-01: monad
+// runs at 302ms, sei 448ms, celo 1000ms, avalanche 1136ms. At the 2000ms
+// default a 20-hour-old Monad settle was filed ~80 hours in the past, so it
+// never appeared on the day it happened. Nothing errored; the rows were simply
+// under the wrong date.
+check("a row with a real timestamp is dated by it, never by a block estimate", () => {
+  const when = Math.floor(Date.parse("2026-07-31T15:27:00Z") / 1000);
+  recordTransfer({ chain: "celo", wallet: WALLET, txid: "celo-exact", tx_hash: "0xcelo",
+    block: 73611043, when_ts: when, payer: "0x" + "b".repeat(40), usd: 0.001, asset: "USDC", external: 0 });
+  const rows = ledgerDaily({ walletAddress: WALLET });
+  assert.ok(rows.some((r) => r.chain === "celo" && r.day === "2026-07-31"),
+    "celo row lands on the day it actually settled");
+});
+check("fast chains are no longer dated with the 2000ms default", () => {
+  // The guard that would have caught this: any chain the ledger dates by
+  // height must declare its real cadence.
+  for (const chain of ["monad", "celo", "avalanche", "sei", "optimism"]) {
+    assert.ok(LEDGER_BLOCK_MS[chain], `${chain} declares a block cadence`);
+  }
+  assert.ok(LEDGER_BLOCK_MS.monad < 700, `monad cadence is sub-second (got ${LEDGER_BLOCK_MS.monad})`);
+  assert.ok(LEDGER_BLOCK_MS.sei < 700, `sei cadence is sub-second (got ${LEDGER_BLOCK_MS.sei})`);
 });
 
 rmSync(dir, { recursive: true, force: true });

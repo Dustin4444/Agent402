@@ -170,12 +170,12 @@ import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
-import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql } from "./revenue-live.js";
+import { revenueSnapshot, revenuePage, stellarRail, stellarActivity, algorandRail, algorandActivity, evmActivity, solanaActivity, robinhoodActivity, baseActivityViaSql, EVM as EVM_CHAINS, rpcCall } from "./revenue-live.js";
 import { stellarPage, stellarSellers } from "./stellar-page.js";
 import { algorandPage, algorandSellers } from "./algorand-page.js";
 import { CHAIN_PAGES, marketSellers, marketOperatorCount, marketPage, marketPanelHtml } from "./market-page.js";
 import { sellPage } from "./sell.js";
-import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration } from "./revenue-ledger.js";
+import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledgerBuyerConcentration, ledgerSyncState } from "./revenue-ledger.js";
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
@@ -1774,6 +1774,39 @@ app.get("/__operator/wishes.json", (req, res) => {
   const agg = getWishesAggregate({ limit: req.query?.limit, detailed: true });
   annotateServed(agg.clusters, wishServedScore, FIND_WEAK_SCORE);
   res.json(agg);
+});
+// Per-chain revenue-ledger sync state. A chain that is merely BEHIND produces
+// no rows and no error, which is indistinguishable from a chain with no
+// activity — that is how celo settlements verified on-chain went missing from
+// /revenue while every health surface read "ok". `lagBlocks` is the number
+// that separates the two.
+app.get("/__operator/ledger-sync.json", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  const rows = ledgerSyncState();
+  // Head is a live read, so a chain whose RPC is down reports headError rather
+  // than silently omitting the comparison that makes lag meaningful.
+  const heads = {};
+  await Promise.all([...new Set(rows.map((r) => r.chain))].map(async (chain) => {
+    const c = EVM_CHAINS[chain];
+    if (!c) return;
+    try { heads[chain] = parseInt(await rpcCall(c.rpcs, "eth_blockNumber", [], 6000), 16); }
+    catch (e) { heads[chain] = { error: String(e?.message || e).slice(0, 120) }; }
+  }));
+  res.json({
+    asOf: new Date().toISOString(),
+    note: "lagBlocks = head - nextBlock. A large or growing lag means the chain is behind, which reports as zero revenue rather than as an error.",
+    chains: rows.map((r) => {
+      const h = heads[r.chain];
+      const headNum = typeof h === "number" ? h : null;
+      return {
+        ...r,
+        head: headNum,
+        headError: headNum === null && h ? h.error : undefined,
+        lagBlocks: headNum !== null && Number.isFinite(r.nextBlock) ? headNum - r.nextBlock : null,
+      };
+    }),
+  });
 });
 app.get("/__operator/leads", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");

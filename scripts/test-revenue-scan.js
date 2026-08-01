@@ -57,5 +57,32 @@ const { digestFromStellarRail } = await import("./revenue-scan-stellar.js");
   ok(d.balanceUsd === null && d.payments === 0 && d.external.length === 0 && d.totalUsd === 0, "stellar: empty rail maps to an empty digest");
 }
 
+// --- an RPC failure must name the lane that failed ------------------------
+//
+// rpcCall walks a list of lanes and used to throw only the LAST error. That
+// means the message you get comes from the least-capable fallback. Every Sei
+// outage surfaced as publicnode's "Archive requests require a personal token"
+// even though the relay and the primary were both healthy and had merely
+// blipped - so it read as an entitlement problem on the wrong lane entirely.
+{
+  const { rpcCall } = await import("../src/revenue-live.js");
+  let caught = null;
+  try {
+    await rpcCall(["https://127.0.0.1:9/a", "https://127.0.0.1:10/b"], "eth_blockNumber", [], 500);
+  } catch (e) { caught = e; }
+  ok(Boolean(caught), "rpcCall still throws when every lane fails");
+  ok(Array.isArray(caught?.lanes) && caught.lanes.length === 2,
+    `the error carries one entry per lane tried (got ${caught?.lanes?.length})`);
+  ok(/127\.0\.0\.1:9/.test(caught.message) && /127\.0\.0\.1:10/.test(caught.message),
+    "the message names BOTH lanes, not just the last one");
+  // A token in an RPC URL must never reach a log line.
+  let leaked = null;
+  try {
+    await rpcCall([{ url: "https://relay.example/v1", headers: { Authorization: "Bearer SUPERSECRET" } }],
+      "eth_blockNumber", [], 500);
+  } catch (e) { leaked = e; }
+  ok(!/SUPERSECRET/.test(leaked?.message || ""), "an auth token never appears in the failure message");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
