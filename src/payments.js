@@ -433,15 +433,17 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   const networks = enabledNetworks(network);
   const caip2List = networks.map((n) => NETWORKS[n]);
   let evmCaip2 = caip2List.filter((c) => c.startsWith("eip155:"));
-  const svmCaip2 = caip2List.filter((c) => c.startsWith("solana:"));
-  const stellarCaip2 = caip2List.filter((c) => c.startsWith("stellar:"));
-  const avmCaip2 = caip2List.filter((c) => c.startsWith("algorand:"));
+  let svmCaip2 = caip2List.filter((c) => c.startsWith("solana:"));
+  let stellarCaip2 = caip2List.filter((c) => c.startsWith("stellar:"));
+  let avmCaip2 = caip2List.filter((c) => c.startsWith("algorand:"));
 
   // Facilitator routing. x402ResourceServer accepts a LIST of facilitator
   // clients: at sync it asks each for its /supported kinds and routes every
   // verify/settle by the payment's (network, scheme), earlier clients winning
-  // ties. A facilitator that is down at sync only logs a warning — the others
-  // keep their networks serving.
+  // ties. NB a facilitator that is down at sync only logs a warning INSIDE
+  // initialize(), but its networks stay in every route's accepts — and route
+  // validation then 500s EVERY paid route, not just that rail (the 2026-08-01
+  // Celo outage). The boot /supported guard below exists for exactly that.
   //
   //   - Single network (default): unchanged — CDP (Bazaar discovery +
   //     fee-free Base settlement) or FACILITATOR_URL.
@@ -453,11 +455,46 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   //     Arbitrum — free tier 10k settlements/month).
   const isMultiChain = networks.length > 1;
   const facilitatorClients = [];
+  // Labels ride alongside facilitatorClients (same index) so the boot-time
+  // /supported probe below can NAME the facilitator that failed — "a rail
+  // was dropped" without which one is a debugging session, not a log line.
+  const facilitatorLabels = [];
+  // getSupported is memoized per INSTANCE (60s, shared in-flight promise):
+  // the boot /supported probe below, the upto gate, and @x402's own
+  // initialize() would otherwise each refetch within seconds of each other —
+  // three fetches per facilitator per boot, plus a keep-alive race (the
+  // first fetch primes an idle socket that can close exactly as the next
+  // fetch reuses it, a spurious "TypeError: fetch failed" that reads as a
+  // facilitator outage). Failures are never cached, so a transient boot
+  // error is retried live by whoever asks next; re-initializations past the
+  // TTL fetch live. Patching the instance keeps NetworkFilteredFacilitatorClient's
+  // override in the chain (the memo wraps the FILTERED view, same as callers saw).
+  const memoizeGetSupported = (client, ttlMs = 60_000) => {
+    const orig = client.getSupported.bind(client);
+    let cache = null;
+    client.getSupported = async () => {
+      if (cache && Date.now() - cache.at < ttlMs) return cache.promise;
+      const entry = { at: Date.now(), promise: orig() };
+      cache = entry;
+      try {
+        return await entry.promise;
+      } catch (e) {
+        if (cache === entry) cache = null;
+        throw e;
+      }
+    };
+    return client;
+  };
+  const addFacilitator = (label, client) => {
+    facilitatorClients.push(memoizeGetSupported(client));
+    facilitatorLabels.push(label);
+    return client;
+  };
   let payAiClient = null;
   if (isMultiChain) {
     const cdpConfig = await resolveCdpFacilitatorConfig();
     if (cdpConfig) {
-      facilitatorClients.push(new HTTPFacilitatorClient(cdpConfig));
+      addFacilitator("CDP (Base)", new HTTPFacilitatorClient(cdpConfig));
     } else {
       console.warn(
         "WARNING: multi-chain mode without CDP keys - Base will settle via PayAI and the " +
@@ -465,8 +502,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
           "CDP_API_KEY_ID + CDP_API_KEY_SECRET to keep Base on CDP (Bazaar discovery + fee-free)."
       );
     }
-    payAiClient = new HTTPFacilitatorClient(await resolvePayAIFacilitatorConfig());
-    facilitatorClients.push(payAiClient);
+    payAiClient = addFacilitator("PayAI", new HTTPFacilitatorClient(await resolvePayAIFacilitatorConfig()));
     console.log(
       `Multi-chain facilitator routing: ${cdpConfig ? "CDP (Base + Bazaar) → PayAI (remaining chains)" : "PayAI (all chains)"}`
     );
@@ -478,7 +514,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     // and no ROBINHOOD_FACILITATOR_URL still takes the resolver path below,
     // preserving the pre-rename behavior.)
   } else {
-    facilitatorClients.push(new HTTPFacilitatorClient(await resolveFacilitatorConfig(network)));
+    addFacilitator(`primary (${network})`, new HTTPFacilitatorClient(await resolveFacilitatorConfig(network)));
   }
   // Robinhood Chain / USDG settles through the operator-configured external
   // facilitator (ROBINHOOD_FACILITATOR_URL), added only when the chain is
@@ -503,7 +539,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     evmCaip2 = evmCaip2.filter((c) => c !== ROBINHOOD_CAIP2);
   }
   if (robinhoodEnabled) {
-    facilitatorClients.push(new HTTPFacilitatorClient({ url: ROBINHOOD_FACILITATOR_URL }));
+    addFacilitator(`Robinhood (${ROBINHOOD_FACILITATOR_URL})`, new HTTPFacilitatorClient({ url: ROBINHOOD_FACILITATOR_URL }));
     console.log(`Robinhood Chain: settling USDG (${USDG.asset}) via facilitator ${ROBINHOOD_FACILITATOR_URL}`);
   }
   // Monad (chain 143 / USDC) settles through its dedicated facilitator, added
@@ -521,7 +557,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     evmCaip2 = evmCaip2.filter((c) => c !== MONAD_CAIP2);
   }
   if (monadEnabled) {
-    facilitatorClients.push(new HTTPFacilitatorClient({ url: MONAD_FACILITATOR_URL }));
+    addFacilitator(`Monad (${MONAD_FACILITATOR_URL})`, new HTTPFacilitatorClient({ url: MONAD_FACILITATOR_URL }));
     console.log(`Monad: settling USDC via facilitator ${MONAD_FACILITATOR_URL}`);
   }
   // Celo (chain 42220 / USDC) settles through the Celo-operated facilitator,
@@ -545,7 +581,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   }
   if (celoEnabled) {
     const celoAuthHeaders = { "X-API-Key": CELO_FACILITATOR_KEY };
-    facilitatorClients.push(new HTTPFacilitatorClient({
+    addFacilitator(`Celo (${CELO_FACILITATOR_URL})`, new HTTPFacilitatorClient({
       url: CELO_FACILITATOR_URL,
       createAuthHeaders: async () => ({ verify: celoAuthHeaders, settle: celoAuthHeaders, supported: celoAuthHeaders }),
     }));
@@ -595,11 +631,164 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     evmCaip2 = evmCaip2.filter((c) => !solvadorPrimaryWanted.includes(c));
   } else if (solvadorPrimaryWanted.length) {
     const solvadorAuth = { "X-API-Key": process.env.SOLVADOR_KEY };
-    facilitatorClients.push(new NetworkFilteredFacilitatorClient({
+    addFacilitator("Solvador (primary)", new NetworkFilteredFacilitatorClient({
       url: process.env.SOLVADOR_FACILITATOR_URL || "https://api.solvador.com",
       createAuthHeaders: async () => ({ verify: solvadorAuth, settle: solvadorAuth, supported: solvadorAuth }),
     }, solvadorPrimaryWanted));
     console.log(`Solvador (primary, filtered): settling USDC on ${solvadorPrimaryWanted.join(", ")}`);
+  }
+  // Stellar — settlement via the OpenZeppelin-operated x402 facilitator on pubnet.
+  // STELLAR_FACILITATOR_URL defaults to the public OpenZeppelin endpoint; override
+  // for a self-hosted or private facilitator instance. Requires a Bearer token
+  // (STELLAR_FACILITATOR_KEY) generated at https://channels.openzeppelin.com/gen
+  // via GitHub OAuth. Without the key, the facilitator returns 401 on /supported
+  // and the scheme registration is skipped (same graceful-degrade as Solana).
+  // The CLIENT is constructed here, with the other facilitators, so the boot
+  // /supported probe below sees the complete set; the scheme registers further
+  // down, once the resource server exists, and only for surviving networks.
+  const stellarFacilitatorUrl = (process.env.STELLAR_FACILITATOR_URL || "https://channels.openzeppelin.com/x402").trim();
+  const stellarFacilitatorKey = (process.env.STELLAR_FACILITATOR_KEY || "").trim();
+  const stellarWallet = (process.env.STELLAR_WALLET_ADDRESS || "").trim();
+  const stellarEnabled = !!(stellarCaip2.length && stellarWallet && stellarFacilitatorKey);
+  if (stellarEnabled) {
+    const stellarAuthHeaders = { Authorization: `Bearer ${stellarFacilitatorKey}` };
+    addFacilitator(`Stellar (${stellarFacilitatorUrl})`, new HTTPFacilitatorClient({
+      url: stellarFacilitatorUrl,
+      createAuthHeaders: async () => ({ verify: stellarAuthHeaders, settle: stellarAuthHeaders, supported: stellarAuthHeaders }),
+    }));
+    console.log(`Stellar: settling USDC via facilitator ${stellarFacilitatorUrl} → ${stellarWallet}`);
+  } else if (stellarCaip2.length && !stellarWallet) {
+    console.warn(
+      "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_WALLET_ADDRESS is unset - " +
+        "the Stellar payment option will be OMITTED from every 402. Set STELLAR_WALLET_ADDRESS " +
+        "(Stellar public key, G...) to accept USDC on Stellar."
+    );
+  } else if (stellarCaip2.length && !stellarFacilitatorKey) {
+    console.warn(
+      "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_FACILITATOR_KEY is unset - " +
+        "the OpenZeppelin facilitator requires a Bearer token. Generate one at " +
+        "https://channels.openzeppelin.com/gen (GitHub OAuth). Stellar will be OMITTED until set."
+    );
+  }
+  // Algorand — settlement via the GoPlausible-operated x402 facilitator on
+  // mainnet. ALGORAND_FACILITATOR_URL defaults to the public GoPlausible
+  // endpoint; its /supported is keyless (verified 2026-07-10), so no bearer
+  // token is required here (unlike Stellar). NOTE the reserve quirk: the
+  // payTo wallet must have opted in to ASA 31566704 (USDC) or on-chain
+  // settlement fails even though verify() looks fine. Client constructed
+  // here for the probe, scheme registered below — same split as Stellar.
+  const algorandFacilitatorUrl = (process.env.ALGORAND_FACILITATOR_URL || "https://facilitator.goplausible.xyz").trim();
+  const algorandWallet = (process.env.ALGORAND_WALLET_ADDRESS || "").trim();
+  const algorandEnabled = !!(avmCaip2.length && algorandWallet);
+  if (algorandEnabled) {
+    addFacilitator(`Algorand (${algorandFacilitatorUrl})`, new HTTPFacilitatorClient({ url: algorandFacilitatorUrl }));
+    console.log(`Algorand: settling USDC via facilitator ${algorandFacilitatorUrl} → ${algorandWallet}`);
+  } else if (avmCaip2.length && !algorandWallet) {
+    console.warn(
+      "WARNING: PAYMENT_NETWORKS enables `algorand` but ALGORAND_WALLET_ADDRESS is unset - " +
+        "the Algorand payment option will be OMITTED from every 402. Set ALGORAND_WALLET_ADDRESS " +
+        "(Algorand public key) to accept USDC on Algorand - and make sure that wallet has opted " +
+        "in to ASA 31566704 (USDC), or settlement will fail on-chain even though the payment verifies."
+    );
+  }
+
+  // ---- Boot-time /supported guard (2026-08-01 incident) -------------------
+  //
+  // The drop-don't-break guards above only cover MISCONFIGURATION: a missing
+  // key or URL. They cannot see an OUTAGE. A facilitator that is configured
+  // but failing /supported never delivers its kinds to the resource server's
+  // initialize() — which merely WARNS and moves on — and @x402's route
+  // validation then rejects, per request and as a 500, every route whose
+  // accepts advertise the missing (scheme, network) pair. Every catalog route
+  // advertises every offered network, so ONE dead facilitator takes EVERY
+  // paid route down. Measured live 2026-08-01: api.x402.celo.org 500ing
+  // /supported → "RouteConfigurationError … does not support scheme exact on
+  // eip155:42220" on all paid routes from the 12:28Z boot until the rail was
+  // dropped by hand ~4h later. Free surfaces stayed up; paid revenue was $0.
+  //
+  // So: probe every client's /supported once at boot (6s timeout, one retry
+  // after 2s — the heartbeat's single-retry doctrine, so a deploy-window blip
+  // doesn't drop a healthy rail), and drop any offered network that no
+  // REACHABLE facilitator advertises `exact` on, with the same loud warning
+  // shape as the misconfiguration guards. A dropped rail returns on the next
+  // boot where its facilitator answers.
+  //
+  // FAIL-OPEN when EVERY probe fails: that shape is indistinguishable from
+  // our own egress being broken, and dropping all rails on a local blip would
+  // turn a transient into a self-inflicted total offer wipe. Prior behavior
+  // (paid routes 500 until a facilitator is reachable, free tier unaffected)
+  // is the safer floor there — the guard only acts when at least one
+  // facilitator answering proves our side of the network works.
+  //
+  // X402_SUPPORTED_GUARD=off restores prior behavior outright (operator
+  // escape hatch); the probe is skipped under X402_SYNC_ON_START=false for
+  // the same reason that flag exists — offline tests with no facilitator.
+  const syncOnStart = process.env.X402_SYNC_ON_START !== "false";
+  const supportedGuardOn =
+    syncOnStart && String(process.env.X402_SUPPORTED_GUARD || "").toLowerCase() !== "off";
+  if (supportedGuardOn && facilitatorClients.length) {
+    const probeOne = async (client, label) => {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const kinds = (await Promise.race([
+            client.getSupported(),
+            new Promise((_, reject) => {
+              const t = setTimeout(() => reject(new Error("timeout after 6000ms")), 6000);
+              if (typeof t.unref === "function") t.unref();
+            }),
+          ]))?.kinds;
+          return Array.isArray(kinds) ? kinds : [];
+        } catch (e) {
+          if (attempt === 1) {
+            await new Promise((r) => setTimeout(r, 2000));
+            continue;
+          }
+          console.warn(
+            `WARNING: facilitator ${label} failed /supported at boot after a retry ` +
+              `(${String(e?.message || e).slice(0, 140)}) - networks only it advertises will be ` +
+              "dropped from the offer so the rest keep serving."
+          );
+          return null;
+        }
+      }
+      return null;
+    };
+    const probed = await Promise.all(
+      facilitatorClients.map((c, i) => probeOne(c, facilitatorLabels[i] || `#${i}`))
+    );
+    if (probed.every((kinds) => kinds === null)) {
+      console.error(
+        "ERROR: EVERY facilitator failed /supported at boot - REFUSING to filter the offer " +
+          "(indistinguishable from our own egress being down; dropping all rails would make a " +
+          "transient self-inflicted). Paid routes will answer 500 until a facilitator is " +
+          "reachable; the free tier is unaffected."
+      );
+    } else {
+      const advertisedExact = new Set();
+      for (const kinds of probed) {
+        for (const k of kinds || []) {
+          if (String(k?.scheme || "").toLowerCase() === "exact" && k?.network) {
+            advertisedExact.add(String(k.network));
+          }
+        }
+      }
+      const dropUnadvertised = (list) => {
+        const dropped = list.filter((c) => !advertisedExact.has(c));
+        if (dropped.length) {
+          console.warn(
+            `WARNING: dropping ${dropped.join(", ")} from the offered networks - no reachable ` +
+              "facilitator advertises `exact` settlement there (see /supported failures above). " +
+              "Other chains are unaffected; a dropped rail returns on the next boot where its " +
+              "facilitator answers."
+          );
+        }
+        return list.filter((c) => advertisedExact.has(c));
+      };
+      evmCaip2 = dropUnadvertised(evmCaip2);
+      svmCaip2 = dropUnadvertised(svmCaip2);
+      stellarCaip2 = dropUnadvertised(stellarCaip2);
+      avmCaip2 = dropUnadvertised(avmCaip2);
+    }
   }
   // Which networks may offer `upto`. Two gates, both required:
   //   1. Operator opt-in — X402_UPTO_NETWORKS (CSV of CAIP-2 ids, or "all").
@@ -696,56 +885,10 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     console.log(`x402 upto: variable-amount settlement offered on ${caip2}`);
   }
   for (const caip2 of svmCaip2) server = server.register(caip2, new ExactSvmScheme());
-  // Stellar — settlement via the OpenZeppelin-operated x402 facilitator on pubnet.
-  // STELLAR_FACILITATOR_URL defaults to the public OpenZeppelin endpoint; override
-  // for a self-hosted or private facilitator instance. Requires a Bearer token
-  // (STELLAR_FACILITATOR_KEY) generated at https://channels.openzeppelin.com/gen
-  // via GitHub OAuth. Without the key, the facilitator returns 401 on /supported
-  // and the scheme registration is skipped (same graceful-degrade as Solana).
-  const stellarFacilitatorUrl = (process.env.STELLAR_FACILITATOR_URL || "https://channels.openzeppelin.com/x402").trim();
-  const stellarFacilitatorKey = (process.env.STELLAR_FACILITATOR_KEY || "").trim();
-  const stellarWallet = (process.env.STELLAR_WALLET_ADDRESS || "").trim();
-  if (stellarCaip2.length && stellarWallet && stellarFacilitatorKey) {
-    const stellarAuthHeaders = { Authorization: `Bearer ${stellarFacilitatorKey}` };
-    facilitatorClients.push(new HTTPFacilitatorClient({
-      url: stellarFacilitatorUrl,
-      createAuthHeaders: async () => ({ verify: stellarAuthHeaders, settle: stellarAuthHeaders, supported: stellarAuthHeaders }),
-    }));
-    for (const caip2 of stellarCaip2) server = server.register(caip2, new ExactStellarScheme());
-    console.log(`Stellar: settling USDC via facilitator ${stellarFacilitatorUrl} → ${stellarWallet}`);
-  } else if (stellarCaip2.length && !stellarWallet) {
-    console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_WALLET_ADDRESS is unset - " +
-        "the Stellar payment option will be OMITTED from every 402. Set STELLAR_WALLET_ADDRESS " +
-        "(Stellar public key, G...) to accept USDC on Stellar."
-    );
-  } else if (stellarCaip2.length && !stellarFacilitatorKey) {
-    console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `stellar` but STELLAR_FACILITATOR_KEY is unset - " +
-        "the OpenZeppelin facilitator requires a Bearer token. Generate one at " +
-        "https://channels.openzeppelin.com/gen (GitHub OAuth). Stellar will be OMITTED until set."
-    );
-  }
-  // Algorand — settlement via the GoPlausible-operated x402 facilitator on
-  // mainnet. ALGORAND_FACILITATOR_URL defaults to the public GoPlausible
-  // endpoint; its /supported is keyless (verified 2026-07-10), so no bearer
-  // token is required here (unlike Stellar). NOTE the reserve quirk: the
-  // payTo wallet must have opted in to ASA 31566704 (USDC) or on-chain
-  // settlement fails even though verify() looks fine.
-  const algorandFacilitatorUrl = (process.env.ALGORAND_FACILITATOR_URL || "https://facilitator.goplausible.xyz").trim();
-  const algorandWallet = (process.env.ALGORAND_WALLET_ADDRESS || "").trim();
-  if (avmCaip2.length && algorandWallet) {
-    facilitatorClients.push(new HTTPFacilitatorClient({ url: algorandFacilitatorUrl }));
-    for (const caip2 of avmCaip2) server = server.register(caip2, new ExactAvmScheme());
-    console.log(`Algorand: settling USDC via facilitator ${algorandFacilitatorUrl} → ${algorandWallet}`);
-  } else if (avmCaip2.length && !algorandWallet) {
-    console.warn(
-      "WARNING: PAYMENT_NETWORKS enables `algorand` but ALGORAND_WALLET_ADDRESS is unset - " +
-        "the Algorand payment option will be OMITTED from every 402. Set ALGORAND_WALLET_ADDRESS " +
-        "(Algorand public key) to accept USDC on Algorand - and make sure that wallet has opted " +
-        "in to ASA 31566704 (USDC), or settlement will fail on-chain even though the payment verifies."
-    );
-  }
+  // Stellar/Algorand clients were constructed above (pre-probe); only their
+  // scheme registrations live here, and only for networks that survived it.
+  if (stellarEnabled) for (const caip2 of stellarCaip2) server = server.register(caip2, new ExactStellarScheme());
+  if (algorandEnabled) for (const caip2 of avmCaip2) server = server.register(caip2, new ExactAvmScheme());
   registerFacilitatorFailureHooks(server, payAiClient, solvadorClient);
   registerWalletBlocklistHook(server);
   // Log the OFFERED set, not the requested one: the drop-don't-break guards
@@ -879,7 +1022,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   //
   // Test scripts set it freely because they run FREE_MODE (no paywall to build)
   // or only exercise the PoW path, which never asks for a quote.
-  const syncOnStart = process.env.X402_SYNC_ON_START !== "false";
+  // (`syncOnStart` is computed above, where the boot /supported guard needs it.)
   return paymentMiddleware(routes, server, undefined, undefined, syncOnStart);
 }
 
@@ -1112,6 +1255,15 @@ function warnIfSolanaTokenAccountMissing(owner) {
 }
 
 async function resolvePayAIFacilitatorConfig() {
+  // URL-override parity with every other facilitator (CELO_/MONAD_/ROBINHOOD_/
+  // SOLVADOR_/STELLAR_/ALGORAND_FACILITATOR_URL are all env-overridable) —
+  // PayAI was the only one whose endpoint couldn't be pointed at a stub, which
+  // is what scripts/test-supported-guard.js needs to boot a fully offline
+  // multi-facilitator server. Unset = stock @payai/facilitator config.
+  if (process.env.PAYAI_FACILITATOR_URL) {
+    console.log(`Facilitator (Solana): PayAI at ${process.env.PAYAI_FACILITATOR_URL} (URL override)`);
+    return { url: process.env.PAYAI_FACILITATOR_URL };
+  }
   if (process.env.PAYAI_API_KEY_ID && process.env.PAYAI_API_KEY_SECRET) {
     const { createFacilitatorConfig } = await import("@payai/facilitator");
     console.log("Facilitator (Solana): PayAI (authenticated)");

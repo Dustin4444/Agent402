@@ -1,0 +1,150 @@
+// Boot-time /supported guard (src/payments.js), fully offline: boots the real
+// server with the x402 paywall ACTIVE against TWO local stub facilitators and
+// pins the 2026-08-01 Celo-outage class of failure:
+//
+//   a facilitator that is configured but FAILING /supported never delivers its
+//   kinds, and @x402's route validation then 500s EVERY paid route — because
+//   every route's accepts advertise every offered network. The guard probes
+//   each facilitator at boot and drops the networks nobody reachable
+//   advertises, so one dead facilitator costs ONE rail, not all of them.
+//
+// Four legs, each a fresh server boot:
+//   1. INCIDENT  — PayAI stub healthy (base), Celo stub 500ing: unpaid request
+//                  must 402, accepts must carry base and NOT celo, and the
+//                  boot log must name the drop (probe-driven, not hardcoded).
+//   2. CONTROL   — both stubs healthy: accepts carry BOTH networks, proving
+//                  the filter answers the probe rather than always dropping.
+//   3. FAIL-OPEN — both stubs 500ing: the guard must REFUSE to filter (this
+//                  shape is indistinguishable from our own egress being down,
+//                  and wiping the whole offer on a local blip would make a
+//                  transient self-inflicted). Free surfaces stay up.
+//   4. ESCAPE    — X402_SUPPORTED_GUARD=off with the incident stubs restores
+//                  prior behavior outright, pinning the operator hatch.
+//
+// The stubs never see a verify/settle — this is a 402-negotiation test, so no
+// signature machinery is needed and the whole thing runs with no egress.
+import { spawn } from "node:child_process";
+import { createServer } from "node:http";
+
+const TREASURY = "0x000000000000000000000000000000000000dEaD";
+const KINDS_BASE = [{ x402Version: 2, scheme: "exact", network: "eip155:8453" }];
+const KINDS_CELO = [{ x402Version: 2, scheme: "exact", network: "eip155:42220" }];
+
+let pass = 0;
+let proc = null;
+const stubs = [];
+const cleanup = () => { proc?.kill("SIGKILL"); for (const s of stubs) s.close(); };
+const fail = (m) => { console.error("FAIL:", m); cleanup(); process.exit(1); };
+const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A stub facilitator whose /supported behavior can be swapped between legs.
+// mode: array of kinds → 200 {kinds}; "die" → 500 (the incident shape).
+function stubFacilitator(port) {
+  const state = { mode: "die" };
+  const srv = createServer((req, res) => {
+    // Connection: close on every reply — the guard's probe and @x402's own
+    // sync fetch the same origin seconds apart, and a bare node stub's 5s
+    // keep-alive closing between them turns the second fetch into a flaky
+    // "TypeError: fetch failed" that looks like a guard bug and is not.
+    if (req.url === "/supported") {
+      if (state.mode === "die") { res.writeHead(500, { Connection: "close" }); return res.end("Internal Server Error"); }
+      res.writeHead(200, { "Content-Type": "application/json", Connection: "close" });
+      return res.end(JSON.stringify({ kinds: state.mode, extensions: [], signers: {} }));
+    }
+    res.writeHead(404, { Connection: "close" }); res.end();
+  });
+  stubs.push(srv);
+  return new Promise((r) => srv.listen(port, () => r(state)));
+}
+
+const payai = await stubFacilitator(3962);
+const celo = await stubFacilitator(3963);
+
+async function bootServer(port, extraEnv = {}) {
+  const log = { text: "" };
+  proc = spawn("node", ["src/server.js"], {
+    env: {
+      ...process.env, PORT: String(port), FREE_MODE: "",
+      WALLET_ADDRESS: TREASURY, NETWORK: "base", PAYMENT_NETWORKS: "base,celo",
+      CDP_API_KEY_ID: "", CDP_API_KEY_SECRET: "", FACILITATOR_URL: "",
+      PAYAI_FACILITATOR_URL: "http://127.0.0.1:3962",
+      CELO_FACILITATOR_URL: "http://127.0.0.1:3963", CELO_FACILITATOR_KEY: "test-key",
+      // Hermetic boot: nothing below may add a client that probes a real host.
+      PAYAI_API_KEY_ID: "", PAYAI_API_KEY_SECRET: "", SOLVADOR_KEY: "",
+      PAYMENT_SETTLE_FALLBACK: "", X402_UPTO_NETWORKS: "", POSTHOG_API_KEY: "",
+      X402_INDEX_CRAWL: "off",
+      ...extraEnv,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  proc.stdout.on("data", (c) => { log.text += c; });
+  proc.stderr.on("data", (c) => { log.text += c; });
+  const base = `http://localhost:${port}`;
+  for (let i = 0; i < 80; i++) {
+    try { if ((await fetch(`${base}/health`)).ok) return { base, log }; } catch {}
+    await sleep(500);
+  }
+  fail(`server on :${port} never became healthy; log tail: ${log.text.slice(-800)}`);
+}
+
+const acceptsNetworks = (prHeader) => {
+  const envelope = JSON.parse(Buffer.from(prHeader, "base64").toString("utf8"));
+  return new Set((envelope.accepts || []).map((a) => a.network));
+};
+
+// ---- 1. INCIDENT: dead Celo facilitator costs the Celo rail, nothing else ----
+payai.mode = KINDS_BASE;
+celo.mode = "die";
+{
+  const { base, log } = await bootServer(3964);
+  const r = await fetch(`${base}/api/uuid`);
+  ok(r.status === 402, `dead Celo facilitator: unpaid catalog GET still 402s (got ${r.status})`);
+  const nets = acceptsNetworks(r.headers.get("payment-required") || "");
+  ok(nets.has("eip155:8453"), "base survives in accepts");
+  ok(!nets.has("eip155:42220"), "celo is dropped from accepts");
+  ok(/failed \/supported at boot/.test(log.text), "boot log names the failing facilitator");
+  ok(/dropping eip155:42220/.test(log.text), "boot log names the dropped network");
+  proc.kill("SIGKILL"); await sleep(300);
+}
+
+// ---- 2. CONTROL: probe-driven, not always-drop ----
+payai.mode = KINDS_BASE;
+celo.mode = KINDS_CELO;
+{
+  const { base } = await bootServer(3965);
+  const r = await fetch(`${base}/api/uuid`);
+  ok(r.status === 402, `both facilitators healthy: 402 (got ${r.status})`);
+  const nets = acceptsNetworks(r.headers.get("payment-required") || "");
+  ok(nets.has("eip155:8453") && nets.has("eip155:42220"),
+    "healthy probe keeps BOTH networks in accepts (filter answers the probe)");
+  proc.kill("SIGKILL"); await sleep(300);
+}
+
+// ---- 3. FAIL-OPEN: every facilitator dead -> refuse to filter ----
+payai.mode = "die";
+celo.mode = "die";
+{
+  const { base, log } = await bootServer(3966);
+  ok(/REFUSING to filter/.test(log.text), "all-probes-dead boot logs the loud refusal");
+  const h = await fetch(`${base}/health`);
+  ok(h.ok, "free surfaces stay up when every facilitator is dead");
+  const r = await fetch(`${base}/api/uuid`);
+  ok(r.status >= 500, `paid route answers 5xx, not a free 200, when nothing can settle (got ${r.status})`);
+  proc.kill("SIGKILL"); await sleep(300);
+}
+
+// ---- 4. ESCAPE HATCH: X402_SUPPORTED_GUARD=off restores prior behavior ----
+payai.mode = KINDS_BASE;
+celo.mode = "die";
+{
+  const { base, log } = await bootServer(3967, { X402_SUPPORTED_GUARD: "off" });
+  ok(!/dropping eip155:42220/.test(log.text), "guard off: nothing is dropped");
+  const r = await fetch(`${base}/api/uuid`);
+  ok(r.status >= 500, `guard off: the incident behavior returns (got ${r.status}) — the hatch really disables it`);
+  proc.kill("SIGKILL"); await sleep(300);
+}
+
+cleanup();
+console.log(`\ntest-supported-guard: ${pass} assertions passed`);
+process.exit(0);
