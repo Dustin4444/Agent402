@@ -36,7 +36,24 @@ export const ledgerPersistent = HAS_DATA_DIR || Boolean(process.env.REVENUE_LEDG
 // per-chain block numbers need hardcoding. Env-overridable per chain with
 // an absolute block: REVENUE_LEDGER_FROM_BASE=31000000 etc.
 const LEDGER_EPOCH_MS = Date.parse(process.env.REVENUE_LEDGER_EPOCH || "2026-05-20T00:00:00Z");
-const BLOCK_MS = { base: 2000, polygon: 2100, arbitrum: 250, robinhood: 150 }; // robinhood measured ~0.15s (not the 2s Orbit default)
+// EVM rows carry no chain timestamp, so ledgerDaily DATES THEM FROM BLOCK
+// HEIGHT using these. A chain missing from this table fell back to 2000ms, and
+// every chain that fell back is exactly the set that went missing from
+// /revenue: a settle 20h old on Monad (real 302ms blocks, assumed 2000ms) was
+// filed ~80 HOURS in the past, so it never appeared on the day it happened.
+// The rows were there the whole time, under the wrong date.
+//
+// Measured 2026-08-01 by sampling 5,000 blocks per chain and dividing by the
+// elapsed timestamps, not taken from docs:
+//   base 2000 · arbitrum 249 · optimism 2000 · avalanche 1136
+//   celo 1000 · sei 448 · monad 302
+// New rows no longer depend on this at all (syncEvmChain now stores the real
+// block timestamp); it remains only to date rows recorded before that landed.
+export const LEDGER_BLOCK_MS = {
+  base: 2000, polygon: 2100, arbitrum: 250, robinhood: 150, // robinhood measured ~0.15s (not the 2s Orbit default)
+  monad: 300, celo: 1000, avalanche: 1140, sei: 450, optimism: 2000,
+};
+const BLOCK_MS = LEDGER_BLOCK_MS;
 
 const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
@@ -210,6 +227,21 @@ async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
   while (next <= head && chunks < maxChunks) {
     const to = Math.min(next + chunkSize - 1, head);
     const { logs, scannedTo } = await getLogsAdaptive(c, wallet, next, to, (smaller) => { chunkSize = smaller; });
+    // EXACT dates, so a row never depends on a block-rate estimate again.
+    // Only blocks that actually CONTAIN a transfer are fetched, and transfers
+    // are rare (a handful per chain per day), so this is a few extra calls a
+    // day rather than one per block. A failed lookup leaves when_ts null and
+    // the estimate above still applies, so this can only improve accuracy.
+    const blockTimes = new Map();
+    for (const l of Array.isArray(logs) ? logs : []) {
+      if (l?.blockNumber && !blockTimes.has(l.blockNumber)) blockTimes.set(l.blockNumber, null);
+    }
+    for (const bn of blockTimes.keys()) {
+      try {
+        const blk = await rpcCall(c.rpcs, "eth_getBlockByNumber", [bn, false], 6000);
+        if (blk?.timestamp) blockTimes.set(bn, parseInt(blk.timestamp, 16));
+      } catch { /* keep null - falls back to the height estimate */ }
+    }
     for (const l of Array.isArray(logs) ? logs : []) {
       const usd = Number(BigInt(l.data && l.data !== "0x" ? l.data : "0x0")) / 1e6;
       const payer = l.topics?.[1] ? ("0x" + l.topics[1].slice(-40)).toLowerCase() : null;
@@ -218,6 +250,7 @@ async function syncEvmChain(chain, wallet, { maxChunks = 20 } = {}) {
         txid: `${l.transactionHash}:${parseInt(l.logIndex ?? "0x0", 16)}`,
         tx_hash: l.transactionHash,
         block: parseInt(l.blockNumber, 16),
+        when_ts: blockTimes.get(l.blockNumber) ?? null,
         payer, usd, asset: c.asset,
         external: isExternalPayment({ payer, usd }, { ourWallets: OUR_EVM_WALLETS, maxUsd: MAX_CALL_USD }),
       });

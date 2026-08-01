@@ -20,7 +20,7 @@ const dir = mkdtempSync(join(tmpdir(), "a402-buyers-"));
 process.env.REVENUE_LEDGER_DB = join(dir, "ledger.db");
 process.env.REVENUE_DAILY_START = "2026-06-15";
 
-const { recordTransfer, ledgerBuyersDaily, ledgerSyncState, nextChunkSpan } = await import("../src/revenue-ledger.js");
+const { recordTransfer, ledgerBuyersDaily, ledgerDaily, ledgerSyncState, nextChunkSpan, LEDGER_BLOCK_MS } = await import("../src/revenue-ledger.js");
 
 const WALLET = "0xwallet";
 const day = (d) => Math.floor(Date.parse(`${d}T12:00:00Z`) / 1000);
@@ -155,6 +155,33 @@ check("a NON-range failure propagates instead of being retried smaller", () => {
 });
 check("narrowing has a floor, so it cannot spin toward zero", () => {
   assert.equal(nextChunkSpan("too many blocks", 100), null);
+});
+
+// --- an EVM row's DATE decides whether it is ever seen ---------------------
+//
+// EVM transfers carry no chain timestamp, so ledgerDaily dates them from block
+// height. Every chain missing from BLOCK_MS fell back to 2000ms, and that set
+// is exactly the set that vanished from /revenue. Measured 2026-08-01: monad
+// runs at 302ms, sei 448ms, celo 1000ms, avalanche 1136ms. At the 2000ms
+// default a 20-hour-old Monad settle was filed ~80 hours in the past, so it
+// never appeared on the day it happened. Nothing errored; the rows were simply
+// under the wrong date.
+check("a row with a real timestamp is dated by it, never by a block estimate", () => {
+  const when = Math.floor(Date.parse("2026-07-31T15:27:00Z") / 1000);
+  recordTransfer({ chain: "celo", wallet: WALLET, txid: "celo-exact", tx_hash: "0xcelo",
+    block: 73611043, when_ts: when, payer: "0x" + "b".repeat(40), usd: 0.001, asset: "USDC", external: 0 });
+  const rows = ledgerDaily({ walletAddress: WALLET });
+  assert.ok(rows.some((r) => r.chain === "celo" && r.day === "2026-07-31"),
+    "celo row lands on the day it actually settled");
+});
+check("fast chains are no longer dated with the 2000ms default", () => {
+  // The guard that would have caught this: any chain the ledger dates by
+  // height must declare its real cadence.
+  for (const chain of ["monad", "celo", "avalanche", "sei", "optimism"]) {
+    assert.ok(LEDGER_BLOCK_MS[chain], `${chain} declares a block cadence`);
+  }
+  assert.ok(LEDGER_BLOCK_MS.monad < 700, `monad cadence is sub-second (got ${LEDGER_BLOCK_MS.monad})`);
+  assert.ok(LEDGER_BLOCK_MS.sei < 700, `sei cadence is sub-second (got ${LEDGER_BLOCK_MS.sei})`);
 });
 
 rmSync(dir, { recursive: true, force: true });
