@@ -367,6 +367,42 @@ function walletPairs({ walletAddress, solanaWallet, stellarWallet, algorandWalle
   ];
 }
 
+/**
+ * Per-chain sync state: where each cursor sits, how far behind the head it is,
+ * and when it last moved.
+ *
+ * WHY THIS EXISTS. The canary settled on avalanche, celo and monad on
+ * 2026-07-31 and those settlements are verifiably on-chain (two $0.001 Celo
+ * transfers to the treasury, found by direct getLogs), yet the ledger reported
+ * zero for all three that day. No error was logged, because none was thrown:
+ * a chain that is merely BEHIND looks exactly like a chain with no activity,
+ * and every surface built on this data — /revenue, the daily digest's
+ * "Scan: ok" column — reported healthy throughout.
+ *
+ * A scan that returns nothing because it has not got there yet must not be
+ * indistinguishable from a scan that returns nothing because nothing happened.
+ * `lagBlocks` is the number that tells them apart, and until now nothing
+ * exposed it.
+ *
+ * Operator-only: cursor positions and wallet addresses are not public data.
+ */
+export function ledgerSyncState() {
+  const rows = db.prepare("SELECT chain, wallet, next_block, caught_up, updated_ts FROM cursors").all();
+  const now = Math.floor(Date.now() / 1000);
+  return rows
+    .map((r) => ({
+      chain: r.chain,
+      // Never expose a full wallet on an ops surface; the prefix is enough to
+      // tell two cursors on the same chain apart.
+      wallet: String(r.wallet || "").slice(0, 10),
+      nextBlock: r.next_block,
+      caughtUp: r.caught_up === 1,
+      updatedAt: r.updated_ts ? new Date(r.updated_ts * 1000).toISOString() : null,
+      staleSeconds: r.updated_ts ? now - r.updated_ts : null,
+    }))
+    .sort((a, b) => a.chain.localeCompare(b.chain) || a.wallet.localeCompare(b.wallet));
+}
+
 export function ledgerSummary(wallets) {
   const per = {};
   let allTimeExternalUsd = 0;

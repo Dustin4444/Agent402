@@ -20,7 +20,7 @@ const dir = mkdtempSync(join(tmpdir(), "a402-buyers-"));
 process.env.REVENUE_LEDGER_DB = join(dir, "ledger.db");
 process.env.REVENUE_DAILY_START = "2026-06-15";
 
-const { recordTransfer, ledgerBuyersDaily } = await import("../src/revenue-ledger.js");
+const { recordTransfer, ledgerBuyersDaily, ledgerSyncState } = await import("../src/revenue-ledger.js");
 
 const WALLET = "0xwallet";
 const day = (d) => Math.floor(Date.parse(`${d}T12:00:00Z`) / 1000);
@@ -106,6 +106,29 @@ check("a buyer first seen BEFORE the window is not relabelled new inside it", ()
   assert.equal(d21.newBuyers, 1, "bob only; alice's history predates the epoch but she is not new");
   assert.equal(d21.cumulative, 2, "cumulative counts alice even though her first day is outside the window");
   process.env.REVENUE_DAILY_START = "2026-06-15";
+});
+
+// --- per-chain sync state must be inspectable, and must not leak wallets ----
+//
+// A chain that is merely BEHIND yields no rows and throws no error, which is
+// indistinguishable from a chain with no activity. That is how canary
+// settlements verified on-chain (two $0.001 Celo transfers to the treasury)
+// went missing from /revenue while the daily digest still printed "Scan: ok".
+// lagBlocks is the number that separates "not there yet" from "nothing
+// happened"; nothing exposed it before.
+check("ledgerSyncState returns an inspectable array", () => {
+  assert.ok(Array.isArray(ledgerSyncState()));
+});
+check("every sync row names its chain and carries cursor + staleness", () => {
+  for (const r of ledgerSyncState()) {
+    assert.ok(typeof r.chain === "string" && r.chain.length > 0, `chain: ${r.chain}`);
+    assert.ok("nextBlock" in r && "caughtUp" in r && "staleSeconds" in r, "cursor fields present");
+  }
+});
+check("sync rows expose only a wallet PREFIX, never a full address", () => {
+  for (const r of ledgerSyncState()) {
+    assert.ok(typeof r.wallet === "string" && r.wallet.length <= 10, `wallet: ${r.wallet}`);
+  }
 });
 
 rmSync(dir, { recursive: true, force: true });
