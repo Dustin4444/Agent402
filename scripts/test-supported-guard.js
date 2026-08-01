@@ -8,7 +8,7 @@
 //   each facilitator at boot and drops the networks nobody reachable
 //   advertises, so one dead facilitator costs ONE rail, not all of them.
 //
-// Four legs, each a fresh server boot:
+// Five legs, each a fresh server boot:
 //   1. INCIDENT  — PayAI stub healthy (base), Celo stub 500ing: unpaid request
 //                  must 402, accepts must carry base and NOT celo, and the
 //                  boot log must name the drop (probe-driven, not hardcoded).
@@ -20,6 +20,16 @@
 //                  transient self-inflicted). Free surfaces stay up.
 //   4. ESCAPE    — X402_SUPPORTED_GUARD=off with the incident stubs restores
 //                  prior behavior outright, pinning the operator hatch.
+//   5. RUNTIME   — a facilitator dying AFTER a healthy boot must cost only
+//                  its own rail's settles, never the offer: @x402/express
+//                  latches isInitialized on the first successful init and
+//                  never re-fetches /supported, so the map cannot be wiped
+//                  mid-run. That latch is VENDOR behavior the no-single-
+//                  load-bearing-network architecture depends on — if a
+//                  future @x402 bump moves to TTL re-init (initialize()
+//                  clear()s the map before refilling), this leg fails and
+//                  the bump must not ship until the guard grows a runtime
+//                  layer.
 //
 // The stubs never see a verify/settle — this is a 402-negotiation test, so no
 // signature machinery is needed and the whole thing runs with no egress.
@@ -142,6 +152,28 @@ celo.mode = "die";
   ok(!/dropping eip155:42220/.test(log.text), "guard off: nothing is dropped");
   const r = await fetch(`${base}/api/uuid`);
   ok(r.status >= 500, `guard off: the incident behavior returns (got ${r.status}) — the hatch really disables it`);
+  proc.kill("SIGKILL"); await sleep(300);
+}
+
+// ---- 5. RUNTIME death: dying after a healthy boot never wipes the offer ----
+payai.mode = KINDS_BASE;
+celo.mode = KINDS_CELO;
+{
+  const { base } = await bootServer(3968);
+  const before = await fetch(`${base}/api/uuid`);
+  ok(before.status === 402, `healthy boot: 402 (got ${before.status})`);
+  ok(acceptsNetworks(before.headers.get("payment-required") || "").has("eip155:42220"),
+    "healthy boot advertises celo");
+  // The first paid request above forced init to complete and latch. NOW the
+  // facilitator dies — past the memo TTL this would refetch if anything
+  // re-initialized, so a wiped map shows up as a 500 here.
+  celo.mode = "die";
+  await sleep(500);
+  const after = await fetch(`${base}/api/uuid`);
+  ok(after.status === 402, `facilitator died mid-run: offer intact, still 402 (got ${after.status})`);
+  const nets = acceptsNetworks(after.headers.get("payment-required") || "");
+  ok(nets.has("eip155:8453") && nets.has("eip155:42220"),
+    "mid-run death does not rebuild accepts — both rails still advertised (dead rail degrades at verify/settle only, buyer never charged)");
   proc.kill("SIGKILL"); await sleep(300);
 }
 

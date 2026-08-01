@@ -222,7 +222,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   initialize cost ONE fetch per facilitator per boot (also kills a keep-alive reuse race
   the double-fetch had). `X402_SUPPORTED_GUARD=off` is the operator escape hatch; the
   probe is skipped under `X402_SYNC_ON_START=false` (offline tests).
-  `scripts/test-supported-guard.js` (12 assertions, stub facilitators, mutation-checked,
+  **Failure-mode map (no facilitator is load-bearing for the whole paywall):** dead at
+  boot → its rail is dropped, 11 serve (the guard); dead MID-RUN after a healthy boot →
+  only its own verify/settle fails (buyer never charged, picks another chain off the same
+  402) because @x402/express latches isInitialized on first success and never re-fetches
+  /supported — that latch is VENDOR behavior, pinned by the test's runtime leg, so a
+  future @x402 bump to TTL re-init fails CI instead of quietly re-opening the class; ALL
+  dead at boot → deliberate fail-open (paid 500s, free tier fine, per-request init retry
+  self-heals). Residual: a boot-dropped rail returns only on the next restart; a mid-run-
+  dead rail stays advertised until then (isolated, self-healing on recovery).
+  `scripts/test-supported-guard.js` (16 assertions, stub facilitators, mutation-checked,
   in CI). **Ops note: `celo` was removed from prod's Railway `PAYMENT_NETWORKS`
   2026-08-01 to restore service; re-add it once api.x402.celo.org/supported answers —
   with this guard deployed, a facilitator re-flap costs only the Celo rail.**
