@@ -576,6 +576,72 @@ export function normaliseOpenapiTools(openapi, originUrl) {
   return out;
 }
 
+// Read a tool catalogue out of an /llms.txt.
+//
+// Asked for alongside /agents.json in #645, and it is the riskier of the two:
+// agents.json is structured, llms.txt is prose. A greedy markdown scrape would
+// happily turn a seller's marketing copy into fifty phantom "tools" and inflate
+// the index with things nobody can buy - the exact failure the registry
+// template-collapse work already had to undo once.
+//
+// So this only accepts the one shape that is unambiguous, the link-list entry
+// that the llms.txt convention is actually built on:
+//
+//   - [Name](https://origin/route): description ... $0.01 ...
+//
+// and requires ALL of:
+//   * a SAME-ORIGIN absolute URL, so a link to someone else's docs can never
+//     be listed as this seller's tool,
+//   * an explicit price on the line, which is what separates a buyable
+//     endpoint from a link to an about page,
+//   * a route that survives the same non-tool path filter openapi uses.
+//
+// Anything less structured is left unread on purpose. A thin listing is a
+// recoverable problem; a fabricated one is not.
+export function normaliseLlmsTxtTools(text, originUrl) {
+  if (typeof text !== "string" || !text) return [];
+  let originHost = "";
+  try { originHost = new URL(originUrl).host.toLowerCase(); } catch { return []; }
+  const nonToolPath =
+    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
+  const line = /^\s*[-*]\s*\[([^\]]{1,120})\]\(([^)\s]{1,400})\)\s*[:\-]?\s*(.*)$/;
+  const priceRe = /\$\s?([0-9]+(?:\.[0-9]+)?)/;
+  const out = [];
+  const seen = new Set();
+  for (const raw of text.split("\n").slice(0, 2000)) {
+    const m = line.exec(raw);
+    if (!m) continue;
+    const [, name, href, rest] = m;
+    let u;
+    try { u = new URL(href); } catch { continue; }
+    // Same-origin only. A cross-origin link in someone's llms.txt is a
+    // reference, never a tool they sell.
+    if (u.host.toLowerCase() !== originHost) continue;
+    const route = u.pathname;
+    if (!route || route === "/" || nonToolPath.test(route)) continue;
+    // A price is the buyability evidence. Without one this is a doc link.
+    const price = priceRe.exec(rest);
+    if (!price) continue;
+    if (seen.has(route)) continue;
+    seen.add(route);
+    out.push({
+      seller: originUrl,
+      // llms.txt states no verb. GET is the honest default for a link, and the
+      // router treats method as a hint rather than a contract.
+      method: "GET",
+      route,
+      slug: route.replace(/^\//, "").replace(/\//g, "-"),
+      name: name.trim(),
+      description: String(rest || "").replace(/\s+/g, " ").trim().slice(0, 400),
+      category: "other",
+      tags: [],
+      price: `$${price[1]}`,
+      paid: true,
+    });
+  }
+  return out;
+}
+
 function openapiOperationHasPaymentSignal(op) {
   return Boolean(op && typeof op === "object" &&
     (op["x-price"] || op["x-x402-price"] || op["x-payment-info"] ||
@@ -1018,6 +1084,23 @@ async function crawlSeller(originUrl) {
         /* no agents.json either */
       }
     }
+    // 4. /llms.txt. The other half of the #645 ask. Last because it is prose:
+    //    normaliseLlmsTxtTools accepts only priced, same-origin link-list
+    //    entries, so a seller who publishes one gets listed from it and a
+    //    seller who publishes marketing copy gets nothing rather than noise.
+    //
+    //    The payment gate here is the price on each line itself - an entry
+    //    without one is not emitted at all - so unlike the JSON surfaces there
+    //    is no separate document-level check to apply.
+    if (!openapiTools.length) {
+      try {
+        const llmsRes = await safeFetch(`${originUrl}/llms.txt`, { maxBytes: MAX_OPENAPI_BYTES });
+        const fromLlms = normaliseLlmsTxtTools(llmsRes.html, originUrl);
+        if (fromLlms.length) { openapiTools = fromLlms; openapiPath = "/llms.txt"; }
+      } catch {
+        /* no llms.txt either */
+      }
+    }
     const tools = mergeOpenapiIntoBazaar(openapiTools, bazaarTools, {
       allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
     });
@@ -1075,7 +1158,7 @@ async function crawlSeller(originUrl) {
 // Build a minimal x402 service manifest from Bazaar resource entries — enough
 // for indexSnapshot to render a display name + payment network without
 // pretending the seller actually publishes /.well-known/x402.
-function synthManifestFromBazaar(originUrl, tools) {
+export function synthManifestFromBazaar(originUrl, tools) {
   const first = tools[0] || {};
   const host = originUrl.replace(/^https?:\/\//, "");
   return {

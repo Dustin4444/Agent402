@@ -13,7 +13,7 @@
 //     ignored, so the real signal is lost with it), or
 //   * it says nothing for a seller who is NOT (silence, which is the bug).
 import { discoveryNote, WELL_KNOWN_PATH } from "../src/discovery-note.js";
-import { normaliseOpenapiTools } from "../src/x402-index.js";
+import { normaliseOpenapiTools, normaliseLlmsTxtTools, synthManifestFromBazaar } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -63,6 +63,54 @@ ok(tools.every((t) => t.route && t.route.startsWith("/api/tool-")),
   "routes survive the normaliser - a thin listing was the symptom we are fixing");
 ok(tools.some((t) => /tool-0/.test(t.slug || "")),
   "operationId reaches the slug, so the router can actually rank these");
+
+// --- the /llms.txt fallback, the riskier half of the #645 ask ---
+// llms.txt is PROSE. A greedy scrape inflates the index with things nobody can
+// buy, which is worse than listing a seller thinly - a thin listing is
+// recoverable, a fabricated one is not. So the refusals below matter more than
+// the acceptances.
+const llms = [
+  "# Example Seller",
+  "",
+  "> Pay-per-call tools. Prices from $0.001.",   // prose w/ a price, no link
+  "",
+  "## Tools",
+  "- [Allowance check](https://seller.test/api/allowance): read-only, $0.002 per call",
+  "- [Simulate tx](https://seller.test/api/simulate): decoded revert reason, $0.01",
+  "- [Docs](https://seller.test/docs): how it all works",              // no price
+  "- [Our blog](https://blog.other.test/post): we wrote about x402, $0.01", // cross-origin
+  "- [Manifest](https://seller.test/.well-known/x402): $0.00",         // discovery path
+  "- [Logo](https://seller.test/logo.png): our mark, $0.01",           // static asset
+  "- [Allowance check](https://seller.test/api/allowance): duplicate, $0.002",
+  "Just a sentence mentioning https://seller.test/api/ghost and $0.05.",
+].join("\n");
+const lt = normaliseLlmsTxtTools(llms, "https://seller.test");
+
+ok(lt.length === 2, `only the two priced, same-origin endpoints are read (got ${lt.length})`);
+ok(lt.every((t) => t.route.startsWith("/api/")), "and both are real routes");
+ok(!lt.some((t) => /blog|other\.test/.test(t.route + t.name)),
+  "a CROSS-ORIGIN link is never listed as this seller's tool");
+ok(!lt.some((t) => t.route === "/docs"), "an unpriced link is a doc, not a tool");
+ok(!lt.some((t) => /well-known/.test(t.route)), "the discovery path is not itself a tool");
+ok(!lt.some((t) => /\.png$/.test(t.route)), "a static asset is not a tool");
+ok(new Set(lt.map((t) => t.route)).size === lt.length, "a repeated route is emitted once");
+ok(!lt.some((t) => /ghost/.test(t.route)),
+  "a bare URL in a sentence is NOT a tool - only the link-list shape is read");
+ok(lt[0].price === "$0.002" && lt[1].price === "$0.01", "the stated price survives verbatim");
+ok(lt.every((t) => t.paid === true && t.seller === "https://seller.test"),
+  "entries are attributed and marked paid, so paid routing can use them");
+
+ok(normaliseLlmsTxtTools("", "https://seller.test").length === 0 &&
+   normaliseLlmsTxtTools(null, "https://seller.test").length === 0 &&
+   normaliseLlmsTxtTools(llms, "not a url").length === 0,
+  "empty, null, and an unparseable origin all yield nothing rather than throwing");
+
+// A seller found ONLY via llms.txt has no openapi document, so the manifest is
+// synthesised from the (possibly empty) registry rows. That path must not throw
+// on the way to rendering their card.
+let threw = null;
+try { synthManifestFromBazaar("https://seller.test", []); } catch (e) { threw = e; }
+ok(!threw, `manifest synthesis survives an llms.txt-only seller (${threw?.message || "no throw"})`);
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
