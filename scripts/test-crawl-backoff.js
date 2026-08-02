@@ -16,7 +16,8 @@
 //   * ANY success clears it immediately, so a seller who fixes their manifest
 //     is picked back up on the next crawl rather than punished for having been
 //     broken.
-import { manifestProbeDue, crawlBackoffState, __noteCrawlOutcomeForTest as note } from "../src/x402-index.js";
+import { readFileSync } from "node:fs";
+import { manifestProbeDue, probeDue, noteProbeOutcome, crawlBackoffState, __noteCrawlOutcomeForTest as note } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -53,6 +54,51 @@ const o2 = "https://capped.test";
 for (let i = 0; i < 50; i++) note(o2, false, T0);
 ok(manifestProbeDue(o2, T0 + 7 * 60 * 60 * 1000),
   "even after 50 failures the probe resumes within hours - never permanently abandoned");
+
+// --- the backoff must cover EVERY path, not the one that got reported ---
+// The first version gated only /.well-known/x402, because that is the path the
+// reporting seller named. The crawl asks each origin for four files. Measured
+// afterwards: 687 indexed sellers reach the fallback chain, 21 of 25 sampled
+// serve NONE of /openapi.json, /agents.json or /llms.txt, and all three were
+// re-asked every 5 minutes forever - about 500,000 404s a day, roughly 700x
+// the volume of the report that started it. Two of those paths were added the
+// same afternoon as the fix.
+const O = "https://multipath.test";
+const T = 5_000_000;
+
+for (let i = 0; i < 6; i++) noteProbeOutcome(O, "/openapi.json", false, T);
+ok(!probeDue(O, "/openapi.json", T), "a dead /openapi.json backs off");
+ok(probeDue(O, "/agents.json", T),
+  "...and that must NOT back off /agents.json on the same origin - one dead path is not a dead origin");
+ok(probeDue(O, "/llms.txt", T), "...nor /llms.txt");
+ok(probeDue(O, "/.well-known/x402", T), "...nor the manifest");
+
+ok(probeDue("https://other.test", "/openapi.json", T),
+  "and a dead path on one origin never affects another origin");
+
+for (let i = 0; i < 6; i++) noteProbeOutcome(O, "/agents.json", false, T);
+noteProbeOutcome(O, "/openapi.json", true, T);
+ok(probeDue(O, "/openapi.json", T), "a success clears that path immediately");
+ok(!probeDue(O, "/agents.json", T), "...without clearing a different path that is still failing");
+
+const paths = crawlBackoffState().filter((x) => x.origin === O);
+ok(paths.length === 1 && paths[0].path === "/agents.json",
+  `state reports WHICH path is backed off, not just which origin (${JSON.stringify(paths)})`);
+
+// The structural guard. Gating four paths by hand is how the first three got
+// missed; this fails if a future per-origin probe is added without the gate.
+const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+// probePath's own fetch is the gated one; everything else must go through it.
+const helperStart = src.indexOf("async function probePath(originUrl, path");
+const helperEnd = src.indexOf("\n}", helperStart);
+const outsideHelper = src.slice(0, helperStart) + src.slice(helperEnd);
+const rawProbes = outsideHelper.match(/safeFetch\(`\$\{originUrl\}/g) || [];
+ok(rawProbes.length === 0,
+  `every per-origin fetch goes through the backoff gate, none raw (found ${rawProbes.length})`);
+ok((src.match(/safeFetch\(`\$\{originUrl\}/g) || []).length === 1,
+  "and the gated helper itself is the ONE place that fetches an origin path directly");
+ok(/async function probePath\(originUrl, path/.test(src),
+  "the single gated helper every probe funnels through still exists");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
