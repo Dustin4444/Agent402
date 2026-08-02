@@ -18,7 +18,7 @@
 // nothing tied the skip list to the pack catalogue. This test is that tie.
 //
 // Offline, no network, no key needed.
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { SKILL_PACKS } from "../src/skills.js";
 import { SEARCH_TOOLS } from "../src/tools/search.js";
 import { CODE_RUN_TOOLS } from "../src/tools/code-run-kit.js";
@@ -26,23 +26,58 @@ import { CODE_RUN_TOOLS } from "../src/tools/code-run-kit.js";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 
-const BRAVE_SLUGS = new Set(SEARCH_TOOLS.map((t) => t.slug));
+const DIRECT_BRAVE_SLUGS = new Set(SEARCH_TOOLS.map((t) => t.slug));
+
+// Tools that reach Brave INDIRECTLY, by calling a search handler in-process
+// rather than being one. This is the third distinct shape of this leak and the
+// one that defeated the previous two guards:
+//
+//   research-company (research-kit) calls the search-news handler directly, and
+//   the skill pack financial-research composes research-company. Neither names
+//   a Brave slug anywhere, so a check for "does this pack use a Brave slug"
+//   sees nothing, and both were silently buying a live news search on every CI
+//   run. Measured with an outbound counter: exactly 2 calls per run.
+//
+// Detected structurally, by reading which kits import the search tools at all.
+// A kit that imports SEARCH_TOOLS can call a search handler, so every tool it
+// exports is treated as Brave-reaching. That over-approximates - it may skip a
+// sibling tool in the same kit that never searches - and over-approximating is
+// the correct direction: the cost of a false skip is one untested example, and
+// the cost of a false clear is a recurring bill nobody sees.
+const kitFiles = readdirSync(new URL("../src/tools", import.meta.url))
+  .filter((f) => f.endsWith(".js") && f !== "search.js");
+const INDIRECT_BRAVE_SLUGS = new Set();
+for (const f of kitFiles) {
+  const src = readFileSync(new URL(`../src/tools/${f}`, import.meta.url), "utf8");
+  if (!/from\s+["'][./]*search\.js["']|SEARCH_TOOLS/.test(src)) continue;
+  for (const m of src.matchAll(/slug:\s*["']([a-z0-9-]+)["']/g)) INDIRECT_BRAVE_SLUGS.add(m[1]);
+}
+const BRAVE_SLUGS = new Set([...DIRECT_BRAVE_SLUGS, ...INDIRECT_BRAVE_SLUGS]);
 const testAll = readFileSync(new URL("./test-all.js", import.meta.url), "utf8");
 const start = testAll.indexOf("const BRAVE_ROUTES");
 const end = testAll.indexOf("const skipBrave");
 ok(start > 0 && end > start, "test-all.js still defines a BRAVE_ROUTES skip set");
 const skipBlock = testAll.slice(start, end);
 
-// 1. Every Brave-backed tool's own route is skipped.
+// 1. Every Brave-backed tool's own route is skipped - the ones that ARE search
+//    tools, and the ones that merely CALL one.
 for (const t of SEARCH_TOOLS) {
   const route = `/api/${t.slug}`;
   ok(skipBlock.includes(`"${route}"`), `direct route ${route} is in BRAVE_ROUTES`);
+}
+ok(INDIRECT_BRAVE_SLUGS.size > 0,
+  `the indirect detector found ${INDIRECT_BRAVE_SLUGS.size} tool(s) in kits that import the search tools (sanity: it is not blind)`);
+for (const slug of INDIRECT_BRAVE_SLUGS) {
+  ok(skipBlock.includes(`"/api/${slug}"`),
+    `"${slug}" lives in a kit that calls a search handler in-process - its route must be in BRAVE_ROUTES`);
 }
 
 // 2. THE REGRESSION THAT KEEPS HAPPENING: every skill pack whose steps invoke a
 //    Brave-backed tool must also be skipped. A new pack that composes `search`
 //    is the exact shape that reopened this leak on 2026-07-28.
 const packsReachingBrave = Object.values(SKILL_PACKS)
+  // BRAVE_SLUGS now includes the indirect reachers, so a pack composing
+  // research-company is caught the same as one composing search.
   .map((p) => ({ slug: p.slug, hits: (p.toolSlugs || []).filter((s) => BRAVE_SLUGS.has(s)) }))
   .filter((p) => p.hits.length);
 ok(packsReachingBrave.length > 0, `found ${packsReachingBrave.length} packs that reach Brave (sanity: the detector works)`);
@@ -62,6 +97,10 @@ ok(/const skipBrave = process\.env\.BRAVE_LIVE_TEST !== "1"/.test(testAll),
 //    dead weight that hides a real gap later.
 const validRoutes = new Set([
   ...SEARCH_TOOLS.map((t) => `/api/${t.slug}`),
+  // Indirect reachers belong here too. Without them the staleness check called
+  // a legitimately-skipped route stale, which would have pushed the next person
+  // to DELETE the entry that closes the leak.
+  ...[...INDIRECT_BRAVE_SLUGS].map((slug) => `/api/${slug}`),
   ...packsReachingBrave.map((p) => `/api/skill/${p.slug}`),
 ]);
 const listed = [...skipBlock.matchAll(/"(\/api\/[^"]+)"/g)].map((m) => m[1]);
