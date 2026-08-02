@@ -655,6 +655,112 @@ export function normaliseManifestTools(manifest, originUrl) {
   return out;
 }
 
+// Fold a manifest catalogue into the rows we already have, WITHOUT inflating.
+//
+// This function exists because the first version of the manifest read shipped
+// without it and doubled a seller's listing from 16 to 30. Manifest entries
+// declare no HTTP verb (so they default to GET) and often carry a query
+// template, while the same endpoint arrives from a registry row or an openapi
+// operation as a bare POST path. Neither the method nor the route string
+// matches, so a route-keyed merge treats one endpoint as two:
+//
+//   POST /x402/preflight                       (registry row)
+//   GET  /x402/preflight?chain=base&sender=…   (manifest entry)
+//
+// Eleven of that seller's seventeen entries doubled exactly this way. Listing
+// one endpoint twice is the inflation failure this file has had to undo before,
+// and it is worse than the thin listing it was meant to fix: it overstates a
+// seller and it gives the router two candidates that are one.
+//
+// So the match key is the PATHNAME alone. An existing row wins on shape,
+// because a verb observed from an openapi operation or a settled registry row
+// is evidence, while a manifest's silence is not. The manifest still wins on
+// DESCRIPTION: name, summary and price fill any gap the existing row left,
+// which is the whole point of reading the catalogue.
+// Fold a manifest catalogue into the rows we already have, WITHOUT inflating
+// and WITHOUT silently dropping the seller's variants.
+//
+// Both halves were learned the hard way, in that order.
+//
+// FIRST: keying the merge on the full route string doubled a seller from 16 to
+// 30. Manifest entries declare no HTTP verb, so they default to GET, and they
+// often carry a query template; the same endpoint arrives from a registry row
+// as a bare POST path. Neither method nor route matches, so one endpoint was
+// listed twice, for 11 of that seller's 17 entries.
+//
+//   POST /x402/preflight                        (registry row)
+//   GET  /x402/preflight?chain=base&sender=...  (manifest entry)
+//
+// SECOND: keying on the pathname alone fixes that and silently loses variants.
+// The seller who reported the original bug pointed this out about the fix
+// itself: a single route often sells different things by parameter (?product=,
+// a reader keyed by ?url=, a chain call keyed by ?chain=), at different prices.
+// Folding those into one row erases products the seller does sell.
+//
+// So the pathname decides the MATCH and the count of advertised resources on
+// that path decides the OUTCOME:
+//   * path unknown to us            -> add everything, variants included
+//   * one resource, path known      -> same endpoint; enrich in place, add nothing
+//   * several resources, path known -> the row we hold is that path without its
+//                                      parameters, so the variants replace it
+//
+// Throughout: an observed value beats a claimed one. A verb seen on an openapi
+// operation or a settled registry row is evidence; a manifest's silence is not.
+// The manifest still wins on description, which is the whole reason to read it.
+export function mergeManifestIntoTools(manifestTools = [], existing = []) {
+  if (!manifestTools.length) return existing.slice();
+  // Group the seller's entries by pathname first, because how many they
+  // advertise on one path is what decides the merge.
+  const groups = new Map();
+  for (const m of manifestTools) {
+    const path = String(m.route || "").split("?")[0];
+    if (!path) continue;
+    if (!groups.has(path)) groups.set(path, []);
+    groups.get(path).push(m);
+  }
+  const indexByPath = new Map();
+  existing.forEach((t, i) => {
+    const p = String(t.route || "").split("?")[0];
+    if (p && !indexByPath.has(p)) indexByPath.set(p, i);
+  });
+  const replaced = new Set();
+  const append = [];
+  const enrich = (hit, m) => {
+    if (!hit.name || hit.name === hit.route) hit.name = m.name || hit.name;
+    if (!hit.description) hit.description = m.description || "";
+    if (!hit.price && m.price) hit.price = m.price;
+    if ((!hit.slug || hit.slug === hit.route) && m.slug) hit.slug = m.slug;
+  };
+  for (const [path, entries] of groups) {
+    const idx = indexByPath.get(path);
+    if (idx === undefined) {
+      // Nobody else reported this path. Everything the seller advertises on it
+      // is new, variants included.
+      append.push(...entries);
+      continue;
+    }
+    if (entries.length === 1) {
+      // One advertised resource, one row we already hold: same endpoint. Fill
+      // the blanks, add nothing.
+      enrich(existing[idx], entries[0]);
+      continue;
+    }
+    // SEVERAL resources on one path. The row we hold is that path seen without
+    // its parameters, so the variants ARE it, described properly. Replace it
+    // rather than sit beside it: keeping both would list the endpoint N+1
+    // times, which is the duplication this function exists to prevent.
+    //
+    // The observed verb carries across, because a manifest declares none and a
+    // defaulted GET must not silently overwrite a POST we actually saw.
+    const hit = existing[idx];
+    replaced.add(idx);
+    for (const e of entries) append.push({ ...e, method: hit.method || e.method });
+  }
+  const out = existing.filter((_, i) => !replaced.has(i));
+  out.push(...append);
+  return out;
+}
+
 // Read a tool catalogue out of an /llms.txt.
 //
 // Asked for alongside /agents.json in #645, and it is the riskier of the two:
@@ -1083,14 +1189,14 @@ async function crawlSeller(originUrl) {
     // a manifest, because their openapi covered 2 of the 9 routes the Bazaar
     // had settled. Openapi metadata still wins per-route; Bazaar rows without
     // an openapi match pass through.
-    // Precedence openapi > manifest > registry. The manifest is the seller's
-    // own statement about themselves, so it outranks a third-party row; the
-    // openapi is more structured still (verbs, schemas), so it outranks both.
-    const manifestTools = normaliseManifestTools(manifest, originUrl);
-    const baseline = mergeOpenapiIntoBazaar(manifestTools, bazaarToolsByOrigin.get(originUrl) || [], {});
-    tools = mergeOpenapiIntoBazaar(tools, baseline, {
+    tools = mergeOpenapiIntoBazaar(tools, bazaarToolsByOrigin.get(originUrl) || [], {
       allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
     });
+    // The manifest is folded in LAST and by pathname, so it can only add
+    // endpoints nobody else reported or enrich ones already known. It can
+    // never add a second row for an endpoint we already list — see
+    // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
+    tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
 
     cache.set(originUrl, {
       manifest,
