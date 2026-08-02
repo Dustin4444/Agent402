@@ -13,7 +13,7 @@
 //     ignored, so the real signal is lost with it), or
 //   * it says nothing for a seller who is NOT (silence, which is the bug).
 import { discoveryNote, WELL_KNOWN_PATH } from "../src/discovery-note.js";
-import { normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedLivenessRoutes, synthManifestFromBazaar } from "../src/x402-index.js";
+import { normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedLivenessRoutes, payabilityOf, synthManifestFromBazaar } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -276,6 +276,28 @@ ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health?x=1", price: null }], ["/v1
 ok(dropUnvouchedLivenessRoutes([], []).length === 0 &&
    dropUnvouchedLivenessRoutes([{ route: null }], []).length === 1,
   "empty input and a route-less row neither throw nor vanish");
+
+// --- payable over x402, or merely findable ---
+// A seller reported (#645) that two of their listed endpoints are real products
+// but key-gated: a well-formed call returns 401 with a "get a free key"
+// pointer, never a 402 with a challenge. An agent routing there to PAY has
+// nothing to pay against.
+ok(payabilityOf({ price: "$0.01" }) === "x402", "a price above zero is payability evidence");
+ok(payabilityOf({ price: 0.005 }) === "x402", "a numeric price counts too");
+ok(payabilityOf({ networks: ["eip155:8453"] }) === "x402",
+  "a registry accepts entry counts: somebody settled against it");
+ok(payabilityOf({ price: null, networks: [] }) === "unknown",
+  "no price and no accepts is UNKNOWN");
+ok(payabilityOf({ price: "$0" }) === "unknown",
+  "an explicit $0 is not x402 payability - free is not paid");
+ok(payabilityOf({}) === "unknown" && payabilityOf(null) === "unknown",
+  "a missing row degrades to unknown rather than throwing");
+
+// The distinction the whole field exists to preserve. 52.2% of the index has no
+// payability evidence, so treating absence as a NO would bury half the
+// ecosystem for something we never observed.
+ok(payabilityOf({ price: null }) !== "none",
+  "absence of evidence is never reported as evidence of absence");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
