@@ -1258,6 +1258,9 @@ jobs:
       - name: Cold start (a wallet-less agent reaches its first call from the docs alone)
         run: node scripts/test-coldstart.js
 
+      - name: Rail self-heal (the facilitator map cannot silently drift)
+        run: node scripts/test-rail-selfheal.js
+
       - name: upto scheme ships dark, refuses what it cannot price
         run: node scripts/test-upto-scheme.js
 

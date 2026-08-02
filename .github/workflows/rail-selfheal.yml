@@ -1,0 +1,53 @@
+# A recovered rail must come back BY ITSELF.
+#
+# src/payments.js drops a rail whose facilitator cannot be reached, so one dead
+# third party costs one chain instead of every paid route. Correct, and the
+# reason the 2026-08-01 Celo outage is survivable now. But that decision is made
+# ONCE AT BOOT - its own warning says "a dropped rail returns on the next boot
+# where its facilitator answers". So a third party recovering left the rail dead
+# until a human redeployed. Celo sat that way, and nobody should have to notice.
+#
+# This closes that loop from OUTSIDE the serving process. A live in-process swap
+# of the offer was prototyped and rejected: rebuilding `accepts` while serving
+# produced an EMPTY offer in testing, and the failure mode there is "nobody can
+# pay". Restarting is the boring path, and the boot sequence it re-runs is the
+# most tested code we have (quiet gate, drain, healthcheck).
+#
+# It only acts on a REAL recovery transition:
+#   1. /api/rails reports a configured rail that is not offered
+#   2. that rail's own facilitator answers /supported again NOW
+# Both must hold. A rail that is down stays down and is simply reported; a rail
+# nobody configured is never touched.
+name: Rail self-heal
+on:
+  schedule:
+    - cron: "23 * * * *"   # hourly; recovery is rare and a restart is not free
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: rail-selfheal
+  cancel-in-progress: false
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TARGET_URL: https://agent402.tools
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Which rails are configured but not offered?
+        id: check
+        run: node scripts/rail-selfheal.js
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
