@@ -285,13 +285,44 @@ export async function rpcCall(urls, method, params, timeoutMs = 5000) {
     // require a personal token", so it read as an entitlement problem on a
     // chain whose relay and primary were both fine and had merely blipped.
     // Hours went into the wrong lane because of that one string.
-    failures.push(`${laneName(entry)}: ${String(lastErr?.message || lastErr).slice(0, 90)}`);
+    failures.push(`${laneName(entry)}: ${describeError(lastErr)}`);
   }
   // Name every lane that failed, in order tried, so the primary's reason is
   // visible instead of being buried under the last fallback's.
   const err = new Error(`all ${urls.length} RPCs failed - ${failures.join(" | ")}`);
   err.lanes = failures;
   throw err;
+}
+
+/**
+ * An error, described well enough to act on.
+ *
+ * Node flattens EVERY network-level failure to the bare string "fetch failed"
+ * and hangs the real reason on `err.cause`. A DNS failure and a refused
+ * connection are byte-identical without it. Logging only the message is how a
+ * fixable defect gets written off as a transient blip: the field that names it
+ * is discarded one line before it is printed.
+ *
+ * Dual-stack hosts (most of these RPCs sit behind Cloudflare with both A and
+ * AAAA) fail via AggregateError, whose wrapper carries no code at all - so the
+ * per-address branch is what distinguishes "IPv6 is unroutable from here" from
+ * "the host is down", which are very different fixes.
+ */
+export function describeError(err) {
+  const msg = String(err?.message || err).slice(0, 90);
+  const cause = err?.cause;
+  if (Array.isArray(cause?.errors) && cause.errors.length) {
+    const subs = cause.errors.slice(0, 3)
+      .map((e) => [e?.code, e?.address && `@${e.address}`].filter(Boolean).join(""))
+      .filter(Boolean);
+    if (subs.length) return `${msg} [all addresses failed: ${subs.join(" | ")}]`;
+  }
+  if (cause?.code || cause?.syscall) {
+    const bits = [cause.code, cause.syscall && `syscall=${cause.syscall}`,
+      cause.address && `address=${cause.address}`, cause.port && `port=${cause.port}`].filter(Boolean);
+    return `${msg} [${bits.join(" ")}]`;
+  }
+  return msg;
 }
 
 /** Host-only label for an RPC entry: enough to identify the lane, never the
