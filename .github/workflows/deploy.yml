@@ -856,6 +856,9 @@ jobs:
       - name: Legacy surfaces still redirect (needs the booted server)
         run: TARGET_URL=http://localhost:3000 node scripts/test-redirects.js
 
+      - name: Projection parity (one tool, three surfaces, one vocabulary)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-projection-parity.js
+
       - name: Retry-safety contract is true, verifiable, and not re-absolutised
         run: TARGET_URL=http://localhost:3000 node scripts/test-retry-contract.js
 

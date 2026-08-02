@@ -2636,6 +2636,13 @@ function ourToolsAsIndexRows() {
     category: t.category || "other",
     tags: Array.isArray(t.tags) ? t.tags.slice(0, 6) : [],
     priceUsd: parseFloat(String(t.price ?? "").replace(/[^0-9.]/g, "")) || null,
+    // /api/index/tools is fed by TWO projections, this one for our catalog and
+    // one in x402-index.js for external rows. They had different key sets, so
+    // adding a field to one left the endpoint serving it for some rows and not
+    // others - the same inert-field defect one level down. Kept in step with
+    // the external row by scripts/test-projection-parity.js.
+    price: t.price ?? null,
+    payable: "x402",   // every tool in our own catalog is priced and payable
     networks: enabledNetworks(NETWORK),
   }));
 }

@@ -3017,7 +3017,27 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
         described: description.length >= 12,
         category: t?.category || "other",
         tags: Array.isArray(t?.tags) ? t.tags.slice(0, 6) : [],
-        priceUsd: typeof t?.price === "number" ? t.price : null,
+        // Was `typeof t.price === "number" ? t.price : null`, which silently
+        // nulled every price stored as a string - and manifest and llms.txt
+        // catalogues store them as "$0.002". parsePrice is what every other
+        // surface uses; using a different rule here made the same tool look
+        // priced on /api/route and unpriced on /api/index/tools.
+        priceUsd: parsePrice(t?.price),
+        // Both spellings, deliberately. /api/route served `price` and
+        // `priceUsd`, this surface served only `priceUsd`, and /api/find served
+        // only `price`. A consumer that learned one surface got `undefined` on
+        // the next and could not tell it from "no price" - which is exactly how
+        // a measurement taken during this audit came out wrong.
+        price: t?.price ?? null,
+        // The identifier a caller needs to actually invoke the tool. Present on
+        // /api/route and /api/find, missing here, on the surface that lists all
+        // 65k third-party rows.
+        slug: t?.slug || null,
+        // Added to /api/route earlier today and to nothing else, which is the
+        // inert-field defect this file's own header warns about, committed the
+        // same afternoon as a fix for it. It belongs wherever a tool row is
+        // served.
+        payable: payabilityOf(t),
         networks: Array.isArray(t?.networks) ? t.networks : [],
       });
     }
