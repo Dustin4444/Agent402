@@ -897,6 +897,9 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // wrong way (it did, 2026-07-28: a keyless optimism boot logged optimism).
   const offeredCaip2 = new Set([...evmCaip2, ...svmCaip2, ...stellarCaip2, ...avmCaip2]);
   const offeredNames = networks.filter((n) => offeredCaip2.has(NETWORKS[n]));
+  // Observe the outcome for railStatus(); does not affect it.
+  railsConfigured = [...networks];
+  railsOffered = [...offeredNames];
   console.log(
     `Accepting USDC on: ${offeredNames.join(", ")} (${[...offeredCaip2].join(", ")})` +
       (robinhoodEnabled ? " - note: robinhood settles USDG, not USDC" : "")
@@ -1120,6 +1123,34 @@ export function fallbackCandidatesFor(network, payAiClient, solvadorClient) {
   if (payAiClient && PAYAI_SETTLE_NETWORKS.has(network)) out.push({ name: "PayAI", client: payAiClient });
   if (solvadorClient) out.push({ name: "Solvador", client: solvadorClient });
   return out;
+}
+
+
+// CONFIGURED vs ACTUALLY OFFERED, queryable.
+//
+// The drop-don't-break guards and the reachability gate below both do the right
+// thing: a rail nobody can settle is removed from the offer so the other chains
+// keep earning. What neither leaves behind is an ANSWER to "why are we serving
+// 11 when we configured 12?" - that lived only in a boot log, and on
+// 2026-08-01 the gap went unnoticed for hours while paid revenue was $0.
+//
+// This records the two sets at the moment the offer is finalised, so
+// GET /api/rails can report the difference. Read-only: it observes the
+// decision, it never influences it.
+let railsConfigured = [];
+let railsOffered = [];
+export function railStatus() {
+  return railsConfigured.map((n) => ({
+    network: n,
+    caip2: NETWORKS[n] || null,
+    offered: railsOffered.includes(n),
+    // Deliberately one honest sentence rather than a guess at which of the
+    // several guards fired: the guards already log their specific reason at
+    // boot, and inventing a more precise one here could contradict them.
+    reason: railsOffered.includes(n)
+      ? null
+      : "not offered - no reachable facilitator advertises it, or its facilitator config is incomplete (see boot log for the specific guard)",
+  }));
 }
 
 export function registerFacilitatorFailureHooks(server, payAiClient, solvadorClient = null) {
