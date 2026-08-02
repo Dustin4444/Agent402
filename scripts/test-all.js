@@ -32,6 +32,13 @@ const BRAVE_ROUTES = new Set([
   // fails CI if any pack reaching Brave is absent from this set, so the third
   // recurrence cannot happen quietly.
   "/api/skill/earnings-deep-dive", "/api/skill/options-analytics", "/api/skill/defi-protocol-scanner",
+  // Added 2026-08-02 after an outbound counter measured 2 live Brave calls per
+  // run that BOTH previous guards cleared. Neither of these names a Brave slug
+  // anywhere: research-company calls the search-news HANDLER in-process, and
+  // financial-research composes research-company. A check for "does this use a
+  // Brave slug" sees nothing in either, which is why test-brave-leak.js now
+  // resolves reach through kits rather than by slug name.
+  "/api/research-company", "/api/skill/financial-research",
 ]);
 const skipBrave = process.env.BRAVE_LIVE_TEST !== "1";
 
