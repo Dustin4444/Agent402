@@ -42,5 +42,41 @@ ok(bySlug["ghost"].ok === false && /not in catalog/.test(bySlug["ghost"].error),
 ok(r.ok === false && r.failing.sort().join(",") === "always-fail,ghost,slow", `top-level failing list is exactly the real failures (got ${JSON.stringify(r.failing)})`);
 ok(r.checked === 5, "checked count matches requested slugs");
 
+// --- a broken metered tool must not bill us on every poll --------------------
+//
+// Keyed successes were cached for 6h but FAILURES were deliberately not cached,
+// so a real key problem re-tested on every 30-minute poll - with a retry, that
+// is ~96 billed Brave requests a day, and it bills hardest exactly when the
+// thing is already broken. The outage pays for itself twice.
+//
+// Failures are now cached on a short TTL. The property that must NOT change:
+// caching a failure cannot hide it. The cached result is still ok:false, so the
+// endpoint still reports it and tool-alert.yml still pages.
+{
+  const { runSelfCheck } = await import("../src/selfcheck.js");
+  const prevKey = process.env.BRAVE_API_KEY;
+  process.env.BRAVE_API_KEY = "test-key";
+  let upstream = 0;
+  const catalog = {
+    "GET /api/search": { slug: "search", discovery: { input: {} },
+      handler: async () => { upstream++; throw new Error("brave down"); } },
+  };
+
+  const r1 = await runSelfCheck(catalog, ["search"], { timeoutMs: 2000 });
+  const afterFirst = upstream;
+  const r2 = await runSelfCheck(catalog, ["search"], { timeoutMs: 2000 });
+  const r3 = await runSelfCheck(catalog, ["search"], { timeoutMs: 2000 });
+
+  ok(afterFirst > 0, `the first run really calls the tool (${afterFirst} upstream calls: attempt + retry)`);
+  ok(upstream === afterFirst,
+    `repeat polls do NOT re-call a metered upstream that is already known broken (still ${upstream})`);
+  ok(r1.ok === false && r2.ok === false && r3.ok === false,
+    "every run still reports NOT ok - caching a failure must never hide it");
+  ok(r2.failing.includes("search") && r3.failing.includes("search"),
+    "the failing tool stays in `failing` on cached runs, so the alarm keeps paging");
+
+  if (prevKey === undefined) delete process.env.BRAVE_API_KEY; else process.env.BRAVE_API_KEY = prevKey;
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
