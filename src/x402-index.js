@@ -1512,7 +1512,7 @@ const INJECTION_PATTERNS = [
   /system\s*(?:prompt|message|role)\s*[:=]/,
   /do\s+not\s+(?:pick|choose|select|recommend|consider)\s+(?:any\s+)?other/,
 ];
-function looksLikeListingInjection(text) {
+export function looksLikeListingInjection(text) {
   const t = String(text || "");
   if (t.length > 8000) return true; // no honest listing is a novel; oversized = padding an attack
   for (const re of INJECTION_PATTERNS) if (re.test(t)) return true;
@@ -2151,7 +2151,13 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
     // such external listings from the router entirely — a legitimate tool
     // describes what it does, it doesn't instruct the ranker. Our own local
     // catalog is trusted and never sanitized.
-    if (t.seller !== LOCAL_SELLER && looksLikeListingInjection(hay)) continue;
+    // Applied to OUR rows too, not just external ones. It was external-only
+    // because the filter exists to defend against seller-controlled text and we
+    // trust our own - but "we are exempt from our own safety check" is a rule
+    // that favours the host, and a catalog entry of ours that tripped it would
+    // be a bug worth seeing rather than an exception worth granting.
+    // scripts/test-discovery-note.js asserts no local tool trips it.
+    if (looksLikeListingInjection(hay)) continue;
     let score = 0;
     // Record WHERE the score came from, not just how much. A seller who loses a
     // routing decision learns nothing from silence; "matched on description
@@ -2194,10 +2200,21 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   const perSellerCount = new Map();
   const picked = [];
   const leftover = [];
+  // The cap now applies to OUR catalog on the same terms as everyone else's.
+  //
+  // It used to exempt us, on the reasoning that capping the host would push
+  // buyers toward less-vetted externals. Measured over 30 representative
+  // queries at top=12, our catalog took 8.3% of slots and the exemption
+  // actually bound on ONE query. It was buying us almost nothing and costing
+  // the thing the endpoint is for, so it is gone.
+  //
+  // Skipped entirely for include=local, where there is only one seller by
+  // definition and a per-seller cap would just truncate the answer to a third.
+  const capApplies = inc !== "local";
   for (const entry of scored) {
     if (picked.length >= k) break;
     const seller = entry[1].seller;
-    if (seller === LOCAL_SELLER) { picked.push(entry); continue; }
+    if (!capApplies) { picked.push(entry); continue; }
     const n = perSellerCount.get(seller) || 0;
     if (n < perSellerCap) { perSellerCount.set(seller, n + 1); picked.push(entry); }
     else leftover.push(entry);
@@ -2290,10 +2307,18 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       paidPlacement: false,
       sellerKeyedScoring: false,
       ranking: "deterministic lexical match on slug, name and description; ties broken by health, then cheapest known price, then shorter slug",
+      // Was three entries. Two were removed rather than disclosed: the
+      // per-seller diversity cap now applies to our catalog on the same terms
+      // as everyone else's (measured cost of giving it up: it bound on 1 of 30
+      // representative queries), and the listing-injection filter now runs
+      // against our rows too. Fixing an asymmetry beats publishing it.
+      //
+      // The one that remains is real and we cannot honestly remove it: the
+      // crawler never probes itself, so there is no measured health for our own
+      // rows the way there is for a crawled seller. Every result carries
+      // why.healthSource so an asserted 1 is never mistaken for a measured one.
       hostAdvantages: [
-        "our own catalog is exempt from the per-seller diversity cap, so it can take more than ceil(top/3) slots",
-        "our own health is self-asserted as 1 because the crawler never probes itself; external health is measured from crawl outcomes",
-        "the listing-injection filter is applied to external rows only",
+        "our own health is self-asserted as 1 because the crawler never probes itself; external health is measured from crawl outcomes. Every result reports why.healthSource so the two are distinguishable",
       ],
       excludeHost: 'include=external removes our catalog from the ranking entirely',
       source: "https://github.com/MikeyPetrillo/Agent402",
