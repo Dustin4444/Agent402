@@ -1780,9 +1780,20 @@ app.get("/__operator/wishes.json", (req, res) => {
 // activity — that is how celo settlements verified on-chain went missing from
 // /revenue while every health surface read "ok". `lagBlocks` is the number
 // that separates the two.
+// Head reads are cached briefly. Each request otherwise fires one live
+// eth_blockNumber PER CHAIN against public RPCs, so refreshing this page in a
+// loop hammers a dozen shared upstreams — the same unbounded-metered-call shape
+// that had the self-check re-billing Brave. Operator auth bounds WHO can do
+// that; it does not bound how often. Cursor positions do not move faster than
+// this window anyway, so the cache costs no accuracy. (CodeQL js/missing-rate-limiting.)
+const LEDGER_SYNC_TTL_MS = 15_000;
+let ledgerSyncCache = { at: 0, value: null };
 app.get("/__operator/ledger-sync.json", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");
+  if (ledgerSyncCache.value && Date.now() - ledgerSyncCache.at < LEDGER_SYNC_TTL_MS) {
+    return res.json({ ...ledgerSyncCache.value, cached: true });
+  }
   const rows = ledgerSyncState();
   // Head is a live read, so a chain whose RPC is down reports headError rather
   // than silently omitting the comparison that makes lag meaningful.
@@ -1793,7 +1804,7 @@ app.get("/__operator/ledger-sync.json", async (req, res) => {
     try { heads[chain] = parseInt(await rpcCall(c.rpcs, "eth_blockNumber", [], 6000), 16); }
     catch (e) { heads[chain] = { error: String(e?.message || e).slice(0, 120) }; }
   }));
-  res.json({
+  const payload = {
     asOf: new Date().toISOString(),
     note: "lagBlocks = head - nextBlock. A large or growing lag means the chain is behind, which reports as zero revenue rather than as an error.",
     chains: rows.map((r) => {
@@ -1806,7 +1817,9 @@ app.get("/__operator/ledger-sync.json", async (req, res) => {
         lagBlocks: headNum !== null && Number.isFinite(r.nextBlock) ? headNum - r.nextBlock : null,
       };
     }),
-  });
+  };
+  ledgerSyncCache = { at: Date.now(), value: payload };
+  res.json({ ...payload, cached: false });
 });
 app.get("/__operator/leads", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");

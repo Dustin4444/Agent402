@@ -84,5 +84,37 @@ const { digestFromStellarRail } = await import("./revenue-scan-stellar.js");
   ok(!/SUPERSECRET/.test(leaked?.message || ""), "an auth token never appears in the failure message");
 }
 
+// --- and each lane must name WHY it failed, not just that it did ------------
+//
+// Naming the lane was half the fix. Node flattens every network-level failure
+// to "fetch failed", so "relay: fetch failed | publicnode: fetch failed" is
+// still unactionable - it cannot distinguish DNS from a refused connection
+// from an unroutable IPv6 address, which are three different fixes. That
+// indistinguishability is exactly what gets mislabelled "transient".
+{
+  const { describeError } = await import("../src/revenue-live.js");
+  const wrap = (props) => Object.assign(new Error("fetch failed"), { cause: Object.assign(new Error("i"), props) });
+  const dns = describeError(wrap({ code: "ENOTFOUND", syscall: "getaddrinfo" }));
+  const refused = describeError(wrap({ code: "ECONNREFUSED", syscall: "connect", address: "1.2.3.4", port: 443 }));
+  ok(/ENOTFOUND/.test(dns), `DNS failure names itself (${dns})`);
+  ok(/ECONNREFUSED/.test(refused) && /1\.2\.3\.4/.test(refused), `refused connection names the address (${refused})`);
+  ok(dns !== refused, "two different network failures are distinguishable");
+
+  // Dual-stack: most of these RPCs are Cloudflare-fronted with A and AAAA, and
+  // the AggregateError wrapper carries no code at all.
+  const agg = Object.assign(new Error("fetch failed"), {
+    cause: new AggregateError([
+      Object.assign(new Error("a"), { code: "ENETUNREACH", address: "2606:4700::1" }),
+      Object.assign(new Error("b"), { code: "ECONNRESET", address: "104.21.87.156" }),
+    ]),
+  });
+  const out = describeError(agg);
+  ok(/ENETUNREACH/.test(out) && /ECONNRESET/.test(out),
+    `a dual-stack failure reports every address, so IPv6-vs-IPv4 is visible (${out})`);
+
+  // A plain error with no cause must not gain noise.
+  ok(describeError(new Error("boom")) === "boom", "an error without a cause is reported unchanged");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

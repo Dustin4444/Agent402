@@ -144,7 +144,20 @@ async function checkOne(def, timeoutMs) {
 // for 6h; a failing keyed check is NOT cached, so a real key problem still
 // re-tests (and pages) on the next poll.
 const KEYED_TTL_MS = 6 * 60 * 60 * 1000;
+// A FAILING keyed check was deliberately not cached, so a real key problem
+// would re-test on the next poll. Correct instinct, wrong bound: with a 30-min
+// poll and a retry on failure that is ~96 billed Brave calls a day, and it
+// bills hardest exactly when the thing is already broken. The outage pays for
+// itself twice.
+//
+// Negatives are now cached too, on a much shorter TTL. This does NOT hide the
+// failure: the cached result is still `ok:false`, so it stays in `failing`,
+// the endpoint still reports it, and tool-alert.yml still pages and keeps its
+// issue open. The only thing that changes is how often we PAY to re-confirm
+// something we already know.
+const KEYED_FAIL_TTL_MS = 30 * 60 * 1000;
 const keyedCache = new Map(); // slug → { at, result }
+const keyedTtlFor = (result) => (result?.ok ? KEYED_TTL_MS : KEYED_FAIL_TTL_MS);
 const KEYED_SLUG_SET = new Set(KEYED_SELFCHECKS.map((k) => k.slug));
 
 export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutMs = 12000 } = {}) {
@@ -156,7 +169,7 @@ export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutM
     if (!def) { results.push({ slug, ok: false, error: "not in catalog" }); continue; }
     const keyed = KEYED_SLUG_SET.has(slug);
     const hit = keyed ? keyedCache.get(slug) : null;
-    if (hit && Date.now() - hit.at < KEYED_TTL_MS) {
+    if (hit && Date.now() - hit.at < keyedTtlFor(hit.result)) {
       results.push({ ...hit.result, cachedKeyedCheck: true });
       continue;
     }
@@ -167,7 +180,10 @@ export async function runSelfCheck(catalog, slugs = selfcheckSlugs(), { timeoutM
       // Keep the retry's verdict; note that it took two tries to fail.
       r = retry.ok ? { ...retry, flaky: true } : retry;
     }
-    if (keyed && r.ok) keyedCache.set(slug, { at: Date.now(), result: r });
+    // Cache the verdict either way. A success is trusted for 6h; a failure for
+    // 30 min - long enough to stop hammering a metered upstream that is already
+    // down, short enough that a recovery is noticed promptly.
+    if (keyed) keyedCache.set(slug, { at: Date.now(), result: r });
     results.push(r);
   }
   const failing = results.filter((r) => !r.ok).map((r) => r.slug);

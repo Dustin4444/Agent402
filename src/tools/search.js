@@ -578,20 +578,35 @@ export const SEARCH_TOOLS = [
       }
       const count = Math.min(Math.max(parseInt(i.count, 10) || 5, 1), 10);
       const freshness = FRESHNESS.has(i.freshness) ? i.freshness : undefined;
-      const searches = await Promise.all(
-        queries.map(async (raw) => {
-          const q = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
-          if (!q) return { query: "", count: 0, results: [], error: "empty query skipped" };
-          const data = await braveGet("/web/search", { q, count, freshness }, undefined, "multi-search");
-          const results = (data.web?.results ?? []).slice(0, count).map((r) => ({
-            title: r.title ?? null,
-            url: r.url ?? null,
-            description: r.description ?? null,
-            age: r.age ?? null,
-          }));
-          return markUntrusted({ query: q, count: results.length, results });
-        }),
-      );
+      // Fan out over UNIQUE queries only.
+      //
+      // The price is flat for 2-5 queries but every query was a separate billed
+      // upstream request, so ["x","x","x","x","x"] cost five of them for one
+      // sale. That is a margin leak on honest duplicates and a free multiplier
+      // for anyone who noticed - and search is the tool whose upstream we
+      // actually pay per call for.
+      //
+      // The response shape is unchanged: the caller still gets one entry per
+      // query they sent, in the order they sent it. Only the number of times we
+      // PAY for the same answer changes.
+      const normalized = queries.map((raw) => (typeof raw === "string" ? raw.trim().slice(0, 400) : ""));
+      const unique = [...new Set(normalized.filter(Boolean))];
+      const fetched = new Map();
+      await Promise.all(unique.map(async (q) => {
+        const data = await braveGet("/web/search", { q, count, freshness }, undefined, "multi-search");
+        const results = (data.web?.results ?? []).slice(0, count).map((r) => ({
+          title: r.title ?? null,
+          url: r.url ?? null,
+          description: r.description ?? null,
+          age: r.age ?? null,
+        }));
+        fetched.set(q, results);
+      }));
+      const searches = normalized.map((q) => {
+        if (!q) return { query: "", count: 0, results: [], error: "empty query skipped" };
+        const results = fetched.get(q) || [];
+        return markUntrusted({ query: q, count: results.length, results });
+      });
       const totalResults = searches.reduce((sum, s) => sum + s.count, 0);
       return markUntrusted({ searches, totalResults });
     },
