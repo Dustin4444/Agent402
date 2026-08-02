@@ -416,6 +416,34 @@ function parsePrice(p) {
 // tie-broke above a $0.005 seller on an equal match score). Known prices
 // compare by value — an explicit $0 is genuinely free and still wins —
 // unknown ranks last among equals.
+// Can a buyer actually PAY for this row over x402, or only find it?
+//
+// A seller reported (#645) that two of their listed endpoints are real products
+// but key-gated: a well-formed call returns 401 with a "get a free key" pointer,
+// never a 402 with a challenge. An agent that routes there to pay has nothing to
+// pay against. They asked for "sellable via x402" to be distinguishable from
+// "sellable, other rail", and they were right that it generalises - key-gated
+// and subscription endpoints are all over the index.
+//
+// What this deliberately does NOT do is reorder on it. Measured across all
+// 65,462 rows, only 47.8% carry any payability evidence at all; 52.2% have
+// none. Demoting everything without evidence would bury half the ecosystem for
+// absence of evidence rather than evidence of absence, and most of those rows
+// are ordinary sellers whose price simply was not in the surface we read. So
+// this reports, and the consumer decides.
+//
+// "evidence" means one of:
+//   * a price above zero, which only a paid surface advertises, or
+//   * networks on the row, which come from a registry accepts array and mean
+//     somebody settled against it.
+// Anything else is UNKNOWN, which is honestly what we have. It is not "no".
+export function payabilityOf(t) {
+  const usd = priceRank(t?.price);
+  if (Number.isFinite(usd) && usd > 0) return "x402";
+  if (Array.isArray(t?.networks) && t.networks.length) return "x402";
+  return "unknown";
+}
+
 function priceRank(p) {
   if (p == null) return Infinity;
   if (typeof p === "number") return isFinite(p) ? p : Infinity;
@@ -2125,13 +2153,18 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
     // catalog is trusted and never sanitized.
     if (t.seller !== LOCAL_SELLER && looksLikeListingInjection(hay)) continue;
     let score = 0;
+    // Record WHERE the score came from, not just how much. A seller who loses a
+    // routing decision learns nothing from silence; "matched on description
+    // only" tells them to fix their slug, and it makes the neutrality claim
+    // checkable by anyone instead of merely stated (asked for in #645).
+    const matched = { slug: 0, name: 0, text: 0 };
     for (const term of terms) {
-      if (slug === term) score += 10;
-      else if (slug.includes(term)) score += 4;
-      if (name.includes(term)) score += 2;
-      if (hay.includes(term)) score += 1;
+      if (slug === term) { score += 10; matched.slug += 10; }
+      else if (slug.includes(term)) { score += 4; matched.slug += 4; }
+      if (name.includes(term)) { score += 2; matched.name += 2; }
+      if (hay.includes(term)) { score += 1; matched.text += 1; }
     }
-    if (score > 0) scored.push([score, t]);
+    if (score > 0) scored.push([score, t, matched]);
   }
   // Highest score first; healthier seller wins on ties; then cheapest KNOWN
   // price (unknown ranks last among equals — see priceRank); then shorter
@@ -2178,7 +2211,7 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
 
   const sellersSeen = new Set();
   let anyExternal = false;
-  const results = picked.map(([score, t]) => {
+  const results = picked.map(([score, t, matched]) => {
     sellersSeen.add(t.seller);
     // F09: name/description/sellerName on an EXTERNAL result are seller-
     // controlled text. Regex filtering + the diversity cap above are secondary
@@ -2198,6 +2231,33 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       url: t.seller === LOCAL_SELLER ? `${baseUrl}${t.route}` : `${t.seller}${t.route}`,
       price: t.price,
       priceUsd: parsePrice(t.price),
+      // "x402" = we have positive evidence this is payable in-protocol (a price,
+      // or a registry accepts entry someone settled against). "unknown" = we
+      // have none, which is NOT the same as "not payable" - see payabilityOf.
+      // A buyer that intends to pay should prefer "x402"; a buyer that just
+      // wants the capability can use either.
+      payable: payabilityOf(t),
+      // The deciding factors, in the order the sort applies them, so a seller
+      // who loses a routing decision can fix the actual reason.
+      //
+      // The first version of this comment claimed "no paid placement and no
+      // operator thumb". The first half is true and the second was not: we host
+      // this index and we sell on it, and three rules favour our own catalog.
+      // They are disclosed in `neutrality` on the response rather than left for
+      // a seller to find in the source. A claim nobody can check is worth less
+      // than a smaller claim anyone can.
+      why: {
+        score,
+        matchedOn: matched || null,
+        health: t.health,
+        // Our own health is ASSERTED, not measured: the crawler never probes
+        // itself, so a local row is always 1 while an external row carries a
+        // score derived from real crawl outcomes. Health is the first tiebreak
+        // after score, so saying which kind of number this is matters.
+        healthSource: external ? "crawl" : "self-asserted",
+        priceRank: (() => { const r = priceRank(t.price); return Number.isFinite(r) ? r : null; })(),
+        tiebreaks: ["score", "health", "cheapest known price", "shorter slug"],
+      },
       category: t.category,
       description: t.description,
       score,
@@ -2214,6 +2274,30 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   });
   return {
     query: q, include: inc, count: results.length, sellers: sellersSeen.size, results,
+    // We run this index and we also sell on it. Rather than assert neutrality,
+    // publish the parts that are literally true and the parts where the host
+    // has an edge, so anyone can check both against the source.
+    //
+    // Nobody can buy rank here: there is no paid placement, no sponsored slot,
+    // and no seller-keyed term anywhere in the scoring function - it is four
+    // text-match rules over the seller's own slug, name and description. That
+    // part needs no qualification.
+    //
+    // The three advantages below are real, deliberate, and ours. Listing them
+    // costs less than having a seller find them in the open source and conclude
+    // the rest was oversold too.
+    neutrality: {
+      paidPlacement: false,
+      sellerKeyedScoring: false,
+      ranking: "deterministic lexical match on slug, name and description; ties broken by health, then cheapest known price, then shorter slug",
+      hostAdvantages: [
+        "our own catalog is exempt from the per-seller diversity cap, so it can take more than ceil(top/3) slots",
+        "our own health is self-asserted as 1 because the crawler never probes itself; external health is measured from crawl outcomes",
+        "the listing-injection filter is applied to external rows only",
+      ],
+      excludeHost: 'include=external removes our catalog from the ranking entirely',
+      source: "https://github.com/MikeyPetrillo/Agent402",
+    },
     ...(anyExternal ? { containsUntrustedContent: true } : {}),
     ...(wantNet ? { network: wantNet } : {}),
   };
