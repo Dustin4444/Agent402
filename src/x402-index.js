@@ -35,6 +35,7 @@ import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
+import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
@@ -857,12 +858,63 @@ async function probePaywall(tools) {
   }
 }
 
+// BACK OFF FROM AN ORIGIN THAT KEEPS SAYING NO.
+//
+// The crawl runs every 5 minutes and treated an origin that had 404'd hundreds
+// of times exactly like a healthy one. A seller wrote in (#645) to report 686
+// requests in a week to a /.well-known/x402 that returned 404 every single
+// time. They were gracious about it; it was still us hammering someone else's
+// origin ~98 times a day to re-learn a fact we already knew.
+//
+// "Gentle on third-party sellers" was true of the INTERVAL and false of the
+// behaviour. An origin that has failed N crawls in a row is re-tried on a
+// widening schedule instead, capped, and any success resets it immediately -
+// so a seller who fixes their manifest is picked up within the hour rather
+// than being punished for having been broken.
+// Indexed by CONSECUTIVE failure count, so index 0 is unused and 1..3 are
+// deliberately free: three transient failures in a row must not cost a seller
+// their listing freshness. Sustained failure widens from 30m to 6h and stops
+// there - an origin is never permanently abandoned, because the whole point is
+// to notice when they fix it.
+export { WELL_KNOWN_PATH, discoveryNote };
+
+const CRAWL_BACKOFF_STEPS_MS = [0, 0, 0, 0, 30 * 60 * 1000, 2 * 60 * 60 * 1000, 6 * 60 * 60 * 1000];
+const crawlBackoff = new Map(); // origin -> { fails, nextAt }
+
+/** Should we re-probe this origin's /.well-known/x402 now?
+ *  Deliberately scoped to the MANIFEST PROBE, not the whole origin: the seller
+ *  in #645 was serving a complete catalogue at /agents.json the entire time we
+ *  were 404ing on the well-known path. Skipping the origin outright would have
+ *  cost us their catalogue to save them a request; skipping only the dead probe
+ *  costs nothing and stops the hammering. */
+export function manifestProbeDue(originUrl, now = Date.now()) {
+  const b = crawlBackoff.get(originUrl);
+  return !b || now >= b.nextAt;
+}
+export function __noteCrawlOutcomeForTest(originUrl, ok, now) { return noteCrawlOutcome(originUrl, ok, now); }
+function noteCrawlOutcome(originUrl, ok, now = Date.now()) {
+  if (ok) { crawlBackoff.delete(originUrl); return; }
+  const fails = (crawlBackoff.get(originUrl)?.fails || 0) + 1;
+  const step = CRAWL_BACKOFF_STEPS_MS[Math.min(fails, CRAWL_BACKOFF_STEPS_MS.length - 1)];
+  crawlBackoff.set(originUrl, { fails, nextAt: now + step });
+}
+/** Origins currently being backed off, for the seller-facing gap report. */
+export function crawlBackoffState() {
+  return [...crawlBackoff.entries()].map(([origin, b]) => ({ origin, fails: b.fails, nextAt: b.nextAt }));
+}
+
 async function crawlSeller(originUrl) {
   const prev = cache.get(originUrl);
   try {
-    const manifestRes = await safeFetch(`${originUrl}/.well-known/x402`, {
+    // A manifest that has 404'd repeatedly is not re-probed every 5 minutes.
+    // Throwing here drops straight into the fallback chain below, which is the
+    // same path a genuine 404 takes - so coverage is identical, we just stop
+    // asking a question we already know the answer to.
+    if (!manifestProbeDue(originUrl)) throw new Error("manifest probe backed off");
+    const manifestRes = await safeFetch(`${originUrl}${WELL_KNOWN_PATH}`, {
       maxBytes: MAX_MANIFEST_BYTES,
     });
+    noteCrawlOutcome(originUrl, true);
     const manifest = JSON.parse(manifestRes.html);
 
     // OpenAPI is the tool-level detail. Best-effort: a seller without one still
@@ -899,6 +951,9 @@ async function crawlSeller(originUrl) {
       history: rollHistory(prev, true),
       // The ORIGIN itself served /.well-known/x402 — it answered us.
       originResponded: true,
+      // WHICH surface produced this catalogue. Everything below is a fallback,
+      // and a seller cannot fix a gap they cannot see — see discoveryNote().
+      discoveryPath: WELL_KNOWN_PATH,
       // Not this seller's turn: carry the last reading forward rather than
       // dropping it — null must mean "never probed", not "not probed today".
       paywall: paywallProbeDue() ? await probePaywall(tools) : (prev?.paywall ?? null),
@@ -920,9 +975,14 @@ async function crawlSeller(originUrl) {
     // When both exist we merge: openapi descriptive fields over Bazaar
     // payment truth. Either way the seller is routable (history flips
     // positive) — we just observed a live surface.
+    // Count only REAL probe failures. Our own backoff skip must not deepen the
+    // backoff that caused it - that would ratchet an origin toward never being
+    // probed again on the strength of nothing.
+    if (!/manifest probe backed off/.test(String(e?.message || e))) noteCrawlOutcome(originUrl, false);
     const bazaarTools = bazaarToolsByOrigin.get(originUrl) || [];
     let openapi = null;
     let openapiTools = [];
+    let openapiPath = null;
     try {
       const openapiRes = await safeFetch(`${originUrl}/openapi.json`, {
         maxBytes: MAX_OPENAPI_BYTES,
@@ -931,9 +991,32 @@ async function crawlSeller(originUrl) {
       if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
         openapi = parsed;
         openapiTools = normaliseOpenapiTools(parsed, originUrl);
+        if (openapiTools.length) openapiPath = "/openapi.json";
       }
     } catch {
       /* no openapi either — Bazaar-only seller */
+    }
+    // 3. /agents.json. Reported by a seller (#645) who served a COMPLETE
+    //    catalogue there - 17 endpoints with prices and schemas - while our
+    //    crawler 404'd on the well-known path 686 times in a week and listed
+    //    them thinly. The spec being right does not make the wild uniform;
+    //    an index that only reads one path indexes only the sellers who
+    //    happened to read the same page we did.
+    //
+    //    Same payment gate as openapi: a catalogue is accepted only if the
+    //    Bazaar already proves this origin settles, or the document itself
+    //    carries a payment signal. A plain JSON file is not an x402 seller.
+    if (!openapiTools.length) {
+      try {
+        const agentsRes = await safeFetch(`${originUrl}/agents.json`, { maxBytes: MAX_OPENAPI_BYTES });
+        const parsed = JSON.parse(agentsRes.html);
+        if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
+          const fromAgents = normaliseOpenapiTools(parsed, originUrl);
+          if (fromAgents.length) { openapi = openapi || parsed; openapiTools = fromAgents; openapiPath = "/agents.json"; }
+        }
+      } catch {
+        /* no agents.json either */
+      }
     }
     const tools = mergeOpenapiIntoBazaar(openapiTools, bazaarTools, {
       allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
@@ -954,6 +1037,11 @@ async function crawlSeller(originUrl) {
         fetchedAt: Date.now(),
         error: null,
         source: openapiTools.length ? "openapi-fallback" : "bazaar-fallback",
+        // The surface that ACTUALLY served the catalogue, which `source` cannot
+        // express: it says "openapi-fallback" for both /openapi.json and
+        // /agents.json. A seller told to fix their discovery path needs to know
+        // which path we did read, not merely that it was not the standard one.
+        discoveryPath: openapiPath,
         history: rollHistory(prev, true),
         // Did the ORIGIN serve us anything, or is this record purely a registry
         // listing about it?
@@ -1424,6 +1512,10 @@ export function routableSellerSummaries() {
       toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
       // Did the origin ever answer us, or is this a registry listing about it?
       originResponded: v.originResponded !== false,
+      // Rides with originResponded on ALL THREE accessors on purpose: this
+      // file has twice shipped a field present on two of three, which is
+      // inert on whichever surface happens to render.
+      discoveryPath: v.discoveryPath || null,
       // payTo per advertised network, so callers can join an origin to on-chain
       // settlements it received. Sourced ONLY from facilitator discovery-registry
       // items (bazaarItemToRow) - a seller's own crawled manifest never
@@ -1467,6 +1559,10 @@ export function sellerDetail(originOrHost) {
       // seller works. Surfaced so a consumer can tell a crawled seller from a
       // listed one.
       originResponded: v.originResponded !== false,
+      // Rides with originResponded on ALL THREE accessors on purpose: this
+      // file has twice shipped a field present on two of three, which is
+      // inert on whichever surface happens to render.
+      discoveryPath: v.discoveryPath || null,
       // payTo per advertised network. Registry-sourced only (bazaarItemToTool);
       // a seller's own crawled manifest never contributes one. Omitting it made
       // advertisedPayToEvidence inert: server.js passes THIS object as `seller`,
@@ -1510,6 +1606,10 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     // THIS projection, and a field present on two of three accessors is the
     // inert-signal defect this file has already produced twice.
     originResponded: v.originResponded !== false,
+    // Rides with originResponded on ALL THREE accessors on purpose: this
+    // file has twice shipped a field present on two of three, which is
+    // inert on whichever surface happens to render.
+    discoveryPath: v.discoveryPath || null,
     // Present only when the seller's document distinguishes paid from free
     // (tools carry paid flags): the buyable subset. Display uses it to show
     // "42 tools · 21 paid" so a padded free surface can't read as paid depth.
