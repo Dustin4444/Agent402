@@ -99,5 +99,30 @@ const e2bListed = [...e2bBlock.matchAll(/"(\/api\/[^"]+)"/g)].map((m) => m[1]);
 const e2bStale = e2bListed.filter((r) => !e2bValid.has(r));
 ok(e2bStale.length === 0, `no stale E2B_ROUTES entries${e2bStale.length ? ` (found: ${e2bStale.join(", ")})` : ""}`);
 
+// --- multi-search must not pay twice for the same query --------------------
+//
+// The price is flat for 2-5 queries, but every query was a separate BILLED
+// upstream request, so ["x","x","x","x","x"] cost five Brave calls for one
+// $0.08 sale. A margin leak on honest duplicates and a free 5x multiplier for
+// anyone who noticed. Search is the tool we genuinely pay per call for, so
+// this is real money, not hygiene.
+{
+  const src = readFileSync(new URL("../src/tools/search.js", import.meta.url), "utf8");
+  const handler = src.slice(src.indexOf('slug: "multi-search"'));
+  ok(/new Set\(normalized/.test(handler),
+    "multi-search dedupes queries before fanning out to the billed upstream");
+  ok(/unique\.map\(async \(q\)/.test(handler),
+    "the upstream fan-out iterates UNIQUE queries, not the raw input array");
+  ok(/normalized\.map\(\(q\)/.test(handler),
+    "the response is still built per INPUT query, so the caller's shape and order are unchanged");
+
+  // The behaviour, proven rather than pattern-matched.
+  const queries = ["alpha", "beta", "alpha", " alpha ", "", "beta"];
+  const normalized = queries.map((r) => (typeof r === "string" ? r.trim().slice(0, 400) : ""));
+  const unique = [...new Set(normalized.filter(Boolean))];
+  ok(unique.length === 2, `six inputs collapse to ${unique.length} billed calls`);
+  ok(normalized.length === queries.length, "every input still gets a response entry");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
