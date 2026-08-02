@@ -78,28 +78,64 @@ if (!recovered.length) {
 }
 
 console.log(`\n${recovered.join(", ")} recovered upstream but the running process still has them dropped (boot-time decision).`);
-const token = process.env.RAILWAY_TOKEN, service = process.env.RAILWAY_SERVICE_ID, envId = process.env.RAILWAY_ENVIRONMENT_ID;
-if (!token || !service || !envId) {
-  console.log("RAILWAY_TOKEN/SERVICE_ID/ENVIRONMENT_ID not set - cannot restart. Redeploy to pick the rail back up.");
+const token = process.env.RAILWAY_TOKEN;
+if (!token) {
+  console.log("RAILWAY_TOKEN not set - cannot restart. Redeploy to pick the rail back up.");
   process.exit(0);
+}
+
+// Resolve the service and environment from the TOKEN, the same way the deploy
+// job does, rather than demanding two more secrets. A healer that silently
+// no-ops because an id was never configured is worse than no healer: the
+// dashboard would show it running green while nothing ever heals.
+const gql = async (query, variables = {}) => {
+  const r = await fetch("https://backboard.railway.com/graphql/v2", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const out = await r.json().catch(() => null);
+  if (!r.ok || out?.errors) throw new Error(`${r.status} ${JSON.stringify(out?.errors || out).slice(0, 160)}`);
+  return out?.data;
+};
+
+const PROJECT_NAME = process.env.RAILWAY_PROJECT_NAME || "agent402";
+const SERVICE_NAME = process.env.RAILWAY_SERVICE_NAME || "agent402";
+let service = process.env.RAILWAY_SERVICE_ID || "";
+let envId = process.env.RAILWAY_ENVIRONMENT_ID || "";
+try {
+  if (!service || !envId) {
+    const projects = await gql("query { projects { edges { node { id name } } } }");
+    const project = projects?.projects?.edges?.find((e) => e.node.name === PROJECT_NAME)?.node;
+    if (!project) throw new Error(`no Railway project named "${PROJECT_NAME}"`);
+    const detail = await gql(
+      "query($id:String!){ project(id:$id){ environments { edges { node { id name } } } services { edges { node { id name } } } } }",
+      { id: project.id }
+    );
+    envId = envId || detail?.project?.environments?.edges?.find((e) => e.node.name === "production")?.node?.id || "";
+    const svcEdges = detail?.project?.services?.edges || [];
+    service = service
+      || svcEdges.find((e) => e.node.name === SERVICE_NAME)?.node?.id
+      || (svcEdges.length === 1 ? svcEdges[0].node.id : "");
+    if (!service || !envId) throw new Error(`could not resolve service/environment (services: ${svcEdges.map((e) => e.node.name).join(", ") || "none"})`);
+    console.log(`resolved Railway service=${service.slice(0, 8)}… environment=${envId.slice(0, 8)}…`);
+  }
+} catch (e) {
+  console.error(`cannot resolve the Railway service to restart: ${String(e?.message || e).slice(0, 180)}`);
+  process.exit(1);
 }
 
 // Restart the CURRENT deployment: same build, fresh boot, rails re-probed.
 // Deliberately not a redeploy - that would rebuild from main and could ship
 // unrelated commits as a side effect of a third party's recovery.
-const q = {
-  query: `mutation($id:String!,$env:String!){serviceInstanceRedeploy(serviceId:$id, environmentId:$env)}`,
-  variables: { id: service, env: envId },
-};
-const res = await fetch("https://backboard.railway.com/graphql/v2", {
-  method: "POST",
-  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-  body: JSON.stringify(q),
-  signal: AbortSignal.timeout(30_000),
-});
-const out = await res.json().catch(() => null);
-if (!res.ok || out?.errors) {
-  console.error(`restart FAILED: ${res.status} ${JSON.stringify(out?.errors || out).slice(0, 200)}`);
+try {
+  await gql(
+    "mutation($id:String!,$env:String!){ serviceInstanceRedeploy(serviceId:$id, environmentId:$env) }",
+    { id: service, env: envId }
+  );
+} catch (e) {
+  console.error(`restart FAILED: ${String(e?.message || e).slice(0, 200)}`);
   process.exit(1);
 }
 console.log(`restart triggered - ${recovered.join(", ")} will be re-offered once the new container serves.`);

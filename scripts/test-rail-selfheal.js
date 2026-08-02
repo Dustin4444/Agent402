@@ -51,5 +51,16 @@ ok(/Nothing recovered upstream/.test(healer),
 ok(/serviceInstanceRedeploy/.test(healer) && !/gh workflow run deploy/.test(healer),
   "recovery restarts the running deployment, it does not trigger a rebuild from main");
 
+// The healer must work with the secrets that EXIST. Only RAILWAY_TOKEN is
+// configured on this repo; a healer demanding RAILWAY_SERVICE_ID and
+// RAILWAY_ENVIRONMENT_ID would run green forever while never healing anything,
+// which is worse than no healer at all - the dashboard would say it is working.
+ok(/RAILWAY_PROJECT_NAME|projects \{ edges/.test(healer),
+  "service and environment are RESOLVED from the token, not demanded as extra secrets");
+ok(!/secrets\.RAILWAY_SERVICE_ID/.test(readFileSync(new URL("../.github/workflows/rail-selfheal.yml", import.meta.url), "utf8")),
+  "the workflow does not depend on a secret that was never created");
+ok(/cannot resolve the Railway service to restart/.test(healer),
+  "a failure to resolve the service EXITS NONZERO rather than silently no-oping");
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

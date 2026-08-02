@@ -48,6 +48,6 @@ jobs:
         id: check
         run: node scripts/rail-selfheal.js
         env:
+          # Service/environment are resolved from the token, the same way the
+          # deploy job does it. No extra secrets to forget to create.
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
-          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
