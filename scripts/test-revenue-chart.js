@@ -117,6 +117,34 @@ console.log("revenue chart — free-tier lane");
     assert.ok(l.includes("Base") || l.includes("Solana"), "chain lanes missing");
   });
 
+  check("External view says WHEN canary settlements exist but are hidden", () => {
+    // The chart defaults to External, which is right: the canary buys from us
+    // with our own wallet and must never inflate revenue. But that made "the
+    // canary stopped running" and "the canary is filtered out" look identical
+    // on screen, and the default view was read as the former on a day the
+    // canary had settled on 11 of 12 rails.
+    click(w, "rvzTraffic", "paid");
+    click(w, "rvzScope", "ext");
+    const n = w.document.getElementById("rvzScopeNote");
+    assert.notEqual(n.style.display, "none", "note must show when internal traffic exists and is hidden");
+    assert.ok(/canary/i.test(n.textContent), "note must name the canary");
+    assert.ok(/Internal|Both/.test(n.textContent), "note must name the control that reveals them");
+    assert.ok(/own wallet|excluded from revenue/i.test(n.textContent),
+      "note must say WHY they are excluded, or it reads as a bug rather than a choice");
+  });
+
+  check("the note disappears once the canary is actually on screen", () => {
+    click(w, "rvzScope", "both");
+    const n = w.document.getElementById("rvzScopeNote");
+    assert.equal(n.style.display, "none", "nothing is hidden, so there is nothing to disclose");
+    // Restore what these two checks changed. These cases share one jsdom
+    // window, so a control left flipped is read by the NEXT check as the
+    // page's own behaviour - it made the free-note case fail on a note that
+    // was working perfectly.
+    click(w, "rvzScope", "ext");
+    click(w, "rvzTraffic", "both");
+  });
+
   check("the note explains the $0 rule and when recording began", () => {
     const n = w.document.getElementById("rvzFreeNote");
     assert.notEqual(n.style.display, "none");

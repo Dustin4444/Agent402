@@ -157,7 +157,38 @@ const CAIP2_NAMES = {
   "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1": "solana-devnet",
   "stellar:pubnet": "stellar",
   "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "algorand",
+  // Added 2026-08-02. Both rails shipped without an entry here, so every
+  // settlement on them was booked under its raw CAIP-2 id and shown that way
+  // on the PUBLIC /api/stats - "eip155:10" instead of "optimism". Nothing was
+  // lost, but per-chain revenue read low for both because the named bucket and
+  // the id bucket are different counters. scripts/test-chain-names.js now
+  // fails if an offered rail has no entry, so a thirteenth cannot repeat it.
+  "eip155:1329": "sei",
+  "eip155:10": "optimism",
 };
+
+/** Fold a raw CAIP-2 counter key into its friendly name.
+ *
+ *  Counters recorded BEFORE a chain was added to CAIP2_NAMES keep their raw
+ *  key forever, so the same chain appears twice on /api/stats: monad 19 next
+ *  to eip155:143 42, celo 35 next to eip155:42220 16. Both are that chain.
+ *  Serving them separately understates every affected rail and invites the
+ *  reader to treat one row as the whole story.
+ *
+ *  Applied at READ time rather than by rewriting history: the stored counters
+ *  stay exactly as recorded, and the merge is a presentation rule anyone can
+ *  check against CAIP2_NAMES. */
+export function mergeNetworkCounters(entries) {
+  const out = new Map();
+  for (const [key, n] of entries) {
+    const name = CAIP2_NAMES[key] || key;
+    out.set(name, (out.get(name) || 0) + n);
+  }
+  return Object.fromEntries([...out.entries()].sort((a, b) => b[1] - a[1]));
+}
+
+/** The CAIP-2 ids we can name, for the coverage guard. */
+export const KNOWN_CAIP2 = Object.freeze({ ...CAIP2_NAMES });
 
 /**
  * Decode the settle-receipt header (PAYMENT-RESPONSE in x402 v2,
@@ -253,7 +284,7 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       // USDC split by settlement chain (from the x402 settle receipt). "unknown"
       // = counted before this split existed. Answers "has anyone ever paid on
       // Solana/Polygon/…" without an explorer scan per chain.
-      viaUSDCByNetwork: Object.fromEntries(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
+      viaUSDCByNetwork: mergeNetworkCounters(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
       viaProofOfWork: num("viaProofOfWork"),
       viaTrial: num("viaTrial"), // one-per-tool-per-IP-per-hour wallet-free trials — free, never revenue
       viaHeartbeat: num("viaHeartbeat"), // internal probe traffic (PoW path, agent402-heartbeat UA)
@@ -377,7 +408,7 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
     totals: {
       total: getCounter.get("total")?.n ?? 0,
       viaUSDC: getCounter.get("viaUSDC")?.n ?? 0,
-      viaUSDCByNetwork: Object.fromEntries(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
+      viaUSDCByNetwork: mergeNetworkCounters(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
       viaProofOfWork: getCounter.get("viaProofOfWork")?.n ?? 0,
       viaTrial: getCounter.get("viaTrial")?.n ?? 0,
       viaHeartbeat: getCounter.get("viaHeartbeat")?.n ?? 0,
