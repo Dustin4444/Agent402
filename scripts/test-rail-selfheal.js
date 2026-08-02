@@ -62,5 +62,40 @@ ok(!/secrets\.RAILWAY_SERVICE_ID/.test(readFileSync(new URL("../.github/workflow
 ok(/cannot resolve the Railway service to restart/.test(healer),
   "a failure to resolve the service EXITS NONZERO rather than silently no-oping");
 
+// --- a degraded rail must SURFACE, not just be survivable -------------------
+//
+// The healer brings a rail back once its facilitator recovers, but nothing told
+// anyone it went down in the first place. Celo sat dropped for days: revenue
+// kept flowing on the other rails, /health stayed 200, and it surfaced only
+// because someone asked why the revenue page looked short. Survivable is not
+// the same as visible.
+{
+  const hb = readFileSync(new URL("../.github/workflows/heartbeat.yml", import.meta.url), "utf8");
+  ok(/\/api\/rails/.test(hb), "the heartbeat reads /api/rails");
+  ok(/Settlement rail DEGRADED/.test(hb), "a degraded rail opens a tracked issue");
+  ok(/gh issue close .* --comment "Recovered: every configured rail/.test(hb)
+     || /Recovered: every configured rail/.test(hb),
+    "the issue closes itself when every rail is offered again");
+
+  // The trap this class of check keeps falling into: a failed curl looks like
+  // a healthy response, so the alarm closes itself during an outage. That is
+  // how the charged-failure alarm went years without firing.
+  ok(/unreadable - not treating that as healthy/.test(hb),
+    "an unreadable /api/rails does NOT count as healthy and does not close an open issue");
+
+  // A degraded rail is not an outage - the other chains still earn - so it must
+  // not page.
+  // Scope to the Rail check STEP only. Splitting on the step name and reading
+  // everything after it also swallows every later step, including ones that
+  // legitimately page on production being down - which is what the first
+  // version of this assertion did, and it failed for the wrong reason.
+  const railStep = (hb.match(/- name: Rail check[\s\S]*?(?=\n      - name: )/) || [""])[0];
+  ok(railStep.length > 200, "the Rail check step was located for scoped assertions");
+  ok(!/production DOWN/.test(railStep),
+    "a degraded rail is reported as a notice, never escalated to a production-down page");
+  ok(/This is a notice, not an outage/.test(railStep),
+    "the issue text says plainly that revenue continues on the other rails");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
