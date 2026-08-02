@@ -677,35 +677,87 @@ export function normaliseManifestTools(manifest, originUrl) {
 // is evidence, while a manifest's silence is not. The manifest still wins on
 // DESCRIPTION: name, summary and price fill any gap the existing row left,
 // which is the whole point of reading the catalogue.
+// Fold a manifest catalogue into the rows we already have, WITHOUT inflating
+// and WITHOUT silently dropping the seller's variants.
+//
+// Both halves were learned the hard way, in that order.
+//
+// FIRST: keying the merge on the full route string doubled a seller from 16 to
+// 30. Manifest entries declare no HTTP verb, so they default to GET, and they
+// often carry a query template; the same endpoint arrives from a registry row
+// as a bare POST path. Neither method nor route matches, so one endpoint was
+// listed twice, for 11 of that seller's 17 entries.
+//
+//   POST /x402/preflight                        (registry row)
+//   GET  /x402/preflight?chain=base&sender=...  (manifest entry)
+//
+// SECOND: keying on the pathname alone fixes that and silently loses variants.
+// The seller who reported the original bug pointed this out about the fix
+// itself: a single route often sells different things by parameter (?product=,
+// a reader keyed by ?url=, a chain call keyed by ?chain=), at different prices.
+// Folding those into one row erases products the seller does sell.
+//
+// So the pathname decides the MATCH and the count of advertised resources on
+// that path decides the OUTCOME:
+//   * path unknown to us            -> add everything, variants included
+//   * one resource, path known      -> same endpoint; enrich in place, add nothing
+//   * several resources, path known -> the row we hold is that path without its
+//                                      parameters, so the variants replace it
+//
+// Throughout: an observed value beats a claimed one. A verb seen on an openapi
+// operation or a settled registry row is evidence; a manifest's silence is not.
+// The manifest still wins on description, which is the whole reason to read it.
 export function mergeManifestIntoTools(manifestTools = [], existing = []) {
   if (!manifestTools.length) return existing.slice();
-  const byPath = new Map();
-  for (const t of existing) {
-    const path = String(t.route || "").split("?")[0];
-    if (path && !byPath.has(path)) byPath.set(path, t);
-  }
-  const out = existing.slice();
+  // Group the seller's entries by pathname first, because how many they
+  // advertise on one path is what decides the merge.
+  const groups = new Map();
   for (const m of manifestTools) {
     const path = String(m.route || "").split("?")[0];
-    const hit = byPath.get(path);
-    if (!hit) {
-      // Genuinely new to us — this is the under-listing the read was for.
-      //
-      // Deliberately NOT recorded in byPath. Collapsing happens only against
-      // rows we already had, so a seller whose manifest is the ONLY source for
-      // a path keeps their query-distinct products (?product=commodities and
-      // ?product=market_brief are two offerings at two prices). The moment
-      // another source reports that path, both fold into it instead.
-      out.push(m);
-      continue;
-    }
-    // Enrich only. Never overwrite an observed value with a claimed one, and
-    // never add a row.
+    if (!path) continue;
+    if (!groups.has(path)) groups.set(path, []);
+    groups.get(path).push(m);
+  }
+  const indexByPath = new Map();
+  existing.forEach((t, i) => {
+    const p = String(t.route || "").split("?")[0];
+    if (p && !indexByPath.has(p)) indexByPath.set(p, i);
+  });
+  const replaced = new Set();
+  const append = [];
+  const enrich = (hit, m) => {
     if (!hit.name || hit.name === hit.route) hit.name = m.name || hit.name;
     if (!hit.description) hit.description = m.description || "";
     if (!hit.price && m.price) hit.price = m.price;
     if ((!hit.slug || hit.slug === hit.route) && m.slug) hit.slug = m.slug;
+  };
+  for (const [path, entries] of groups) {
+    const idx = indexByPath.get(path);
+    if (idx === undefined) {
+      // Nobody else reported this path. Everything the seller advertises on it
+      // is new, variants included.
+      append.push(...entries);
+      continue;
+    }
+    if (entries.length === 1) {
+      // One advertised resource, one row we already hold: same endpoint. Fill
+      // the blanks, add nothing.
+      enrich(existing[idx], entries[0]);
+      continue;
+    }
+    // SEVERAL resources on one path. The row we hold is that path seen without
+    // its parameters, so the variants ARE it, described properly. Replace it
+    // rather than sit beside it: keeping both would list the endpoint N+1
+    // times, which is the duplication this function exists to prevent.
+    //
+    // The observed verb carries across, because a manifest declares none and a
+    // defaulted GET must not silently overwrite a POST we actually saw.
+    const hit = existing[idx];
+    replaced.add(idx);
+    for (const e of entries) append.push({ ...e, method: hit.method || e.method });
   }
+  const out = existing.filter((_, i) => !replaced.has(i));
+  out.push(...append);
   return out;
 }
 

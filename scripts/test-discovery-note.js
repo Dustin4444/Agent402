@@ -181,12 +181,22 @@ const fromManifest = [
 ];
 const merged = mergeManifestIntoTools(fromManifest, existing);
 
-ok(merged.length === 3,
-  `one endpoint is never listed twice: 2 known + 1 new = 3 (got ${merged.length})`);
+ok(merged.length === 4,
+  `2 known paths + 1 new + the extra market variant = 4 (got ${merged.length})`);
 ok(merged.filter((t) => t.route.split("?")[0] === "/x402/preflight").length === 1,
-  "a manifest entry with a query template does not double an existing bare path");
-ok(merged.filter((t) => t.route.split("?")[0] === "/x402/market").length === 1,
-  "TWO manifest variants of one known path still yield ONE row, never three");
+  "ONE advertised resource on a known path does not double it - the 16 to 30 regression");
+
+// The seller who reported the original bug flagged this about the FIX: keying
+// on pathname alone silently loses variants. A single route often sells
+// different things by parameter, at different prices. Both must survive, and
+// the bare row they describe must not survive alongside them.
+const mkt = merged.filter((t) => t.route.split("?")[0] === "/x402/market");
+ok(mkt.length === 2, `two products on one path stay TWO, not folded to one (got ${mkt.length})`);
+ok(new Set(mkt.map((t) => t.route)).size === 2, "and they stay distinguishable by their parameters");
+ok(!merged.some((t) => t.route === "/x402/market"),
+  "the parameterless row they describe is REPLACED, not kept beside them - that would list it 3 times");
+ok(mkt.every((t) => t.method === "POST"),
+  "the observed verb carries across to the variants; a manifest's defaulted GET never overwrites it");
 ok(merged.some((t) => t.route === "/x402/einvoice"),
   "an endpoint only the manifest knows about IS added - that is the under-listing fix");
 
@@ -205,6 +215,12 @@ ok(m2.length === 1 && m2[0].name === "Real Name" && m2[0].price === "$0.01" && m
 ok(mergeManifestIntoTools([], existing).length === 2 &&
    mergeManifestIntoTools(fromManifest, []).length === 4,
   "empty on either side degrades to the other side unchanged");
+
+// A path nobody else reported keeps its variants without needing a row to
+// replace - the manifest-only seller case.
+const solo = mergeManifestIntoTools(fromManifest, []);
+ok(solo.filter((t) => t.route.split("?")[0] === "/x402/market").length === 2,
+  "a manifest-only path keeps both of its variants too");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
