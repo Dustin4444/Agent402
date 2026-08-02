@@ -708,15 +708,44 @@ export function normaliseManifestTools(manifest, originUrl) {
 //
 // A seller who does sell one of these gets it back by pricing it or by taking
 // a single payment, both of which they control.
-const LIVENESS_SEGMENTS = new Set(["health", "healthz", "livez", "readyz", "heartbeat"]);
-export function dropUnvouchedLivenessRoutes(tools = [], vouchedRoutes = []) {
+// Extended past liveness after the same scan found three more classes of the
+// same thing: account plumbing, documentation boilerplate, and the seller's own
+// storefront, all listed as if an agent could buy them. 181 rows across the
+// index, on top of the 150 liveness ones.
+//
+// The membership test is deliberately strict and every borderline word is
+// LEFT OUT, because the cost of a wrong drop is a seller losing a listing they
+// never hear about:
+//   "token"    - a token-info tool is a real product
+//   "auth"     - so is an auth-check tool
+//   "status"   - so is a transaction-status lookup
+//   "test"     - one seller's /api/test IS their regex tester
+//   "openapi"  - one seller's /inspect/openapi IS an OpenAPI inspector
+//   "schema"   - a schema validator is a product
+//   "pricing"  - a pricing calculator is a product
+//   "subscribe"- an alerts subscription can be sold
+//   "config"   - a config generator is a product
+// What remains is plumbing nobody sells: you cannot buy someone's /login.
+const NON_PRODUCT_SEGMENTS = new Set([
+  // liveness
+  "health", "healthz", "livez", "readyz", "heartbeat",
+  // account plumbing
+  "login", "logout", "signin", "signout", "signup", "register", "oauth", "callback", "session",
+  // documentation boilerplate
+  "swagger", "redoc", "docs",
+  // the seller's own storefront
+  "checkout", "billing",
+  // operator-only surfaces
+  "webhook", "webhooks", "admin", "internal", "debug",
+]);
+export function dropUnvouchedNonProductRoutes(tools = [], vouchedRoutes = []) {
   const vouched = new Set(
     (vouchedRoutes || []).map((r) => String(r || "").split("?")[0].replace(/\/$/, ""))
   );
   return tools.filter((t) => {
     const path = String(t?.route || "").split("?")[0].replace(/\/$/, "");
     const seg = path.split("/").pop().toLowerCase();
-    if (!LIVENESS_SEGMENTS.has(seg)) return true;
+    if (!NON_PRODUCT_SEGMENTS.has(seg)) return true;
     if (vouched.has(path)) return true;      // somebody paid for it
     if (t.price) return true;                // the seller prices it
     if (t.paid === true) return true;        // the seller annotates it as paid
@@ -1177,28 +1206,68 @@ async function probePaywall(tools) {
 export { WELL_KNOWN_PATH, discoveryNote };
 
 const CRAWL_BACKOFF_STEPS_MS = [0, 0, 0, 0, 30 * 60 * 1000, 2 * 60 * 60 * 1000, 6 * 60 * 60 * 1000];
-const crawlBackoff = new Map(); // origin -> { fails, nextAt }
+// Keyed origin+PATH, not origin. The first version of this backed off only the
+// manifest probe, because that was the path the reporting seller named - and
+// the crawl asks every origin for four different files. Measured afterwards:
+// 687 indexed sellers reach the fallback chain, an empirical 21 of 25 sampled
+// serve NONE of /openapi.json, /agents.json or /llms.txt, and all three were
+// re-asked every 5 minutes forever. That is ~500,000 404s a day across the
+// index, roughly 700x the volume of the report that started this, and two of
+// those three paths were added in the same afternoon as the fix.
+//
+// Fixing one named path and leaving its three siblings ungated is the shape of
+// bug worth naming: the report is a sample, not the population.
+const crawlBackoff = new Map(); // `${origin}|${path}` -> { fails, nextAt }
+const bkey = (originUrl, path) => `${originUrl}|${path}`;
 
-/** Should we re-probe this origin's /.well-known/x402 now?
- *  Deliberately scoped to the MANIFEST PROBE, not the whole origin: the seller
- *  in #645 was serving a complete catalogue at /agents.json the entire time we
- *  were 404ing on the well-known path. Skipping the origin outright would have
- *  cost us their catalogue to save them a request; skipping only the dead probe
- *  costs nothing and stops the hammering. */
-export function manifestProbeDue(originUrl, now = Date.now()) {
-  const b = crawlBackoff.get(originUrl);
+/** Should we probe this origin's `path` now?
+ *  Scoped per PATH, never per origin: the seller in #645 was serving a complete
+ *  catalogue at /agents.json the entire time we were 404ing on the well-known
+ *  path. Skipping the origin outright would have cost us their catalogue to
+ *  save them a request; skipping only the dead path costs nothing. */
+export function probeDue(originUrl, path, now = Date.now()) {
+  const b = crawlBackoff.get(bkey(originUrl, path));
   return !b || now >= b.nextAt;
+}
+export function noteProbeOutcome(originUrl, path, ok, now = Date.now()) {
+  const k = bkey(originUrl, path);
+  if (ok) { crawlBackoff.delete(k); return; }
+  const fails = (crawlBackoff.get(k)?.fails || 0) + 1;
+  const step = CRAWL_BACKOFF_STEPS_MS[Math.min(fails, CRAWL_BACKOFF_STEPS_MS.length - 1)];
+  crawlBackoff.set(k, { fails, nextAt: now + step });
+}
+
+/** Convenience wrapper for the manifest path (the original call site). */
+export function manifestProbeDue(originUrl, now = Date.now()) {
+  return probeDue(originUrl, WELL_KNOWN_PATH, now);
 }
 export function __noteCrawlOutcomeForTest(originUrl, ok, now) { return noteCrawlOutcome(originUrl, ok, now); }
 function noteCrawlOutcome(originUrl, ok, now = Date.now()) {
-  if (ok) { crawlBackoff.delete(originUrl); return; }
-  const fails = (crawlBackoff.get(originUrl)?.fails || 0) + 1;
-  const step = CRAWL_BACKOFF_STEPS_MS[Math.min(fails, CRAWL_BACKOFF_STEPS_MS.length - 1)];
-  crawlBackoff.set(originUrl, { fails, nextAt: now + step });
+  return noteProbeOutcome(originUrl, WELL_KNOWN_PATH, ok, now);
 }
-/** Origins currently being backed off, for the seller-facing gap report. */
+
+/** Probes currently backed off, for the seller-facing gap report. `origin` is
+ *  kept alongside `path` so a consumer can still group by seller. */
 export function crawlBackoffState() {
-  return [...crawlBackoff.entries()].map(([origin, b]) => ({ origin, fails: b.fails, nextAt: b.nextAt }));
+  return [...crawlBackoff.entries()].map(([k, b]) => {
+    const i = k.lastIndexOf("|");
+    return { origin: k.slice(0, i), path: k.slice(i + 1), fails: b.fails, nextAt: b.nextAt };
+  });
+}
+
+/** Fetch `path` on `originUrl` unless it is backed off, recording the outcome.
+ *  Every per-origin probe in the crawl goes through here so a new one cannot be
+ *  added ungated the way /agents.json and /llms.txt were. */
+async function probePath(originUrl, path, opts) {
+  if (!probeDue(originUrl, path)) throw new Error(`probe backed off: ${path}`);
+  try {
+    const res = await safeFetch(`${originUrl}${path}`, opts);
+    noteProbeOutcome(originUrl, path, true);
+    return res;
+  } catch (e) {
+    noteProbeOutcome(originUrl, path, false);
+    throw e;
+  }
 }
 
 async function crawlSeller(originUrl) {
@@ -1208,11 +1277,7 @@ async function crawlSeller(originUrl) {
     // Throwing here drops straight into the fallback chain below, which is the
     // same path a genuine 404 takes - so coverage is identical, we just stop
     // asking a question we already know the answer to.
-    if (!manifestProbeDue(originUrl)) throw new Error("manifest probe backed off");
-    const manifestRes = await safeFetch(`${originUrl}${WELL_KNOWN_PATH}`, {
-      maxBytes: MAX_MANIFEST_BYTES,
-    });
-    noteCrawlOutcome(originUrl, true);
+    const manifestRes = await probePath(originUrl, WELL_KNOWN_PATH, { maxBytes: MAX_MANIFEST_BYTES });
     const manifest = JSON.parse(manifestRes.html);
 
     // OpenAPI is the tool-level detail. Best-effort: a seller without one still
@@ -1220,9 +1285,7 @@ async function crawlSeller(originUrl) {
     let openapi = null;
     let tools = [];
     try {
-      const openapiRes = await safeFetch(`${originUrl}/openapi.json`, {
-        maxBytes: MAX_OPENAPI_BYTES,
-      });
+      const openapiRes = await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES });
       openapi = JSON.parse(openapiRes.html);
       tools = normaliseOpenapiTools(openapi, originUrl);
     } catch {
@@ -1244,7 +1307,7 @@ async function crawlSeller(originUrl) {
     // never add a second row for an endpoint we already list — see
     // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
     tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
-    tools = dropUnvouchedLivenessRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
+    tools = dropUnvouchedNonProductRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
 
     cache.set(originUrl, {
       manifest,
@@ -1282,15 +1345,15 @@ async function crawlSeller(originUrl) {
     // Count only REAL probe failures. Our own backoff skip must not deepen the
     // backoff that caused it - that would ratchet an origin toward never being
     // probed again on the strength of nothing.
-    if (!/manifest probe backed off/.test(String(e?.message || e))) noteCrawlOutcome(originUrl, false);
+    // Outcome recording moved into probePath, which records every path it
+    // fetches. Recording again here would double-count the manifest failure
+    // and deepen its backoff twice per cycle.
     const bazaarTools = bazaarToolsByOrigin.get(originUrl) || [];
     let openapi = null;
     let openapiTools = [];
     let openapiPath = null;
     try {
-      const openapiRes = await safeFetch(`${originUrl}/openapi.json`, {
-        maxBytes: MAX_OPENAPI_BYTES,
-      });
+      const openapiRes = await probePath(originUrl, "/openapi.json", { maxBytes: MAX_OPENAPI_BYTES });
       const parsed = JSON.parse(openapiRes.html);
       if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
         openapi = parsed;
@@ -1312,7 +1375,7 @@ async function crawlSeller(originUrl) {
     //    carries a payment signal. A plain JSON file is not an x402 seller.
     if (!openapiTools.length) {
       try {
-        const agentsRes = await safeFetch(`${originUrl}/agents.json`, { maxBytes: MAX_OPENAPI_BYTES });
+        const agentsRes = await probePath(originUrl, "/agents.json", { maxBytes: MAX_OPENAPI_BYTES });
         const parsed = JSON.parse(agentsRes.html);
         if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
           const fromAgents = normaliseOpenapiTools(parsed, originUrl);
@@ -1332,14 +1395,14 @@ async function crawlSeller(originUrl) {
     //    is no separate document-level check to apply.
     if (!openapiTools.length) {
       try {
-        const llmsRes = await safeFetch(`${originUrl}/llms.txt`, { maxBytes: MAX_OPENAPI_BYTES });
+        const llmsRes = await probePath(originUrl, "/llms.txt", { maxBytes: MAX_OPENAPI_BYTES });
         const fromLlms = normaliseLlmsTxtTools(llmsRes.html, originUrl);
         if (fromLlms.length) { openapiTools = fromLlms; openapiPath = "/llms.txt"; }
       } catch {
         /* no llms.txt either */
       }
     }
-    const tools = dropUnvouchedLivenessRoutes(
+    const tools = dropUnvouchedNonProductRoutes(
       mergeOpenapiIntoBazaar(openapiTools, bazaarTools, {
         allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
       }),
@@ -2954,7 +3017,27 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
         described: description.length >= 12,
         category: t?.category || "other",
         tags: Array.isArray(t?.tags) ? t.tags.slice(0, 6) : [],
-        priceUsd: typeof t?.price === "number" ? t.price : null,
+        // Was `typeof t.price === "number" ? t.price : null`, which silently
+        // nulled every price stored as a string - and manifest and llms.txt
+        // catalogues store them as "$0.002". parsePrice is what every other
+        // surface uses; using a different rule here made the same tool look
+        // priced on /api/route and unpriced on /api/index/tools.
+        priceUsd: parsePrice(t?.price),
+        // Both spellings, deliberately. /api/route served `price` and
+        // `priceUsd`, this surface served only `priceUsd`, and /api/find served
+        // only `price`. A consumer that learned one surface got `undefined` on
+        // the next and could not tell it from "no price" - which is exactly how
+        // a measurement taken during this audit came out wrong.
+        price: t?.price ?? null,
+        // The identifier a caller needs to actually invoke the tool. Present on
+        // /api/route and /api/find, missing here, on the surface that lists all
+        // 65k third-party rows.
+        slug: t?.slug || null,
+        // Added to /api/route earlier today and to nothing else, which is the
+        // inert-field defect this file's own header warns about, committed the
+        // same afternoon as a fix for it. It belongs wherever a tool row is
+        // served.
+        payable: payabilityOf(t),
         networks: Array.isArray(t?.networks) ? t.networks : [],
       });
     }

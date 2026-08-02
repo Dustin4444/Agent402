@@ -190,6 +190,11 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
       name: t.name,
       route: t.route,
       price: t.price,
+      // Served alongside `price` so a consumer moving between /api/find,
+      // /api/route and /api/index/tools reads the same field names everywhere.
+      // These three surfaces disagreed on the spelling, and a missing key is
+      // indistinguishable from a missing value.
+      priceUsd: (() => { const n = Number(String(t.price ?? "").replace(/[^0-9.]/g, "")); return Number.isFinite(n) && String(t.price ?? "") !== "" ? n : null; })(),
       // Discovery up top: the answer to "how do I call this" should be visible
       // before the verbose description/schema/score fields.
       callExample,

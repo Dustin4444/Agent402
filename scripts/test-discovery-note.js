@@ -14,7 +14,7 @@
 //   * it says nothing for a seller who is NOT (silence, which is the bug).
 import { discoveryNote, WELL_KNOWN_PATH } from "../src/discovery-note.js";
 import { readFileSync } from "node:fs";
-import { routeQuery, looksLikeListingInjection, normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedLivenessRoutes, payabilityOf, synthManifestFromBazaar } from "../src/x402-index.js";
+import { routeQuery, looksLikeListingInjection, normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedNonProductRoutes, payabilityOf, synthManifestFromBazaar } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -246,7 +246,7 @@ const rows = [
   { route: "/api/health/risk-score", price: null },
   { route: "/v1/heartbeat-rate/analyze", price: null },
 ];
-const kept = dropUnvouchedLivenessRoutes(rows, []).map((t) => t.route);
+const kept = dropUnvouchedNonProductRoutes(rows, []).map((t) => t.route);
 
 ok(!kept.includes("/v1/health"), "an unvouched, unpriced /v1/health is dropped - the whole point");
 ok(!kept.includes("/api/healthz") && !kept.includes("/readyz"), "healthz and readyz go too");
@@ -260,22 +260,52 @@ ok(kept.includes("/inspect/openapi"),
 ok(kept.includes("/v1/account/metrics") && kept.includes("/api/ping"),
   "'metrics' and 'ping' are NOT liveness names - both are plausible products");
 ok(kept.includes("/v1/vat"), "an ordinary tool is untouched");
+
+// The same scan found three more classes of non-product endpoint listed as
+// sellable: account plumbing, docs boilerplate, and the seller's own
+// storefront. 181 rows on top of the 150 liveness ones.
+const more = dropUnvouchedNonProductRoutes([
+  { route: "/api/v1/auth/register", price: null },
+  { route: "/v1/billing/checkout", price: null },
+  { route: "/beehiiv/webhook", price: null },
+  { route: "/api/v1/docs", price: null },
+  { route: "/api/session", price: null },
+  { route: "/api/admin", price: null },
+  // ...and the words deliberately NOT on the list, each a real product
+  // somebody sells. A wrong drop costs a seller a listing silently.
+  { route: "/api/token", price: null },          // token-info tool
+  { route: "/v1/auth", price: null },            // auth-check tool
+  { route: "/x402/status", price: null },        // transaction status
+  { route: "/api/test", price: null },           // a regex tester, seen live
+  { route: "/inspect/openapi", price: null },    // an OpenAPI inspector, seen live
+  { route: "/api/schema", price: null },         // schema validator
+  { route: "/v1/pricing", price: null },         // pricing calculator
+  { route: "/api/alerts/subscribe", price: null },
+  { route: "/v1/config", price: null },          // config generator
+], []).map((t) => t.route);
+
+ok(!more.some((r) => /register|checkout|webhook|docs|session|admin/.test(r)),
+  "account plumbing, storefront, webhooks, docs and admin surfaces are dropped");
+ok(more.length === 9,
+  `every borderline word is KEPT - token, auth, status, test, openapi, schema, pricing, subscribe, config (got ${more.length}/9)`);
+ok(more.includes("/api/test") && more.includes("/inspect/openapi"),
+  "the two we verified live as real products survive by name");
 ok(kept.includes("/health/bmi") && kept.includes("/api/health/risk-score") && kept.includes("/v1/heartbeat-rate/analyze"),
   "HEALTH-DATA tools survive: only the LAST segment counts, because health is a product category too");
 
 // Three independent ways a seller can vouch for a liveness-named endpoint, all
 // of which they control.
-ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health", price: null }], ["/v1/health"]).length === 1,
+ok(dropUnvouchedNonProductRoutes([{ route: "/v1/health", price: null }], ["/v1/health"]).length === 1,
   "a REGISTRY row vouches for it: somebody settled a payment against that path");
-ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health", price: "$0.01" }], []).length === 1,
+ok(dropUnvouchedNonProductRoutes([{ route: "/v1/health", price: "$0.01" }], []).length === 1,
   "a PRICE vouches for it");
-ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health", price: null, paid: true }], []).length === 1,
+ok(dropUnvouchedNonProductRoutes([{ route: "/v1/health", price: null, paid: true }], []).length === 1,
   "a paid ANNOTATION vouches for it");
-ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health?x=1", price: null }], ["/v1/health"]).length === 1,
+ok(dropUnvouchedNonProductRoutes([{ route: "/v1/health?x=1", price: null }], ["/v1/health"]).length === 1,
   "vouching matches on the path, ignoring the query string");
 
-ok(dropUnvouchedLivenessRoutes([], []).length === 0 &&
-   dropUnvouchedLivenessRoutes([{ route: null }], []).length === 1,
+ok(dropUnvouchedNonProductRoutes([], []).length === 0 &&
+   dropUnvouchedNonProductRoutes([{ route: null }], []).length === 1,
   "empty input and a route-less row neither throw nor vanish");
 
 // --- payable over x402, or merely findable ---

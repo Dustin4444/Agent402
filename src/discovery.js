@@ -259,12 +259,27 @@ export function reliabilityReport({ baseUrl, network, wallet, stats }) {
     },
     guarantees: [
       {
-        claim: "Every tool is called with its own documented example in CI, and the release is blocked on any failure.",
+        // Was "Every tool". It is not every tool: CI deliberately skips 20 of
+        // 528 endpoints (18 Brave-backed, 2 E2B) because exercising them spends
+        // real money on a metered upstream on every run, and the sweep once
+        // cost ~4,500 billed Brave queries in a month. The skip is the right
+        // call; claiming otherwise was not, and "every" is the kind of word a
+        // reader can check against our own open CI logs.
+        claim: "Every tool is called with its own documented example in CI, and the release is blocked on any failure - except 20 of 528 endpoints backed by metered third-party APIs (Brave, E2B), which are skipped so a CI run does not spend on every push and are covered instead by the post-deploy paid canary and a dedicated live test.",
         verify: `${baseUrl}/openapi.json`,
         evidence: `${REPO}/actions/workflows/deploy.yml`,
       },
       {
-        claim: "A production heartbeat probes the live instance (health, catalog, MCP, the 402 paywall, proof-of-work) every 15 minutes and files a public issue on failure.",
+        // Sharpened rather than corrected: the substance held but the
+        // attribution did not. "A production heartbeat" is really TWO
+        // independent observers on separate infrastructure (a GitHub schedule
+        // and a Cloudflare cron), which is the part actually worth claiming,
+        // and the measured rate is better than the number we advertised.
+        // Measured over 24h at the time of writing: 378 observations for
+        // health/catalog/MCP/paywall/rails (~3.8 min apart) and 90 for the
+        // proof-of-work paid path (~16 min apart), the latter lower because
+        // only the GitHub observer holds the credentials to make a paid call.
+        claim: "Two independent observers outside production (a GitHub schedule and a Cloudflare cron on separate infrastructure) probe the live instance - health, catalog, MCP, the 402 paywall, rails - and file a public issue on failure. Measured over 24h: ~378 observations per component, about one every 4 minutes; the proof-of-work paid path is probed by the GitHub observer alone at ~16 minute intervals. Per-component uptime and observation counts are published at /api/status.",
         verify: `${baseUrl}/health`,
         evidence: `${REPO}/issues?q=label%3Aheartbeat`,
       },
