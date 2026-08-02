@@ -655,6 +655,60 @@ export function normaliseManifestTools(manifest, originUrl) {
   return out;
 }
 
+// Fold a manifest catalogue into the rows we already have, WITHOUT inflating.
+//
+// This function exists because the first version of the manifest read shipped
+// without it and doubled a seller's listing from 16 to 30. Manifest entries
+// declare no HTTP verb (so they default to GET) and often carry a query
+// template, while the same endpoint arrives from a registry row or an openapi
+// operation as a bare POST path. Neither the method nor the route string
+// matches, so a route-keyed merge treats one endpoint as two:
+//
+//   POST /x402/preflight                       (registry row)
+//   GET  /x402/preflight?chain=base&sender=…   (manifest entry)
+//
+// Eleven of that seller's seventeen entries doubled exactly this way. Listing
+// one endpoint twice is the inflation failure this file has had to undo before,
+// and it is worse than the thin listing it was meant to fix: it overstates a
+// seller and it gives the router two candidates that are one.
+//
+// So the match key is the PATHNAME alone. An existing row wins on shape,
+// because a verb observed from an openapi operation or a settled registry row
+// is evidence, while a manifest's silence is not. The manifest still wins on
+// DESCRIPTION: name, summary and price fill any gap the existing row left,
+// which is the whole point of reading the catalogue.
+export function mergeManifestIntoTools(manifestTools = [], existing = []) {
+  if (!manifestTools.length) return existing.slice();
+  const byPath = new Map();
+  for (const t of existing) {
+    const path = String(t.route || "").split("?")[0];
+    if (path && !byPath.has(path)) byPath.set(path, t);
+  }
+  const out = existing.slice();
+  for (const m of manifestTools) {
+    const path = String(m.route || "").split("?")[0];
+    const hit = byPath.get(path);
+    if (!hit) {
+      // Genuinely new to us — this is the under-listing the read was for.
+      //
+      // Deliberately NOT recorded in byPath. Collapsing happens only against
+      // rows we already had, so a seller whose manifest is the ONLY source for
+      // a path keeps their query-distinct products (?product=commodities and
+      // ?product=market_brief are two offerings at two prices). The moment
+      // another source reports that path, both fold into it instead.
+      out.push(m);
+      continue;
+    }
+    // Enrich only. Never overwrite an observed value with a claimed one, and
+    // never add a row.
+    if (!hit.name || hit.name === hit.route) hit.name = m.name || hit.name;
+    if (!hit.description) hit.description = m.description || "";
+    if (!hit.price && m.price) hit.price = m.price;
+    if ((!hit.slug || hit.slug === hit.route) && m.slug) hit.slug = m.slug;
+  }
+  return out;
+}
+
 // Read a tool catalogue out of an /llms.txt.
 //
 // Asked for alongside /agents.json in #645, and it is the riskier of the two:
@@ -1083,14 +1137,14 @@ async function crawlSeller(originUrl) {
     // a manifest, because their openapi covered 2 of the 9 routes the Bazaar
     // had settled. Openapi metadata still wins per-route; Bazaar rows without
     // an openapi match pass through.
-    // Precedence openapi > manifest > registry. The manifest is the seller's
-    // own statement about themselves, so it outranks a third-party row; the
-    // openapi is more structured still (verbs, schemas), so it outranks both.
-    const manifestTools = normaliseManifestTools(manifest, originUrl);
-    const baseline = mergeOpenapiIntoBazaar(manifestTools, bazaarToolsByOrigin.get(originUrl) || [], {});
-    tools = mergeOpenapiIntoBazaar(tools, baseline, {
+    tools = mergeOpenapiIntoBazaar(tools, bazaarToolsByOrigin.get(originUrl) || [], {
       allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
     });
+    // The manifest is folded in LAST and by pathname, so it can only add
+    // endpoints nobody else reported or enrich ones already known. It can
+    // never add a second row for an endpoint we already list — see
+    // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
+    tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
 
     cache.set(originUrl, {
       manifest,

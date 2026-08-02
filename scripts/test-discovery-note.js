@@ -13,7 +13,7 @@
 //     ignored, so the real signal is lost with it), or
 //   * it says nothing for a seller who is NOT (silence, which is the bug).
 import { discoveryNote, WELL_KNOWN_PATH } from "../src/discovery-note.js";
-import { normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, synthManifestFromBazaar } from "../src/x402-index.js";
+import { normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, synthManifestFromBazaar } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -161,6 +161,50 @@ ok(normaliseManifestTools(null, "https://s.test").length === 0 &&
 
 const dup = normaliseManifestTools({ resources: ["/a", "/a", "GET /a"] }, "https://s.test");
 ok(dup.length === 1, "the same method+route is emitted once");
+
+// --- folding the manifest in without inflating (the 16 -> 30 regression) ---
+// The first version of the manifest read shipped without this and DOUBLED a
+// seller: manifest entries declare no verb (so they default to GET) and carry
+// query templates, while the same endpoints arrive from registry rows as bare
+// POST paths. Route-keyed merging saw two endpoints where there was one, for
+// 11 of that seller's 17 entries. Listing one endpoint twice overstates the
+// seller and hands the router two candidates that are one.
+const existing = [
+  { seller: "https://s.test", method: "POST", route: "/x402/preflight", name: "/x402/preflight", description: "", price: null },
+  { seller: "https://s.test", method: "POST", route: "/x402/market", name: "/x402/market", description: "", price: null },
+];
+const fromManifest = [
+  { seller: "https://s.test", method: "GET", route: "/x402/preflight?chain=base&sender={0x}", name: "transaction_preflight", description: "Six checks", price: "$0.005", slug: "transaction_preflight" },
+  { seller: "https://s.test", method: "GET", route: "/x402/market?product=commodities", name: "commodities", description: "Soft commodities", price: "$0.04", slug: "commodities" },
+  { seller: "https://s.test", method: "GET", route: "/x402/market?product=market_brief", name: "market_brief", description: "Brief", price: "$0.005", slug: "market_brief" },
+  { seller: "https://s.test", method: "GET", route: "/x402/einvoice", name: "validate_einvoice", description: "EN 16931", price: "$0.02", slug: "validate_einvoice" },
+];
+const merged = mergeManifestIntoTools(fromManifest, existing);
+
+ok(merged.length === 3,
+  `one endpoint is never listed twice: 2 known + 1 new = 3 (got ${merged.length})`);
+ok(merged.filter((t) => t.route.split("?")[0] === "/x402/preflight").length === 1,
+  "a manifest entry with a query template does not double an existing bare path");
+ok(merged.filter((t) => t.route.split("?")[0] === "/x402/market").length === 1,
+  "TWO manifest variants of one known path still yield ONE row, never three");
+ok(merged.some((t) => t.route === "/x402/einvoice"),
+  "an endpoint only the manifest knows about IS added - that is the under-listing fix");
+
+const pre = merged.find((t) => t.route.split("?")[0] === "/x402/preflight");
+ok(pre.method === "POST",
+  "an OBSERVED verb wins over the manifest's silence - a defaulted GET must not overwrite it");
+ok(pre.name === "transaction_preflight" && pre.price === "$0.005" && /Six checks/.test(pre.description),
+  "but the manifest's name, price and summary fill the gaps, which is why we read it at all");
+
+const observed = [{ seller: "https://s.test", method: "POST", route: "/x402/chat", name: "Real Name", description: "observed", price: "$0.01" }];
+const claimed = [{ seller: "https://s.test", method: "GET", route: "/x402/chat", name: "claimed", description: "claimed", price: "$9.99" }];
+const m2 = mergeManifestIntoTools(claimed, observed);
+ok(m2.length === 1 && m2[0].name === "Real Name" && m2[0].price === "$0.01" && m2[0].description === "observed",
+  "a claimed value NEVER overwrites an observed one, only fills a blank");
+
+ok(mergeManifestIntoTools([], existing).length === 2 &&
+   mergeManifestIntoTools(fromManifest, []).length === 4,
+  "empty on either side degrades to the other side unchanged");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
