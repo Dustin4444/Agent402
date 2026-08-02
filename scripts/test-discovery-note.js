@@ -13,7 +13,7 @@
 //     ignored, so the real signal is lost with it), or
 //   * it says nothing for a seller who is NOT (silence, which is the bug).
 import { discoveryNote, WELL_KNOWN_PATH } from "../src/discovery-note.js";
-import { normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, synthManifestFromBazaar } from "../src/x402-index.js";
+import { normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedLivenessRoutes, synthManifestFromBazaar } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -221,6 +221,61 @@ ok(mergeManifestIntoTools([], existing).length === 2 &&
 const solo = mergeManifestIntoTools(fromManifest, []);
 ok(solo.filter((t) => t.route.split("?")[0] === "/x402/market").length === 2,
   "a manifest-only path keeps both of its variants too");
+
+// --- liveness probes are not products, but only when nothing says otherwise ---
+// The non-tool path filter anchors at the START of a path, so "/health" was
+// excluded and "/v1/health" was not: 150 liveness rows across 92 sellers sat in
+// sellable catalogues. The tempting fix, matching the name anywhere, would
+// have deleted a real sitemap scraper and a real OpenAPI inspector.
+const rows = [
+  { route: "/v1/health", price: null },
+  { route: "/api/healthz", price: null },
+  { route: "/readyz", price: null },
+  { route: "/v1/agents/{id}/heartbeat", price: null },
+  { route: "/v1/vat", price: null },
+  { route: "/context-dev/web/scrape/sitemap", price: null },
+  { route: "/inspect/openapi", price: null },
+  { route: "/v1/account/metrics", price: null },
+  { route: "/api/ping", price: null },
+  // The case that makes "match the name anywhere" catastrophic rather than
+  // merely wrong: health DATA is a whole product category (BMI, dosage,
+  // clinical lookups). These paths contain a liveness word and are not
+  // liveness endpoints.
+  { route: "/health/bmi", price: null },
+  { route: "/api/health/risk-score", price: null },
+  { route: "/v1/heartbeat-rate/analyze", price: null },
+];
+const kept = dropUnvouchedLivenessRoutes(rows, []).map((t) => t.route);
+
+ok(!kept.includes("/v1/health"), "an unvouched, unpriced /v1/health is dropped - the whole point");
+ok(!kept.includes("/api/healthz") && !kept.includes("/readyz"), "healthz and readyz go too");
+ok(!kept.includes("/v1/agents/{id}/heartbeat"), "a templated heartbeat route is matched on its last segment");
+
+// The refusals that matter more than the removals.
+ok(kept.includes("/context-dev/web/scrape/sitemap"),
+  "a SITEMAP SCRAPER survives - matching the name anywhere in the path would delete it");
+ok(kept.includes("/inspect/openapi"),
+  "an OPENAPI INSPECTOR survives for the same reason");
+ok(kept.includes("/v1/account/metrics") && kept.includes("/api/ping"),
+  "'metrics' and 'ping' are NOT liveness names - both are plausible products");
+ok(kept.includes("/v1/vat"), "an ordinary tool is untouched");
+ok(kept.includes("/health/bmi") && kept.includes("/api/health/risk-score") && kept.includes("/v1/heartbeat-rate/analyze"),
+  "HEALTH-DATA tools survive: only the LAST segment counts, because health is a product category too");
+
+// Three independent ways a seller can vouch for a liveness-named endpoint, all
+// of which they control.
+ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health", price: null }], ["/v1/health"]).length === 1,
+  "a REGISTRY row vouches for it: somebody settled a payment against that path");
+ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health", price: "$0.01" }], []).length === 1,
+  "a PRICE vouches for it");
+ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health", price: null, paid: true }], []).length === 1,
+  "a paid ANNOTATION vouches for it");
+ok(dropUnvouchedLivenessRoutes([{ route: "/v1/health?x=1", price: null }], ["/v1/health"]).length === 1,
+  "vouching matches on the path, ignoring the query string");
+
+ok(dropUnvouchedLivenessRoutes([], []).length === 0 &&
+   dropUnvouchedLivenessRoutes([{ route: null }], []).length === 1,
+  "empty input and a route-less row neither throw nor vanish");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

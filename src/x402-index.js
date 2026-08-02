@@ -655,28 +655,47 @@ export function normaliseManifestTools(manifest, originUrl) {
   return out;
 }
 
-// Fold a manifest catalogue into the rows we already have, WITHOUT inflating.
+// Liveness probes are not products, but only when nothing says otherwise.
 //
-// This function exists because the first version of the manifest read shipped
-// without it and doubled a seller's listing from 16 to 30. Manifest entries
-// declare no HTTP verb (so they default to GET) and often carry a query
-// template, while the same endpoint arrives from a registry row or an openapi
-// operation as a bare POST path. Neither the method nor the route string
-// matches, so a route-keyed merge treats one endpoint as two:
+// The non-tool path filter anchors at the START of a path, so "/health" is
+// excluded and "/v1/health" is not. That put sellers' liveness endpoints into
+// their sellable catalogues: 150 such rows across 92 sellers.
 //
-//   POST /x402/preflight                       (registry row)
-//   GET  /x402/preflight?chain=base&sender=…   (manifest entry)
+// The tempting fix is to match the name anywhere in the path, and it is wrong.
+// The same scan surfaced "/context-dev/web/scrape/sitemap" (a sitemap scraper)
+// and "/inspect/openapi" (an OpenAPI inspector) - real products whose names
+// collide with infrastructure. Deleting sellers' actual tools to tidy 0.2% of
+// rows is a far worse trade than leaving the junk.
 //
-// Eleven of that seller's seventeen entries doubled exactly this way. Listing
-// one endpoint twice is the inflation failure this file has had to undo before,
-// and it is worse than the thin listing it was meant to fix: it overstates a
-// seller and it gives the router two candidates that are one.
+// So a row is dropped only when EVERY signal that it might be sellable is
+// absent:
+//   * its last segment is a pure liveness name. "ping" and "metrics" are
+//     deliberately NOT here - a network ping tool and an account-metrics API
+//     are both plausible products, and "/v1/account/metrics" reads like one.
+//   * no registry vouches for it. A registry row means somebody settled a
+//     payment against that exact path, the strongest possible evidence it IS
+//     for sale - it spares "/v1/ping" and "/api/ai/metrics", which are
+//     registry-listed and therefore bought.
+//   * it carries no price and no paid annotation of its own.
 //
-// So the match key is the PATHNAME alone. An existing row wins on shape,
-// because a verb observed from an openapi operation or a settled registry row
-// is evidence, while a manifest's silence is not. The manifest still wins on
-// DESCRIPTION: name, summary and price fill any gap the existing row left,
-// which is the whole point of reading the catalogue.
+// A seller who does sell one of these gets it back by pricing it or by taking
+// a single payment, both of which they control.
+const LIVENESS_SEGMENTS = new Set(["health", "healthz", "livez", "readyz", "heartbeat"]);
+export function dropUnvouchedLivenessRoutes(tools = [], vouchedRoutes = []) {
+  const vouched = new Set(
+    (vouchedRoutes || []).map((r) => String(r || "").split("?")[0].replace(/\/$/, ""))
+  );
+  return tools.filter((t) => {
+    const path = String(t?.route || "").split("?")[0].replace(/\/$/, "");
+    const seg = path.split("/").pop().toLowerCase();
+    if (!LIVENESS_SEGMENTS.has(seg)) return true;
+    if (vouched.has(path)) return true;      // somebody paid for it
+    if (t.price) return true;                // the seller prices it
+    if (t.paid === true) return true;        // the seller annotates it as paid
+    return false;
+  });
+}
+
 // Fold a manifest catalogue into the rows we already have, WITHOUT inflating
 // and WITHOUT silently dropping the seller's variants.
 //
@@ -1197,6 +1216,7 @@ async function crawlSeller(originUrl) {
     // never add a second row for an endpoint we already list — see
     // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
     tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
+    tools = dropUnvouchedLivenessRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
 
     cache.set(originUrl, {
       manifest,
@@ -1291,9 +1311,12 @@ async function crawlSeller(originUrl) {
         /* no llms.txt either */
       }
     }
-    const tools = mergeOpenapiIntoBazaar(openapiTools, bazaarTools, {
-      allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
-    });
+    const tools = dropUnvouchedLivenessRoutes(
+      mergeOpenapiIntoBazaar(openapiTools, bazaarTools, {
+        allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
+      }),
+      bazaarTools.map((t) => t.route)
+    );
     if (tools.length) {
       // A real (non-synthesized) manifest from a past crawl is kept; a stale
       // synthesized one is rebuilt so a newly appeared openapi title wins.
