@@ -58,7 +58,7 @@ import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
 import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute } from "./payments.js";
+import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus} from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
@@ -1950,6 +1950,30 @@ app.get("/.well-known/x402", (_req, res) => {
 });
 // Structured reliability / trust report — the "safe to depend on" surface, each
 // claim paired with a URL to verify it independently.
+// Which settlement rails are CONFIGURED vs actually OFFERED.
+//
+// A rail nobody can settle is dropped from the offer so the other chains keep
+// earning - correct, and the reason a dead Celo facilitator now costs one rail
+// instead of every paid route. But the DIFFERENCE between what we configured
+// and what we serve lived only in a boot log, and on 2026-08-01 that gap went
+// unnoticed for hours while paid revenue was $0.
+//
+// Public on purpose: the 402 already advertises the offered set, so this adds
+// no secret. It adds the part that was invisible. `degraded` non-zero means one
+// chain is down, not the service.
+app.get("/api/rails", (_req, res) => {
+  const rails = railStatus();
+  const offered = rails.filter((r) => r.offered);
+  res.set("Cache-Control", "no-store");
+  res.json({
+    asOf: new Date().toISOString(),
+    configured: rails.length,
+    offered: offered.length,
+    degraded: rails.length - offered.length,
+    note: "A configured rail that is not offered was dropped deliberately so the other rails keep settling.",
+    rails,
+  });
+});
 app.get("/api/reliability", (_req, res) =>
   res.json(reliabilityReport({
     baseUrl: BASE_URL, network: NETWORK, wallet: WALLET_ADDRESS,

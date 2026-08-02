@@ -75,5 +75,24 @@ if (TARGET) {
   console.log("(TARGET_URL unset — live-page checks skipped)");
 }
 
+// 3. CONFIGURED vs OFFERED must be reportable.
+//
+// A rail nobody can settle is dropped from the offer so the other chains keep
+// earning (see scripts/test-supported-guard.js for that behaviour). What was
+// missing is the DIFFERENCE: on 2026-08-01 the offer silently served 11 of 12
+// configured chains and the gap went unnoticed for hours while paid revenue was
+// $0, because it lived only in a boot log. railStatus() makes it queryable.
+{
+  const { railStatus } = await import("../src/payments.js");
+  const rows = railStatus();
+  ok(Array.isArray(rows), "railStatus() is callable before any payment mount and returns an array");
+  for (const r of rows) {
+    ok(typeof r.network === "string" && r.network.length > 0, `rail row names its network (${r.network})`);
+    ok(typeof r.offered === "boolean", `${r.network}: offered is a boolean, never undefined`);
+    ok(r.offered ? r.reason === null : typeof r.reason === "string",
+      `${r.network}: an un-offered rail explains itself; an offered one carries no reason`);
+  }
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
