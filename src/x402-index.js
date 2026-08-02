@@ -576,6 +576,85 @@ export function normaliseOpenapiTools(openapi, originUrl) {
   return out;
 }
 
+// Read the catalogue a seller publishes INSIDE their own manifest.
+//
+// Until now /.well-known/x402 was read for identity and payment only: the tool
+// list came from the seller's openapi.json plus registry rows, and a manifest
+// that itself enumerated every endpoint was parsed and then thrown away. A
+// seller reported being "listed thinly" (#645) while their manifest carried a
+// complete 17-entry catalogue with names, prices and summaries. Sampling 44
+// reachable manifest-sourced sellers found 5 advertising more entries than we
+// listed - one publishing 14 while we showed 1.
+//
+// There is no single shape in the wild, so this is deliberately tolerant about
+// FORM and strict about ATTRIBUTION. Observed dialects, all handled:
+//   "tools":     [{name, endpoint, price_usd, summary}]
+//   "resources": ["https://origin/api/thing"]
+//   "resources": ["POST /exchange/sell-clams"]
+//   "resources": [{resource|url|route|path, description, price}]
+//
+// SAME-ORIGIN ONLY, and that is the load-bearing rule. Some manifests list
+// other people's origins (an aggregator pointing outward); attributing those
+// to the publisher would put another seller's tools under this seller's payTo,
+// which is a routing and payment error, not a cosmetic one. Those origins are
+// crawled on their own account anyway. Same reasoning as the llms.txt parser:
+// a thin listing is recoverable, a fabricated one is not.
+export function normaliseManifestTools(manifest, originUrl) {
+  if (!manifest || typeof manifest !== "object") return [];
+  let origin;
+  try { origin = new URL(originUrl); } catch { return []; }
+  const list = ["tools", "resources", "endpoints", "services"]
+    .map((k) => manifest[k])
+    .find((v) => Array.isArray(v) && v.length);
+  if (!list) return [];
+  const nonToolPath =
+    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
+  const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
+  const out = [];
+  const seen = new Set();
+  for (const raw of list.slice(0, 1000)) {
+    let ref = "", name = "", description = "", price = null, method = "";
+    if (typeof raw === "string") {
+      ref = raw.trim();
+    } else if (raw && typeof raw === "object") {
+      ref = String(raw.endpoint || raw.resource || raw.url || raw.route || raw.path || "").trim();
+      name = String(raw.name || raw.title || raw.operationId || "").trim();
+      description = String(raw.summary || raw.description || "").trim();
+      const p = raw.price_usd ?? raw.priceUsd ?? raw.price ?? raw.amount ?? null;
+      if (typeof p === "number" && Number.isFinite(p)) price = `$${p}`;
+      else if (typeof p === "string" && p.trim()) price = p.trim().startsWith("$") ? p.trim() : `$${p.trim()}`;
+      if (raw.method && methods.has(String(raw.method).toUpperCase())) method = String(raw.method).toUpperCase();
+    }
+    if (!ref) continue;
+    // "POST /exchange/sell-clams" — a verb glued to a path.
+    const verb = /^([A-Za-z]+)\s+(\/.*)$/.exec(ref);
+    if (verb && methods.has(verb[1].toUpperCase())) { method = method || verb[1].toUpperCase(); ref = verb[2]; }
+    let u;
+    try { u = new URL(ref, origin); } catch { continue; }
+    if (u.host.toLowerCase() !== origin.host.toLowerCase()) continue;
+    const route = u.pathname + (u.search || "");
+    if (!u.pathname || u.pathname === "/" || nonToolPath.test(u.pathname)) continue;
+    // Keyed on method+route INCLUDING the query string: two entries that differ
+    // only by ?product= are two products, and collapsing them to the pathname
+    // is how a 17-tool seller reads as 16.
+    const key = `${method || "GET"} ${route}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      seller: originUrl,
+      method: method || "GET",
+      route,
+      slug: name || u.pathname.replace(/^\//, "").replace(/\//g, "-"),
+      name: name || u.pathname,
+      description: description.slice(0, 400),
+      category: "other",
+      tags: [],
+      price,
+    });
+  }
+  return out;
+}
+
 // Read a tool catalogue out of an /llms.txt.
 //
 // Asked for alongside /agents.json in #645, and it is the riskier of the two:
@@ -1004,7 +1083,12 @@ async function crawlSeller(originUrl) {
     // a manifest, because their openapi covered 2 of the 9 routes the Bazaar
     // had settled. Openapi metadata still wins per-route; Bazaar rows without
     // an openapi match pass through.
-    tools = mergeOpenapiIntoBazaar(tools, bazaarToolsByOrigin.get(originUrl) || [], {
+    // Precedence openapi > manifest > registry. The manifest is the seller's
+    // own statement about themselves, so it outranks a third-party row; the
+    // openapi is more structured still (verbs, schemas), so it outranks both.
+    const manifestTools = normaliseManifestTools(manifest, originUrl);
+    const baseline = mergeOpenapiIntoBazaar(manifestTools, bazaarToolsByOrigin.get(originUrl) || [], {});
+    tools = mergeOpenapiIntoBazaar(tools, baseline, {
       allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
     });
 

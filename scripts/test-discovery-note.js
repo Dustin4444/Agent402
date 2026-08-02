@@ -13,7 +13,7 @@
 //     ignored, so the real signal is lost with it), or
 //   * it says nothing for a seller who is NOT (silence, which is the bug).
 import { discoveryNote, WELL_KNOWN_PATH } from "../src/discovery-note.js";
-import { normaliseOpenapiTools, normaliseLlmsTxtTools, synthManifestFromBazaar } from "../src/x402-index.js";
+import { normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, synthManifestFromBazaar } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -111,6 +111,56 @@ ok(normaliseLlmsTxtTools("", "https://seller.test").length === 0 &&
 let threw = null;
 try { synthManifestFromBazaar("https://seller.test", []); } catch (e) { threw = e; }
 ok(!threw, `manifest synthesis survives an llms.txt-only seller (${threw?.message || "no throw"})`);
+
+// --- the catalogue a seller publishes inside their own manifest ---
+// We parsed /.well-known/x402 for identity and payment and threw its tool list
+// away. Sampling 44 reachable manifest sellers, 5 advertised more entries than
+// we listed, one publishing 14 against our 1. Every dialect below was taken
+// from a real manifest, not invented.
+
+// Dialect A: objects with a full-URL endpoint carrying a query template.
+const A = normaliseManifestTools({ tools: [
+  { name: "validate_vat", price_usd: 0.002, endpoint: "https://s.test/x402/vat/{vat_id}", summary: "EU VAT ID validation" },
+  { name: "market_brief", price_usd: 0.005, endpoint: "https://s.test/x402/market?product=market_brief", summary: "Aggregated market" },
+  { name: "commodities", price_usd: 0.04, endpoint: "https://s.test/x402/market?product=commodities", summary: "Soft commodities" },
+]}, "https://s.test");
+ok(A.length === 3, `objects with endpoint URLs are read (got ${A.length})`);
+ok(A.filter((t) => t.route.startsWith("/x402/market")).length === 2,
+  "two products differing ONLY by ?query stay two tools - collapsing them is how 17 reads as 16");
+ok(A[0].price === "$0.002" && A[2].price === "$0.04", "numeric price_usd becomes a dollar string");
+ok(A[0].name === "validate_vat" && /VAT ID validation/.test(A[0].description),
+  "the seller's own name and summary survive, which is what makes a listing not thin");
+
+// Dialect B: bare strings.
+const B = normaliseManifestTools({ resources: [
+  "https://s.test/agents/x402/_bundle",   // same-origin absolute
+  "POST /exchange/sell-clams",            // verb glued to a path
+  "/plain/path",                          // bare path
+  "https://someone-else.test/api/thing",  // SOMEONE ELSE'S origin
+  "https://s.test/.well-known/x402",      // the discovery path itself
+]}, "https://s.test");
+ok(B.length === 3, `three readable string forms, got ${B.length}`);
+ok(B.some((t) => t.method === "POST" && t.route === "/exchange/sell-clams"),
+  "'POST /path' yields both the verb and the route");
+ok(!B.some((t) => /someone-else/.test(t.seller + t.route)),
+  "a manifest listing ANOTHER origin never puts those tools under this seller");
+ok(!B.some((t) => /well-known/.test(t.route)), "the discovery path is not a tool");
+ok(B.every((t) => t.seller === "https://s.test"), "every entry is attributed to the publisher");
+
+// Attribution is the load-bearing rule: mis-attributing puts another seller's
+// tools under this seller's payTo, which is a payment error, not a cosmetic one.
+const cross = normaliseManifestTools(
+  { resources: ["https://mecha.test/api/horoscope", "https://other.test/api/x"] }, "https://aggregator.test");
+ok(cross.length === 0, "an aggregator manifest that lists only foreign origins yields NOTHING");
+
+ok(normaliseManifestTools(null, "https://s.test").length === 0 &&
+   normaliseManifestTools({}, "https://s.test").length === 0 &&
+   normaliseManifestTools({ tools: [] }, "https://s.test").length === 0 &&
+   normaliseManifestTools({ tools: ["x"] }, "not a url").length === 0,
+  "null, empty, and an unparseable origin yield nothing rather than throwing");
+
+const dup = normaliseManifestTools({ resources: ["/a", "/a", "GET /a"] }, "https://s.test");
+ok(dup.length === 1, "the same method+route is emitted once");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
