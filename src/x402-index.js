@@ -2237,14 +2237,24 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       // A buyer that intends to pay should prefer "x402"; a buyer that just
       // wants the capability can use either.
       payable: payabilityOf(t),
-      // The deciding factors, in the order the sort applies them. Everything
-      // here is derived from the seller's own published metadata and our crawl
-      // health - there is no paid placement and no operator thumb, so a losing
-      // seller can read this and fix the actual reason.
+      // The deciding factors, in the order the sort applies them, so a seller
+      // who loses a routing decision can fix the actual reason.
+      //
+      // The first version of this comment claimed "no paid placement and no
+      // operator thumb". The first half is true and the second was not: we host
+      // this index and we sell on it, and three rules favour our own catalog.
+      // They are disclosed in `neutrality` on the response rather than left for
+      // a seller to find in the source. A claim nobody can check is worth less
+      // than a smaller claim anyone can.
       why: {
         score,
         matchedOn: matched || null,
         health: t.health,
+        // Our own health is ASSERTED, not measured: the crawler never probes
+        // itself, so a local row is always 1 while an external row carries a
+        // score derived from real crawl outcomes. Health is the first tiebreak
+        // after score, so saying which kind of number this is matters.
+        healthSource: external ? "crawl" : "self-asserted",
         priceRank: (() => { const r = priceRank(t.price); return Number.isFinite(r) ? r : null; })(),
         tiebreaks: ["score", "health", "cheapest known price", "shorter slug"],
       },
@@ -2264,6 +2274,30 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   });
   return {
     query: q, include: inc, count: results.length, sellers: sellersSeen.size, results,
+    // We run this index and we also sell on it. Rather than assert neutrality,
+    // publish the parts that are literally true and the parts where the host
+    // has an edge, so anyone can check both against the source.
+    //
+    // Nobody can buy rank here: there is no paid placement, no sponsored slot,
+    // and no seller-keyed term anywhere in the scoring function - it is four
+    // text-match rules over the seller's own slug, name and description. That
+    // part needs no qualification.
+    //
+    // The three advantages below are real, deliberate, and ours. Listing them
+    // costs less than having a seller find them in the open source and conclude
+    // the rest was oversold too.
+    neutrality: {
+      paidPlacement: false,
+      sellerKeyedScoring: false,
+      ranking: "deterministic lexical match on slug, name and description; ties broken by health, then cheapest known price, then shorter slug",
+      hostAdvantages: [
+        "our own catalog is exempt from the per-seller diversity cap, so it can take more than ceil(top/3) slots",
+        "our own health is self-asserted as 1 because the crawler never probes itself; external health is measured from crawl outcomes",
+        "the listing-injection filter is applied to external rows only",
+      ],
+      excludeHost: 'include=external removes our catalog from the ranking entirely',
+      source: "https://github.com/MikeyPetrillo/Agent402",
+    },
     ...(anyExternal ? { containsUntrustedContent: true } : {}),
     ...(wantNet ? { network: wantNet } : {}),
   };

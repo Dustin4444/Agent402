@@ -13,7 +13,8 @@
 //     ignored, so the real signal is lost with it), or
 //   * it says nothing for a seller who is NOT (silence, which is the bug).
 import { discoveryNote, WELL_KNOWN_PATH } from "../src/discovery-note.js";
-import { normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedLivenessRoutes, payabilityOf, synthManifestFromBazaar } from "../src/x402-index.js";
+import { readFileSync } from "node:fs";
+import { routeQuery, normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedLivenessRoutes, payabilityOf, synthManifestFromBazaar } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -298,6 +299,48 @@ ok(payabilityOf({}) === "unknown" && payabilityOf(null) === "unknown",
 // ecosystem for something we never observed.
 ok(payabilityOf({ price: null }) !== "none",
   "absence of evidence is never reported as evidence of absence");
+
+// --- the neutrality disclosure has to stay TRUE, not just present ---
+// We run this index and we sell on it. Three rules favour our own catalog, and
+// they are published rather than left in the source for a seller to find. The
+// risk this guards is drift: a future change adds or removes an advantage and
+// the disclosure quietly stops matching the code, which is worse than never
+// having published one.
+const rq = routeQuery({
+  query: "hash", top: 5, include: "all", baseUrl: "https://example.test",
+  catalog: { "/api/hash": { slug: "hash", name: "Hash", route: "/api/hash", price: "$0.001", category: "crypto", description: "hash a string", tags: [] } },
+  prices: {}, network: "base", toolCount: 1, walletName: "test",
+});
+const n = rq.neutrality;
+ok(n && n.paidPlacement === false, "the response states plainly that there is no paid placement");
+ok(n.sellerKeyedScoring === false, "and that no seller identity enters the score");
+
+// The claim above must match the code. If any scoring term ever keys on the
+// seller, this assertion is the thing that fails.
+const src = readFileSync(new URL("../src/x402-index.js", import.meta.url), "utf8");
+const scoringBlock = src.slice(src.indexOf("const matched = { slug: 0"), src.indexOf("if (score > 0) scored.push"));
+ok(!/seller|LOCAL_SELLER|payTo|wallet/i.test(scoringBlock),
+  "the scoring function contains NO seller-keyed term - the disclosure is checkable, not decorative");
+
+ok(Array.isArray(n.hostAdvantages) && n.hostAdvantages.length === 3,
+  `all three host advantages are disclosed (got ${n.hostAdvantages?.length})`);
+ok(n.hostAdvantages.some((x) => /diversity cap/i.test(x)), "the diversity-cap exemption is disclosed");
+ok(n.hostAdvantages.some((x) => /self-asserted/i.test(x)), "the self-asserted health is disclosed");
+ok(n.hostAdvantages.some((x) => /injection/i.test(x)), "the injection-filter asymmetry is disclosed");
+ok(/include=external/.test(n.excludeHost || ""), "and the switch that removes us is named");
+
+// Each disclosed advantage must still EXIST in the code. Removing one without
+// updating the disclosure is the same drift in the other direction.
+ok(/if \(seller === LOCAL_SELLER\) \{ picked\.push\(entry\); continue; \}/.test(src),
+  "the cap exemption we disclose is really there");
+ok(/health: 1/.test(src), "the self-asserted health we disclose is really there");
+ok(/t\.seller !== LOCAL_SELLER && looksLikeListingInjection/.test(src),
+  "the external-only injection filter we disclose is really there");
+
+// And a local row must say its health is asserted rather than measured.
+const localRow = rq.results.find((r) => /example\.test/.test(r.url));
+ok(localRow && localRow.why.healthSource === "self-asserted",
+  "a local result labels its health self-asserted, so a perfect 1 is never mistaken for a measurement");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
