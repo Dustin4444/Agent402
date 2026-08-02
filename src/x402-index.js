@@ -35,6 +35,7 @@ import { toolList } from "./pages.js";
 import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
+import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
@@ -575,6 +576,151 @@ export function normaliseOpenapiTools(openapi, originUrl) {
   return out;
 }
 
+// Read the catalogue a seller publishes INSIDE their own manifest.
+//
+// Until now /.well-known/x402 was read for identity and payment only: the tool
+// list came from the seller's openapi.json plus registry rows, and a manifest
+// that itself enumerated every endpoint was parsed and then thrown away. A
+// seller reported being "listed thinly" (#645) while their manifest carried a
+// complete 17-entry catalogue with names, prices and summaries. Sampling 44
+// reachable manifest-sourced sellers found 5 advertising more entries than we
+// listed - one publishing 14 while we showed 1.
+//
+// There is no single shape in the wild, so this is deliberately tolerant about
+// FORM and strict about ATTRIBUTION. Observed dialects, all handled:
+//   "tools":     [{name, endpoint, price_usd, summary}]
+//   "resources": ["https://origin/api/thing"]
+//   "resources": ["POST /exchange/sell-clams"]
+//   "resources": [{resource|url|route|path, description, price}]
+//
+// SAME-ORIGIN ONLY, and that is the load-bearing rule. Some manifests list
+// other people's origins (an aggregator pointing outward); attributing those
+// to the publisher would put another seller's tools under this seller's payTo,
+// which is a routing and payment error, not a cosmetic one. Those origins are
+// crawled on their own account anyway. Same reasoning as the llms.txt parser:
+// a thin listing is recoverable, a fabricated one is not.
+export function normaliseManifestTools(manifest, originUrl) {
+  if (!manifest || typeof manifest !== "object") return [];
+  let origin;
+  try { origin = new URL(originUrl); } catch { return []; }
+  const list = ["tools", "resources", "endpoints", "services"]
+    .map((k) => manifest[k])
+    .find((v) => Array.isArray(v) && v.length);
+  if (!list) return [];
+  const nonToolPath =
+    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
+  const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
+  const out = [];
+  const seen = new Set();
+  for (const raw of list.slice(0, 1000)) {
+    let ref = "", name = "", description = "", price = null, method = "";
+    if (typeof raw === "string") {
+      ref = raw.trim();
+    } else if (raw && typeof raw === "object") {
+      ref = String(raw.endpoint || raw.resource || raw.url || raw.route || raw.path || "").trim();
+      name = String(raw.name || raw.title || raw.operationId || "").trim();
+      description = String(raw.summary || raw.description || "").trim();
+      const p = raw.price_usd ?? raw.priceUsd ?? raw.price ?? raw.amount ?? null;
+      if (typeof p === "number" && Number.isFinite(p)) price = `$${p}`;
+      else if (typeof p === "string" && p.trim()) price = p.trim().startsWith("$") ? p.trim() : `$${p.trim()}`;
+      if (raw.method && methods.has(String(raw.method).toUpperCase())) method = String(raw.method).toUpperCase();
+    }
+    if (!ref) continue;
+    // "POST /exchange/sell-clams" — a verb glued to a path.
+    const verb = /^([A-Za-z]+)\s+(\/.*)$/.exec(ref);
+    if (verb && methods.has(verb[1].toUpperCase())) { method = method || verb[1].toUpperCase(); ref = verb[2]; }
+    let u;
+    try { u = new URL(ref, origin); } catch { continue; }
+    if (u.host.toLowerCase() !== origin.host.toLowerCase()) continue;
+    const route = u.pathname + (u.search || "");
+    if (!u.pathname || u.pathname === "/" || nonToolPath.test(u.pathname)) continue;
+    // Keyed on method+route INCLUDING the query string: two entries that differ
+    // only by ?product= are two products, and collapsing them to the pathname
+    // is how a 17-tool seller reads as 16.
+    const key = `${method || "GET"} ${route}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      seller: originUrl,
+      method: method || "GET",
+      route,
+      slug: name || u.pathname.replace(/^\//, "").replace(/\//g, "-"),
+      name: name || u.pathname,
+      description: description.slice(0, 400),
+      category: "other",
+      tags: [],
+      price,
+    });
+  }
+  return out;
+}
+
+// Read a tool catalogue out of an /llms.txt.
+//
+// Asked for alongside /agents.json in #645, and it is the riskier of the two:
+// agents.json is structured, llms.txt is prose. A greedy markdown scrape would
+// happily turn a seller's marketing copy into fifty phantom "tools" and inflate
+// the index with things nobody can buy - the exact failure the registry
+// template-collapse work already had to undo once.
+//
+// So this only accepts the one shape that is unambiguous, the link-list entry
+// that the llms.txt convention is actually built on:
+//
+//   - [Name](https://origin/route): description ... $0.01 ...
+//
+// and requires ALL of:
+//   * a SAME-ORIGIN absolute URL, so a link to someone else's docs can never
+//     be listed as this seller's tool,
+//   * an explicit price on the line, which is what separates a buyable
+//     endpoint from a link to an about page,
+//   * a route that survives the same non-tool path filter openapi uses.
+//
+// Anything less structured is left unread on purpose. A thin listing is a
+// recoverable problem; a fabricated one is not.
+export function normaliseLlmsTxtTools(text, originUrl) {
+  if (typeof text !== "string" || !text) return [];
+  let originHost = "";
+  try { originHost = new URL(originUrl).host.toLowerCase(); } catch { return []; }
+  const nonToolPath =
+    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
+  const line = /^\s*[-*]\s*\[([^\]]{1,120})\]\(([^)\s]{1,400})\)\s*[:\-]?\s*(.*)$/;
+  const priceRe = /\$\s?([0-9]+(?:\.[0-9]+)?)/;
+  const out = [];
+  const seen = new Set();
+  for (const raw of text.split("\n").slice(0, 2000)) {
+    const m = line.exec(raw);
+    if (!m) continue;
+    const [, name, href, rest] = m;
+    let u;
+    try { u = new URL(href); } catch { continue; }
+    // Same-origin only. A cross-origin link in someone's llms.txt is a
+    // reference, never a tool they sell.
+    if (u.host.toLowerCase() !== originHost) continue;
+    const route = u.pathname;
+    if (!route || route === "/" || nonToolPath.test(route)) continue;
+    // A price is the buyability evidence. Without one this is a doc link.
+    const price = priceRe.exec(rest);
+    if (!price) continue;
+    if (seen.has(route)) continue;
+    seen.add(route);
+    out.push({
+      seller: originUrl,
+      // llms.txt states no verb. GET is the honest default for a link, and the
+      // router treats method as a hint rather than a contract.
+      method: "GET",
+      route,
+      slug: route.replace(/^\//, "").replace(/\//g, "-"),
+      name: name.trim(),
+      description: String(rest || "").replace(/\s+/g, " ").trim().slice(0, 400),
+      category: "other",
+      tags: [],
+      price: `$${price[1]}`,
+      paid: true,
+    });
+  }
+  return out;
+}
+
 function openapiOperationHasPaymentSignal(op) {
   return Boolean(op && typeof op === "object" &&
     (op["x-price"] || op["x-x402-price"] || op["x-payment-info"] ||
@@ -857,12 +1003,63 @@ async function probePaywall(tools) {
   }
 }
 
+// BACK OFF FROM AN ORIGIN THAT KEEPS SAYING NO.
+//
+// The crawl runs every 5 minutes and treated an origin that had 404'd hundreds
+// of times exactly like a healthy one. A seller wrote in (#645) to report 686
+// requests in a week to a /.well-known/x402 that returned 404 every single
+// time. They were gracious about it; it was still us hammering someone else's
+// origin ~98 times a day to re-learn a fact we already knew.
+//
+// "Gentle on third-party sellers" was true of the INTERVAL and false of the
+// behaviour. An origin that has failed N crawls in a row is re-tried on a
+// widening schedule instead, capped, and any success resets it immediately -
+// so a seller who fixes their manifest is picked up within the hour rather
+// than being punished for having been broken.
+// Indexed by CONSECUTIVE failure count, so index 0 is unused and 1..3 are
+// deliberately free: three transient failures in a row must not cost a seller
+// their listing freshness. Sustained failure widens from 30m to 6h and stops
+// there - an origin is never permanently abandoned, because the whole point is
+// to notice when they fix it.
+export { WELL_KNOWN_PATH, discoveryNote };
+
+const CRAWL_BACKOFF_STEPS_MS = [0, 0, 0, 0, 30 * 60 * 1000, 2 * 60 * 60 * 1000, 6 * 60 * 60 * 1000];
+const crawlBackoff = new Map(); // origin -> { fails, nextAt }
+
+/** Should we re-probe this origin's /.well-known/x402 now?
+ *  Deliberately scoped to the MANIFEST PROBE, not the whole origin: the seller
+ *  in #645 was serving a complete catalogue at /agents.json the entire time we
+ *  were 404ing on the well-known path. Skipping the origin outright would have
+ *  cost us their catalogue to save them a request; skipping only the dead probe
+ *  costs nothing and stops the hammering. */
+export function manifestProbeDue(originUrl, now = Date.now()) {
+  const b = crawlBackoff.get(originUrl);
+  return !b || now >= b.nextAt;
+}
+export function __noteCrawlOutcomeForTest(originUrl, ok, now) { return noteCrawlOutcome(originUrl, ok, now); }
+function noteCrawlOutcome(originUrl, ok, now = Date.now()) {
+  if (ok) { crawlBackoff.delete(originUrl); return; }
+  const fails = (crawlBackoff.get(originUrl)?.fails || 0) + 1;
+  const step = CRAWL_BACKOFF_STEPS_MS[Math.min(fails, CRAWL_BACKOFF_STEPS_MS.length - 1)];
+  crawlBackoff.set(originUrl, { fails, nextAt: now + step });
+}
+/** Origins currently being backed off, for the seller-facing gap report. */
+export function crawlBackoffState() {
+  return [...crawlBackoff.entries()].map(([origin, b]) => ({ origin, fails: b.fails, nextAt: b.nextAt }));
+}
+
 async function crawlSeller(originUrl) {
   const prev = cache.get(originUrl);
   try {
-    const manifestRes = await safeFetch(`${originUrl}/.well-known/x402`, {
+    // A manifest that has 404'd repeatedly is not re-probed every 5 minutes.
+    // Throwing here drops straight into the fallback chain below, which is the
+    // same path a genuine 404 takes - so coverage is identical, we just stop
+    // asking a question we already know the answer to.
+    if (!manifestProbeDue(originUrl)) throw new Error("manifest probe backed off");
+    const manifestRes = await safeFetch(`${originUrl}${WELL_KNOWN_PATH}`, {
       maxBytes: MAX_MANIFEST_BYTES,
     });
+    noteCrawlOutcome(originUrl, true);
     const manifest = JSON.parse(manifestRes.html);
 
     // OpenAPI is the tool-level detail. Best-effort: a seller without one still
@@ -886,7 +1083,12 @@ async function crawlSeller(originUrl) {
     // a manifest, because their openapi covered 2 of the 9 routes the Bazaar
     // had settled. Openapi metadata still wins per-route; Bazaar rows without
     // an openapi match pass through.
-    tools = mergeOpenapiIntoBazaar(tools, bazaarToolsByOrigin.get(originUrl) || [], {
+    // Precedence openapi > manifest > registry. The manifest is the seller's
+    // own statement about themselves, so it outranks a third-party row; the
+    // openapi is more structured still (verbs, schemas), so it outranks both.
+    const manifestTools = normaliseManifestTools(manifest, originUrl);
+    const baseline = mergeOpenapiIntoBazaar(manifestTools, bazaarToolsByOrigin.get(originUrl) || [], {});
+    tools = mergeOpenapiIntoBazaar(tools, baseline, {
       allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
     });
 
@@ -899,6 +1101,9 @@ async function crawlSeller(originUrl) {
       history: rollHistory(prev, true),
       // The ORIGIN itself served /.well-known/x402 — it answered us.
       originResponded: true,
+      // WHICH surface produced this catalogue. Everything below is a fallback,
+      // and a seller cannot fix a gap they cannot see — see discoveryNote().
+      discoveryPath: WELL_KNOWN_PATH,
       // Not this seller's turn: carry the last reading forward rather than
       // dropping it — null must mean "never probed", not "not probed today".
       paywall: paywallProbeDue() ? await probePaywall(tools) : (prev?.paywall ?? null),
@@ -920,9 +1125,14 @@ async function crawlSeller(originUrl) {
     // When both exist we merge: openapi descriptive fields over Bazaar
     // payment truth. Either way the seller is routable (history flips
     // positive) — we just observed a live surface.
+    // Count only REAL probe failures. Our own backoff skip must not deepen the
+    // backoff that caused it - that would ratchet an origin toward never being
+    // probed again on the strength of nothing.
+    if (!/manifest probe backed off/.test(String(e?.message || e))) noteCrawlOutcome(originUrl, false);
     const bazaarTools = bazaarToolsByOrigin.get(originUrl) || [];
     let openapi = null;
     let openapiTools = [];
+    let openapiPath = null;
     try {
       const openapiRes = await safeFetch(`${originUrl}/openapi.json`, {
         maxBytes: MAX_OPENAPI_BYTES,
@@ -931,9 +1141,49 @@ async function crawlSeller(originUrl) {
       if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
         openapi = parsed;
         openapiTools = normaliseOpenapiTools(parsed, originUrl);
+        if (openapiTools.length) openapiPath = "/openapi.json";
       }
     } catch {
       /* no openapi either — Bazaar-only seller */
+    }
+    // 3. /agents.json. Reported by a seller (#645) who served a COMPLETE
+    //    catalogue there - 17 endpoints with prices and schemas - while our
+    //    crawler 404'd on the well-known path 686 times in a week and listed
+    //    them thinly. The spec being right does not make the wild uniform;
+    //    an index that only reads one path indexes only the sellers who
+    //    happened to read the same page we did.
+    //
+    //    Same payment gate as openapi: a catalogue is accepted only if the
+    //    Bazaar already proves this origin settles, or the document itself
+    //    carries a payment signal. A plain JSON file is not an x402 seller.
+    if (!openapiTools.length) {
+      try {
+        const agentsRes = await safeFetch(`${originUrl}/agents.json`, { maxBytes: MAX_OPENAPI_BYTES });
+        const parsed = JSON.parse(agentsRes.html);
+        if (bazaarTools.length || openapiHasPaymentSignal(parsed)) {
+          const fromAgents = normaliseOpenapiTools(parsed, originUrl);
+          if (fromAgents.length) { openapi = openapi || parsed; openapiTools = fromAgents; openapiPath = "/agents.json"; }
+        }
+      } catch {
+        /* no agents.json either */
+      }
+    }
+    // 4. /llms.txt. The other half of the #645 ask. Last because it is prose:
+    //    normaliseLlmsTxtTools accepts only priced, same-origin link-list
+    //    entries, so a seller who publishes one gets listed from it and a
+    //    seller who publishes marketing copy gets nothing rather than noise.
+    //
+    //    The payment gate here is the price on each line itself - an entry
+    //    without one is not emitted at all - so unlike the JSON surfaces there
+    //    is no separate document-level check to apply.
+    if (!openapiTools.length) {
+      try {
+        const llmsRes = await safeFetch(`${originUrl}/llms.txt`, { maxBytes: MAX_OPENAPI_BYTES });
+        const fromLlms = normaliseLlmsTxtTools(llmsRes.html, originUrl);
+        if (fromLlms.length) { openapiTools = fromLlms; openapiPath = "/llms.txt"; }
+      } catch {
+        /* no llms.txt either */
+      }
     }
     const tools = mergeOpenapiIntoBazaar(openapiTools, bazaarTools, {
       allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
@@ -954,6 +1204,11 @@ async function crawlSeller(originUrl) {
         fetchedAt: Date.now(),
         error: null,
         source: openapiTools.length ? "openapi-fallback" : "bazaar-fallback",
+        // The surface that ACTUALLY served the catalogue, which `source` cannot
+        // express: it says "openapi-fallback" for both /openapi.json and
+        // /agents.json. A seller told to fix their discovery path needs to know
+        // which path we did read, not merely that it was not the standard one.
+        discoveryPath: openapiPath,
         history: rollHistory(prev, true),
         // Did the ORIGIN serve us anything, or is this record purely a registry
         // listing about it?
@@ -987,7 +1242,7 @@ async function crawlSeller(originUrl) {
 // Build a minimal x402 service manifest from Bazaar resource entries — enough
 // for indexSnapshot to render a display name + payment network without
 // pretending the seller actually publishes /.well-known/x402.
-function synthManifestFromBazaar(originUrl, tools) {
+export function synthManifestFromBazaar(originUrl, tools) {
   const first = tools[0] || {};
   const host = originUrl.replace(/^https?:\/\//, "");
   return {
@@ -1424,6 +1679,10 @@ export function routableSellerSummaries() {
       toolCount: v.tools?.length || v.manifest?.capabilities?.tools || 0,
       // Did the origin ever answer us, or is this a registry listing about it?
       originResponded: v.originResponded !== false,
+      // Rides with originResponded on ALL THREE accessors on purpose: this
+      // file has twice shipped a field present on two of three, which is
+      // inert on whichever surface happens to render.
+      discoveryPath: v.discoveryPath || null,
       // payTo per advertised network, so callers can join an origin to on-chain
       // settlements it received. Sourced ONLY from facilitator discovery-registry
       // items (bazaarItemToRow) - a seller's own crawled manifest never
@@ -1467,6 +1726,10 @@ export function sellerDetail(originOrHost) {
       // seller works. Surfaced so a consumer can tell a crawled seller from a
       // listed one.
       originResponded: v.originResponded !== false,
+      // Rides with originResponded on ALL THREE accessors on purpose: this
+      // file has twice shipped a field present on two of three, which is
+      // inert on whichever surface happens to render.
+      discoveryPath: v.discoveryPath || null,
       // payTo per advertised network. Registry-sourced only (bazaarItemToTool);
       // a seller's own crawled manifest never contributes one. Omitting it made
       // advertisedPayToEvidence inert: server.js passes THIS object as `seller`,
@@ -1510,6 +1773,10 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     // THIS projection, and a field present on two of three accessors is the
     // inert-signal defect this file has already produced twice.
     originResponded: v.originResponded !== false,
+    // Rides with originResponded on ALL THREE accessors on purpose: this
+    // file has twice shipped a field present on two of three, which is
+    // inert on whichever surface happens to render.
+    discoveryPath: v.discoveryPath || null,
     // Present only when the seller's document distinguishes paid from free
     // (tools carry paid flags): the buyable subset. Display uses it to show
     // "42 tools · 21 paid" so a padded free surface can't read as paid depth.

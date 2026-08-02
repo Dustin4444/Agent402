@@ -1261,6 +1261,12 @@ jobs:
       - name: Rail self-heal (the facilitator map cannot silently drift)
         run: node scripts/test-rail-selfheal.js
 
+      - name: Crawl backoff (stop re-probing an origin that keeps saying no)
+        run: X402_INDEX_CRAWL=off node scripts/test-crawl-backoff.js
+
+      - name: Discovery note (a seller must be able to see the gap)
+        run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
+
       - name: upto scheme ships dark, refuses what it cannot price
         run: node scripts/test-upto-scheme.js
 

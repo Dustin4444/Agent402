@@ -13,6 +13,7 @@
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { CATEGORIES } from "./pages.js";
 import { chainMark } from "./chain-logos.js";
+import { discoveryNote } from "./discovery-note.js";
 
 // Seller-roster row styles hoisted to classes. A busy chain (e.g. Base) renders
 // 1000+ roster rows; when each row carried its 6 styles inline the page ballooned
@@ -510,6 +511,10 @@ export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, win
   // us) is neither "healthy" nor proven dead: we hold a third party's listing
   // and nothing from the seller. Calling that "healthy" is what put ~32% of the
   // index on this page wearing a green dot.
+  // The seller-facing half of #645: when we did NOT read their spec path, say
+  // so here rather than only in our own logs. A gap nobody can see is a gap
+  // nobody fixes, and this one cost a seller 686 pointless requests.
+  const note = discoveryNote(seller);
   const health = seller.routable
     ? "healthy"
     : (seller.originResponded === false ? "listed, unverified" : "unreachable");
@@ -538,6 +543,7 @@ export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, win
       ${cell("BUYERS", buyers.toLocaleString("en-US") + plus)}
       ${cell("TOOLS", toolN.toLocaleString("en-US"))}
     </div>
+    ${note ? `<div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;border-bottom:1px solid var(--dark-border2);overflow-wrap:anywhere;">discovery &middot; ${esc(note)}</div>` : ""}
     <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">rolling ${esc(winLabel)} totals${capped ? " (scan capped - a floor)" : ""} &middot; payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
   </div>`;
 }
