@@ -7,7 +7,19 @@ name: Paid-path canary
 # Cost: ~$0.001/day of dust from the test burner.
 on:
   schedule:
-    - cron: "17 13 * * *" # daily ~13:17 UTC
+    # THREE attempts, not one. GitHub delivers scheduled workflows on a
+    # best-effort queue, and for this workflow it has been neither punctual nor
+    # reliable: measured deliveries of the single 13:17 cron arrived at 15:27
+    # and 15:21 (two hours late), one arrived at 14:39 and was CANCELLED, and
+    # one never arrived at all. A daily proof that buying works is not a proof
+    # of anything if it silently skips a day, and the gap is invisible - a
+    # missing run looks exactly like a quiet day on the revenue page.
+    #
+    # The `gate` job below makes the extra attempts free: whichever lands first
+    # does the buy, the others see a recent success and stop before spending.
+    - cron: "17 13 * * *"
+    - cron: "17 17 * * *"
+    - cron: "17 21 * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +27,49 @@ permissions:
   issues: write
 
 jobs:
+  # Decide whether this attempt should spend anything. A JOB, not a step: a
+  # step-level `if` would have to be repeated on every step below, and the one
+  # that got forgotten would buy anyway. The gate is the only place that can be
+  # forgotten, and it fails toward RUNNING (see below), which is the safe
+  # direction for a monitor.
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.fresh.outputs.skip }}
+    steps:
+      - name: Has a canary already proven buying today?
+        id: fresh
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LAST=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow paid-canary.yml \
+                   --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' || true)
+          if [ -z "$LAST" ]; then
+            echo "no successful run on record - proceeding with the buy"
+            exit 0
+          fi
+          AGE=$(( $(date -u +%s) - $(date -u -d "$LAST" +%s) ))
+          echo "last successful canary: $LAST (${AGE}s ago)"
+          # 20h, not 24h: deliveries drift by hours, and a 24h window would let
+          # a late run suppress the next day's on-time one, quietly halving the
+          # cadence instead of protecting it.
+          if [ "$AGE" -lt 72000 ]; then
+            echo "already settled within 20h - skipping this redundant attempt (not a failure)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "stale (>20h) - this attempt will buy"
+          fi
+
   canary:
+    needs: gate
+    # Runs unless the gate positively said skip. An errored or skipped gate
+    # leaves `skip` empty and the canary RUNS - a monitor that silently stops
+    # monitoring because its own guard broke is the failure this whole change
+    # exists to remove.
+    if: needs.gate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Wallet/pow secrets are NOT at job scope (audit R-07): job-scope env is in

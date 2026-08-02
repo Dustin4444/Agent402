@@ -128,5 +128,37 @@ if (rn) {
   ok(typeof rn.check({ rendered: true, title: "Something Else", markdown: "x" }) === "string", "render leg check rejects an unexpected page (title mismatch)");
 }
 
+// --- the canary must actually RUN on the days it claims to ------------------
+//
+// A daily proof that buying works proves nothing if it silently skips a day,
+// and the gap is invisible: a missing run looks exactly like a quiet day on the
+// revenue page. Measured deliveries of the single 13:17 cron arrived at 15:27
+// and 15:21 (two hours late), one arrived at 14:39 and was CANCELLED, and one
+// never arrived at all - which is how 2026-08-02 ended up with no canary rows
+// on any chain and read as "sei is missing".
+{
+  const wf = readFileSync(new URL("../.github/workflows/paid-canary.yml", import.meta.url), "utf8");
+  const crons = [...wf.matchAll(/^\s*-\s*cron:\s*["']([^"']+)["']/gm)].map((m) => m[1]);
+  ok(crons.length >= 2,
+    `more than one scheduled attempt, so a missed or cancelled delivery cannot cost a day (${crons.length}: ${crons.join(", ")})`);
+
+  // The redundancy must be free, and the guard must be at JOB level. A
+  // step-level condition would have to be repeated on every step, and the one
+  // that got forgotten would spend ~$1.50 of real USDC anyway.
+  ok(/\n\s{2}gate:/.test(wf), "a gate JOB decides whether this attempt spends anything");
+  ok(/needs:\s*gate/.test(wf) && /if:\s*needs\.gate\.outputs\.skip\s*!=\s*'true'/.test(wf),
+    "the buying job is gated at JOB level, not per step");
+
+  // Fail toward RUNNING. A monitor that stops monitoring because its own guard
+  // broke is the exact failure this change removes.
+  ok(/!=\s*'true'/.test(wf) && !/==\s*'false'/.test(wf),
+    "an errored or skipped gate leaves the canary RUNNING, never silently disabled");
+
+  // A human asking for a buy - usually right after a deploy - must never be
+  // suppressed by the freshness window.
+  ok(/if:\s*github\.event_name\s*==\s*'schedule'/.test(wf),
+    "the freshness skip applies to SCHEDULED runs only; a manual dispatch always buys");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
