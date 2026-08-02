@@ -1275,6 +1275,7 @@ export function revenueChartSection() {
     </div>
     <p id="rvzBuyersNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzFreeNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
+    <p id="rvzScopeNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;"></p>
     <p id="rvzWireNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;">MPP-wire settlements are identified by tx hash from the sales ledger, which began recording the wire on 2026-07-24 - earlier days read as x402 because the wire was not recorded, not because no MPP traffic existed.</p>
     <p id="rvzSettleNote" style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:0 0 10px;display:none;">SOR = revenue settled on-chain to the dedicated spending wallet that pays external sellers and upstream data (route-execute tiers + the Blockscout kit) - the self-funding loop. Direct = everything settled to the treasury. The split is by receiving wallet, so revenue from before a tool joined the self-funding set reads as Direct - that is what the chain says, not a gap. The wire split is not tracked within this lane, so selecting it resets the wire filter.</p>
     <div class="rvz-wrap"><svg id="rvzSvg" viewBox="0 0 940 300" width="100%" role="img" aria-label="Stacked daily revenue by chain"></svg><div class="rvz-tip" id="rvzTip"></div></div>
@@ -1400,6 +1401,32 @@ export function revenueChartSection() {
           (state.wire==="all"?"":state.wire==="mpp"?"MPP-wire ":"x402-wire ")+
           (state.scope==="ext"?"external":state.scope==="int"?"internal":"")+" settlements")+' in this window</span>'}
       document.getElementById("rvzLegend").innerHTML=lg;
+      // The chart defaults to External, which is right - the canary is our own
+      // money recycling and must never inflate revenue. But that makes "no
+      // canary today" and "canary hidden by the current filter" look identical,
+      // and someone reading the default view reasonably concluded the canary
+      // had stopped running when it had settled on 11 of 12 rails that day.
+      //
+      // So when internal settlements EXIST in the window and are filtered out,
+      // say so and name the control that shows them. The number on the chart
+      // does not change; only the reader's ability to tell absence from
+      // concealment does.
+      (function(){
+        var el=document.getElementById("rvzScopeNote");
+        if(!el)return;
+        if(state.scope!=="ext"){el.style.display="none";return}
+        var days={},chains={};
+        state.rows.forEach(function(r){
+          if((r.intTx||0)>0){days[r.day]=1;chains[r.chain]=1}
+        });
+        var nd=Object.keys(days).length, nc=Object.keys(chains).length;
+        if(!nd){el.style.display="none";return}
+        el.style.display="";
+        el.textContent="Showing external settlements only. "+nc+" chain"+(nc===1?"":"s")+
+          " also settled internal (canary) transactions on "+nd+" day"+(nd===1?"":"s")+
+          " in this window - select \u201cInternal (canary)\u201d or \u201cBoth\u201d to see them. "+
+          "They are excluded from revenue on purpose: the canary buys from us with our own wallet.";
+      })();
       // "Other" gets one muted sub-column per folded chain (a subset of the
       // Other column, so they never add to the row total).
       var othList=Object.keys(othChains).sort();
