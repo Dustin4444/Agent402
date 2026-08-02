@@ -1267,6 +1267,9 @@ jobs:
       - name: Discovery note (a seller must be able to see the gap)
         run: X402_INDEX_CRAWL=off node scripts/test-discovery-note.js
 
+      - name: Reliability claims (a published guarantee must survive being checked)
+        run: node scripts/test-reliability-claims.js
+
       - name: upto scheme ships dark, refuses what it cannot price
         run: node scripts/test-upto-scheme.js
 

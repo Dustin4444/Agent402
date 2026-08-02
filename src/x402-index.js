@@ -708,15 +708,44 @@ export function normaliseManifestTools(manifest, originUrl) {
 //
 // A seller who does sell one of these gets it back by pricing it or by taking
 // a single payment, both of which they control.
-const LIVENESS_SEGMENTS = new Set(["health", "healthz", "livez", "readyz", "heartbeat"]);
-export function dropUnvouchedLivenessRoutes(tools = [], vouchedRoutes = []) {
+// Extended past liveness after the same scan found three more classes of the
+// same thing: account plumbing, documentation boilerplate, and the seller's own
+// storefront, all listed as if an agent could buy them. 181 rows across the
+// index, on top of the 150 liveness ones.
+//
+// The membership test is deliberately strict and every borderline word is
+// LEFT OUT, because the cost of a wrong drop is a seller losing a listing they
+// never hear about:
+//   "token"    - a token-info tool is a real product
+//   "auth"     - so is an auth-check tool
+//   "status"   - so is a transaction-status lookup
+//   "test"     - one seller's /api/test IS their regex tester
+//   "openapi"  - one seller's /inspect/openapi IS an OpenAPI inspector
+//   "schema"   - a schema validator is a product
+//   "pricing"  - a pricing calculator is a product
+//   "subscribe"- an alerts subscription can be sold
+//   "config"   - a config generator is a product
+// What remains is plumbing nobody sells: you cannot buy someone's /login.
+const NON_PRODUCT_SEGMENTS = new Set([
+  // liveness
+  "health", "healthz", "livez", "readyz", "heartbeat",
+  // account plumbing
+  "login", "logout", "signin", "signout", "signup", "register", "oauth", "callback", "session",
+  // documentation boilerplate
+  "swagger", "redoc", "docs",
+  // the seller's own storefront
+  "checkout", "billing",
+  // operator-only surfaces
+  "webhook", "webhooks", "admin", "internal", "debug",
+]);
+export function dropUnvouchedNonProductRoutes(tools = [], vouchedRoutes = []) {
   const vouched = new Set(
     (vouchedRoutes || []).map((r) => String(r || "").split("?")[0].replace(/\/$/, ""))
   );
   return tools.filter((t) => {
     const path = String(t?.route || "").split("?")[0].replace(/\/$/, "");
     const seg = path.split("/").pop().toLowerCase();
-    if (!LIVENESS_SEGMENTS.has(seg)) return true;
+    if (!NON_PRODUCT_SEGMENTS.has(seg)) return true;
     if (vouched.has(path)) return true;      // somebody paid for it
     if (t.price) return true;                // the seller prices it
     if (t.paid === true) return true;        // the seller annotates it as paid
@@ -1278,7 +1307,7 @@ async function crawlSeller(originUrl) {
     // never add a second row for an endpoint we already list — see
     // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
     tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
-    tools = dropUnvouchedLivenessRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
+    tools = dropUnvouchedNonProductRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
 
     cache.set(originUrl, {
       manifest,
@@ -1373,7 +1402,7 @@ async function crawlSeller(originUrl) {
         /* no llms.txt either */
       }
     }
-    const tools = dropUnvouchedLivenessRoutes(
+    const tools = dropUnvouchedNonProductRoutes(
       mergeOpenapiIntoBazaar(openapiTools, bazaarTools, {
         allRoutes: openapi ? openapiAllOperationRoutes(openapi, originUrl) : [],
       }),
