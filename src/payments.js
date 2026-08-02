@@ -1234,7 +1234,7 @@ export function isPreBroadcastSettleRejection(err) {
 /** Pull the human-meaningful bits out of a facilitator error (its message
  *  embeds the facilitator's JSON body — errorMessage, errorLink, correlationId)
  *  so the server log names the cause instead of a bare stack. */
-function summarizeFacilitatorError(err) {
+export function summarizeFacilitatorError(err) {
   if (!err) return "unknown error";
   const msg = String(err.message || err);
   const brace = msg.indexOf("{");
@@ -1250,6 +1250,38 @@ function summarizeFacilitatorError(err) {
     } catch {
       /* truncated/partial JSON body — fall through to the raw message */
     }
+  }
+  // NETWORK-LEVEL failures arrive as the bare string "fetch failed" - undici
+  // flattens every one of them to that, and hangs the real reason off
+  // `err.cause`. A DNS failure and a refused connection are byte-identical
+  // without it (verified: both log `message="fetch failed"`, one carries
+  // code=ENOTFOUND syscall=getaddrinfo, the other nothing at all).
+  //
+  // That is why a Monad settle failure read as an unknowable blip and got
+  // written off as "transient". It was not unknowable; the field that would
+  // have named it was being dropped one line before it was logged. A cause we
+  // discard is not a cause we do not have.
+  const cause = err?.cause;
+  // Happy Eyeballs on a dual-stack host (the Monad facilitator has both A and
+  // AAAA behind Cloudflare) can fail every address and hand back an
+  // AggregateError. Its `.errors` is where the per-address reason lives; the
+  // wrapper itself carries no code, so without this branch a dual-stack
+  // failure still logs as bare "fetch failed" - the exact shape being fixed.
+  if (Array.isArray(cause?.errors) && cause.errors.length) {
+    const subs = cause.errors.slice(0, 3).map((e) =>
+      [e?.code, e?.address && `address=${e.address}`, e?.port && `port=${e.port}`].filter(Boolean).join(" ")
+    ).filter(Boolean);
+    if (subs.length) return `${msg.slice(0, 140)} [all addresses failed: ${subs.join(" | ")}]`;
+  }
+  if (cause) {
+    const bits = [cause.code, cause.syscall && `syscall=${cause.syscall}`,
+      cause.errno !== undefined && `errno=${cause.errno}`,
+      cause.address && `address=${cause.address}`, cause.port && `port=${cause.port}`,
+      // A nested cause is where TLS and proxy errors put the real reason.
+      cause.cause?.code && `inner=${cause.cause.code}`,
+      !cause.code && cause.message && `cause="${String(cause.message).slice(0, 80)}"`,
+    ].filter(Boolean);
+    if (bits.length) return `${msg.slice(0, 160)} [${bits.join(" ")}]`;
   }
   return msg.slice(0, 240);
 }

@@ -94,5 +94,44 @@ if (TARGET) {
   }
 }
 
+// 4. A network failure must NAME ITSELF.
+//
+// undici flattens every network-level failure to the bare string "fetch
+// failed" and hangs the real reason on err.cause. Verified: a DNS failure and
+// a refused connection produce byte-identical messages; only the cause tells
+// them apart. summarizeFacilitatorError used to end at msg.slice(0,240),
+// dropping it one line before logging.
+//
+// That is why a Monad settle failure looked like an unknowable blip and got
+// written off as "transient". It was never unknowable - the field that named
+// it was being discarded. A cause we throw away is not a cause we lack.
+{
+  const { summarizeFacilitatorError } = await import("../src/payments.js");
+  const withCause = (props) => Object.assign(new Error("fetch failed"), { cause: Object.assign(new Error("inner"), props) });
+
+  const dns = summarizeFacilitatorError(withCause({ code: "ENOTFOUND", syscall: "getaddrinfo" }));
+  const refused = summarizeFacilitatorError(withCause({ code: "ECONNREFUSED", syscall: "connect", address: "1.2.3.4", port: 443 }));
+  ok(/ENOTFOUND/.test(dns), `a DNS failure names itself (${dns})`);
+  ok(/ECONNREFUSED/.test(refused) && /1\.2\.3\.4/.test(refused), `a refused connection names host and reason (${refused})`);
+  ok(dns !== refused, "two different network failures no longer produce identical output");
+
+  // Dual-stack hosts (the Monad facilitator is A+AAAA behind Cloudflare) fail
+  // via AggregateError, whose wrapper carries no code at all.
+  const agg = Object.assign(new Error("fetch failed"), {
+    cause: new AggregateError([
+      Object.assign(new Error("a"), { code: "ENETUNREACH", address: "2606:4700::1", port: 443 }),
+      Object.assign(new Error("b"), { code: "ECONNRESET", address: "104.21.87.156", port: 443 }),
+    ]),
+  });
+  const aggOut = summarizeFacilitatorError(agg);
+  ok(/ENETUNREACH/.test(aggOut) && /ECONNRESET/.test(aggOut),
+    `a dual-stack failure reports EVERY address tried, so IPv6-vs-IPv4 is distinguishable (${aggOut})`);
+
+  // A facilitator that answers with a structured error must still summarize as
+  // before - this must not regress the HTTP-error path.
+  const http = summarizeFacilitatorError(new Error('Facilitator failed (402): {"errorMessage":"insufficient_funds"}'));
+  ok(/insufficient_funds/.test(http), `a structured facilitator error still summarizes (${http})`);
+}
+
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
