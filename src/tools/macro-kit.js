@@ -122,6 +122,25 @@ async function safeFetchRetry(url, opts = {}) {
 // two extra chances at a feed that answers in <1s when it answers at all.
 const FISCAL_FETCH = { retries: 2, backoffMs: 400, timeoutMs: 8_000 };
 
+// The FX primary gets a SHORT leash, for the opposite reason to FISCAL_FETCH
+// above: this tool has a fast keyless fallback, and the fallback only fires
+// when the primary THROWS. A primary that is merely slow blocks the whole call
+// and the fallback never gets its turn.
+//
+// Measured 2026-08-03: api.frankfurter.dev answers in ~0.06s warm but 7.8s and
+// 11.6s cold, while the fallback open.er-api.com answers in ~0.08s every time.
+// On the default 15s timeout with a retry, a cold primary could hold a PAID
+// $0.015 call for up to 30s before failing over - and prod's self-check, which
+// gives up at 12s, was recording fx-dashboard as a 504 outage while a healthy
+// second publisher sat unused.
+//
+// 2.5s and no retry: if the spec'd primary cannot beat a host that answers in
+// under a tenth of a second, it has already lost. Retrying it is worse than
+// falling through, because the fallback IS the retry. The two publishers agree
+// to 4dp on ECB daily reference rates and the response names which one served,
+// so failing over costs the buyer nothing but is never silent.
+const FX_PRIMARY = { retries: 0, timeoutMs: 2_500 };
+
 async function getJson(url, opts = {}) {
   const { html } = await safeFetchRetry(url, { maxBytes: 5 * 1024 * 1024, ...opts });
   try {
@@ -476,7 +495,7 @@ export const MACRO_TOOLS = [
       if (fresh) return fxDashCache.value;
       let j = null, source = "ECB via Frankfurter (open data)";
       try {
-        j = await getJson(`https://api.frankfurter.dev/v1/latest?from=USD&to=${G10.join(",")}`);
+        j = await getJson(`https://api.frankfurter.dev/v1/latest?from=USD&to=${G10.join(",")}`, FX_PRIMARY);
       } catch (e) {
         console.warn(`[fx-dashboard] frankfurter failed (${String(e?.message || e).slice(0, 80)}) - walking to open.er-api.com`);
         try {
