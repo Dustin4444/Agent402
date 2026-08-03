@@ -197,7 +197,20 @@ function parseAnswer(raw) {
   return { answer, citations: unique };
 }
 
-async function braveGet(path, params, apiKey, caller = "unknown") {
+// `caller` is REQUIRED. It used to default to "unknown", and two call sites
+// quietly took that default for weeks - search-news and search-videos - so 3
+// of 18 billed Search requests on the reconciliation day could not be
+// attributed to a tool. An upstream meter whose rows say "unknown" is the
+// exact shape that hid every cost leak found today: spend nobody can name.
+//
+// Left as a loud runtime label rather than a thrown error: refusing to serve a
+// paid call because our own telemetry is mislabelled would turn a bookkeeping
+// defect into an outage. scripts/test-brave-leak.js fails the build instead.
+async function braveGet(path, params, apiKey, caller) {
+  if (!caller) {
+    console.error(`[search] braveGet called with no caller for ${path} - billed request will be unattributable`);
+    caller = "unattributed";
+  }
   const key = apiKey || process.env.BRAVE_API_KEY;
   if (!key) {
     throw bad("Web search is not configured on this deployment", 503);
@@ -315,7 +328,7 @@ export const SEARCH_TOOLS = [
       const data = await braveGet("/news/search", {
         q, count, country,
         freshness: FRESHNESS.has(i.freshness) ? i.freshness : undefined,
-      });
+      }, undefined, "search-news");
       const results = (data.results ?? []).slice(0, count).map((r) => ({
         title: r.title ?? null,
         url: r.url ?? null,
@@ -415,7 +428,7 @@ export const SEARCH_TOOLS = [
       const data = await braveGet("/videos/search", {
         q, count, safesearch, country,
         freshness: FRESHNESS.has(i.freshness) ? i.freshness : undefined,
-      });
+      }, undefined, "search-videos");
       const results = (data.results ?? []).slice(0, count).map((r) => ({
         title: r.title ?? null,
         url: r.url ?? null,

@@ -293,9 +293,23 @@ const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 const BUYER_LOW_USD = () => Number(process.env.UPSTREAM_BUYER_LOW_USD || "0.5");
 const BUYER_STATUS_CACHE_MS = 5 * 60_000;
 let buyerStatusCache = null;
+/** Bucketed BALANCE of the Base spending wallet. Nothing more.
+ *
+ *  Read the name carefully, because it has already misled once. On 2026-08-03
+ *  four Blockscout tools failed on the paid retry (HTTP 500) while this
+ *  reported "ok", and "ok" was read as "the buying path is healthy". It does
+ *  not mean that. It means the wallet holds USDC above a threshold.
+ *
+ *  It cannot see whether the seller answers, whether the facilitator settles,
+ *  whether our payload is accepted, or whether the quote fits the margin cap.
+ *  Every one of those fails happily with a full wallet.
+ *
+ *  Each return carries `attests: "balance-only"` so a consumer cannot mistake
+ *  the scope for the name. An alarm wired to this is a FUNDING alarm; proving
+ *  that buying works needs a real buy, which is what the paid canary is for. */
 export async function upstreamBuyerStatus() {
   const pk = (process.env.X402_UPSTREAM_BUYER_KEY || "").trim();
-  if (!pk) return { configured: false, status: "unconfigured" };
+  if (!pk) return { configured: false, status: "unconfigured", attests: "balance-only" };
   if (buyerStatusCache && Date.now() - buyerStatusCache.at < BUYER_STATUS_CACHE_MS) return buyerStatusCache.result;
   let result;
   try {
@@ -319,10 +333,10 @@ export async function upstreamBuyerStatus() {
       } catch { /* walk the list */ }
     }
     result = balance == null
-      ? { configured: true, status: "unknown" }
-      : { configured: true, status: balance < BUYER_LOW_USD() ? "low" : "ok" };
+      ? { configured: true, status: "unknown", attests: "balance-only" }
+      : { configured: true, status: balance < BUYER_LOW_USD() ? "low" : "ok", attests: "balance-only" };
   } catch {
-    result = { configured: true, status: "unknown" };
+    result = { configured: true, status: "unknown", attests: "balance-only" };
   }
   buyerStatusCache = { at: Date.now(), result };
   return result;
