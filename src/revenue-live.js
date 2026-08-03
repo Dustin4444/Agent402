@@ -430,8 +430,35 @@ async function evmRail(name, wallet) {
     const balHex = await rpcCall(cheapRpcs, "eth_call", [{ to: c.token, data: "0x70a08231" + pad(wallet).slice(2) }, "latest"]);
     out.balance = Number(BigInt(balHex && balHex !== "0x" ? balHex : "0x0")) / 1e6;
     const latest = parseInt(await rpcCall(cheapRpcs, "eth_blockNumber", []), 16);
-    const { recent, missed, chunks } = await recentInbound(c, wallet, latest);
+
+    // Prefer the ledger. These transfers are already indexed by the background
+    // revenue sync; re-deriving them here meant chunked eth_getLogs on every
+    // snapshot refresh - 221 Alchemy calls per refresh, measured by a
+    // production egress census, up to 144 times a day under crawler traffic.
+    //
+    // Falls back to the live scan when the ledger has nothing for this chain,
+    // which is the honest reading of an empty result: a cold boot or an
+    // unsynced chain must not render as "no settlements". The fallback is the
+    // exact code that ran before, so the worst case is the old behaviour.
+    // Imported LAZILY, inside the async call, not at module scope.
+    // revenue-ledger.js already imports this file, so a static import here
+    // closes a cycle and the server dies at boot with "Cannot access
+    // ALGORAND_INDEXER_BASES before initialization" - verified, not guessed.
+    // By the time a rail is scanned both modules are fully evaluated, so a
+    // dynamic import resolves cleanly. Same class of cycle that took the
+    // marketplace down earlier today, same fix shape.
+    let ledgerRows = [];
+    try {
+      const { ledgerRecent } = await import("./revenue-ledger.js");
+      ledgerRows = ledgerRecent(c.ledgerChain || name, wallet, { limit: 8 });
+    } catch { /* ledger unavailable -> live scan below */ }
+    let recent = ledgerRows.map((t) => ({ ...t, tx: t.txHash ? c.tx(t.txHash) : null }));
+    let missed = 0, chunks = 0, viaLedger = recent.length > 0;
+    if (!viaLedger) {
+      ({ recent, missed, chunks } = await recentInbound(c, wallet, latest));
+    }
     out.recent = recent;
+    out.recentSource = viaLedger ? "ledger" : "chain-scan";
     out.externalUsd = Number(recent.filter((t) => t.external).reduce((s, t) => s + t.usd, 0).toFixed(6));
     out.windowBlocks = c.span;
     if (missed) out.scanNote = `transfer scan partial: ${missed}/${chunks} windows unavailable from public RPCs (balance is live)`;
@@ -1064,7 +1091,29 @@ function persistLastGood(rails) {
 // and refreshes in the background); only the card's freshness changes, on a
 // surface that already labels carried-forward data "live · cached". Env
 // override for ops experiments.
-const SNAPSHOT_TTL_MS = parseInt(process.env.REVENUE_SNAPSHOT_TTL_MS, 10) || 10 * 60_000;
+// 60 minutes (was 10, was 60s before that).
+//
+// MEASURED, not estimated: an egress census run against production recorded
+// 221 Alchemy RPC calls from this file in a single refresh - the fan-out of
+// chunked eth_getLogs across six EVM rails. At a 10-minute TTL, crawler traffic
+// on /revenue, /marketplace and the chain pages keeps the cache permanently
+// warm, which is up to 144 refreshes a day: roughly 955,000 billed calls a
+// month, for a page that earns nothing.
+//
+// This is the third time this exact shape has been paid for. It was 60s until
+// July (~9.5M/month), then 10 minutes, and the 10 was still chosen by feel
+// rather than by measurement. 60 minutes is 83% fewer than 10, and the card
+// already labels carried-forward data "live · cached" - the honesty mechanism
+// for staleness exists precisely so this number can be tuned for cost.
+//
+// Visitor latency is unaffected either way: stale-while-revalidate below serves
+// the cached object instantly and refreshes in the background. What changes is
+// only how old the rail balances may be, on a surface that says so.
+//
+// The real fix is to stop re-scanning chains we already index - src/revenue-
+// ledger.js persists every settlement - but that is a rewrite of where the
+// snapshot's numbers come from, not a constant. Filed rather than rushed.
+const SNAPSHOT_TTL_MS = parseInt(process.env.REVENUE_SNAPSHOT_TTL_MS, 10) || 60 * 60_000;
 export async function revenueSnapshot(opts) {
   if (cached && Date.now() - cachedAt < SNAPSHOT_TTL_MS) return cached;
   if (!refreshing) {

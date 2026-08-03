@@ -484,6 +484,56 @@ function walletPairs({ walletAddress, solanaWallet, stellarWallet, algorandWalle
  *
  * Operator-only: cursor positions and wallet addresses are not public data.
  */
+/** The newest inbound transfers for a chain, in the shape the revenue rail
+ *  cards already render.
+ *
+ *  WHY THIS EXISTS: the rail card built `recent[]` by re-scanning the chain on
+ *  every snapshot refresh - chunked eth_getLogs across six EVM rails, measured
+ *  at 221 Alchemy calls per refresh by a production egress census. Crawler
+ *  traffic kept that cache warm, so it ran up to 144 times a day: on the order
+ *  of a million billed calls a month, to redisplay transfers this table has
+ *  already stored.
+ *
+ *  The ledger is the same data from the same source, indexed once by the
+ *  background sync instead of re-derived per page view. Balances still need a
+ *  live read (a balance is not a transfer, and nothing here records it), but
+ *  those are single eth_call reads that already go publics-first - they were
+ *  never the expensive part.
+ *
+ *  Returns [] when the ledger has nothing for this chain, which the caller
+ *  MUST treat as "fall back to the live scan" rather than "no activity" - a
+ *  cold boot or a chain we do not sync would otherwise silently render as
+ *  zero settlements. */
+export function ledgerRecent(chain, wallets, { limit = 8 } = {}) {
+  const list = Array.isArray(wallets) ? wallets.filter(Boolean) : [wallets].filter(Boolean);
+  if (!chain || !list.length) return [];
+  try {
+    const placeholders = list.map(() => "?").join(",");
+    const rows = db.prepare(
+      `SELECT tx_hash, block, when_ts, payer, usd, asset, external
+         FROM transfers WHERE chain = ? AND wallet IN (${placeholders})
+        ORDER BY COALESCE(block, 0) DESC, COALESCE(when_ts, 0) DESC
+        LIMIT ?`
+    ).all(chain, ...list, Math.max(1, Math.min(50, limit)));
+    return rows.map((r) => ({
+      usd: Number(r.usd),
+      from: r.payer || null,
+      txHash: r.tx_hash,
+      block: r.block ?? null,
+      // when_ts is unix SECONDS; the card renders an ISO string.
+      when: r.when_ts ? new Date(r.when_ts * 1000).toISOString() : null,
+      external: Boolean(r.external),
+      internal: !r.external && r.payer != null,
+      asset: r.asset || null,
+      fromLedger: true,
+    }));
+  } catch {
+    // A ledger read must never break the revenue page - the live scan is still
+    // there, and returning [] routes the caller to it.
+    return [];
+  }
+}
+
 export function ledgerSyncState() {
   const rows = db.prepare("SELECT chain, wallet, next_block, caught_up, updated_ts FROM cursors").all();
   const now = Math.floor(Date.now() / 1000);

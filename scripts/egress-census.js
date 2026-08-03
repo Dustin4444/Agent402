@@ -20,7 +20,7 @@
 // "we could not look" are the same output otherwise, and that confusion is
 // exactly how the last three leaks survived.
 import { spawn } from "node:child_process";
-import { writeFileSync, readFileSync, unlinkSync } from "node:fs";
+import { writeFileSync, readFileSync, unlinkSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -68,19 +68,77 @@ const SURFACES = [
   "/api/reliability", "/api/rails", "/openapi.json", "/llms.txt", "/.well-known/x402",
 ];
 
+// `railway run` uses whatever service the CLI is LINKED to, and this repo's
+// project has five. Linked to agent402-worker, the injected env carries
+// RENDER_WORKER_TOKEN without RENDER_WORKER_URL - an incomplete pair the
+// server refuses to boot on, by design (src/worker-client.js). That guard is
+// right for a real boot and irrelevant to a census, which only needs the
+// process to start and make outbound calls.
+//
+// Neutralised here rather than worked around by the operator, because the
+// alternative is a tool that fails with a stack trace about render workers
+// when the actual problem is which service you are linked to.
+if (process.env.RENDER_WORKER_TOKEN && !process.env.RENDER_WORKER_URL) {
+  delete process.env.RENDER_WORKER_TOKEN;
+  console.log("note: dropped RENDER_WORKER_TOKEN (set without RENDER_WORKER_URL) so the server can boot for the census.\n");
+}
+
 const blind = METERED.filter(([, env]) => !process.env[env]);
+
+// The wrong-service check. If EVERY metered key is missing, this is almost
+// certainly not the main app's environment - and without saying so, the run
+// would produce a truthful-looking "8 of 8 unobservable" that reads like a
+// tooling limitation rather than "you are pointed at the wrong service".
+if (blind.length === METERED.length) {
+  console.log("⚠  every metered vendor key is absent from this environment.");
+  console.log("   If you meant to census production, the main service is `agent402`:");
+  console.log("     railway run --service agent402 node scripts/egress-census.js");
+  console.log("   (`railway run` uses the LINKED service; `railway status` shows which.)\n");
+}
 console.log(`egress census — port ${PORT}\n`);
 
+// Prod's environment points DATA_DIR at /data, a Railway volume that does not
+// exist on a laptop - so `railway run` injects a path the process cannot write
+// and the server dies at boot. Redirect it to a temp dir unless the caller
+// chose one: the census cares about which HOSTS are contacted, not about
+// reading the real cache, and a warm cache would actually suppress the very
+// crawl traffic we are trying to observe.
+const DATA_DIR = process.env.CENSUS_DATA_DIR || join(tmpdir(), `census-data-${process.pid}`);
+mkdirSync(DATA_DIR, { recursive: true });
+
 const child = spawn(process.execPath, ["src/server.js"], {
-  env: { ...process.env, PORT, FREE_MODE: "true", X402_SYNC_ON_START: "false", NODE_OPTIONS: `--require ${PRELOAD}` },
-  stdio: "ignore",
+  env: {
+    ...process.env,
+    PORT, FREE_MODE: "true", X402_SYNC_ON_START: "false",
+    DATA_DIR,
+    INDEX_CACHE_FILE: join(DATA_DIR, "x402-index-cache.json"),
+    NODE_OPTIONS: `--require ${PRELOAD}`,
+  },
+  // Captured, NOT ignored. The first version discarded the child's output and
+  // then reported "server never came up" with no reason - a failure message
+  // that tells you nothing is the same defect this whole audit is about.
+  stdio: ["ignore", "pipe", "pipe"],
 });
+let childLog = "";
+child.stdout.on("data", (d) => { childLog += d; });
+child.stderr.on("data", (d) => { childLog += d; });
+
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const BOOT_TIMEOUT_S = Number(process.env.CENSUS_BOOT_TIMEOUT_S || 120);
 let up = false;
-for (let i = 0; i < 60 && !up; i++) {
+for (let i = 0; i < BOOT_TIMEOUT_S && !up; i++) {
+  if (child.exitCode !== null) break;   // died - stop waiting on a corpse
   try { await fetch(`http://localhost:${PORT}/health`); up = true; } catch { await wait(1000); }
 }
-if (!up) { child.kill("SIGKILL"); console.error("server never came up"); process.exit(1); }
+if (!up) {
+  child.kill("SIGKILL");
+  console.error(`server never came up (waited ${BOOT_TIMEOUT_S}s, exitCode=${child.exitCode})`);
+  const tail = childLog.trim().split("\n").slice(-25).join("\n");
+  console.error(tail ? `\n--- server output (last 25 lines) ---\n${tail}` : "(the server produced no output at all)");
+  console.error(`\nIf this is a path error, the prod env points at a volume this machine lacks.`);
+  console.error(`Data dir used: ${DATA_DIR}`);
+  process.exit(1);
+}
 
 for (const s of SURFACES) { try { await fetch(`http://localhost:${PORT}${s}`); } catch {} }
 const settle = Number(process.env.CENSUS_SETTLE_MS || 60_000);
