@@ -2545,7 +2545,23 @@ function walletShapeOkForChain(chainKey, wallet) {
 // 30-minute cache and is NOT counted here, because /marketplace breaks without
 // it. 120 wallet scans/day is ~240 queries, so the two together stay near
 // $95/month at list price instead of $245.
-const SQL_SCAN_DAILY_BUDGET = Number(process.env.SQL_SCAN_DAILY_BUDGET) || 120;
+// DEFAULT 0 - the paid scanner is OFF unless someone turns it on.
+//
+// The honest arithmetic: these queries power an activity chart on a free
+// seller page. No paid tool handler calls this path, so not one of them is
+// attached to revenue. At 120 scans/day they cost ~$60/month against roughly
+// $50/month of total external revenue - we would be paying more for the chart
+// than the whole business earns.
+//
+// evmActivity produces the same chart from public RPC for nothing. It is
+// slower and its 10k-block scan cap can report a floor ("1,234+") instead of
+// an exact count on the busiest wallets. That is the entire loss, on a free
+// page, and it is worth $60/month several times over.
+//
+// Set SQL_SCAN_DAILY_BUDGET to a positive number to buy exactness back; the
+// budget then behaves exactly as before. Kept rather than deleted because the
+// trade flips the moment revenue does.
+const SQL_SCAN_DAILY_BUDGET = Number(process.env.SQL_SCAN_DAILY_BUDGET) || 0;
 let sqlScanDay = "";
 let sqlScanCount = 0;
 let sqlScanSkipped = 0;

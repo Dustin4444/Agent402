@@ -175,7 +175,20 @@ const usd = (units) => Number(units || 0) / 1e6;
 let cached = null;
 let cachedAt = 0;
 let inFlight = null;
-const ECONOMY_FRESH_MS = 30 * 60 * 1000;
+// 3 hours, not 30 minutes.
+//
+// Every refresh is 3 BILLED CDP SQL queries, and the numbers they fetch are
+// aggregates over 7- and 30-DAY windows. Refreshing a 30-day total every 30
+// minutes is 48 paid rebuilds a day to move a figure by a rounding error: it
+// was ~4,300 queries/month (~$36) for precision nobody can perceive on a
+// dashboard. At 3 hours it is 8 rebuilds a day, ~720/month, ~$6.
+//
+// This is the one paid query we keep: it is the only way to see the WHOLE
+// market (15,323 merchants, $12.7M volume). The leaderboard's free eth_getLogs
+// path can only count wallets we already know from Bazaar - 25 of them - so it
+// cannot answer "how big is x402" at all. Stale-while-revalidate is unchanged,
+// so no visitor waits on the rebuild either way.
+const ECONOMY_FRESH_MS = Number(process.env.ECONOMY_FRESH_MS) || 3 * 60 * 60 * 1000;
 
 // Build the snapshot from scratch — the ~500ms on-chain read. Never throws:
 // per-query failures are collected into out.errors so a partial read still

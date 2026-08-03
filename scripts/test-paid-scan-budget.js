@@ -40,6 +40,13 @@ const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
 
 // 2. The paid path must be budgeted, and the check must come BEFORE the spend.
 ok(/const SQL_SCAN_DAILY_BUDGET/.test(src), "a daily ceiling on paid scans exists");
+
+// The ceiling DEFAULTS TO ZERO. These queries power an activity chart on a
+// free page; no paid tool handler calls the path, so none of the spend is
+// attached to revenue. At 120 scans/day it cost ~$60/month against ~$50/month
+// of total external revenue - more for the chart than the business earns.
+ok(/SQL_SCAN_DAILY_BUDGET\) \|\| 0;/.test(src),
+  "the paid scanner is OFF by default - it must be opted INTO, not out of");
 const baseBranch = src.slice(src.indexOf('if (chainKey === "base")'), src.indexOf('if (chainKey === "base")') + 400);
 ok(/paidScanAllowed\(\)/.test(baseBranch), "the Base branch consults the budget");
 ok(baseBranch.indexOf("paidScanAllowed()") < baseBranch.indexOf("baseActivityViaSql"),
@@ -52,6 +59,18 @@ ok(!/chainActivityByWallet\.clear\(\)/.test(src),
   "the wallet cache no longer clear()s wholesale - that re-billed every warm wallet at once");
 ok(/chainActivityByWallet\.delete\(oldest\)/.test(src),
   "it evicts the oldest single entry instead");
+
+// 4. The one paid query we KEEP must not be re-billed faster than its own data
+//    changes. Its windows are 7 and 30 days; a 30-minute cache meant 48 paid
+//    rebuilds a day to move a figure by a rounding error.
+const econ = readFileSync(new URL("../src/x402-economy.js", import.meta.url), "utf8");
+const em = econ.match(/const ECONOMY_FRESH_MS = [^;]*?(\d+)\s*\*\s*60\s*\*\s*60\s*\*\s*1000/);
+ok(Boolean(em), "the economy snapshot's freshness window is expressed in hours, not minutes");
+const hours = em ? Number(em[1]) : 0;
+ok(hours >= 2,
+  `the snapshot is cached for hours, not minutes (${hours}h) - its data is a 7/30-day aggregate`);
+ok(/stale-while-revalidate|startEconomyRefresh/.test(econ),
+  "and it is still stale-while-revalidate, so no visitor waits on the rebuild");
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
