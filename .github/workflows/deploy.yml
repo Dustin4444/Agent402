@@ -1276,6 +1276,9 @@ jobs:
       - name: Chain names (a rail we take money on must not report as a hex id)
         run: node scripts/test-chain-names.js
 
+      - name: FX failover (a fallback that only fires on ERROR cannot rescue SLOW)
+        run: node scripts/test-fx-failover.js
+
       - name: upto scheme ships dark, refuses what it cannot price
         run: node scripts/test-upto-scheme.js
 
