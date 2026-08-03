@@ -63,6 +63,19 @@ const MAX_USD = Number(arg("--max-usd", process.env.CANARY_MAX_USD || "15"));
 const TOOL_MAX_USD = Number(process.env.CANARY_TOOL_MAX_USD || "0.25");
 const LIMIT = Number(arg("--limit", process.env.CANARY_LIMIT || "0")) || Infinity;
 const DELAY_MS = Number(process.env.CANARY_DELAY_MS || "250");
+// A sweep that buys ~500 tools at 250ms is not representative load: it hits
+// every OpenAI-backed tool back to back, and the upstream throttles. The
+// 2026-08-03 run booked 7 of those as "tool failures" - tts, tts-hd,
+// transcribe, transcribe-pro, embed, embed-large, moderate - when the rail was
+// perfect (0 rail failures, 486 settled) and the handlers were fine.
+//
+// An alarm that reports our own burst as a product defect is worse than no
+// alarm, because the next real defect arrives in a file people have learned to
+// skim. So a throttle gets ONE retry after a real pause, and only a throttle
+// that survives that is reported - as its own class, not as a broken tool.
+const THROTTLE_BACKOFF_MS = Number(process.env.CANARY_THROTTLE_BACKOFF_MS || "8000");
+const isThrottle = (status, body) =>
+  status === 429 || (status === 503 && /rate.?limit|throttl|too many|overload/i.test(String(body || "")));
 const ONLY = String(arg("--slugs", process.env.CANARY_SLUGS || "")).split(",").map((s) => s.trim()).filter(Boolean);
 const DRY = process.env.CANARY_DRY === "1" || args.includes("--dry");
 
@@ -138,7 +151,7 @@ console.log(`catalog: ${tools.length} routes · dry=${DRY} · total cap $${MAX_U
 // skipped   over the per-tool price cap, or the total cap was reached
 const report = {
   target: TARGET, payer: payerAddress, dry: DRY,
-  ok: [], railFail: [], toolFail: [], noAvm: [], skipped: [],
+  ok: [], railFail: [], toolFail: [], throttled: [], noAvm: [], skipped: [],
   spentUsd: 0, startedAt: new Date().toISOString(),
 };
 let processed = 0;
@@ -198,13 +211,21 @@ for (const t of tools) {
     if (s) url += (url.includes("?") ? "&" : "?") + s;
   }
 
-  try {
+  // One complete buy: fresh signature, fresh request. Extracted so a throttled
+  // attempt can be repeated after a backoff. Each call MUST sign again - an AVM
+  // authorization is single-use, so replaying the first payload would be
+  // refused by the replay guard rather than retried.
+  const payOnce = async () => {
     const payload = await client.createPaymentPayload({ ...paymentRequired, accepts });
     const payHeaders = http.encodePaymentSignatureHeader(payload);
-    const paid = await fetch(url, {
+    return fetch(url, {
       ...reqInit,
       headers: { ...reqInit.headers, ...payHeaders, ...heartbeatHeaders(), "Access-Control-Expose-Headers": "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE" },
     });
+  };
+
+  try {
+    const paid = await payOnce();
     const receiptHdr = paid.headers.get("payment-response") || paid.headers.get("x-payment-response");
     let tx = null;
     if (receiptHdr) { try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8")).transaction; } catch { /* best-effort */ } }
@@ -214,6 +235,29 @@ for (const t of tools) {
       // We signed a valid AVM payment and the paywall still refused: the rail
       // itself (facilitator, accept, validity window, opt-in) is broken.
       report.railFail.push({ key, slug: t.slug, usd, reason: `settlement rejected: ${body.slice(0, 160)}` });
+    } else if (isThrottle(paid.status, body)) {
+      // Upstream said "slow down", almost certainly at us: this sweep buys
+      // every tool back to back and hits one vendor repeatedly. Pause properly
+      // and buy again ONCE. A >=400 cancelled settlement, so the first attempt
+      // charged nothing and the retry is a fresh payment that only costs money
+      // if it succeeds.
+      console.log(`WAIT ${key.padEnd(46)} HTTP ${paid.status} (upstream throttle) - retrying in ${THROTTLE_BACKOFF_MS}ms`);
+      await sleep(THROTTLE_BACKOFF_MS);
+      let retried = null, retryBody = "";
+      try {
+        retried = await payOnce();
+        retryBody = await retried.text();
+      } catch (e) { retryBody = String(e?.message || e); }
+      if (retried && retried.status === 200 && retryBody.trim()) {
+        report.ok.push({ key, slug: t.slug, usd, tx: tx || null, bytes: retryBody.length, throttledFirst: true });
+        report.spentUsd += usd;
+        console.log(`OK   ${key.padEnd(46)} $${usd} · recovered after throttle  [${report.ok.length}]`);
+      } else {
+        // Survived a real pause, so it is not just our burst. Reported as its
+        // own class: the handler is fine, the vendor is refusing us.
+        report.throttled.push({ key, slug: t.slug, reason: `HTTP ${retried?.status ?? paid.status} after ${THROTTLE_BACKOFF_MS}ms backoff: ${String(retryBody).slice(0, 140)}` });
+        console.log(`THROTTLED ${key.padEnd(40)} still limited after backoff`);
+      }
     } else if (paid.status !== 200) {
       // A >=400 cancels settlement (see the ordering note in CLAUDE.md), so we
       // were NOT charged — the tool is broken, the rail is fine.
@@ -237,7 +281,8 @@ report.finishedAt = new Date().toISOString();
 const unexpectedNoAvm = report.noAvm.filter((n) => !n.expected);
 
 console.log(`\n=== Algorand rail canary ===`);
-console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · tool failures: ${report.toolFail.length}`);
+const recovered = report.ok.filter((o) => o.throttledFirst).length;
+console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · tool failures: ${report.toolFail.length} · upstream throttles: ${report.throttled.length}${recovered ? ` (${recovered} recovered on retry)` : ""}`);
 console.log(`no AVM accept: ${report.noAvm.length} (${report.noAvm.length - unexpectedNoAvm.length} expected identity-bound, ${unexpectedNoAvm.length} unexpected) · skipped: ${report.skipped.length}`);
 console.log(`spent (recycles to our own payTo): $${report.spentUsd.toFixed(4)}${capped ? "  [TOTAL CAP REACHED]" : ""}`);
 
@@ -250,6 +295,12 @@ if (report.toolFail.length) {
   for (const f of report.toolFail.slice(0, 40)) console.log(`  ${f.key} — ${f.reason}`);
   if (report.toolFail.length > 40) console.log(`  … ${report.toolFail.length - 40} more (see the report artifact)`);
 }
+if (report.throttled.length) {
+  console.log(`\nUPSTREAM THROTTLES (handler fine, vendor refused us even after a backoff):`);
+  for (const f of report.throttled) console.log(`  ${f.key} — ${f.reason}`);
+  console.log(`  NOTE: this sweep buys every tool back to back, which no real buyer does.`);
+  console.log(`  Raise CANARY_DELAY_MS or CANARY_THROTTLE_BACKOFF_MS if this recurs.`);
+}
 if (unexpectedNoAvm.length) {
   console.log(`\nUNEXPECTED: these tools offer no algorand accept and are not identity-bound:`);
   for (const n of unexpectedNoAvm) console.log(`  ${n.key} (${n.slug})`);
@@ -260,6 +311,17 @@ if (OUT) { writeFileSync(OUT, JSON.stringify(report, null, 2)); console.log(`\nw
 // Rail failures and tool failures are both real defects. Unexpected missing
 // accepts mean the rail silently stopped being offered, which is the exact
 // regression this canary exists to catch — all three fail the run.
+//
+// Upstream throttles deliberately do NOT. This sweep buys ~500 tools back to
+// back and hits one vendor repeatedly; no real buyer produces that shape, so a
+// 429 under it is our own load, not a product defect. The 2026-08-03 run failed
+// on exactly this: 7 OpenAI-backed tools reported as broken while the rail was
+// perfect and the handlers were fine.
+//
+// An alarm that reports our own burst as a defect is worse than no alarm,
+// because the next real failure lands in a report people have learned to skim.
+// They are still printed, and a throttle that survives a real backoff is worth
+// reading - it just does not page.
 const bad = report.railFail.length + report.toolFail.length + unexpectedNoAvm.length;
 if (bad) { console.error(`\nFAIL: ${bad} problem(s) on the Algorand rail.`); process.exit(1); }
 console.log(`\nPASS: every attempted tool settled on Algorand and returned a payload.`);

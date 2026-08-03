@@ -505,7 +505,17 @@ function walletPairs({ walletAddress, solanaWallet, stellarWallet, algorandWalle
  *  cold boot or a chain we do not sync would otherwise silently render as
  *  zero settlements. */
 export function ledgerRecent(chain, wallets, { limit = 8 } = {}) {
-  const list = Array.isArray(wallets) ? wallets.filter(Boolean) : [wallets].filter(Boolean);
+  // EVM addresses are stored lowercase by recordTransfer, and WALLET_ADDRESS is
+  // checksummed - so an un-normalised IN clause matches nothing and every rail
+  // silently falls back to the live chain scan. That is exactly what happened:
+  // the ledger path shipped, never engaged once, and the tests passed because
+  // they asserted the FALLBACK worked rather than that the ledger was used.
+  //
+  // ONLY 0x addresses are folded. Solana and Algorand are base58/base32 and
+  // case-SENSITIVE; lowercasing those would merge or lose distinct accounts,
+  // which is the rule src/payer.js states for the same reason.
+  const norm = (w) => (/^0x[0-9a-fA-F]{40}$/.test(String(w)) ? String(w).toLowerCase() : String(w));
+  const list = (Array.isArray(wallets) ? wallets : [wallets]).filter(Boolean).map(norm);
   if (!chain || !list.length) return [];
   try {
     const placeholders = list.map(() => "?").join(",");
