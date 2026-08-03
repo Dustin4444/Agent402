@@ -68,7 +68,33 @@ const SURFACES = [
   "/api/reliability", "/api/rails", "/openapi.json", "/llms.txt", "/.well-known/x402",
 ];
 
+// `railway run` uses whatever service the CLI is LINKED to, and this repo's
+// project has five. Linked to agent402-worker, the injected env carries
+// RENDER_WORKER_TOKEN without RENDER_WORKER_URL - an incomplete pair the
+// server refuses to boot on, by design (src/worker-client.js). That guard is
+// right for a real boot and irrelevant to a census, which only needs the
+// process to start and make outbound calls.
+//
+// Neutralised here rather than worked around by the operator, because the
+// alternative is a tool that fails with a stack trace about render workers
+// when the actual problem is which service you are linked to.
+if (process.env.RENDER_WORKER_TOKEN && !process.env.RENDER_WORKER_URL) {
+  delete process.env.RENDER_WORKER_TOKEN;
+  console.log("note: dropped RENDER_WORKER_TOKEN (set without RENDER_WORKER_URL) so the server can boot for the census.\n");
+}
+
 const blind = METERED.filter(([, env]) => !process.env[env]);
+
+// The wrong-service check. If EVERY metered key is missing, this is almost
+// certainly not the main app's environment - and without saying so, the run
+// would produce a truthful-looking "8 of 8 unobservable" that reads like a
+// tooling limitation rather than "you are pointed at the wrong service".
+if (blind.length === METERED.length) {
+  console.log("⚠  every metered vendor key is absent from this environment.");
+  console.log("   If you meant to census production, the main service is `agent402`:");
+  console.log("     railway run --service agent402 node scripts/egress-census.js");
+  console.log("   (`railway run` uses the LINKED service; `railway status` shows which.)\n");
+}
 console.log(`egress census — port ${PORT}\n`);
 
 // Prod's environment points DATA_DIR at /data, a Railway volume that does not
