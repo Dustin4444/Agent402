@@ -52,6 +52,7 @@ import { whatIsMppPage } from "./what-is-mpp.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
+import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
@@ -952,6 +953,13 @@ for (const [route, def] of Object.entries(CATALOG)) {
   }
 }
 
+// Count every outbound request by host, from boot onward. Cheap (one Map
+// increment), host-only (never a URL, so no buyer input is retained), and
+// self-resetting daily. This exists because three cost leaks were each found
+// by an invoice: they all looked like ordinary traffic until someone totalled
+// it up, and nothing was totalling it up.
+installEgressMeter();
+
 const app = express();
 // Drop the Express fingerprint header (security audit A402-13): no reason to
 // advertise the stack to every caller.
@@ -1820,6 +1828,11 @@ function operatorHeavyLimited(req, res) {
 
 const LEDGER_SYNC_TTL_MS = 15_000;
 let ledgerSyncCache = { at: 0, value: null };
+app.get("/__operator/egress.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  // Cheap read of an in-memory counter - no upstream, so no heavy-route limiter.
+  res.set("Cache-Control", "no-store").json(egressReport({ top: Math.min(200, parseInt(req.query.top, 10) || 60) }));
+});
 app.get("/__operator/ledger-sync.json", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   if (operatorHeavyLimited(req, res)) return;

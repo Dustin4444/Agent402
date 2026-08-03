@@ -1285,6 +1285,9 @@ jobs:
       - name: Metered upstreams (nothing that bills per call is reachable unbounded)
         run: node scripts/test-metered-upstreams.js
 
+      - name: Egress meter (cheap, safe, host-only, never throws on the hot path)
+        run: node scripts/test-egress-meter.js
+
       - name: upto scheme ships dark, refuses what it cannot price
         run: node scripts/test-upto-scheme.js
 
