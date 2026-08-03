@@ -1,0 +1,97 @@
+#!/usr/bin/env node
+// A metered upstream must not be reachable from a surface that earns nothing.
+//
+//   node scripts/test-metered-upstreams.js          (offline, source scan)
+//
+// WHY: this defect has now happened three times, to three different vendors,
+// and each time it was found by an invoice rather than by us.
+//
+//   Alchemy  (2026-07-20) crawler traffic on /revenue and /marketplace kept a
+//            60s snapshot cache permanently warm: ~1,440 full RPC scans/day,
+//            the dominant driver of the compute-unit bill. Fixed by a 10-min
+//            TTL.
+//   Brave    (2026-08-02) CI's own test sweep bought live web searches through
+//            a tool that called a search HANDLER in-process. ~1,100/month.
+//   CDP SQL  (2026-08-03) `/<chain>?seller=<host>` ran two BILLED SQL queries
+//            per distinct seller wallet, from a public unauthenticated page,
+//            over a roster of ~2,300. 29,589 queries, $245.59 in one month,
+//            against roughly $50 of revenue.
+//
+// The shape is always the same: something that costs money per call, reachable
+// from a surface with no payment attached - a page, a crawler, a background
+// refresh, a test - and no bound between them.
+//
+// A paid TOOL handler calling a metered upstream is fine and needs no entry
+// here: the buyer paid, the margin was checked, revenue is attached. Everything
+// else must declare what bounds it.
+import { readFileSync, readdirSync } from "node:fs";
+
+let pass = 0, fail = 0;
+const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
+
+// Hosts that bill per request. Adding one here is how a new vendor joins the
+// guard; it is deliberately a hostname list rather than a package list,
+// because the thing that costs money is the request, not the SDK.
+const METERED = [
+  "api.search.brave.com",
+  "api.cdp.coinbase.com",
+  "api.openai.com",
+  "openrouter.ai",
+  "e2b.dev",
+  "api.neynar.com",
+  "alchemy.com",
+];
+
+// Non-tool files allowed to reach a metered host, each with the bound that
+// makes it safe. An entry without a real bound is the bug this test exists to
+// prevent, so the bound is asserted in the source, not just described here.
+const ALLOWED = {
+  "x402-economy.js": { why: "whole-market snapshot; only paid query kept", bound: /ECONOMY_FRESH_MS/ },
+  "revenue-live.js": { why: "rail snapshot RPC fan-out", bound: /SNAPSHOT_TTL_MS/ },
+  "leaderboard.js": { why: "leaderboard scan", bound: /CACHE|TTL|cached/i },
+  "x402-index.js": { why: "registry discovery poll", bound: /DISCOVERY_INTERVAL_MS/ },
+  "landing.js": { why: "unused legacy page (not mounted)", bound: /./ },
+  "server.js": { why: "wallet activity scan", bound: /SQL_SCAN_DAILY_BUDGET/ },
+};
+
+const dir = new URL("../src/", import.meta.url);
+const files = readdirSync(dir).filter((f) => f.endsWith(".js"));
+const offenders = [];
+for (const f of files) {
+  const src = readFileSync(new URL(f, dir), "utf8");
+  const hit = METERED.find((h) => src.includes(h));
+  if (!hit) continue;
+  const rule = ALLOWED[f];
+  if (!rule) { offenders.push(`${f} reaches ${hit} with no declared bound`); continue; }
+  if (!rule.bound.test(src)) offenders.push(`${f} is allowed for "${rule.why}" but its bound is missing from the source`);
+}
+ok(offenders.length === 0,
+  `every non-tool file reaching a metered upstream declares a bound${offenders.length ? `:\n     ${offenders.join("\n     ")}` : ""}`);
+
+// The guard must actually be looking at something - an empty scan would pass
+// silently, which is the vacuous-green failure this codebase keeps producing.
+const reaching = files.filter((f) => {
+  const src = readFileSync(new URL(f, dir), "utf8");
+  return METERED.some((h) => src.includes(h));
+});
+ok(reaching.length >= 4,
+  `the scan found ${reaching.length} non-tool files touching a metered host (sanity: it is not blind)`);
+
+// The three specific bounds that were each added AFTER an invoice. Losing any
+// one of them re-opens a leak that has already cost real money.
+const server = readFileSync(new URL("server.js", dir), "utf8");
+ok(/SQL_SCAN_DAILY_BUDGET\) \|\| 0;/.test(server),
+  "CDP wallet scans stay OFF by default (the $245.59 lesson)");
+const rev = readFileSync(new URL("revenue-live.js", dir), "utf8");
+// The TTL is written as an expression (`10 * 60_000`), not a literal, so parse
+// the minutes multiplier rather than a bare number - the first version of this
+// assertion captured nothing and reported 0s against correct code.
+const mins = Number((rev.match(/SNAPSHOT_TTL_MS[^;]*\|\|\s*(\d+)\s*\*\s*60_?000/) || [])[1] || 0);
+ok(mins >= 5,
+  `the revenue snapshot TTL stays minutes, not seconds (${mins} min) - 60s let crawlers keep it permanently warm`);
+const econ = readFileSync(new URL("x402-economy.js", dir), "utf8");
+ok(/ECONOMY_FRESH_MS[^;]*60 \* 60 \* 1000/.test(econ),
+  "the economy snapshot is cached in hours - its data is a 7/30-day aggregate");
+
+console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

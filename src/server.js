@@ -2526,13 +2526,75 @@ function walletShapeOkForChain(chainKey, wallet) {
 // aggregation query, no 10k scan cap, ~0.5s) and falls back to the RPC transfer
 // scan on ANY error (no CDP creds, rejected query, timeout) so the panel never
 // breaks. Other chains use their existing scanners.
+// A hard daily ceiling on PAID on-chain scans.
+//
+// Base activity uses CDP SQL, which is billed per query at $0.0083 - and the
+// route that triggers it, `/<chain>?seller=<host>`, is public and takes an
+// arbitrary seller from a roster of ~2,300. One crawler walking that roster
+// costs ~4,600 billed queries. July 2026: 29,589 SQL queries, $245.59, against
+// roughly $50 of revenue that month. robots.txt now disallows the seller-scoped
+// URLs, but robots.txt is a request, not a control, and the next crawler that
+// ignores it must not be able to spend money.
+//
+// So the paid path gets a budget and the FREE path is the fallback. This is
+// not a degradation to an error - evmActivity is the same scanner Base used
+// before CDP SQL existed and is already wired as the error path below. Past
+// the ceiling the panel still renders, just via RPC instead of SQL.
+//
+// Sized deliberately: the economy snapshot needs ~144 queries/day on its own
+// 30-minute cache and is NOT counted here, because /marketplace breaks without
+// it. 120 wallet scans/day is ~240 queries, so the two together stay near
+// $95/month at list price instead of $245.
+// DEFAULT 0 - the paid scanner is OFF unless someone turns it on.
+//
+// The honest arithmetic: these queries power an activity chart on a free
+// seller page. No paid tool handler calls this path, so not one of them is
+// attached to revenue. At 120 scans/day they cost ~$60/month against roughly
+// $50/month of total external revenue - we would be paying more for the chart
+// than the whole business earns.
+//
+// evmActivity produces the same chart from public RPC for nothing. It is
+// slower and its 10k-block scan cap can report a floor ("1,234+") instead of
+// an exact count on the busiest wallets. That is the entire loss, on a free
+// page, and it is worth $60/month several times over.
+//
+// Set SQL_SCAN_DAILY_BUDGET to a positive number to buy exactness back; the
+// budget then behaves exactly as before. Kept rather than deleted because the
+// trade flips the moment revenue does.
+const SQL_SCAN_DAILY_BUDGET = Number(process.env.SQL_SCAN_DAILY_BUDGET) || 0;
+let sqlScanDay = "";
+let sqlScanCount = 0;
+let sqlScanSkipped = 0;
+function paidScanAllowed() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== sqlScanDay) { sqlScanDay = today; sqlScanCount = 0; sqlScanSkipped = 0; }
+  if (sqlScanCount >= SQL_SCAN_DAILY_BUDGET) {
+    sqlScanSkipped++;
+    // Loud once per 50 so an exhausted budget is visible in logs rather than
+    // silently changing which scanner served the page.
+    if (sqlScanSkipped % 50 === 1) {
+      console.warn(`[market] paid SQL scan budget spent (${SQL_SCAN_DAILY_BUDGET}/day) - serving Base activity via the free RPC scanner; ${sqlScanSkipped} skipped today`);
+    }
+    return false;
+  }
+  sqlScanCount++;
+  return true;
+}
+/** Budget state, for the operator surface. */
+export function paidScanBudgetState() {
+  return { day: sqlScanDay, used: sqlScanCount, budget: SQL_SCAN_DAILY_BUDGET, skipped: sqlScanSkipped };
+}
+
 async function scanActivity(chainKey, wallet) {
   if (chainKey === "solana") return solanaActivity(wallet);
   if (chainKey === "robinhood") return robinhoodActivity(wallet);
   if (chainKey === "base") {
-    const viaSql = await baseActivityViaSql(wallet).catch(() => null);
-    if (viaSql && !viaSql.error) return viaSql; // exact + fast
-    return evmActivity("base", wallet);          // fail-safe fallback
+    // Budget checked BEFORE the query, not after: the point is to not spend.
+    if (paidScanAllowed()) {
+      const viaSql = await baseActivityViaSql(wallet).catch(() => null);
+      if (viaSql && !viaSql.error) return viaSql; // exact + fast
+    }
+    return evmActivity("base", wallet);          // free fallback, always available
   }
   return evmActivity(chainKey, wallet);
 }
@@ -2545,7 +2607,16 @@ async function scanActivity(chainKey, wallet) {
 async function getActivityForChain(chainKey, wallet) {
   if (!walletShapeOkForChain(chainKey, wallet)) return null;
   const key = `${chainKey}:${wallet}`;
-  if (chainActivityByWallet.size > 500) chainActivityByWallet.clear(); // safety sweep
+  // Evict the OLDEST entry, never the whole table. clear() at 500 meant that
+  // crossing the threshold threw away 500 warm wallets at once, and with ~2,300
+  // indexed sellers the roster crosses it routinely - so every wallet went cold
+  // together and the next crawl re-ran a PAID query for each. A cache that
+  // empties itself under load is a cache that bills you for its own eviction
+  // policy. Map preserves insertion order, so the first key is the oldest.
+  if (chainActivityByWallet.size > 500) {
+    const oldest = chainActivityByWallet.keys().next().value;
+    if (oldest !== undefined) chainActivityByWallet.delete(oldest);
+  }
   let entry = chainActivityByWallet.get(key);
   if (!entry) { entry = { at: 0, value: null, inFlight: null }; chainActivityByWallet.set(key, entry); }
   const stale = Date.now() - entry.at >= CHAIN_ACTIVITY_TTL_MS;
