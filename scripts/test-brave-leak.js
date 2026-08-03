@@ -163,5 +163,23 @@ ok(e2bStale.length === 0, `no stale E2B_ROUTES entries${e2bStale.length ? ` (fou
   ok(normalized.length === queries.length, "every input still gets a response entry");
 }
 
+// 6. Every billed Brave request must name the tool that made it.
+//    `caller` used to default to "unknown", and two call sites quietly took it
+//    for weeks - search-news and search-videos. On the day the Brave dashboard
+//    was reconciled, 3 of 18 billed Search requests could not be attributed to
+//    any tool. Spend nobody can name is the shape that hid every cost leak
+//    found in this cycle.
+const searchSrc = readFileSync(new URL("../src/tools/search.js", import.meta.url), "utf8");
+// `await braveGet(` only - matching bare "braveGet(" also catches the function
+// DEFINITION, which of course has no literal caller argument and made this
+// assertion fail against correct code.
+const calls = [...searchSrc.matchAll(/await braveGet\((?:[^()]|\([^()]*\)|\{[^{}]*\})*\)/gs)].map((m) => m[0]);
+ok(calls.length >= 5, `found the braveGet call sites to check (${calls.length})`);
+const unnamed = calls.filter((c) => !/,\s*"[a-z-]+"\s*\)\s*$/.test(c.trim()));
+ok(unnamed.length === 0,
+  `every braveGet call names its caller${unnamed.length ? `:\n     ${unnamed.map((c) => c.slice(0, 60).replace(/\s+/g, " ")).join("\n     ")}` : ""}`);
+ok(!/caller = "unknown"/.test(searchSrc),
+  'the "unknown" default is gone - omitting a caller must be visible, not silent');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
