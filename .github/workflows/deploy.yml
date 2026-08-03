@@ -1279,6 +1279,9 @@ jobs:
       - name: FX failover (a fallback that only fires on ERROR cannot rescue SLOW)
         run: node scripts/test-fx-failover.js
 
+      - name: Paid scan budget (a public route must not spend without limit)
+        run: node scripts/test-paid-scan-budget.js
+
       - name: upto scheme ships dark, refuses what it cannot price
         run: node scripts/test-upto-scheme.js
 

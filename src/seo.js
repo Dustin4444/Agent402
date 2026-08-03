@@ -17,13 +17,30 @@ export function robotsTxt(baseUrl) {
     "PerplexityBot", "Google-Extended", "Googlebot", "Bingbot", "Applebot", "Applebot-Extended",
     "CCBot", "Bytespider", "Amazonbot", "cohere-ai", "Meta-ExternalAgent", "DuckDuckBot",
   ];
-  const blocks = agents.map((a) => `User-agent: ${a}\nAllow: /`).join("\n\n");
+  // COST, not secrecy, is why the seller-scoped market views are disallowed.
+  // `/<chain>?seller=<host>` and `/api/market/<chain>/panel` run a per-wallet
+  // on-chain activity scan, and on Base that scan is a PAID CDP SQL query -
+  // two of them per distinct wallet. With ~2,300 indexed sellers, one crawler
+  // walking the seller roster costs ~4,600 billed queries, and every crawler
+  // above is explicitly welcomed. July 2026 billed 29,589 SQL queries
+  // ($245.59) against roughly $50 of revenue in the same month; the seller
+  // roster is the only surface that multiplies a page view by a paid query.
+  //
+  // The pages themselves stay indexable - only the seller-SCOPED variants are
+  // disallowed, so /base, /solana and /marketplace keep all their SEO value
+  // while the parameter that costs money per crawl does not.
+  const costly = [
+    "Disallow: /*?seller=",
+    "Disallow: /api/market/",
+  ].join("\n");
+  const blocks = agents.map((a) => `User-agent: ${a}\nAllow: /\n${costly}`).join("\n\n");
   return `${blocks}
 
 User-agent: *
 Allow: /
 Disallow: /api/memory
 Disallow: /__operator
+${costly}
 
 # Machine-readable catalogs for agents: ${baseUrl}/llms.txt , ${baseUrl}/openapi.json , ${baseUrl}/api/pricing , ${baseUrl}/api/cacheable , ${baseUrl}/.well-known/x402 , ${baseUrl}/api/reliability , ${baseUrl}/api/find?q={task} , ${baseUrl}/api/route , ${baseUrl}/api/leaderboard
 Sitemap: ${baseUrl}/sitemap.xml
