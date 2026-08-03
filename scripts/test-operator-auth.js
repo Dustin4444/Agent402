@@ -123,6 +123,29 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
   }
   ok(saw429, "login is rate-limited — a burst of attempts eventually 429s");
 
+  // 6b. The two operator diagnostics that fan out to THIRD PARTIES are rate-
+  //     limited, not merely authenticated. Auth bounds who can call them; it
+  //     does not bound how often, and both fire live RPC / on-chain reads.
+  //     CodeQL js/missing-rate-limiting flagged ledger-sync.json (alert #81);
+  //     discovery-gap.json has the identical shape and was not flagged, so it
+  //     is asserted here too - the scanner finds instances, and the defect is
+  //     the class.
+  for (const route of ["/__operator/ledger-sync.json", "/__operator/discovery-gap.json"]) {
+    const first = await status(route, { headers: bearer });
+    ok(first === 200 || first === 429,
+      `${route} answers an authed operator (got ${first})`);
+    let limited = false;
+    for (let i = 0; i < 45; i++) {
+      if ((await status(route, { headers: bearer })) === 429) { limited = true; break; }
+    }
+    ok(limited, `${route} 429s a burst - a cache bounds the UPSTREAM, this bounds the CALLER`);
+  }
+  // The bound must not have leaked onto the cheap operator pages: locking an
+  // operator out of their own dashboard during an incident would be worse than
+  // the abuse it prevents.
+  ok((await status("/__operator/stats", { headers: bearer })) === 200,
+    "the heavy-route limiter does not spill onto the cheap operator endpoints");
+
   // 7. No token ever appeared in a request-line the server logged.
   ok(!serverLog.includes(TOKEN), "the operator token never appears in server logs");
 

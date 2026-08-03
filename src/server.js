@@ -1750,6 +1750,9 @@ app.get("/__operator/wishes", (req, res) => {
 // of intelligence /api/sales and the analytics table were reduced for.
 app.get("/__operator/discovery-gap.json", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  // Same bound as ledger-sync.json: this one reaches the on-chain economy
+  // snapshot. CodeQL flagged only its sibling; the shape is identical.
+  if (operatorHeavyLimited(req, res)) return;
   res.set("Cache-Control", "no-store, private").set("Vary", "Cookie, Authorization");
   try {
     const econ = await x402EconomySnapshot();
@@ -1786,10 +1789,40 @@ app.get("/__operator/wishes.json", (req, res) => {
 // that had the self-check re-billing Brave. Operator auth bounds WHO can do
 // that; it does not bound how often. Cursor positions do not move faster than
 // this window anyway, so the cache costs no accuracy. (CodeQL js/missing-rate-limiting.)
+// Operator diagnostics that reach OUTSIDE the process get a request-rate bound
+// as well as a cache. The two are different guarantees and both are load-
+// bearing: the cache bounds how often we hit an upstream, the limiter bounds
+// how much work a caller can queue against this process. Auth bounds WHO, and
+// that was the only bound here (CodeQL js/missing-rate-limiting on
+// ledger-sync.json, alert #81).
+//
+// Applied to BOTH expensive operator routes rather than only the flagged one.
+// The scanner found one instance; the shape is "operator route that fans out
+// to a third party", and discovery-gap.json has it too.
+//
+// Generous on purpose: these are human-driven diagnostics, and a limit that
+// locks an operator out of their own dashboard during an incident is worse
+// than the abuse it prevents.
+const operatorHeavyLimiter = createRateLimiter("operator-heavy", { perMin: 30, perHour: 300 });
+function operatorHeavyLimited(req, res) {
+  // Same derivation the MCP transport limiter uses: req.ip honours the app's
+  // "trust proxy" setting, so behind Railway this is the real client rather
+  // than the proxy. clientIp() does not exist in this file - referencing it
+  // passed `node --check` and would have thrown on the first request, which is
+  // the second time today a helper was called before it existed.
+  const ip = (req.ip || req.socket?.remoteAddress || "?").trim();
+  if (!operatorHeavyLimiter.check(ip).limited) return false;
+  res.status(429).set("Retry-After", "60").json({
+    error: "Too many diagnostic requests - this endpoint fans out to third-party RPCs. Retry in a minute.",
+  });
+  return true;
+}
+
 const LEDGER_SYNC_TTL_MS = 15_000;
 let ledgerSyncCache = { at: 0, value: null };
 app.get("/__operator/ledger-sync.json", async (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
   res.set("Cache-Control", "no-store");
   if (ledgerSyncCache.value && Date.now() - ledgerSyncCache.at < LEDGER_SYNC_TTL_MS) {
     return res.json({ ...ledgerSyncCache.value, cached: true });
