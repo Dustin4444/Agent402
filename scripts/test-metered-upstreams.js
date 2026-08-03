@@ -87,8 +87,11 @@ const rev = readFileSync(new URL("revenue-live.js", dir), "utf8");
 // the minutes multiplier rather than a bare number - the first version of this
 // assertion captured nothing and reported 0s against correct code.
 const mins = Number((rev.match(/SNAPSHOT_TTL_MS[^;]*\|\|\s*(\d+)\s*\*\s*60_?000/) || [])[1] || 0);
-ok(mins >= 5,
-  `the revenue snapshot TTL stays minutes, not seconds (${mins} min) - 60s let crawlers keep it permanently warm`);
+// Raised from >=5 after a production census measured 221 Alchemy calls per
+// refresh: at a 10-minute TTL that is ~955,000 billed calls/month for a page
+// with no revenue attached. The floor is the lesson, so it moves with it.
+ok(mins >= 30,
+  `the revenue snapshot TTL is at least 30 min (${mins} min) - 221 Alchemy calls per refresh means a short TTL is ~1M calls/month`);
 const econ = readFileSync(new URL("x402-economy.js", dir), "utf8");
 ok(/ECONOMY_FRESH_MS[^;]*60 \* 60 \* 1000/.test(econ),
   "the economy snapshot is cached in hours - its data is a 7/30-day aggregate");

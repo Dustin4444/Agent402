@@ -1064,7 +1064,29 @@ function persistLastGood(rails) {
 // and refreshes in the background); only the card's freshness changes, on a
 // surface that already labels carried-forward data "live · cached". Env
 // override for ops experiments.
-const SNAPSHOT_TTL_MS = parseInt(process.env.REVENUE_SNAPSHOT_TTL_MS, 10) || 10 * 60_000;
+// 60 minutes (was 10, was 60s before that).
+//
+// MEASURED, not estimated: an egress census run against production recorded
+// 221 Alchemy RPC calls from this file in a single refresh - the fan-out of
+// chunked eth_getLogs across six EVM rails. At a 10-minute TTL, crawler traffic
+// on /revenue, /marketplace and the chain pages keeps the cache permanently
+// warm, which is up to 144 refreshes a day: roughly 955,000 billed calls a
+// month, for a page that earns nothing.
+//
+// This is the third time this exact shape has been paid for. It was 60s until
+// July (~9.5M/month), then 10 minutes, and the 10 was still chosen by feel
+// rather than by measurement. 60 minutes is 83% fewer than 10, and the card
+// already labels carried-forward data "live · cached" - the honesty mechanism
+// for staleness exists precisely so this number can be tuned for cost.
+//
+// Visitor latency is unaffected either way: stale-while-revalidate below serves
+// the cached object instantly and refreshes in the background. What changes is
+// only how old the rail balances may be, on a surface that says so.
+//
+// The real fix is to stop re-scanning chains we already index - src/revenue-
+// ledger.js persists every settlement - but that is a rewrite of where the
+// snapshot's numbers come from, not a constant. Filed rather than rushed.
+const SNAPSHOT_TTL_MS = parseInt(process.env.REVENUE_SNAPSHOT_TTL_MS, 10) || 60 * 60_000;
 export async function revenueSnapshot(opts) {
   if (cached && Date.now() - cachedAt < SNAPSHOT_TTL_MS) return cached;
   if (!refreshing) {
