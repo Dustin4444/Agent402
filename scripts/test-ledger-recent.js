@@ -32,6 +32,24 @@ try {
 } catch (e) { threw = e; }
 ok(!threw, `never throws on the render path (${threw?.message || "no throw"})`);
 
+// THE ASSERTION THAT WAS MISSING. The original 11 all passed while the ledger
+// path was never taken once in production: EVM addresses are stored lowercase
+// and WALLET_ADDRESS is checksummed, so the IN clause matched nothing and every
+// rail fell back to the live scan. Testing that a fallback works is not testing
+// that the feature works.
+const ledgerSrc = readFileSync(new URL("../src/revenue-ledger.js", import.meta.url), "utf8");
+const fn = ledgerSrc.slice(ledgerSrc.indexOf("export function ledgerRecent"), ledgerSrc.indexOf("export function ledgerSyncState"));
+ok(/toLowerCase\(\)/.test(fn),
+  "ledgerRecent normalises EVM wallet case - a checksummed address must match a lowercased row");
+ok(/0x\[0-9a-fA-F\]\{40\}/.test(fn),
+  "...and only for 0x addresses - base58/base32 are case-sensitive and must never be folded");
+
+// Case-insensitivity for EVM, proven behaviourally rather than by reading code.
+const mixed = ledgerRecent("base", ["0xAbF4FaBd7C416Fb67202E5F9002389fC75E2A9d0"]);
+const lower = ledgerRecent("base", ["0xabf4fabd7c416fb67202e5f9002389fc75e2a9d0"]);
+ok(mixed.length === lower.length,
+  `a checksummed and a lowercased address return the same rows (${mixed.length} vs ${lower.length})`);
+
 const live = readFileSync(new URL("../src/revenue-live.js", import.meta.url), "utf8");
 
 // 2. THE SAFETY PROPERTY. An empty ledger must route to the live scan. If it

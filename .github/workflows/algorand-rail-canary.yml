@@ -28,6 +28,10 @@ on:
         description: "Set to 'true' to preview (quotes only, no payments)"
         required: false
         default: "false"
+      slugs:
+        description: "Comma-separated slugs to test ONLY (blank = full sweep). Use this to re-verify a fix without re-buying all ~500 tools."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -61,6 +65,10 @@ jobs:
           CANARY_MAX_USD: ${{ inputs.max_usd || '15' }}
           CANARY_TOOL_MAX_USD: ${{ inputs.tool_max_usd || '0.25' }}
           CANARY_DRY: ${{ inputs.dry == 'true' && '1' || '0' }}
+          # Targeted re-test. The full sweep buys ~500 tools; confirming one
+          # upstream came back should not cost that. The script already
+          # supported --slugs, the workflow just never exposed it.
+          CANARY_SLUGS: ${{ inputs.slugs || '' }}
         run: |
           if [ -z "$ALGORAND_BURNER_MNEMONIC" ] && [ "$CANARY_DRY" != "1" ]; then
             echo "No ALGORAND_BURNER_MNEMONIC secret — cannot run the paid sweep."
