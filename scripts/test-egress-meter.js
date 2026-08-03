@@ -8,7 +8,7 @@
 // totalling it up. This meter runs in production on the hot path of every
 // outbound call, so the properties that keep it safe there matter as much as
 // the counting.
-import { recordEgress, egressReport, __resetEgressMeter } from "../src/egress-meter.js";
+import { recordEgress, egressReport, needsCaller, __resetEgressMeter } from "../src/egress-meter.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -76,6 +76,23 @@ ok(hostFields.every((h) => !/[/?#]/.test(h)),
   `no host field contains a path, query or fragment (${hostFields.join(", ")})`);
 ok(hostFields.every((h) => !/^https?:/.test(h)),
   "hosts are stored bare, not as URLs");
+
+// 6. COST. This wraps every outbound call, so it must be cheap once a host is
+//    known. The first version built `new Error().stack` on EVERY call while its
+//    own comment claimed "one Map lookup and an integer increment" - at boot the
+//    index crawler makes hundreds of requests and it pushed startup past the
+//    20s budget in scripts/test-shutdown.js. CI caught what the comment denied.
+__resetEgressMeter();
+const N = 100_000;
+const t0 = Date.now();
+for (let i = 0; i < N; i++) {
+  recordEgress("hot.test", needsCaller("hot.test") ? () => new Error().stack : null);
+}
+const ms = Date.now() - t0;
+ok(ms < 2000, `${N} records in ${ms}ms - the hot path stays cheap once a host is known`);
+const hot = egressReport().hosts.find((h) => h.host === "hot.test");
+ok(hot.calls === N, "every call is still counted");
+ok(hot.callers.length <= 4, `attribution stops after a few samples (${hot.callers.length})`);
 
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

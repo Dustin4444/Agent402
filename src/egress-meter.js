@@ -13,7 +13,10 @@
 // traffic until someone totalled it up; this totals it up continuously.
 //
 // DESIGN CONSTRAINTS, because this sits on the hot path of every outbound call:
-//   * O(1) per request - one Map lookup and an integer increment
+//   * O(1) per request ONCE a host is known - one Map lookup and an integer
+//     increment. A stack trace is materialised only until a host has four
+//     attributions, because building one per call is expensive enough to slow
+//     boot measurably (it did, and the shutdown test caught it).
 //   * never throws: a metering bug must not break a tool call. Every hook is
 //     wrapped, and on any internal error it degrades to a plain pass-through
 //   * no URLs, no paths, no query strings retained. Host only. A full URL log
@@ -56,6 +59,18 @@ function callerOf(stack) {
   return "?";
 }
 
+const MAX_CALLERS = 4;
+
+/** Record one outbound call.
+ *
+ *  `stack` may be a STRING or a FUNCTION returning one. Prefer the function:
+ *  materialising a stack trace is by far the most expensive thing here, and it
+ *  is only needed until a host has MAX_CALLERS attributions. The first version
+ *  of this took a string and the fetch hook built it with `new Error().stack`
+ *  on EVERY call - the comment above claimed "one Map lookup and an integer
+ *  increment" while actually capturing a stack trace per request. At boot the
+ *  index crawler makes hundreds of requests and it pushed startup past the
+ *  20s budget in scripts/test-shutdown.js, which is how it was caught. */
 export function recordEgress(host, stack) {
   try {
     if (!host) return;
@@ -68,8 +83,21 @@ export function recordEgress(host, stack) {
     }
     e.n++;
     e.lastAt = Date.now();
-    if (e.callers.size < 4) e.callers.add(callerOf(stack));
+    // The hot path for a host we already know: increment and leave. No Error
+    // is constructed, which is the whole point.
+    if (e.callers.size >= MAX_CALLERS) return;
+    const s = typeof stack === "function" ? stack() : stack;
+    e.callers.add(callerOf(s));
   } catch { /* metering must never break a request */ }
+}
+
+/** Does this host still need attribution? Lets a caller skip building a stack
+ *  entirely, rather than building one and having it discarded. */
+export function needsCaller(host) {
+  try {
+    const e = counts.get(host);
+    return !e || e.callers.size < MAX_CALLERS;
+  } catch { return false; }
 }
 
 /** Install the hooks. Idempotent; safe to call once at boot. */
@@ -85,7 +113,9 @@ export function installEgressMeter() {
         if (typeof input === "string") h = new URL(input).host;
         else if (input instanceof URL) h = input.host;
         else if (input && typeof input.url === "string") h = new URL(input.url).host;
-        if (h) recordEgress(h, new Error().stack);
+        // Lazy: the stack is only materialised while this host still needs
+        // attribution. Building it unconditionally is what slowed boot.
+        if (h) recordEgress(h, needsCaller(h) ? () => new Error().stack : null);
       } catch { /* an unparseable input is the caller's problem, not ours */ }
       return origFetch.apply(this, arguments);
     };
