@@ -430,8 +430,35 @@ async function evmRail(name, wallet) {
     const balHex = await rpcCall(cheapRpcs, "eth_call", [{ to: c.token, data: "0x70a08231" + pad(wallet).slice(2) }, "latest"]);
     out.balance = Number(BigInt(balHex && balHex !== "0x" ? balHex : "0x0")) / 1e6;
     const latest = parseInt(await rpcCall(cheapRpcs, "eth_blockNumber", []), 16);
-    const { recent, missed, chunks } = await recentInbound(c, wallet, latest);
+
+    // Prefer the ledger. These transfers are already indexed by the background
+    // revenue sync; re-deriving them here meant chunked eth_getLogs on every
+    // snapshot refresh - 221 Alchemy calls per refresh, measured by a
+    // production egress census, up to 144 times a day under crawler traffic.
+    //
+    // Falls back to the live scan when the ledger has nothing for this chain,
+    // which is the honest reading of an empty result: a cold boot or an
+    // unsynced chain must not render as "no settlements". The fallback is the
+    // exact code that ran before, so the worst case is the old behaviour.
+    // Imported LAZILY, inside the async call, not at module scope.
+    // revenue-ledger.js already imports this file, so a static import here
+    // closes a cycle and the server dies at boot with "Cannot access
+    // ALGORAND_INDEXER_BASES before initialization" - verified, not guessed.
+    // By the time a rail is scanned both modules are fully evaluated, so a
+    // dynamic import resolves cleanly. Same class of cycle that took the
+    // marketplace down earlier today, same fix shape.
+    let ledgerRows = [];
+    try {
+      const { ledgerRecent } = await import("./revenue-ledger.js");
+      ledgerRows = ledgerRecent(c.ledgerChain || name, wallet, { limit: 8 });
+    } catch { /* ledger unavailable -> live scan below */ }
+    let recent = ledgerRows.map((t) => ({ ...t, tx: t.txHash ? c.tx(t.txHash) : null }));
+    let missed = 0, chunks = 0, viaLedger = recent.length > 0;
+    if (!viaLedger) {
+      ({ recent, missed, chunks } = await recentInbound(c, wallet, latest));
+    }
     out.recent = recent;
+    out.recentSource = viaLedger ? "ledger" : "chain-scan";
     out.externalUsd = Number(recent.filter((t) => t.external).reduce((s, t) => s + t.usd, 0).toFixed(6));
     out.windowBlocks = c.span;
     if (missed) out.scanNote = `transfer scan partial: ${missed}/${chunks} windows unavailable from public RPCs (balance is live)`;

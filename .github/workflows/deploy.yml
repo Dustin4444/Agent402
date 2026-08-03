@@ -1288,6 +1288,9 @@ jobs:
       - name: Egress meter (cheap, safe, host-only, never throws on the hot path)
         run: node scripts/test-egress-meter.js
 
+      - name: Ledger-backed rail transfers (empty ledger must fall back, never render zero)
+        run: node scripts/test-ledger-recent.js
+
       - name: upto scheme ships dark, refuses what it cannot price
         run: node scripts/test-upto-scheme.js
 
