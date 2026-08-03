@@ -232,9 +232,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   self-heals). Residual: a boot-dropped rail returns only on the next restart; a mid-run-
   dead rail stays advertised until then (isolated, self-healing on recovery).
   `scripts/test-supported-guard.js` (16 assertions, stub facilitators, mutation-checked,
-  in CI). **Ops note: `celo` was removed from prod's Railway `PAYMENT_NETWORKS`
-  2026-08-01 to restore service; re-add it once api.x402.celo.org/supported answers —
-  with this guard deployed, a facilitator re-flap costs only the Celo rail.**
+  in CI). **Ops note: RESOLVED 2026-08-03.** `celo` was removed from prod's Railway
+  `PAYMENT_NETWORKS` 2026-08-01 during the facilitator outage; it is back in the offer
+  and verified working. Measured 2026-08-03: api.x402.celo.org/supported answers 200
+  on 3/3 probes advertising `exact/eip155:42220`, and a live 402 on a paid route lists
+  `eip155:42220` among 12 rails in the base64 `payment-required` header. Lifetime Celo
+  settlement 51 inbound / $0.083, `caughtUp: true`. `/settle` still 401s without
+  `CELO_FACILITATOR_KEY` (unchanged by the outage) — that key is what keeps the rail in
+  the offer at all. Note the accepts live in the `payment-required` HEADER, not the 402
+  body (which is `{}`); reading the body is how you conclude "no rails offered" on a
+  perfectly healthy paywall.
 - **HEAD paywall bypass CLOSED (2026-07-23, found via MPPScan's prober):**
   Express serves HEAD through app.get() but every gate keyed on
   "METHOD /path" — an unpaid HEAD skipped funnel/PoW/replay/x402 and executed
@@ -369,7 +376,29 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   settlement *rejections* — where the buyer kept their money — as charged failures. Never
   quote it as current quality; use a recent window from the operator endpoint.**
 - **Paid canary (`scripts/paid-canary.js`):** 32 legs — tools across all twelve rails
-  (Base/Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand/Robinhood), incl. two federal-data legs
+  (Base/Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand/Robinhood).
+  **Rail legs are graded separately from tool legs and now FAIL the run** (fixed
+  2026-08-03). They live outside `results`, so `decideCanary()` never saw them and every
+  rail branch was `console.warn` + `continue`: a rail could fail on every run for weeks
+  while the script exited 0. Measured on run 30835380742 — "30/30 settled", exit green,
+  Stellar broken on that run and the nine before it. All eleven rail failure paths now
+  go through `railFail()`, and `main()` exits 1 if any fired. Silent skips are gone too:
+  a rail missing from the live 402 accepts (the Celo-outage shape) is a failure, not a
+  `continue`.
+  **STELLAR SETTLES LATE — the rail is NOT broken, we answer before it can.** Stellar
+  closes a ledger about every 5s. The OpenZeppelin channel service gives up before that
+  and returns `settle_channel_service_failed`, we return 402, and the transfer then
+  confirms anyway: measured 402 at 17:10:48.044, transfer confirmed 17:10:52, on-chain
+  effects `account_debited CANARY BURNER 0.001 USDC` → `account_credited OUR PAYTO`. It
+  reproduces every run because it is a race nobody can win, not a fault. Consequence:
+  **the buyer is charged and gets a 402** (charged-but-failed). Do NOT read this as a
+  dead rail and do NOT pull `stellar` from `PAYMENT_NETWORKS` — payments succeed. Scope
+  is small (`externalCount: 1` on Stellar ever; the rest is the canary paying itself).
+  The canary's 402 branch now asks Horizon before believing the 402
+  (`stellarDebitedSince`) and grades a late settle as the distinct, worse defect. The
+  real fix is upstream: our settle verdict must outlive one Stellar ledger close, and
+  OpenZeppelin should not report failure for transfers that subsequently confirm.
+  incl. two federal-data legs
   (vin-decode / geo-lookup) whose Base settlements also seed the gov tools into
   settlement-driven indexes like x402scan, plus llm-nano (failover), llm-stream
   (`raw:true`, asserts SSE `data:`…`[DONE]`), llm-auto (model-less request must carry the
@@ -456,15 +485,24 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   dependency-free OAuth 1.0a CLI (`--text/--file/--quote/--reply-to/--media/--delete/
   --verify/--force`, `DRY_RUN=1`; secrets `X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/
   X_ACCESS_SECRET`, Actions-only). The X App is on a **PAID API plan** — we pay for
-  usage. `--reply-to` works against ANY public post, including one that does not
-  mention us: verified live 2026-07-31 replying to a third party's quote-tweet
-  (posted clean, no 403). This entry previously said "Free tier: POST /2/tweets +
-  GET /2/users/me only" and that was WRONG and acted on — do not reintroduce it,
-  and do not infer the tier from this file without checking, since the plan can
-  change. The trailing-URL trick (append a status URL as the LAST line and X
-  renders a real quote embed) still works and is still useful for quoting inside
-  a longer post, but it is a formatting choice now, not a workaround for a
-  restriction. Reading posts: `x-read.yml` (credential-free, fxtwitter →
+  usage. **`--reply-to` and `--quote` are RESTRICTED to posts we authored or that
+  mention us.** Measured 2026-08-03, replying to a third party's announcement:
+  `X API 403 {"detail":"You can only reply to or quote posts where you are
+  mentioned or are the author.","title":"Authorization Error"}`. So the
+  **trailing-URL trick is a real workaround, not merely a formatting choice**:
+  append a status URL as the LAST line of an ordinary post and X renders a true
+  quote embed, because it is plain text and never touches the restricted params
+  (verified working the same day, post 2084308190158536735). To respond to
+  someone else, that is the only route — there is no reply equivalent, and a
+  trailing-URL post is a BROADCAST rather than a threaded reply, which is a
+  different social act and needs Mike's OK on those terms.
+  This entry has now been wrong in BOTH directions: it once said "Free tier:
+  POST /2/tweets + GET /2/users/me only", and was then over-corrected to
+  "`--reply-to` works against ANY public post … verified live 2026-07-31" on the
+  strength of a single reply that must have been to a post mentioning us. Both
+  claims were acted on and both failed. Do not infer the tier or the permitted
+  targets from this file — a paid plan does NOT imply unrestricted replies, and
+  the only reliable check is a dispatch that either posts or 403s. Reading posts: `x-read.yml` (credential-free, fxtwitter →
   vxtwitter from the runner) remains the easiest path and needs no API quota;
   the mirrors are also reachable from a local terminal. Char counting: X weighs EVERY URL at 23 chars (incl. bare
   `agent402.tools`); tweet.js's guard counts raw length, so copy that's ≤280 weighted but
