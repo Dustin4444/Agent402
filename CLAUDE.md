@@ -392,10 +392,30 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   status is success, with the token address matched and `decimals()` READ not assumed.
   Fails closed on every uncertainty — RPC error, missing receipt, junk tx, no verifier
   for that family — and the row is HELD, still owed, never paid and never written off.
-  Solana/Algorand have no verifier yet, so their rows hold. 21 assertions in
-  `scripts/test-payment-verify.js`; 7 mutations killed (accept a revert, ignore who
+  **All twelve rails verify** (2026-08-04): every EVM chain via receipt logs;
+  Solana via pre/post token balances compared per OWNER (a payer may use a
+  non-default token account, so matching derived addresses would miss it) with
+  `meta.err` rejecting failed transactions — the exact shape our own whale produced
+  when it ran dry; Algorand via the indexer, checking sender, receiver, **ASA id**
+  (anyone can mint a token called USDC on Algorand) and amount; Stellar via the shared
+  same-transaction confirmer. Monad and Robinhood RPCs were missing entirely, so their
+  rows had been holding as "no RPC configured" — safe, but never repaid. 36 assertions
+  in `scripts/test-payment-verify.js`; 15 mutations killed (accept a revert, ignore who
   paid, ignore who was credited, accept an underpayment, accept any token, assume 6
   decimals, proceed without a receipt).
+  **Deep review 2026-08-04 — two MORE findings, both fixed.** (a) **Double-refund
+  window.** The executor sent, then marked paid; a failure in between (a blip on the
+  mark call) left the row `owed` while the money was gone — and the next run
+  re-verifies the INBOUND payment, which is true forever, and pays again.
+  Verification proves we were PAID; it can never prove we have not already REFUNDED.
+  Rows are now CLAIMED (`owed → sending`) before any broadcast, only from `owed`, so
+  a crash leaves a stuck `sending` row for a human instead of a silent second
+  payment. `refund.yml` also has a `concurrency: refund-run` group so two dispatches
+  cannot race at all. (b) **Stellar could vouch for the wrong debt.** Its confirmer
+  answers "did this payer pay us near this time" — weaker than the other rails, which
+  resolve a specific hash — so one genuine payment could verify a DIFFERENT debt from
+  the same buyer in the same window, refunding it twice. When a row recorded a
+  transaction, the confirmed one must now BE it.
   **Abuse review 2026-08-04 — two guards exist because of it.** (1) A debt requires
   POSITIVE PROOF: `receiptProvesCharge()` demands an explicit `success === true`. The
   charged-failure ALARM still fires on an unreadable/legacy receipt (loud on ambiguity
