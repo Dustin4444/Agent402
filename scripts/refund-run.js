@@ -35,18 +35,43 @@
 // charged-but-failed there is rare; rows are held and listed until the SVM
 // sender lands with the planned Solana spending wallet.
 
+import { createHash } from "node:crypto";
+
+// This repo is PUBLIC, so every Actions log is world-readable. The project's
+// standing rule for buyer identities is "counts only, never addresses - a
+// per-day roster of who pays us is a customer list", and it is enforced on
+// /revenue. A refund run would otherwise print the full roster (wallet, amount,
+// tool, settle evidence) on the DRY-RUN path too, since the plan is printed
+// before the live check. So logs carry a stable non-reversible tag; the
+// operator resolves it to the address privately via /__operator/refunds.json,
+// which is already token-gated.
+const tag = (a) => (a ? `payer:${createHash("sha256").update(String(a)).digest("hex").slice(0, 8)}` : "?");
+
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/+$/, "");
 const TOKEN = (process.env.AGENT402_OPERATOR_TOKEN || "").trim();
 const LIVE = /^(1|true|yes)$/i.test((process.env.REFUND_LIVE || "").trim());
-const MAX_EACH = Number(process.env.REFUND_MAX_EACH_USD || "0.25");
-const MAX_TOTAL = Number(process.env.REFUND_MAX_TOTAL_USD || "2");
+// Caps come from free-text workflow_dispatch inputs, so they MUST be parsed
+// rather than coerced. Number("$2") is NaN, and every `x > NaN` is false - so a
+// malformed cap did not clamp, it DISAPPEARED. Measured: a "$2" run cap sent 40
+// refunds totalling $10 where "2" sent 8 totalling $2. That fails OPEN, in the
+// one direction this pipeline must never fail, on a single fat-fingered
+// dispatch. Refuse to run instead.
+function capUsd(raw, dflt, name) {
+  const v = Number(String(raw ?? "").trim() || dflt);
+  if (!Number.isFinite(v) || v < 0) {
+    throw new Error(`${name} must be a non-negative number, got ${JSON.stringify(raw)} - refusing to run rather than sending with no cap`);
+  }
+  return v;
+}
+const MAX_EACH = capUsd(process.env.REFUND_MAX_EACH_USD, "0.25", "REFUND_MAX_EACH_USD");
+const MAX_TOTAL = capUsd(process.env.REFUND_MAX_TOTAL_USD, "2", "REFUND_MAX_TOTAL_USD");
 // One wallet's share of a run. Bounds the sponsored-gas griefing loop below.
-const MAX_PER_PAYER = Number(process.env.REFUND_MAX_PER_PAYER_USD || "0.5");
+const MAX_PER_PAYER = capUsd(process.env.REFUND_MAX_PER_PAYER_USD, "0.5", "REFUND_MAX_PER_PAYER_USD");
 // Optional dust floor: refunds smaller than this cost more to send than they
 // repay. Default 0 (off) - a real debt is owed however small, and holding one
 // silently is exactly what this pipeline exists to prevent. Set it only when
 // gas genuinely outweighs the debt, and the held rows say so out loud.
-const MIN_REFUND = Number(process.env.REFUND_MIN_USD || "0");
+const MIN_REFUND = capUsd(process.env.REFUND_MIN_USD, "0", "REFUND_MIN_USD");
 const ONLY_CHAIN = (process.env.REFUND_ONLY_CHAIN || "").trim(); // optional CAIP-2 filter
 
 // Public RPCs for the EVM rails we can refund on. Overridable per chain via
@@ -89,6 +114,8 @@ export function planRefunds(rows, {
   includeSynthetic = false,
   senders = {},              // family -> truthy when a key+implementation exists
 } = {}) {
+  // Comparisons are written `!(x <= cap)` rather than `x > cap` so that a NaN
+  // cap HOLDS the row instead of waving it through - NaN makes every `>` false.
   const send = [];
   const held = {}; // reason -> rows
   const hold = (reason, row) => { (held[reason] ||= []).push(row); };
@@ -101,7 +128,7 @@ export function planRefunds(rows, {
     if (!row.payer) { hold("no payer recorded - resolve manually (void with a note)", row); continue; }
     const usd = Number(row.priceUsd) || 0;
     if (usd <= 0) { hold("zero amount - void with a note", row); continue; }
-    if (usd > maxEachUsd) { hold(`over per-refund cap $${maxEachUsd}`, row); continue; }
+    if (!(usd <= maxEachUsd)) { hold(`over per-refund cap $${maxEachUsd}`, row); continue; }
     const family = familyOf(row.network);
     if (family === "unknown") { hold(`unsupported network ${row.network}`, row); continue; }
     if (!senders[family]) { hold(`no sender/key for ${family} - debt stays on the ledger`, row); continue; }
@@ -114,8 +141,8 @@ export function planRefunds(rows, {
     // visible (rows pile up, held, under that payer) instead of draining a
     // burner one sponsored call at a time.
     const already = perPayer.get(row.payer) || 0;
-    if (already + usd > maxPerPayerUsd) { hold(`per-payer cap $${maxPerPayerUsd} reached for this wallet - review before repaying more`, row); continue; }
-    if (total + usd > maxTotalUsd) { hold(`deferred - run total would exceed $${maxTotalUsd}`, row); continue; }
+    if (!(already + usd <= maxPerPayerUsd)) { hold(`per-payer cap $${maxPerPayerUsd} reached for this wallet - review before repaying more`, row); continue; }
+    if (!(total + usd <= maxTotalUsd)) { hold(`deferred - run total would exceed $${maxTotalUsd}`, row); continue; }
     perPayer.set(row.payer, already + usd);
     total += usd;
     send.push(row);
@@ -239,10 +266,10 @@ async function main() {
   });
   for (const [reason, rows] of Object.entries(plan.held)) {
     console.log(`\nHELD (${reason}): ${rows.length}`);
-    for (const r of rows) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${r.payer || "?"} (${r.slug})`);
+    for (const r of rows) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${r.slug})`);
   }
   console.log(`\nTO SEND: ${plan.send.length} refund(s), $${plan.totalUsd} total`);
-  for (const r of plan.send) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${r.payer} (${r.slug}, evidence ${String(r.evidence).slice(0, 20)}…)`);
+  for (const r of plan.send) console.log(`   #${r.id} ${r.network} $${r.priceUsd} -> ${tag(r.payer)} (${r.slug})`);
 
   if (!LIVE) { console.log("\nDRY RUN - no money moved. Set REFUND_LIVE=true to execute."); return; }
   if (!plan.send.length) { console.log("nothing to send."); return; }
@@ -268,11 +295,11 @@ async function main() {
         stellarConfirm: confirmStellarTransfer,
       });
       if (!proof.verified) {
-        console.warn(`HOLD  #${row.id} $${row.priceUsd} -> ${row.payer}: UNVERIFIED - ${proof.reason}`);
+        console.warn(`HOLD  #${row.id} $${row.priceUsd} -> ${tag(row.payer)}: UNVERIFIED - ${proof.reason}`);
         unverified++;
         continue;
       }
-      console.log(`      #${row.id} inbound payment confirmed on-chain (${proof.tx || "matched"})`);
+      console.log(`      #${row.id} inbound payment confirmed on-chain`);
       // CLAIM BEFORE SENDING. Verification proves we were paid; it can never
       // prove we have not already refunded, and it stays true forever. So the
       // row is moved to `sending` first: a crash between broadcast and
@@ -290,7 +317,7 @@ async function main() {
         : family === "algorand" ? await sendAlgorand(row)
         : (() => { throw new Error(`no sender for ${family}`); })();
       await markPaid(row.id, String(tx));
-      console.log(`PAID  #${row.id} $${row.priceUsd} -> ${row.payer}  tx ${tx}`);
+      console.log(`PAID  #${row.id} $${row.priceUsd} -> ${tag(row.payer)}  (tx in the ledger, not this log)`);
       ok++;
     } catch (e) {
       // If the failure came after the claim, the row is now stuck in `sending`
