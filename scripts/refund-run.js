@@ -177,6 +177,40 @@ async function liveAcceptsByNetwork() {
   return byNet;
 }
 
+// payTo is per-SLUG, not per-network. The self-funding routes (route-execute
+// and the Blockscout tools) settle to the SPENDING wallet, not the treasury,
+// so verifying every row against /api/hash's treasury payTo made those debts
+// permanently unverifiable - and they are the routes most likely to
+// charged-fail, since they spend upstream on the buyer's behalf. Probing the
+// row's own route is the precise fix; accepting any wallet WE control on that
+// network is the safe one, and it needs no slug->route map to drift.
+export function ourPayToSet(accepts, env = process.env) {
+  // CASE MATTERS ON EVERY RAIL BUT EVM. The first version lowercased every
+  // address, which is correct for EVM and DESTROYS base32 (Algorand) and
+  // base58 (Solana): the indexer returns
+  // C7IIHG7SPLPZ...BEE2OY2XIE and a folded copy never matches it, so every
+  // Algorand and Solana debt would have been held forever. Same rule the rest
+  // of the codebase states repeatedly (src/payer.js, src/revenue-ledger.js):
+  // lowercase EVM only, preserve everything else verbatim.
+  const norm = (a) => (/^0x[0-9a-fA-F]{40}$/.test(String(a)) ? String(a).toLowerCase() : String(a));
+  const set = new Map();   // network -> Set(payTo, EVM-folded only)
+  for (const [net, a] of Object.entries(accepts || {})) {
+    if (a?.payTo) set.set(net, new Set([norm(a.payTo)]));
+  }
+  for (const [key, nets] of [
+    ["X402_UPSTREAM_BUYER_ADDRESS", Object.keys(accepts || {}).filter((n) => n.startsWith("eip155:"))],
+    ["ALGORAND_UPSTREAM_BUYER_ADDRESS", Object.keys(accepts || {}).filter((n) => n.startsWith("algorand:"))],
+  ]) {
+    const v = (env[key] || "").trim();
+    if (!v) continue;
+    for (const n of nets) {
+      if (!set.has(n)) set.set(n, new Set());
+      set.get(n).add(norm(v));
+    }
+  }
+  return set;
+}
+
 // ---- chain senders (each returns the outbound tx id) ----
 
 async function sendEvm(row, accepts) {
@@ -225,16 +259,29 @@ async function sendAlgorand(row) {
   const account = algosdk.mnemonicToSecretKey(process.env.REFUND_ALGORAND_MNEMONIC.trim());
   const client = new algosdk.Algodv2("", "https://mainnet-api.4160.nodely.dev", "");
   const params = await client.getTransactionParams().do();
+  // algosdk v3 field names. v2 used from/to and returned { txId }; this file
+  // was written against v2 while v3.6 is installed, so the builder threw
+  // "Address must not be null or undefined" on EVERY Algorand refund - and it
+  // threw AFTER the row was claimed, stranding the debt in `sending` with no
+  // path back. Verified against the installed SDK: from/to throws,
+  // sender/receiver builds.
   const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-    from: account.addr, to: row.payer, amount: Math.round(row.priceUsd * 1e6),
+    sender: account.addr, receiver: row.payer, amount: Math.round(row.priceUsd * 1e6),
     assetIndex: 31566704, // USDC ASA
     note: new TextEncoder().encode("agent402 refund"),
     suggestedParams: params,
   });
   const signed = txn.signTxn(account.sk);
-  const { txId } = await client.sendRawTransaction(signed).do();
-  await algosdk.waitForConfirmation(client, txId, 20);
-  return txId;
+  const res = await client.sendRawTransaction(signed).do();
+  // v3 returns `txid`. Reading the v2 name gave undefined, which would have
+  // been waited on and then written to the ledger as the string "undefined" -
+  // a hole in the one field the ledger treats as proof of repayment.
+  const txid = res?.txid || res?.txId;
+  if (typeof txid !== "string" || !txid.trim()) {
+    throw new Error("Algorand broadcast returned no transaction id - MONEY MAY HAVE LEFT; resolve this row by hand");
+  }
+  await algosdk.waitForConfirmation(client, txid, 20);
+  return txid;
 }
 
 async function claimForSend(id) {
@@ -288,6 +335,7 @@ async function main() {
   if (!plan.send.length) { console.log("nothing to send."); return; }
 
   const accepts = await liveAcceptsByNetwork();
+  const payToSets = ourPayToSet(accepts);
   const { verifyInboundPayment } = await import("../src/payment-verify.js");
   const { confirmStellarTransfer } = await import("../src/stellar-confirm.js");
   let ok = 0, failed = 0, unverified = 0;
@@ -304,6 +352,7 @@ async function main() {
         network: row.network, payer: row.payer, amountUsd: row.priceUsd,
         tx: row.evidence, createdAt: row.createdAt,
         acceptsFor: (n) => accepts[n],
+        payToSetFor: (n) => payToSets.get(n) || [],
         rpcFor: (n) => (process.env[`REFUND_RPC_${String(n).split(":")[1]}`] || EVM_RPCS[n] || "").trim() || null,
         stellarConfirm: confirmStellarTransfer,
       });
@@ -342,7 +391,9 @@ async function main() {
     }
   }
   console.log(`\ndone: ${ok} paid, ${failed} failed, ${unverified} held unverified (all unpaid rows remain owed)`);
-  process.exit(failed ? 1 : 0);
+  // A run where everything was HELD used to exit 0 and read as green. A whole
+  // class being systematically unverifiable is exactly what that hides.
+  process.exit(failed || unverified ? 1 : 0);
 }
 
 // Importing for tests must not run the CLI.
