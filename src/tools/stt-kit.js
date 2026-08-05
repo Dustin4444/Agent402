@@ -4,13 +4,18 @@
 //
 // Tiers:
 //   transcribe      $0.03  — gpt-4o-mini-transcribe  (5 min max)
-//   transcribe-pro  $0.10  — gpt-4o-transcribe        (10 min max)
+//   transcribe-pro  $0.10  — gpt-transcribe           (10 min max)
 //
 // The per-tier duration cap is a MARGIN bound, not just a UX limit: OpenAI
-// bills ~$0.003/min (mini) / ~$0.006/min (4o), so an unchecked 25 MB file
-// (~26 min at 128 kbps mp3) would cost more upstream than the tool charges.
-// Duration is probed locally (header parse, no upstream call) and enforced
-// BEFORE the file is sent to OpenAI.
+// bills ~$0.003/min (mini) / ~$0.0045/min (gpt-transcribe), so an unchecked
+// 25 MB file (~26 min at 128 kbps mp3) would cost more upstream than the
+// tool charges. Duration is probed locally (header parse, no upstream call)
+// and enforced BEFORE the file is sent to OpenAI.
+//
+// transcribe-pro moved gpt-4o-transcribe → gpt-transcribe 2026-08-04:
+// OpenAI's 2026-07-28 release, 25% cheaper ($0.0045 vs $0.006/min) and the
+// recommended replacement; verified against the OpenAI changelog + pricing
+// pages, proven live by the CI answers-its-own-example check.
 
 import { parseBuffer } from "music-metadata";
 import { safeFetch } from "./fetch-guard.js";
@@ -27,7 +32,7 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
 const TIERS = {
   transcribe:       { model: "gpt-4o-mini-transcribe", maxMinutes: 5 },
-  "transcribe-pro": { model: "gpt-4o-transcribe",      maxMinutes: 10 },
+  "transcribe-pro": { model: "gpt-transcribe",          maxMinutes: 10 },
 };
 
 function validateInput(input) {
@@ -202,8 +207,8 @@ export const STT_TOOLS = [
     category: "ai",
     price: "$0.100",
     description:
-      "Transcribe audio to text using OpenAI (gpt-4o-transcribe). Higher accuracy than the standard tier. Provide a URL to an audio file and get back the transcript. No API key needed; pay per call via x402. Max 10 minutes of audio, 25 MB file size.",
-    tags: [...SHARED_TAGS, "gpt-4o-transcribe", "pro"],
+      "Transcribe audio to text using OpenAI (gpt-transcribe). Higher accuracy than the standard tier. Provide a URL to an audio file and get back the transcript. No API key needed; pay per call via x402. Max 10 minutes of audio, 25 MB file size.",
+    tags: [...SHARED_TAGS, "gpt-transcribe", "pro"],
     discovery: {
       bodyType: "json",
       input: { url: "https://upload.wikimedia.org/wikipedia/commons/c/c8/Example.ogg" },
@@ -216,7 +221,7 @@ export const STT_TOOLS = [
       },
       output: {
         example: {
-          model: "gpt-4o-transcribe",
+          model: "gpt-transcribe",
           provider: "openai",
           text: "Hello, this is a sample transcription.",
           language: "en",

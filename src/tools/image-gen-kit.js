@@ -3,9 +3,16 @@
 // upstream cost. Env-gated: missing OPENAI_API_KEY → 503, not boot failure.
 //
 // Tiers:
-//   image-gen          $0.03  — gpt-image-1-mini, low quality, 1024x1024
-//   image-gen-hd       $0.10  — gpt-image-1-mini, medium quality, 1024x1024
+//   image-gen          $0.03  — gpt-image-2, low quality, 1024x1024
+//   image-gen-hd       $0.10  — gpt-image-2, medium quality, 1024x1024
 //   image-gen-premium  $0.30  — gpt-image-2, medium quality, 1024x1024
+//
+// All three tiers ride gpt-image-2 since 2026-08-04: OpenAI retires
+// gpt-image-1-mini (the old low/hd model) on 2026-12-01. Upstream cost at
+// 1024x1024 is ~$0.006 (low) / ~$0.053 (medium) — both tiers keep their
+// margin under the 70% bar. hd and premium now differ in prompt cap only;
+// premium's differentiation (higher quality or larger size) is a pricing
+// decision tracked outside this file.
 
 import { redactSecrets } from "./redact.js";
 
@@ -16,9 +23,9 @@ function bad(message, statusCode = 400) {
 }
 
 const TIERS = {
-  "image-gen":         { model: "gpt-image-1-mini", quality: "low",    size: "1024x1024", maxPromptChars: 1000 },
-  "image-gen-hd":      { model: "gpt-image-1-mini", quality: "medium", size: "1024x1024", maxPromptChars: 2000 },
-  "image-gen-premium": { model: "gpt-image-2",      quality: "medium", size: "1024x1024", maxPromptChars: 4000 },
+  "image-gen":         { model: "gpt-image-2", quality: "low",    size: "1024x1024", maxPromptChars: 1000 },
+  "image-gen-hd":      { model: "gpt-image-2", quality: "medium", size: "1024x1024", maxPromptChars: 2000 },
+  "image-gen-premium": { model: "gpt-image-2", quality: "medium", size: "1024x1024", maxPromptChars: 4000 },
 };
 
 function validateInput(input, tierSlug) {
@@ -110,8 +117,8 @@ export const IMAGE_GEN_TOOLS = [
     category: "ai",
     price: "$0.030",
     description:
-      "Generate an image from a text prompt using GPT Image (mini, low quality, 1024x1024). No API key needed; pay per call via x402. Returns base64 PNG. Prompt capped at 1000 chars.",
-    tags: [...SHARED_TAGS, "gpt-image-1-mini"],
+      "Generate an image from a text prompt using GPT Image 2 (low quality, 1024x1024). No API key needed; pay per call via x402. Returns base64 PNG. Prompt capped at 1000 chars.",
+    tags: [...SHARED_TAGS, "gpt-image-2"],
     discovery: {
       bodyType: "json",
       input: { prompt: "A single red apple on a white background" },
@@ -123,7 +130,7 @@ export const IMAGE_GEN_TOOLS = [
       },
       output: {
         example: {
-          model: "gpt-image-1-mini",
+          model: "gpt-image-2",
           provider: "openai",
           quality: "low",
           size: "1024x1024",
@@ -141,8 +148,8 @@ export const IMAGE_GEN_TOOLS = [
     category: "ai",
     price: "$0.100",
     description:
-      "Generate a higher-quality image from a text prompt using GPT Image (mini, medium quality, 1024x1024). No API key needed; pay per call via x402. Returns base64 PNG. Prompt capped at 2000 chars.",
-    tags: [...SHARED_TAGS, "gpt-image-1-mini", "hd"],
+      "Generate a higher-quality image from a text prompt using GPT Image 2 (medium quality, 1024x1024). No API key needed; pay per call via x402. Returns base64 PNG. Prompt capped at 2000 chars.",
+    tags: [...SHARED_TAGS, "gpt-image-2", "hd"],
     discovery: {
       bodyType: "json",
       input: { prompt: "A single red apple on a white background" },
@@ -154,7 +161,7 @@ export const IMAGE_GEN_TOOLS = [
       },
       output: {
         example: {
-          model: "gpt-image-1-mini",
+          model: "gpt-image-2",
           provider: "openai",
           quality: "medium",
           size: "1024x1024",

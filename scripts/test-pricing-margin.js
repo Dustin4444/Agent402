@@ -253,10 +253,10 @@ console.log("\n# STT — cap-before-spend (local duration probe)");
   globalThis.fetch = realFetch;
 
   // Margin rows from the enforced caps × OpenAI's published per-minute rates
-  // (~$0.003/min mini, ~$0.006/min 4o — see the stt-kit header comment).
+  // (~$0.003/min mini, ~$0.0045/min gpt-transcribe — see the stt-kit header).
   const stt = [
     { tier: "transcribe", price: 0.03, worst: 5 * 0.003 },
-    { tier: "transcribe-pro", price: 0.10, worst: 10 * 0.006 },
+    { tier: "transcribe-pro", price: 0.10, worst: 10 * 0.0045 },
   ];
   for (const r of stt) {
     ok(r.worst < r.price, `${r.tier} worst-case ${usd(r.worst)} < price $${r.price} (margin +${marginPct(r.worst, r.price)})`);

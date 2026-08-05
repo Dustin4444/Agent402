@@ -9,8 +9,8 @@ Three tiers of text-to-image generation, paywalled via x402. An agent sends a pr
 
 | Endpoint | Price | Model | Quality | Size | Prompt cap |
 |---|---|---|---|---|---|
-| `POST /api/image-gen` | $0.03 | `gpt-image-1-mini` | low | 1024x1024 | 1,000 chars |
-| `POST /api/image-gen-hd` | $0.10 | `gpt-image-1-mini` | medium | 1024x1024 | 2,000 chars |
+| `POST /api/image-gen` | $0.03 | `gpt-image-2` | low | 1024x1024 | 1,000 chars |
+| `POST /api/image-gen-hd` | $0.10 | `gpt-image-2` | medium | 1024x1024 | 2,000 chars |
 | `POST /api/image-gen-premium` | $0.30 | `gpt-image-2` | medium | 1024x1024 | 4,000 chars |
 
 All three tiers are **wallet-only** -- there is no proof-of-work free tier because every call burns real upstream inference credit. See [[Security Model]] for the wallet-only rationale.
@@ -35,7 +35,7 @@ Every tier returns the same envelope:
 
 ```json
 {
-  "model": "gpt-image-1-mini",
+  "model": "gpt-image-2",
   "provider": "openai",
   "quality": "low",
   "size": "1024x1024",
