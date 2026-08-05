@@ -1788,6 +1788,38 @@ jobs:
             }
             console.log("mcp versions aligned at", a, "· server.json.description =", dlen, "chars");
           '
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; node 22 ships npm 10.x.
+      # Pinned exactly (our own supply-chain doctrine: no floating installs of
+      # anything that can execute), and deliberately 11.x not 12.x - npm 12
+      # disables install scripts by default, which would stop better-sqlite3
+      # building for the server-booting gates ABOVE this line. Placed here so
+      # only the publish steps see the new CLI; the gates keep running on the
+      # runner's stock npm.
+      #
+      # MIGRATION STATE: the pipeline is OIDC-CAPABLE but still authenticates
+      # with NODE_AUTH_TOKEN. Trusted publishing activates per package the
+      # moment a trusted publisher is configured on npmjs.com (owner + 2FA;
+      # a token cannot set it since 2026-07-31). Once every package is
+      # configured, DELETE the NODE_AUTH_TOKEN env blocks below - npm must
+      # never see both a token and OIDC, so the token is removed in one
+      # deliberate step rather than left as an ambiguous fallback.
+      # Deadline: npm removes publish from bypass-2FA tokens ~January 2027.
+      - name: Upgrade npm for trusted publishing (OIDC)
+        run: |
+          npm install -g npm@11.19.0 --ignore-scripts
+          NPM_V=$(npm --version)
+          echo "npm $NPM_V"
+          # Fail loudly if the CLI is too old to exchange the OIDC token - a
+          # silent fallback to token auth is exactly the ambiguity we are
+          # trying to remove.
+          MAJOR=${NPM_V%%.*}
+          REST=${NPM_V#*.}; MINOR=${REST%%.*}; PATCH=${REST#*.}
+          if [ "$MAJOR" -lt 11 ] || { [ "$MAJOR" -eq 11 ] && [ "$MINOR" -lt 5 ]; } \
+             || { [ "$MAJOR" -eq 11 ] && [ "$MINOR" -eq 5 ] && [ "$PATCH" -lt 1 ]; }; then
+            echo "::error::npm $NPM_V is below the 11.5.1 trusted-publishing minimum"; exit 1
+          fi
+          echo "npm $NPM_V supports trusted publishing"
+
       - name: Publish agent402-mcp to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
