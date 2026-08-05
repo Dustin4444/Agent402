@@ -1884,14 +1884,21 @@ jobs:
               echo "--- OIDC claims npm will see ---"
               echo "$IDTOK" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null \
                 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const c=JSON.parse(s);console.log(JSON.stringify({repository:c.repository,workflow_ref:c.workflow_ref,job_workflow_ref:c.job_workflow_ref,environment:c.environment,ref:c.ref},null,1))}catch(e){console.log("(claims unparsed)")}})'
-              echo "--- npm exchange verdict for agent402-client ---"
-              curl -sS -o /tmp/oidc-out.txt -w "HTTP %{http_code}\n" \
-                -X POST "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/agent402-client" \
-                -H "Content-Type: application/json" \
-                -H "Authorization: Bearer $IDTOK" || true
-              # Body may contain a short-lived token on success - print only the
-              # shape, never the value.
-              node -e 'const fs=require("fs");let t="";try{t=fs.readFileSync("/tmp/oidc-out.txt","utf8")}catch{};let o;try{o=JSON.parse(t)}catch{};if(o&&o.token){console.log("exchange SUCCEEDED (short-lived token issued) - trusted publisher matches")}else{console.log("exchange response:", t.slice(0,300))}' || true
+              # Probe EVERY package, not just one: a per-package config can be
+              # present on some and absent on others, and one sample cannot
+              # tell those apart. Prints a verdict line per package.
+              echo "--- npm exchange verdict, all 11 packages ---"
+              for PKG in agent402-mcp agent402-tollbooth agent402-client \
+                         agent402-ai-sdk agent402-anthropic-tools agent402-google-adk \
+                         agent402-langchain agent402-llamaindex agent402-openai-agents \
+                         agent402-openai-tools agent402-strands; do
+                CODE=$(curl -sS -o /tmp/oidc-out.txt -w "%{http_code}" \
+                  -X POST "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$PKG" \
+                  -H "Content-Type: application/json" \
+                  -H "Authorization: Bearer $IDTOK" 2>/dev/null || echo "000")
+                VERDICT=$(node -e 'const fs=require("fs");let t="";try{t=fs.readFileSync("/tmp/oidc-out.txt","utf8")}catch{};let o;try{o=JSON.parse(t)}catch{};if(o&&o.token){console.log("MATCHED (short-lived token issued)")}else{console.log((o&&o.message)||t.slice(0,120))}' || true)
+                printf "  %-28s HTTP %s  %s\n" "$PKG" "$CODE" "$VERDICT"
+              done
             else
               echo "could not mint a GitHub OIDC token for the npm audience"
             fi

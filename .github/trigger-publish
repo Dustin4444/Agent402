@@ -4,3 +4,4 @@ publish: 2026-07-31T19:39:47Z
 2026-08-05T17:37:01Z publish: OIDC retry with preflight diagnostics
 2026-08-05T18:07:15Z publish: strip stale npmrc auth line so OIDC is used
 2026-08-05T18:26:37Z publish: probe npm OIDC exchange directly
+2026-08-05T19:34:03Z publish: probe all 11 packages
