@@ -1836,6 +1836,37 @@ jobs:
           fi
           echo "npm $NPM_V supports trusted publishing"
 
+      # OIDC diagnostics + npmrc hygiene. The first trusted-publishing attempt
+      # failed with `E404 PUT` (npm's generic unauthenticated/unauthorized
+      # response) while provenance signing SUCCEEDED in the same run - meaning
+      # OIDC works but the registry did not accept it for AUTH. The prime
+      # suspect is actions/setup-node: with `registry-url` set it writes an
+      # .npmrc line `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`, and
+      # with our token removed that expands to an EMPTY token. npm then sees
+      # configured credentials and can skip the OIDC exchange entirely.
+      # So: print the state, then strip any empty auth line before publishing.
+      - name: OIDC preflight (diagnose auth state, strip empty npmrc token)
+        run: |
+          echo "OIDC request URL present: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}${ACTIONS_ID_TOKEN_REQUEST_URL:-NO}"
+          echo "npm registry: $(npm config get registry)"
+          NPMRC="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
+          if [ -f "$NPMRC" ]; then
+            echo "--- npmrc (values redacted) ---"
+            sed -E 's/(=).*/\1<redacted>/' "$NPMRC"
+            # An empty _authToken is worse than none: it can suppress the OIDC
+            # exchange while carrying no credential.
+            if grep -qE '_authToken=\s*$' "$NPMRC"; then
+              echo "found EMPTY _authToken - removing it so npm falls through to OIDC"
+              sed -i.bak -E '/_authToken=\s*$/d' "$NPMRC"
+              echo "--- npmrc after ---"; sed -E 's/(=).*/\1<redacted>/' "$NPMRC"
+            else
+              echo "no empty _authToken line"
+            fi
+          else
+            echo "no npmrc at $NPMRC"
+          fi
+          echo "npm whoami: $(npm whoami 2>&1 | head -1)"
+
       - name: Publish agent402-mcp to npm
         run: |
           cd mcp
