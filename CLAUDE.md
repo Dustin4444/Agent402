@@ -161,7 +161,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   BEFORE the Railway variable upsert (the upsert itself can trigger a redeploy) — polls
   `/api/stats` `recentCalls`, waits for 180s with no external USDC call (heartbeat/PoW never
   block); fail-open on stats-down, sustained traffic past `QUIET_GATE_MAX_WAIT` (repo var,
-  default 1200s), or repo var `QUIET_GATE=off`. Deploy also sets
+  default 1200s), or repo var `QUIET_GATE=off`. **Var-upsert race (measured 2026-08-05):**
+  an upsert that introduces NEW variables makes Railway auto-redeploy the PREVIOUS build,
+  which races the workflow's SHA-pinned deploy (lost by 56ms; the pinned deployment ended
+  REMOVED and prod served stale code with the new vars — healthy, wrong version).
+  Unchanged-value upserts are no-ops and never race. When adding deploy-injected
+  variables: expect the first [deploy] run to fail at "deployment ended REMOVED", verify
+  prod health, then push a second [deploy] (vars now pre-exist, cannot race) — or
+  pre-create the variables before the code ships. Deploy also sets
   `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` — Railway's default SIGTERM→SIGKILL grace is **0s**,
   so without it the server's graceful drain never runs. Drain (`src/server.js` shutdown):
   `closeIdleConnections()` sweep every 5s + 75s hard deadline (covers transcribe's 60s
