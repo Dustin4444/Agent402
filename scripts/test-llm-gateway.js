@@ -406,6 +406,15 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: "web" }, "v1-chat"), "array", "non-array tools rejected");
   throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [] }, "v1-chat"), "non-empty", "empty tools array rejected, not silently passed");
 
+  // tool_choice mirrors the guard - only the OpenAI wire shapes pass.
+  for (const good of ["none", "auto", "required"]) {
+    ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: good }, "v1-chat").tool_choice === good, `tool_choice "${good}" passes`);
+  }
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: { type: "function", function: { name: "get_weather" } } }, "v1-chat").tool_choice.function.name === "get_weather", "named function tool_choice passes");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: { type: "openrouter:subagent" } }, "v1-chat"), "tool_choice", "server-tool tool_choice rejected");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: "any" }, "v1-chat"), "tool_choice", "unknown string tool_choice rejected");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: { type: "function" } }, "v1-chat"), "tool_choice", "function tool_choice without a name rejected");
+
   // Caller path: the handler must refuse BEFORE any upstream fetch.
   process.env.OPENROUTER_API_KEY = "test-key";
   const realFetch = globalThis.fetch;

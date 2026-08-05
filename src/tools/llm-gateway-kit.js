@@ -510,6 +510,19 @@ export function validateRequest(input, tierSlug) {
       }
     }
   }
+  // tool_choice mirrors the tools guard. Today it can only select a tool the
+  // (guarded) tools array declares, so this is belt-and-suspenders — but if
+  // OpenRouter ever accepts a bare server-tool tool_choice, an unshaped
+  // passthrough would be the bypass. OpenAI wire: "none"|"auto"|"required"
+  // or {type:"function", function:{name}}.
+  if (body.tool_choice !== undefined) {
+    const tc = body.tool_choice;
+    const okString = tc === "none" || tc === "auto" || tc === "required";
+    const okObject = tc && typeof tc === "object" && tc.type === "function" && typeof tc.function?.name === "string";
+    if (!okString && !okObject) {
+      throw bad('"tool_choice" must be "none", "auto", "required", or {type:"function", function:{name}}');
+    }
+  }
   if (body.n !== undefined) {
     const n = parseInt(body.n, 10);
     if (Number.isNaN(n) || n < 1 || n > MAX_N) throw bad(`"n" must be an integer between 1 and ${MAX_N} - each completion is metered output`);
