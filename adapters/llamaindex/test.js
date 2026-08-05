@@ -8,12 +8,16 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 if (!existsSync(join(HERE, "node_modules", "agent402-client"))) {
-  execSync("npm install ../../client --no-save --silent", { cwd: HERE, stdio: "inherit" });
+  execSync("npm install ../../client --no-save --silent --ignore-scripts", { cwd: HERE, stdio: "inherit" });
 }
 if (!existsSync(join(HERE, "node_modules", "llamaindex"))) {
-  // Pinned to a known-good major so a future malicious release of `llamaindex`
-  // can't land here unreviewed on the next CI run.
-  execSync("npm install llamaindex@^0.12 --no-save --silent", { cwd: HERE, stdio: "inherit" });
+  // EXACT pin + --ignore-scripts. "^0.12" was described as a pin but is a
+  // RANGE: it accepts any 0.12.x, and every transitive dep floats freely. This
+  // install pulls a large third-party tree, so its lifecycle scripts are the
+  // widest install-time execution surface in this repo - the 2026 worm waves
+  // (ChainDrop et al) all delivered through exactly that hook. Nothing here
+  // needs a build step, so scripts are simply off.
+  execSync("npm install llamaindex@0.12.0 --no-save --silent --ignore-scripts", { cwd: HERE, stdio: "inherit" });
 }
 
 const { agent402Tools, agent402Execute } = await import("./index.js");

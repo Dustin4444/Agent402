@@ -81,7 +81,7 @@ jobs:
           node-version: 22
       - name: Install production deps
         if: env.HAVE_KEY == 'true'
-        run: npm ci --omit=dev
+        run: npm ci --omit=dev --ignore-scripts
 
       - name: Mapped-voice matrix — buy every (model, voice) pair the code ships
         if: env.HAVE_KEY == 'true' && github.event.inputs.mode != 'capture'

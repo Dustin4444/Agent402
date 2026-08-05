@@ -100,7 +100,7 @@ jobs:
       - name: Install deps + Chromium (card render)
         if: github.event.inputs.card != ''
         run: |
-          npm ci
+          npm ci --ignore-scripts
           npx playwright install --with-deps chromium
       - name: Buy the live bestsellers response (internal-marked)
         if: github.event.inputs.card == 'bestsellers'

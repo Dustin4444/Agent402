@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..", "..");
 if (!existsSync(join(HERE, "node_modules", "agent402-client"))) {
-  execSync("npm install ../../client --no-save --silent", { cwd: HERE, stdio: "inherit" });
+  execSync("npm install ../../client --no-save --silent --ignore-scripts", { cwd: HERE, stdio: "inherit" });
 }
 
 const { agent402Tools, agent402Execute } = await import("./index.js");

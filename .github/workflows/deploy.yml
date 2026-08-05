@@ -132,7 +132,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 viem@2.52.2
 
       # Run FIRST (before the slow faucet-funding E2E) for fast iteration. Live
       # proof of the agent402-client 402-inspection preflight (v0.6.0): a real Base
@@ -404,7 +404,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 @x402/svm@2.16.0 @solana/kit@5.5.1 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 @x402/svm@2.16.0 @solana/kit@5.5.1 viem@2.52.2
       - name: Sweep the catalog via Solana settlement
         env:
           SOLANA_BURNER_KEY: ${{ secrets.SOLANA_BURNER_KEY }}
@@ -429,7 +429,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
       - name: Refresh stale Bazaar listings
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
@@ -468,7 +468,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
       - name: Register missing Bazaar routes
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
@@ -503,7 +503,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
       - name: Sweep the catalog via Base settlement (4 batches)
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
@@ -528,7 +528,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 viem@2.52.2
       - name: Drain the burner into the revenue wallet via paid tool calls
         env:
           BURNER_KEY: ${{ secrets.BURNER_KEY }}
@@ -633,7 +633,7 @@ jobs:
         with:
           node-version: 22
       - name: Install dependencies
-        run: npm ci && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 viem@2.52.2
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 viem@2.52.2
       - name: Run the demo (real paid buys from the burner)
         env:
           AGENT_KEY: ${{ secrets.BURNER_KEY }}
@@ -994,6 +994,9 @@ jobs:
 
       - name: Well-known store (operator-published domain-verification docs; traversal impossible, reserved names refused, no shadowing of /.well-known/x402 — offline)
         run: node scripts/test-well-known-store.js
+
+      - name: Supply-chain guards (npm publish token never shares a step with code execution; no consumer-install hooks; files-allowlist only; remote installs pinned + scriptless — offline)
+        run: node scripts/test-supply-chain-guards.js
 
       - name: Offsite backup (stub S3 — consistent sqlite snapshots, cache excluded, budget holds visibly, bill guard refuses over-cap, retention prunes date prefixes — offline)
         run: node scripts/test-backup.js
@@ -1736,6 +1739,11 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # NOTE: this gate and the test job are the ONLY installs that still run
+      # dependency lifecycle scripts, because better-sqlite3 downloads its
+      # prebuilt binary from one (the server cannot boot without it). Every
+      # other install in this repo is --ignore-scripts. Keep it that way: if a
+      # step here ever stops needing a native build, add the flag.
       - name: MCP e2e gate before publishing
         run: |
           npm ci
@@ -1801,12 +1809,15 @@ jobs:
             sleep 15
           done
 
+      - name: Gate agent402-tollbooth (tests run with NO npm token in env)
+        run: |
+          node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js   # gate: node + edge + feature/security assertions must pass before shipping
+
       - name: Publish agent402-tollbooth to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js   # gate: node + edge + feature/security assertions must pass before shipping
           cd tollbooth
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1817,13 +1828,16 @@ jobs:
             echo "published agent402-tollbooth@$VERSION → https://www.npmjs.com/package/agent402-tollbooth"
           fi
 
+      - name: Gate agent402-client (tests run with NO npm token in env)
+        run: |
+          node client/test.js            # gate: the buyer SDK must pass before shipping
+          node scripts/test-client-caps.js  # gate: spending-cap safety must pass too
+
       - name: Publish agent402-client to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          node client/test.js            # gate: the buyer SDK must pass before shipping
-          node scripts/test-client-caps.js  # gate: spending-cap safety must pass too
           cd client
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1844,13 +1858,16 @@ jobs:
           done
           curl -sf http://localhost:3090/health >/dev/null || { echo "FREE_MODE server failed to boot"; cat /tmp/a402-adapter.log; exit 1; }
 
+      - name: Gate agent402-openai-tools (tests run with NO npm token in env)
+        run: |
+          # Gate: tool list builds + execute() returns a real result against the FREE_MODE server.
+          AGENT402_BASE_URL=http://localhost:3090 node adapters/openai-tools/test.js
+
       - name: Publish agent402-openai-tools to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          # Gate: tool list builds + execute() returns a real result against the FREE_MODE server.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/openai-tools/test.js
           cd adapters/openai-tools
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1861,14 +1878,17 @@ jobs:
             echo "published agent402-openai-tools@$VERSION → https://www.npmjs.com/package/agent402-openai-tools"
           fi
 
+      - name: Gate agent402-anthropic-tools (tests run with NO npm token in env)
+        run: |
+          # Install agent402-client locally for the test (same self-bootstrap as openai-tools/test.js).
+          ( cd adapters/anthropic-tools && npm install ../../client --no-save --silent )
+          AGENT402_BASE_URL=http://localhost:3090 node adapters/anthropic-tools/test.js
+
       - name: Publish agent402-anthropic-tools to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          # Install agent402-client locally for the test (same self-bootstrap as openai-tools/test.js).
-          ( cd adapters/anthropic-tools && npm install ../../client --no-save --silent )
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/anthropic-tools/test.js
           cd adapters/anthropic-tools
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1879,13 +1899,16 @@ jobs:
             echo "published agent402-anthropic-tools@$VERSION → https://www.npmjs.com/package/agent402-anthropic-tools"
           fi
 
+      - name: Gate agent402-ai-sdk (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + ai (Vercel AI SDK) into its own node_modules.
+          AGENT402_BASE_URL=http://localhost:3090 node adapters/ai-sdk/test.js
+
       - name: Publish agent402-ai-sdk to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          # Test self-bootstraps agent402-client + ai (Vercel AI SDK) into its own node_modules.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/ai-sdk/test.js
           cd adapters/ai-sdk
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-ai-sdk@$VERSION" version >/dev/null 2>&1; then
@@ -1895,13 +1918,16 @@ jobs:
             echo "published agent402-ai-sdk@$VERSION → https://www.npmjs.com/package/agent402-ai-sdk"
           fi
 
+      - name: Gate agent402-langchain (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + @langchain/core + zod.
+          AGENT402_BASE_URL=http://localhost:3090 node adapters/langchain/test.js
+
       - name: Publish agent402-langchain to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          # Test self-bootstraps agent402-client + @langchain/core + zod.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/langchain/test.js
           cd adapters/langchain
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-langchain@$VERSION" version >/dev/null 2>&1; then
@@ -1911,14 +1937,17 @@ jobs:
             echo "published agent402-langchain@$VERSION → https://www.npmjs.com/package/agent402-langchain"
           fi
 
+      - name: Gate agent402-openai-agents (tests run with NO npm token in env)
+        run: |
+          # Test runs framework-agnostic spec path; @openai/agents is an
+          # optional peerDep so consumers install it on their side.
+          AGENT402_BASE_URL=http://localhost:3090 node adapters/openai-agents/test.js
+
       - name: Publish agent402-openai-agents to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          # Test runs framework-agnostic spec path; @openai/agents is an
-          # optional peerDep so consumers install it on their side.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/openai-agents/test.js
           cd adapters/openai-agents
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-openai-agents@$VERSION" version >/dev/null 2>&1; then
@@ -1928,13 +1957,16 @@ jobs:
             echo "published agent402-openai-agents@$VERSION → https://www.npmjs.com/package/agent402-openai-agents"
           fi
 
+      - name: Gate agent402-llamaindex (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + llamaindex.
+          AGENT402_BASE_URL=http://localhost:3090 node adapters/llamaindex/test.js
+
       - name: Publish agent402-llamaindex to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          # Test self-bootstraps agent402-client + llamaindex.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/llamaindex/test.js
           cd adapters/llamaindex
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-llamaindex@$VERSION" version >/dev/null 2>&1; then
@@ -1944,15 +1976,18 @@ jobs:
             echo "published agent402-llamaindex@$VERSION → https://www.npmjs.com/package/agent402-llamaindex"
           fi
 
+      - name: Gate agent402-strands (tests run with NO npm token in env)
+        run: |
+          # Test self-bootstraps agent402-client + stubs @strands-agents/sdk
+          # so we don't pull AWS Bedrock + uuid + yaml transitively just to
+          # verify the adapter shape.
+          AGENT402_BASE_URL=http://localhost:3090 node adapters/strands/test.js
+
       - name: Publish agent402-strands to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          # Test self-bootstraps agent402-client + stubs @strands-agents/sdk
-          # so we don't pull AWS Bedrock + uuid + yaml transitively just to
-          # verify the adapter shape.
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/strands/test.js
           cd adapters/strands
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-strands@$VERSION" version >/dev/null 2>&1; then
@@ -1962,12 +1997,15 @@ jobs:
             echo "published agent402-strands@$VERSION → https://www.npmjs.com/package/agent402-strands"
           fi
 
+      - name: Gate agent402-google-adk (tests run with NO npm token in env)
+        run: |
+          AGENT402_BASE_URL=http://localhost:3090 node adapters/google-adk/test.js
+
       - name: Publish agent402-google-adk to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
-          AGENT402_BASE_URL=http://localhost:3090 node adapters/google-adk/test.js
           cd adapters/google-adk
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-google-adk@$VERSION" version >/dev/null 2>&1; then
