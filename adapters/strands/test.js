@@ -16,7 +16,7 @@ const ROOT = join(HERE, "..", "..");
 
 // Make the local agent402-client resolvable without a manual install.
 if (!existsSync(join(HERE, "node_modules", "agent402-client"))) {
-  execSync("npm install ../../client --no-save --silent", { cwd: HERE, stdio: "inherit" });
+  execSync("npm install ../../client --no-save --silent --ignore-scripts", { cwd: HERE, stdio: "inherit" });
 }
 
 // Stub @strands-agents/sdk — just enough surface to test that we wire fields

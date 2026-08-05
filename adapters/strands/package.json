@@ -1,6 +1,6 @@
 {
   "name": "agent402-strands",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Drop-in Strands Agents tools for Agent402.Tools: turn its catalog - 500+ strong: 400+ x402 pay-per-call tools + 100+ skill packs (browser, web search, OCR, PDFs, finance, memory) - into Strands tool() instances via four meta-tools (find/route/call/about), plus the cross-seller x402 Smart Order Router. Snaps into AWS Bedrock AgentCore Payments. Free via proof-of-work or pay per call in USDC on Base + 11 more chains, or USDG on Robinhood Chain (12 chains total).",
   "type": "module",
   "main": "index.js",
@@ -48,5 +48,17 @@
   "homepage": "https://agent402.tools",
   "dependencies": {
     "agent402-client": ">=0.6.0 <1.0.0"
+  },
+  "peerDependencies": {
+    "@strands-agents/sdk": ">=1 <2",
+    "zod": ">=3 <5"
+  },
+  "peerDependenciesMeta": {
+    "@strands-agents/sdk": {
+      "optional": true
+    },
+    "zod": {
+      "optional": true
+    }
   }
 }
