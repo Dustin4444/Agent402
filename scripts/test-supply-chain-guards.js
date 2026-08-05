@@ -52,6 +52,29 @@ for (const s of tokenSteps) {
 }
 ok(true, `token-bearing publish steps: ${tokenSteps.length} (0 expected under trusted publishing)`);
 
+// A credential does not have to arrive via `env:` to be present. The OIDC
+// preflight exchanges for a real short-lived publish token, and an earlier
+// version wrote npm's response to a fixed path that outlived the step - which
+// this guard could not see, because it only ever matched env bindings. The
+// stated invariant is "no publish credential shares an execution context with
+// third-party code", so assert the DISK form too: anything that curls npm's
+// token-exchange endpoint to a file must delete that file in the same step.
+const exchangeSteps = steps.filter((s) => s.includes("oidc/token/exchange"));
+for (const s of exchangeSteps) {
+  const name = s.split("\n")[0].trim();
+  const writesToFile = /curl[^\n]*-o\s+(\S+)/.exec(s);
+  if (!writesToFile) { ok(true, `OIDC exchange step keeps the response off disk: "${name.slice(0, 40)}"`); continue; }
+  const path = writesToFile[1];
+  ok(s.includes(`rm -f ${path}`), `OIDC exchange step deletes ${path} before the step ends: "${name.slice(0, 40)}"`);
+}
+// Same reasoning for `sed -i.bak` on the npmrc: the .bak retains the original
+// auth line.
+for (const s of steps) {
+  if (!/sed -i\.bak[^\n]*_authToken/.test(s)) continue;
+  const name = s.split("\n")[0].trim();
+  ok(/rm -f "?\$NPMRC\.bak"?/.test(s), `npmrc backup is deleted after stripping the auth line: "${name.slice(0, 40)}"`);
+}
+
 // --- 2. no install hooks in anything we publish ----------------------------
 const pkgDirs = ["mcp", "tollbooth", "client",
   ...readdirSync(join(ROOT, "adapters"), { withFileTypes: true })

@@ -24,3 +24,4 @@ test: 2026-08-02T16:01:35Z
 2026-08-05T16:11:26Z test: trusted publishing phase 1
 2026-08-05T16:45:48Z test: trusted publishing phase 3
 2026-08-05T17:34:39Z test: socket supply-chain gate
+2026-08-05T21:09:45Z test: credential-on-disk cleanup

@@ -1862,6 +1862,11 @@ jobs:
             if grep -q '_authToken' "$NPMRC"; then
               echo "removing _authToken line(s) so npm authenticates via OIDC"
               sed -i.bak '/_authToken/d' "$NPMRC"
+              # sed -i leaves $NPMRC.bak holding the ORIGINAL auth line. Empty
+              # today, but it would hold a real token under the documented
+              # NODE_AUTH_TOKEN rollback - and this job runs third-party gate
+              # code after this step. Delete it.
+              rm -f "$NPMRC.bak"
               echo "--- npmrc after ---"; sed -E 's/(=).*/\1<redacted>/' "$NPMRC"
             else
               echo "no _authToken line present"
@@ -1899,6 +1904,11 @@ jobs:
                 VERDICT=$(node -e 'const fs=require("fs");let t="";try{t=fs.readFileSync("/tmp/oidc-out.txt","utf8")}catch{};let o;try{o=JSON.parse(t)}catch{};if(o&&o.token){console.log("MATCHED (short-lived token issued)")}else{console.log((o&&o.message)||t.slice(0,120))}' || true)
                 printf "  %-28s HTTP %s  %s\n" "$PKG" "$CODE" "$VERDICT"
               done
+              # A successful exchange body is {"token":"npm_..."} - a live
+              # short-lived publish credential. Later steps in THIS job execute
+              # third-party code (server boot, adapter gates), so the response
+              # must not outlive the probe.
+              rm -f /tmp/oidc-out.txt
             else
               echo "could not mint a GitHub OIDC token for the npm audience"
             fi
