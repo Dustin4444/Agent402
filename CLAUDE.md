@@ -197,7 +197,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   safety-refusal 200 (finish_reason `content_filter` / native `refusal`, no content —
   Claude-5-class models) walks the failover chain instead of reaching the buyer as a
   paid empty answer; a chain refusing end-to-end surfaces 502 (settlement cancelled).
-- **MPP dual-stack shim (`src/mpp-shim.js`, 2026-07-23):** serves MPP (Machine
+- **Well-known store (`src/well-known-store.js`, 2026-08-05):** operator-published
+  domain-verification documents served at `/.well-known/<path>` without a redeploy
+  (built for Talkshi's 15-minute domain challenge; covers any serve-a-file-to-prove-
+  control flow). `POST /__operator/well-known` `{path, body}` publishes (`remove:true`
+  deletes); memory-only, 24h TTL, 16-entry/16KB caps, traversal structurally
+  impossible (segment allowlist), reserved names (x402, security.txt, glama.json)
+  refused at write AND never shadowed at serve (catch-all `next()`s on miss).
+  Never put a challenge's `claim_secret` in the published doc — it stays with the
+  operator. `scripts/test-well-known-store.js` (28 assertions, boots the server, in CI).
   Payments Protocol, tempoxyz/mpp — IETF-track "Payment" HTTP auth scheme,
   paymentauth.org) clients from the same routes, with @x402/express keeping SOLE
   settlement authority. Pure header translation: 402s gain `WWW-Authenticate:
