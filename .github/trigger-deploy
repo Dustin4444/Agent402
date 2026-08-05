@@ -3,3 +3,4 @@
 2026-08-05T11:04:01Z deploy: well-known store
 2026-08-05T12:52:05Z deploy: offsite /data backup
 2026-08-05T13:11:27Z deploy: re-pin after var-upsert race removed 7252c065
+2026-08-05T13:34:17Z test+deploy: well-known content-type allowlist + nosniff

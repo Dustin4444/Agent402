@@ -45,7 +45,14 @@ export function registerWellKnown(path, body, contentType = "application/json") 
   if (RESERVED.has(path)) throw bad(`"${path}" has a dedicated route - the store cannot serve it`);
   const text = typeof body === "string" ? body : JSON.stringify(body);
   if (!text || Buffer.byteLength(text, "utf8") > MAX_BYTES) throw bad(`body required, max ${MAX_BYTES} bytes`);
-  if (typeof contentType !== "string" || !/^[\w.+-]+\/[\w.+-]+$/.test(contentType)) throw bad("contentType must be a bare mime type");
+  // Allowlist, not a shape check: domain-verification documents are JSON or
+  // plain text everywhere this flow exists. Refusing everything else makes
+  // markup serving structurally impossible - an operator cannot register a
+  // text/html body even by mistake, so the public catch-all can never emit
+  // anything a browser would execute.
+  if (contentType !== "application/json" && contentType !== "text/plain") {
+    throw bad('contentType must be "application/json" or "text/plain"');
+  }
   prune();
   if (!store.has(path) && store.size >= MAX_ENTRIES) throw bad(`store full (${MAX_ENTRIES} entries) - remove one first`);
   store.set(path, { body: text, contentType, at: Date.now() });

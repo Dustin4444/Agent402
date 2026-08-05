@@ -1288,7 +1288,10 @@ app.get("/.well-known/*doc", (req, res, next) => {
   const rest = Array.isArray(req.params.doc) ? req.params.doc.join("/") : String(req.params.doc || "");
   const hit = getWellKnown(rest);
   if (!hit) return next();
-  res.set("Cache-Control", "no-store").type(hit.contentType).send(hit.body);
+  // nosniff + the store's json/plain content-type allowlist: the served body
+  // is operator-authored and can never be markup; the buyer-controlled path
+  // is only a lookup key (a miss falls through to the 404 handler).
+  res.set("Cache-Control", "no-store").set("X-Content-Type-Options", "nosniff").type(hit.contentType).send(hit.body);
 });
 app.get("/privacy", (_req, res) => htmlCache(res, 300, 900).send(privacyPage(BASE_URL)));
 app.get("/terms", (_req, res) => htmlCache(res, 300, 900).send(termsPage(BASE_URL)));

@@ -35,7 +35,10 @@ ok(!validWellKnownPath("a b"), "space rejected");
 throws(() => registerWellKnown("x402", { a: 1 }), "dedicated route", "reserved name x402 refused at write time");
 throws(() => registerWellKnown("security.txt", "x"), "dedicated route", "reserved name security.txt refused");
 throws(() => registerWellKnown("ok-path", "x".repeat(17 * 1024)), "max", "byte cap enforced");
-throws(() => registerWellKnown("ok-path", { a: 1 }, "text/html; charset=utf-8"), "bare mime", "parameterized content type refused");
+throws(() => registerWellKnown("ok-path", { a: 1 }, "text/html; charset=utf-8"), "application/json", "parameterized content type refused");
+throws(() => registerWellKnown("ok-path", "<script>x</script>", "text/html"), "application/json", "text/html refused outright - markup is structurally unservable");
+ok(registerWellKnown("ok-plain", "hello", "text/plain").path === "ok-plain", "text/plain accepted");
+removeWellKnown("ok-plain");
 
 const reg = registerWellKnown("t/one", { service: "talkshi.com", challenge: "abc" });
 ok(reg.path === "t/one" && reg.bytes > 0, "registration returns path + bytes");
@@ -70,6 +73,7 @@ try {
   const readBody = await read.json();
   ok(read.status === 200 && readBody.challenge === "talkshi-domain-test", "published document served publicly at the exact URL");
   ok((read.headers.get("content-type") || "").includes("application/json"), "served as JSON");
+  ok(read.headers.get("x-content-type-options") === "nosniff", "served with nosniff");
 
   const x402 = await fetch(`${B}/.well-known/x402`);
   const manifest = await x402.json();
