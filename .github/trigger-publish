@@ -2,3 +2,4 @@
 publish: 2026-07-31T19:39:47Z
 2026-08-05T16:51:33Z publish: OIDC verification via client 0.6.4
 2026-08-05T17:37:01Z publish: OIDC retry with preflight diagnostics
+2026-08-05T18:07:15Z publish: strip stale npmrc auth line so OIDC is used

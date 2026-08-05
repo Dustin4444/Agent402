@@ -1853,14 +1853,18 @@ jobs:
           if [ -f "$NPMRC" ]; then
             echo "--- npmrc (values redacted) ---"
             sed -E 's/(=).*/\1<redacted>/' "$NPMRC"
-            # An empty _authToken is worse than none: it can suppress the OIDC
-            # exchange while carrying no credential.
-            if grep -qE '_authToken=\s*$' "$NPMRC"; then
-              echo "found EMPTY _authToken - removing it so npm falls through to OIDC"
-              sed -i.bak -E '/_authToken=\s*$/d' "$NPMRC"
+            # Strip ANY _authToken line. setup-node writes the LITERAL text
+            # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`; with the
+            # token deleted that expands to nothing, npm sees a configured
+            # credential it cannot resolve (proved: `npm whoami` -> E401), and
+            # never falls through to the OIDC exchange -> publish 404s.
+            # We hold no npm token by design, so any auth line here is stale.
+            if grep -q '_authToken' "$NPMRC"; then
+              echo "removing _authToken line(s) so npm authenticates via OIDC"
+              sed -i.bak '/_authToken/d' "$NPMRC"
               echo "--- npmrc after ---"; sed -E 's/(=).*/\1<redacted>/' "$NPMRC"
             else
-              echo "no empty _authToken line"
+              echo "no _authToken line present"
             fi
           else
             echo "no npmrc at $NPMRC"
