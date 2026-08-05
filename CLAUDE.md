@@ -197,6 +197,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   safety-refusal 200 (finish_reason `content_filter` / native `refusal`, no content —
   Claude-5-class models) walks the failover chain instead of reaching the buyer as a
   paid empty answer; a chain refusing end-to-end surfaces 502 (settlement cancelled).
+- **Offsite /data backup (`src/backup.js`, 2026-08-05):** nightly gzip'd copies of
+  the volume's SQLite/state files to a Railway Bucket (Tigris S3, path-style,
+  hand-rolled SigV4 — no SDK dep; bucket `agent402-backups`, creds ride the
+  DEPLOY JOB's quiet-gated upsert as `BACKUP_S3_*`, all-four-or-nothing). Cost
+  is BOUNDED BY DESIGN: date-keyed objects (same-day rerun overwrites),
+  `BACKUP_KEEP_DAYS` (14) prunes old date prefixes every run,
+  `BACKUP_MAX_RUN_MB` (512, compressed) holds over-budget files VISIBLY in
+  status, and `BACKUP_MAX_TOTAL_GB` (20) is a bill guard that refuses uploads
+  outright when the bucket exceeds it. Cache-like files (*cache*, wal/shm,
+  tmp) excluded — they rebuild. SQLite staged via better-sqlite3's online
+  backup API (consistent under live writers), scratch space in container tmp
+  (never /data). Ops: `GET /__operator/backup.json` (status + inventory,
+  works pre-creds), `POST /__operator/backup/run` (heavy-limited). Scheduler
+  fires once per UTC day at `BACKUP_UTC_HOUR` (4), timer unref'd, no-op
+  without creds. Restore = download object, gunzip, replace file, restart.
+  `scripts/test-backup.js` (28 assertions, stub S3 + real sqlite, in CI);
+  signer proven live against the real bucket 2026-08-05 before first deploy.
 - **Well-known store (`src/well-known-store.js`, 2026-08-05):** operator-published
   domain-verification documents served at `/.well-known/<path>` without a redeploy
   (built for Talkshi's 15-minute domain challenge; covers any serve-a-file-to-prove-

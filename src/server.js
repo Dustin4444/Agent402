@@ -25,6 +25,7 @@ import {
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse } from "./payer.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
+import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { landingPage } from "./landing.js";
@@ -1845,6 +1846,24 @@ app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // Cheap read of an in-memory counter - no upstream, so no heavy-route limiter.
   res.set("Cache-Control", "no-store").json(egressReport({ top: Math.min(200, parseInt(req.query.top, 10) || 60) }));
+});
+// Offsite-backup status + inventory: what /data holds, what the last run
+// did, held files, stored bytes. Read is local (fs stat only) - no heavy
+// limiter; auth bound is operatorAuthed's own attempt limiter.
+app.get("/__operator/backup.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json({ status: backupStatus(), plan: backupPlan() });
+});
+// Manual backup run - fans out to the bucket (third-party writes), so it
+// takes the heavy-route limiter like the other upstream-reaching
+// diagnostics. Fire-and-report: the run can take minutes on a cold day.
+app.post("/__operator/backup/run", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  runBackup().then(
+    (r) => res.json(r),
+    (e) => res.status(500).json({ error: String(e.message) })
+  );
 });
 // Publish/remove a /.well-known verification document at runtime. Local
 // memory only (no upstream fan-out), so operatorAuthed's own per-IP
@@ -4593,6 +4612,10 @@ if (String(process.env.X402_INDEX_CRAWL || "").toLowerCase() === "off") {
 } else {
   startCrawler({ selfOrigin: BASE_URL });
 }
+
+// Nightly offsite backup of /data (src/backup.js). No-op without the
+// BACKUP_S3_* creds; the timer is unref'd so it never holds the process.
+startBackupScheduler();
 
 // Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot serves
 // stale-while-revalidating, so the only request that could ever block on the
