@@ -998,6 +998,17 @@ jobs:
       - name: Supply-chain guards (npm publish token never shares a step with code execution; no consumer-install hooks; files-allowlist only; remote installs pinned + scriptless — offline)
         run: node scripts/test-supply-chain-guards.js
 
+      # Third-party behavioural scan of what we SHIP and what ships with it.
+      # The offline guard above proves our own repo is sane; this asks Socket
+      # whether any dependency has started behaving like malware since the last
+      # run - the question a static self-audit cannot answer. Blocks only on
+      # critical/high; a Socket outage or exhausted quota warns loudly and does
+      # NOT block (their uptime is not our release gate).
+      - name: Socket supply-chain scan (dependency behaviour, not just versions)
+        env:
+          SOCKET_API_TOKEN: ${{ secrets.SOCKET_API_TOKEN }}
+        run: node scripts/socket-check.js
+
       - name: Offsite backup (stub S3 — consistent sqlite snapshots, cache excluded, budget holds visibly, bill guard refuses over-cap, retention prunes date prefixes — offline)
         run: node scripts/test-backup.js
 
