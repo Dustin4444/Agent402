@@ -1,0 +1,15 @@
+# Query filters for the CodeQL workflow (codeql.yml passes this via config-file).
+#
+# js/missing-rate-limiting is excluded because it only recognises known
+# middleware (express-rate-limit and friends), and every limiter in this repo
+# is hand-rolled (createRateLimiter / operatorHeavyLimited / the MCP transport
+# limiter). The rule therefore flags routes that ARE rate-limited and can
+# never self-resolve — alerts #81/#84/#85 were all this shape, each dismissed
+# as a false positive after verifying the limiter was present. The rule's
+# useful nudge ("auth'd route with no request-rate bound") now has to come
+# from review: any new route that performs authorization gets a limiter or a
+# comment explaining which existing bound covers it.
+name: Agent402 CodeQL config
+query-filters:
+  - exclude:
+      id: js/missing-rate-limiting

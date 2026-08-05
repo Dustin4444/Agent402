@@ -30,6 +30,10 @@ jobs:
         uses: github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v3
         with:
           languages: javascript-typescript
+          # Excludes js/missing-rate-limiting — see the config for why (the
+          # rule cannot see hand-rolled limiters, so it flags routes that are
+          # rate-limited and re-opens forever).
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v3
