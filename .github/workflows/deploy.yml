@@ -1870,6 +1870,32 @@ jobs:
             echo "no npmrc at $NPMRC"
           fi
           echo "npm whoami: $(npm whoami 2>&1 | head -1)"
+          # Ask npm's OIDC exchange endpoint DIRECTLY what it thinks of our
+          # trusted publisher. The CLI falls through to token auth silently
+          # (ENEEDAUTH) whether the config is missing OR mismatched, which
+          # cannot tell us which - this can. Diagnostic only: never fails the
+          # step, and the exchanged token is not used to publish.
+          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            IDTOK=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" \
+              | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).value||"")}catch{console.log("")}})')
+            if [ -n "$IDTOK" ]; then
+              # Claims identify what npm is matching against (no secret in them).
+              echo "--- OIDC claims npm will see ---"
+              echo "$IDTOK" | cut -d. -f2 | tr '_-' '/+' | base64 -d 2>/dev/null \
+                | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const c=JSON.parse(s);console.log(JSON.stringify({repository:c.repository,workflow_ref:c.workflow_ref,job_workflow_ref:c.job_workflow_ref,environment:c.environment,ref:c.ref},null,1))}catch(e){console.log("(claims unparsed)")}})'
+              echo "--- npm exchange verdict for agent402-client ---"
+              curl -sS -o /tmp/oidc-out.txt -w "HTTP %{http_code}\n" \
+                -X POST "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/agent402-client" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $IDTOK" || true
+              # Body may contain a short-lived token on success - print only the
+              # shape, never the value.
+              node -e 'const fs=require("fs");let t="";try{t=fs.readFileSync("/tmp/oidc-out.txt","utf8")}catch{};let o;try{o=JSON.parse(t)}catch{};if(o&&o.token){console.log("exchange SUCCEEDED (short-lived token issued) - trusted publisher matches")}else{console.log("exchange response:", t.slice(0,300))}' || true
+            else
+              echo "could not mint a GitHub OIDC token for the npm audience"
+            fi
+          fi
 
       - name: Publish agent402-mcp to npm
         run: |
