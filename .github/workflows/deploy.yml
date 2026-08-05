@@ -1796,14 +1796,19 @@ jobs:
       # only the publish steps see the new CLI; the gates keep running on the
       # runner's stock npm.
       #
-      # MIGRATION STATE: the pipeline is OIDC-CAPABLE but still authenticates
-      # with NODE_AUTH_TOKEN. Trusted publishing activates per package the
-      # moment a trusted publisher is configured on npmjs.com (owner + 2FA;
-      # a token cannot set it since 2026-07-31). Once every package is
-      # configured, DELETE the NODE_AUTH_TOKEN env blocks below - npm must
-      # never see both a token and OIDC, so the token is removed in one
-      # deliberate step rather than left as an ambiguous fallback.
-      # Deadline: npm removes publish from bypass-2FA tokens ~January 2027.
+      # TRUSTED PUBLISHING (OIDC) - no npm token exists in this workflow.
+      # Auth comes from the job's id-token: write, exchanged by the npm CLI
+      # against the trusted publisher configured on npmjs.com for each
+      # package (owner MikeyPetrillo, repo Agent402, workflow deploy.yml,
+      # environment "agent402 / production"). A stolen repo secret therefore
+      # cannot publish, and the ~January 2027 removal of token publishing
+      # does not affect us.
+      #
+      # If a publish ever fails auth: the trusted-publisher config for THAT
+      # package is missing or its fields do not match exactly (the
+      # environment name includes the spaces around the slash). Rollback, if
+      # ever needed, is re-adding `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`
+      # to the publish steps - the token stays valid until ~January 2027.
       - name: Upgrade npm for trusted publishing (OIDC)
         run: |
           npm install -g npm@11.19.0 --ignore-scripts
@@ -1821,10 +1826,7 @@ jobs:
           echo "npm $NPM_V supports trusted publishing"
 
       - name: Publish agent402-mcp to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing — add an npm granular token (read/write, all packages, 2FA bypass) as the NPM_TOKEN repo secret"; exit 1; }
           cd mcp
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1846,10 +1848,7 @@ jobs:
           node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js   # gate: node + edge + feature/security assertions must pass before shipping
 
       - name: Publish agent402-tollbooth to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd tollbooth
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1866,10 +1865,7 @@ jobs:
           node scripts/test-client-caps.js  # gate: spending-cap safety must pass too
 
       - name: Publish agent402-client to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd client
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1896,10 +1892,7 @@ jobs:
           AGENT402_BASE_URL=http://localhost:3090 node adapters/openai-tools/test.js
 
       - name: Publish agent402-openai-tools to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd adapters/openai-tools
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1917,10 +1910,7 @@ jobs:
           AGENT402_BASE_URL=http://localhost:3090 node adapters/anthropic-tools/test.js
 
       - name: Publish agent402-anthropic-tools to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd adapters/anthropic-tools
           VERSION=$(node -p "require('./package.json').version")
           # Idempotent: a re-run after a successful publish is a no-op.
@@ -1937,10 +1927,7 @@ jobs:
           AGENT402_BASE_URL=http://localhost:3090 node adapters/ai-sdk/test.js
 
       - name: Publish agent402-ai-sdk to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd adapters/ai-sdk
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-ai-sdk@$VERSION" version >/dev/null 2>&1; then
@@ -1956,10 +1943,7 @@ jobs:
           AGENT402_BASE_URL=http://localhost:3090 node adapters/langchain/test.js
 
       - name: Publish agent402-langchain to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd adapters/langchain
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-langchain@$VERSION" version >/dev/null 2>&1; then
@@ -1976,10 +1960,7 @@ jobs:
           AGENT402_BASE_URL=http://localhost:3090 node adapters/openai-agents/test.js
 
       - name: Publish agent402-openai-agents to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd adapters/openai-agents
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-openai-agents@$VERSION" version >/dev/null 2>&1; then
@@ -1995,10 +1976,7 @@ jobs:
           AGENT402_BASE_URL=http://localhost:3090 node adapters/llamaindex/test.js
 
       - name: Publish agent402-llamaindex to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd adapters/llamaindex
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-llamaindex@$VERSION" version >/dev/null 2>&1; then
@@ -2016,10 +1994,7 @@ jobs:
           AGENT402_BASE_URL=http://localhost:3090 node adapters/strands/test.js
 
       - name: Publish agent402-strands to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd adapters/strands
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-strands@$VERSION" version >/dev/null 2>&1; then
@@ -2034,10 +2009,7 @@ jobs:
           AGENT402_BASE_URL=http://localhost:3090 node adapters/google-adk/test.js
 
       - name: Publish agent402-google-adk to npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          [ -n "$NODE_AUTH_TOKEN" ] || { echo "NPM_TOKEN secret missing"; exit 1; }
           cd adapters/google-adk
           VERSION=$(node -p "require('./package.json').version")
           if npm view "agent402-google-adk@$VERSION" version >/dev/null 2>&1; then

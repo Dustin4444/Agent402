@@ -29,11 +29,20 @@ const ROOT = new URL("..", import.meta.url).pathname;
 const wf = readFileSync(join(ROOT, ".github/workflows/deploy.yml"), "utf8");
 
 // --- 1. token isolation ----------------------------------------------------
-// Split the workflow into steps; any step whose env carries the npm token must
-// not also execute code (tests, installs, arbitrary node).
+// We now publish over OIDC, so normally there are ZERO token-bearing steps and
+// this section has nothing to check (section 4 asserts that absence). It stays
+// because the documented rollback re-adds a token: if that ever happens, the
+// isolation rule must still hold - a token may never share a step with code
+// execution, which is how the worm family harvests publish credentials.
+//
+// Matching is on a real `env:` binding only. An earlier version of this test
+// matched the token string anywhere in the step text, so it counted the
+// ROLLBACK COMMENT as a token-bearing step and reported "found 1" long after
+// the tokens were gone - green for the wrong reason.
 const steps = wf.split(/\n      - name: /).slice(1);
-const tokenSteps = steps.filter((s) => s.includes("NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}"));
-ok(tokenSteps.length > 0, `found ${tokenSteps.length} steps carrying the npm publish token`);
+const bindsToken = (s) => s.split("\n").some((l) =>
+  /^\s+NODE_AUTH_TOKEN:\s*\$\{\{\s*secrets\./.test(l) && !l.trim().startsWith("#"));
+const tokenSteps = steps.filter(bindsToken);
 const EXEC = /node\s+\S+\.(js|mjs|cjs)|npm\s+(ci|install)\b|npx\s/;
 for (const s of tokenSteps) {
   const name = s.split("\n")[0].trim();
@@ -41,6 +50,7 @@ for (const s of tokenSteps) {
   const body = s.replace(/npm (publish|view)[^\n]*/g, "");
   ok(!EXEC.test(body), `token step runs no code: "${name.slice(0, 52)}"`);
 }
+ok(true, `token-bearing publish steps: ${tokenSteps.length} (0 expected under trusted publishing)`);
 
 // --- 2. no install hooks in anything we publish ----------------------------
 const pkgDirs = ["mcp", "tollbooth", "client",
@@ -77,7 +87,20 @@ for (const dir of pkgDirs) {
   }
 }
 
-// --- 4. publish reachability ------------------------------------------------
+// --- 4. no npm credential in CI at all (trusted publishing) -----------------
+// Migrated 2026-08-05: auth is GitHub OIDC exchanged against each package's
+// trusted publisher on npmjs.com. A long-lived token in the workflow would
+// silently take precedence over OIDC and put a publish credential back in
+// reach of a compromised secret - so its ABSENCE is the invariant. (The
+// documented rollback line in a comment is allowed; an actual env binding
+// is not.)
+const tokenBindings = wf.split("\n").filter((l) =>
+  /NODE_AUTH_TOKEN:\s*\$\{\{\s*secrets\./.test(l) && !l.trim().startsWith("#"));
+ok(tokenBindings.length === 0, `no npm token is bound in the workflow${tokenBindings.length ? ` (found ${tokenBindings.length})` : ""}`);
+ok(/id-token: write/.test(wf), "publish job still grants id-token: write (the OIDC credential)");
+ok(/npm install -g npm@11\./.test(wf), "publish job pins an npm CLI new enough to exchange OIDC");
+
+// --- 5. publish reachability ------------------------------------------------
 ok(!wf.includes("pull_request_target"), "no pull_request_target in the deploy workflow (fork-PR privilege escalation)");
 ok(/npm publish --provenance/.test(wf), "publishes carry --provenance");
 
