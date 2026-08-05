@@ -6,3 +6,4 @@ publish: 2026-07-31T19:39:47Z
 2026-08-05T18:26:37Z publish: probe npm OIDC exchange directly
 2026-08-05T19:34:03Z publish: probe all 11 packages
 2026-08-05T20:14:31Z publish: strands 0.1.5 + llamaindex 0.1.6 over OIDC
+2026-08-05T20:32:46Z test+publish: widen socket scope, calibrate obfuscation
