@@ -66,7 +66,10 @@ console.log(`  response: ${text.slice(0, 8000).replace(/\s+/g, " ")}`);
 // Verification fields for compatibility checks against a counterparty:
 // the settle receipt (X-PAYMENT-RESPONSE, base64 JSON with the on-chain tx),
 // their request id if they send one, and a sha256 over the exact body bytes.
-const settleHdr = res.headers.get("x-payment-response") || res.headers.get("payment-receipt") || "";
+// v2 name first (PAYMENT-RESPONSE), then the v1 X- name, then the MPP
+// mirror - a seller shipping only the v2 header must not read as "no
+// receipt" (that blind spot would have re-confirmed a gap a partner fixed).
+const settleHdr = res.headers.get("payment-response") || res.headers.get("x-payment-response") || res.headers.get("payment-receipt") || "";
 if (settleHdr) {
   try {
     const receipt = JSON.parse(Buffer.from(settleHdr, "base64").toString("utf8"));
