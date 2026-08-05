@@ -992,6 +992,12 @@ jobs:
       - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
         run: node scripts/test-supported-guard.js
 
+      - name: Well-known store (operator-published domain-verification docs; traversal impossible, reserved names refused, no shadowing of /.well-known/x402 — offline)
+        run: node scripts/test-well-known-store.js
+
+      - name: Offsite backup (stub S3 — consistent sqlite snapshots, cache excluded, budget holds visibly, bill guard refuses over-cap, retention prunes date prefixes — offline)
+        run: node scripts/test-backup.js
+
       - name: CDP kit live check (real balances + onramp session — skips without secrets)
         env:
           CDP_API_KEY_ID: ${{ secrets.CDP_API_KEY_ID }}
@@ -2299,6 +2305,14 @@ jobs:
       # challenge ids. Presence is the rollout switch: unset → shim not
       # mounted, server stays pure-x402.
       MPP_SECRET_KEY: ${{ secrets.MPP_SECRET_KEY }}
+      # Offsite /data backup (src/backup.js) - Railway Bucket S3 creds. All
+      # four inject together or not at all (a half-armed backup would look
+      # configured while uploading nothing). Endpoint+bucket are repo
+      # VARIABLES (auditable, non-secret); keys are secrets.
+      BACKUP_S3_ENDPOINT: ${{ vars.BACKUP_S3_ENDPOINT }}
+      BACKUP_S3_BUCKET: ${{ vars.BACKUP_S3_BUCKET }}
+      BACKUP_S3_KEY_ID: ${{ secrets.BACKUP_S3_KEY_ID }}
+      BACKUP_S3_SECRET: ${{ secrets.BACKUP_S3_SECRET }}
       # /v1/audio/speech rollout gate (server.js GATEWAY_TOOLS_ENABLED) — a
       # repo VARIABLE (not secret) so flipping it is one `gh variable set`
       # away and the value is auditable. Injected only when set.
@@ -2340,6 +2354,8 @@ jobs:
           [ -n "$FRED_API_KEY_V2" ] && echo "::add-mask::$FRED_API_KEY_V2"
           [ -n "$YAHOO_RELAY_TOKEN" ] && echo "::add-mask::$YAHOO_RELAY_TOKEN"
           [ -n "$MPP_SECRET_KEY" ] && echo "::add-mask::$MPP_SECRET_KEY"
+          [ -n "$BACKUP_S3_KEY_ID" ] && echo "::add-mask::$BACKUP_S3_KEY_ID"
+          [ -n "$BACKUP_S3_SECRET" ] && echo "::add-mask::$BACKUP_S3_SECRET"
           [ -n "$RAILWAY_API_TOKEN" ] || { echo "No Railway token provided"; exit 1; }
           [ -n "$WALLET_ADDRESS" ] || { echo "No wallet address provided"; exit 1; }
 
@@ -2520,6 +2536,11 @@ jobs:
           fi
           if [ -n "$MPP_SECRET_KEY" ]; then
             VARS=$(echo "$VARS" | jq --arg v "$MPP_SECRET_KEY" '. + {MPP_SECRET_KEY:$v}')
+          fi
+          # Offsite backup: all four or none - partial config would report
+          # "configured" while every upload fails.
+          if [ -n "$BACKUP_S3_ENDPOINT" ] && [ -n "$BACKUP_S3_BUCKET" ] && [ -n "$BACKUP_S3_KEY_ID" ] && [ -n "$BACKUP_S3_SECRET" ]; then
+            VARS=$(echo "$VARS" | jq --arg e "$BACKUP_S3_ENDPOINT" --arg b "$BACKUP_S3_BUCKET" --arg k "$BACKUP_S3_KEY_ID" --arg x "$BACKUP_S3_SECRET" '. + {BACKUP_S3_ENDPOINT:$e, BACKUP_S3_BUCKET:$b, BACKUP_S3_KEY_ID:$k, BACKUP_S3_SECRET:$x}')
           fi
           if [ -n "$SOR_EXTERNAL_ENABLED" ]; then
             VARS=$(echo "$VARS" | jq --arg v "$SOR_EXTERNAL_ENABLED" '. + {SOR_EXTERNAL_ENABLED:$v}')

@@ -161,7 +161,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   BEFORE the Railway variable upsert (the upsert itself can trigger a redeploy) — polls
   `/api/stats` `recentCalls`, waits for 180s with no external USDC call (heartbeat/PoW never
   block); fail-open on stats-down, sustained traffic past `QUIET_GATE_MAX_WAIT` (repo var,
-  default 1200s), or repo var `QUIET_GATE=off`. Deploy also sets
+  default 1200s), or repo var `QUIET_GATE=off`. **Var-upsert race (measured 2026-08-05):**
+  an upsert that introduces NEW variables makes Railway auto-redeploy the PREVIOUS build,
+  which races the workflow's SHA-pinned deploy (lost by 56ms; the pinned deployment ended
+  REMOVED and prod served stale code with the new vars — healthy, wrong version).
+  Unchanged-value upserts are no-ops and never race. When adding deploy-injected
+  variables: expect the first [deploy] run to fail at "deployment ended REMOVED", verify
+  prod health, then push a second [deploy] (vars now pre-exist, cannot race) — or
+  pre-create the variables before the code ships. Deploy also sets
   `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` — Railway's default SIGTERM→SIGKILL grace is **0s**,
   so without it the server's graceful drain never runs. Drain (`src/server.js` shutdown):
   `closeIdleConnections()` sweep every 5s + 75s hard deadline (covers transcribe's 60s
@@ -197,7 +204,32 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   safety-refusal 200 (finish_reason `content_filter` / native `refusal`, no content —
   Claude-5-class models) walks the failover chain instead of reaching the buyer as a
   paid empty answer; a chain refusing end-to-end surfaces 502 (settlement cancelled).
-- **MPP dual-stack shim (`src/mpp-shim.js`, 2026-07-23):** serves MPP (Machine
+- **Offsite /data backup (`src/backup.js`, 2026-08-05):** nightly gzip'd copies of
+  the volume's SQLite/state files to a Railway Bucket (Tigris S3, path-style,
+  hand-rolled SigV4 — no SDK dep; bucket `agent402-backups`, creds ride the
+  DEPLOY JOB's quiet-gated upsert as `BACKUP_S3_*`, all-four-or-nothing). Cost
+  is BOUNDED BY DESIGN: date-keyed objects (same-day rerun overwrites),
+  `BACKUP_KEEP_DAYS` (14) prunes old date prefixes every run,
+  `BACKUP_MAX_RUN_MB` (512, compressed) holds over-budget files VISIBLY in
+  status, and `BACKUP_MAX_TOTAL_GB` (20) is a bill guard that refuses uploads
+  outright when the bucket exceeds it. Cache-like files (*cache*, wal/shm,
+  tmp) excluded — they rebuild. SQLite staged via better-sqlite3's online
+  backup API (consistent under live writers), scratch space in container tmp
+  (never /data). Ops: `GET /__operator/backup.json` (status + inventory,
+  works pre-creds), `POST /__operator/backup/run` (heavy-limited). Scheduler
+  fires once per UTC day at `BACKUP_UTC_HOUR` (4), timer unref'd, no-op
+  without creds. Restore = download object, gunzip, replace file, restart.
+  `scripts/test-backup.js` (28 assertions, stub S3 + real sqlite, in CI);
+  signer proven live against the real bucket 2026-08-05 before first deploy.
+- **Well-known store (`src/well-known-store.js`, 2026-08-05):** operator-published
+  domain-verification documents served at `/.well-known/<path>` without a redeploy
+  (built for Talkshi's 15-minute domain challenge; covers any serve-a-file-to-prove-
+  control flow). `POST /__operator/well-known` `{path, body}` publishes (`remove:true`
+  deletes); memory-only, 24h TTL, 16-entry/16KB caps, traversal structurally
+  impossible (segment allowlist), reserved names (x402, security.txt, glama.json)
+  refused at write AND never shadowed at serve (catch-all `next()`s on miss).
+  Never put a challenge's `claim_secret` in the published doc — it stays with the
+  operator. `scripts/test-well-known-store.js` (28 assertions, boots the server, in CI).
   Payments Protocol, tempoxyz/mpp — IETF-track "Payment" HTTP auth scheme,
   paymentauth.org) clients from the same routes, with @x402/express keeping SOLE
   settlement authority. Pure header translation: 402s gain `WWW-Authenticate:

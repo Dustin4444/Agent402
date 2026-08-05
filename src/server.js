@@ -24,6 +24,8 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse } from "./payer.js";
+import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
+import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
 import { landingPage } from "./landing.js";
@@ -1277,6 +1279,20 @@ app.get("/.well-known/glama.json", (_req, res) => {
     maintainers: [{ email }],
   });
 });
+// Operator-published verification documents (src/well-known-store.js) — e.g.
+// Talkshi's 15-minute domain challenge, which a deploy cycle cannot serve in
+// time. Falls through on a store miss, so the dedicated /.well-known routes
+// (x402, security.txt, glama.json — some registered LATER in this file) are
+// never shadowed; the store also refuses those names at write time.
+app.get("/.well-known/*doc", (req, res, next) => {
+  const rest = Array.isArray(req.params.doc) ? req.params.doc.join("/") : String(req.params.doc || "");
+  const hit = getWellKnown(rest);
+  if (!hit) return next();
+  // nosniff + the store's json/plain content-type allowlist: the served body
+  // is operator-authored and can never be markup; the buyer-controlled path
+  // is only a lookup key (a miss falls through to the 404 handler).
+  res.set("Cache-Control", "no-store").set("X-Content-Type-Options", "nosniff").type(hit.contentType).send(hit.body);
+});
 app.get("/privacy", (_req, res) => htmlCache(res, 300, 900).send(privacyPage(BASE_URL)));
 app.get("/terms", (_req, res) => htmlCache(res, 300, 900).send(termsPage(BASE_URL)));
 app.get("/transparency", async (_req, res) => htmlCache(res, 300, 900).send(transparencyPage(BASE_URL, await repoTraffic().catch(() => null))));
@@ -1833,6 +1849,39 @@ app.get("/__operator/egress.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   // Cheap read of an in-memory counter - no upstream, so no heavy-route limiter.
   res.set("Cache-Control", "no-store").json(egressReport({ top: Math.min(200, parseInt(req.query.top, 10) || 60) }));
+});
+// Offsite-backup status + inventory: what /data holds, what the last run
+// did, held files, stored bytes. Read is local (fs stat only) - no heavy
+// limiter; auth bound is operatorAuthed's own attempt limiter.
+app.get("/__operator/backup.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json({ status: backupStatus(), plan: backupPlan() });
+});
+// Manual backup run - fans out to the bucket (third-party writes), so it
+// takes the heavy-route limiter like the other upstream-reaching
+// diagnostics. Fire-and-report: the run can take minutes on a cold day.
+app.post("/__operator/backup/run", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  runBackup().then(
+    (r) => res.json(r),
+    (e) => res.status(500).json({ error: String(e.message) })
+  );
+});
+// Publish/remove a /.well-known verification document at runtime. Local
+// memory only (no upstream fan-out), so operatorAuthed's own per-IP
+// wrong-credential limiter is the request-rate bound here; the store
+// enforces path shape, byte cap, entry cap, and TTL.
+app.post("/__operator/well-known", express.json({ limit: "32kb" }), (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const { path, body, contentType, remove } = req.body || {};
+  try {
+    if (remove === true) return res.json({ removed: removeWellKnown(String(path || "")), entries: listWellKnown() });
+    const r = registerWellKnown(path, body, contentType || undefined);
+    res.json({ ok: true, ...r, servedAt: `/.well-known/${r.path}`, entries: listWellKnown() });
+  } catch (e) {
+    res.status(e.statusCode || 500).json({ error: e.message });
+  }
 });
 // The refund ledger - who is owed money for a charged-but-failed call, and
 // what happened to each debt. Local sqlite reads/writes only (no upstream),
@@ -4566,6 +4615,10 @@ if (String(process.env.X402_INDEX_CRAWL || "").toLowerCase() === "off") {
 } else {
   startCrawler({ selfOrigin: BASE_URL });
 }
+
+// Nightly offsite backup of /data (src/backup.js). No-op without the
+// BACKUP_S3_* creds; the timer is unref'd so it never holds the process.
+startBackupScheduler();
 
 // Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot serves
 // stale-while-revalidating, so the only request that could ever block on the
