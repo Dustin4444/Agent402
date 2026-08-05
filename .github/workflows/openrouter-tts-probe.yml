@@ -127,7 +127,7 @@ jobs:
           echo "--- /v1/models lists all 5 chain models (flag on):"
           N=$(curl -s localhost:3000/v1/models | jq '[.data[] | select(.x402.tier == "v1-audio-speech")] | length')
           echo "speech models listed: $N"
-          [ "$N" = "5" ] || { echo "::error::expected 5 speech models on /v1/models, got $N"; exit 1; }
+          [ "$N" = "6" ] || { echo "::error::expected 6 speech models on /v1/models, got $N"; exit 1; }
 
           echo "--- real TTS buy through OUR endpoint (OpenAI voice name):"
           CODE=$(curl -sS --max-time 90 -o /tmp/e2e1.mp3 -w '%{http_code}' -X POST localhost:3000/v1/audio/speech \

@@ -2,7 +2,7 @@
 // layer that gates what reaches the paid OpenRouter upstream: model → tier
 // routing (incl. bare-name mapping and self-correcting cross-tier errors),
 // input/output caps, stream rejection, and the env-gated 503. No network.
-import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH } from "../src/tools/llm-gateway-kit.js";
+import { TIERS, canonicalModel, tierAllows, tierFor, validateRequest, modelsList, LLM_GATEWAY_TOOLS, stableStringify, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, AUTO_RANKINGS, classifyPrompt, validateEmbeddingsRequest, embeddingsCacheKey, EMBEDDINGS_PATH, isEmptyRefusal } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -37,6 +37,17 @@ ok(tierFor("not-a-real/model") === null, "tierFor null for unknown models");
 // gpt-4o must not leak onto the base tier via the gpt-4o-mini prefix rules.
 ok(!tierAllows("v1-chat", "openai/gpt-4o-2024-08-06"), "dated gpt-4o snapshot NOT on base tier");
 ok(tierAllows("v1-chat", "openai/gpt-4o-mini-2024-07-18"), "dated gpt-4o-mini snapshot on base tier");
+
+// 2026-08 model refresh — every new family resolves to its intended home,
+// and gpt-5.6 ids do NOT ride the "openai/gpt-5" prefix (boundary-aware
+// matching: "gpt-5" + "-" never matches "gpt-5.6-…").
+ok(tierFor("openai/gpt-5.6-luna") === "v1-chat-nano", "gpt-5.6-luna homes on nano");
+ok(tierFor("openai/gpt-5.6-terra") === "v1-chat", "gpt-5.6-terra homes on base");
+ok(tierFor("openai/gpt-5.6-sol") === "v1-chat-premium", "gpt-5.6-sol homes on premium");
+ok(tierFor("anthropic/claude-sonnet-5") === "v1-chat-pro", "claude-sonnet-5 homes on pro via the sonnet prefix");
+ok(tierFor("anthropic/claude-opus-5") === "v1-chat-premium", "claude-opus-5 homes on premium via the opus prefix");
+ok(tierFor("poolside/laguna-xs-2.1") === "v1-chat-nano", "laguna-xs homes on nano");
+ok(!tierAllows("v1-chat-premium", "openai/gpt-5.6-luna-pro") || tierFor("openai/gpt-5.6-luna-pro") === "v1-chat-nano", "luna-pro variant still resolves to nano first");
 
 // validateRequest — happy path clamps and passthrough.
 const v = validateRequest({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 999999, temperature: 0.2, stream: false }, "v1-chat");
@@ -376,6 +387,93 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   delete process.env.OPENROUTER_API_KEY;
 }
 
+// Tools guard — only OpenAI function tools pass. OpenRouter's server-side
+// tool types (openrouter:subagent delegates to up to 10 worker models billed
+// at their own rates; openrouter:advisor consults pricier models) create
+// upstream spend bounded by neither max_tokens nor provider.max_price, so a
+// buyer smuggling one through the verbatim `tools` passthrough would buy
+// work the flat per-call price never covered. The guard is proven at the
+// HANDLER (the caller path), not only on validateRequest — a green
+// validateRequest test alone could hide a handler that skips validation.
+{
+  const fnTool = { type: "function", function: { name: "get_weather", parameters: { type: "object", properties: {} } } };
+  const v = validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool] }, "v1-chat");
+  ok(Array.isArray(v.tools) && v.tools[0].function.name === "get_weather", "function tools still pass through verbatim");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "openrouter:subagent" }] }, "v1-chat"), "openrouter:*", "openrouter:subagent rejected with the reason");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "openrouter:advisor" }] }, "v1-chat"), "function", "openrouter:advisor rejected, error names the accepted shape");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool, { type: "openrouter:subagent" }] }, "v1-chat"), "openrouter:*", "one bad entry poisons the whole array - no partial acceptance");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "function" }] }, "v1-chat"), "function", "type:function without a function object rejected");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: "web" }, "v1-chat"), "array", "non-array tools rejected");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [] }, "v1-chat"), "non-empty", "empty tools array rejected, not silently passed");
+
+  // tool_choice mirrors the guard - only the OpenAI wire shapes pass.
+  for (const good of ["none", "auto", "required"]) {
+    ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: good }, "v1-chat").tool_choice === good, `tool_choice "${good}" passes`);
+  }
+  ok(validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: { type: "function", function: { name: "get_weather" } } }, "v1-chat").tool_choice.function.name === "get_weather", "named function tool_choice passes");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: { type: "openrouter:subagent" } }, "v1-chat"), "tool_choice", "server-tool tool_choice rejected");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: "any" }, "v1-chat"), "tool_choice", "unknown string tool_choice rejected");
+  throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1(), tools: [fnTool], tool_choice: { type: "function" } }, "v1-chat"), "tool_choice", "function tool_choice without a name rejected");
+
+  // Caller path: the handler must refuse BEFORE any upstream fetch.
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let fetches = 0;
+  globalThis.fetch = async () => { fetches++; throw new Error("unexpected upstream fetch"); };
+  const base = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat");
+  try {
+    await base.handler({ model: "gpt-4o-mini", messages: msg1(), tools: [{ type: "openrouter:subagent" }] });
+    ok(false, "handler accepted a server-side tool type");
+  } catch (e) {
+    ok(e.statusCode === 400 && String(e.message).includes("openrouter:*"), `handler 400s on server-side tools (got ${e.statusCode}: ${String(e.message).slice(0, 60)})`);
+  }
+  ok(fetches === 0, "...and made zero upstream fetches doing it");
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// Refusal walk — a safety-classifier refusal is an HTTP 200 with no content
+// (Claude 5-class models via OpenRouter). The chain must walk it like a
+// provider error; a refusal WITH partial content is served as-is; a chain
+// that refuses end-to-end surfaces 502 (settlement cancelled - nobody pays
+// for an empty answer).
+{
+  const refusal = (model) => JSON.stringify({ id: "gen-r", model, choices: [{ index: 0, message: { role: "assistant", content: "" }, finish_reason: "content_filter", native_finish_reason: "refusal" }] });
+  ok(isEmptyRefusal(JSON.parse(refusal("m"))), "empty content_filter/refusal detected");
+  ok(!isEmptyRefusal({ choices: [{ message: { content: "partial answer" }, finish_reason: "content_filter" }] }), "refusal WITH content is not walkable - the buyer gets the partial");
+  ok(!isEmptyRefusal({ choices: [{ message: { content: "" }, finish_reason: "stop" }] }), "empty content with a normal finish_reason is not a refusal");
+  ok(!isEmptyRefusal({ choices: [{ message: { content: "", tool_calls: [{ id: "t1" }] }, finish_reason: "content_filter" }] }), "tool_calls count as content");
+
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(body.model);
+    if (calls.length === 1) return { ok: true, status: 200, text: async () => refusal(body.model) };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-s", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }] }) };
+  };
+  const auto = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-auto");
+  const served = await auto.handler({ messages: [{ role: "user", content: "hello" }], max_tokens: 5 });
+  ok(calls.length === 2 && served.choices[0].message.content === "OK", `refusal walks the chain and the next model serves (${calls.join(" -> ")})`);
+
+  // Whole chain refuses -> 502, never a paid empty 200.
+  calls.length = 0;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(body.model);
+    return { ok: true, status: 200, text: async () => refusal(body.model) };
+  };
+  try {
+    await auto.handler({ messages: [{ role: "user", content: "hello" }], max_tokens: 5 });
+    ok(false, "all-refused chain returned a 200");
+  } catch (e) {
+    ok(e.statusCode === 502 && String(e.message).includes("safety"), `all-refused chain surfaces 502 after walking every link (${calls.length} links tried)`);
+  }
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
 // Margin telemetry: non-stream calls request OpenRouter usage accounting, the
 // exact upstream cost is captured for the operator and STRIPPED before the
 // response reaches the buyer (or the prompt cache).
@@ -596,21 +694,21 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 
 // /v1/audio/speech — OpenAI TTS wire over OpenRouter, raw bytes out via the
 // route binder's __binary sentinel. Payment settles before the handler, so
-// the tier serves a five-model failover chain (every link canary-proven);
+// the tier serves a six-model failover chain (every link canary-proven);
 // OpenAI voice names map per-model, native ids pass through.
 {
   const { validateSpeechRequest, SPEECH_PATH, SPEECH_MODELS, LLM_GATEWAY_TOOLS: tools } = await import("../src/tools/llm-gateway-kit.js");
   ok(SPEECH_PATH === "/v1/audio/speech", "speech path constant");
   const speechTool = tools.find((t) => t.slug === "v1-audio-speech");
   ok(speechTool && speechTool.route === "POST /v1/audio/speech" && speechTool.price === "$0.060", "speech tool registered at the OpenAI wire path");
-  ok(SPEECH_MODELS.length === 5 && SPEECH_MODELS[0].id === "mistralai/voxtral-mini-tts-2603", "five-model chain, Voxtral primary");
+  ok(SPEECH_MODELS.length === 6 && SPEECH_MODELS[0].id === "mistralai/voxtral-mini-tts-2603", "six-model chain, Voxtral primary");
   ok(SPEECH_MODELS.every((e) => e.map.alloy && Object.values(e.map).every((voice) => e.voices.has(voice))), "every chain link maps each OpenAI voice name to one of its own native voices");
 
   const v = validateSpeechRequest({ input: "hello world" });
-  ok(v.bodies.length === 5 && v.bodies[0].model === "mistralai/voxtral-mini-tts-2603" && v.bodies[0].voice === "en_paul_neutral" && v.bodies[0].response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: full chain, alloy maps to the primary's neutral voice, mp3");
+  ok(v.bodies.length === 6 && v.bodies[0].model === "mistralai/voxtral-mini-tts-2603" && v.bodies[0].voice === "en_paul_neutral" && v.bodies[0].response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: full chain, alloy maps to the primary's neutral voice, mp3");
   ok(v.bodies.map((b) => b.model).join() === SPEECH_MODELS.map((e) => e.id).join(), "default chain order = SPEECH_MODELS order");
   const pinned = validateSpeechRequest({ input: "hi", model: "kokoro" });
-  ok(pinned.bodies[0].model === "hexgrad/kokoro-82m" && pinned.bodies.length === 5, "explicit model pins that link first — the rest stay as fallbacks");
+  ok(pinned.bodies[0].model === "hexgrad/kokoro-82m" && pinned.bodies.length === 6, "explicit model pins that link first — the rest stay as fallbacks");
   ok(validateSpeechRequest({ input: "hi", model: "voxtral-mini-tts" }).bodies[0].model === "mistralai/voxtral-mini-tts-2603", "bare family alias accepted");
   const nova = validateSpeechRequest({ input: "hi", voice: "nova" });
   ok(nova.bodies[0].voice === "gb_jane_confident" && nova.bodies[2].voice === "af_nova", "OpenAI voice name maps per-model down the chain");
@@ -663,7 +761,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   };
   await speechTool.handler({ input: "hello" }).then(
     () => ok(false, "all links down must not serve"),
-    (e) => ok(calls.length === 5 && [502, 503].includes(e.statusCode), "all five links tried before the buyer sees an error")
+    (e) => ok(calls.length === 6 && [502, 503].includes(e.statusCode), "all six links tried before the buyer sees an error")
   );
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;

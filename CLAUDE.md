@@ -102,11 +102,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `b64_json`, no cache/stream, imageless upstream → 502),
   plus **`/v1/audio/speech` `$0.06`** (`v1-audio-speech` — OpenAI TTS wire on
   OpenRouter's audio API. OpenRouter has NO OpenAI TTS models (their docs still say
-  otherwise — burned us 2026-07-09); serves a FIVE-model failover chain instead
-  (`SPEECH_MODELS`: Voxtral Mini TTS → Grok Voice → Kokoro-82M → Zonos → MAI-Voice-2,
-  all proven by real buys 2026-07-16 via the dispatchable
+  otherwise — burned us 2026-07-09); serves a SIX-model failover chain instead
+  (`SPEECH_MODELS`: Voxtral Mini TTS → Grok Voice → Kokoro-82M → Zonos →
+  MAI-Voice-2-Flash → MAI-Voice-2, all proven by real buys via the dispatchable
   `.github/workflows/openrouter-tts-probe.yml`, which probes the live
-  `?output_modalities=speech` list — never hardcoded ids). Chain walks on ANY
+  `?output_modalities=speech` list — never hardcoded ids; latest full sweep run
+  30971572514, 2026-08-05, which also proved the -Flash link before it entered).
+  Chain walks on ANY
   upstream failure incl. empty audio — payment settles pre-handler, so a provider
   outage must never be the buyer's 502. OpenAI voice names map per-model; native ids
   (e.g. `en_paul_cheerful`) accepted, listed per model on `/v1/models`. 2k-char cap;
@@ -174,10 +176,27 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `scripts/test-avm-validity.js` (offline, in CI).
 - **STT margin cap (`src/tools/stt-kit.js`):** per-tier `maxMinutes` (5/10) is enforced
   locally via a `music-metadata` duration probe BEFORE any OpenAI spend — upstream bills
-  per audio minute (~$0.003 mini / ~$0.006 4o), so break-even on the $0.03 tier is ~10 min
-  and the cap is the margin bound, not a UX nicety. Unreadable duration → 422 (an
-  unreadable container would be an unbounded upstream bill). `assertWithinDurationCap` /
-  `probeDurationSeconds` exported for `scripts/test-stt-cap.js`.
+  per audio minute (~$0.003 mini / ~$0.0045 gpt-transcribe), so the cap is the margin
+  bound, not a UX nicety. transcribe-pro rides `gpt-transcribe` since 2026-08-04
+  (OpenAI's 2026-07-28 release, 25% under the old gpt-4o-transcribe rate). Unreadable
+  duration → 422 (an unreadable container would be an unbounded upstream bill).
+  `assertWithinDurationCap` / `probeDurationSeconds` exported for `scripts/test-stt-cap.js`.
+- **2026-08-04 upstream-model sweep** (verify against live sources before repeating —
+  model catalogs move): image-gen + image-gen-hd migrated `gpt-image-1-mini` →
+  `gpt-image-2` (OpenAI retires 1-mini **2026-12-01**; hd and premium now differ in
+  prompt cap only — premium differentiation is an open pricing decision). Gateway
+  `AUTO_RANKINGS` refreshed: `google/gemini-2.0-flash-001`/-lite VANISHED from
+  OpenRouter (the old fast band led every category with the dead id, burning a failed
+  round-trip per routed call — live-verify ranked ids when touching the table);
+  `openai/gpt-5.6-luna` ($0.10/$0.60) + `gemini-2.5-flash-lite` entered; new tier
+  prefixes gpt-5.6 terra/sol, gemini-3.x, laguna; `MODEL_COST` prices
+  `claude-sonnet-5` at STANDARD $3/$15 (intro $2/$10 dies 2026-08-31 — never enter
+  intro rates). Two gateway guards added in the same sweep: buyer `tools` entries must
+  be `type:"function"` (OpenRouter's `openrouter:subagent`/`advisor` server tools
+  create spend bounded by neither `max_tokens` nor `max_price`), and an EMPTY
+  safety-refusal 200 (finish_reason `content_filter` / native `refusal`, no content —
+  Claude-5-class models) walks the failover chain instead of reaching the buyer as a
+  paid empty answer; a chain refusing end-to-end surfaces 502 (settlement cancelled).
 - **MPP dual-stack shim (`src/mpp-shim.js`, 2026-07-23):** serves MPP (Machine
   Payments Protocol, tempoxyz/mpp — IETF-track "Payment" HTTP auth scheme,
   paymentauth.org) clients from the same routes, with @x402/express keeping SOLE

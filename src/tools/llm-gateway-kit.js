@@ -62,32 +62,41 @@ function bad(message, statusCode = 400) {
 // inside the flat $0.01 price — a per-request price can't exist under x402's
 // fixed per-route quote, so quality trades latency/depth, never what the
 // buyer pays. Worst-case upstream at the auto caps (~4k tokens in / 1024
-// out): fast tops out at gemini-2.0-flash (~$0.0008, 12x headroom), balanced
-// at deepseek-chat (~$0.0022, >4x), best at gemini-2.5-flash (~$0.0038,
-// ~2.6x) — the thinnest band is documented, deliberate, and still >2x.
+// out): fast tops out at gemini-2.5-flash-lite (~$0.0008, 12x headroom),
+// balanced at deepseek-chat (~$0.0022, >4x), best at gemini-2.5-flash
+// (~$0.0038, ~2.6x) — the thinnest band is documented, deliberate, still >2x.
+//
+// 2026-08-04 refresh (live-verified against openrouter.ai/api/v1/models):
+// google/gemini-2.0-flash-001 and -lite are GONE from OpenRouter — the old
+// fast band led every category with a dead model, so every fast-routed call
+// burned a failed upstream round-trip before failing over. Replaced with
+// gemini-2.5-flash-lite ($0.10/$0.40). openai/gpt-5.6-luna entered at
+// $0.10/$0.60 (July 2026 price cut) — frontier-lab efficiency at 4o-mini
+// prices, 1M context — and takes the balanced/best slots the dead model and
+// age had left weakest. Every list still ends in openai/gpt-4o-mini.
 export const AUTO_QUALITIES = ["fast", "balanced", "best"];
 export const AUTO_RANKINGS = {
   // fast — cheapest/snappiest serving; right for high-frequency loop turns.
   fast: {
-    code: ["google/gemini-2.0-flash-001", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
-    reasoning: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    long: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    general: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    code: ["google/gemini-2.5-flash-lite", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
+    reasoning: ["google/gemini-2.5-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    long: ["google/gemini-2.5-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    general: ["google/gemini-2.5-flash-lite", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
   },
-  // balanced — the default; identical to the pre-knob rankings so existing
-  // buyers' routing does not change out from under them.
+  // balanced — the default band. deepseek-chat keeps the code head (proven,
+  // cheap); gpt-5.6-luna leads the rest (1M ctx covers `long` natively).
   balanced: {
-    code: ["deepseek/deepseek-chat", "qwen/qwen-2.5-coder-32b-instruct", "openai/gpt-4o-mini"],
-    reasoning: ["deepseek/deepseek-chat", "google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
-    long: ["google/gemini-2.0-flash-001", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
-    general: ["openai/gpt-4o-mini", "google/gemini-2.0-flash-001", "deepseek/deepseek-chat"],
+    code: ["deepseek/deepseek-chat", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
+    reasoning: ["openai/gpt-5.6-luna", "deepseek/deepseek-chat", "openai/gpt-4o-mini"],
+    long: ["openai/gpt-5.6-luna", "google/gemini-2.5-flash-lite", "openai/gpt-4o-mini"],
+    general: ["openai/gpt-5.6-luna", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
   },
   // best — strongest models that still clear the price with ≥2.5x headroom.
   best: {
-    code: ["deepseek/deepseek-chat", "google/gemini-2.5-flash", "openai/gpt-4o-mini"],
-    reasoning: ["google/gemini-2.5-flash", "deepseek/deepseek-chat", "openai/gpt-4o-mini"],
-    long: ["google/gemini-2.5-flash", "google/gemini-2.0-flash-001", "openai/gpt-4o-mini"],
-    general: ["google/gemini-2.5-flash", "openai/gpt-4o-mini", "deepseek/deepseek-chat"],
+    code: ["openai/gpt-5.6-luna", "deepseek/deepseek-chat", "openai/gpt-4o-mini"],
+    reasoning: ["google/gemini-2.5-flash", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
+    long: ["google/gemini-2.5-flash", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
+    general: ["google/gemini-2.5-flash", "openai/gpt-5.6-luna", "openai/gpt-4o-mini"],
   },
 };
 
@@ -154,11 +163,17 @@ export const TIERS = {
     fallbacks: ["deepseek/deepseek-chat", "openai/gpt-4o-mini"],
     prefixes: [
       "openai/gpt-4.1-nano", "openai/gpt-5-nano",
-      "google/gemini-2.0-flash-lite", "google/gemini-2.5-flash-lite",
+      // gpt-5.6-luna: $0.10/$0.60 after OpenAI's 2026-07-30 cut — frontier-lab
+      // efficiency in the nano price class (live-verified 2026-08-04).
+      "openai/gpt-5.6-luna",
+      // gemini-2.0-flash-lite was removed here 2026-08-04: the model is gone
+      // from OpenRouter entirely (verified against the live models list).
+      "google/gemini-2.5-flash-lite",
       "meta-llama/llama-3.2-1b-instruct", "meta-llama/llama-3.2-3b-instruct",
       "mistralai/ministral-3b", "mistralai/ministral-8b",
       "qwen/qwen-2.5-7b-instruct",
       "deepseek/deepseek-chat",
+      "poolside/laguna-xs-2.1", "poolside/laguna-s-2.1", // $0.06-0.09/$0.12-0.18
     ],
   },
   "v1-chat": {
@@ -169,8 +184,10 @@ export const TIERS = {
     maxPrice: { prompt: 2.5, completion: 8 }, // family prefixes reach mistral-large ~$2/$6, qwen-max ~$1.6/$6.4
     prefixes: [
       "openai/gpt-4o-mini", "openai/gpt-4.1-mini", "openai/gpt-4.1-nano",
+      "openai/gpt-5.6-terra", // $1/$6 after the 2026-07-30 cut — under the tier bound
       "anthropic/claude-haiku", "anthropic/claude-3-haiku", "anthropic/claude-3.5-haiku",
       "google/gemini-flash", "google/gemini-2.0-flash", "google/gemini-2.5-flash",
+      "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", // $0.25/$1.50, $0.30/$2.50
       "deepseek/", "meta-llama/", "mistralai/", "qwen/",
     ],
   },
@@ -182,8 +199,12 @@ export const TIERS = {
     maxPrice: { prompt: 6, completion: 20 }, // priciest allowlisted: claude sonnet / grok ~$3/$15
     prefixes: [
       "openai/gpt-4o", "openai/gpt-4.1",
+      // claude-sonnet prefix covers claude-sonnet-5 (live on OpenRouter at
+      // intro $2/$10 through 2026-08-31, standard $3/$15 after — both under
+      // the tier bound; MODEL_COST prices it at standard from day one).
       "anthropic/claude-sonnet", "anthropic/claude-3.5-sonnet", "anthropic/claude-3.7-sonnet",
       "google/gemini-pro", "google/gemini-2.5-pro",
+      "google/gemini-3.1-pro", "google/gemini-3.5-flash", "google/gemini-3.6-flash", // $2/$12, $1.5/$9, $1.5/$7.5
       "x-ai/grok",
     ],
   },
@@ -194,7 +215,10 @@ export const TIERS = {
     maxTokens: 8192,
     maxPrice: { prompt: 20, completion: 100 }, // priciest allowlisted: claude opus ~$15/$75
     prefixes: [
-      "openai/gpt-5", "openai/o3", "openai/o4",
+      // gpt-5.6-sol needs its own entry: prefix matching is boundary-aware
+      // ("openai/gpt-5" matches gpt-5-*, not gpt-5.6-*). claude-opus covers
+      // claude-opus-5 ($5/$25) and claude-opus-5-fast ($10/$50).
+      "openai/gpt-5", "openai/gpt-5.6-sol", "openai/o3", "openai/o4",
       "anthropic/claude-opus",
     ],
   },
@@ -273,25 +297,47 @@ export const MODEL_COST = [
   ["openai/o4", { prompt: 20, completion: 80 }], // unreleased flagship - assume pro-tier pricing until known
   ["openai/gpt-5-nano", { prompt: 0.05, completion: 0.4 }],
   ["openai/gpt-5-mini", { prompt: 0.25, completion: 2 }],
+  // gpt-5.6 family — explicit entries are LOAD-BEARING: costFor's plain
+  // startsWith would otherwise match "openai/gpt-5" and price sol at a fifth
+  // of its real cost. Live prices 2026-08-04 (post 07-30 cut): sol $5/$30,
+  // terra $1/$6, luna $0.10/$0.60; -pro variants share their base price and
+  // match these prefixes.
+  ["openai/gpt-5.6-sol", { prompt: 6, completion: 35 }],
+  ["openai/gpt-5.6-terra", { prompt: 1.5, completion: 8 }],
+  ["openai/gpt-5.6-luna", { prompt: 0.2, completion: 1 }],
   ["openai/gpt-5", { prompt: 1.25, completion: 10 }],
   ["openai/gpt-4o-mini", { prompt: 0.15, completion: 0.6 }],
   ["openai/gpt-4o", { prompt: 2.5, completion: 10 }],
   ["openai/gpt-4.1-nano", { prompt: 0.1, completion: 0.4 }],
   ["openai/gpt-4.1-mini", { prompt: 0.4, completion: 1.6 }],
   ["openai/gpt-4.1", { prompt: 2, completion: 8 }],
+  // claude-opus covers claude-opus-5 ($5/$25) and -fast ($10/$50) — the $15/$75
+  // legacy-opus bound overestimates both, which is the safe direction.
   ["anthropic/claude-opus", { prompt: 15, completion: 75 }],
+  // claude-sonnet covers claude-sonnet-5 — priced at STANDARD $3/$15, never
+  // the $2/$10 intro that expires 2026-08-31 (an intro-rate entry would
+  // silently under-clamp the margin from September on).
   ["anthropic/claude-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude", { prompt: 1, completion: 5 }], // haiku family
   ["google/gemini-2.5-pro", { prompt: 2.5, completion: 15 }],
   ["google/gemini-pro", { prompt: 2.5, completion: 15 }],
+  // gemini-3.x — explicit entries: the bare "google/gemini" flash-family rate
+  // would underestimate them. Live 2026-08-04: 3.5-flash $1.5/$9, 3.6-flash
+  // $1.5/$7.5, 3.1-pro(-preview) $2/$12, lites $0.25-0.30/$1.5-2.5.
+  ["google/gemini-3.5-flash-lite", { prompt: 0.4, completion: 3 }],
+  ["google/gemini-3.5-flash", { prompt: 2, completion: 10 }],
+  ["google/gemini-3.6-flash", { prompt: 2, completion: 9 }],
+  ["google/gemini-3.1-flash-lite", { prompt: 0.4, completion: 2 }],
+  ["google/gemini-3.1-pro", { prompt: 2.5, completion: 15 }],
   ["google/gemini", { prompt: 0.4, completion: 2.5 }], // flash family
   ["x-ai/grok", { prompt: 3, completion: 15 }],
   ["deepseek/", { prompt: 0.6, completion: 2.5 }],
   ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
   ["mistralai/", { prompt: 2, completion: 6 }],
   ["qwen/", { prompt: 1.6, completion: 6.4 }],
+  ["poolside/", { prompt: 0.15, completion: 0.3 }], // laguna xs/s: $0.06-0.09/$0.12-0.18
 ];
 
 /** Upstream list price for a model (longest matching prefix), or null when
@@ -443,6 +489,40 @@ export function validateRequest(input, tierSlug) {
 
   const body = { model, messages, max_tokens: maxTokens };
   for (const k of PASSTHROUGH) if (input[k] !== undefined) body[k] = input[k];
+  // Tools are OpenAI function-calling entries ONLY. OpenRouter also serves
+  // SERVER-SIDE tool types (openrouter:subagent fans out to up to 10 worker
+  // models billed to us at their rates; openrouter:advisor consults pricier
+  // models mid-generation) whose spend is bounded by NEITHER max_tokens nor
+  // provider.max_price — a $0.003 nano call carrying one would buy upstream
+  // work the flat price never covered. The margin clamp prices tools as
+  // input tokens; only type:"function" keeps "input tokens" the whole story.
+  if (body.tools !== undefined) {
+    if (!Array.isArray(body.tools) || body.tools.length === 0) {
+      throw bad('"tools" must be a non-empty array of {type:"function", function:{...}} entries');
+    }
+    for (const t of body.tools) {
+      if (!t || typeof t !== "object" || t.type !== "function" || !t.function || typeof t.function !== "object") {
+        throw bad(
+          `Unsupported tools entry${t?.type ? ` (type "${String(t.type).slice(0, 40)}")` : ""}. ` +
+          'The gateway accepts OpenAI function tools only: {type:"function", function:{name, description, parameters}}. ' +
+          "Server-side tool types (openrouter:*) are not available - their upstream spend is not covered by the flat per-call price."
+        );
+      }
+    }
+  }
+  // tool_choice mirrors the tools guard. Today it can only select a tool the
+  // (guarded) tools array declares, so this is belt-and-suspenders — but if
+  // OpenRouter ever accepts a bare server-tool tool_choice, an unshaped
+  // passthrough would be the bypass. OpenAI wire: "none"|"auto"|"required"
+  // or {type:"function", function:{name}}.
+  if (body.tool_choice !== undefined) {
+    const tc = body.tool_choice;
+    const okString = tc === "none" || tc === "auto" || tc === "required";
+    const okObject = tc && typeof tc === "object" && tc.type === "function" && typeof tc.function?.name === "string";
+    if (!okString && !okObject) {
+      throw bad('"tool_choice" must be "none", "auto", "required", or {type:"function", function:{name}}');
+    }
+  }
   if (body.n !== undefined) {
     const n = parseInt(body.n, 10);
     if (Number.isNaN(n) || n < 1 || n > MAX_N) throw bad(`"n" must be an integer between 1 and ${MAX_N} - each completion is metered output`);
@@ -505,6 +585,28 @@ async function callOpenRouter(body) {
   // Full OpenAI wire shape passes through untouched (id, object, created,
   // model, choices incl. tool_calls, usage) — drop-in fidelity is the product.
   return data;
+}
+
+/** A safety-classifier refusal that produced NOTHING. Claude 5-class models
+ *  (Opus 5 / Fable 5, live on OpenRouter since June-July 2026) decline some
+ *  prompts as an HTTP 200 with stop_reason "refusal" — OpenRouter surfaces it
+ *  as finish_reason "content_filter" and/or native_finish_reason "refusal".
+ *  The failover chain only walked on 502/503/504, so an empty refusal would
+ *  ride to the buyer as a PAID empty answer. Empty-only on purpose: a refusal
+ *  carrying partial content is returned as-is (the buyer gets something and
+ *  finish_reason discloses why it stopped); an empty one is walkable, and a
+ *  chain that refuses end-to-end surfaces a 502 — which cancels settlement,
+ *  so nobody pays for nothing. Exported for the gateway test. */
+export function isEmptyRefusal(data) {
+  const choice = data?.choices?.[0];
+  if (!choice) return false;
+  const fr = String(choice.finish_reason || "").toLowerCase();
+  const native = String(choice.native_finish_reason || "").toLowerCase();
+  if (fr !== "content_filter" && native !== "refusal") return false;
+  const m = choice.message || {};
+  const hasText = typeof m.content === "string" && m.content.trim() !== "";
+  const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+  return !hasText && !hasToolCalls;
 }
 
 /** Stream the upstream SSE body to the client verbatim (OpenAI wire format:
@@ -885,12 +987,13 @@ async function imagesHandler(input) {
 // binder's { __binary } sentinel). OpenRouter's TTS catalog carries NO
 // OpenAI models (their docs still advertise openai/gpt-4o-mini-tts-2025-12-15;
 // the live ?output_modalities=speech list — and a real paid probe of every
-// entry, 2026-07-16 — says otherwise), so the tier serves a FIVE-model
-// failover chain across five independent providers, every link proven with
-// a real buy. Payment settles BEFORE this handler runs, so a provider
+// entry, 2026-07-16 — says otherwise), so the tier serves a SIX-model
+// failover chain across five independent providers (Microsoft twice: the
+// cheaper -flash variant, then MAI-Voice-2), every link proven with a real
+// buy — latest sweep: probe run 30971572514, 2026-08-05. Payment settles BEFORE this handler runs, so a provider
 // outage must never become the buyer's 502: the chain walks on ANY upstream
-// failure (5xx, network error, empty audio), and only exhausting all five
-// links surfaces an error. Buyers keep the OpenAI wire: the 11 OpenAI voice
+// failure (5xx, network error, empty audio), and only exhausting every
+// link surfaces an error. Buyers keep the OpenAI wire: the 11 OpenAI voice
 // names map per-model to each provider's own voice ids, and any native id
 // (en_paul_cheerful…) is accepted too — remapped to its OpenAI-name
 // equivalent (or the link's alloy) if the chain walks past its model.
@@ -955,8 +1058,20 @@ export const SPEECH_MODELS = [
     voices: new Set(["american_female", "american_male", "british_female", "british_male", "random"]),
   },
   {
+    // MAI-Voice-2-Flash — same four voices as MAI-Voice-2 at $15/M chars
+    // (vs $22/M): worst case $0.030 = 50% of the price. Proven by a real
+    // authenticated buy on probe run 30971572514 (2026-08-05, 200 +
+    // audio/mpeg bytes) before entering the chain.
+    id: "microsoft/mai-voice-2-flash",
+    aliases: ["mai-voice-2-flash"],
+    costPerChar: 0.000015,
+    map: Object.fromEntries(OPENAI_SPEECH_VOICES.map((v) => [v, "en-US-Harper:MAI-Voice-2"])),
+    voices: new Set(["en-US-Harper:MAI-Voice-2", "es-MX-Valeria:MAI-Voice-2", "fr-FR-Soleil:MAI-Voice-2", "de-DE-Klaus:MAI-Voice-2"]),
+  },
+  {
     // Single English voice — every OpenAI name lands on Harper. Priciest
-    // link (73% of the price) and single-voice, hence last.
+    // link (73% of the price) and same provider as -flash, hence last: it
+    // only serves when five other providers AND its own flash variant fail.
     id: "microsoft/mai-voice-2",
     aliases: ["mai-voice-2"],
     costPerChar: 0.000022,
@@ -1148,6 +1263,14 @@ function makeHandler(tierSlug) {
         // it is never part of the normalized body or cache keys. Non-stream
         // only: on streams the accounting rides the raw SSE the buyer sees.
         const data = await callOpenRouter({ ...outbound, usage: { include: true } });
+        // An empty safety refusal (HTTP 200, no content) walks the chain like
+        // a provider error — a buyer must never pay for nothing. See
+        // isEmptyRefusal above. Streams can't be inspected this way; there
+        // the raw SSE passes through and finish_reason discloses.
+        if (isEmptyRefusal(data)) {
+          lastErr = bad("Upstream declined the request (safety filter) - rephrase the prompt, or pick a different model", 502);
+          continue;
+        }
         // The exact upstream cost is operator telemetry, never a buyer-visible
         // field — capture it, then strip it before the response is cached or
         // returned. Standard token counts stay (OpenAI wire shape).
@@ -1342,7 +1465,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.060",
     description:
-      "OpenAI-compatible text-to-speech over x402 - point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by Voxtral Mini TTS behind a five-model failover chain (xAI Grok Voice, Kokoro, Zonos, MAI-Voice-2), every link proven by a real paid canary - a provider outage never becomes your failure. Up to 2,000 chars in, raw mp3 (default) or pcm bytes out - the same wire shape as OpenAI's endpoint. OpenAI voice names (alloy, nova, …) map per-model; native voice ids (e.g. en_paul_cheerful) work too. zdr:true routes only to zero-data-retention providers.",
+      "OpenAI-compatible text-to-speech over x402 - point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by Voxtral Mini TTS behind a six-model failover chain (xAI Grok Voice, Kokoro, Zonos, MAI-Voice-2 Flash, MAI-Voice-2), every link proven by a real paid canary - a provider outage never becomes your failure. Up to 2,000 chars in, raw mp3 (default) or pcm bytes out - the same wire shape as OpenAI's endpoint. OpenAI voice names (alloy, nova, …) map per-model; native voice ids (e.g. en_paul_cheerful) work too. zdr:true routes only to zero-data-retention providers.",
     tags: ["tts", "text-to-speech", "speech", "audio", "voice", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",

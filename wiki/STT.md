@@ -10,7 +10,7 @@ Two tiers of audio transcription, paywalled via x402. Provide a URL to an audio 
 | Endpoint | Price | Model | Max duration |
 |---|---|---|---|
 | `POST /api/transcribe` | $0.03 | `gpt-4o-mini-transcribe` | 5 min |
-| `POST /api/transcribe-pro` | $0.10 | `gpt-4o-transcribe` | 10 min |
+| `POST /api/transcribe-pro` | $0.10 | `gpt-transcribe` | 10 min |
 
 Both tiers are **wallet-only** — every call burns real upstream transcription credit. See [[Security Model]].
 
