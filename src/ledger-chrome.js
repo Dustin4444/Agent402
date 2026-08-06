@@ -271,7 +271,14 @@ const NAV_ZONES = [
     { href: "/marketplace", label: "marketplace", panel: "marketplace" },
     { href: "/sell", label: "sell", panel: "sell" },
   ],
+  // Proof surfaces. These were reachable ONLY from the footer, which on the
+  // homepage sits at 97% of the document - the live revenue ledger, the single
+  // most load-bearing claim on the site, required scrolling past everything to
+  // find. They are short labels on purpose: this zone shares a row with the
+  // logo and the CTA, so anything verbose here costs the nav a line.
   [
+    { href: "/revenue", label: "revenue" },
+    { href: "/status", label: "status" },
     { href: "/what-is-x402", label: "what is x402/MPP" },
     { href: "/docs", label: "docs" },
   ],
@@ -420,6 +427,13 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-group">
       ${mmLink("/sell", "list your API", activePath === "/sell")}
       ${mmLink("/tollbooth", "tollbooth", activePath === "/tollbooth")}
+    </div>
+    <div class="ml-mm-h">Proof</div>
+    <div class="ml-mm-group">
+      ${mmLink("/revenue", "revenue · on-chain", activePath === "/revenue")}
+      ${mmLink("/status", "status · uptime", activePath === "/status")}
+    </div>
+    <div class="ml-mm-group">
       ${mmLink("/what-is-x402", "what is x402/MPP", activePath === "/what-is-x402")}
       ${mmLink("/docs", "docs", activePath === "/docs")}
       <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>

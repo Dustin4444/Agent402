@@ -78,6 +78,13 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     { q: "I have a website or an API. Is there anything here for me?", a: "Yes, it runs in both directions. If you have an API, you can charge for it the same way and buyers pay straight into your wallet with nothing taken in between. If you have a website that AI crawlers keep hitting, agent402-tollbooth is an open-source gate that charges them per page instead of blocking them. Listing is free." },
   ];
 
+  // The page shows the four questions a first-time visitor actually has. The
+  // other three stay in the FAQPage JSON-LD above and live in full on /faq,
+  // which is a richer and different set - this is not a duplicate of that page.
+  // Trimmed because the on-page list was 8.4% of the document for answers most
+  // readers scroll straight past.
+  const homeFaqs = faqs.slice(0, 4);
+
   const jsonLd = [
     // Organization entity with a sameAs graph — the structured signal search
     // engines use to resolve which entity a brand name refers to. Every
@@ -129,9 +136,9 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 
   const body = `
   <!-- HERO -->
-  <header style="position:relative;overflow:hidden;border-bottom:1.5px solid var(--ink);background-image:repeating-linear-gradient(#0b0b0b0a 0,#0b0b0b0a 1px,transparent 1px,transparent 34px);">
-    <div style="position:absolute;right:-30px;top:10px;font-family:var(--font-body);font-weight:900;font-size:420px;line-height:1;letter-spacing:-.04em;color:transparent;-webkit-text-stroke:2px #0b0b0b14;pointer-events:none;user-select:none;">402</div>
-    <div style="max-width:1180px;margin:0 auto;padding:70px 30px 60px;position:relative;">
+  <header style="position:relative;overflow:hidden;border-bottom:1.5px solid var(--ink);">
+    
+    <div style="max-width:1180px;margin:0 auto;padding:52px 30px 44px;position:relative;">
       <div class="ml-hero-grid" style="display:grid;grid-template-columns:1.08fr .92fr;gap:50px;align-items:start;">
         <div class="ml-stagger">
           <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">open source · <span style="color:var(--accent);">x402</span> + mpp · mcp-native · settle in seconds</div>
@@ -141,7 +148,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
             ${[[fmtNum(count),"tools"],[String(packCount),"skill packs"],[fmtNum(freeCount),"free · pow"],['<span style="color:var(--accent);">$</span>0.001',"per call"],[String(RAILS.length),"chains"]].map(([n,l])=>`<div class="ml-spec-cell" style="flex:1 1 auto;padding:11px 16px 10px 0;margin-right:16px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:19px;line-height:1;font-variant-numeric:tabular-nums;">${n}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px;">${l}</div></div>`).join("")}
           </div>
           <div style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;margin-bottom:18px;">
-            <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;box-shadow:4px 4px 0 #0b0b0b22;">ADD TO CLAUDE →</a>
+            <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;box-shadow:none;">ADD TO CLAUDE →</a>
             <a class="ml-cta" href="/tools" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE THE CATALOG</a>
           </div>
           <div style="display:flex;align-items:center;gap:9px;font-family:var(--font-mono);font-size:13px;color:var(--muted);">
@@ -149,7 +156,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
           </div>
         </div>
         <div class="ml-stagger" style="position:relative;">
-          <div style="background:var(--surface);--accent:var(--accent-lit);border:1.5px solid var(--ink);box-shadow:8px 8px 0 #0b0b0b1f;">
+          <div style="background:var(--surface);--accent:var(--accent-lit);border:1.5px solid var(--ink);box-shadow:none;">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>~ / agent402</span><span>SH</span></div>
             <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># ${fmtNum(count)} x402 tools in Claude Code.
 # no signup, no API key.
@@ -163,7 +170,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 # free tier pays in compute -
 # ${RAILS_SHORT} when you scale.</span></pre>
           </div>
-          <div style="position:absolute;top:-16px;right:-14px;transform:rotate(9deg);border:2.5px solid var(--accent);color:var(--accent);background:var(--paper);padding:6px 12px 5px;font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.12em;line-height:1.25;text-align:center;box-shadow:2px 2px 0 #0b0b0b14;">PAYMENT REQUIRED<br><span style="font-size:9px;letter-spacing:.18em;opacity:.85;">· 402 · agent402.tools ·</span></div>
+          
         </div>
       </div>
     </div>
@@ -177,7 +184,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </div>
 
   <!-- THE PRODUCT - SKILL PACKS -->
-  <section style="max-width:1180px;margin:0 auto;padding:78px 30px 0;">
+  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/skill/{slug}</div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">A whole job, one payment.</h2>
@@ -201,7 +208,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </section>
 
   <!-- THREE WAYS IN -->
-  <section style="max-width:1180px;margin:0 auto;padding:78px 30px 20px;">
+  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 18px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /connect</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Three ways in.</h2>
     <p style="font-size:16px;color:var(--muted);max-width:540px;margin:0 0 36px;">Same surface underneath - payment handled automatically: proof-of-work for free tools, your x402 wallet for paid.</p>
@@ -234,7 +241,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </section>
 
   <!-- CATALOG INDEX -->
-  <section style="max-width:1180px;margin:0 auto;padding:70px 30px 20px;">
+  <section style="max-width:1180px;margin:0 auto;padding:52px 30px 18px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /catalog</div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">The index - ${fmtNum(count)} tools.</h2>
@@ -256,7 +263,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 
   <!-- NEUTRAL LAYER / LEADERBOARD -->
   <section style="background:var(--surface);--accent:var(--accent-lit);margin-top:70px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
-    <div style="max-width:1180px;margin:0 auto;padding:76px 30px;">
+    <div style="max-width:1180px;margin:0 auto;padding:54px 30px;">
       <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/leaderboard</div>
       <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1.1fr;gap:50px;align-items:center;">
         <div>
@@ -283,7 +290,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </section>
 
   <!-- SELL BAND -->
-  <section id="sell" style="max-width:1180px;margin:0 auto;padding:78px 30px 0;">
+  <section id="sell" style="max-width:1180px;margin:0 auto;padding:54px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /sell</div>
     <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">The other side of the ledger.</h2>
@@ -311,7 +318,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </section>
 
   <!-- PROOF -->
-  <section style="max-width:1180px;margin:0 auto;padding:78px 30px 20px;">
+  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 18px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /verify</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Every claim, checkable.</h2>
     <p style="font-size:16px;color:var(--muted);max-width:580px;margin:0 0 32px;">No sales calls, no contracts. Deterministic outputs, flat prices, a named maintainer, fully open source - asserted by nobody, verifiable by anybody.</p>
@@ -325,17 +332,18 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   </section>
 
   <!-- FAQ -->
-  <section style="max-width:860px;margin:0 auto;padding:70px 30px 30px;">
+  <section style="max-width:860px;margin:0 auto;padding:52px 30px 26px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /faq</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:40px;line-height:1;letter-spacing:-.02em;margin:0 0 28px;color:var(--ink);">Questions.</h2>
     <div style="display:flex;flex-direction:column;">
-      ${faqs.map(({ q, a }, i) => `<details${i === 0 ? " open" : ""} style="padding:0;border-top:${i === 0 ? "1.5px solid var(--ink)" : "1px solid var(--hairline)"};${i === faqs.length - 1 ? "border-bottom:1.5px solid var(--ink);" : ""}"><summary style="list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 0;font-size:16px;font-weight:700;color:var(--ink);"><span>${esc(q)}</span><span class="ml-faq-mark" style="font-family:var(--font-mono);font-weight:400;font-size:20px;color:var(--accent);line-height:1;flex:none;">+</span></summary><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;padding:0 0 20px;">${esc(a)}</p></details>`).join("\n      ")}
+      ${homeFaqs.map(({ q, a }, i) => `<details${i === 0 ? " open" : ""} style="padding:0;border-top:${i === 0 ? "1.5px solid var(--ink)" : "1px solid var(--hairline)"};${i === homeFaqs.length - 1 ? "border-bottom:1.5px solid var(--ink);" : ""}"><summary style="list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 0;font-size:16px;font-weight:700;color:var(--ink);"><span>${esc(q)}</span><span class="ml-faq-mark" style="font-family:var(--font-mono);font-weight:400;font-size:20px;color:var(--accent);line-height:1;flex:none;">+</span></summary><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;padding:0 0 20px;">${esc(a)}</p></details>`).join("\n      ")}
     </div>
+    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:18px 0 0;">More questions, including pricing, data handling and the OpenAI-compatible endpoint: <a href="/faq" style="color:var(--accent);font-weight:700;">/faq</a></p>
     <style>section details > summary::-webkit-details-marker{display:none;} section details[open] .ml-faq-mark{transform:rotate(45deg);} .ml-faq-mark{transition:transform .15s ease;display:inline-block;}</style>
   </section>
 
   <!-- CTA -->
-  <section style="max-width:1180px;margin:0 auto;padding:20px 30px 64px;">
+  <section style="max-width:1180px;margin:0 auto;padding:18px 30px 46px;">
     <div style="background:var(--surface);padding:52px 44px;position:relative;overflow:hidden;">
       <div style="position:absolute;right:24px;top:-30px;font-family:var(--font-body);font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff12;pointer-events:none;">402</div>
       <div style="position:relative;">
