@@ -544,6 +544,37 @@ export function ledgerRecent(chain, wallets, { limit = 8 } = {}) {
   }
 }
 
+// Tx hashes this ledger has actually SEEN ON-CHAIN, for reconciling against the
+// settlement receipts recorded at serve time. `tx_hash` (not `txid`) is the
+// join key: EVM txids carry a `:logIndex` suffix that a settle receipt never
+// has, so matching on txid would report every EVM settlement as missing.
+const qTxHashes = db.prepare("SELECT DISTINCT tx_hash FROM transfers WHERE chain = ? AND tx_hash IS NOT NULL");
+/** Set of tx hashes seen on-chain for a chain. Case-exact: base58/base32
+ *  signatures are case-sensitive, and folding them merges distinct txs. */
+export function onchainTxHashes(chain) {
+  return new Set(qTxHashes.all(String(chain || "")).map((r) => r.tx_hash));
+}
+
+/** Which chains this ledger actually tracks. A chain with NO coverage is not
+ *  "clean" - it is unscanned, and reconciliation must say so rather than report
+ *  its settlements as missing money.
+ *
+ *  Coverage is a cursor OR any recorded transfer, and it needs both halves. A
+ *  cursor with no transfers yet is still scanned (we would know if a payment
+ *  landed), and transfers with no cursor row still prove we can see the chain.
+ *  Reading cursors alone classified a chain we plainly had data for as
+ *  unverifiable. */
+export function ledgerTrackedChains() {
+  const out = new Map();
+  for (const r of db.prepare("SELECT DISTINCT chain FROM transfers").all()) {
+    out.set(r.chain, { updatedTs: null, caughtUp: null });
+  }
+  for (const r of db.prepare("SELECT chain, MAX(updated_ts) AS updated_ts, MIN(caught_up) AS caught_up FROM cursors GROUP BY chain").all()) {
+    out.set(r.chain, { updatedTs: r.updated_ts || null, caughtUp: r.caught_up === 1 });
+  }
+  return out;
+}
+
 export function ledgerSyncState() {
   const rows = db.prepare("SELECT chain, wallet, next_block, caught_up, updated_ts FROM cursors").all();
   const now = Math.floor(Date.now() / 1000);
