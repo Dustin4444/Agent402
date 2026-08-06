@@ -47,7 +47,7 @@ every release.
 
 ## Run it yourself in 30 seconds
 
-Pick whichever fits - all three are free and need no wallet:
+Pick whichever fits. They are all free and need no wallet:
 
 **1. Zero install - add the hosted connector to Claude** (claude.ai → Settings → Connectors → Add custom connector):
 
@@ -135,7 +135,7 @@ USDC over x402 - no API key, no signup, no account:
 | `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) |
 | `POST /v1/embeddings` | $0.002 | OpenAI embeddings, batch up to 64 inputs - identical repeats are **free** (deterministic output, cache default-on) |
 | `POST /v1/images/generations` | $0.08 | image generation (Gemini 2.5 Flash Image) - OpenAI images wire, inline base64 out |
-| `POST /v1/audio/speech` | $0.06 | text-to-speech, OpenAI `audio.speech.create()` wire - up to 2,000 chars in, raw mp3 (default) or pcm bytes out, five-model failover chain |
+| `POST /v1/audio/speech` | $0.06 | text-to-speech, OpenAI `audio.speech.create()` wire - up to 2,000 chars in, raw mp3 (default) or pcm bytes out, six-model failover chain |
 
 Streaming (`stream: true`), full tools/function-calling passthrough, an opt-in
 prompt cache on the chat tiers (`cache: true` → byte-identical repeats free for
@@ -192,7 +192,7 @@ refreshed hourly) and exposes them through three free surfaces - same logic as
 | [`GET /api/find?q={task}`](https://agent402.tools/api/find) | Resolve a task to the best-matching tools (route, price, schema, ready example) |
 | [`POST /api/route`](https://agent402.tools/api/route) | Smart Order Router: `{ query, top, include }` → ranked tools across sellers (match score, then **health**, then price). `include=external` excludes Agent402 itself |
 | [`GET /api/leaderboard`](https://agent402.tools/api/leaderboard) | **On-chain ranking** of every x402 seller by Base USDC settled volume (callsSettled, totalUsd, uniqueBuyers per seller). Pipeline: Bazaar → `eth_getLogs` → per-call ceiling → aggregate. Hourly snapshot |
-| [`/index`](https://agent402.tools/index) | Public HTML dashboard: every seller, tool count, network, last-fetched, rolling health |
+| [`/marketplace`](https://agent402.tools/marketplace) | Public HTML dashboard: every seller, tool count, network, last-fetched, rolling health |
 | [`GET /api/index`](https://agent402.tools/api/index) | JSON snapshot of the same data (totals, per-seller health/routable flags) |
 | [`/stellar`](https://agent402.tools/stellar) · [`/algorand`](https://agent402.tools/algorand) | Per-chain marketplace pages: sellers and tools settling on that rail specifically |
 
@@ -212,7 +212,7 @@ break ties at equal match score and price, so flaky-but-cheap sellers lose to
 reliable ones. Brand-new sellers (no history yet) get the benefit of the doubt.
 
 Operators get **3-rail attribution** on the dashboard ([`/api/stats`](https://agent402.tools/api/stats),
-[`/__operator`](https://agent402.tools/__operator)): USDC vs. proof-of-work vs.
+`/__operator`, token-gated - it answers 404 without the operator token): USDC vs. proof-of-work vs.
 heartbeat-probe traffic are counted separately - and the heartbeat rail is gated
 on a `POW_SECRET`-signed token (not a spoofable User-Agent), so the operator
 view reflects real external demand.
@@ -239,7 +239,7 @@ const out = await a.call("hash", { text: "hello world", algo: "sha256" });
 
 ## Plug into your agent framework (zero-dep adapters)
 
-If you're already on OpenAI / Anthropic / Vercel AI SDK / LangChain / LlamaIndex, skip the wiring - there's a drop-in package that turns the Agent402 catalog into native tool objects for your framework, with payment handled underneath (proof-of-work for free tools, x402+USDC when you pass an `@x402/fetch`):
+If you're already on one of the stacks below - OpenAI, Anthropic, the Vercel AI SDK, LangChain (JS or Python), LlamaIndex, Strands, Google ADK, or the OpenAI Agents SDK - skip the wiring: there's a drop-in package that turns the Agent402 catalog into native tool objects for your framework, with payment handled underneath (proof-of-work for free tools, x402+USDC when you pass an `@x402/fetch`):
 
 | Stack | npm | Returns |
 |---|---|---|
@@ -251,6 +251,7 @@ If you're already on OpenAI / Anthropic / Vercel AI SDK / LangChain / LlamaIndex
 | Strands Agents (AWS Bedrock AgentCore) | [`agent402-strands`](https://www.npmjs.com/package/agent402-strands) | `StrandsTool[]` for `new Agent({ tools })` |
 | Google ADK (Agent Development Kit) | [`agent402-google-adk`](https://www.npmjs.com/package/agent402-google-adk) | `FunctionTool[]` for ADK agents |
 | OpenAI Agents SDK | [`agent402-openai-agents`](https://www.npmjs.com/package/agent402-openai-agents) | `Agent tools` for `@openai/agents` |
+| LangChain **Python** / CrewAI | [`agent402-langchain`](https://pypi.org/project/agent402-langchain/) (PyPI) | `StructuredTool[]` from `Agent402Toolkit.get_tools()` - four meta-tools (find / route / call / about), not one per slug |
 
 ```js
 // e.g. OpenAI - every adapter has the same surface.
@@ -341,8 +342,12 @@ sha256 proof-of-work (sub-second; the MCP servers do it automatically). Details:
 ## Why it's solid
 
 - **Everything is tested** - CI calls all 500+ tools with their own documented
-  examples and blocks the release on any failure; a production heartbeat checks
-  the live instance every 15 minutes.
+  examples and blocks the release on any failure. Two independent probes outside
+  production watch the live instance (one every 5 minutes, on separate infra from
+  the other), and what they observe is public at
+  [`/status`](https://agent402.tools/status) - where a day with no observation
+  reads "no data", never uptime, because an outage is exactly when a probe
+  cannot report.
 - **Hardened** - connect-time SSRF guard on every URL tool (DNS-rebind safe),
   proof-of-work that's signed/single-use/slug-scoped, per-IP rate limits, and
   security headers. See [wiki: Security Model](https://github.com/MikeyPetrillo/Agent402/wiki/Security-Model).
@@ -403,7 +408,7 @@ Worker, a reverse proxy, or a WordPress plugin (beta). Drop-in templates in
 | `mcp/` | The `agent402-mcp` npm package (stdio MCP server) |
 | `client/` | The `agent402-client` buyer SDK (`find()` + `call()` with auto-payment) |
 | `tollbooth/` | The `agent402-tollbooth` pay-per-crawl gate (Express / edge / proxy) |
-| `adapters/` | Drop-in tools for OpenAI / Anthropic / AI SDK / LangChain / LlamaIndex |
+| `adapters/` | Drop-in tools for every framework in the adapter table above (npm, plus `langchain-py` on PyPI for LangChain/CrewAI Python) |
 | `wiki/` | Source for the [GitHub wiki](https://github.com/MikeyPetrillo/Agent402/wiki) (CI-synced) |
 | `scripts/` | Tests, demos, ops tooling |
 
