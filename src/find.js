@@ -77,6 +77,14 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   if (!terms.includes("sor")
     && terms.some((t) => DELEGATION_VERBS.has(t))
     && terms.some((t) => THIRD_PARTY_MARKERS.has(t))) terms.push("sor");
+  // "layer 2" is the spelled-out form of the tag every L2 tool already carries,
+  // but neither token survives to match on: the digit is a 1-char token dropped
+  // above, leaving bare "layer" - which reached nothing ("layer 2 updates"
+  // resolved to sql-guard at 4). Matched as a PHRASE, never as the word alone:
+  // tagging "layer" on the L2 tools was tried first and sent "osi model layer"
+  // and "layer of encryption" to l2-tvl at high confidence. "layer" is ordinary
+  // English; "layer 2" is not.
+  if (!terms.includes("l2") && /\blayer[\s-]*2\b/.test(q.toLowerCase())) terms.push("l2");
   const limit = Math.min(Math.max(parseInt(k, 10) || 5, 1), 25);
   if (!terms.length) return { query: q, count: 0, results: [] };
 
