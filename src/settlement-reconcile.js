@@ -30,6 +30,7 @@
 // tries to claw back.
 import { claimedSettlements } from "./sales-ledger.js";
 import { onchainTxHashes, ledgerTrackedChains } from "./revenue-ledger.js";
+import { getDailyCalls } from "./stats.js";
 
 // A settlement recorded seconds ago has not had time to be scanned, and would
 // read as missing. Only rows older than this are judged; anything newer is
@@ -101,10 +102,42 @@ export function reconcileSettlements({ days = 7, now = Date.now() } = {}) {
 
   const sum = (k) => chains.reduce((s, c) => s + (c[k] || 0), 0);
   const judgedAll = sum("confirmed") + sum("unconfirmed");
+
+  // IS THIS CHECK ACTUALLY LOOKING AT ANYTHING?
+  //
+  // The reconciliation reads the sales ledger, which lives on the /data volume.
+  // If that volume were lost, reset, or simply never written to, the join finds
+  // nothing and reports zero unconfirmed — which renders identically to a
+  // perfectly healthy service. That is this repo's oldest failure shape (a
+  // charged-failure alarm sat dead for months reporting success), reappearing
+  // one level up inside the very module built to avoid it.
+  //
+  // So cross-check against an INDEPENDENT counter: stats.js bumps daily_calls
+  // in the same transaction as the lifetime odometer, in a different SQLite
+  // file. If it says paid calls were served in this window while the ledger
+  // offers nothing to judge, the check is BLIND and must say so loudly rather
+  // than return a clean-looking zero.
+  const dayKeys = new Set();
+  for (let t = since; t <= now; t += 86_400_000) dayKeys.add(new Date(t).toISOString().slice(0, 10));
+  dayKeys.add(new Date(now).toISOString().slice(0, 10));
+  let paidCallsInWindow = 0;
+  try {
+    for (const d of getDailyCalls()) if (dayKeys.has(d.day)) paidCallsInWindow += d.usdc || 0;
+  } catch { paidCallsInWindow = -1; } // counter unreadable: also not a clean result
+  const blind = paidCallsInWindow > 0 && sum("claimed") === 0;
+
   return {
     asOf: new Date(now).toISOString(),
     windowDays: days,
     graceMinutes: Math.round(SETTLE_GRACE_MS / 60000),
+    // Loud by construction. An operator or alarm reading only `status` still
+    // learns that the answer below cannot be trusted.
+    status: blind ? "BLIND" : "ok",
+    blind,
+    blindReason: blind
+      ? `the odometer counted ${paidCallsInWindow} paid call(s) in this window but the sales ledger holds no settlements to reconcile - the check is looking at nothing, which is NOT the same as finding nothing wrong`
+      : null,
+    paidCallsInWindow,
     chains,
     totals: {
       claimed: sum("claimed"),

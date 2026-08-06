@@ -85,6 +85,36 @@ r = reconcileSettlements({ days: 7, now: NOW });
 const base3 = r.chains.find((c) => c.chain === "base");
 ok(base3.unconfirmed === 1, "a synthetic (canary) settlement is excluded - paying ourselves is not revenue to reconcile");
 
+// --- the check must know when it is looking at NOTHING ----------------------
+// The reconciliation reads the sales ledger off /data. If that volume were lost
+// or never written, the join finds nothing and reports zero unconfirmed, which
+// renders identically to a healthy service. That is this repo's oldest failure
+// shape (a charged-failure alarm sat dead for months reporting success),
+// reappearing inside the module built to avoid it. An independent counter in a
+// different SQLite file decides.
+{
+  const { recordServedCall } = await import("../src/stats.js");
+  // A window with settlements present is NOT blind, whatever the odometer says.
+  let r = reconcileSettlements({ days: 7, now: NOW });
+  ok(r.blind === false && r.status === "ok", `a window with settlements to judge is not blind (status=${r.status})`);
+
+  // Now the dangerous case: the odometer records paid calls, the ledger has
+  // none to show for them — exactly what an emptied /data volume looks like.
+  //
+  // The odometer buckets by the REAL UTC day (recordServedCall stamps its own
+  // clock), while every sale above was recorded against a frozen synthetic
+  // clock years away. So a window around the real present contains the counter
+  // and none of the sales, which is the blind case with no mocking needed.
+  recordServedCall("hash", "usdc", "eip155:8453");
+  r = reconcileSettlements({ days: 1, now: realNow() });
+  ok(r.totals.claimed === 0, "the empty window genuinely has nothing to reconcile");
+  ok(r.blind === true, "...and that is reported as BLIND, not as a clean zero");
+  ok(r.status === "BLIND", `...on a top-level status field an alarm can read (got ${r.status})`);
+  ok(/looking at nothing/.test(r.blindReason || ""),
+    `...with a reason that distinguishes it from finding nothing wrong (got ${JSON.stringify(r.blindReason)})`);
+  ok(r.paidCallsInWindow > 0, `...naming the independent counter that contradicts it (${r.paidCallsInWindow})`);
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
