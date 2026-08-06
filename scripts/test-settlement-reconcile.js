@@ -113,6 +113,32 @@ ok(base3.unconfirmed === 1, "a synthetic (canary) settlement is excluded - payin
   ok(/looking at nothing/.test(r.blindReason || ""),
     `...with a reason that distinguishes it from finding nothing wrong (got ${JSON.stringify(r.blindReason)})`);
   ok(r.paidCallsInWindow > 0, `...naming the independent counter that contradicts it (${r.paidCallsInWindow})`);
+  ok(r.counterReadable === true, "...and reports that the cross-check counter was readable");
+}
+
+// --- an UNREADABLE cross-check is not a clean result either ------------------
+// The first cut of the blindness guard stored the unreadable case as -1 and
+// then tested `> 0`, so a dead counter fell straight through to status "ok" -
+// this module's own failure mode, reintroduced inside the fix for it, three
+// lines below a comment promising otherwise. If the counter cannot be read AND
+// there is nothing to judge, "no traffic" and "no data" are indistinguishable
+// and the result must say so.
+{
+  const dead = () => { throw new Error("daily_calls unreadable"); };
+  // Nothing to judge AND no way to cross-check: must be BLIND.
+  let r = reconcileSettlements({ days: 1, now: realNow(), dailyCalls: dead });
+  ok(r.counterReadable === false, `an unreadable counter is reported as such (got ${r.counterReadable})`);
+  ok(r.blind === true, "...and a window with nothing to judge is BLIND, never ok");
+  ok(r.status === "BLIND", `...on the top-level status too (got ${r.status})`);
+  ok(/cannot be told apart/.test(r.blindReason || ""),
+    `...with a reason naming the ambiguity (got ${JSON.stringify(r.blindReason)})`);
+
+  // ...but an unreadable counter is NOT blindness when there ARE settlements to
+  // judge: the cross-check only exists to catch an empty ledger, so it must not
+  // invalidate a window that plainly has data.
+  r = reconcileSettlements({ days: 7, now: NOW, dailyCalls: dead });
+  ok(r.totals.claimed > 0 && r.blind === false,
+    `a window with real settlements survives an unreadable counter (claimed=${r.totals.claimed}, blind=${r.blind})`);
 }
 
 rmSync(dir, { recursive: true, force: true });

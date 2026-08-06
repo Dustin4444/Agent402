@@ -137,8 +137,13 @@ const qMppTx = db.prepare("SELECT tx FROM sales WHERE wire = 'mpp' AND tx IS NOT
 // deliver the answer, and nothing arrives. Rows with no tx are excluded: they
 // carry no claim that can be checked (see settlement-reconcile.js, which counts
 // them separately rather than treating them as either confirmed or missing).
+// `payer` is deliberately NOT selected. Reconciliation needs none of it, and
+// this row set is serialized to JSON downstream - so a future `...row` spread
+// into the samples list would silently publish wallet addresses on an endpoint
+// that promises aggregates. Not selecting it makes that regression structurally
+// impossible rather than a comment someone has to remember.
 const qClaimedSettlements = db.prepare(`
-  SELECT ts, slug, price_usd AS usd, network, tx, payer
+  SELECT ts, slug, price_usd AS usd, network, tx
   FROM sales
   WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ? AND ts < ?
   ORDER BY ts`);

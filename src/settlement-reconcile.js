@@ -45,12 +45,16 @@ export const SETTLE_GRACE_MS = Number(process.env.RECONCILE_GRACE_MS) || 60 * 60
  * codebase keeps re-learning is an unreadable result being counted as a clean
  * one.
  *
- * @param {object}  [opts]
- * @param {number}  [opts.days=7]   window to reconcile
- * @param {number}  [opts.now]      injectable clock (tests)
- * @returns {{asOf:string, windowDays:number, graceMinutes:number, chains:object[], totals:object}}
+ * @param {object}   [opts]
+ * @param {number}   [opts.days=7]      window to reconcile
+ * @param {number}   [opts.now]         injectable clock (tests)
+ * @param {function} [opts.dailyCalls]  injectable cross-check counter. Exists so
+ *   the UNREADABLE-counter branch is reachable from a test: ESM namespace
+ *   objects are frozen, so stubbing the import is impossible, and an untestable
+ *   failure path is how the first version of this guard shipped broken.
+ * @returns {{asOf:string, status:string, blind:boolean, chains:object[], totals:object}}
  */
-export function reconcileSettlements({ days = 7, now = Date.now() } = {}) {
+export function reconcileSettlements({ days = 7, now = Date.now(), dailyCalls = getDailyCalls } = {}) {
   const since = now - days * 86_400_000;
   const cutoff = now - SETTLE_GRACE_MS;
   const rows = claimedSettlements(since, now);
@@ -121,10 +125,22 @@ export function reconcileSettlements({ days = 7, now = Date.now() } = {}) {
   for (let t = since; t <= now; t += 86_400_000) dayKeys.add(new Date(t).toISOString().slice(0, 10));
   dayKeys.add(new Date(now).toISOString().slice(0, 10));
   let paidCallsInWindow = 0;
+  let counterReadable = true;
   try {
-    for (const d of getDailyCalls()) if (dayKeys.has(d.day)) paidCallsInWindow += d.usdc || 0;
-  } catch { paidCallsInWindow = -1; } // counter unreadable: also not a clean result
-  const blind = paidCallsInWindow > 0 && sum("claimed") === 0;
+    for (const d of dailyCalls()) if (dayKeys.has(d.day)) paidCallsInWindow += d.usdc || 0;
+  } catch { counterReadable = false; paidCallsInWindow = null; }
+
+  // Nothing to judge is only reassuring if we can PROVE there was nothing to
+  // judge. Two ways that proof fails, and both must read BLIND:
+  //   - the odometer counted paid calls the ledger cannot account for
+  //   - the odometer itself is unreadable, so "no traffic" and "no ledger" are
+  //     indistinguishable
+  // The first cut of this guard set the unreadable case to -1 and then tested
+  // `> 0`, so a dead counter fell through to "ok" - the module's own failure
+  // mode, reintroduced inside the fix for it, three lines under a comment
+  // promising otherwise.
+  const nothingJudged = sum("claimed") === 0;
+  const blind = nothingJudged && (!counterReadable || paidCallsInWindow > 0);
 
   return {
     asOf: new Date(now).toISOString(),
@@ -134,9 +150,11 @@ export function reconcileSettlements({ days = 7, now = Date.now() } = {}) {
     // learns that the answer below cannot be trusted.
     status: blind ? "BLIND" : "ok",
     blind,
-    blindReason: blind
-      ? `the odometer counted ${paidCallsInWindow} paid call(s) in this window but the sales ledger holds no settlements to reconcile - the check is looking at nothing, which is NOT the same as finding nothing wrong`
-      : null,
+    blindReason: !blind ? null
+      : counterReadable
+        ? `the odometer counted ${paidCallsInWindow} paid call(s) in this window but the sales ledger holds no settlements to reconcile - the check is looking at nothing, which is NOT the same as finding nothing wrong`
+        : "the sales ledger holds no settlements to reconcile AND the independent call counter is unreadable, so 'no traffic' cannot be told apart from 'no data' - treat this result as unverified",
+    counterReadable,
     paidCallsInWindow,
     chains,
     totals: {
