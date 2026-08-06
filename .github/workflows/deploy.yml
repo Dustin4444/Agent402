@@ -1892,18 +1892,53 @@ jobs:
               # Probe EVERY package, not just one: a per-package config can be
               # present on some and absent on others, and one sample cannot
               # tell those apart. Prints a verdict line per package.
-              echo "--- npm exchange verdict, all 11 packages ---"
-              for PKG in agent402-mcp agent402-tollbooth agent402-client \
-                         agent402-ai-sdk agent402-anthropic-tools agent402-google-adk \
-                         agent402-langchain agent402-llamaindex agent402-openai-agents \
-                         agent402-openai-tools agent402-strands; do
+              #
+              # The package list is READ FROM DISK, never hardcoded. It used to
+              # be a literal list of 11 names, which is a second place to
+              # remember when a package is added - and a package missing from
+              # that list is invisible to exactly the check meant to catch it.
+              #
+              # A 404 here means npm could not MATCH this run to a trusted
+              # publisher for that package. It does NOT distinguish "no config"
+              # from "config that names something else" (npm/cli#8976) - but
+              # note what the claims above prove: one token is exchanged
+              # against every package endpoint, so the claims are IDENTICAL
+              # for all of them. If a claim field were wrong, EVERY package
+              # would 404. A split verdict can therefore only be per-package
+              # registry-side config, never the workflow, the environment, or
+              # the ref.
+              echo "--- npm exchange verdict, every publishable package ---"
+              UNMATCHED_PENDING=""
+              for DIR in mcp tollbooth client adapters/*/; do
+                [ -f "$DIR/package.json" ] || continue
+                PKG=$(node -p "const p=require('./$DIR/package.json'); p.private ? '' : (p.name || '')" 2>/dev/null || echo "")
+                [ -n "$PKG" ] || continue
+                VER=$(node -p "require('./$DIR/package.json').version" 2>/dev/null || echo "")
                 CODE=$(curl -sS -o /tmp/oidc-out.txt -w "%{http_code}" \
                   -X POST "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/$PKG" \
                   -H "Content-Type: application/json" \
                   -H "Authorization: Bearer $IDTOK" 2>/dev/null || echo "000")
                 VERDICT=$(node -e 'const fs=require("fs");let t="";try{t=fs.readFileSync("/tmp/oidc-out.txt","utf8")}catch{};let o;try{o=JSON.parse(t)}catch{};if(o&&o.token){console.log("MATCHED (short-lived token issued)")}else{console.log((o&&o.message)||t.slice(0,120))}' || true)
-                printf "  %-28s HTTP %s  %s\n" "$PKG" "$CODE" "$VERDICT"
+                # Does this package actually need publishing on this run? An
+                # unmatched package that is already in sync publishes nothing,
+                # so it is a latent problem; an unmatched package with a NEW
+                # version is a run that is going to fail, and the failure it
+                # produces at `npm publish` is an opaque ENEEDAUTH that says
+                # nothing about which side is wrong.
+                PENDING="in-sync"
+                if [ -n "$VER" ] && ! npm view "$PKG@$VER" version >/dev/null 2>&1; then PENDING="PENDING $VER"; fi
+                printf "  %-28s HTTP %s  %-38s %s\n" "$PKG" "$CODE" "$VERDICT" "$PENDING"
+                if [ "$CODE" != "201" ]; then
+                  case "$PENDING" in
+                    PENDING*) UNMATCHED_PENDING="$UNMATCHED_PENDING $PKG@$VER" ;;
+                    *) echo "::warning::$PKG has no matching npm trusted publisher. Nothing to publish right now, but its next version bump will fail to authenticate." ;;
+                  esac
+                fi
               done
+              if [ -n "$UNMATCHED_PENDING" ]; then
+                echo "::error::These packages have a NEW version to publish but no matching npm trusted publisher, so their publish step will fail:$UNMATCHED_PENDING"
+                echo "::error::Fix on npmjs.com (needs an owner + 2FA; a token cannot set it): package → Settings → Trusted Publisher → GitHub Actions, organization/repository MikeyPetrillo/Agent402, workflow file deploy.yml, environment 'agent402 / production' (with the spaces, exactly as the claim above prints it)."
+              fi
               # A successful exchange body is {"token":"npm_..."} - a live
               # short-lived publish credential. Later steps in THIS job execute
               # third-party code (server boot, adapter gates), so the response
