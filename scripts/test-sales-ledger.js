@@ -198,6 +198,30 @@ ok(txFromPaymentResponse("not-base64-json") === null && txFromPaymentResponse(""
   ok(Boolean(opFeed.settlements.find((r) => r.tx === "0xmpp1")), "the seeded settlement is present in the operator view");
 }
 
+// --- EVERY paying rail counts, not just the busy one --------------------------------
+// The paying set lives in src/paid-rails.js and this module's nine queries now
+// interpolate it, so a new rail cannot be added to some readers and forgotten
+// in others. That only holds if this suite notices when a rail LEAVES the set,
+// and it did not: dropping "marketplace" was mutation-tested and every
+// assertion here stayed green while the ledger silently stopped counting that
+// revenue. Silent under-counting of real money is the worse direction of this
+// bug, so the quiet rail gets an explicit assertion.
+//
+// Deliberately last, with its own payer: an earlier draft inserted this in the
+// middle of the fixture and moved a downstream repeat-buyer total, which is a
+// good reminder that this file's assertions share one accumulating ledger.
+// Asserted as a DELTA for the same reason - an absolute total would break the
+// next time a sale is added above.
+{
+  const MKT_BUYER = "0x1111111111111111111111111111111111111111";
+  const before = salesSummary({ detailed: true }).totals.external.revenueUsd;
+  recordSale({ slug: "extract", priceUsd: 0.02, rail: "marketplace", network: "base", payer: MKT_BUYER, tx: "0x777", synthetic: false });
+  const after = salesSummary({ detailed: true });
+  ok(Math.abs((after.totals.external.revenueUsd - before) - 0.02) < 1e-9,
+    `a marketplace sale adds revenue like usdc does (delta $${(after.totals.external.revenueUsd - before).toFixed(3)}, want $0.020)`);
+  ok(after.topExternal.some((r) => r.slug === "extract"), "a marketplace sale reaches top external");
+}
+
 rmSync(dir, { recursive: true, force: true });
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

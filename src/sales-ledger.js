@@ -27,6 +27,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { OUR_EVM_WALLETS, OUR_SOLANA_WALLETS, OUR_STELLAR_WALLETS, OUR_ALGORAND_WALLETS } from "./revenue-live.js";
 import { normalizePayerAddress } from "./payer.js";
+import { PAYING_RAILS_SQL, isPaidRail } from "./paid-rails.js";
 
 const HAS_DATA_DIR = existsSync("/data");
 const DB_PATH = process.env.SALES_LEDGER_DB || join(HAS_DATA_DIR ? "/data" : "/tmp", "agent402-sales.db");
@@ -106,11 +107,11 @@ export function recordSale({ slug, priceUsd, rail, network, payer, tx, synthetic
 
 const qExtBySlug = db.prepare(`
   SELECT slug, COUNT(*) AS sales, SUM(price_usd) AS revenue, MAX(ts) AS last_ts
-  FROM sales WHERE internal = 0 AND rail IN ('usdc','marketplace') AND ts >= ?
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?
   GROUP BY slug ORDER BY sales DESC, revenue DESC LIMIT 20`);
 const qExtRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx
-  FROM sales WHERE internal = 0 AND rail IN ('usdc','marketplace')
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL}
   ORDER BY ts DESC LIMIT 20`);
 const qIntRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx
@@ -131,7 +132,7 @@ const qMppRecent = db.prepare(`
 const qMppTx = db.prepare("SELECT tx FROM sales WHERE wire = 'mpp' AND tx IS NOT NULL");
 const qExtByPayer = db.prepare(`
   SELECT payer, COUNT(*) AS sales, SUM(price_usd) AS revenue, MAX(ts) AS last_ts
-  FROM sales WHERE internal = 0 AND rail IN ('usdc','marketplace') AND payer IS NOT NULL AND ts >= ?
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND ts >= ?
   GROUP BY payer ORDER BY revenue DESC LIMIT 10`);
 // Demand composition: external tools ranked by how many DISTINCT verified
 // wallets bought each (breadth, not dollars) — the public /index "what agents
@@ -141,7 +142,7 @@ const qExtByPayer = db.prepare(`
 const qExtBuyersBySlug = db.prepare(`
   SELECT slug, COUNT(DISTINCT payer) AS buyers, COUNT(*) AS sales, SUM(price_usd) AS revenue
   FROM sales
-  WHERE internal = 0 AND rail IN ('usdc','marketplace') AND payer IS NOT NULL AND ts >= ?
+  WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND ts >= ?
   GROUP BY slug ORDER BY buyers DESC, sales DESC LIMIT ?`);
 const qTotals = db.prepare(`
   SELECT internal, rail, COUNT(*) AS n, SUM(price_usd) AS usd
@@ -156,25 +157,25 @@ const qFirstTs = db.prepare("SELECT MIN(ts) AS ts FROM sales");
 const qExtSlugWindow = db.prepare(`
   SELECT slug, COUNT(*) AS sales, SUM(price_usd) AS revenue,
          COUNT(DISTINCT payer) AS buyers, MIN(ts) AS first_ts, MAX(ts) AS last_ts
-  FROM sales WHERE internal = 0 AND rail IN ('usdc','marketplace') AND ts >= ? AND ts < ?
+  FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ? AND ts < ?
   GROUP BY slug`);
 
 // Payer-scoped view (the /api/my-usage tool). Money rails only — PoW rows
 // carry no payer, so they can never appear in a wallet-keyed report anyway.
 const qPayerTotals = db.prepare(`
   SELECT COUNT(*) AS n, SUM(price_usd) AS usd, MIN(ts) AS first_ts, MAX(ts) AS last_ts
-  FROM sales WHERE payer = ? AND rail IN ('usdc','marketplace') AND ts >= ?`);
+  FROM sales WHERE payer = ? AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?`);
 const qPayerBySlug = db.prepare(`
   SELECT slug, COUNT(*) AS n, SUM(price_usd) AS usd, MAX(ts) AS last_ts
-  FROM sales WHERE payer = ? AND rail IN ('usdc','marketplace') AND ts >= ?
+  FROM sales WHERE payer = ? AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?
   GROUP BY slug ORDER BY n DESC, usd DESC LIMIT 50`);
 const qPayerByNetwork = db.prepare(`
   SELECT network, COUNT(*) AS n, SUM(price_usd) AS usd
-  FROM sales WHERE payer = ? AND rail IN ('usdc','marketplace') AND ts >= ?
+  FROM sales WHERE payer = ? AND rail IN ${PAYING_RAILS_SQL} AND ts >= ?
   GROUP BY network`);
 const qPayerRecent = db.prepare(`
   SELECT ts, slug, price_usd, network, tx
-  FROM sales WHERE payer = ? AND rail IN ('usdc','marketplace')
+  FROM sales WHERE payer = ? AND rail IN ${PAYING_RAILS_SQL}
   ORDER BY ts DESC LIMIT ?`);
 
 /**
@@ -324,8 +325,12 @@ export function salesSummary({ days = 30, detailed = false } = {}) {
   for (const r of qTotals.all(since)) {
     const side = r.internal ? "internal" : "external";
     // Free-tier (pow) rows count as usage, not revenue — price is what it
-    // WOULD have cost; only money rails add to revenueUsd.
-    const paid = r.rail === "usdc" || r.rail === "marketplace";
+    // WOULD have cost; only money rails add to revenueUsd. Shared with the SQL
+    // above via paid-rails.js: this line was a TENTH hand-written copy of the
+    // set, and it survived the first pass of that consolidation because it is
+    // JavaScript and the sweep matched the SQL spelling. A mutation test found
+    // it — dropping a rail from the constant left this total still counting it.
+    const paid = isPaidRail(r.rail);
     totals[side].sales += r.n;
     if (paid) totals[side].revenueUsd += r.usd;
     totals.byRail[`${side}:${r.rail}`] = r.n;
