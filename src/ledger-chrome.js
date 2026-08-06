@@ -58,40 +58,6 @@ html { overflow-x: clip; }
      override on each dark container. Accent-as-background keeps white text
      legible on #BF360C (5.8:1); brightening it would BREAK that, so dark
      containers only override text, never accent-bg buttons. */
-  --accent: #BF360C;
-  --accent-lit: #F0522E;
-  --paper: #FFFFFF;
-  --card: #F7F7F5;
-  --card-zebra: #F1F1EF;
-  --footer-bg: #F2F2F0;
-  --ink: #0B0B0B;
-  --ink-panel: #151515;
-  --muted: #4A4A4A;
-  --faint: #6A6A6A;
-  --hairline: #E0E0DE;
-  --dash: #C9C9C7;
-  --dark-border: #262626;
-  --dark-border2: #343434;
-  --cream: #FFFFFF;
-  --cream2: #F5F5F5;
-  --surface: #0B0B0B;
-  --on-dark: #FFFFFF;
-  --on-dark2: #F5F5F5;
-  --dk-muted: #9C9C9C;
-  --dk-muted2: #B8B8B8;
-  --dk-muted3: #888888;
-  --green: #3E9B6E;
-  --font-body: 'Archivo', 'Archivo Fallback', system-ui, sans-serif;
-  --font-mono: 'Space Mono', 'Space Mono Fallback', monospace;
-}
-/* Dark theme. Only the true foreground/page tokens flip: --ink (text + borders)
-   goes light, --paper/--card/--muted/--faint/--hairline/--dash flip to their
-   dark values. Dark SURFACES do NOT invert - every card, terminal, and CTA that
-   was background:var(--surface) with color:var(--on-dark) stays dark with light
-   text in both themes (that split is exactly why --surface / --on-dark exist,
-   separate from the dual-use --ink). Applied from localStorage (or
-   prefers-color-scheme) before first paint - see ledgerShell. */
-:root[data-theme="dark"] {
   --accent: #F0522E;
   --accent-lit: #F0522E;
   --paper: #0E0E10;
@@ -99,28 +65,34 @@ html { overflow-x: clip; }
   --card-zebra: #1E1E21;
   --footer-bg: #131315;
   --ink: #ECECEA;
+  --ink-panel: #171719;
   --muted: #9E9E98;
   --faint: #6C6C68;
   --hairline: #2A2A30;
   --dash: #35353B;
+  --dark-border: #262626;
+  --dark-border2: #343434;
   --cream: #0E0E10;
   --cream2: #171719;
-  /* Dark surfaces (was background:var(--surface)) STAY dark - a card/terminal must
-     not invert to light. Their text (--on-dark*) STAYS light. Only foreground
-     --ink/--muted and page --paper actually flip. */
   --surface: #17171A;
   --on-dark: #F4F4F2;
   --on-dark2: #CFCFCB;
-  --ink-panel: #171719;
+  --dk-muted: #9C9C9C;
+  --dk-muted2: #B8B8B8;
+  --dk-muted3: #888888;
+  --green: #3E9B6E;
+  --font-body: 'Archivo', 'Archivo Fallback', system-ui, sans-serif;
+  --font-mono: 'Space Mono', 'Space Mono Fallback', monospace;
 }
-:root { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
+/* Dark is the ONLY theme. The palette above IS the dark palette, set directly
+   on :root rather than behind a [data-theme] attribute, so the first paint is
+   already dark: no flash, no pre-paint script, no stored preference, and
+   nothing to get out of sync. There is deliberately no light mode and no
+   toggle. Dark SURFACES still do not invert - a card or terminal that was
+   background:var(--surface) with color:var(--on-dark) keeps light text, which
+   is why --surface / --on-dark stay separate from the dual-use --ink. */
+:root { color-scheme: dark; }
 body { transition: background-color .18s ease, color .18s ease; }
-.ml-theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:34px; height:34px; padding:0; border:1.5px solid var(--ink); background:transparent; color:var(--ink); cursor:pointer; }
-.ml-theme-toggle:hover { background: var(--card-zebra); }
-.ml-theme-toggle .ml-sun { display:none; }
-:root[data-theme="dark"] .ml-theme-toggle .ml-moon { display:none; }
-:root[data-theme="dark"] .ml-theme-toggle .ml-sun { display:inline-flex; }
 /* --- mobile hamburger menu (the hover nav dropdowns don't work on touch, and
    the inline links get squeezed to zero on a phone - so ≤880px collapses the
    whole nav into a tap menu) --- */
@@ -484,10 +456,7 @@ function nav(activePath) {
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:14px;">
       <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="font-family:var(--font-mono);font-size:13px;color:var(--muted);text-decoration:none;">github</a>
-      <button type="button" onclick="a402ToggleTheme()" class="ml-theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
-        <svg class="ml-moon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        <svg class="ml-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-      </button>
+      
       ${activePath === "" ? "" : `<a class="ml-nav-cta" href="/docs#add" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>`}
       <button type="button" onclick="a402ToggleMenu()" class="ml-burger" aria-label="Open menu" aria-expanded="false">
         <svg class="ml-burger-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
@@ -657,8 +626,6 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>(function(){try{var t=localStorage.getItem('a402-theme')||(window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();
-function a402ToggleTheme(){try{var r=document.documentElement,d=r.getAttribute('data-theme')==='dark';if(d){r.removeAttribute('data-theme');localStorage.setItem('a402-theme','light');}else{r.setAttribute('data-theme','dark');localStorage.setItem('a402-theme','dark');}}catch(e){}}
 function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>

@@ -1,11 +1,23 @@
-// Dark-theme toggle — offline unit tests. No network. Verifies the shared
-// shell ships the pre-paint theme script (no flash of the wrong theme), the
-// moon/sun toggle button, and the dark-mode CSS overrides, and that the
-// palette flip is internally consistent (--ink and --cream flip together so
-// the ~100 solid-ink chips invert cleanly).
+// Dark-only theme — offline unit tests. No network.
+//
+// The site used to ship a light default plus a moon/sun toggle, a pre-paint
+// script reading localStorage, and a :root[data-theme="dark"] override block.
+// That is all gone: dark is now the ONLY theme, set directly on :root.
+//
+// Why that shape rather than just defaulting the toggle to dark: a palette
+// applied through an attribute needs JavaScript to set it, which means a frame
+// of the wrong colours before the script runs, plus a stored preference that
+// can disagree with the markup. Dark values on :root make the first paint
+// already correct with no script at all.
+//
+// These assertions exist because a HALF-removed theme is worse than either
+// state. Reintroducing a light token, an override block, or a toggle should
+// fail here rather than ship a page that is dark in some places and white in
+// others.
 //
 //   node scripts/test-theme.js
 import { ledgerShell, LEDGER_CSS } from "../src/ledger-chrome.js";
+import { readFileSync } from "node:fs";
 
 let passed = 0, failed = 0;
 const ok = (cond, msg) => {
@@ -18,36 +30,55 @@ const html = ledgerShell({
   baseUrl: "https://agent402.tools", body: "<main>hi</main>",
 });
 
-// --- no-flash: theme is applied from storage/prefers BEFORE first paint -------
-const headStart = html.slice(0, html.indexOf("</head>"));
-ok(headStart.includes("localStorage.getItem('a402-theme')"), "pre-paint script reads the saved theme");
-ok(headStart.includes("prefers-color-scheme:dark"), "falls back to the OS preference");
-ok(headStart.includes("setAttribute('data-theme','dark')"), "sets data-theme before paint");
-// the setter script must be in <head> too, so the button's onclick resolves
-ok(headStart.includes("function a402ToggleTheme"), "toggle function defined in head");
-ok(html.indexOf("function a402ToggleTheme") < html.indexOf("</head>"), "toggle fn is above the body");
+// --- the :root palette IS the dark palette ----------------------------------
+const rootBlock = LEDGER_CSS.slice(LEDGER_CSS.indexOf(":root {"), LEDGER_CSS.indexOf("}", LEDGER_CSS.indexOf("--font-mono")));
+const tok = (name) => (rootBlock.match(new RegExp(`${name}:\\s*(\\S+);`)) || [])[1] || "";
+const isDark = (h) => /^#[0-3]/.test(h);      // #0E0E10, #171719, #1E1E21…
+const isLight = (h) => /^#[C-Fc-f]/.test(h);  // #ECECEA, #F4F4F2…
 
-// --- the moon/sun control lives in the nav -----------------------------------
-ok(html.includes('class="ml-theme-toggle"'), "nav has the theme toggle button");
-ok(html.includes('onclick="a402ToggleTheme()"'), "button is wired to the toggle");
-ok(html.includes('class="ml-moon"') && html.includes('class="ml-sun"'), "both moon + sun glyphs present");
-ok(/aria-label="Toggle dark mode"/.test(html), "toggle is labelled for a11y");
+ok(isDark(tok("--paper")), `page background is dark (--paper ${tok("--paper")})`);
+ok(isLight(tok("--ink")), `foreground is light (--ink ${tok("--ink")})`);
+ok(isDark(tok("--card")), `cards are dark (--card ${tok("--card")})`);
+// --ink and --cream must stay paired: ~100 chips are background:var(--ink)
+// with color:var(--cream), so if only one of them flips they go invisible.
+ok(isDark(tok("--cream")), `--cream is dark so ink chips read light-on-dark (${tok("--cream")})`);
+ok(isLight(tok("--on-dark")), `text on dark surfaces stays light (--on-dark ${tok("--on-dark")})`);
+ok(/color-scheme:\s*dark/.test(LEDGER_CSS), "color-scheme is dark so form controls and scrollbars match");
+ok(!/color-scheme:\s*light/.test(LEDGER_CSS), "no light color-scheme survives");
 
-// --- dark palette exists and flips the paired tokens together ----------------
-ok(LEDGER_CSS.includes(':root[data-theme="dark"]'), "dark-theme CSS block present");
-// --ink (foreground) goes light AND --cream (text on ink chips) goes dark, so
-// every `background:var(--ink);color:var(--cream)` chip becomes light-on-dark.
-const dark = LEDGER_CSS.slice(LEDGER_CSS.indexOf(':root[data-theme="dark"]'));
-const darkBlock = dark.slice(0, dark.indexOf("}"));
-ok(/--ink:\s*#[EeFf]/.test(darkBlock), "dark --ink is light");
-ok(/--cream:\s*#0/.test(darkBlock), "dark --cream is dark (chips invert cleanly)");
-ok(/--paper:\s*#0/.test(darkBlock), "dark --paper is dark");
-// the moon hides in dark, the sun hides in light (CSS-only, no JS needed)
-ok(LEDGER_CSS.includes('.ml-theme-toggle .ml-sun'), "sun hidden by default (light)");
-ok(LEDGER_CSS.includes(':root[data-theme="dark"] .ml-theme-toggle .ml-moon'), "moon hidden in dark");
+// --- nothing of the toggle mechanism is left --------------------------------
+ok(!LEDGER_CSS.includes('[data-theme="dark"]'), "no [data-theme] override block in the CSS");
+// Matches the ATTRIBUTE form (`data-theme=`) and the selector form
+// (`[data-theme`), not the bare word: the CSS comment above legitimately
+// explains why the attribute is gone, and a test that fails on its own
+// documentation is testing prose rather than behaviour.
+ok(!/data-theme\s*=/.test(html), "no data-theme attribute is set on any element");
+ok(!/\[data-theme/.test(html.replace(/\/\*[\s\S]*?\*\//g, "")), "no [data-theme] selector outside comments");
+ok(!html.includes("a402ToggleTheme"), "no toggle function ships");
+ok(!html.includes("a402-theme"), "no stored theme preference is read or written");
+ok(!html.includes("prefers-color-scheme"), "the OS preference no longer decides the palette");
+ok(!html.includes("ml-theme-toggle"), "the toggle button is gone from the nav");
+ok(!html.includes("ml-moon") && !html.includes("ml-sun"), "moon and sun glyphs are gone");
 
-// light mode stays the default: no data-theme attribute is hardcoded on <html>
-ok(!/<html[^>]*data-theme=/.test(html), "html has no hardcoded theme (light is the default)");
+// --- no orphaned selector where the toggle rules used to be -----------------
+// The first removal pass matched from `.ml-theme-toggle` to end of line, which
+// stranded `:root[data-theme="dark"] ` in front of the following comment and
+// produced a malformed selector - the kind that silently invalidates the rule
+// after it. Whole-line removal fixed it; this keeps it fixed.
+ok((LEDGER_CSS.match(/\{/g) || []).length === (LEDGER_CSS.match(/\}/g) || []).length,
+  "LEDGER_CSS braces balance");
+const stranded = [...LEDGER_CSS.matchAll(/\}\s*([^\n{}]*)\/\*/g)].map((m) => m[1].trim()).filter(Boolean);
+ok(stranded.length === 0,
+  `no selector text stranded before a comment${stranded.length ? ` (found "${stranded[0].slice(0, 60)}")` : ""}`);
+
+// --- the revenue chart palette had to follow the theme ----------------------
+// Its dark series colours were keyed on [data-theme="dark"]. With the attribute
+// gone that rule could never match, so the chart would have kept LIGHT series
+// colours on a permanently dark page: still legible, easy to miss in review,
+// and wrong.
+const revenueSrc = readFileSync(new URL("../src/revenue-live.js", import.meta.url), "utf8");
+ok(!revenueSrc.includes('[data-theme="dark"]'), "revenue chart has no dead [data-theme] rule");
+ok(/\.rvz\{--s1:#3987e5/.test(revenueSrc), "the chart's dark series palette is the one that ships");
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

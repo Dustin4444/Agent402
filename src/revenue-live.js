@@ -1289,8 +1289,7 @@ function mppSection(mpp) {
 export function revenueChartSection() {
   return `
   <style>
-  .rvz{--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--s4:#eda100;--s5:#e87ba4;--s6:#008300;--s7:#4a3aa7;--s8:#e34948;--sfree:#8a8f98;--snewbuyers:#1baf7a;--sretbuyers:#4a3aa7;--scumbuyers:#2a78d6;--vsurf:var(--card)}
-  :root[data-theme="dark"] .rvz{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;--sfree:#9aa0aa;--snewbuyers:#199e70;--sretbuyers:#9085e9;--scumbuyers:#3987e5;--vsurf:var(--card)}
+  .rvz{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;--sfree:#9aa0aa;--snewbuyers:#199e70;--sretbuyers:#9085e9;--scumbuyers:#3987e5;--vsurf:var(--card)}
   .rvz{border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin:0 0 26px}
   .rvz-controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
   .rvz-seg{display:inline-flex;border:1.5px solid var(--ink)}
