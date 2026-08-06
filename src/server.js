@@ -183,6 +183,7 @@ import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
 import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
+import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
@@ -1398,6 +1399,22 @@ app.get("/api/sales", (_req, res) => {
 });
 // Token-gated ITEMIZED sales feed — per-call rows with payer + tx, the per-tool
 // ranking, and repeat-buyer totals. Same posture as /__operator/wishes.json.
+// Did the money we were told arrived actually arrive? Compares settlements
+// recorded at serve time (with the tx the facilitator claimed) against
+// transfers this node has seen on-chain. A facilitator reporting success for a
+// payment that never lands is silent by construction — the buyer got their
+// answer and nobody complains — so it needs a monitor, not a bug report.
+// Operator-gated: it names our own revenue shortfall per rail.
+app.get("/__operator/settlement-reconciliation.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store");
+  try {
+    const days = Math.min(Math.max(parseInt(req.query?.days, 10) || 7, 1), 60);
+    res.json(reconcileSettlements({ days }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 app.get("/__operator/sales.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store");

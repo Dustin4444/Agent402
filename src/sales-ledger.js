@@ -130,6 +130,28 @@ const qMppRecent = db.prepare(`
 // (separate db) so the chart can filter by wire. Unbounded by design: the
 // series spans the whole chart window, not just the recent list.
 const qMppTx = db.prepare("SELECT tx FROM sales WHERE wire = 'mpp' AND tx IS NOT NULL");
+// Settlement RECEIPTS we recorded: one row per call we served on a paying rail
+// and believed was paid for, carrying the tx the FACILITATOR said it settled.
+// Reconciling these against transfers actually seen on-chain is the only way to
+// catch a facilitator that reports success for a payment that never lands - we
+// deliver the answer, and nothing arrives. Rows with no tx are excluded: they
+// carry no claim that can be checked (see settlement-reconcile.js, which counts
+// them separately rather than treating them as either confirmed or missing).
+// `payer` is deliberately NOT selected. Reconciliation needs none of it, and
+// this row set is serialized to JSON downstream - so a future `...row` spread
+// into the samples list would silently publish wallet addresses on an endpoint
+// that promises aggregates. Not selecting it makes that regression structurally
+// impossible rather than a comment someone has to remember.
+const qClaimedSettlements = db.prepare(`
+  SELECT ts, slug, price_usd AS usd, network, tx
+  FROM sales
+  WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND ts >= ? AND ts < ?
+  ORDER BY ts`);
+/** External paid settlements in [since, until) as recorded at serve time. */
+export function claimedSettlements(since, until = Date.now()) {
+  return qClaimedSettlements.all(since, until);
+}
+
 const qExtByPayer = db.prepare(`
   SELECT payer, COUNT(*) AS sales, SUM(price_usd) AS revenue, MAX(ts) AS last_ts
   FROM sales WHERE internal = 0 AND rail IN ${PAYING_RAILS_SQL} AND payer IS NOT NULL AND ts >= ?
