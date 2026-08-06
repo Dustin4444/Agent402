@@ -492,8 +492,29 @@ export const MEV_AND_L2_TOOLS = [
     category: "crypto",
     price: "$0.002",
     description:
-      "Top L2s by TVL via DeFiLlama. Returns each L2 with TVL in USD, native token symbol, and CoinGecko/CMC ids. Classification combines DeFiLlama's parent-chain hint with a curated list of well-known L2s (Arbitrum, Optimism, Base, zkSync Era, Linea, Scroll, Mantle, Polygon zkEVM, Starknet, Blast, Mode, Manta, Metis, Polygon, Taiko, Immutable zkEVM, World Chain).",
-    tags: ["l2", "tvl", "defillama", "rollup", "ranking"],
+      "Top L2s by Total Value Locked (TVL) via DeFiLlama. Returns each L2 with TVL in USD, native token symbol, and CoinGecko/CMC ids. Classification combines DeFiLlama's parent-chain hint with a curated list of well-known L2s (Arbitrum, Optimism, Base, zkSync Era, Linea, Scroll, Mantle, Polygon zkEVM, Starknet, Blast, Mode, Manta, Metis, Polygon, Taiko, Immutable zkEVM, World Chain).",
+    // Vocabulary the ASKERS use, not just ours. Measured against the live
+    // catalog: `l2beat` resolved to ZERO results while this tool shipped, and
+    // `rollup tvs` scraped a weak 22. L2Beat is the canonical rollup-data site
+    // and TVS (Total Value Secured) is its metric name, so an agent fluent in
+    // the domain reaches for words no tool record contained. Ranking cannot
+    // recover a word that appears nowhere, however good the scorer is.
+    // The spelled-out "layer 2" form is
+    // handled in find.js instead, NOT by a "layer" tag here: bare "layer" is an
+    // ordinary English word, and tagging it sent "osi model layer" and "layer
+    // of encryption" straight to this tool at high confidence. A zero-result
+    // miss traded for a confidently wrong answer is a worse bug, not a fix -
+    // the agent pays for that one.
+    //
+    // These are ROUTING terms, not a claim of equivalence: the source stays
+    // DeFiLlama TVL, stated in the description and in the payload's `source`,
+    // and TVS is a related-but-distinct measure. Returning the closest real
+    // answer with its provenance on it beats returning nothing.
+    // "rollups" is listed beside "rollup" deliberately: tag matching is exact
+    // per token, so the plural reached NOTHING here and "total value locked on
+    // rollups" resolved to crypto-global at score 2 (pre-existing, found by the
+    // test below). The description now spells TVL out for the same reason.
+    tags: ["l2", "tvl", "defillama", "rollup", "rollups", "ranking", "l2beat", "tvs"],
     discovery: {
       bodyType: "json",
       input: { limit: 10 },
@@ -526,6 +547,9 @@ export const MEV_AND_L2_TOOLS = [
     price: "$0.002",
     description:
       "Current gas snapshot across Ethereum + supported L2s (Base, Polygon, Arbitrum, Optimism), sorted cheapest-first. Returns gas price in gwei, latest block number, chain id, and an isL2 flag per chain. Use to route a transaction to the cheapest viable L2 or to track L1→L2 gas spread.",
+    // Deliberately NOT "l2beat"/"tvs" - those name a TVL/risk dataset, and
+    // pointing a gas query at them would be the same wrong-answer failure in
+    // the other direction. The "layer 2" spelling is handled in find.js.
     tags: ["l2", "gas", "cross-chain", "comparison", "routing"],
     discovery: {
       bodyType: "json",
