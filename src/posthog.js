@@ -28,6 +28,7 @@
 //   POSTHOG_HOST      — optional, defaults to "https://us.i.posthog.com"
 //                       (use "https://eu.i.posthog.com" for the EU region)
 import { PostHog } from "posthog-node";
+import { isPaidRail } from "./paid-rails.js";
 
 const API_KEY = process.env.POSTHOG_API_KEY || "";
 const HOST = process.env.POSTHOG_HOST || "https://us.i.posthog.com";
@@ -336,6 +337,20 @@ function flushPowChallengeRollup() {
 // `wire` (usdc only): "mpp" when the credential arrived as MPP
 // Authorization: Payment (translated by src/mpp-shim.js), "x402" otherwise —
 // the adoption split for the MPP dual-stack.
+// `paid` says whether money actually moved. It exists because `synthetic` was
+// being used as if it meant "free", and it does not — it means OUR OWN traffic.
+// A proof-of-work call is genuine external demand served for nothing, so it is
+// synthetic=false while earning $0, and every chart filtered on `synthetic`
+// alone counted it as a sale (measured 2026-08-06: 388 free vs 385 paid over a
+// week, so the error was slightly over 2x, not a rounding difference).
+//
+// `priceUsd` deliberately KEEPS the list price on free rails — it is what the
+// call would have cost, which is the free-tier subsidy metric — so the honest
+// revenue expression is `sum(priceUsd) where paid`, and `paid` makes that
+// legible instead of requiring every reader to remember the rail set.
+// Zeroing it instead was considered and rejected: it would silently restate
+// history mid-series and delete the subsidy number, while fixing none of the
+// broken dashboards, which count events rather than summing price.
 export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthetic, payer, clientUa, wire }) {
   if (!active()) return;
   capture("payment_settled", {
@@ -343,6 +358,7 @@ export function capturePostHogSettlement({ slug, rail, network, priceUsd, synthe
     rail: String(rail || "unknown"),
     network: network ? String(network) : null,
     priceUsd: Number(priceUsd) || 0,
+    paid: isPaidRail(rail),
     synthetic: !!synthetic,
     ...(payer ? { payer } : {}),
     ...(clientUa ? { clientUa: String(clientUa).slice(0, 40) } : {}),

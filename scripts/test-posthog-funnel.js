@@ -111,8 +111,30 @@ got = take();
 ok(got.length === 2 && got.every((e) => e.event === "payment_settled"), "settlements are per-event, never rolled up");
 ok(got[0].properties.rail === "usdc" && got[0].properties.network === "eip155:8453", "USDC settlement carries the chain");
 ok(got[1].properties.rail === "pow" && got[1].properties.network === null, "PoW settlement has no chain");
-ok(Object.keys(got[0].properties).sort().join(",") === "network,priceUsd,rail,slug,synthetic",
-  "settlement properties are exactly {slug, rail, network, priceUsd, synthetic} — no payer identity");
+ok(Object.keys(got[0].properties).sort().join(",") === "network,paid,priceUsd,rail,slug,synthetic",
+  "settlement properties are exactly {slug, rail, network, priceUsd, paid, synthetic} — no payer identity");
+
+// `paid` is the fix for a real misreading, so assert the distinction it draws
+// rather than just its presence. `synthetic` means OUR OWN traffic, NOT free:
+// a proof-of-work call is genuine external demand served for nothing, so it is
+// synthetic=false AND paid=false. Filtering on `synthetic` alone therefore
+// counts free traffic as revenue — measured 2026-08-06, that was 388 free
+// against 385 paid over a week, i.e. slightly over 2x, and three saved
+// dashboards were reading that way.
+ok(got[0].properties.paid === true, "a USDC settlement is paid=true");
+ok(got[1].properties.paid === false, "a proof-of-work call is paid=FALSE — served, but no money moved");
+ok(got[1].properties.synthetic === false && got[1].properties.paid === false,
+  "free is NOT synthetic: external PoW demand is synthetic=false yet paid=false (the exact confusion this property removes)");
+ok(got[1].properties.priceUsd === 0.001,
+  "a free call KEEPS its list price (the free-tier subsidy metric) — `paid` is what makes revenue sums honest, not a zeroed price");
+
+// Every rail the gate can accept must land on one side of the paid split, so a
+// rail added later cannot default into "revenue" unnoticed.
+for (const [rail, expected] of [["usdc", true], ["marketplace", true], ["pow", false], ["trial", false], ["heartbeat", false]]) {
+  capturePostHogSettlement({ slug: "hash", rail, network: null, priceUsd: 0.001, synthetic: false });
+  const [e] = take();
+  ok(e.properties.paid === expected, `rail "${rail}" is paid=${expected}`);
+}
 
 // --- unit: settlement clientUa (SDK attribution, product token only) --------------
 capturePostHogSettlement({ slug: "hash", rail: "usdc", network: "eip155:8453", priceUsd: 0.001, synthetic: false, clientUa: "agent402-client/0.6.1" });
