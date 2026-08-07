@@ -79,7 +79,10 @@ ok(stranded.length === 0,
 // never defined, which silently broke the mobile burger menu on every route.
 // Neither the theme assertions nor the page tests noticed: the markup was still
 // well-formed by div-balance standards and every route still returned 200.
-ok((html.match(/<script[\s>]/g) || []).length === (html.match(/<\/script>/g) || []).length,
+// Case-insensitive on purpose. A tag counter that only sees lowercase would
+// undercount `<SCRIPT>` openings and report a balance that isn't there, which
+// is the exact failure this assertion exists to catch.
+ok((html.match(/<script[\s>]/gi) || []).length === (html.match(/<\/script>/gi) || []).length,
   "script tags balance (an orphaned </script> means a stripped opening tag)");
 const headOnly = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
 ok(!/\n\s*function\s+\w+\s*\(/.test(headOnly),
