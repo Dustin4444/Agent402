@@ -1152,6 +1152,15 @@ function paywallProbeDue() {
 // price); one that cannot be priced backs off through probeDue like every
 // other path. See the #645 note below on why per-PATH backoff matters.
 const LIVE_QUOTE_PROBES_PER_CRAWL = 3;
+// GLOBAL ceiling per crawl CYCLE, not just per seller. Three per seller sounds
+// gentle until you multiply: roughly a third of indexed rows carry no price, so
+// a per-seller-only limit fires thousands of outbound requests every 5 minutes
+// across the whole index - which is issue #645 rebuilt with a different label.
+// Per-route backoff eventually quiets the sellers who never answer 402, but
+// "eventually" is the first several cycles, and the seller feels those. This
+// bounds the whole cycle; the rest simply wait their turn on the next one.
+const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 60);
+let liveQuoteBudget = LIVE_QUOTE_PROBES_PER_CYCLE;
 
 /**
  * Learn price + networks from a live 402 for rows that have neither.
@@ -1177,8 +1186,9 @@ async function enrichLiveQuotes(tools, originUrl) {
       && !(Array.isArray(t.networks) && t.networks.length) // already payable-evidenced
       && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
       && probeDue(originUrl, `quote:${t.route}`),
-  ).slice(0, LIVE_QUOTE_PROBES_PER_CRAWL);
+  ).slice(0, Math.max(0, Math.min(LIVE_QUOTE_PROBES_PER_CRAWL, liveQuoteBudget)));
   if (!candidates.length) return tools;
+  liveQuoteBudget -= candidates.length;
 
   const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
   for (const tool of candidates) {
@@ -1690,6 +1700,7 @@ async function runCrawl() {
   crawlInFlight = true;
   try {
     const seeds = seedList();
+    liveQuoteBudget = LIVE_QUOTE_PROBES_PER_CYCLE;   // fresh allowance each cycle
     await runPool(seeds, CRAWL_CONCURRENCY, crawlSeller);
   } finally {
     crawlInFlight = false;

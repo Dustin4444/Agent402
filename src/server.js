@@ -24,7 +24,7 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse } from "./payer.js";
-import { resolveSpend as resolveExternalSpend, exposureSnapshot } from "./external-spend-guard.js";
+import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";

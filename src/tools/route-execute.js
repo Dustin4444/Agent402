@@ -296,8 +296,13 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           try {
             paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain });
           } catch (e) {
-            // We never spent, so it is not exposure.
-            try { resolveSpend(spendHandle, true); } catch { /* best effort */ }
+            // The exposure DELIBERATELY stands. It is tempting to clear it here
+            // ("the buy failed, so we never spent"), but payExternal can throw
+            // after signing and broadcasting - a network error on the response,
+            // a timeout - and clearing on those is exactly the case that lets a
+            // spend disappear from the ledger. It ages out on its own within
+            // the stale window, so an honest buyer caught by a seller outage
+            // waits, while a spend we cannot account for keeps counting.
             const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
             throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
           }

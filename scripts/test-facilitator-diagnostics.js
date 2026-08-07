@@ -187,5 +187,30 @@ const CF_BLOCK = `<html> <head> <title>Coinbase</title> <meta name="robots" cont
   ok(caught === frozen, "an unwritable error is rethrown unchanged rather than swallowed");
 }
 
+
+// --- we are logging a body we did not write ----------------------------------
+// The excerpt goes straight into a log aggregator, from a host we authenticate
+// to. An error page that echoes a request header or a signed payload would put
+// a credential there permanently, so long hex/base64 runs are redacted. Nothing
+// diagnostic is lost: a ray id is short, and no failure was ever explained by a
+// 64-character blob.
+{
+  // The token fixture is SHAPE-ONLY, deliberately not a real JWT: a literal
+  // eyJ-prefixed token in the repo trips our own gitleaks history scan, which
+  // is exactly the rule working. The redaction is shape-based, so a synthetic
+  // three-segment token exercises the same branch a real bearer token would.
+  const fakeHex = "0x" + "ab".repeat(32);
+  const fakeJwt = "hhhhhhhhhhhh.pppppppppppp.ssssssssssss";
+  const secretish = `Error for key ${fakeHex} and token ${fakeJwt}`;
+  const line = describeErrorResponse({ url: "https://f.example/settle", status: 502, headers: { server: "cloudflare" }, body: `<html><body>${secretish}</body></html>` });
+  ok(!line.includes("abababab"), "a long hex run is redacted out of the logged excerpt");
+  ok(!line.includes("pppppppppppp"), "a three-segment bearer-token shape is redacted too - the shape a plain long-run rule walks past");
+  ok(line.includes("[redacted]"), "…and the redaction is visible rather than silent");
+  ok(/Error for key/.test(line), "the surrounding words survive - the diagnosis is still readable");
+  // A Cloudflare ray id is short and must NOT be swallowed by the redaction.
+  const ray = describeErrorResponse({ url: "https://f.example/settle", status: 502, headers: { "cf-ray": "8f2c1d4e5a6b7c8d-ATL" }, body: "<html>Access denied</html>" });
+  ok(ray.includes("8f2c1d4e5a6b7c8d-ATL"), "a ray id survives redaction - it is the thing a provider asks for");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

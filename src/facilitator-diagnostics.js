@@ -91,7 +91,19 @@ export function describeErrorResponse({ url, status, headers, body } = {}) {
     .filter(Boolean);
   // 600 chars of WORDS, having spent none of the budget on markup. The page
   // that started this fits its whole message inside it.
-  const excerpt = text.length > 600 ? `${text.slice(0, 597)}...` : text;
+  //
+  // Long hex/base64 runs are REDACTED first. We are logging a body we did not
+  // write, from a host we authenticate to, straight into a log aggregator - and
+  // an error page that echoes a request header or a signed payload would put a
+  // credential there permanently. Nothing diagnostic is lost: a Cloudflare ray
+  // id is short, and no failure has ever been explained by a 64-character blob.
+  const redacted = text
+    // JWT-shaped first: its segments are dot-separated and individually short,
+    // so a plain "long run" rule walks straight past a whole bearer token.
+    .replace(/\b[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, "[redacted]")
+    .replace(/\b(?:0x)?[0-9a-fA-F]{32,}\b/g, "[redacted]")
+    .replace(/\b[A-Za-z0-9+/_-]{40,}={0,2}\b/g, "[redacted]");
+  const excerpt = redacted.length > 600 ? `${redacted.slice(0, 597)}...` : redacted;
   return `[facilitator-diag] ${status} from ${url} - ${verdict}` +
     `${bits.length ? ` | ${bits.join(" ")}` : ""}` +
     `${excerpt ? ` | body: ${excerpt}` : " | body: <empty>"}`;
