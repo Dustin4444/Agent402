@@ -42,11 +42,10 @@ export const EXEC_TIERS = [
   // external inventory the seller review identified as routable demand.
   { slug: "route-execute-plus", execPriceUsd: 0.05, underlyingMaxUsd: 0.04 },
   { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
-  // 2026-08-07: the $0.50 ceiling made the whole premium half of the index
-  // unroutable. The seller who reported the price:null bug prices their gates
-  // at $0.99, $1.50 and $2.99 - every one of them above the top tier, so the
-  // router could only 409 them at their own direct route. Same 10% spread as
-  // the max tier, so the curve stays proportional rather than punishing size.
+  // 2026-08-07: the $0.50 underlying ceiling excluded every indexed tool priced
+  // above it, so the router could only answer those with a 409 pointing at the
+  // seller's own direct route. Same 10% spread as the max tier, so the fee
+  // curve stays proportional rather than punishing size.
   //
   // This tier is only safe because of the per-payer debt ceiling in
   // external-spend-guard.js. Settlement runs AFTER the handler, so raising the

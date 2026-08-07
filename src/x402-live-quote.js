@@ -1,12 +1,11 @@
 // Learn a seller's price from the only surface guaranteed to have it: a live 402.
 //
-// WHY THIS EXISTS (2026-08-07, reported by a seller who had just listed).
-// Canu Verify listed 39 endpoints and every row came back price:null,
-// priceUsd:0, payable:"unknown" - while each endpoint returns a textbook x402 v2
-// challenge (eip155:8453, Base USDC, amount 990000 = $0.99, real payTo) the
-// moment you POST `{}` at it. Measured across the index the same day: 146 of
-// 500 sellers had ZERO priced rows and 127 rows read payable:"unknown". So this
-// was never one seller's problem.
+// WHY THIS EXISTS (2026-08-07, from a seller report).
+// A seller reported that every one of their listed endpoints came back
+// price:null, priceUsd:0, payable:"unknown" - while each endpoint returns a
+// textbook x402 v2 challenge (Base USDC, a real payTo) the moment you POST `{}`
+// at it. Sampling the index the same day, roughly a third of rows carried no
+// price at all, so this was never one seller's problem.
 //
 // Two causes, both ours:
 //   1. A manifest may list `resources` as bare URL STRINGS (theirs does, and
@@ -38,7 +37,7 @@ const USDC_NAME = /^(usdc|usd coin)$/i;
  * Pull the accepts array out of a live 402.
  *
  * x402 v2 carries it base64 in the `payment-required` HEADER with an empty (or
- * unrelated) body; other sellers put it in the JSON body; Canu does BOTH, with
+ * unrelated) body; other sellers put it in the JSON body; some serve BOTH, with
  * the body nesting it under `payment`. All three are read, header first,
  * because the header is the spec's home for it.
  */
@@ -134,8 +133,8 @@ function a$(v) {
 /**
  * Which HTTP methods to try, in order, for a route whose price we do not know.
  *
- * A GET-only prober cannot see a POST-only seller: Canu's endpoints 404 on GET
- * and 402 on POST, so the whole catalogue read as priceless. When the catalogue
+ * A GET-only prober cannot see a POST-only seller: such endpoints 404 on GET
+ * and 402 on POST, so the whole catalogue reads as priceless. When the catalogue
  * states a method we trust it and try only that; when the method was INFERRED
  * (or absent) we try GET then POST, because a POST with `{}` to a GET endpoint
  * is harmless and a GET to a POST endpoint is a 404 that costs one request.

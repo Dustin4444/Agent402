@@ -192,12 +192,11 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   ok(routeExecuteHint(0.04)?.tool === "route-execute-plus", "$0.04 → plus tier boundary inclusive");
   ok(routeExecuteHint(0.05)?.tool === "route-execute-max", "$0.05 → max tier (just over the plus cap)");
   ok(routeExecuteHint(0.12)?.tool === "route-execute-max", "$0.12 → route-execute-max tier");
-  // The pro tier (2026-08-07) exists because the $0.50 ceiling made the whole
-  // premium half of the index unroutable - the seller who reported the
-  // price:null bug prices their gates at $0.99 to $2.99, every one above the
-  // old max, so the router could only 409 them to their own direct route.
+  // The pro tier (2026-08-07) exists because the $0.50 ceiling excluded every
+  // indexed tool priced above it: the router could only answer those with a 409
+  // pointing at the seller's own direct route.
   ok(routeExecuteHint(0.9)?.tool === "route-execute-pro", "$0.90 → route-execute-pro (was unroutable before the pro tier)");
-  ok(routeExecuteHint(2.99)?.tool === "route-execute-pro", "$2.99 → pro tier - the real seller price that motivated it");
+  ok(routeExecuteHint(2.99)?.tool === "route-execute-pro", "$2.99 → pro tier - a price the old ceiling excluded");
   ok(routeExecuteHint(3.0)?.tool === "route-execute-pro", "$3.00 → pro tier boundary inclusive");
   ok(routeExecuteHint(3.01) === null, "$3.01 → no tier: the ceiling still exists, it just moved");
   // The fee stays proportional rather than punishing size: 10% at the cap, the

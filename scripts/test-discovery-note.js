@@ -187,7 +187,7 @@ ok(merged.length === 4,
 ok(merged.filter((t) => t.route.split("?")[0] === "/x402/preflight").length === 1,
   "ONE advertised resource on a known path does not double it - the 16 to 30 regression");
 
-// The seller who reported the original bug flagged this about the FIX: keying
+// A seller report flagged this about the FIX: keying
 // on pathname alone silently loses variants. A single route often sells
 // different things by parameter, at different prices. Both must survive, and
 // the bare row they describe must not survive alongside them.

@@ -769,7 +769,7 @@ export function dropUnvouchedNonProductRoutes(tools = [], vouchedRoutes = []) {
 //   GET  /x402/preflight?chain=base&sender=...  (manifest entry)
 //
 // SECOND: keying on the pathname alone fixes that and silently loses variants.
-// The seller who reported the original bug pointed this out about the fix
+// A seller report flagged this about the fix
 // itself: a single route often sells different things by parameter (?product=,
 // a reader keyed by ?url=, a chain call keyed by ?chain=), at different prices.
 // Folding those into one row erases products the seller does sell.
@@ -1171,8 +1171,8 @@ const LIVE_QUOTE_PROBES_PER_CRAWL = 5;
 // cycle.
 //
 // Setting it low did not make us polite, it made us slow and unfair: at 240 the
-// budget was consumed by whoever came first, a full rotation took hours, and
-// the seller who reported this would have waited most of a day to be priced.
+// budget was consumed by whoever came first, a full rotation took hours, and a
+// seller with a few dozen routes would have waited most of a day to be priced.
 // At 4000 every unpriced seller is reached every cycle, so a 30-route seller is
 // fully priced in about half an hour, and each of them still sees at most five
 // requests per cycle. The env override remains for throttling if a real cost
