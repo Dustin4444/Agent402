@@ -1151,7 +1151,7 @@ function paywallProbeDue() {
 // stranger's server". A route that gets priced is never probed again (it has a
 // price); one that cannot be priced backs off through probeDue like every
 // other path. See the #645 note below on why per-PATH backoff matters.
-const LIVE_QUOTE_PROBES_PER_CRAWL = 3;
+const LIVE_QUOTE_PROBES_PER_CRAWL = 5;
 // GLOBAL ceiling per crawl CYCLE, not just per seller. Three per seller sounds
 // gentle until you multiply: roughly a third of indexed rows carry no price, so
 // a per-seller-only limit fires thousands of outbound requests every 5 minutes
@@ -1159,7 +1159,15 @@ const LIVE_QUOTE_PROBES_PER_CRAWL = 3;
 // Per-route backoff eventually quiets the sellers who never answer 402, but
 // "eventually" is the first several cycles, and the seller feels those. This
 // bounds the whole cycle; the rest simply wait their turn on the next one.
-const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 60);
+// 240, not 60. This is a BACKLOG drain, not steady state: a route that gets
+// priced is never a candidate again, so the candidate pool shrinks toward zero
+// as the ecosystem is learned and the budget then sits mostly unused. At 60 a
+// full rotation over ~2,200 origins took most of a day and a 30-route seller
+// waited a week - too slow to be worth having for the seller who reported it.
+// At 240 the same rotation is a few hours. Per-route backoff and the per-seller
+// cap still bound what any ONE origin feels, which is the number that matters
+// to them.
+const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 240);
 let liveQuoteBudget = LIVE_QUOTE_PROBES_PER_CYCLE;
 let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is fair
 
