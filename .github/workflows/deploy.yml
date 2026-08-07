@@ -663,6 +663,23 @@ jobs:
     # this pull_request opt-in — they stay marker/dispatch-gated only.
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    # A REAL redis, because until 2026-08-07 nothing in CI ever connected to
+    # one. test-shared-limit.js injects a fake store deliberately (it proves
+    # "two callers share one counter", and a fake proves that exactly), but
+    # that left the redis CLIENT path untested — so Dependabot's redis 4 -> 6
+    # bump arrived with a green CI that could not have caught a client
+    # regression. Prod is not in-memory: REDIS_URL is set there, and the shared
+    # limiter FAILS CLOSED, so a client regression refuses trials.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     # F07: provider keys stay at job scope so every TEST step gates its
     # expectations on the SAME config the booted server has. But the ONE step
     # that runs untrusted third-party code — the dependency install, where npm
@@ -994,6 +1011,14 @@ jobs:
 
       - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
         run: node scripts/test-supported-guard.js
+
+      - name: "Facilitator diagnostics (an HTML error page must name itself: block vs rate limit vs origin failure, and never touch the response — offline)"
+        run: node scripts/test-facilitator-diagnostics.js
+
+      - name: "Redis integration (the REAL client against a REAL server — cap-of-1, refund, cache round trip; the gap that made a redis major bump undecidable)"
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+        run: node scripts/test-redis-integration.js
 
       - name: Well-known store (operator-published domain-verification docs; traversal impossible, reserved names refused, no shadowing of /.well-known/x402 — offline)
         run: node scripts/test-well-known-store.js
