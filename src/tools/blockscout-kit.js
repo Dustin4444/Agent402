@@ -290,7 +290,66 @@ export const BLOCKSCOUT_TOOLS = [
 // with graceful "unknown" (an RPC flake must never page).
 const BASE_RPCS = ["https://mainnet.base.org", "https://base.llamarpc.com", "https://base.drpc.org"];
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-const BUYER_LOW_USD = () => Number(process.env.UPSTREAM_BUYER_LOW_USD || "0.5");
+// Sized against the LARGEST single spend this wallet can be asked to make, not
+// against the smallest.
+//
+// $0.50 was right when the only thing spending from here was Blockscout at
+// $0.002/call: a wallet above it could serve hundreds of calls. Then
+// route-execute-pro (2026-08-07) made a single call able to spend $3.00
+// upstream, and "ok" started meaning "has at least $0.50" for a wallet that
+// could not cover one call. The alarm would have stayed green right up to the
+// failure it exists to prevent.
+//
+// Two largest-tier calls, so we are paged with room to top up rather than at
+// the moment of starvation. MUST be re-sized whenever a bigger execution tier
+// lands - locked by an assertion in scripts/test-route-execute.js, because a
+// threshold that quietly stops covering the biggest call reports nothing.
+export const BUYER_LOW_DEFAULT_USD = 6;
+
+// THIS WALLET SHOULD NEVER GO DOWN, so a fall is worth more than a floor.
+//
+// Everything that spends from it also settles INTO it: SELF_FUNDING_SLUGS sets
+// payTo to this address for exactly those tools (payments.js acceptsForItem),
+// and every execution tier charges more than it can spend - worst case +$0.005,
+// +$0.01, +$0.05, +$0.30 per call. Blockscout is the same shape ($0.002 upstream
+// against a priced tool). So barring a manual withdrawal the balance is
+// monotonically non-decreasing, and a SUSTAINED fall means something we do not
+// understand is happening: the verify-then-fail-to-settle drain, a spend whose
+// revenue never arrived, or a withdrawal nobody mentioned.
+//
+// A low-water alarm fires after the money is gone. This fires on the first
+// unexplained dollar, which is the whole difference.
+//
+// It must tolerate a TRANSIENT dip, because settlement ordering guarantees one:
+// we pay the seller during the handler and collect afterwards, so the balance
+// is legitimately lower in between. Hence a high-water mark, a tolerance, and a
+// requirement that the fall persist across consecutive reads (each 5 min apart)
+// before it is called draining.
+const BUYER_DROP_TOLERANCE_USD = Number(process.env.UPSTREAM_BUYER_DROP_TOLERANCE_USD || 0.5);
+const BUYER_DROP_READS = Number(process.env.UPSTREAM_BUYER_DROP_READS || 3);
+let buyerHighWater = null;
+let buyerBelowReads = 0;
+
+/** Bucketed trend for the spending wallet: "ok" | "draining". Never a number -
+ *  /api/gateway-status is public and balances stay off it. Exported for tests. */
+export function noteBuyerBalance(balance, { reset = false } = {}) {
+  if (reset) { buyerHighWater = null; buyerBelowReads = 0; }
+  if (!Number.isFinite(balance)) return "unknown";
+  if (buyerHighWater == null || balance >= buyerHighWater) {
+    // A new high (or the first read) is the healthy case: re-baseline and clear.
+    buyerHighWater = balance;
+    buyerBelowReads = 0;
+    return "ok";
+  }
+  if (buyerHighWater - balance <= BUYER_DROP_TOLERANCE_USD) {
+    // Within tolerance: an in-flight call, not a drain. Do NOT reset the
+    // counter - a slow bleed sits inside tolerance on every single read.
+    return buyerBelowReads >= BUYER_DROP_READS ? "draining" : "ok";
+  }
+  buyerBelowReads += 1;
+  return buyerBelowReads >= BUYER_DROP_READS ? "draining" : "ok";
+}
+const BUYER_LOW_USD = () => Number(process.env.UPSTREAM_BUYER_LOW_USD || String(BUYER_LOW_DEFAULT_USD));
 const BUYER_STATUS_CACHE_MS = 5 * 60_000;
 let buyerStatusCache = null;
 /** Bucketed BALANCE of the Base spending wallet. Nothing more.
@@ -334,7 +393,7 @@ export async function upstreamBuyerStatus() {
     }
     result = balance == null
       ? { configured: true, status: "unknown", attests: "balance-only" }
-      : { configured: true, status: balance < BUYER_LOW_USD() ? "low" : "ok", attests: "balance-only" };
+      : { configured: true, status: balance < BUYER_LOW_USD() ? "low" : "ok", attests: "balance-only", trend: noteBuyerBalance(balance) };
   } catch {
     result = { configured: true, status: "unknown", attests: "balance-only" };
   }

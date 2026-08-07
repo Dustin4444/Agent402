@@ -260,6 +260,40 @@ jobs:
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
           fi
 
+      # The spending wallet should never go DOWN, so a fall is worth more than
+      # a floor. Everything that spends from it also settles into it
+      # (SELF_FUNDING_SLUGS), and every execution tier charges more than it can
+      # spend, so barring a manual withdrawal the balance only rises. A
+      # low-water alarm fires after the money is gone; this fires on the first
+      # unexplained dollar. A withdrawal trips it too, deliberately: the alarm's
+      # job is to say "this wallet fell and nobody told me", and a human who
+      # withdrew can close the issue in one click.
+      - name: Upstream buyer wallet trend (a self-funding wallet that FALLS is unexplained)
+        if: always()
+        continue-on-error: true
+        run: |
+          TREND=$(curl -s --max-time 15 "$PROD/api/gateway-status" | jq -r '.upstreamBuyer.trend // "unknown"' 2>/dev/null || echo unknown)
+          echo "upstream buyer trend: $TREND"
+          TITLE="Upstream buyer wallet is DRAINING (unexplained fall)"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$TREND" = "draining" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The x402 upstream spending wallet has fallen below its high-water mark across several consecutive reads.
+
+          That wallet is SELF-FUNDING: every tool that spends from it also settles into it, and every execution tier charges more than it can spend (worst case +\$0.005 / +\$0.01 / +\$0.05 / +\$0.30 per call). Its balance should only rise. A sustained fall means one of:
+
+          1. A manual withdrawal - close this issue if that was you.
+          2. Upstream spend whose revenue never arrived: a buyer's payment verified and then failed to settle, which is the drain the per-payer ceiling in src/external-spend-guard.js bounds. Check /__operator/stats and the route-execute receipts.
+          3. Something we do not understand, which is why this alarm exists.
+
+          Balances are deliberately not published on /api/gateway-status; read the wallet directly to see the number."
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still falling at $(date -u +%FT%TZ)."
+            fi
+          elif [ "$TREND" = "ok" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: the wallet set a new high-water mark at $(date -u +%FT%TZ)."
+          fi
+
       # Settlement freshness — the alarm that did not exist on 2026-08-07.
       #
       # The daily paid canary stopped buying on 2026-08-02 and reported success

@@ -17,7 +17,8 @@
 // that names the tool and its direct route, so the buyer can call it at list
 // price instead.
 import { createHash } from "node:crypto";
-import { paymentHeaderOf } from "../payer.js";
+import { paymentHeaderOf, payerFromRequest } from "../payer.js";
+import { maySpend, noteSpend, resolveSpend } from "../external-spend-guard.js";
 import { findTools } from "../find.js";
 import { isIdentityBoundRoute } from "../payments.js";
 
@@ -41,6 +42,18 @@ export const EXEC_TIERS = [
   // external inventory the seller review identified as routable demand.
   { slug: "route-execute-plus", execPriceUsd: 0.05, underlyingMaxUsd: 0.04 },
   { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
+  // 2026-08-07: the $0.50 ceiling made the whole premium half of the index
+  // unroutable. The seller who reported the price:null bug prices their gates
+  // at $0.99, $1.50 and $2.99 - every one of them above the top tier, so the
+  // router could only 409 them at their own direct route. Same 10% spread as
+  // the max tier, so the curve stays proportional rather than punishing size.
+  //
+  // This tier is only safe because of the per-payer debt ceiling in
+  // external-spend-guard.js. Settlement runs AFTER the handler, so raising the
+  // cap raises exactly one exposure: what a buyer whose payment verifies and
+  // then fails to settle can make us spend before we stop them. Keep
+  // EXTERNAL_MAX_UNSETTLED_USD sized against THIS number, not the old $0.50.
+  { slug: "route-execute-pro", execPriceUsd: 3.3, underlyingMaxUsd: 3.0 },
 ];
 const EXEC_SLUGS = new Set(EXEC_TIERS.map((t) => t.slug));
 /** Which execution tier (if any) can run a tool at `underlyingUsd`, and the
@@ -258,10 +271,38 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
             extUrl = qs ? `${ext.url}${ext.url.includes("?") ? "&" : "?"}${qs}` : ext.url;
             extBody = undefined;
           }
+          // PER-PAYER DEBT CEILING. Everything above bounds WHAT we pay (the
+          // canonical-USDC asset pin, this tier's cap re-checked against the
+          // live 402, the 50-settlement reliability floor). Nothing bounds
+          // WHETHER WE GET PAID: settlement runs AFTER this handler, so a
+          // payment that verifies and then fails to settle leaves us having
+          // spent real USDC upstream for a buyer who is charged nothing.
+          // Self-dealt - one wallet listing the seller and buying from it -
+          // every drained dollar returns to the attacker, bounded per call only
+          // by `cap`. A 4xx here cancels the buyer's settlement, so refusing
+          // costs an honest buyer nothing.
+          const spendPayer = payerFromRequest(req);
+          const allowed = maySpend(spendPayer, extUsd);
+          if (!allowed.ok) throw bad(`External routing is paused for this wallet: ${allowed.reason}`, 429);
+          const spendHandle = noteSpend(spendPayer, extUsd);
+          // Handed to server.js on the REQUEST, because a tool handler is called
+          // as handler(input, req) and never receives `res`. The first draft
+          // registered res.on("finish") here, where `res` is undefined - a guard
+          // that installs nothing and reports no error, which is the exact shape
+          // of defect this session keeps finding. server.js resolves it on the
+          // FINAL response (post-settlement), never on handler success.
+          if (spendHandle && req && typeof req === "object") req.__externalSpend = spendHandle;
           let paid;
           try {
             paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain });
           } catch (e) {
+            // The exposure DELIBERATELY stands. It is tempting to clear it here
+            // ("the buy failed, so we never spent"), but payExternal can throw
+            // after signing and broadcasting - a network error on the response,
+            // a timeout - and clearing on those is exactly the case that lets a
+            // spend disappear from the ledger. It ages out on its own within
+            // the stale window, so an honest buyer caught by a seller outage
+            // waits, while a spend we cannot account for keeps counting.
             const sc = e?.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 502;
             throw bad(`External seller "${ext.seller}" failed: ${String(e?.message || e).slice(0, 200)}`, sc);
           }

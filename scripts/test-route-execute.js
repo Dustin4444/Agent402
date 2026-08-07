@@ -192,7 +192,32 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   ok(routeExecuteHint(0.04)?.tool === "route-execute-plus", "$0.04 → plus tier boundary inclusive");
   ok(routeExecuteHint(0.05)?.tool === "route-execute-max", "$0.05 → max tier (just over the plus cap)");
   ok(routeExecuteHint(0.12)?.tool === "route-execute-max", "$0.12 → route-execute-max tier");
-  ok(routeExecuteHint(0.9) === null, "$0.90 → no tier (above max)");
+  // The pro tier (2026-08-07) exists because the $0.50 ceiling made the whole
+  // premium half of the index unroutable - the seller who reported the
+  // price:null bug prices their gates at $0.99 to $2.99, every one above the
+  // old max, so the router could only 409 them to their own direct route.
+  ok(routeExecuteHint(0.9)?.tool === "route-execute-pro", "$0.90 → route-execute-pro (was unroutable before the pro tier)");
+  ok(routeExecuteHint(2.99)?.tool === "route-execute-pro", "$2.99 → pro tier - the real seller price that motivated it");
+  ok(routeExecuteHint(3.0)?.tool === "route-execute-pro", "$3.00 → pro tier boundary inclusive");
+  ok(routeExecuteHint(3.01) === null, "$3.01 → no tier: the ceiling still exists, it just moved");
+  // The fee stays proportional rather than punishing size: 10% at the cap, the
+  // same spread as the max tier, not the 27x markup the plus tier was added to fix.
+  const pro = routeExecuteHint(3.0);
+  ok(Math.abs(pro.routingFeeUsd - 0.3) < 1e-9, `pro tier's fee at the cap is $0.30, a 10% spread (got ${pro.routingFeeUsd})`);
+}
+
+
+// --- the spending wallet's alarm must cover the biggest call ------------------
+// $0.50 was right when only Blockscout ($0.002/call) spent from that wallet.
+// A tier that can spend $3.00 in one call makes "ok" mean "has at least $0.50"
+// for a wallet that cannot cover a single call - the alarm would stay green
+// right up to the failure it exists to prevent. Nothing else reports this.
+{
+  const { BUYER_LOW_DEFAULT_USD } = await import("../src/tools/blockscout-kit.js");
+  const { EXEC_TIERS: TIERS } = await import("../src/tools/route-execute.js");
+  const biggest = Math.max(...TIERS.map((t) => t.underlyingMaxUsd));
+  ok(BUYER_LOW_DEFAULT_USD >= biggest,
+    `the upstream buyer low-water default ($${BUYER_LOW_DEFAULT_USD}) covers the largest tier's underlying spend ($${biggest}) - otherwise "ok" can mean "cannot fund one call"`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

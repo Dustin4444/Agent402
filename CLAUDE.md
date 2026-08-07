@@ -332,6 +332,62 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   which is real but lives on the stdio npm package). Mutation-tested: removing
   `request_tool` from the listing fails 2 assertions, a fake tool name fails 1, a
   fake route fails 1.
+- **Canary gate + settlement freshness alarm (2026-08-07):** the daily paid canary
+  stopped buying on **2026-08-02** and reported success every run for five days. Its
+  gate asked GitHub for the last SUCCESSFUL RUN, but a run whose gate SKIPS the buy
+  also concludes green, so every skip refreshed the window the next gate read and it
+  ratcheted permanently shut (measured across 40 runs: not one scheduled run bought
+  after the gate shipped; every real purchase came from a manual dispatch, which
+  bypasses the gate via `if: github.event_name == 'schedule'`). Nothing paged, because
+  skipping is not a failure — the ONLY surface that noticed was `/status`, reporting
+  the settlement component stale. **The gate now asks PRODUCTION when a canary last
+  BOUGHT** (`/api/status` settlement observation, written only by a canary that ran),
+  requiring fresh AND operational; unreachable status or a missing observation proceeds
+  with the buy, and every `jq` read carries a fallback because jq exits non-zero on a
+  non-JSON body and `set -e` would fail the gate. The canary job's `if` gained
+  `!cancelled()`: a job-level `if` with no status function still carries the implicit
+  `success()` on `needs`, so a FAILED gate would have SKIPPED the buy — the opposite of
+  what the comment beside it claimed, and never verified. **`heartbeat.yml` now pages on
+  a stale settlement observation** and self-heals once per episode by dispatching the
+  canary on FIRST detection only (a dispatch always buys; page rather than loop if
+  buying is genuinely broken). Proven end-to-end 2026-08-07: alarm fired → dispatched →
+  found a real failure → opened issues; then the 14:17 UTC SCHEDULED run bought (first
+  since 08-02) and the recovery branch closed its own issue. `scripts/test-canary-coverage.js`
+  locks the class: the gate must read `/api/status` and must NOT read `gh run list`,
+  every jq read must have a fallback, and the `if` must carry a status function.
+- **Facilitator failure diagnostics (`src/facilitator-diagnostics.js`, 2026-08-07):**
+  15 settle failures across Base/Solana/Polygon/Arbitrum all logged 200 characters of
+  `<html><head><title>Coinbase</title>…` — `@x402/core`'s `responseExcerpt` truncates an
+  error body at 200 chars, and on an HTML page that budget is spent entirely on markup.
+  A facilitator outage and an edge REFUSING OUR EGRESS were indistinguishable, and those
+  need opposite responses (wait vs build the fifth relay — Yahoo/Nasdaq/Sei/Nodely are
+  the existing four, and Nodely 403s Railway's IP outright). A global-fetch wrapper,
+  scoped to registered facilitator hosts and non-2xx non-JSON responses only, reads the
+  body BEFORE the vendor truncates it, strips markup, and classifies: cloudflare
+  challenge/block, access denied, rate limited, origin error behind the edge, gateway
+  timeout — keeping `cf-ray`/`server`/`retry-after`. It **clones** before reading
+  (consuming the body would break settlement), swallows every internal failure, and logs
+  once at boot so a silent failure to install is visible immediately. **Errors are also
+  LABELLED with the facilitator that threw them** (`labelFacilitatorErrors`): the failure
+  hooks log the chain and never the client, so Solana/Polygon/Arbitrum failures read as
+  Coinbase's words though the boot log routes those to PayAI and only Base to CDP —
+  clients are tried in order, so the surfacing error is the FIRST tried, not the chain's
+  owner. The label is **PREFIXED, never substituted**: `isPreBroadcastSettleRejection`
+  matches `settle failed (402)` as a substring, so replacing the message would silently
+  break the fallback's safety classification. `scripts/test-facilitator-diagnostics.js`
+  (30 assertions, offline, in CI).
+- **Redis has REAL coverage in CI (2026-08-07):** nothing had ever connected to a redis.
+  `test-shared-limit.js` injects a fake store on purpose (it proves "two callers share
+  one counter", and a fake proves that exactly), which left the CLIENT path untested —
+  so a redis 4→6 bump arrived with a green CI that could not have caught a client
+  regression, the same worthless green as the tesseract 5→7 trap. Prod is **NOT**
+  in-memory (verified against Railway: `REDIS_URL` and `RATE_LIMIT_REPLICAS` are set,
+  and the shared limiter FAILS CLOSED). The test job now runs a `redis:7-alpine` service
+  container and `scripts/test-redis-integration.js` drives the real client (cap-of-1,
+  over-limit decrement, refund flooring, cache round trip). It asserts `degraded === false`
+  so it cannot pass via the fail-closed path with no server, and it **exits 1 rather than
+  skipping** when `REDIS_URL` is absent — a skipped integration test is why this went
+  untested at all.
 - **Marketplace latency / snapshot caching (`src/x402-economy.js`):** `GET /marketplace`
   (and `/api/x402-economy`) render from `x402EconomySnapshot()` — a ~500ms on-chain read
   (EIP-3009 USDC settlements on Base via CDP SQL). It is **stale-while-revalidate**: a fresh
