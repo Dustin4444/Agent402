@@ -97,6 +97,47 @@ export function describeErrorResponse({ url, status, headers, body } = {}) {
     `${excerpt ? ` | body: ${excerpt}` : " | body: <empty>"}`;
 }
 
+/**
+ * Stamp a facilitator's label onto any error its settle/verify throws.
+ *
+ * WHY: the failure hooks log the CHAIN and never the facilitator, so on
+ * 2026-08-07 a Solana, Polygon and Arbitrum failure all read as Coinbase's
+ * words - even though the boot log routes those three to PayAI and only Base
+ * to CDP. Clients are tried in order, so the error that surfaces is the FIRST
+ * one tried, not the one that owns the chain. Without the label you cannot
+ * tell "PayAI rejected this" from "CDP was tried first and never got past the
+ * edge", and those have different fixes.
+ *
+ * The label is PREFIXED, never substituted: `isPreBroadcastSettleRejection`
+ * matches `settle failed (402)` as a substring and the summarizer scans for
+ * the facilitator's JSON body, so replacing the message would silently break
+ * the fallback's safety classification.
+ */
+export function labelFacilitatorErrors(label, client, methods = ["settle", "verify"]) {
+  if (!client || !label) return client;
+  for (const name of methods) {
+    const orig = client[name];
+    if (typeof orig !== "function" || orig.__a402Labelled) continue;
+    const wrapped = async (...args) => {
+      try {
+        return await orig.apply(client, args);
+      } catch (err) {
+        try {
+          // First label wins: an inner client already named itself.
+          if (err && !err.__a402Facilitator) {
+            err.__a402Facilitator = label;
+            err.message = `[${label}] ${err.message}`;
+          }
+        } catch { /* frozen/exotic error - a label is a nicety, never a failure */ }
+        throw err;
+      }
+    };
+    wrapped.__a402Labelled = true;
+    client[name] = wrapped;
+  }
+  return client;
+}
+
 /** Hosts the installed wrapper watches. Module-level so registration can grow
  *  after the wrapper is in place (see installFacilitatorDiagnostics). */
 const sharedHosts = new Set();

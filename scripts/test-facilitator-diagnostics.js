@@ -137,5 +137,55 @@ const CF_BLOCK = `<html> <head> <title>Coinbase</title> <meta name="robots" cont
     `a host registered AFTER the wrapper is installed is still watched (got ${w.join(",")})`);
 }
 
+
+// --- the facilitator must name itself in its own errors ----------------------
+// The 2026-08-07 confusion: failures on Solana/Polygon/Arbitrum all read as
+// Coinbase's words, though the boot log routes those to PayAI and only Base to
+// CDP. Clients are tried in order, so the surfacing error is the FIRST client
+// tried, not the chain's owner - unknowable without the label.
+{
+  const { labelFacilitatorErrors } = await import("../src/facilitator-diagnostics.js");
+  const { isPreBroadcastSettleRejection } = await import("../src/payments.js");
+
+  const client = {
+    async settle() { throw new Error("Facilitator settle failed (402): payment-method-required"); },
+    async verify() { return { ok: true }; },
+  };
+  labelFacilitatorErrors("CDP (Base)", client);
+
+  let err = null;
+  try { await client.settle(); } catch (e) { err = e; }
+  ok(/^\[CDP \(Base\)\]/.test(err.message), `the error names the facilitator that threw it (got: ${err.message.slice(0, 40)})`);
+  ok(err.__a402Facilitator === "CDP (Base)", "the label is also attached structurally, not only in prose");
+
+  // The safety classification must survive the prefix. If it did not, a
+  // pre-broadcast 402 would stop being re-settled through the fallback - a
+  // silent revenue loss caused by a logging change.
+  ok(isPreBroadcastSettleRejection(err) === true,
+    "a prefixed 402 is STILL classified as a safe-to-retry pre-broadcast rejection");
+
+  ok((await client.verify()).ok === true, "a successful call is passed through untouched");
+
+  // Double-wrapping must not double-prefix, and an outer client must not
+  // overwrite an inner one that already named itself.
+  labelFacilitatorErrors("Solvador", client);
+  let err2 = null;
+  try { await client.settle(); } catch (e) { err2 = e; }
+  ok((err2.message.match(/CDP \(Base\)/g) || []).length === 1 && !err2.message.includes("Solvador"),
+    `first label wins and is applied once (got: ${err2.message.slice(0, 60)})`);
+}
+
+{
+  // A label is a nicety; it must never turn a facilitator error into a
+  // different failure.
+  const { labelFacilitatorErrors } = await import("../src/facilitator-diagnostics.js");
+  const frozen = Object.freeze(new Error("Facilitator settle failed (502): <html>"));
+  const client = { async settle() { throw frozen; } };
+  labelFacilitatorErrors("Frozen", client);
+  let caught = null;
+  try { await client.settle(); } catch (e) { caught = e; }
+  ok(caught === frozen, "an unwritable error is rethrown unchanged rather than swallowed");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -18,7 +18,7 @@ import {
   declareBuilderCodeExtension,
 } from "@x402/extensions/builder-code";
 import { normalizePayerAddress } from "./payer.js";
-import { installFacilitatorDiagnostics } from "./facilitator-diagnostics.js";
+import { installFacilitatorDiagnostics, labelFacilitatorErrors } from "./facilitator-diagnostics.js";
 
 // Supported networks. EVM chains use eip155: CAIP-2 IDs; Solana uses the
 // solana: genesis-hash CAIP-2. Adding a chain = register its scheme + list
@@ -495,6 +495,10 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
   // 2026-08-07 could not be told apart from an edge refusing our egress.
   const facilitatorUrls = [];
   const addFacilitator = (label, client) => {
+    // Name the facilitator in its own errors. The failure hooks log the chain
+    // and never the client, so a Polygon failure could read as Coinbase's
+    // words while PayAI owns that chain and may never have been reached.
+    labelFacilitatorErrors(label, client);
     facilitatorClients.push(memoizeGetSupported(client));
     facilitatorLabels.push(label);
     // Clients expose their base URL as `url`; a subclass that does not is
