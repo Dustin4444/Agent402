@@ -1012,6 +1012,9 @@ jobs:
       - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
         run: node scripts/test-supported-guard.js
 
+      - name: "Live 402 quote (a priceless row learns its price from the challenge; unpriceable never becomes $0; PUT/PATCH/DELETE never probed — offline)"
+        run: node scripts/test-x402-live-quote.js
+
       - name: "Facilitator diagnostics (an HTML error page must name itself: block vs rate limit vs origin failure, and never touch the response — offline)"
         run: node scripts/test-facilitator-diagnostics.js
 

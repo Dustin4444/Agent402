@@ -36,6 +36,7 @@ import { fetchAllBazaarItems, isBazaarDiscoveryUrl } from "./bazaar-pager.js";
 import { RAILS, railKey, truncateCaip2 } from "./rails.js";
 import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
+import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse } from "./x402-live-quote.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
 import { rankBy, canonicalHost } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
@@ -1144,6 +1145,81 @@ function paywallProbeDue() {
   return paywallProbeCursor++ % Math.max(1, Math.ceil(cache.size / PAYWALL_PROBES_PER_CYCLE) || 1) === 0;
 }
 
+// How many priceless routes we will quote-probe per seller per crawl. The
+// crawl runs every 5 minutes across ~2,200 origins, so this is the difference
+// between "we learn a catalogue's prices within the hour" and "we hammer a
+// stranger's server". A route that gets priced is never probed again (it has a
+// price); one that cannot be priced backs off through probeDue like every
+// other path. See the #645 note below on why per-PATH backoff matters.
+const LIVE_QUOTE_PROBES_PER_CRAWL = 3;
+
+/**
+ * Learn price + networks from a live 402 for rows that have neither.
+ *
+ * THE DEFECT (reported by a seller, 2026-08-07): a manifest may list
+ * `resources` as bare URL strings, which carry no price, and probePaywall -
+ * the only thing that talks to a seller's endpoint - filters on
+ * `Number(t.price) > 0`. So a priceless row was never probed, and probing is
+ * the only thing that could have given it a price. Their 39 endpoints indexed
+ * at price:null while every one returned a textbook 402 on POST. Across the
+ * index that same day: 146 of 500 sellers had zero priced rows.
+ *
+ * Only ever ADDS information: a row that already has a price is skipped, and a
+ * probe that cannot produce a quote leaves the row exactly as it was.
+ */
+async function enrichLiveQuotes(tools, originUrl) {
+  if (!Array.isArray(tools) || !tools.length) return tools;
+  const candidates = tools.filter(
+    (t) => t
+      && typeof t.route === "string" && t.route.startsWith("/")
+      && t.seller !== LOCAL_SELLER                      // never probe ourselves
+      && !(Number(t.price) > 0)                          // already priced: nothing to learn
+      && !(Array.isArray(t.networks) && t.networks.length) // already payable-evidenced
+      && probeMethodsFor(t).length                       // never PUT/PATCH/DELETE
+      && probeDue(originUrl, `quote:${t.route}`),
+  ).slice(0, LIVE_QUOTE_PROBES_PER_CRAWL);
+  if (!candidates.length) return tools;
+
+  const { assertPublicUrl, ssrfDispatcher } = await import("./tools/fetch-guard.js");
+  for (const tool of candidates) {
+    const target = `${originUrl}${tool.route}`;
+    let learned = null;
+    for (const method of probeMethodsFor(tool)) {
+      try {
+        // Crawled URLs are external data and could DNS-rebind between crawl and
+        // now: validate then pin, exactly as probePaywall does.
+        await assertPublicUrl(target);
+        const res = await fetch(target, {
+          method,
+          headers: { Accept: "application/json", ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
+          ...(method === "POST" ? { body: "{}" } : {}),
+          dispatcher: ssrfDispatcher,
+          redirect: "manual",
+          signal: AbortSignal.timeout(8000),
+        });
+        if (!isQuoteResponse(res.status)) continue;   // 404 on GET is expected for a POST-only seller
+        // The quote lives in the header for x402 v2 and in the body for several
+        // real sellers; read a bounded slice of both and let the parser decide.
+        const body = await res.text().catch(() => "");
+        const quote = quoteFromAccepts(
+          acceptsFromLive402({ header: res.headers.get("payment-required"), body: body.slice(0, 64_000) }),
+        );
+        if (quote) { learned = { ...quote, method }; break; }
+      } catch { /* unreachable, blocked, or malformed - try the next method */ }
+    }
+    noteProbeOutcome(originUrl, `quote:${tool.route}`, Boolean(learned));
+    if (!learned) continue;
+    // Price may be null for an asset we refuse to guess at; the networks alone
+    // still move the row from payable:"unknown" to payable:"x402", which is the
+    // honest and useful half of the answer.
+    if (learned.price != null && !(Number(tool.price) > 0)) tool.price = learned.price;
+    if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
+    if (learned.method && learned.method !== tool.method) { tool.method = learned.method; tool.methodInferred = false; }
+    tool.quoteSource = "live-402";
+  }
+  return tools;
+}
+
 async function probePaywall(tools) {
   // A cached tool row has NO `url` field — the callable URL is derived as
   // seller + route, the same way routeQuery builds it (see the `url:` mapping
@@ -1308,6 +1384,9 @@ async function crawlSeller(originUrl) {
     // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
     tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
     tools = dropUnvouchedNonProductRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
+    // Learn prices the catalogue could not carry. Bounded per seller per crawl
+    // and backed off per route; only ever adds information.
+    tools = await enrichLiveQuotes(tools, originUrl);
 
     cache.set(originUrl, {
       manifest,
@@ -1409,6 +1488,10 @@ async function crawlSeller(originUrl) {
       bazaarTools.map((t) => t.route)
     );
     if (tools.length) {
+      // Same enrichment as the manifest path. A seller discovered through the
+      // FALLBACK surfaces is even less likely to have published a price, so
+      // skipping it here would leave the worst-served sellers unpriced.
+      await enrichLiveQuotes(tools, originUrl);
       // A real (non-synthesized) manifest from a past crawl is kept; a stale
       // synthesized one is rebuilt so a newly appeared openapi title wins.
       const keepManifest = prev?.manifest && !prev.manifest.synthesized ? prev.manifest : null;
