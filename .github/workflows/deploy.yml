@@ -995,6 +995,9 @@ jobs:
       - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
         run: node scripts/test-supported-guard.js
 
+      - name: "Facilitator diagnostics (an HTML error page must name itself: block vs rate limit vs origin failure, and never touch the response — offline)"
+        run: node scripts/test-facilitator-diagnostics.js
+
       - name: Well-known store (operator-published domain-verification docs; traversal impossible, reserved names refused, no shadowing of /.well-known/x402 — offline)
         run: node scripts/test-well-known-store.js
 
