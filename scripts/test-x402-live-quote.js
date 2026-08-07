@@ -106,5 +106,41 @@ const HEADER = Buffer.from(JSON.stringify({ x402Version: 2, accepts: [REAL_ACCEP
   ok(isQuoteResponse(404) === false && isQuoteResponse(500) === false, "errors are not quotes");
 }
 
+
+// --- learned quotes must SURVIVE the next crawl ------------------------------
+// Every crawl rebuilds `tools` from the seller's catalogue, and the catalogue is
+// exactly the surface with no price. Without carry-forward each cycle discards
+// everything the last one learned and re-learns at most a handful of routes, so
+// a seller with dozens of routes oscillates near zero forever - the feature
+// looks alive and achieves nothing. Observed in production: two routes priced,
+// then zero after the next crawl.
+{
+  const { carryForwardLearnedQuotes } = await import("../src/x402-index.js");
+  const prev = { tools: [
+    { route: "/a", method: "POST", price: 0.99, networks: ["eip155:8453"], quoteSource: "live-402" },
+    { route: "/b", method: "GET", price: null, networks: ["eip155:8453"], quoteSource: "live-402" },
+    { route: "/c", method: "GET", price: 5, networks: [], quoteSource: undefined },
+  ] };
+  // A freshly rebuilt catalogue: no prices, and /a mis-typed as GET.
+  const rebuilt = [
+    { route: "/a", method: "GET", price: null, networks: [] },
+    { route: "/b", method: "GET", price: null, networks: [] },
+    { route: "/c", method: "GET", price: null, networks: [] },
+    { route: "/d", method: "GET", price: null, networks: [] },
+  ];
+  const out = carryForwardLearnedQuotes(rebuilt, prev);
+  const by = Object.fromEntries(out.map((t) => [t.route, t]));
+
+  ok(by["/a"].price === 0.99, `a learned price survives the rebuild (got ${by["/a"].price})`);
+  ok(by["/a"].method === "POST" && by["/a"].methodInferred === false,
+    "a learned METHOD correction survives too - the catalogue said GET for a POST-only route");
+  ok(by["/b"].networks.includes("eip155:8453") && by["/b"].price === null,
+    "networks-only knowledge survives without inventing a price");
+  ok(by["/c"].price === null,
+    "a row NOT learned from a live 402 is not carried - only our own probe results are trusted");
+  ok(by["/d"].price === null && by["/d"].quoteSource === undefined,
+    "a route we never learned is left untouched");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

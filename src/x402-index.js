@@ -1195,6 +1195,40 @@ let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is f
  * Only ever ADDS information: a row that already has a price is skipped, and a
  * probe that cannot produce a quote leaves the row exactly as it was.
  */
+/**
+ * Carry forward quotes we already learned from a live 402.
+ *
+ * Every crawl REBUILDS `tools` from the seller's catalogue, and the catalogue is
+ * exactly the surface that has no price - that is the whole reason the live
+ * probe exists. So without this, each cycle threw away everything the previous
+ * cycle learned and re-learned at most LIVE_QUOTE_PROBES_PER_CRAWL routes.
+ * A seller with 39 routes could never accumulate: the count oscillated near
+ * zero forever and the feature looked like it worked while achieving nothing.
+ * Observed live - two routes priced, then zero after the next crawl.
+ *
+ * Keyed by ROUTE only, deliberately: learning a quote can CORRECT the method
+ * (a catalogue that said GET for a POST-only endpoint), so a method-qualified
+ * key would miss the row it just fixed.
+ */
+export function carryForwardLearnedQuotes(tools, prev) {
+  const learned = new Map();
+  for (const t of prev?.tools || []) {
+    if (t?.quoteSource === "live-402" && typeof t.route === "string") learned.set(t.route, t);
+  }
+  if (!learned.size) return tools;
+  for (const t of tools) {
+    const hit = learned.get(t.route);
+    if (!hit) continue;
+    if (!(Number(t.price) > 0) && Number(hit.price) > 0) t.price = hit.price;
+    if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
+      t.networks = [...hit.networks];
+    }
+    if (hit.method && hit.method !== t.method) { t.method = hit.method; t.methodInferred = false; }
+    t.quoteSource = "live-402";
+  }
+  return tools;
+}
+
 async function enrichLiveQuotes(tools, originUrl) {
   if (!Array.isArray(tools) || !tools.length) return tools;
   const candidates = tools.filter(
@@ -1417,8 +1451,9 @@ async function crawlSeller(originUrl) {
     // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
     tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
     tools = dropUnvouchedNonProductRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
-    // Learn prices the catalogue could not carry. Bounded per seller per crawl
-    // and backed off per route; only ever adds information.
+    // Keep what earlier crawls already learned, THEN spend the probe budget on
+    // routes we still know nothing about.
+    tools = carryForwardLearnedQuotes(tools, prev);
     tools = await enrichLiveQuotes(tools, originUrl);
 
     cache.set(originUrl, {
@@ -1524,6 +1559,7 @@ async function crawlSeller(originUrl) {
       // Same enrichment as the manifest path. A seller discovered through the
       // FALLBACK surfaces is even less likely to have published a price, so
       // skipping it here would leave the worst-served sellers unpriced.
+      carryForwardLearnedQuotes(tools, prev);
       await enrichLiveQuotes(tools, originUrl);
       // A real (non-synthesized) manifest from a past crawl is kept; a stale
       // synthesized one is rebuilt so a newly appeared openapi title wins.
