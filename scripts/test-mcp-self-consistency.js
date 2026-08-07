@@ -100,7 +100,7 @@ function referencedSlugs(text) {
 // A dot ends a path unless it begins a real file extension, so prose like
 // "/api/extract.body" yields /api/extract rather than a route that never was.
 const PATH_FAMILIES = "api|v1|mcp|tools|skills";
-const EXT = "txt|json|xml|html|md|ico|csv|yaml";
+const EXT = "txt|json|xml|html|md|ico|csv|yaml|js";
 function referencedPaths(text, baseUrl) {
   const out = new Set();
   const add = (p) => {
