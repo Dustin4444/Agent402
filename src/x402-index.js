@@ -1151,7 +1151,7 @@ function paywallProbeDue() {
 // stranger's server". A route that gets priced is never probed again (it has a
 // price); one that cannot be priced backs off through probeDue like every
 // other path. See the #645 note below on why per-PATH backoff matters.
-const LIVE_QUOTE_PROBES_PER_CRAWL = 3;
+const LIVE_QUOTE_PROBES_PER_CRAWL = 5;
 // GLOBAL ceiling per crawl CYCLE, not just per seller. Three per seller sounds
 // gentle until you multiply: roughly a third of indexed rows carry no price, so
 // a per-seller-only limit fires thousands of outbound requests every 5 minutes
@@ -1159,8 +1159,17 @@ const LIVE_QUOTE_PROBES_PER_CRAWL = 3;
 // Per-route backoff eventually quiets the sellers who never answer 402, but
 // "eventually" is the first several cycles, and the seller feels those. This
 // bounds the whole cycle; the rest simply wait their turn on the next one.
-const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 60);
+// 240, not 60. This is a BACKLOG drain, not steady state: a route that gets
+// priced is never a candidate again, so the candidate pool shrinks toward zero
+// as the ecosystem is learned and the budget then sits mostly unused. At 60 a
+// full rotation over ~2,200 origins took most of a day and a 30-route seller
+// waited a week - too slow to be worth having for the seller who reported it.
+// At 240 the same rotation is a few hours. Per-route backoff and the per-seller
+// cap still bound what any ONE origin feels, which is the number that matters
+// to them.
+const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 240);
 let liveQuoteBudget = LIVE_QUOTE_PROBES_PER_CYCLE;
+let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is fair
 
 /**
  * Learn price + networks from a live 402 for rows that have neither.
@@ -1226,6 +1235,10 @@ async function enrichLiveQuotes(tools, originUrl) {
     if (learned.networks?.length) tool.networks = [...new Set([...(tool.networks || []), ...learned.networks])];
     if (learned.method && learned.method !== tool.method) { tool.method = learned.method; tool.methodInferred = false; }
     tool.quoteSource = "live-402";
+    // Say so. `quoteSource` is not serialized by the row mappers, so without
+    // this line the only way to tell whether enrichment ever ran was to watch a
+    // price appear and hope - which is how an inert feature hides.
+    console.log(`[x402-index] live-402 quote: ${originUrl}${tool.route} -> ${learned.price == null ? "networks only" : "$" + learned.price} (${learned.method})`);
   }
   return tools;
 }
@@ -1701,7 +1714,16 @@ async function runCrawl() {
   try {
     const seeds = seedList();
     liveQuoteBudget = LIVE_QUOTE_PROBES_PER_CYCLE;   // fresh allowance each cycle
-    await runPool(seeds, CRAWL_CONCURRENCY, crawlSeller);
+    // ROTATE the visiting order each cycle. The per-cycle quote budget is spent
+    // first-come, so a fixed order hands every probe to whichever sellers sit at
+    // the front of the list and starves the tail FOREVER - the sellers at the
+    // back would never be priced, which is the exact complaint that started
+    // this work, reintroduced by the fix for it. Rotation costs nothing (the
+    // crawl visits every seed each cycle regardless) and makes the budget fair.
+    const start = seeds.length ? crawlCycle % seeds.length : 0;
+    crawlCycle += 1;
+    const ordered = seeds.length ? [...seeds.slice(start), ...seeds.slice(0, start)] : seeds;
+    await runPool(ordered, CRAWL_CONCURRENCY, crawlSeller);
   } finally {
     crawlInFlight = false;
   }
