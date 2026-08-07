@@ -146,13 +146,35 @@ if (rn) {
   // step-level condition would have to be repeated on every step, and the one
   // that got forgotten would spend ~$1.50 of real USDC anyway.
   ok(/\n\s{2}gate:/.test(wf), "a gate JOB decides whether this attempt spends anything");
-  ok(/needs:\s*gate/.test(wf) && /if:\s*needs\.gate\.outputs\.skip\s*!=\s*'true'/.test(wf),
+  const canaryIf = wf.split("\n").find((l) => l.includes("if:") && l.includes("needs.gate.outputs.skip")) || "";
+  ok(/needs:\s*gate/.test(wf) && canaryIf !== "",
     "the buying job is gated at JOB level, not per step");
 
-  // Fail toward RUNNING. A monitor that stops monitoring because its own guard
-  // broke is the exact failure this change removes.
-  ok(/!=\s*'true'/.test(wf) && !/==\s*'false'/.test(wf),
-    "an errored or skipped gate leaves the canary RUNNING, never silently disabled");
+  // Fail toward RUNNING, asserted STRUCTURALLY rather than by polarity.
+  //
+  // The previous version checked only that the comparison reads `!= 'true'`
+  // rather than `== 'false'`. That says nothing about a gate that FAILED: a
+  // job-level `if` with no status check function still carries the implicit
+  // success() on `needs`, so a failed gate SKIPS the canary. The assertion
+  // passed for weeks against exactly that code, claiming a property it had no
+  // way to see. What actually makes the claim true is a status function
+  // overriding the implicit check.
+  ok(/!=\s*'true'/.test(canaryIf) && !/==\s*'false'/.test(canaryIf),
+    "the gate's skip is opt-IN: an empty or missing output leaves the canary running");
+  ok(/!\s*cancelled\(\)|always\(\)/.test(canaryIf),
+    `a FAILED gate cannot silently disable the canary - the if carries a status function (got: ${canaryIf.trim()})`);
+
+  // The gate must ask PRODUCTION when a canary last BOUGHT, never GitHub when
+  // this workflow last concluded green. A run whose gate skips the buy also
+  // concludes green, so keying on run history makes every skip refresh the
+  // window the next gate reads, and the gate ratchets itself permanently shut.
+  // Measured: shipped 2026-08-02, and not one scheduled run bought afterwards.
+  const gateJob = wf.slice(wf.indexOf("\n  gate:"), wf.indexOf("\n  canary:"));
+  ok(/\/api\/status/.test(gateJob) && !/gh run list/.test(gateJob),
+    "the gate keys on a real settlement observation, not on this workflow's own run history");
+  const jqReads = gateJob.split("\n").filter((l) => l.includes("jq -r"));
+  ok(jqReads.length > 0 && jqReads.every((l) => /\|\|\s*echo\s+none/.test(l)),
+    `every jq read in the gate falls back instead of failing the step (jq exits non-zero on a non-JSON body) (${jqReads.length} read${jqReads.length === 1 ? "" : "s"})`);
 
   // A human asking for a buy - usually right after a deploy - must never be
   // suppressed by the freshness window.
