@@ -24,6 +24,9 @@ on:
 permissions:
   contents: read
   issues: write
+  # For the settlement-freshness step's one self-healing `gh workflow run`.
+  # Nothing else here dispatches anything.
+  actions: write
 
 env:
   PROD: https://agent402.tools
@@ -255,6 +258,61 @@ jobs:
             fi
           elif [ "$STATUS" = "ok" ] && [ -n "$OPEN" ]; then
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
+          fi
+
+      # Settlement freshness — the alarm that did not exist on 2026-08-07.
+      #
+      # The daily paid canary stopped buying on 2026-08-02 and reported success
+      # every time, because its gate keyed on "last successful RUN" and a run
+      # that SKIPS the buy also concludes successfully, so each skip refreshed
+      # the window the next gate read. Nothing paged, because skipping is not a
+      # failure. The only thing that noticed was /status, which showed the
+      # settlement component stale — and that only surfaced because a human
+      # happened to read the page five days later.
+      #
+      # So this watches the OBSERVATION, not the workflow. A run that claims
+      # success while buying nothing leaves no observation, and an absent
+      # observation is exactly what this pages on. It cannot be fooled by the
+      # monitor's own green.
+      #
+      # SELF-HEAL, once per episode: on the FIRST detection (no issue open yet)
+      # it dispatches the canary, which always buys because the freshness gate
+      # applies to scheduled runs only. If that purchase settles, the next
+      # heartbeat closes the issue and nobody is woken. Bounded deliberately to
+      # the issue-opening branch: a dispatch spends real USDC across the rails,
+      # and if buying is genuinely broken we must page, not retry in a loop.
+      # "outage" is NOT handled here — a canary that ran and failed opens its
+      # own issue, and two alarms for one event is noise.
+      - name: Settlement freshness (the daily canary must actually BUY, not just conclude green)
+        if: always()
+        continue-on-error: true
+        run: |
+          SNAP=$(curl -s --max-time 20 "$PROD/api/status" || true)
+          STATE=$(printf '%s' "$SNAP" | jq -r '(.components[]? | select(.key=="settlement") | .current.state) // "unreadable"' 2>/dev/null || echo unreadable)
+          AGEH=$(printf '%s' "$SNAP" | jq -r '((.components[]? | select(.key=="settlement") | .current.ageMs) // 0) / 3600000 | floor' 2>/dev/null || echo 0)
+          echo "settlement observation: state=$STATE age=${AGEH}h"
+          # An unreadable page is not evidence of a stale canary - it is
+          # evidence we could not look. The prod-down alarm above owns that.
+          [ "$STATE" = "unreadable" ] && exit 0
+          TITLE="Settlement stale - the paid canary is not buying"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "$STATE" = "unknown" ]; then
+            if [ -z "$OPEN" ]; then
+              gh workflow run paid-canary.yml --repo "$GITHUB_REPOSITORY" --ref main \
+                && HEAL="A canary run has been dispatched automatically (a dispatch always buys - the freshness gate applies to scheduled runs only). If it settles, this issue closes itself on the next heartbeat." \
+                || HEAL="Automatic dispatch FAILED, so nothing is retrying on its own."
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "No canary has proven a real USDC purchase in ${AGEH}h, so /status reports the settlement component as \`unknown\` and the public page reads \"Partially measured\".
+
+          This means the daily proof that BUYING works is not running. It does not by itself mean buying is broken - the 2026-08-02 case was a gate that skipped every scheduled attempt while the workflow reported success, which is why this alarm watches the observation rather than the workflow's own conclusion.
+
+          Check, in order: the recent runs of \`paid-canary.yml\` and whether the \`canary\` job was SKIPPED rather than run; then the gate step's log, which prints the observation age it read; then the burner balances.
+
+          $HEAL"
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still stale at $(date -u +%FT%TZ) (${AGEH}h since the last proven purchase). The automatic dispatch did not resolve it, so this needs a human."
+            fi
+          elif [ "$STATE" = "operational" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: a canary proved a real purchase at $(date -u +%FT%TZ) (observation is ${AGEH}h old). /status is measuring settlement again."
           fi
 
       # Solvador registry watch — their /discovery/resources speaks the
