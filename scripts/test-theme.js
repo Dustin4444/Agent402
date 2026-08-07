@@ -71,6 +71,23 @@ const stranded = [...LEDGER_CSS.matchAll(/\}\s*([^\n{}]*)\/\*/g)].map((m) => m[1
 ok(stranded.length === 0,
   `no selector text stranded before a comment${stranded.length ? ` (found "${stranded[0].slice(0, 60)}")` : ""}`);
 
+// --- the shell must not leak raw JavaScript into the page -------------------
+// SHIPPED BROKEN once. Removing the theme IIFE with a regex ate its `<script>`
+// OPENING tag and left the next function as bare text in <head>, followed by an
+// orphaned `</script>`. Browsers hoist stray head text into the body, so a
+// wall of JavaScript rendered at the top of every page - and a402ToggleMenu was
+// never defined, which silently broke the mobile burger menu on every route.
+// Neither the theme assertions nor the page tests noticed: the markup was still
+// well-formed by div-balance standards and every route still returned 200.
+ok((html.match(/<script[\s>]/g) || []).length === (html.match(/<\/script>/g) || []).length,
+  "script tags balance (an orphaned </script> means a stripped opening tag)");
+const headOnly = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+ok(!/\n\s*function\s+\w+\s*\(/.test(headOnly),
+  "no bare function declaration sitting outside a <script> in <head>");
+ok(/<script>[^<]*function a402ToggleMenu/.test(html),
+  "a402ToggleMenu is defined INSIDE a script element, so the burger menu works");
+ok(html.includes('onclick="a402ToggleMenu()"'), "the burger button is still wired to it");
+
 // --- the revenue chart palette had to follow the theme ----------------------
 // Its dark series colours were keyed on [data-theme="dark"]. With the attribute
 // gone that rule could never match, so the chart would have kept LIGHT series

@@ -626,7 +626,7 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <html lang="en">
 <head>
 <meta charset="utf-8">
-function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}</script>
+<script>function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
