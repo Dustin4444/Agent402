@@ -338,10 +338,43 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             inputSchema: schemaOf(def),
           };
         }),
-        // Both of these have working handlers below but were never listed, so an
+        // These three have working handlers below but were never listed, so an
         // MCP client could not see them - tools/list is the only discovery
         // surface a client has. The service manifest already advertises
         // top_x402_sellers, so it was promised and unreachable.
+        //
+        // request_tool is the same defect found from the outside (issue #705):
+        // about_agent402's own missingATool field tells an agent to "call
+        // request_tool", and tools/list did not contain it. The one tool whose
+        // whole job is to catch an agent that just failed to find something was
+        // itself unfindable, so the demand board only ever heard from callers
+        // who already knew the name. Listed LAST among the meta-tools so it
+        // reads as the fallback it is, after search/find/call have missed.
+        //
+        // It is the only tool here that WRITES (a wish row), so it does not get
+        // the SAFE read-only annotations - a client that trusts readOnlyHint to
+        // decide what it may call without asking would be misled.
+        {
+          name: "request_tool",
+          title: "Request a tool Agent402 does not have",
+          annotations: {
+            title: "Request a tool Agent402 does not have",
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: false,
+            openWorldHint: false,
+          },
+          description: `[free] Tell Agent402 about a capability its ${tools.size} tools do not cover. Use it after search_tools or find_tool came back with nothing that fits, instead of giving up: requests are clustered by need, and the ones that keep coming up get built. Records demand only - it never returns a tool or runs anything. Same intake as POST ${baseUrl}/api/wish; aggregate demand is public at ${baseUrl}/api/wishes.`,
+          inputSchema: {
+            type: "object",
+            properties: {
+              need: { type: "string", maxLength: 500, description: 'What you needed and could not find, in plain language, e.g. "convert a HEIC image to JPEG" or "look up a UK company by registration number"' },
+              context: { type: "string", maxLength: 300, description: "Optional: what you were trying to accomplish, or the input you had - helps disambiguate similar-sounding requests." },
+            },
+            required: ["need"],
+            additionalProperties: false,
+          },
+        },
         {
           name: "about_agent402",
           title: "About this Agent402 connector",
