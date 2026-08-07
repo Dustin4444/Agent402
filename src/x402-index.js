@@ -769,7 +769,7 @@ export function dropUnvouchedNonProductRoutes(tools = [], vouchedRoutes = []) {
 //   GET  /x402/preflight?chain=base&sender=...  (manifest entry)
 //
 // SECOND: keying on the pathname alone fixes that and silently loses variants.
-// The seller who reported the original bug pointed this out about the fix
+// A seller report flagged this about the fix
 // itself: a single route often sells different things by parameter (?product=,
 // a reader keyed by ?url=, a chain call keyed by ?chain=), at different prices.
 // Folding those into one row erases products the seller does sell.
@@ -1159,15 +1159,25 @@ const LIVE_QUOTE_PROBES_PER_CRAWL = 5;
 // Per-route backoff eventually quiets the sellers who never answer 402, but
 // "eventually" is the first several cycles, and the seller feels those. This
 // bounds the whole cycle; the rest simply wait their turn on the next one.
-// 240, not 60. This is a BACKLOG drain, not steady state: a route that gets
-// priced is never a candidate again, so the candidate pool shrinks toward zero
-// as the ecosystem is learned and the budget then sits mostly unused. At 60 a
-// full rotation over ~2,200 origins took most of a day and a 30-route seller
-// waited a week - too slow to be worth having for the seller who reported it.
-// At 240 the same rotation is a few hours. Per-route backoff and the per-seller
-// cap still bound what any ONE origin feels, which is the number that matters
-// to them.
-const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 240);
+// The global cap is a BLAST-RADIUS control, not a politeness control, so it
+// belongs high.
+//
+// What protects a seller is the PER-SELLER cap and per-route backoff: whatever
+// this number is, one origin feels at most LIVE_QUOTE_PROBES_PER_CRAWL requests
+// per cycle, and only until its routes are priced. That is the number the #645
+// lesson was about - 686 requests to ONE origin for a fact we already knew.
+// Spreading a larger total across many DIFFERENT hosts is a different thing
+// entirely, and the crawl already fetches four discovery paths per origin per
+// cycle.
+//
+// Setting it low did not make us polite, it made us slow and unfair: at 240 the
+// budget was consumed by whoever came first, a full rotation took hours, and a
+// seller with a few dozen routes would have waited most of a day to be priced.
+// At 4000 every unpriced seller is reached every cycle, so a 30-route seller is
+// fully priced in about half an hour, and each of them still sees at most five
+// requests per cycle. The env override remains for throttling if a real cost
+// ever shows up.
+const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 4000);
 let liveQuoteBudget = LIVE_QUOTE_PROBES_PER_CYCLE;
 let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is fair
 
@@ -1185,6 +1195,40 @@ let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is f
  * Only ever ADDS information: a row that already has a price is skipped, and a
  * probe that cannot produce a quote leaves the row exactly as it was.
  */
+/**
+ * Carry forward quotes we already learned from a live 402.
+ *
+ * Every crawl REBUILDS `tools` from the seller's catalogue, and the catalogue is
+ * exactly the surface that has no price - that is the whole reason the live
+ * probe exists. So without this, each cycle threw away everything the previous
+ * cycle learned and re-learned at most LIVE_QUOTE_PROBES_PER_CRAWL routes.
+ * A seller with 39 routes could never accumulate: the count oscillated near
+ * zero forever and the feature looked like it worked while achieving nothing.
+ * Observed live - two routes priced, then zero after the next crawl.
+ *
+ * Keyed by ROUTE only, deliberately: learning a quote can CORRECT the method
+ * (a catalogue that said GET for a POST-only endpoint), so a method-qualified
+ * key would miss the row it just fixed.
+ */
+export function carryForwardLearnedQuotes(tools, prev) {
+  const learned = new Map();
+  for (const t of prev?.tools || []) {
+    if (t?.quoteSource === "live-402" && typeof t.route === "string") learned.set(t.route, t);
+  }
+  if (!learned.size) return tools;
+  for (const t of tools) {
+    const hit = learned.get(t.route);
+    if (!hit) continue;
+    if (!(Number(t.price) > 0) && Number(hit.price) > 0) t.price = hit.price;
+    if (!(Array.isArray(t.networks) && t.networks.length) && Array.isArray(hit.networks) && hit.networks.length) {
+      t.networks = [...hit.networks];
+    }
+    if (hit.method && hit.method !== t.method) { t.method = hit.method; t.methodInferred = false; }
+    t.quoteSource = "live-402";
+  }
+  return tools;
+}
+
 async function enrichLiveQuotes(tools, originUrl) {
   if (!Array.isArray(tools) || !tools.length) return tools;
   const candidates = tools.filter(
@@ -1407,8 +1451,9 @@ async function crawlSeller(originUrl) {
     // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
     tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
     tools = dropUnvouchedNonProductRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
-    // Learn prices the catalogue could not carry. Bounded per seller per crawl
-    // and backed off per route; only ever adds information.
+    // Keep what earlier crawls already learned, THEN spend the probe budget on
+    // routes we still know nothing about.
+    tools = carryForwardLearnedQuotes(tools, prev);
     tools = await enrichLiveQuotes(tools, originUrl);
 
     cache.set(originUrl, {
@@ -1514,6 +1559,7 @@ async function crawlSeller(originUrl) {
       // Same enrichment as the manifest path. A seller discovered through the
       // FALLBACK surfaces is even less likely to have published a price, so
       // skipping it here would leave the worst-served sellers unpriced.
+      carryForwardLearnedQuotes(tools, prev);
       await enrichLiveQuotes(tools, originUrl);
       // A real (non-synthesized) manifest from a past crawl is kept; a stale
       // synthesized one is rebuilt so a newly appeared openapi title wins.
