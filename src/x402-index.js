@@ -1159,15 +1159,25 @@ const LIVE_QUOTE_PROBES_PER_CRAWL = 5;
 // Per-route backoff eventually quiets the sellers who never answer 402, but
 // "eventually" is the first several cycles, and the seller feels those. This
 // bounds the whole cycle; the rest simply wait their turn on the next one.
-// 240, not 60. This is a BACKLOG drain, not steady state: a route that gets
-// priced is never a candidate again, so the candidate pool shrinks toward zero
-// as the ecosystem is learned and the budget then sits mostly unused. At 60 a
-// full rotation over ~2,200 origins took most of a day and a 30-route seller
-// waited a week - too slow to be worth having for the seller who reported it.
-// At 240 the same rotation is a few hours. Per-route backoff and the per-seller
-// cap still bound what any ONE origin feels, which is the number that matters
-// to them.
-const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 240);
+// The global cap is a BLAST-RADIUS control, not a politeness control, so it
+// belongs high.
+//
+// What protects a seller is the PER-SELLER cap and per-route backoff: whatever
+// this number is, one origin feels at most LIVE_QUOTE_PROBES_PER_CRAWL requests
+// per cycle, and only until its routes are priced. That is the number the #645
+// lesson was about - 686 requests to ONE origin for a fact we already knew.
+// Spreading a larger total across many DIFFERENT hosts is a different thing
+// entirely, and the crawl already fetches four discovery paths per origin per
+// cycle.
+//
+// Setting it low did not make us polite, it made us slow and unfair: at 240 the
+// budget was consumed by whoever came first, a full rotation took hours, and
+// the seller who reported this would have waited most of a day to be priced.
+// At 4000 every unpriced seller is reached every cycle, so a 30-route seller is
+// fully priced in about half an hour, and each of them still sees at most five
+// requests per cycle. The env override remains for throttling if a real cost
+// ever shows up.
+const LIVE_QUOTE_PROBES_PER_CYCLE = Number(process.env.LIVE_QUOTE_PROBES_PER_CYCLE || 4000);
 let liveQuoteBudget = LIVE_QUOTE_PROBES_PER_CYCLE;
 let crawlCycle = 0;   // rotates the per-cycle visiting order so the budget is fair
 
