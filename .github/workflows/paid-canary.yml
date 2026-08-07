@@ -65,8 +65,14 @@ jobs:
             echo "status unreachable - proceeding with the buy (a gate that cannot check must not block)"
             exit 0
           fi
-          AGE=$(printf '%s' "$SNAP" | jq -r '(.components[]? | select(.key=="settlement") | .current.ageMs) // "none"')
-          STATE=$(printf '%s' "$SNAP" | jq -r '(.components[]? | select(.key=="settlement") | .current.state) // "none"')
+          # `|| echo none` on both: jq exits 5 on a body that is not JSON (an
+          # error page, an interstitial, a truncated response), and under
+          # `set -e` that would fail this step, fail the gate job, and - see the
+          # canary job's `if` below - stop the monitor because its own guard
+          # broke. Every parse failure lands on the "no observation, so buy"
+          # path instead. This step cannot fail.
+          AGE=$(printf '%s' "$SNAP" | jq -r '(.components[]? | select(.key=="settlement") | .current.ageMs) // "none"' 2>/dev/null || echo none)
+          STATE=$(printf '%s' "$SNAP" | jq -r '(.components[]? | select(.key=="settlement") | .current.state) // "none"' 2>/dev/null || echo none)
           if [ "$AGE" = "none" ] || [ "$AGE" = "null" ]; then
             echo "no settlement observation on record - proceeding with the buy"
             exit 0
@@ -93,7 +99,14 @@ jobs:
     # leaves `skip` empty and the canary RUNS - a monitor that silently stops
     # monitoring because its own guard broke is the failure this whole change
     # exists to remove.
-    if: needs.gate.outputs.skip != 'true'
+    #
+    # `!cancelled()` is what makes that comment TRUE rather than merely
+    # intended. A job-level `if` with no status check function still carries
+    # the implicit success() on `needs`, so a FAILED gate would have skipped
+    # this job - the opposite of what the comment claimed, and never verified.
+    # A status function overrides that implicit check. Not always(): a
+    # cancelled run should stay cancelled, not go spend money.
+    if: ${{ !cancelled() && needs.gate.outputs.skip != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Wallet/pow secrets are NOT at job scope (audit R-07): job-scope env is in
