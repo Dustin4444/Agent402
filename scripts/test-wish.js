@@ -28,7 +28,8 @@ function freshFile(tag) {
 {
   freshFile("basic");
   const r = recordWish({ need: "convert stl files to obj", source: "api", ip: "10.0.0.1" });
-  ok(r.recorded === true && r.cluster.count === 1, `new need → recorded, cluster.count=1 (got ${JSON.stringify(r)})`);
+  ok(r.recorded === true, `new need → recorded (got ${JSON.stringify(r)})`);
+  ok(getWishesAggregate({ detailed: true }).clusters[0].count === 1, "the cluster holds one signal (read from the token-gated board, not the response)");
 }
 
 // --- validation: 400s ---
@@ -55,9 +56,9 @@ function freshFile(tag) {
 {
   freshFile("dedup");
   recordWish({ need: "  Convert   STL to OBJ ", source: "api", ip: "10.0.0.4" });
-  const r2 = recordWish({ need: "convert stl to obj", source: "mcp", ip: "10.0.0.5" });
-  ok(r2.cluster.count === 2, `case/whitespace variants collapse into one cluster (got count=${r2.cluster.count})`);
+  recordWish({ need: "convert stl to obj", source: "mcp", ip: "10.0.0.5" });
   const agg = getWishesAggregate({ detailed: true });
+  ok(agg.clusters[0].count === 2, `case/whitespace variants collapse into one cluster (got count=${agg.clusters[0].count})`);
   ok(agg.distinctClusters === 1, `dedup: exactly one distinct cluster (got ${agg.distinctClusters})`);
   ok(agg.clusters[0].sources.api === 1 && agg.clusters[0].sources.mcp === 1, `sources breakdown attributes each call correctly (got ${JSON.stringify(agg.clusters[0].sources)})`);
 }
@@ -241,20 +242,39 @@ for (const f of tmpFiles) {
 }
 
 
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
-
-// --- confidentiality: the PUBLIC (default) aggregate must be a beacon only,
-// never the itemized board. Regression guard for the 2026-07-21 lockdown.
+// --- confidentiality: what the public may learn about the demand board -------
+//
+// THIS BLOCK NEVER RAN. It sat below `process.exit()`, so it was unreachable,
+// and it called a `__resetWishes` that does not exist with a positional
+// signature recordWish has never had - it would have thrown on its first line
+// if it had ever executed. The regression guard for the 2026-07-21 lockdown
+// was, in effect, a comment. Moved above the summary and rewritten against the
+// real API.
 {
-  __resetWishes();
-  for (let i = 0; i < 6; i++) recordWish(`secret sauce tool ${i % 2}`, "find-miss");
+  freshFile("confidentiality");
+  for (let i = 0; i < 6; i++) {
+    recordWish({ need: `secret sauce tool ${i % 2}`, source: "find-miss", ip: `10.0.9.${i}` });
+  }
   const pub = getWishesAggregate(); // default detailed:false
   ok(pub.clusters === undefined, "public aggregate exposes NO per-cluster array");
   ok(typeof pub.qualifiedClusters === "number", "public aggregate exposes qualified COUNT (beacon)");
   ok(typeof pub.totalWishes === "number" && typeof pub.distinctClusters === "number", "public aggregate keeps headline totals");
-  const raw = JSON.stringify(pub);
-  ok(!raw.includes("secret sauce"), "public aggregate leaks no wish text");
+  ok(!JSON.stringify(pub).includes("secret sauce"), "public aggregate leaks no wish text");
   const det = getWishesAggregate({ detailed: true });
   ok(Array.isArray(det.clusters) && det.clusters.length > 0, "detailed aggregate still returns the itemized board");
+
+  // The WRITE path must not answer what the read path refuses to answer. The
+  // response is an acknowledgement: no count, no text, nothing that says how
+  // hot the cluster is. Asserted on a cluster with a known non-trivial count,
+  // so a leak would have something to leak.
+  const hot = recordWish({ need: "secret sauce tool 0", source: "api", ip: "10.0.9.99" });
+  ok(hot.recorded === true, "an explicit wish on an existing cluster is still recorded");
+  const raw = JSON.stringify(hot);
+  ok(!/\d/.test(raw), `the write response carries no number at all (got ${raw})`);
+  ok(hot.cluster === undefined, "the write response exposes no cluster object");
+  ok(getWishesAggregate({ detailed: true }).clusters.some((c) => c.count >= 4),
+    "…while the token-gated board still knows the real count (so the assertion above had something to hide)");
 }
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

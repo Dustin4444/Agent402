@@ -318,7 +318,7 @@ export function recordWish({ need, context, source, ip } = {}) {
     // Never throw here: this path runs inside /api/find and the MCP find_tool,
     // and a search must not fail because the demand board is busy. Stop
     // RECORDING instead, and say so in the return value.
-    return { recorded: false, reason: "find-miss volume limit for this source", cluster: null };
+    return { recorded: false, reason: "find-miss volume limit for this source" };
   }
 
   const now = Date.now();
@@ -331,7 +331,22 @@ export function recordWish({ need, context, source, ip } = {}) {
     appendLine({ type: "threshold", key, ts: now });
   }
 
-  return { recorded: true, cluster: { count: cluster.count } };
+  // ACKNOWLEDGEMENT ONLY - never the cluster's count.
+  //
+  // This used to return { cluster: { count } }, the number of signals the
+  // cluster now holds. That is exactly the field the PUBLIC read deliberately
+  // withholds: getWishesAggregate({detailed:false}) is a beacon (totals and how
+  // many clusters qualify, never which or how hot), and the itemized board sits
+  // behind the operator token. The write path was answering the question the
+  // read path refuses to answer, about the same data.
+  //
+  // Concretely: submit a phrase, learn how many others asked for that exact
+  // phrase, and since WISH_THRESHOLD is public, learn how close it is to being
+  // built. The clustering key is only lowercase + collapsed whitespace, so this
+  // confirms a phrase you already guessed rather than enumerating the board -
+  // narrow, but free to close and inconsistent to keep. The submitter loses
+  // nothing they need: the caller asked us to record a gap, and we did.
+  return { recorded: true };
 }
 
 /**
