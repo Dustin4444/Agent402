@@ -42,25 +42,49 @@ jobs:
         id: fresh
         if: github.event_name == 'schedule'
         env:
-          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: https://agent402.tools
         run: |
           set -euo pipefail
-          LAST=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow paid-canary.yml \
-                   --status success --limit 1 --json createdAt --jq '.[0].createdAt // empty' || true)
-          if [ -z "$LAST" ]; then
-            echo "no successful run on record - proceeding with the buy"
+          # Ask production when a canary last actually BOUGHT. The previous
+          # version asked GitHub when this workflow last concluded green, and a
+          # run whose gate SKIPS the buy also concludes green - so every skip
+          # refreshed the timestamp the next gate reads, and the gate ratcheted
+          # itself shut. Measured: the gate shipped 2026-08-02 and not one
+          # SCHEDULED run bought after it. Every real purchase from then on came
+          # from a manual dispatch, which bypasses this step entirely. The
+          # workflow reported success the whole time, because skipping is a
+          # success; only /status noticed, by reporting the settlement component
+          # stale, which is the alarm that survives this class of bug.
+          #
+          # The settlement observation is the honest signal: it is written ONLY
+          # by a canary that ran, in the "Record settlement on /status" step
+          # below, and it is the same fact the public page reports. Gate and
+          # page can no longer disagree.
+          SNAP=$(curl -sf --max-time 20 "$TARGET_URL/api/status" || true)
+          if [ -z "$SNAP" ]; then
+            echo "status unreachable - proceeding with the buy (a gate that cannot check must not block)"
             exit 0
           fi
-          AGE=$(( $(date -u +%s) - $(date -u -d "$LAST" +%s) ))
-          echo "last successful canary: $LAST (${AGE}s ago)"
+          AGE=$(printf '%s' "$SNAP" | jq -r '(.components[]? | select(.key=="settlement") | .current.ageMs) // "none"')
+          STATE=$(printf '%s' "$SNAP" | jq -r '(.components[]? | select(.key=="settlement") | .current.state) // "none"')
+          if [ "$AGE" = "none" ] || [ "$AGE" = "null" ]; then
+            echo "no settlement observation on record - proceeding with the buy"
+            exit 0
+          fi
+          echo "last proven purchase: ${AGE}ms ago (state=$STATE)"
           # 20h, not 24h: deliveries drift by hours, and a 24h window would let
           # a late run suppress the next day's on-time one, quietly halving the
           # cadence instead of protecting it.
-          if [ "$AGE" -lt 72000 ]; then
-            echo "already settled within 20h - skipping this redundant attempt (not a failure)"
+          #
+          # state must be operational, not merely fresh: a recent observation
+          # that recorded a FAILED purchase is not proof that buying works, and
+          # suppressing the next attempt on the strength of it would turn the
+          # three-attempt design into one attempt to fail per day.
+          if [ "$STATE" = "operational" ] && [ "$AGE" -lt 72000000 ]; then
+            echo "a real purchase settled within 20h - skipping this redundant attempt (not a failure)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "stale (>20h) - this attempt will buy"
+            echo "no proven purchase in the last 20h - this attempt will buy"
           fi
 
   canary:
