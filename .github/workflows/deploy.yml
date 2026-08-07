@@ -1388,6 +1388,9 @@ jobs:
       - name: A registry listing is not a seller answering (origin-responded)
         run: node scripts/test-origin-responded.js
 
+      - name: "A venue with many payees is not one seller (multi-payTo index — offline)"
+        run: node scripts/test-multi-payto.js
+
       - name: A settlement rejection is not a charged failure (public stats honesty)
         run: STATS_ALLOW_EPHEMERAL=true node scripts/test-charged-failure-honesty.js
 
@@ -1447,6 +1450,9 @@ jobs:
 
       - name: MCP search_tools — live-catalog smoke test (locks top-1 for agent queries)
         run: node scripts/test-mcp-search-ranking.js
+
+      - name: "Self-consistency — every tool and route our own text names must exist"
+        run: TARGET_URL=http://localhost:3000 node scripts/test-mcp-self-consistency.js
 
       - name: Exercise tools against live sites
         run: |

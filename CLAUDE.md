@@ -300,6 +300,38 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   server.js now rewrites HEAD on catalog GET routes to GET for the gate chain
   and suppresses the body at res.end (RFC 9110 semantics: 402 + identical
   headers, empty body). `scripts/test-head-paywall.js` (offline, in CI).
+- **Surface self-consistency (`scripts/test-mcp-self-consistency.js`, 2026-08-07, in CI):**
+  every functional test drives the connector the way WE intend it to be used — they
+  call the tools whose names they already know — so nothing tested whether our own
+  published text names things that EXIST. Three times a tool had a working CallTool
+  handler and was absent from `tools/list` (about_agent402, top_x402_sellers, then
+  `request_tool`); the first two were fixed by hand with a comment and no test, so the
+  class stayed open and the third shipped. The third was the worst: about_agent402's
+  `missingATool` field tells agents to "Call request_tool", i.e. our orientation tool
+  instructed agents to do something our capabilities made impossible, and the whole
+  demand board only ever heard from callers who already knew the name. Found from
+  OUTSIDE (issue #705), not by us. The guard reads five agent-facing surfaces
+  (`tools/list` text, about_agent402, get_payment_info, `/llms.txt`,
+  `/.well-known/x402`) and asserts every tool name in a call-this position is
+  advertised, every named catalog slug exists, and every referenced route is
+  registered — plus both parity directions (a CallTool branch no advertised name can
+  reach; a listed tool with no handler or slug). **Route existence uses TWO oracles
+  and reports missing only when BOTH say no:** a source scan of `app.<verb>("…")`
+  (the only oracle that can see a POST-only route — a live GET 404 cannot
+  distinguish "no such route" from "wrong method", the ambiguity the #705 reporter
+  correctly refused to resolve) and a live GET (the only oracle that can see the
+  template-literal chain pages `app.get(\`/${chainKey}\`)`). The live probe never
+  touches `/api` or `/v1` — in FREE_MODE those handlers execute, and a consistency
+  check must not call a tool that spends money. Path matching is SEGMENT-aware so
+  `/api/wish` is never satisfied by `/api/wishes`. Extractors are proven against a
+  planted control before any clean run is believed (same doctrine as the free-tier
+  egress probe). **The first draft had a "does this look like one of our tools?"
+  filter that skipped any unknown snake_case name — which is exactly the defect
+  being hunted; a planted `Call submit_wish` passed a green run.** It is gone; the
+  only escape hatch is the explicit `NOT_A_TOOL` set (one entry: `route_and_execute`,
+  which is real but lives on the stdio npm package). Mutation-tested: removing
+  `request_tool` from the listing fails 2 assertions, a fake tool name fails 1, a
+  fake route fails 1.
 - **Marketplace latency / snapshot caching (`src/x402-economy.js`):** `GET /marketplace`
   (and `/api/x402-economy`) render from `x402EconomySnapshot()` — a ~500ms on-chain read
   (EIP-3009 USDC settlements on Base via CDP SQL). It is **stale-while-revalidate**: a fresh

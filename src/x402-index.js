@@ -1916,9 +1916,29 @@ export function routableSellerSummaries() {
         for (const [net, addr] of Object.entries(t.payToByNetwork || {})) if (!acc[net]) acc[net] = addr;
         return acc;
       }, {}),
+      // Every advertised payTo, not just the first (see allPayTosByNetwork).
+      payTosByNetwork: allPayTosByNetwork(v.tools),
     });
   }
   return out;
+}
+
+// Every distinct payTo a tool list advertises, per network. The `payToByNetwork`
+// fields elsewhere are first-wins single strings and must stay that way (the
+// router's proven-ness join and the market pages index them directly), but
+// first-wins DISCARDS every payee after the first - and an origin that gives
+// each author their own revenue split legitimately advertises many. Measured on
+// a live seller 2026-08-06: 236 paid routes, 22 authors, 22 distinct payTo, of
+// which the index kept one. Case-exact, since folding base58/base32 or
+// checksummed EVM addresses merges distinct payees (same rule as src/payer.js).
+export function allPayTosByNetwork(tools) {
+  return (tools || []).reduce((acc, t) => {
+    for (const [net, addr] of Object.entries(t?.payToByNetwork || {})) {
+      const seen = (acc[net] ||= []);
+      if (!seen.includes(addr) && seen.length < 200) seen.push(addr);
+    }
+    return acc;
+  }, {});
 }
 
 export function sellerDetail(originOrHost) {
@@ -1960,6 +1980,9 @@ export function sellerDetail(originOrHost) {
         for (const [net, addr] of Object.entries(t.payToByNetwork || {})) if (!acc[net]) acc[net] = addr;
         return acc;
       }, {}),
+      // Every payee this origin advertises, so a venue hosting many authors is
+      // not reported as a single seller (see allPayTosByNetwork).
+      payTosByNetwork: allPayTosByNetwork(v.tools),
       routable: isRoutable(v),
       tools: (v.tools || []).slice(0, 500).map((t) => ({
         method: t.method || null,
@@ -2040,6 +2063,7 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
         for (const [net, addr] of Object.entries(t.payToByNetwork || {})) if (!acc[net]) acc[net] = addr;
         return acc;
       }, {}),
+    payTosByNetwork: allPayTosByNetwork([...(bazaarToolsByOrigin.get(origin) || []), ...(v.tools || [])]),
   }));
   // Collapse http/https duplicates of the same host into one seller. A registry
   // can list the same origin under both schemes (algo.netintel.dev appeared as
@@ -2063,6 +2087,13 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     keep.stellarWallet = keep.stellarWallet || drop.stellarWallet;
     keep.algorandWallet = keep.algorandWallet || drop.algorandWallet;
     keep.payToByNetwork = { ...(drop.payToByNetwork || {}), ...(keep.payToByNetwork || {}) };
+    // Union, not overwrite: the two schemes of one host can advertise different
+    // payees, and spreading one object over the other would drop a whole side.
+    keep.payTosByNetwork = Object.entries({ ...(drop.payTosByNetwork || {}), ...(keep.payTosByNetwork || {}) })
+      .reduce((acc, [net]) => {
+        acc[net] = [...new Set([...((drop.payTosByNetwork || {})[net] || []), ...((keep.payTosByNetwork || {})[net] || [])])].slice(0, 200);
+        return acc;
+      }, {});
     keep.toolCount = Math.max(keep.toolCount || 0, drop.toolCount || 0);
     if (keep.paidToolCount != null || drop.paidToolCount != null) {
       keep.paidToolCount = Math.max(keep.paidToolCount ?? 0, drop.paidToolCount ?? 0);

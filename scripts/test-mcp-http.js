@@ -42,26 +42,42 @@ const names = (list.result?.tools ?? []).map((t) => t.name).sort();
 // uniformly verb_noun (action-first) — the pattern Glama's naming-consistency
 // rubric names as the target. Every prior spelling still routes.
 //
-// Now 17, not 15: about_agent402 and top_x402_sellers had working handlers but
-// were absent from tools/list, which is the ONLY surface an MCP client can
-// discover from — and the service manifest already advertised
+// Now 18, not 15: about_agent402, top_x402_sellers and request_tool had working
+// handlers but were absent from tools/list, which is the ONLY surface an MCP
+// client can discover from — and the service manifest already advertised
 // top_x402_sellers, so it was promised and unreachable. Listing them trades
-// two tools of directory-scoring headroom for capabilities that were being
+// three tools of directory-scoring headroom for capabilities that were being
 // paid for in documentation and not delivered. Keep this list tight: anything
 // further belongs behind call_tool.
+//
+// request_tool (added for issue #705, reported from OUTSIDE) was the third
+// instance of that one defect, and the worst: about_agent402's own text tells
+// agents to call it. Fixing instances three times without pinning the class is
+// why a stranger found it before we did — scripts/test-mcp-self-consistency.js
+// now fails on any handler that no advertised name can reach.
 const EXPECTED_LIST = [
   "search_tools", "find_tool", "call_tool", "get_payment_info",
   "generate_hash", "convert_units", "generate_qr", "format_json", "decode_jwt", "convert_base64", "generate_uuid", "parse_csv", "convert_timezone",
   "get_wallet_balances", "get_wallet_transactions",
-  "about_agent402", "top_x402_sellers",
+  "about_agent402", "top_x402_sellers", "request_tool",
 ].sort();
 assert(
   names.length === EXPECTED_LIST.length && EXPECTED_LIST.every((n) => names.includes(n)),
   `tools/list is the curated set (got ${names.length}: ${names.join(",")})`
 );
 assert(
-  (list.result?.tools ?? []).every((t) => t.title && t.annotations?.readOnlyHint === true),
-  "every tool carries a title + read-only safety annotations (directory requirement)"
+  (list.result?.tools ?? []).every((t) => t.title && typeof t.annotations?.readOnlyHint === "boolean"),
+  "every tool carries a title + safety annotations (directory requirement)"
+);
+// The annotations must be TRUE, not merely present. request_tool records a wish
+// row, so it is the one tool here that is not read-only; a client that trusts
+// readOnlyHint to decide what it may call unattended would be misled by a
+// blanket true. Equally, a read-only tool silently flipping to false would cost
+// us calls from exactly those clients.
+const writers = (list.result?.tools ?? []).filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name).sort();
+assert(
+  writers.length === 1 && writers[0] === "request_tool",
+  `request_tool is the only tool annotated as a writer (got ${writers.join(",") || "none"})`
 );
 
 // Renames must never break an existing caller: the current verb_noun name, the
