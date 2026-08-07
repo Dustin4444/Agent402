@@ -320,11 +320,11 @@ export const isIdentityBoundRoute = (def) =>
 // Router tiers only - the subset whose Algorand revenue is chain-matched to
 // the AVM spending wallet (see avmPayToFor). Blockscout stays out: its
 // upstream spend is Base-pinned regardless of the buyer's rail.
-export const AVM_SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-plus", "route-execute-max"]);
+export const AVM_SELF_FUNDING_SLUGS = new Set(["route-execute", "route-execute-plus", "route-execute-max", "route-execute-pro"]);
 const AVM_UPSTREAM_BUYER_ADDRESS = (process.env.ALGORAND_UPSTREAM_BUYER_ADDRESS || "").trim();
 
 export const SELF_FUNDING_SLUGS = new Set([
-  "route-execute", "route-execute-plus", "route-execute-max",
+  "route-execute", "route-execute-plus", "route-execute-max", "route-execute-pro",
   // Blockscout kit (2026-07-29, the house rule: everything that spends from the
   // burner settles to the burner): each call pays Blockscout ~$0.002 upstream
   // from the same wallet, so treasury-settled revenue was a slow one-way

@@ -24,6 +24,7 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse } from "./payer.js";
+import { resolveSpend as resolveExternalSpend, exposureSnapshot } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
@@ -4473,6 +4474,21 @@ for (const tool of ALL_KIT) {
       await assertAvmValidityCovers(req, tool.slug);
 
       const result = await tool.handler(input, req);
+
+      // A handler that spent real money upstream (external route-execute) leaves
+      // a handle on the request. Resolve it against the FINAL response, not the
+      // handler's return: settlement runs after this, and handler-success is
+      // precisely the state that precedes a settlement failure. Only a settled
+      // 200 clears the payer's exposure; anything else leaves it standing, which
+      // is what stops a wallet whose payments never settle from draining the
+      // upstream wallet one call at a time. Same doctrine as the idempotency
+      // cache's commit-on-finish.
+      if (req.__externalSpend) {
+        const handle = req.__externalSpend;
+        res.on("finish", () => {
+          try { resolveExternalSpend(handle, res.statusCode === 200); } catch { /* never break a response */ }
+        });
+      }
 
       if (cachePolicy) {
         noteCacheOutcome(cacheKey ? "miss" : "skip");
