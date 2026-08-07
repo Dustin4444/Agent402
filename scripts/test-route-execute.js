@@ -206,5 +206,19 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   ok(Math.abs(pro.routingFeeUsd - 0.3) < 1e-9, `pro tier's fee at the cap is $0.30, a 10% spread (got ${pro.routingFeeUsd})`);
 }
 
+
+// --- the spending wallet's alarm must cover the biggest call ------------------
+// $0.50 was right when only Blockscout ($0.002/call) spent from that wallet.
+// A tier that can spend $3.00 in one call makes "ok" mean "has at least $0.50"
+// for a wallet that cannot cover a single call - the alarm would stay green
+// right up to the failure it exists to prevent. Nothing else reports this.
+{
+  const { BUYER_LOW_DEFAULT_USD } = await import("../src/tools/blockscout-kit.js");
+  const { EXEC_TIERS: TIERS } = await import("../src/tools/route-execute.js");
+  const biggest = Math.max(...TIERS.map((t) => t.underlyingMaxUsd));
+  ok(BUYER_LOW_DEFAULT_USD >= biggest,
+    `the upstream buyer low-water default ($${BUYER_LOW_DEFAULT_USD}) covers the largest tier's underlying spend ($${biggest}) - otherwise "ok" can mean "cannot fund one call"`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

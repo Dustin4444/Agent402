@@ -290,7 +290,22 @@ export const BLOCKSCOUT_TOOLS = [
 // with graceful "unknown" (an RPC flake must never page).
 const BASE_RPCS = ["https://mainnet.base.org", "https://base.llamarpc.com", "https://base.drpc.org"];
 const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-const BUYER_LOW_USD = () => Number(process.env.UPSTREAM_BUYER_LOW_USD || "0.5");
+// Sized against the LARGEST single spend this wallet can be asked to make, not
+// against the smallest.
+//
+// $0.50 was right when the only thing spending from here was Blockscout at
+// $0.002/call: a wallet above it could serve hundreds of calls. Then
+// route-execute-pro (2026-08-07) made a single call able to spend $3.00
+// upstream, and "ok" started meaning "has at least $0.50" for a wallet that
+// could not cover one call. The alarm would have stayed green right up to the
+// failure it exists to prevent.
+//
+// Two largest-tier calls, so we are paged with room to top up rather than at
+// the moment of starvation. MUST be re-sized whenever a bigger execution tier
+// lands - locked by an assertion in scripts/test-route-execute.js, because a
+// threshold that quietly stops covering the biggest call reports nothing.
+export const BUYER_LOW_DEFAULT_USD = 6;
+const BUYER_LOW_USD = () => Number(process.env.UPSTREAM_BUYER_LOW_USD || String(BUYER_LOW_DEFAULT_USD));
 const BUYER_STATUS_CACHE_MS = 5 * 60_000;
 let buyerStatusCache = null;
 /** Bucketed BALANCE of the Base spending wallet. Nothing more.
