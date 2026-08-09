@@ -124,6 +124,14 @@ a { color: inherit; }
 .mlnav-g > .mlnav-dd { display: none; position: absolute; top: 100%; left: -18px; padding-top: 13px; z-index: 60; }
 .mlnav-g:hover > .mlnav-dd, .mlnav-g:focus-within > .mlnav-dd { display: block; }
 .mlnav-row:hover { background: var(--card-zebra); }
+.ml-nav-link { color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; padding-bottom: 2px; transition: color .15s ease, border-color .15s ease; }
+.ml-nav-link:hover { color: var(--ink); border-bottom-color: var(--dash); }
+.ml-nav-link-on { color: var(--ink); font-weight: 700; border-bottom-color: var(--accent); }
+.ml-nav-link-on:hover { border-bottom-color: var(--accent); }
+.mlr-row, tr[data-mfb-row] { transition: background-color .12s ease; }
+.mlr-row:hover, tr[data-mfb-row]:hover { background: var(--card-zebra); }
+.ml-chip { transition: background-color .12s ease, color .12s ease, border-color .12s ease; }
+.ml-faq-mark { transition: transform .15s ease; display: inline-block; }
 @media (max-width: 600px) { .mlnav-g > .mlnav-dd { display: none !important; } }
 
 /* --- keyframes --- */
@@ -205,6 +213,8 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .ml-stagger > * { opacity: 1; transform: none; animation: none; }
   .ml-dot { animation: none; }
+  .ml-nav-link, .ml-cta, .mlr-row, tr[data-mfb-row], .ml-chip, .ml-faq-mark { transition: none !important; }
+  .ml-cta:hover { transform: none; }
 }
 .mfb-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;}
 .mfb-tab{font-family:var(--font-mono);font-size:12px;padding:5px 11px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);text-decoration:none;white-space:nowrap;}
@@ -358,18 +368,12 @@ const PANEL_HTML = { marketplace: marketPanelNav, sell: sellPanelHtml };
 
 function directLinkHtml(l, activePath) {
   const active = l.href === activePath;
-  const style = active
-    ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
-    : "color:var(--muted);text-decoration:none;";
-  return `<a href="${l.href}" style="${style}">${l.label}</a>`;
+  return `<a class="ml-nav-link${active ? " ml-nav-link-on" : ""}" href="${l.href}">${l.label}</a>`;
 }
 
 function groupTriggerHtml(item, active, panelHtml) {
-  const style = active
-    ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
-    : "color:var(--muted);text-decoration:none;";
   return `<span class="mlnav-g" style="display:inline-flex;">
-        <a href="${item.href}" style="${style}">${item.label} <span style="font-size:10px;">▾</span></a>
+        <a class="ml-nav-link${active ? " ml-nav-link-on" : ""}" href="${item.href}">${item.label} <span style="font-size:10px;">▾</span></a>
         ${panelHtml}
       </span>`;
 }

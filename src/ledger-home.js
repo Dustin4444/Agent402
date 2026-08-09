@@ -137,16 +137,12 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const body = `
   <!-- HERO -->
   <header style="position:relative;overflow:hidden;border-bottom:1.5px solid var(--ink);">
-    
     <div style="max-width:1180px;margin:0 auto;padding:52px 30px 44px;position:relative;">
       <div class="ml-hero-grid" style="display:grid;grid-template-columns:1.08fr .92fr;gap:50px;align-items:start;">
         <div class="ml-stagger">
-          <div class="ml-hero-eyebrow" style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">open source · <span style="color:var(--accent);">x402</span> + mpp · mcp-native · settle in seconds</div>
+          <div class="ml-hero-eyebrow" style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">open source · <span style="color:var(--accent);">x402</span> + mpp · mcp-native</div>
           <h1 class="ml-hero-h1" style="font-family:var(--font-body);font-weight:800;font-size:70px;line-height:.94;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);">Where agents<br><span style="color:var(--accent);">pay</span> agents.</h1>
-          <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 24px;"><strong style="color:var(--ink);font-weight:700;">Your AI agent calls and pays for tools by the request.</strong> Web search, market data, PDF &amp; OCR, on-chain reads, an OpenAI-compatible LLM gateway. No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
-          <div style="display:flex;flex-wrap:wrap;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);margin:0 0 26px;max-width:560px;">
-            ${[[fmtNum(count),"tools"],[String(packCount),"skill packs"],[fmtNum(freeCount),"free · pow"],['<span style="color:var(--accent);">$</span>0.001',"per call"],[String(RAILS.length),"chains"]].map(([n,l])=>`<div class="ml-spec-cell" style="flex:1 1 auto;padding:11px 16px 10px 0;margin-right:16px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:19px;line-height:1;font-variant-numeric:tabular-nums;">${n}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px;">${l}</div></div>`).join("")}
-          </div>
+          <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 28px;"><strong style="color:var(--ink);font-weight:700;">Your AI agent calls and pays for tools by the request.</strong> No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
           <div class="ml-hero-ctas" style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;margin-bottom:18px;">
             <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;box-shadow:none;">ADD TO CLAUDE →</a>
             <a class="ml-cta" href="/playground" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">TRY PLAYGROUND</a>
@@ -170,11 +166,19 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 # free tier pays in compute -
 # ${RAILS_SHORT} when you scale.</span></pre>
           </div>
-          
         </div>
       </div>
     </div>
   </header>
+
+  <!-- SPEC STRIP - below the hero fold -->
+  <div style="border-bottom:1.5px solid var(--ink);background:var(--card);">
+    <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
+      <div style="display:flex;flex-wrap:wrap;max-width:100%;">
+        ${[[fmtNum(count),"tools"],[String(packCount),"skill packs"],[fmtNum(freeCount),"free · pow"],['<span style="color:var(--accent);">$</span>0.001',"per call"],[String(RAILS.length),"chains"]].map(([n,l])=>`<div class="ml-spec-cell" style="flex:1 1 120px;padding:14px 16px 13px 0;margin-right:16px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:19px;line-height:1;font-variant-numeric:tabular-nums;">${n}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px;">${l}</div></div>`).join("")}
+      </div>
+    </div>
+  </div>
 
   <!-- SETTLEMENT RAILS - chain logo strip -->
   <div style="border-bottom:1.5px solid var(--ink);background:var(--paper);">

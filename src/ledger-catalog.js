@@ -18,12 +18,12 @@ const fmtPrice = (p) => {
 // ---------------------------------------------------------------------------
 
 const SAMPLE_ENDPOINTS = [
-  { method: "POST", route: "/api/extract", note: "$0.010 \u00b7 clean markdown out" },
-  { method: "POST", route: "/api/render", note: "$0.02 \u00b7 headless browser, JS executed" },
-  { method: "POST", route: "/api/unit-convert", note: "$0.001 · every unit pair, one route" },
-  { method: "POST", route: "/api/memory", note: "$0.002 \u00b7 durable, wallet-keyed" },
-  { method: "POST", route: "/api/hash", note: "free \u00b7 proof-of-work" },
-  { method: "GET", route: "/api/leaderboard", note: "free \u00b7 on-chain ranking" },
+  { method: "POST", route: "/api/extract", slug: "extract", note: "$0.010 \u00b7 clean markdown out" },
+  { method: "POST", route: "/api/render", slug: "render", note: "$0.02 \u00b7 headless browser, JS executed" },
+  { method: "POST", route: "/api/unit-convert", slug: "unit-convert", note: "$0.001 · every unit pair, one route" },
+  { method: "POST", route: "/api/memory", slug: "memory", note: "$0.002 \u00b7 durable, wallet-keyed" },
+  { method: "POST", route: "/api/hash", slug: "hash", note: "free \u00b7 proof-of-work" },
+  { method: "GET", route: "/api/leaderboard", slug: "leaderboard", note: "free \u00b7 on-chain ranking" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,10 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   // ---- sample endpoint row ----
   const endpointRow = (ep, last) => {
     const methodColor = ep.method === "GET" ? "var(--green)" : "var(--accent)";
-    return `<div style="display:grid;grid-template-columns:64px 1fr auto;gap:14px;align-items:center;padding:12px 18px;${last ? "" : "border-bottom:1px solid var(--dark-border);"}"><span style="color:${methodColor};font-weight:700;">${ep.method}</span><span style="color:var(--on-dark);">${esc(ep.route)}</span><span style="color:var(--dk-muted);">${esc(ep.note)}</span></div>`;
+    const tryLink = ep.slug
+      ? `<a href="/playground?slug=${esc(ep.slug)}" style="color:var(--accent);text-decoration:none;font-weight:700;">try →</a>`
+      : "";
+    return `<div style="display:grid;grid-template-columns:64px 1fr auto auto;gap:14px;align-items:center;padding:12px 18px;${last ? "" : "border-bottom:1px solid var(--dark-border);"}"><span style="color:${methodColor};font-weight:700;">${ep.method}</span><span style="color:var(--on-dark);">${esc(ep.route)}</span><span class="ml-endpoint-note" style="color:var(--dk-muted);">${esc(ep.note)}</span>${tryLink}</div>`;
   };
 
   // ---- skill packs grid cells ----
@@ -83,9 +86,23 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   // 6th cell: dark "Browse all" CTA
   packCells.push(`<a href="/skills" style="padding:20px;background:var(--surface);text-decoration:none;display:flex;flex-direction:column;justify-content:center;border-bottom:1.5px solid var(--ink);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--on-dark);">Browse all ${packCount} packs \u2192</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);margin-top:6px;">prompts/list \u2192 prompts/get</span></a>`);
 
-  // ---- filter chip data (all + each category with tools) ----
-  const chipData = [{ key: "all", label: "all", count }];
-  catData.forEach((c) => chipData.push({ key: c.key, label: c.key, count: c.count }));
+  // ---- filter chip data: group buckets (Core / Data / Crypto / AI / Packs) ----
+  // Flat category chips were unreadable (~20). Groups filter the index table;
+  // individual categories stay reachable via the rows themselves.
+  const CAT_GROUPS = [
+    { key: "all", label: "all", cats: null },
+    { key: "core", label: "core", cats: ["web", "network", "conversion", "text", "math", "encoding", "identifiers", "time", "validation", "date-time", "api", "memory"] },
+    { key: "data", label: "data", cats: ["data", "research"] },
+    { key: "crypto", label: "crypto", cats: ["crypto", "chain", "wallet", "payments", "x402"] },
+    { key: "ai", label: "ai", cats: ["llm", "ai", "agent"] },
+    { key: "packs", label: "packs", cats: ["skill-pack"] },
+  ];
+  const chipData = CAT_GROUPS.map((g) => {
+    if (!g.cats) return { key: g.key, label: g.label, count, cats: null };
+    const keys = new Set(g.cats);
+    const n = catData.filter((c) => keys.has(c.key)).reduce((s, c) => s + c.count, 0);
+    return { key: g.key, label: g.label, count: n, cats: g.cats };
+  }).filter((g) => g.key === "all" || g.count > 0);
 
   // ---- SEO ----
   const canonical = baseUrl + "/tools";
@@ -103,6 +120,8 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   // ---- extra CSS for responsive + search highlight ----
   const extraCss = `
   .ml-cat-row[data-cat].ml-hidden { display: none !important; }
+  .ml-chip-group { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+  .ml-chip-select { display: none; font-family: var(--font-mono); font-size: 13px; border: 1.5px solid var(--ink); background: var(--card); color: var(--ink); padding: 10px 12px; max-width: 280px; }
   @media (max-width: 900px) {
     .ml-catalog-grid { grid-template-columns: 1fr !important; }
     .ml-catalog-left { border-right: none !important; border-bottom: 1.5px solid var(--ink); }
@@ -113,6 +132,8 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
     .ml-catalog-h1 { font-size: 36px !important; }
     .ml-endpoint-grid { grid-template-columns: 48px 1fr !important; }
     .ml-endpoint-note { display: none !important; }
+    .ml-chip-group { display: none !important; }
+    .ml-chip-select { display: block; width: 100%; max-width: 560px; }
   }
   `;
 
@@ -130,12 +151,15 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
       <input id="ml-search" type="text" placeholder="search ${fmtNum(count)} tools - e.g. &quot;extract pdf&quot;, &quot;geocode&quot;" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:14px;color:var(--ink);padding:13px 0;outline:none;" />
     </div>
 
-    <!-- category chips -->
-    <div id="ml-chips" style="display:flex;flex-wrap:wrap;gap:7px;">
+    <!-- category group chips (desktop) + select (mobile) -->
+    <div id="ml-chips" class="ml-chip-group">
       ${chipData.map((c, i) =>
-        `<button data-filter="${c.key}" class="ml-chip${i === 0 ? " ml-chip-active" : ""}" style="font-family:var(--font-mono);font-size:11.5px;border:1.5px solid var(--ink);padding:5px 10px;cursor:pointer;background:${i === 0 ? "var(--surface)" : "transparent"};color:${i === 0 ? "var(--on-dark)" : "var(--ink)"};">${esc(c.label)}${c.count ? " \u00b7 " + fmtNum(c.count) : ""}</button>`
+        `<button type="button" data-filter="${c.key}" data-cats="${c.cats ? esc(c.cats.join(",")) : ""}" class="ml-chip${i === 0 ? " ml-chip-active" : ""}" style="font-family:var(--font-mono);font-size:11.5px;border:1.5px solid var(--ink);padding:5px 10px;cursor:pointer;background:${i === 0 ? "var(--surface)" : "transparent"};color:${i === 0 ? "var(--on-dark)" : "var(--ink)"};">${esc(c.label)}${c.count ? " \u00b7 " + fmtNum(c.count) : ""}</button>`
       ).join("\n      ")}
     </div>
+    <select id="ml-chip-select" class="ml-chip-select" aria-label="Filter by group">
+      ${chipData.map((c) => `<option value="${esc(c.key)}" data-cats="${c.cats ? esc(c.cats.join(",")) : ""}">${esc(c.label)}${c.count ? " · " + fmtNum(c.count) : ""}</option>`).join("\n      ")}
+    </select>
   </section>
 
   <!-- INDEX TABLE -->
@@ -183,8 +207,8 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
         <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0;">npx -y agent402-mcp \u00b7 or paste the hosted connector</p>
       </div>
       <div style="display:flex;gap:11px;">
-        <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART \u2192</a>
-        <a href="/pricing" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">PRICING</a>
+        <a href="/playground" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">TRY PLAYGROUND \u2192</a>
+        <a href="/docs" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">QUICKSTART</a>
       </div>
     </div>
   </section>
@@ -196,12 +220,24 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   (function() {
     var search = document.getElementById('ml-search');
     var chips = document.querySelectorAll('.ml-chip');
+    var select = document.getElementById('ml-chip-select');
     var rows = document.querySelectorAll('.ml-cat-row');
     var totalEl = document.getElementById('ml-total-count');
     var activeFilter = 'all';
+    var activeCats = null; // null = all categories
 
     // Category metadata for search matching
     var catMeta = ${JSON.stringify(catData.map((c) => ({ key: c.key, label: c.label, blurb: c.blurb, count: c.count })))};
+
+    function setChipStyles(activeKey) {
+      chips.forEach(function(c) {
+        var isActive = c.getAttribute('data-filter') === activeKey;
+        c.classList.toggle('ml-chip-active', isActive);
+        c.style.background = isActive ? 'var(--surface)' : 'transparent';
+        c.style.color = isActive ? 'var(--on-dark)' : 'var(--ink)';
+      });
+      if (select) select.value = activeKey;
+    }
 
     function applyFilters() {
       var q = (search.value || '').toLowerCase().trim();
@@ -212,10 +248,10 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
         var meta = catMeta.find(function(m) { return m.key === cat; });
         if (!meta) { row.classList.add('ml-hidden'); return; }
 
-        var matchesCat = activeFilter === 'all' || activeFilter === cat;
+        var matchesGroup = !activeCats || activeCats.indexOf(cat) !== -1;
         var matchesSearch = !q || meta.label.toLowerCase().indexOf(q) !== -1 || meta.blurb.toLowerCase().indexOf(q) !== -1 || meta.key.toLowerCase().indexOf(q) !== -1;
 
-        if (matchesCat && matchesSearch) {
+        if (matchesGroup && matchesSearch) {
           row.classList.remove('ml-hidden');
           visibleCount += meta.count;
         } else {
@@ -228,18 +264,25 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
       }
     }
 
+    function activate(key, catsAttr) {
+      activeFilter = key;
+      activeCats = catsAttr ? catsAttr.split(',').filter(Boolean) : null;
+      setChipStyles(key);
+      applyFilters();
+    }
+
     chips.forEach(function(chip) {
       chip.addEventListener('click', function() {
-        activeFilter = chip.getAttribute('data-filter');
-        chips.forEach(function(c) {
-          var isActive = c === chip;
-          c.classList.toggle('ml-chip-active', isActive);
-          c.style.background = isActive ? 'var(--surface)' : 'transparent';
-          c.style.color = isActive ? 'var(--on-dark)' : 'var(--ink)';
-        });
-        applyFilters();
+        activate(chip.getAttribute('data-filter'), chip.getAttribute('data-cats') || '');
       });
     });
+
+    if (select) {
+      select.addEventListener('change', function() {
+        var opt = select.options[select.selectedIndex];
+        activate(select.value, opt ? (opt.getAttribute('data-cats') || '') : '');
+      });
+    }
 
     search.addEventListener('input', applyFilters);
 

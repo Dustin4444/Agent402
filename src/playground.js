@@ -143,8 +143,13 @@ ${ledgerFooterCompact()}
     });
     tools.forEach(function(t){toolMap[t.slug]=t});
     renderSelect(tools);
-    var def=toolMap['hash']||tools[0];
-    if(def){selEl.value=def.slug;showTool(def.slug)}
+    var want=null;
+    try{
+      var params=new URLSearchParams(window.location.search);
+      want=params.get('slug');
+    }catch(e){}
+    var def=(want&&toolMap[want])||toolMap['hash']||tools[0];
+    if(def){selEl.value=def.slug;showTool(def.slug,true)}
   })();
 
   function renderSelect(list){
@@ -187,9 +192,17 @@ ${ledgerFooterCompact()}
   selEl.addEventListener('change',function(){showTool(selEl.value)});
 
   /* --- show tool form --- */
-  function showTool(slug){
+  function showTool(slug, skipUrl){
     var t=toolMap[slug];
     if(!t){while(formEl.firstChild)formEl.removeChild(formEl.firstChild);return}
+
+    if(!skipUrl){
+      try{
+        var u=new URL(window.location.href);
+        u.searchParams.set('slug',slug);
+        history.replaceState(null,'',u.pathname+u.search+(u.hash||''));
+      }catch(e){}
+    }
 
     var schema=(t.discovery&&t.discovery.inputSchema&&t.discovery.inputSchema.properties)||{};
     var example=(t.discovery&&t.discovery.input)||{};
