@@ -779,17 +779,19 @@ async function main() {
     }
   })();
 
-  // MPP dual-stack leg — proves the NATIVE MPP wire end to end on prod: the
+  // MPP dual-stack legs — prove the NATIVE MPP wire end to end on prod: the
   // live 402 must carry WWW-Authenticate: Payment (src/mpp-shim.js minted it,
   // so MPP_SECRET_KEY is live), a stock mppx client must sign that challenge
-  // (EIP-3009 over Base USDC), the buy goes out as Authorization: Payment —
-  // NOT PAYMENT-SIGNATURE — and the settled 200 must return an MPP
-  // Payment-Receipt. The credential is created from a response containing
-  // ONLY the WWW-Authenticate header, so the client cannot silently fall
-  // back to the x402 wire (which every other leg already proves). Same Base
-  // burner, $0.001. Informational: failures WARN, never page (the EVM
-  // verdict above decides paging) — but a WARN that WWW-Authenticate is
-  // missing is the early signal the shim (or its secret) dropped out of prod.
+  // (EIP-3009), the buy goes out as Authorization: Payment — NOT
+  // PAYMENT-SIGNATURE — and the settled 200 must return an MPP Payment-Receipt.
+  // The credential is created from a response containing ONLY the
+  // WWW-Authenticate header, so the client cannot silently fall back to the
+  // x402 wire (which every other leg already proves).
+  //
+  // Graded via railFail() like the chain rails. These used to be WARN-only,
+  // which is the Stellar class of defect: the shim (or its secret) could drop
+  // out of prod for weeks while the canary stayed green. Base is the load-
+  // bearing proof; Celo pins the second offered challenge network.
   await (async () => {
     try {
       const [{ Mppx: MppClientNS, evm: mppEvm }, { Challenge: MppChallenge, Receipt: MppReceipt }] = await Promise.all([
@@ -807,19 +809,19 @@ async function main() {
       const url = `${TARGET}/api/uuid`;
       const bare = await mpp.rawFetch(url, { headers: heartbeatHeaders() });
       if (bare.status !== 402) {
-        console.warn(`\nWARN  mpp leg: expected a 402 challenge from /api/uuid, got HTTP ${bare.status}`);
+        railFail("mpp", `expected a 402 challenge from /api/uuid, got HTTP ${bare.status} — the MPP wire was never exercised`);
         return;
       }
       const wwwAuth = bare.headers.get("www-authenticate");
-      if (!wwwAuth) {
-        console.warn(`\nWARN  mpp leg: 402 has NO WWW-Authenticate: Payment header — the MPP shim is not live (MPP_SECRET_KEY unset on prod, or src/mpp-shim.js unmounted)`);
+      if (!wwwAuth || !/^Payment\b/i.test(wwwAuth.trim())) {
+        railFail("mpp", "402 has NO WWW-Authenticate: Payment header — the MPP shim is not live (MPP_SECRET_KEY unset on prod, or src/mpp-shim.js unmounted)");
         return;
       }
       const credential = await mpp.createCredential(
         new Response(null, { status: 402, headers: { "WWW-Authenticate": wwwAuth } })
       );
       if (!/^Payment /.test(credential)) {
-        console.warn(`\nWARN  mpp leg: client produced a non-MPP credential (${credential.slice(0, 24)}…) — native path not taken`);
+        railFail("mpp", `client produced a non-MPP credential (${credential.slice(0, 24)}…) — native path not taken`);
         return;
       }
       const paid = await mpp.rawFetch(url, { headers: { ...heartbeatHeaders(), Authorization: credential } });
@@ -830,13 +832,16 @@ async function main() {
         if (receiptHdr) {
           try { ref = MppReceipt.deserialize(receiptHdr)?.reference || null; } catch { /* best-effort */ }
         }
-        console.log(`\nOK    mpp        /api/uuid  → settled $0.001 over the NATIVE MPP wire (Authorization: Payment, payer ${account.address})${ref ? `\n      Payment-Receipt tx: https://basescan.org/tx/${ref}` : receiptHdr ? "" : "\n      WARN: no Payment-Receipt header on the settled 200"}`);
-        if (!receiptHdr) console.warn(`WARN  mpp leg settled but the 200 carried no Payment-Receipt header`);
+        if (!receiptHdr) {
+          railFail("mpp", "settled 200 over Authorization: Payment but carried no Payment-Receipt header — MPP receipt mirroring is broken");
+        } else {
+          console.log(`\nOK    mpp        /api/uuid  → settled $0.001 over the NATIVE MPP wire (Authorization: Payment, payer ${account.address})${ref ? `\n      Payment-Receipt tx: https://basescan.org/tx/${ref}` : ""}`);
+        }
       } else if (paid.status === 402) {
         const reason = settleRejectReason(paid.headers);
-        console.warn(`\nWARN  mpp leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)}`);
+        railFail("mpp", `did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)}`);
       } else {
-        console.warn(`\nWARN  mpp leg: HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
+        railFail("mpp", `HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
       }
 
       // Celo variant — same native MPP wire, PINNED to eip155:42220: the 402's
@@ -857,12 +862,16 @@ async function main() {
             .find((c) => c.request?.methodDetails?.chainId === 42220)
         : null;
       if (!celoCh) {
-        console.warn(`\nWARN  mpp-celo leg: no eip155:42220 challenge on the live 402 (MPP_CHALLENGE_NETWORKS changed on prod?)`);
+        railFail("mpp-celo", "no eip155:42220 challenge on the live 402 (MPP_CHALLENGE_NETWORKS dropped Celo, or the shim is not advertising it)");
         return;
       }
       const celoCred = await celoClient.createCredential(
         new Response(null, { status: 402, headers: { "WWW-Authenticate": MppChallenge.serialize(celoCh) } })
       );
+      if (!/^Payment /.test(celoCred)) {
+        railFail("mpp-celo", `client produced a non-MPP credential (${celoCred.slice(0, 24)}…) — native path not taken`);
+        return;
+      }
       const celoPaid = await celoClient.rawFetch(url, { headers: { ...heartbeatHeaders(), Authorization: celoCred } });
       const celoBody = await celoPaid.json().catch(() => ({}));
       if (celoPaid.status === 200 && Array.isArray(celoBody.uuids)) {
@@ -871,15 +880,19 @@ async function main() {
         if (celoReceiptHdr) {
           try { celoRef = MppReceipt.deserialize(celoReceiptHdr)?.reference || null; } catch { /* best-effort */ }
         }
-        console.log(`\nOK    mpp-celo   /api/uuid  → settled $0.001 over the NATIVE MPP wire on Celo (payer ${account.address})${celoRef ? `\n      Payment-Receipt tx: https://celoscan.io/tx/${celoRef}` : ""}`);
+        if (!celoReceiptHdr) {
+          railFail("mpp-celo", "settled 200 over Authorization: Payment on Celo but carried no Payment-Receipt header");
+        } else {
+          console.log(`\nOK    mpp-celo   /api/uuid  → settled $0.001 over the NATIVE MPP wire on Celo (payer ${account.address})${celoRef ? `\n      Payment-Receipt tx: https://celoscan.io/tx/${celoRef}` : ""}`);
+        }
       } else if (celoPaid.status === 402) {
         const reason = settleRejectReason(celoPaid.headers);
-        console.warn(`\nWARN  mpp-celo leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded Celo USDC burner, Celo facilitator outage/sequencer nonce hiccup, or domain drift)`);
+        railFail("mpp-celo", `did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded Celo USDC burner, Celo facilitator outage/sequencer nonce hiccup, or domain drift)`);
       } else {
-        console.warn(`\nWARN  mpp-celo leg: HTTP ${celoPaid.status} ${JSON.stringify(celoBody).slice(0, 120)}`);
+        railFail("mpp-celo", `HTTP ${celoPaid.status} ${JSON.stringify(celoBody).slice(0, 120)}`);
       }
     } catch (e) {
-      console.warn(`\nWARN  mpp leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
+      railFail("mpp", `errored: ${(e?.message || String(e)).slice(0, 160)}`);
     }
   })();
 
