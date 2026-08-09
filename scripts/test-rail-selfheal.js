@@ -22,7 +22,9 @@ const healer = readFileSync(new URL("./rail-selfheal.js", import.meta.url), "utf
 // Every *_FACILITATOR_URL payments.js reads is a rail that can fall on its own.
 // Only NETWORKS matter here. payments.js also names facilitator VENDORS
 // (payai, solvador) in the same shape; those serve many chains and fall with
-// the chains they serve, so they are not something a single rail can heal from.
+// the chains they serve — EXCEPT Solvador-PRIMARY rails (Optimism today), which
+// have Solvador as their ONLY settler and therefore need a healer entry keyed
+// by the network name, not by the vendor. See SOLVADOR_PRIMARY_CAIP2 below.
 const { NETWORKS } = await import("../src/payments.js");
 const networkNames = new Set(Object.keys(NETWORKS));
 const dedicated = [...payments.matchAll(/([A-Z0-9]+)_FACILITATOR_URL/g)]
@@ -34,6 +36,26 @@ ok(known.length > 0, `found the dedicated-facilitator rails in payments.js (${kn
 for (const rail of known) {
   ok(new RegExp(`\\b${rail}\\s*:`, "i").test(healer),
     `${rail} has an entry in the healer's facilitator map - without it, that rail can never self-heal`);
+}
+
+// Solvador-primary: no OPTIMISM_FACILITATOR_URL exists, so the *_FACILITATOR_URL
+// scan above misses these. Parse the CAIP-2 list and map back to NETWORKS.
+{
+  const m = payments.match(/SOLVADOR_PRIMARY_CAIP2\s*=\s*\[([^\]]*)\]/);
+  ok(!!m, "payments.js declares SOLVADOR_PRIMARY_CAIP2");
+  const caips = [...(m?.[1].matchAll(/["']([^"']+)["']/g) || [])].map((x) => x[1]);
+  ok(caips.length > 0, `SOLVADOR_PRIMARY_CAIP2 is non-empty (${caips.join(", ")})`);
+  const caipToName = Object.fromEntries(
+    Object.entries(NETWORKS).map(([name, caip]) => [caip, name])
+  );
+  for (const caip of caips) {
+    const rail = caipToName[caip];
+    ok(!!rail, `SOLVADOR_PRIMARY caip ${caip} maps to a NETWORKS name`);
+    ok(new RegExp(`\\b${rail}\\s*:`, "i").test(healer),
+      `${rail} (Solvador-primary ${caip}) is in the healer map — without it a recovered Solvador never restarts us`);
+  }
+  ok(/SOLVADOR_FACILITATOR_URL|api\.solvador\.com/.test(healer),
+    "Solvador-primary healer entries point at Solvador (env override or default URL)");
 }
 
 // The healer must never restart on a rail it cannot confirm. That refusal is

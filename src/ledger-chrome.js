@@ -124,6 +124,14 @@ a { color: inherit; }
 .mlnav-g > .mlnav-dd { display: none; position: absolute; top: 100%; left: -18px; padding-top: 13px; z-index: 60; }
 .mlnav-g:hover > .mlnav-dd, .mlnav-g:focus-within > .mlnav-dd { display: block; }
 .mlnav-row:hover { background: var(--card-zebra); }
+.ml-nav-link { color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; padding-bottom: 2px; transition: color .15s ease, border-color .15s ease; }
+.ml-nav-link:hover { color: var(--ink); border-bottom-color: var(--dash); }
+.ml-nav-link-on { color: var(--ink); font-weight: 700; border-bottom-color: var(--accent); }
+.ml-nav-link-on:hover { border-bottom-color: var(--accent); }
+.mlr-row, tr[data-mfb-row] { transition: background-color .12s ease; }
+.mlr-row:hover, tr[data-mfb-row]:hover { background: var(--card-zebra); }
+.ml-chip { transition: background-color .12s ease, color .12s ease, border-color .12s ease; }
+.ml-faq-mark { transition: transform .15s ease; display: inline-block; }
 @media (max-width: 600px) { .mlnav-g > .mlnav-dd { display: none !important; } }
 
 /* --- keyframes --- */
@@ -159,6 +167,9 @@ a { color: inherit; }
   .ml-h1      { font-size: 40px !important; }
   .ml-hero-h1 { font-size: 42px !important; }
   .ml-spec-cell { border-right: none !important; }
+  .ml-hero-ctas a { flex: 1 1 100%; text-align: center; }
+  .ml-hero-eyebrow { display: none !important; }
+  .ml-chain-strip-label { font-size: 11px !important; }
   .ml-proof-row { grid-template-columns: 1fr !important; row-gap: 6px !important; }
   .ml-proof-row code { justify-self: start !important; }
   .ml-roster-compact { grid-template-columns: 1fr !important; row-gap: 4px !important; }
@@ -202,6 +213,8 @@ a { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .ml-stagger > * { opacity: 1; transform: none; animation: none; }
   .ml-dot { animation: none; }
+  .ml-nav-link, .ml-cta, .mlr-row, tr[data-mfb-row], .ml-chip, .ml-faq-mark { transition: none !important; }
+  .ml-cta:hover { transform: none; }
 }
 .mfb-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;}
 .mfb-tab{font-family:var(--font-mono);font-size:12px;padding:5px 11px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);text-decoration:none;white-space:nowrap;}
@@ -230,28 +243,22 @@ function statusLine() {
 // Nav (sticky, every page)
 // ---------------------------------------------------------------------------
 
-// Three zones: buy's direct links (highest-traffic destinations, no hover
-// required) | the two grouped doors (marketplace / sell, each a real link plus
-// a CSS-only dropdown) | docs. See design_handoff_x402_ia_redesign/README.md §1.
+// Three zones: buyer primaries (skills / catalog / playground / pricing) |
+// grouped doors (marketplace / sell) | docs. Ops proof pages (revenue,
+// status, what-is-x402) live in the footer + mobile "More" group so the
+// sticky row stays scannable. See UI/UX review Aug 2026.
 const NAV_ZONES = [
   [
-    { href: "/skills", label: "skill packs" },
+    { href: "/skills", label: "skills" },
     { href: "/tools", label: "catalog" },
+    { href: "/playground", label: "playground" },
     { href: "/pricing", label: "pricing" },
   ],
   [
     { href: "/marketplace", label: "marketplace", panel: "marketplace" },
     { href: "/sell", label: "sell", panel: "sell" },
   ],
-  // Proof surfaces. These were reachable ONLY from the footer, which on the
-  // homepage sits at 97% of the document - the live revenue ledger, the single
-  // most load-bearing claim on the site, required scrolling past everything to
-  // find. They are short labels on purpose: this zone shares a row with the
-  // logo and the CTA, so anything verbose here costs the nav a line.
   [
-    { href: "/revenue", label: "revenue" },
-    { href: "/status", label: "status" },
-    { href: "/what-is-x402", label: "what is x402/MPP" },
     { href: "/docs", label: "docs" },
   ],
 ];
@@ -332,7 +339,11 @@ function marketPanelNav(chainInfo) {
   const rows = chainInfo.chains.map((c) => chainRowHtml(c, chainInfo.live)).join("\n                ");
   return `<span class="mlnav-dd">
               <span style="display:block;width:340px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
-                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE X402 MARKETPLACE - EVERY SELLER, EVERY CHAIN</span>
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">FIND A TOOL · OR BROWSE SELLERS</span>
+                <a href="/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">search our catalog</span><span style="color:var(--faint);">by task</span></a>
+                <a href="/guides/smart-order-router" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">smart order router</span><span style="color:var(--faint);">auto-pick a seller</span></a>
+                <a href="/playground" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">playground</span><span style="color:var(--faint);">try free · PoW</span></a>
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
                 ${rows}
                 <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">by USDC settled</span></a>
                 <a href="/marketplace/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">every tool indexed</span><span style="color:var(--faint);">ours + third-party</span></a>
@@ -357,18 +368,12 @@ const PANEL_HTML = { marketplace: marketPanelNav, sell: sellPanelHtml };
 
 function directLinkHtml(l, activePath) {
   const active = l.href === activePath;
-  const style = active
-    ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
-    : "color:var(--muted);text-decoration:none;";
-  return `<a href="${l.href}" style="${style}">${l.label}</a>`;
+  return `<a class="ml-nav-link${active ? " ml-nav-link-on" : ""}" href="${l.href}">${l.label}</a>`;
 }
 
 function groupTriggerHtml(item, active, panelHtml) {
-  const style = active
-    ? "color:var(--ink);font-weight:700;text-decoration:none;border-bottom:2px solid var(--accent);padding-bottom:2px;"
-    : "color:var(--muted);text-decoration:none;";
   return `<span class="mlnav-g" style="display:inline-flex;">
-        <a href="${item.href}" style="${style}">${item.label} <span style="font-size:10px;">▾</span></a>
+        <a class="ml-nav-link${active ? " ml-nav-link-on" : ""}" href="${item.href}">${item.label} <span style="font-size:10px;">▾</span></a>
         ${panelHtml}
       </span>`;
 }
@@ -384,13 +389,16 @@ function mobileMenuHtml(chainInfo, activePath) {
   const chains = chainInfo.chains.map((c) => mmLink(c.href, c.label, c.href === activePath)).join("");
   return `<div id="ml-mobile-menu" class="ml-mobile-menu">
     <div class="ml-mm-group">
-      ${mmLink("/skills", "skill packs", activePath === "/skills")}
+      ${mmLink("/skills", "skills", activePath === "/skills")}
       ${mmLink("/tools", "catalog", activePath === "/tools")}
+      ${mmLink("/playground", "playground", activePath === "/playground")}
       ${mmLink("/pricing", "pricing", activePath === "/pricing")}
+      ${mmLink("/docs", "docs", activePath === "/docs")}
     </div>
-    <div class="ml-mm-h">Marketplace · by chain</div>
+    <div class="ml-mm-h">Marketplace</div>
     <div class="ml-mm-group">
       ${mmLink("/marketplace", "all sellers · every chain", activePath === "/marketplace")}
+      ${mmLink("/guides/smart-order-router", "smart order router", activePath === "/guides/smart-order-router")}
       ${mmLink("/marketplace/tools", "every tool indexed", activePath === "/marketplace/tools")}
       ${chains}
       ${mmLink("/leaderboard", "leaderboard", activePath === "/leaderboard")}
@@ -399,17 +407,17 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-group">
       ${mmLink("/sell", "list your API", activePath === "/sell")}
       ${mmLink("/tollbooth", "tollbooth", activePath === "/tollbooth")}
+      ${mmLink("/contribute", "contribute a tool", activePath === "/contribute")}
     </div>
-    <div class="ml-mm-h">Proof</div>
+    <div class="ml-mm-h">More</div>
     <div class="ml-mm-group">
       ${mmLink("/revenue", "revenue · on-chain", activePath === "/revenue")}
       ${mmLink("/status", "status · uptime", activePath === "/status")}
-    </div>
-    <div class="ml-mm-group">
       ${mmLink("/what-is-x402", "what is x402/MPP", activePath === "/what-is-x402")}
-      ${mmLink("/docs", "docs", activePath === "/docs")}
+      ${mmLink("/integrations", "integrations", activePath === "/integrations")}
       <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
       ${activePath === "" ? "" : mmLink("/docs#add", "ADD TO CLAUDE →", false, " ml-mm-cta")}
+      ${activePath === "" || activePath === "/playground" ? "" : mmLink("/playground", "TRY PLAYGROUND →", false, " ml-mm-cta")}
     </div>
   </div>`;
 }
@@ -521,11 +529,15 @@ export function ledgerFooterCompact() {
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span style="width:24px;height:24px;border:2px solid var(--ink);color:var(--ink);font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center;">402</span><span style="font-weight:700;">Agent402.Tools</span></a>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/marketplace/tools" style="color:var(--muted);text-decoration:none;">every tool indexed</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/tools/category/llm" style="color:var(--muted);text-decoration:none;">llm gateway</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/guides/smart-order-router" style="color:var(--muted);text-decoration:none;">router</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/what-is-x402" style="color:var(--muted);text-decoration:none;">what is x402/MPP?</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/playground" style="color:var(--muted);text-decoration:none;">playground</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/skills" style="color:var(--muted);text-decoration:none;">skills</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/revenue" style="color:var(--muted);text-decoration:none;">revenue</a><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/revenue" style="color:var(--muted);text-decoration:none;">revenue</a><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/what-is-x402" style="color:var(--muted);text-decoration:none;">what is x402/MPP</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--hairline);">
+      <span style="letter-spacing:.08em;text-transform:uppercase;font-size:10px;">For agents</span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/llms.txt" style="color:var(--muted);text-decoration:none;">llms.txt</a><a href="/openapi.json" style="color:var(--muted);text-decoration:none;">openapi.json</a><a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a><a href="/api/pricing" style="color:var(--muted);text-decoration:none;">/api/pricing</a><a href="/api/stats" style="color:var(--muted);text-decoration:none;">/api/stats</a><a href="/api/status" style="color:var(--muted);text-decoration:none;">/api/status</a></span>
     </div>
   </div>
 </footer>`;

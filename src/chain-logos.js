@@ -51,7 +51,7 @@ export function chainLogoStrip({ label = "Settles natively on twelve networks", 
     `<a href="/${slug}" title="${name} x402 marketplace" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:var(--ink);opacity:.88;">${chainMark(slug, size)}<span style="font-family:var(--font-mono);font-size:13px;letter-spacing:.01em;">${name}</span></a>`
   ).join("");
   return `<div class="chain-strip" style="padding:18px 0;">
-  <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">${label}</div>
+  <div class="ml-chain-strip-label" style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:12px;">${label}</div>
   <div style="display:flex;flex-wrap:wrap;gap:20px 26px;align-items:center;">${chips}</div>
 </div>`;
 }

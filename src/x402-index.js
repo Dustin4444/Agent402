@@ -410,6 +410,30 @@ function parsePrice(p) {
   return isFinite(n) ? n : 0;
 }
 
+/** USD → integer micro-dollars for exact compares (avoids float !== hazards). */
+function priceToMicroUsd(p) {
+  if (p == null || p === "") return null;
+  const n = typeof p === "number" ? p : parseFloat(String(p).replace(/[^0-9.]/g, ""));
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.round(n * 1e6);
+}
+
+function microUsdToPrice(micro) {
+  return micro / 1e6;
+}
+
+/** Shared projection so sellerDetail / route / index-tools never drift. */
+function priceConflictProjection(t) {
+  if (t?.priceConflict !== true || !t.priceObservations) return {};
+  const bazaar = priceToMicroUsd(t.priceObservations.bazaar);
+  const origin = priceToMicroUsd(t.priceObservations.origin);
+  if (bazaar == null || origin == null) return {};
+  return {
+    priceConflict: true,
+    priceObservations: { bazaar: microUsdToPrice(bazaar), origin: microUsdToPrice(origin) },
+  };
+}
+
 // Tie-break rank for price. parsePrice maps unknown (null / unparseable) to 0
 // for display, which is right for priceUsd but wrong for ranking: it let
 // listings with NO published amount masquerade as "free" and outrank sellers
@@ -1052,7 +1076,18 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = [], { al
     return fits.length === 1 ? fits[0] : null;
   };
   const used = new Set();
-  const enrich = (b, o, route) => ({
+  const enrich = (b, o, route) => {
+    const bazaarMicro = priceToMicroUsd(b.price);
+    const originMicro = priceToMicroUsd(o.price);
+    const priceConflict = bazaarMicro != null && originMicro != null && bazaarMicro !== originMicro;
+    // Prefer the higher observation when they disagree so buyers never
+    // underquote a raised origin price against a stale Bazaar amount.
+    // Absent conflict: keep settlement-observed Bazaar (incl. explicit 0);
+    // only fill a missing amount from OpenAPI.
+    let price;
+    if (priceConflict) price = microUsdToPrice(Math.max(bazaarMicro, originMicro));
+    else price = b.price == null ? o.price : b.price;
+    return ({
     ...b,
     // Bazaar defaults missing methods to POST. The OpenAPI operation is the
     // authoritative verb once the route-only fallback finds a match.
@@ -1063,14 +1098,22 @@ export function mergeOpenapiIntoBazaar(openapiTools = [], bazaarTools = [], { al
     description: o.description || b.description,
     tags: o.tags?.length ? o.tags : b.tags,
     category: o.tags?.length ? o.category : b.category,
-    // Keep a settlement-observed Bazaar amount (including an explicit free
-    // price of 0); only fill an absent amount from the OpenAPI extension.
-    price: b.price == null ? o.price : b.price,
+    price,
+    // Preserve both observations (normalized numbers) so a buyer can see the
+    // drift and fail closed — and so we can audit which side won the max().
+    ...(priceConflict ? {
+      priceConflict: true,
+      priceObservations: {
+        bazaar: microUsdToPrice(bazaarMicro),
+        origin: microUsdToPrice(originMicro),
+      },
+    } : {}),
     // A registry row IS a settlement record: an operation the document left
     // unannotated (paid:false) that has real settled payments is buyable —
     // observed truth beats the doc's silence. An explicit zero price stays free.
     ...(b.price != null && b.price > 0 ? { paid: true } : o.paid !== undefined ? { paid: o.paid } : {}),
   });
+  };
   const merged = bazaarTools.map((b) => {
     // Only an inferred Bazaar verb may fall back to a route-only match. An
     // explicit verb must match exactly: GET and POST on the same path can be
@@ -2152,6 +2195,7 @@ export function sellerDetail(originOrHost) {
         slug: t.slug || null,
         name: t.name || null,
         price: t.price ?? null,
+        ...priceConflictProjection(t),
         ...(t.paid !== undefined ? { paid: t.paid } : {}),
         networks: t.networks || undefined,
       })),
@@ -2504,6 +2548,7 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       url: t.seller === LOCAL_SELLER ? `${baseUrl}${t.route}` : `${t.seller}${t.route}`,
       price: t.price,
       priceUsd: parsePrice(t.price),
+      ...priceConflictProjection(t),
       // "x402" = we have positive evidence this is payable in-protocol (a price,
       // or a registry accepts entry someone settled against). "unknown" = we
       // have none, which is NOT the same as "not payable" - see payabilityOf.
@@ -3222,6 +3267,7 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
         // the next and could not tell it from "no price" - which is exactly how
         // a measurement taken during this audit came out wrong.
         price: t?.price ?? null,
+        ...priceConflictProjection(t),
         // The identifier a caller needs to actually invoke the tool. Present on
         // /api/route and /api/find, missing here, on the surface that lists all
         // 65k third-party rows.

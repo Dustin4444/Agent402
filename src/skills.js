@@ -3245,11 +3245,13 @@ const esc = (s) =>
   String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 // Build a quick { slug → toolDef } map from the CATALOG. CATALOG is keyed by
-// "METHOD /path", so we have to scan the values.
+// "METHOD /path", so we have to scan entries. Prefer `def.route` when present;
+// otherwise fall back to the map key so skill pages never render "undefined".
 function indexCatalog(catalog) {
   const ix = new Map();
-  for (const def of Object.values(catalog || {})) {
-    if (def?.slug) ix.set(def.slug, def);
+  for (const [route, def] of Object.entries(catalog || {})) {
+    if (!def?.slug) continue;
+    ix.set(def.slug, def.route ? def : { ...def, route });
   }
   return ix;
 }

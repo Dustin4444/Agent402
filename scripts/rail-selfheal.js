@@ -34,6 +34,12 @@ const FACILITATORS = {
   robinhood: process.env.ROBINHOOD_FACILITATOR_URL || "",
   stellar: process.env.STELLAR_FACILITATOR_URL || "https://channels.openzeppelin.com/x402",
   algorand: process.env.ALGORAND_FACILITATOR_URL || "https://facilitator.goplausible.xyz",
+  // Solvador-primary (Optimism today). No OPTIMISM_FACILITATOR_URL — Solvador is
+  // the only settler for eip155:10. Without this entry a recovered Solvador
+  // never restarts us, and the rail stays dropped until a human redeploys
+  // (measured 2026-08-09: issue #723, Solvador /supported timed out at boot,
+  // then answered again while the healer kept skipping optimism).
+  optimism: process.env.SOLVADOR_FACILITATOR_URL || "https://api.solvador.com",
 };
 
 const j = async (url, opts = {}) => {

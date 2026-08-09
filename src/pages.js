@@ -203,10 +203,11 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
 
   const relatedCards = related.map((t) => {
     const desc = t.description.length > 120 ? t.description.slice(0, 120) + "\u2026" : t.description;
-    return `<div style="background:var(--card);border:1.5px solid var(--ink);padding:18px 20px;">
-  <h3 style="font-size:15px;margin:0 0 4px;"><a href="/tools/${e(t.slug)}" style="text-decoration:none;color:var(--ink);">${e(t.name)}</a></h3>
+    return `<div style="background:var(--card);border:1.5px solid var(--ink);padding:18px 20px;display:flex;flex-direction:column;gap:8px;">
+  <h3 style="font-size:15px;margin:0;"><a href="/tools/${e(t.slug)}" style="text-decoration:none;color:var(--ink);">${e(t.name)}</a></h3>
   <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${ledgerPriceLine(t)} · <code style="background:transparent;color:var(--faint);font-size:12px;">${t.method} ${e(t.path)}</code></div>
-  <p style="color:var(--muted);font-size:13px;margin-top:6px;line-height:1.5;">${e(desc)}</p>
+  <p style="color:var(--muted);font-size:13px;margin:0;line-height:1.5;flex:1;">${e(desc)}</p>
+  <a href="/playground?slug=${e(t.slug)}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;font-weight:700;">try in playground →</a>
 </div>`;
   }).join("\n");
 
@@ -250,6 +251,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
     cacheTtl ? ` · <span style="color:var(--dk-muted);" title="Server caches identical responses for ${e(fmtTtl(cacheTtl))}. Repeated calls return X-Cache: hit and don't re-hit the upstream.">Cached ${e(fmtTtl(cacheTtl))}</span>` : ""
   }</div>
   <p class="tp-sub">${e(tool.description)}</p>
+  <p style="margin:16px 0 0;"><a class="ml-cta" href="/playground?slug=${e(tool.slug)}" style="display:inline-block;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 16px;">TRY IN PLAYGROUND →</a></p>
 
   <h2 class="tp-h2">Input</h2>
   ${schemaRows ? `<table class="tp-table"><tr><th>Field</th><th>Type</th><th>Description</th></tr>${schemaRows}</table>` : `<p class="tp-sub">No parameters.</p>`}
@@ -403,10 +405,11 @@ export function categoryPage(baseUrl, catalog, catKey) {
   };
   const cards = tools.map((t) => {
     const desc = t.description.length > 120 ? t.description.slice(0, 120) + "\u2026" : t.description;
-    return `<div style="background:var(--card);border:1.5px solid var(--ink);padding:18px 20px;">
-  <h3 style="font-size:15px;margin:0 0 4px;"><a href="/tools/${e(t.slug)}" style="text-decoration:none;color:var(--ink);">${e(t.name)}</a></h3>
+    return `<div style="background:var(--card);border:1.5px solid var(--ink);padding:18px 20px;display:flex;flex-direction:column;gap:8px;">
+  <h3 style="font-size:15px;margin:0;"><a href="/tools/${e(t.slug)}" style="text-decoration:none;color:var(--ink);">${e(t.name)}</a></h3>
   <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${ledgerPriceLine(t)} · <code style="background:transparent;color:var(--faint);font-size:12px;">${t.method} ${e(t.path)}</code></div>
-  <p style="color:var(--muted);font-size:13px;margin-top:6px;line-height:1.5;">${e(desc)}</p>
+  <p style="color:var(--muted);font-size:13px;margin:0;line-height:1.5;flex:1;">${e(desc)}</p>
+  <a href="/playground?slug=${e(t.slug)}" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);text-decoration:none;font-weight:700;">try in playground →</a>
 </div>`;
   }).join("\n");
 
