@@ -42,7 +42,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
     const inCat = tools.filter((t) => t.category === key);
     if (!inCat.length) return null;
     const cheapest = inCat.reduce((a, t) => Math.min(a, parseFloat(String(t.price).replace("$", ""))), Infinity);
-    return { key, label, blurb, count: inCat.length, price: `$${cheapest}` };
+    return { key, label, blurb, count: inCat.length, price: `from $${cheapest}` };
   }).filter(Boolean);
   const mid = Math.ceil(catData.length / 2);
   const leftCats = catData.slice(0, mid);
@@ -57,7 +57,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   // from there to every individual tool page (category pages already link
   // every tool in the category).
   const catRow = (c, last) =>
-    `<a class="ml-cat-row" data-cat="${esc(c.key)}" href="/tools/category/${esc(c.key)}" style="display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;padding:13px 18px;text-decoration:none;color:inherit;${last ? "" : "border-bottom:1px solid var(--hairline);"}"><div><div style="font-weight:700;font-size:15px;">${esc(c.label)}</div><div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">${esc(shortBlurb(c.blurb))}</div></div><span style="font-family:var(--font-mono);font-weight:700;font-size:15px;">${fmtNum(c.count)}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent);width:56px;text-align:right;">${c.price}</span></a>`;
+    `<a class="ml-cat-row" data-cat="${esc(c.key)}" href="/tools/category/${esc(c.key)}" style="display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;padding:13px 18px;text-decoration:none;color:inherit;${last ? "" : "border-bottom:1px solid var(--hairline);"}"><div><div style="font-weight:700;font-size:15px;">${esc(c.label)}</div><div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">${esc(shortBlurb(c.blurb))}</div></div><span style="font-family:var(--font-mono);font-weight:700;font-size:15px;">${fmtNum(c.count)}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent);width:72px;text-align:right;">${c.price}</span></a>`;
 
   // ---- sample endpoint row ----
   const endpointRow = (ep, last) => {
@@ -242,6 +242,16 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
     });
 
     search.addEventListener('input', applyFilters);
+
+    // Deep-link: /tools?q=pdf seeds the search box on load.
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var q0 = params.get('q');
+      if (q0) {
+        search.value = q0;
+        applyFilters();
+      }
+    } catch (e) {}
   })();
   </script>`;
 

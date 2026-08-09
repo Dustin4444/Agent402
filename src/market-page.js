@@ -808,7 +808,19 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
         <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0;">The ${esc(C.chainName)} x402 marketplace</h1>
       </div>
       <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">${subheadHtml}</p>
-      <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">An open index of the whole ${esc(C.chainName)} x402 economy - this host plus every independent seller the hourly crawl finds (CDP Bazaar included). Not a walled market: other venues' listings appear here too. Don't want to pick a seller yourself? The <a href="/guides/smart-order-router" style="color:var(--muted);">Smart Order Router</a> resolves your task, pays the best proven seller on your behalf, and relays the result - one payment.</p>
+      <div style="margin:16px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--card);">
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--faint);margin-bottom:10px;">START HERE · BUYER PATH</div>
+        <form action="/tools" method="get" style="display:flex;gap:0;border:1.5px solid var(--ink);background:var(--paper);max-width:520px;margin-bottom:12px;">
+          <input name="q" type="search" placeholder="what do you need? e.g. pdf ocr, web search" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:13px;color:var(--ink);padding:11px 14px;outline:none;" />
+          <button type="submit" style="border:none;border-left:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;">FIND →</button>
+        </form>
+        <div style="display:flex;flex-wrap:wrap;gap:14px;font-family:var(--font-mono);font-size:12.5px;">
+          <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>
+          <a href="/playground" style="color:var(--muted);text-decoration:none;">try playground</a>
+          <a href="#sellers" style="color:var(--muted);text-decoration:none;">browse sellers</a>
+        </div>
+      </div>
+      <p style="font-size:13px;color:var(--faint);margin:10px 0 0;">An open index of the whole ${esc(C.chainName)} x402 economy - this host plus every independent seller the hourly crawl finds (CDP Bazaar included). Not a walled market: other venues' listings appear here too.</p>
       ${receiptHtml}
       <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">${C.canaryLine}</p>
     </div>
@@ -818,7 +830,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   ${statsHtml}`;
 
   const rosterHtml = `
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on ${esc(C.chainName)}</h2>
+  <h2 id="sellers" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on ${esc(C.chainName)}</h2>
   <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">pick a seller to scope the activity charts · THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · tx = settled calls, last 7 days on-chain</p>
   ${compact
     ? `<div style="display:flex;flex-direction:column;gap:8px;">${sellersHtml}</div>`
@@ -1082,7 +1094,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
     : "";
 
   const rosterHtml = `
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Every seller, every chain</h2>
+  <h2 id="sellers" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Every seller, every chain</h2>
   <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · Chain shows where each seller settles · tx = settled calls, last 7 days on-chain</p>
   <div style="overflow-x:auto;">
   <table style="width:100%;border-collapse:collapse;font-size:13.5px;">
@@ -1109,7 +1121,19 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   <div>
     <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The x402 marketplace.</h1>
     <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">Pay-per-call tools for AI agents, settled on-chain across every supported rail - no signup, no API keys, the wallet is the account.</p>
-    <p style="font-size:13px;color:var(--faint);margin:6px 0 0;">the neutral x402 index - every seller, not just ours. Or skip the picking: the <a href="/guides/smart-order-router" style="color:var(--muted);">Smart Order Router</a> resolves your task, pays the best proven seller for you, and relays the result.</p>
+    <div style="margin:18px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--card);max-width:640px;">
+      <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--faint);margin-bottom:10px;">START HERE · BUYER PATH</div>
+      <form action="/tools" method="get" style="display:flex;gap:0;border:1.5px solid var(--ink);background:var(--paper);margin-bottom:12px;">
+        <input name="q" type="search" placeholder="what do you need? e.g. pdf ocr, web search" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:13px;color:var(--ink);padding:11px 14px;outline:none;" />
+        <button type="submit" style="border:none;border-left:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;">FIND →</button>
+      </form>
+      <div style="display:flex;flex-wrap:wrap;gap:14px;font-family:var(--font-mono);font-size:12.5px;">
+        <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>
+        <a href="/playground" style="color:var(--muted);text-decoration:none;">try playground</a>
+        <a href="#sellers" style="color:var(--muted);text-decoration:none;">browse all sellers</a>
+      </div>
+    </div>
+    <p style="font-size:13px;color:var(--faint);margin:10px 0 0;">the neutral x402 index - every seller, not just ours. Skip the picking with the <a href="/guides/smart-order-router" style="color:var(--muted);">Smart Order Router</a>.</p>
     ${statsHtml}
   </div>`;
 
