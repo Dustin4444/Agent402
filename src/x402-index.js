@@ -588,7 +588,7 @@ export function normaliseOpenapiTools(openapi, originUrl) {
   logUnknownPaymentKeys(openapi, originUrl);
   const httpMethods = new Set(["get", "post", "put", "patch", "delete", "options", "head"]);
   const nonToolPath =
-    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
+    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon|admin|internal)|\.(png|ico|svg|txt|xml)$/i;
   const out = [];
   for (const [rawPath, methods] of Object.entries(openapi.paths)) {
     // Apply the basePath unless the document already spells it out (some specs
@@ -645,6 +645,7 @@ export function normaliseOpenapiTools(openapi, originUrl) {
 //   "resources": ["https://origin/api/thing"]
 //   "resources": ["POST /exchange/sell-clams"]
 //   "resources": [{resource|url|route|path, description, price}]
+//   "endpoints": [{path, methods, name, price, description}]  // Agente Jefe shape
 //
 // SAME-ORIGIN ONLY, and that is the load-bearing rule. Some manifests list
 // other people's origins (an aggregator pointing outward); attributing those
@@ -652,60 +653,170 @@ export function normaliseOpenapiTools(openapi, originUrl) {
 // which is a routing and payment error, not a cosmetic one. Those origins are
 // crawled on their own account anyway. Same reasoning as the llms.txt parser:
 // a thin listing is recoverable, a fabricated one is not.
+//
+// ALL catalogue keys are read, not just the first non-empty. Taking only
+// `resources` when `endpoints` also exists (first-wins) threw away names,
+// prices and descriptions on sellers that publish both — measured on
+// agente.revenuerecoveryai.app: thin "POST /v1/…" strings shadowed a rich
+// endpoints[] catalogue, so the index showed payable tools with empty
+// descriptions. Merge every dialect; when the same method+route appears
+// twice, keep the richer row and fill blanks from the other. Path-level
+// metadata from a rich object also enriches sibling methods on that path
+// (GET+POST strings + one priced endpoint object → both methods priced).
+const MANIFEST_NON_TOOL_PATH =
+  /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon|admin|internal)|\.(png|ico|svg|txt|xml)$/i;
+const MANIFEST_HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
+
+function manifestToolRichness(t) {
+  if (!t) return 0;
+  const named = t.name && t.name !== t.route && !String(t.name).startsWith("/");
+  return (t.price ? 4 : 0) + (t.description ? 2 : 0) + (named ? 2 : 0) + (t.method ? 1 : 0);
+}
+
+function mergeManifestToolRows(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const prefer = manifestToolRichness(a) >= manifestToolRichness(b) ? a : b;
+  const other = prefer === a ? b : a;
+  const named = (n, route) => n && n !== route && !String(n).startsWith("/");
+  return {
+    ...prefer,
+    name: named(prefer.name, prefer.route) ? prefer.name : (named(other.name, other.route) ? other.name : prefer.name),
+    description: prefer.description || other.description || "",
+    price: prefer.price || other.price || null,
+    slug: (prefer.slug && prefer.slug !== prefer.route) ? prefer.slug : (other.slug || prefer.slug),
+    method: prefer.method || other.method,
+  };
+}
+
+function parseManifestPrice(raw) {
+  const p = raw?.price_usd ?? raw?.priceUsd ?? raw?.price ?? raw?.amount ?? null;
+  if (typeof p === "number" && Number.isFinite(p)) return `$${p}`;
+  if (typeof p === "string" && p.trim()) return p.trim().startsWith("$") ? p.trim() : `$${p.trim()}`;
+  return null;
+}
+
 export function normaliseManifestTools(manifest, originUrl) {
   if (!manifest || typeof manifest !== "object") return [];
   let origin;
   try { origin = new URL(originUrl); } catch { return []; }
-  const list = ["tools", "resources", "endpoints", "services"]
+  const catalogues = ["tools", "resources", "endpoints", "services"]
     .map((k) => manifest[k])
-    .find((v) => Array.isArray(v) && v.length);
-  if (!list) return [];
-  const nonToolPath =
-    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
-  const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]);
-  const out = [];
-  const seen = new Set();
-  for (const raw of list.slice(0, 1000)) {
-    let ref = "", name = "", description = "", price = null, method = "";
-    if (typeof raw === "string") {
-      ref = raw.trim();
-    } else if (raw && typeof raw === "object") {
-      ref = String(raw.endpoint || raw.resource || raw.url || raw.route || raw.path || "").trim();
-      name = String(raw.name || raw.title || raw.operationId || "").trim();
-      description = String(raw.summary || raw.description || "").trim();
-      const p = raw.price_usd ?? raw.priceUsd ?? raw.price ?? raw.amount ?? null;
-      if (typeof p === "number" && Number.isFinite(p)) price = `$${p}`;
-      else if (typeof p === "string" && p.trim()) price = p.trim().startsWith("$") ? p.trim() : `$${p.trim()}`;
-      if (raw.method && methods.has(String(raw.method).toUpperCase())) method = String(raw.method).toUpperCase();
-    }
-    if (!ref) continue;
-    // "POST /exchange/sell-clams" — a verb glued to a path.
-    const verb = /^([A-Za-z]+)\s+(\/.*)$/.exec(ref);
-    if (verb && methods.has(verb[1].toUpperCase())) { method = method || verb[1].toUpperCase(); ref = verb[2]; }
-    let u;
-    try { u = new URL(ref, origin); } catch { continue; }
-    if (u.host.toLowerCase() !== origin.host.toLowerCase()) continue;
-    const route = u.pathname + (u.search || "");
-    if (!u.pathname || u.pathname === "/" || nonToolPath.test(u.pathname)) continue;
-    // Keyed on method+route INCLUDING the query string: two entries that differ
-    // only by ?product= are two products, and collapsing them to the pathname
-    // is how a 17-tool seller reads as 16.
-    const key = `${method || "GET"} ${route}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push({
-      seller: originUrl,
-      method: method || "GET",
-      route,
-      slug: name || u.pathname.replace(/^\//, "").replace(/\//g, "-"),
-      name: name || u.pathname,
-      description: description.slice(0, 400),
-      category: "other",
-      tags: [],
-      price,
+    .filter((v) => Array.isArray(v) && v.length);
+  if (!catalogues.length) return [];
+
+  const byKey = new Map();
+  const metaByPath = new Map();
+  const notePathMeta = (path, { name, description, price, slug }) => {
+    if (!path) return;
+    const cur = metaByPath.get(path) || {};
+    const named = name && name !== path && !String(name).startsWith("/");
+    const curNamed = cur.name && cur.name !== path && !String(cur.name).startsWith("/");
+    metaByPath.set(path, {
+      name: (named ? name : null) || (curNamed ? cur.name : null) || cur.name || name || "",
+      description: description || cur.description || "",
+      price: price || cur.price || null,
+      slug: (slug && slug !== path) ? slug : (cur.slug || slug || ""),
     });
+  };
+
+  for (const list of catalogues) {
+    for (const raw of list.slice(0, 1000)) {
+      let ref = "", name = "", description = "", price = null;
+      const methodList = [];
+      if (typeof raw === "string") {
+        ref = raw.trim();
+      } else if (raw && typeof raw === "object") {
+        ref = String(raw.endpoint || raw.resource || raw.url || raw.route || raw.path || "").trim();
+        name = String(raw.name || raw.title || raw.operationId || "").trim();
+        description = String(raw.summary || raw.description || "").trim();
+        price = parseManifestPrice(raw);
+        if (raw.method && MANIFEST_HTTP_METHODS.has(String(raw.method).toUpperCase())) {
+          methodList.push(String(raw.method).toUpperCase());
+        } else if (Array.isArray(raw.methods)) {
+          for (const m of raw.methods) {
+            if (MANIFEST_HTTP_METHODS.has(String(m).toUpperCase())) methodList.push(String(m).toUpperCase());
+          }
+        }
+      }
+      if (!ref) continue;
+      // "POST /exchange/sell-clams" — a verb glued to a path.
+      const verb = /^([A-Za-z]+)\s+(\/.*)$/.exec(ref);
+      if (verb && MANIFEST_HTTP_METHODS.has(verb[1].toUpperCase())) {
+        if (!methodList.length) methodList.push(verb[1].toUpperCase());
+        ref = verb[2];
+      }
+      let u;
+      try { u = new URL(ref, origin); } catch { continue; }
+      if (u.host.toLowerCase() !== origin.host.toLowerCase()) continue;
+      const route = u.pathname + (u.search || "");
+      if (!u.pathname || u.pathname === "/" || MANIFEST_NON_TOOL_PATH.test(u.pathname)) continue;
+      const pathOnly = u.pathname;
+      const slug = name || u.pathname.replace(/^\//, "").replace(/\//g, "-");
+      notePathMeta(pathOnly, { name, description, price, slug });
+      const methodsToEmit = methodList.length ? [...new Set(methodList)] : [""];
+      for (const method of methodsToEmit) {
+        // Keyed on method+route INCLUDING the query string: two entries that differ
+        // only by ?product= are two products, and collapsing them to the pathname
+        // is how a 17-tool seller reads as 16.
+        const key = `${method || "GET"} ${route}`;
+        const row = {
+          seller: originUrl,
+          method: method || "GET",
+          route,
+          slug,
+          name: name || u.pathname,
+          description: description.slice(0, 400),
+          category: "other",
+          tags: [],
+          price,
+        };
+        byKey.set(key, mergeManifestToolRows(byKey.get(key), row));
+      }
+    }
   }
-  return out;
+
+  // Path-level metadata from a rich object fills sibling methods discovered as
+  // thin strings (GET+POST resource lines + one priced endpoints[] object).
+  for (const t of byKey.values()) {
+    const meta = metaByPath.get(String(t.route || "").split("?")[0]);
+    if (!meta) continue;
+    if (!t.price && meta.price) t.price = meta.price;
+    if ((!t.name || t.name === t.route || String(t.name).startsWith("/")) && meta.name) t.name = meta.name;
+    if (!t.description && meta.description) t.description = String(meta.description).slice(0, 400);
+    if ((!t.slug || t.slug === t.route) && meta.slug) t.slug = meta.slug;
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Drop routes the seller themselves declares free (manifest free_endpoints).
+ * Priced / paid-annotated rows still survive — a contradiction is resolved in
+ * favour of "this is sellable", same vouch doctrine as non-product filtering.
+ */
+export function dropDeclaredFreeEndpoints(tools = [], manifest) {
+  const raw = manifest?.free_endpoints ?? manifest?.freeEndpoints;
+  if (!Array.isArray(raw) || !raw.length) return tools;
+  const free = new Set();
+  for (const item of raw) {
+    let ref = typeof item === "string" ? item.trim()
+      : String(item?.path || item?.route || item?.url || "").trim();
+    if (!ref) continue;
+    const verb = /^([A-Za-z]+)\s+(\/.*)$/.exec(ref);
+    if (verb) ref = verb[2];
+    try {
+      const path = new URL(ref, "https://placeholder.invalid").pathname.replace(/\/$/, "") || "/";
+      if (path && path !== "/") free.add(path);
+    } catch { /* skip junk */ }
+  }
+  if (!free.size) return tools;
+  return tools.filter((t) => {
+    const path = String(t?.route || "").split("?")[0].replace(/\/$/, "");
+    if (!free.has(path)) return true;
+    if (t.price) return true;
+    if (t.paid === true) return true;
+    return false;
+  });
 }
 
 // Liveness probes are not products, but only when nothing says otherwise.
@@ -760,17 +871,24 @@ const NON_PRODUCT_SEGMENTS = new Set([
   "swagger", "redoc", "docs",
   // the seller's own storefront
   "checkout", "billing",
-  // operator-only surfaces
+  // operator-only surfaces (also matched as ANY path segment below — see
+  // OPERATOR_PATH_SEGMENTS — so /admin/gasto-hoy is dropped, not only /admin)
   "webhook", "webhooks", "admin", "internal", "debug",
 ]);
+// Operator namespaces: unlike "health" (a product category under /health/bmi),
+// nobody sells /admin/*. Matching only the last segment left Agente Jefe's
+// /admin/gasto-hoy and /admin/saldo in the buyable index as payable:unknown.
+const OPERATOR_PATH_SEGMENTS = new Set(["admin", "internal", "debug"]);
 export function dropUnvouchedNonProductRoutes(tools = [], vouchedRoutes = []) {
   const vouched = new Set(
     (vouchedRoutes || []).map((r) => String(r || "").split("?")[0].replace(/\/$/, ""))
   );
   return tools.filter((t) => {
     const path = String(t?.route || "").split("?")[0].replace(/\/$/, "");
-    const seg = path.split("/").pop().toLowerCase();
-    if (!NON_PRODUCT_SEGMENTS.has(seg)) return true;
+    const segs = path.split("/").filter(Boolean).map((s) => s.toLowerCase());
+    const last = segs[segs.length - 1] || "";
+    const operator = segs.some((s) => OPERATOR_PATH_SEGMENTS.has(s));
+    if (!operator && !NON_PRODUCT_SEGMENTS.has(last)) return true;
     if (vouched.has(path)) return true;      // somebody paid for it
     if (t.price) return true;                // the seller prices it
     if (t.paid === true) return true;        // the seller annotates it as paid
@@ -889,7 +1007,7 @@ export function normaliseLlmsTxtTools(text, originUrl) {
   let originHost = "";
   try { originHost = new URL(originUrl).host.toLowerCase(); } catch { return []; }
   const nonToolPath =
-    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon)|\.(png|ico|svg|txt|xml)$/i;
+    /^\/(\.well-known|health|openapi|llms|sitemap|robots|favicon|admin|internal)|\.(png|ico|svg|txt|xml)$/i;
   const line = /^\s*[-*]\s*\[([^\]]{1,120})\]\(([^)\s]{1,400})\)\s*[:\-]?\s*(.*)$/;
   const priceRe = /\$\s?([0-9]+(?:\.[0-9]+)?)/;
   const out = [];
@@ -1493,6 +1611,7 @@ async function crawlSeller(originUrl) {
     // never add a second row for an endpoint we already list — see
     // mergeManifestIntoTools for the 16 -> 30 regression that proved why.
     tools = mergeManifestIntoTools(normaliseManifestTools(manifest, originUrl), tools);
+    tools = dropDeclaredFreeEndpoints(tools, manifest);
     tools = dropUnvouchedNonProductRoutes(tools, (bazaarToolsByOrigin.get(originUrl) || []).map((t) => t.route));
     // Keep what earlier crawls already learned, THEN spend the probe budget on
     // routes we still know nothing about.

@@ -14,7 +14,7 @@
 //   * it says nothing for a seller who is NOT (silence, which is the bug).
 import { discoveryNote, WELL_KNOWN_PATH } from "../src/discovery-note.js";
 import { readFileSync } from "node:fs";
-import { routeQuery, looksLikeListingInjection, normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedNonProductRoutes, payabilityOf, synthManifestFromBazaar } from "../src/x402-index.js";
+import { routeQuery, looksLikeListingInjection, normaliseOpenapiTools, normaliseLlmsTxtTools, normaliseManifestTools, mergeManifestIntoTools, dropUnvouchedNonProductRoutes, dropDeclaredFreeEndpoints, payabilityOf, synthManifestFromBazaar } from "../src/x402-index.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -163,6 +163,38 @@ ok(normaliseManifestTools(null, "https://s.test").length === 0 &&
 const dup = normaliseManifestTools({ resources: ["/a", "/a", "GET /a"] }, "https://s.test");
 ok(dup.length === 1, "the same method+route is emitted once");
 
+// Dialect C: thin resources[] + rich endpoints[] together. First-wins used to
+// keep only the strings and throw away names/prices/descriptions (Agente Jefe).
+const C = normaliseManifestTools({
+  resources: [
+    "POST /v1/x402/diagnose",
+    "GET /v1/x402/diagnose",
+    "POST /v1/agent/launch-audit",
+  ],
+  endpoints: [
+    {
+      path: "/v1/x402/diagnose",
+      methods: ["GET", "POST"],
+      name: "x402-diagnose",
+      description: "Diagnoses why an x402 endpoint fails to charge",
+      price: "$0.01",
+    },
+    {
+      path: "/v1/agent/launch-audit",
+      methods: ["GET", "POST"],
+      name: "agent-launch-audit",
+      description: "Launch readiness audit with signed receipt",
+      price: "$0.10",
+    },
+  ],
+}, "https://s.test");
+ok(C.filter((t) => t.route === "/v1/x402/diagnose").length === 2,
+  "GET and POST on the same path both survive when resources and endpoints agree");
+ok(C.every((t) => t.route === "/v1/x402/diagnose" ? t.price === "$0.01" && t.name === "x402-diagnose" && /Diagnoses/.test(t.description) : true),
+  "rich endpoints[] metadata fills thin resource strings on every method");
+ok(C.some((t) => t.route === "/v1/agent/launch-audit" && t.price === "$0.10" && t.name === "agent-launch-audit"),
+  "a path only fully described in endpoints[] still carries name and price");
+
 // --- folding the manifest in without inflating (the 16 -> 30 regression) ---
 // The first version of the manifest read shipped without this and DOUBLED a
 // seller: manifest entries declare no verb (so they default to GET) and carry
@@ -303,6 +335,35 @@ ok(dropUnvouchedNonProductRoutes([{ route: "/v1/health", price: null, paid: true
   "a paid ANNOTATION vouches for it");
 ok(dropUnvouchedNonProductRoutes([{ route: "/v1/health?x=1", price: null }], ["/v1/health"]).length === 1,
   "vouching matches on the path, ignoring the query string");
+
+// Operator namespaces: /admin/foo is not a product just because the last
+// segment is "foo". Matching only the last segment left seller admin panels
+// in the buyable index (Agente Jefe /admin/gasto-hoy).
+ok(dropUnvouchedNonProductRoutes([
+  { route: "/admin/gasto-hoy", price: null },
+  { route: "/admin/saldo", price: null },
+  { route: "/v1/internal/debug-dump", price: null },
+  { route: "/v1/resumen", price: null },
+], []).map((t) => t.route).join(",") === "/v1/resumen",
+  "unvouched /admin/* and /internal/* are dropped; ordinary tools stay");
+ok(dropUnvouchedNonProductRoutes([{ route: "/admin/saldo", price: "$0.01" }], []).length === 1,
+  "a priced admin route still survives - the seller vouched by pricing it");
+
+ok(dropDeclaredFreeEndpoints([
+  { route: "/capabilities", price: null },
+  { route: "/pricing", price: null },
+  { route: "/v1/resumen", price: "$0.01" },
+  { route: "/examples", price: null },
+], { free_endpoints: ["/capabilities", "/pricing", "/examples", "/health"] }).map((t) => t.route).join(",") === "/v1/resumen",
+  "manifest free_endpoints are dropped from the buyable catalogue");
+ok(dropDeclaredFreeEndpoints(
+  [{ route: "/capabilities", price: "$0.01" }],
+  { free_endpoints: ["/capabilities"] }
+).length === 1,
+  "a priced row on a free_endpoints path survives the contradiction");
+ok(dropDeclaredFreeEndpoints([{ route: "/v1/x" }], null).length === 1 &&
+   dropDeclaredFreeEndpoints([{ route: "/v1/x" }], {}).length === 1,
+  "no free_endpoints list is a no-op");
 
 ok(dropUnvouchedNonProductRoutes([], []).length === 0 &&
    dropUnvouchedNonProductRoutes([{ route: null }], []).length === 1,
