@@ -128,6 +128,31 @@ if (rn) {
   ok(typeof rn.check({ rendered: true, title: "Something Else", markdown: "x" }) === "string", "render leg check rejects an unexpected page (title mismatch)");
 }
 
+// The MPP dual-stack legs prove the native Payment wire (WWW-Authenticate /
+// Authorization: Payment via mppx), not the x402 PAYMENT-SIGNATURE path every
+// other leg already covers. They used to console.warn and exit 0, so a dead
+// shim or missing MPP_SECRET_KEY could sit green forever — same class as the
+// Stellar rail before railFail(). Lock both the presence of the native buy
+// AND that failures go through railFail().
+{
+  const canarySrc = readFileSync(join(ROOT, "scripts", "paid-canary.js"), "utf8");
+  ok(/import\(["']mppx\/client["']\)/.test(canarySrc) && /import\(["']mppx["']\)/.test(canarySrc),
+    "paid-canary imports mppx for a stock MPP client buy");
+  ok(/WWW-Authenticate/.test(canarySrc) && /Authorization:\s*credential|Authorization:\s*celoCred/.test(canarySrc),
+    "MPP legs drive the native WWW-Authenticate → Authorization: Payment wire");
+  ok(/Payment-Receipt|payment-receipt/.test(canarySrc),
+    "MPP legs assert the settled Payment-Receipt header");
+  ok(/railFail\(\s*["']mpp["']/.test(canarySrc),
+    "Base MPP failures go through railFail (not WARN-only) so a dead shim fails the run");
+  ok(/railFail\(\s*["']mpp-celo["']/.test(canarySrc),
+    "Celo MPP failures go through railFail so a dropped challenge network fails the run");
+  // Mutation lock: a WARN-only MPP block must not count as covered.
+  const mppBlock = canarySrc.slice(canarySrc.indexOf("MPP dual-stack"), canarySrc.indexOf("Pinned EVM legs"));
+  ok(mppBlock.length > 500, "located the MPP dual-stack block for scoped assertions");
+  ok(!/console\.warn\(`\\nWARN  mpp/.test(mppBlock),
+    "MPP block has no WARN-only failure paths left (those hid the Stellar-class green)");
+}
+
 // --- the canary must actually RUN on the days it claims to ------------------
 //
 // A daily proof that buying works proves nothing if it silently skips a day,
