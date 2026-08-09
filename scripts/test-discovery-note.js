@@ -255,6 +255,24 @@ const solo = mergeManifestIntoTools(fromManifest, []);
 ok(solo.filter((t) => t.route.split("?")[0] === "/x402/market").length === 2,
   "a manifest-only path keeps both of its variants too");
 
+// OpenAPI GET+POST siblings + rich multi-method manifest on the same path:
+// replacing only the first observed row left the GET sibling thin (empty
+// description, OpenAPI auto-name) while POST picked up the catalogue.
+const oaBoth = [
+  { seller: "https://s.test", method: "POST", route: "/v1/x402/diagnose", name: "Endpoint Diagnose", description: "", price: null },
+  { seller: "https://s.test", method: "GET", route: "/v1/x402/diagnose", name: "Endpoint Diagnose Get", description: "", price: null },
+];
+const richBoth = [
+  { seller: "https://s.test", method: "POST", route: "/v1/x402/diagnose", name: "x402-diagnose", description: "Diagnoses paywall failures", price: "$0.01", slug: "x402-diagnose" },
+  { seller: "https://s.test", method: "GET", route: "/v1/x402/diagnose", name: "x402-diagnose", description: "Diagnoses paywall failures", price: "$0.01", slug: "x402-diagnose" },
+];
+const mergedBoth = mergeManifestIntoTools(richBoth, oaBoth);
+ok(mergedBoth.length === 2, `GET+POST catalogue replaces both OpenAPI rows (got ${mergedBoth.length})`);
+ok(mergedBoth.every((t) => t.name === "x402-diagnose" && t.price === "$0.01" && /Diagnoses/.test(t.description)),
+  "every surviving method carries the rich manifest name, price and description");
+ok(new Set(mergedBoth.map((t) => t.method)).size === 2,
+  "both HTTP methods survive - the observed-verb force must not collapse GET+POST catalogues");
+
 // --- liveness probes are not products, but only when nothing says otherwise ---
 // The non-tool path filter anchors at the START of a path, so "/health" was
 // excluded and "/v1/health" was not: 150 liveness rows across 92 sellers sat in

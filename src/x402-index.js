@@ -937,43 +937,60 @@ export function mergeManifestIntoTools(manifestTools = [], existing = []) {
     if (!groups.has(path)) groups.set(path, []);
     groups.get(path).push(m);
   }
-  const indexByPath = new Map();
+  const indicesByPath = new Map();
   existing.forEach((t, i) => {
     const p = String(t.route || "").split("?")[0];
-    if (p && !indexByPath.has(p)) indexByPath.set(p, i);
+    if (!p) return;
+    if (!indicesByPath.has(p)) indicesByPath.set(p, []);
+    indicesByPath.get(p).push(i);
   });
   const replaced = new Set();
   const append = [];
   const enrich = (hit, m) => {
-    if (!hit.name || hit.name === hit.route) hit.name = m.name || hit.name;
+    if (!hit.name || hit.name === hit.route || String(hit.name).startsWith("/")) hit.name = m.name || hit.name;
     if (!hit.description) hit.description = m.description || "";
     if (!hit.price && m.price) hit.price = m.price;
     if ((!hit.slug || hit.slug === hit.route) && m.slug) hit.slug = m.slug;
   };
   for (const [path, entries] of groups) {
-    const idx = indexByPath.get(path);
-    if (idx === undefined) {
+    const indices = indicesByPath.get(path) || [];
+    if (!indices.length) {
       // Nobody else reported this path. Everything the seller advertises on it
       // is new, variants included.
       append.push(...entries);
       continue;
     }
     if (entries.length === 1) {
-      // One advertised resource, one row we already hold: same endpoint. Fill
-      // the blanks, add nothing.
-      enrich(existing[idx], entries[0]);
+      // One advertised resource: fill blanks on EVERY observed method for this
+      // path (OpenAPI often lists GET+POST). Adding nothing keeps the 16→30
+      // guard; enriching only the first row left sibling methods thin.
+      for (const i of indices) enrich(existing[i], entries[0]);
       continue;
     }
-    // SEVERAL resources on one path. The row we hold is that path seen without
-    // its parameters, so the variants ARE it, described properly. Replace it
-    // rather than sit beside it: keeping both would list the endpoint N+1
-    // times, which is the duplication this function exists to prevent.
+    // SEVERAL resources on one path. The rows we hold are that path seen
+    // without parameters (or as one method among several), so the variants
+    // ARE it, described properly. Replace EVERY observed row on the path —
+    // replacing only the first left OpenAPI's GET sibling beside a replaced
+    // POST and the listing stayed thin (Agente Jefe: empty descriptions on
+    // the surviving GET row).
     //
-    // The observed verb carries across, because a manifest declares none and a
-    // defaulted GET must not silently overwrite a POST we actually saw.
-    const hit = existing[idx];
-    replaced.add(idx);
-    for (const e of entries) append.push({ ...e, method: hit.method || e.method });
+    // Method rule: when the manifest entries themselves disagree on verb
+    // (GET+POST catalogue), keep each entry's method. When they all share one
+    // verb (query-template variants defaulting to GET) and we observed a
+    // single method on the path, carry that observed verb across so a
+    // defaulted GET cannot overwrite a settled POST.
+    const observedMethods = [...new Set(
+      indices.map((i) => String(existing[i].method || "").toUpperCase()).filter(Boolean)
+    )];
+    const manifestMethods = [...new Set(
+      entries.map((e) => String(e.method || "GET").toUpperCase())
+    )];
+    const forceObserved =
+      manifestMethods.length <= 1 && observedMethods.length === 1 ? observedMethods[0] : null;
+    for (const i of indices) replaced.add(i);
+    for (const e of entries) {
+      append.push({ ...e, method: forceObserved || e.method || "GET" });
+    }
   }
   const out = existing.filter((_, i) => !replaced.has(i));
   out.push(...append);
