@@ -16,7 +16,10 @@ import {
   normaliseOpenapiTools,
   openapiHasPaymentSignal,
   routeQuery,
+  sellerDetail,
+  allIndexedTools,
   _cacheForTests,
+  _resetFlatCacheForTest,
 } from "../src/x402-index.js";
 
 const fail = (m) => { console.error("FAIL:", m); process.exit(1); };
@@ -221,7 +224,28 @@ const openapiTools = [
   ok(free.price === 0, `explicit free Bazaar price survives (got ${free.price})`);
 }
 
-// ---- 3d. Route-only fallback refuses ambiguous OpenAPI paths ----
+// ---- 3d. Same-route price disagreement stays observable ----
+{
+  const documented = [{ ...openapiTools[0], method: "GET", price: "0.003" }];
+  const observed = [{ ...bazaarTools[0], method: "GET", price: 0.009 }];
+  const [merged] = mergeOpenapiIntoBazaar(documented, observed);
+  ok(merged.price === 0.009, "higher observation wins the routing price when bazaar is higher");
+  ok(merged.priceConflict === true, "a differing current origin price is visible as a conflict");
+  ok(merged.priceObservations?.bazaar === 0.009, "price conflict preserves the Bazaar observation as a number");
+  ok(merged.priceObservations?.origin === 0.003, "price conflict preserves the origin observation as a number");
+}
+{
+  // SameDayDesk shape: stale Bazaar $0.02 vs origin $0.05 — never underquote.
+  const documented = [{ ...openapiTools[0], method: "GET", price: "0.05" }];
+  const observed = [{ ...bazaarTools[0], method: "GET", price: 0.02 }];
+  const [merged] = mergeOpenapiIntoBazaar(documented, observed);
+  ok(merged.price === 0.05, "higher origin observation wins the routing price (got " + merged.price + ")");
+  ok(merged.priceConflict === true, "raised origin vs stale bazaar is flagged");
+  ok(merged.priceObservations?.bazaar === 0.02 && merged.priceObservations?.origin === 0.05,
+    "both observations survive normalized");
+}
+
+// ---- 3e. Route-only fallback refuses ambiguous OpenAPI paths ----
 {
   const documented = [
     { ...openapiTools[0], method: "GET", slug: "read-md" },
@@ -300,6 +324,33 @@ seed("https://competitor.example", [
   },
 ]);
 seed("https://md.example", mergeOpenapiIntoBazaar(openapiTools, bazaarTools));
+{
+  const conflictTools = mergeOpenapiIntoBazaar(
+    [{ ...openapiTools[0], method: "GET", price: "0.003", seller: "https://price-conflict.example" }],
+    [{ ...bazaarTools[0], method: "GET", price: 0.009, seller: "https://price-conflict.example" }],
+  ).map((t) => ({ ...t, seller: "https://price-conflict.example" }));
+  seed("https://price-conflict.example", conflictTools);
+  const detail = sellerDetail("price-conflict.example");
+  const tool = detail?.tools?.find((item) => item.route === "/md");
+  ok(tool?.priceConflict === true, "seller detail exposes a price conflict");
+  ok(tool?.priceObservations?.bazaar === 0.009, "seller detail exposes the registry observation");
+  ok(tool?.priceObservations?.origin === 0.003, "seller detail exposes the origin observation as a number");
+  ok(tool?.price === 0.009, "seller detail routing price is the higher observation");
+
+  const routed = routeQuery({ query: "url to markdown", top: 5, include: "external", ...ctx });
+  const row = routed.results.find((x) => x.seller === "https://price-conflict.example" && x.route === "/md");
+  ok(!!row, "routeQuery surfaces the conflict seller");
+  ok(row?.priceConflict === true, "routeQuery exposes a price conflict");
+  ok(row?.priceObservations?.bazaar === 0.009 && row?.priceObservations?.origin === 0.003,
+    "routeQuery exposes both normalized observations");
+  ok(row?.priceUsd === 0.009, "routeQuery priceUsd matches the higher observation");
+
+  _resetFlatCacheForTest();
+  const listed = allIndexedTools({ excludeOrigin: "https://agent402.tools", limit: 500 });
+  const flatRow = listed.results.find((x) => x.seller === "https://price-conflict.example" && x.route === "/md");
+  ok(flatRow?.priceConflict === true, "index/tools exposes a price conflict");
+  ok(flatRow?.priceObservations?.origin === 0.003, "index/tools exposes origin observation");
+}
 {
   // "url to markdown" is the seller's own operationId phrasing — the merged
   // slug carries every term and must now WIN outright.
