@@ -606,6 +606,15 @@ for (const tool of ALL_KIT) {
   CATALOG[tool.route] = tool;
 }
 
+// Inline CATALOG entries (extract/meta/render/…) are keyed by "METHOD /path"
+// but historically omitted a `.route` field on the value. Kit tools set it.
+// Skill pack pages (and anything else that reads `def.route` off the value)
+// must see the same string the map key already carries — stamp it once here
+// so a missing field cannot render as the literal "undefined" in HTML.
+for (const [route, def] of Object.entries(CATALOG)) {
+  if (def && !def.route) def.route = route;
+}
+
 // Version the default OG card URL by tool count so social crawlers re-fetch
 // the card image when the catalog changes instead of serving a stale cache.
 setOgImageVersion(Object.keys(CATALOG).length);
@@ -3568,9 +3577,19 @@ app.get("/api/pricing", (_req, res) => {
     baseUrl: BASE_URL,
     openapi: `${BASE_URL}/openapi.json`,
     categories: Object.fromEntries(Object.entries(CATEGORIES).map(([k, v]) => [k, v.label])),
-    endpoints: Object.entries(CATALOG).map(([route, { price, description, category, slug }]) => {
+    endpoints: Object.entries(CATALOG).map(([route, { name, price, description, category, slug }]) => {
       const [method, path] = route.split(" ");
-      return { method, path, price, category, slug, description, docs: `${BASE_URL}/tools/${slug}`, computePayable: POW_SLUGS.has(slug) };
+      return {
+        method,
+        path,
+        name: name || slug,
+        price,
+        category,
+        slug,
+        description,
+        docs: `${BASE_URL}/tools/${slug}`,
+        computePayable: POW_SLUGS.has(slug),
+      };
     }),
   });
 });

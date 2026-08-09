@@ -16,10 +16,11 @@
 //   5. categories[] is a non-empty array — homepage chips iterate over it.
 //   6. endpoints[] floor: >= 400 (The 500 era: 462 interim, 500 at launch;
 //      alarm only on a real catalog collapse).
-//   7. Per-endpoint shape: method, path, price, category, slug, description,
+//   7. Per-endpoint shape: method, path, name, price, category, slug, description,
 //      docs, computePayable. These are the columns the listing portals
 //      scrape; a missing computePayable would silently make PoW eligibility
-//      invisible to discovery.
+//      invisible to discovery. `name` is what human UIs (playground dropdown,
+//      directory cards) render — omitting it left every label blank.
 //   8. method is a known HTTP verb; path starts with /api/; price is a
 //      display string ("$X.XXX"); slug is non-empty; docs is a URL on BASE;
 //      computePayable is a boolean.
@@ -86,6 +87,7 @@ try {
     if (typeof ep.path !== "string" || !(ep.path.startsWith("/api/") || ep.path.startsWith("/v1/"))) { fail(`endpoint path doesn't start with /api/ or /v1/ (got '${ep.path}' for slug=${ep.slug})`); break; }
     if (typeof ep.price !== "string" || !ep.price.startsWith("$")) { fail(`endpoint price isn't a $-prefixed string (got '${ep.price}' for slug=${ep.slug})`); break; }
     if (typeof ep.slug !== "string" || !ep.slug.length) { fail(`endpoint slug missing or empty (got '${ep.slug}')`); break; }
+    if (typeof ep.name !== "string" || !ep.name.length) { fail(`endpoint name missing or empty (slug=${ep.slug})`); break; }
     if (typeof ep.category !== "string" || !ep.category.length) { fail(`endpoint category missing (slug=${ep.slug})`); break; }
     if (typeof ep.description !== "string" || !ep.description.length) { fail(`endpoint description missing (slug=${ep.slug})`); break; }
     if (typeof ep.docs !== "string" || !ep.docs.startsWith(BASE)) { fail(`endpoint docs isn't a URL on BASE (got '${ep.docs}' for slug=${ep.slug})`); break; }

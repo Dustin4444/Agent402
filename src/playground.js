@@ -21,6 +21,32 @@ export function playgroundPage(baseUrl, catalog) {
   const description = `Try any of Agent402's ${freeCount} free-tier tools directly in your browser, or the OpenAI-compatible /v1 gateway. No signup, no wallet - proof-of-work pays automatically.`;
   const canonical = `${baseUrl}/playground`;
 
+  // Embed the catalog the page already has. /api/pricing is the public scrapable
+  // dump and deliberately omits discovery.inputSchema (size); the playground
+  // needs schemas + names to build forms, so ship a slim per-page payload
+  // instead of a second network round-trip that used to leave blank labels
+  // whenever pricing dropped `name`.
+  const toolsPayload = Object.entries(catalog).map(([routeKey, def]) => {
+    const route = def.route || routeKey;
+    const [method, path] = route.split(" ");
+    return {
+      method,
+      path,
+      name: def.name || def.slug,
+      slug: def.slug,
+      category: def.category || "other",
+      description: def.description || "",
+      price: def.price,
+      computePayable: isComputePayable(def),
+      discovery: def.discovery
+        ? { input: def.discovery.input, inputSchema: def.discovery.inputSchema }
+        : undefined,
+    };
+  });
+  // Neutralize </script> so a tool description cannot break out of the inline
+  // script tag. JSON.stringify already escapes quotes; this is the HTML trap.
+  const toolsJson = JSON.stringify(toolsPayload).replace(/</g, "\\u003c");
+
   const extraCss = `
   .crumb{max-width:1180px;margin:0 auto;padding:18px 30px 0;font-family:var(--font-mono);font-size:.85rem;color:var(--faint)}
   .crumb a{color:var(--faint);text-decoration:none}
@@ -105,20 +131,21 @@ ${ledgerFooterCompact()}
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  /* --- load catalog --- */
-  fetch(BASE+'/api/pricing').then(function(r){return r.json()}).then(function(data){
-    tools=(data.endpoints||[]).slice().sort(function(a,b){
+  /* --- load catalog (embedded at render time; see playgroundPage) --- */
+  (function loadCatalog(){
+    var data = ${toolsJson};
+    tools=(data||[]).slice().sort(function(a,b){
       if(a.category<b.category)return -1;
       if(a.category>b.category)return 1;
-      return a.name<b.name?-1:1;
+      var an=(a.name||a.slug||'');
+      var bn=(b.name||b.slug||'');
+      return an<bn?-1:1;
     });
     tools.forEach(function(t){toolMap[t.slug]=t});
     renderSelect(tools);
     var def=toolMap['hash']||tools[0];
     if(def){selEl.value=def.slug;showTool(def.slug)}
-  }).catch(function(){
-    selEl.textContent='Failed to load tools';
-  });
+  })();
 
   function renderSelect(list){
     var cats={};
@@ -137,7 +164,7 @@ ${ledgerFooterCompact()}
       cats[c].forEach(function(t){
         var opt=document.createElement('option');
         opt.value=t.slug;
-        opt.textContent=t.name;
+        opt.textContent=t.name||t.slug;
         grp.appendChild(opt);
       });
       selEl.appendChild(grp);
@@ -149,7 +176,7 @@ ${ledgerFooterCompact()}
     var q=searchEl.value.toLowerCase().trim();
     if(!q){renderSelect(tools);return}
     var filtered=tools.filter(function(t){
-      return t.name.toLowerCase().indexOf(q)!==-1||
+      return (t.name||'').toLowerCase().indexOf(q)!==-1||
              t.slug.toLowerCase().indexOf(q)!==-1||
              (t.description||'').toLowerCase().indexOf(q)!==-1||
              (t.category||'').toLowerCase().indexOf(q)!==-1;
@@ -175,7 +202,7 @@ ${ledgerFooterCompact()}
 
     var nameEl=document.createElement('div');
     nameEl.className='tool-name';
-    nameEl.textContent=t.name;
+    nameEl.textContent=t.name||t.slug;
     info.appendChild(nameEl);
 
     var descEl=document.createElement('div');
@@ -189,7 +216,8 @@ ${ledgerFooterCompact()}
     mSpan1.textContent=t.method+' '+t.path;
     metaEl.appendChild(mSpan1);
     var mSpan2=document.createElement('span');
-    mSpan2.textContent='$'+t.price;
+    // price is already a "$X.XXX" display string from the catalog
+    mSpan2.textContent=t.price||'';
     metaEl.appendChild(mSpan2);
     info.appendChild(metaEl);
 

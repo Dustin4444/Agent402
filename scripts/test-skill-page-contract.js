@@ -84,6 +84,13 @@ try {
       if (!html.includes(`href="/tools/${esc(slug)}"`)) { fail(`/skills/${pack.slug} missing tool link to /tools/${slug}`); break; }
     }
 
+    // Route labels must resolve. A catalog value missing `.route` used to
+    // stringify as the literal "undefined" next to extract/meta/render.
+    if (html.includes('class="route">undefined<')) {
+      fail(`/skills/${pack.slug} renders literal "undefined" as a tool route`);
+      break;
+    }
+
     if (!html.includes("claude mcp add agent402")) { fail(`/skills/${pack.slug} missing install command`); break; }
     if (!html.includes(esc(pack.claudePrompt))) { fail(`/skills/${pack.slug} missing claudePrompt copy box`); break; }
     if (!html.includes("application/ld+json") || !html.includes('"HowTo"')) { fail(`/skills/${pack.slug} missing JSON-LD HowTo`); break; }
