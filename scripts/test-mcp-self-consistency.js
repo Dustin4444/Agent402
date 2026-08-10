@@ -59,22 +59,20 @@ async function rpc(method, params) {
 // perfect consistency forever - the same way the free-tier egress probe once
 // reported a clean run while blind.
 
-// "Call request_tool", "run search_tools", "the find_tool tool", `request_tool`
-// in backticks. Restricted to snake_case (every MCP tool name here is
-// snake_case by the convention documented in mcp-http.js), which keeps ordinary
-// English out of the match set.
-const SNAKE = "[a-z][a-z0-9]*(?:_[a-z0-9]+)+";
+// "Call request_tool", "run catalog.search", "the find_tool tool", `web.search`
+// in backticks. Accepts snake_case AND Smithery dotted names (domain.action).
+const TOOL_NAME = "[a-z][a-z0-9]*(?:[._][a-z0-9]+)+";
 function referencedToolNames(text) {
   const out = new Set();
   const patterns = [
-    new RegExp(`\\b(?:call|calls|calling|run|runs|running|invoke|use)\\s+\`?(${SNAKE})\`?`, "gi"),
-    new RegExp(`\`(${SNAKE})\`\\s+tool\\b`, "gi"),
-    new RegExp(`\\b(${SNAKE})\\s+tool\\b`, "gi"),
-    new RegExp(`\\bname:\\s*['"](${SNAKE})['"]`, "gi"),
+    new RegExp(`\\b(?:call|calls|calling|run|runs|running|invoke|use)\\s+\`?(${TOOL_NAME})\`?`, "gi"),
+    new RegExp(`\`(${TOOL_NAME})\`\\s+tool\\b`, "gi"),
+    new RegExp(`\\b(${TOOL_NAME})\\s+tool\\b`, "gi"),
+    new RegExp(`\\bname:\\s*['"](${TOOL_NAME})['"]`, "gi"),
     // The service manifest advertises capabilities as mcpTool: "x". This is the
     // exact field that promised top_x402_sellers while tools/list did not offer
     // it - a third-party integrator reads the manifest, not our source.
-    new RegExp(`"?mcpTool"?:\\s*['"](${SNAKE})['"]`, "gi"),
+    new RegExp(`"?mcpTool"?:\\s*['"](${TOOL_NAME})['"]`, "gi"),
   ];
   for (const re of patterns) for (const m of text.matchAll(re)) out.add(m[1]);
   return out;
@@ -125,18 +123,16 @@ function referencedPaths(text, baseUrl) {
 // nobody advertises is fine, a whole capability nobody advertises is #705.
 const mcpSource = readFileSync(join(SRC, "mcp-http.js"), "utf8");
 const handlerBranches = [...mcpSource.matchAll(/^\s*if \(.*$/gm)]
-  .map((m) => [...m[0].matchAll(/name === "([a-z0-9_]+)"/g)].map((x) => x[1]))
+  .map((m) => [...m[0].matchAll(/name === "([a-z0-9_.]+)"/g)].map((x) => x[1]))
   .filter((names) => names.length);
 // Any name the dispatch mentions at all, including the negative guard that lets
-// call_tool through to the generic slug path (`name !== "call_tool"`). This set
-// answers "is this name known to the dispatch", not "does it have its own
-// branch" - the two questions have different right answers for call_tool.
-const handledNames = new Set([...mcpSource.matchAll(/\bname\s*[!=]==\s*"([a-z0-9_]+)"/g)].map((m) => m[1]));
+// catalog.call through to the generic slug path (`name !== "catalog.call"`).
+const handledNames = new Set([...mcpSource.matchAll(/\bname\s*[!=]==\s*"([a-z0-9_.]+)"/g)].map((m) => m[1]));
 
 // Flagship catalog tools are listed under an MCP name that is NOT always the
 // slug with dashes swapped for underscores - FLAGSHIP_MCP_NAMES in
-// mcp-flagship.js renames them to the verb_noun convention (search is listed
-// as search_web). Reversing that map is what lets the "advertised but
+// mcp-flagship.js renames them to Smithery dotted form (search is listed as
+// web.search). Reversing that map is what lets the "advertised but
 // unimplemented" check resolve a listed name back to a real catalog entry.
 const flagshipSource = readFileSync(join(SRC, "mcp-flagship.js"), "utf8");
 const overrideBlock = flagshipSource.match(/FLAGSHIP_MCP_NAMES\s*=\s*\{([\s\S]*?)\n\};/);
@@ -147,8 +143,8 @@ for (const m of (overrideBlock?.[1] ?? "").matchAll(/(?:"([^"]+)"|([a-z0-9-]+)):
   slugForMcpName.set(m[3], m[1] ?? m[2]);
 }
 if (slugForMcpName.size === 0) throw new Error("could not parse FLAGSHIP_MCP_NAMES - the rename table moved, and this check would silently pass without it");
-assert(slugForMcpName.get("search_web") === "search", "FLAGSHIP_MCP_NAMES maps search_web → search");
-assert(slugForMcpName.get("answer_question") === "answer", "FLAGSHIP_MCP_NAMES maps answer_question → answer");
+assert(slugForMcpName.get("web.search") === "search", "FLAGSHIP_MCP_NAMES maps web.search → search");
+assert(slugForMcpName.get("web.answer") === "answer", "FLAGSHIP_MCP_NAMES maps web.answer → answer");
 
 // Registered express routes, read from the source rather than probed, because
 // probing cannot distinguish "route does not exist" from "route exists but is
@@ -267,7 +263,7 @@ for (const name of [...listedNames].sort()) {
 // ------------------------------------------------- 2. the text agents read
 // Every free, self-describing surface: the tool list itself, plus the payloads
 // of the meta-tools whose entire job is to orient an agent.
-const about = await rpc("tools/call", { name: "describe_server", arguments: {} });
+const about = await rpc("tools/call", { name: "server.describe", arguments: {} });
 const payment = await rpc("tools/call", { name: "get_payment_info", arguments: {} });
 const textOf = (r) => (r.content || []).map((c) => c.text || "").join("\n");
 const llms = await fetch(`${TARGET}/llms.txt`).then((r) => r.text());
@@ -279,12 +275,12 @@ const init = await rpc("initialize", {
 });
 assert(
   typeof init.instructions === "string" && init.instructions.length > 40,
-  "initialize.instructions is populated (clients that never call describe_server still get oriented)",
+  "initialize.instructions is populated (clients that never call server.describe still get oriented)",
 );
 
 const surfaces = [
   ["tools/list", (listed.tools || []).map((t) => `${t.title}\n${t.description}`).join("\n\n")],
-  ["describe_server", textOf(about)],
+  ["server.describe", textOf(about)],
   ["get_payment_info", textOf(payment)],
   ["initialize.instructions", init.instructions || ""],
   ["/llms.txt", llms],

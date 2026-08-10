@@ -33,12 +33,15 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   FLAGSHIP_MCP_NAMES,
+  META_MCP_NAMES,
+  resolveListedName,
   FLAGSHIP_OUTPUT_SCHEMAS,
   META_OUTPUT_SCHEMAS,
   MCP_SERVER_DESCRIPTION,
   MCP_SERVER_WEBSITE,
   mcpJsonResult,
   outputSchemaFromExample,
+  mcpInitializeInstructions,
 } from "./output-schemas.js";
 
 const BASE = (process.env.AGENT402_URL || "https://agent402.tools").replace(/\/$/, "");
@@ -349,18 +352,7 @@ function rankWorkflows(query, k = 2) {
 // MCP wiring
 // Initialize instructions mirror src/mcp-flagship.js mcpInitializeInstructions
 // (stdio package cannot import src/ when published). Keep tool names listed-only.
-const INIT_INSTRUCTIONS = [
-  "Agent402 is a deterministic tools layer for AI agents (Havok Holdings LLC).",
-  "Front door: call search_web or answer_question for live web search and cited answers.",
-  "Also listed: search_news, render_page, get_stock_quote, transcribe_audio, read_memory, write_memory.",
-  "Long catalog (500+ tools): call find_tool with your task, or search_tools then call_tool.",
-  "Orientation: call describe_server. Payment rails / wallet setup: call get_payment_info.",
-  "Missing a tool: call request_tool. Ecosystem sellers: call list_top_sellers.",
-  `Install (hosted): claude mcp add --transport http agent402 ${BASE}/mcp`,
-  "Install (this npm server + wallet): claude mcp add agent402 -s user -- npx -y agent402-mcp@latest",
-  `Cursor mcp.json: { "mcpServers": { "agent402": { "command": "npx", "args": ["-y", "agent402-mcp"], "env": { "AGENT_KEY": "0x…" } } } }`,
-  `Docs: ${BASE}/llms.txt · ${BASE}/api/find?q=… · status ${BASE}/status`,
-].join("\n");
+const INIT_INSTRUCTIONS = mcpInitializeInstructions(BASE);
 
 const server = new Server(
   {
@@ -426,11 +418,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   });
   tools.push(
     {
-      name: "search_tools",
+      name: META_MCP_NAMES.search_tools,
       title: "Search the Agent402 tool catalog",
       annotations: { title: "Search the Agent402 tool catalog", ...SAFE },
       description:
-        `BROWSE the long catalog behind the flagship set: keyword search over Agent402's 500+ deterministic pay-per-call tools (exact count ${catalog.size}). Start with listed flagships for search/answer/news/render/stock/transcribe/memory; use this for long-tail slugs. Counterpart find_tool resolves a task to ONE ready-to-run pick. Many pure-CPU tools are free via proof-of-work. OpenAI-compatible LLM gateway at ${BASE}/v1 (chat nano $0.003, auto $0.01, embeddings $0.002) via call_tool when a wallet key is set. Returns matching tools + workflow templates; call them with call_tool.`,
+        `BROWSE the long catalog behind the flagship set: keyword search over Agent402's 500+ deterministic pay-per-call tools (exact count ${catalog.size}). Start with listed flagships for search/answer/news/render/stock/transcribe/memory; use this for long-tail slugs. Counterpart catalog.find resolves a task to ONE ready-to-run pick. Many pure-CPU tools are free via proof-of-work. OpenAI-compatible LLM gateway at ${BASE}/v1 (chat nano $0.003, auto $0.01, embeddings $0.002) via catalog.call when a wallet key is set. Returns matching tools + workflow templates; call them with catalog.call.`,
       inputSchema: {
         type: "object",
         properties: {
@@ -439,14 +431,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
         required: ["query"],
       },
-      outputSchema: META_OUTPUT_SCHEMAS.search_tools,
+      outputSchema: META_OUTPUT_SCHEMAS["catalog.search"],
     },
     {
-      name: "find_tool",
+      name: META_MCP_NAMES.find_tool,
       title: "Resolve a task to the one best Agent402 tool",
       annotations: { title: "Resolve a task to the one best Agent402 tool", ...SAFE },
       description:
-        "DECIDE, don't browse: resolve a plain-language task to the single best-matching Agent402 tool via the hosted /api/find resolver. Prefer this for anything outside the flagship list. Returns { task, matches } with the top pick first; then run call_tool with the chosen slug + params.",
+        "DECIDE, don't browse: resolve a plain-language task to the single best-matching Agent402 tool via the hosted /api/find resolver. Prefer this for anything outside the flagship list. Returns { task, matches } with the top pick first; then run catalog.call with the chosen slug + params.",
       inputSchema: {
         type: "object",
         properties: {
@@ -455,48 +447,48 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         },
         required: ["task"],
       },
-      outputSchema: META_OUTPUT_SCHEMAS.find_tool,
+      outputSchema: META_OUTPUT_SCHEMAS["catalog.find"],
     },
     {
-      name: "call_tool",
+      name: META_MCP_NAMES.call_tool,
       title: "Run an Agent402 tool",
       annotations: { title: "Run an Agent402 tool", ...SAFE },
       description:
-        "Call any Agent402 tool by slug (find slugs with find_tool or search_tools). Payment is handled automatically: USDC via x402 if this server has a wallet key, otherwise free proof-of-work on eligible pure-CPU tools (no wallet needed). Wallet-keyed highlights: live search/answer, stock-quote, render, transcribe, memory, and the /v1 LLM gateway tiers.",
+        "Call any Agent402 tool by slug (find slugs with catalog.find or catalog.search). Payment is handled automatically: USDC via x402 if this server has a wallet key, otherwise free proof-of-work on eligible pure-CPU tools (no wallet needed). Wallet-keyed highlights: live search/answer, stock-quote, render, transcribe, memory, and the /v1 LLM gateway tiers.",
       inputSchema: {
         type: "object",
         properties: {
-          slug: { type: "string", description: "Tool slug from search_tools, e.g. \"search\" or \"unit-convert\"" },
+          slug: { type: "string", description: "Tool slug from catalog.search, e.g. \"search\" or \"unit-convert\"" },
           params: { type: "object", description: "Tool input parameters, matching the tool's inputSchema" },
         },
         required: ["slug"],
       },
-      outputSchema: META_OUTPUT_SCHEMAS.call_tool,
+      outputSchema: META_OUTPUT_SCHEMAS["catalog.call"],
     },
     {
       // Listed as get_payment_info to match hosted /mcp; payment_info stays a CallTool alias.
-      name: "get_payment_info",
+      name: META_MCP_NAMES.get_payment_info,
       title: "Payment and wallet setup",
       annotations: { title: "Payment and wallet setup", ...SAFE },
       description: "How this MCP server is paying for Agent402 calls (USDC wallet vs proof-of-work), and what that unlocks. Includes Claude Code / Cursor / npm install one-liners.",
       inputSchema: { type: "object", properties: {} },
-      outputSchema: META_OUTPUT_SCHEMAS.get_payment_info,
+      outputSchema: META_OUTPUT_SCHEMAS["payment.info"],
     },
     {
       // Pure verb_noun (Smithery Naming). describe_agent402 / about_agent402 stay aliases.
-      name: "describe_server",
+      name: META_MCP_NAMES.describe_server,
       title: "About this Agent402 connector",
       annotations: { title: "About this Agent402 connector", ...SAFE },
       description: "Describe this stdio MCP server: flagship-first tools, install one-liners, free vs paid, and discovery URLs. Call this first.",
       inputSchema: { type: "object", properties: {} },
-      outputSchema: META_OUTPUT_SCHEMAS.describe_server,
+      outputSchema: META_OUTPUT_SCHEMAS["server.describe"],
     },
     // Discovery primitive: who's earning USDC on x402 right now? Proxies the
     // hosted /api/leaderboard (free, unpaywalled) and trims to the same compact
     // shape as the hosted MCP connector so cross-surface agents see the same UX.
     {
       // Pure verb_noun (Smithery Naming). list_x402_sellers / top_x402_sellers stay aliases.
-      name: "list_top_sellers",
+      name: META_MCP_NAMES.list_top_sellers,
       title: "List top x402 sellers",
       annotations: { title: "List top x402 sellers", ...SAFE },
       description:
@@ -509,7 +501,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           include: { type: "string", enum: ["external", "all"], description: "'external' (default) hides this service's own wallet; 'all' includes it" },
         },
       },
-      outputSchema: META_OUTPUT_SCHEMAS.list_top_sellers,
+      outputSchema: META_OUTPUT_SCHEMAS["sellers.list"],
     },
     {
       name: "route_and_execute",
@@ -533,9 +525,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
-  const { name, arguments: args = {} } = req.params;
+  const { name: rawName, arguments: args = {} } = req.params;
+  const name = resolveListedName(rawName);
   try {
-    if (name === "search_tools") {
+    if (name === "catalog.search") {
       const q = args.query ?? "";
       const results = searchTools(q, args.limit ?? 10);
       const workflows = rankWorkflows(q, 2);
@@ -548,13 +541,13 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       return mcpJsonResult({
         results,
         ...(workflows.length ? { workflows, workflowsUsage: "prompts/get { name: workflows[i].promptName, arguments: { …per-pack args } } returns the full Claude-ready task template." } : {}),
-        usage: "call_tool {\"slug\": …, \"params\": …}",
+        usage: "catalog.call {\"slug\": …, \"params\": …}",
       });
     }
-    if (name === "find_tool") {
+    if (name === "catalog.find") {
       const task = String(args.task ?? "").trim();
       if (!task) {
-        return { content: [{ type: "text", text: "find_tool requires a 'task' (plain-language description of what you need)." }], isError: true };
+        return { content: [{ type: "text", text: "catalog.find requires a 'task' (plain-language description of what you need)." }], isError: true };
       }
       const limit = Math.min(Math.max(Number(args.limit) || 5, 1), 25);
       const url = new URL(`${BASE}/api/find`);
@@ -562,7 +555,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       url.searchParams.set("k", String(limit));
       const res = await fetch(url);
       if (!res.ok) {
-        return { content: [{ type: "text", text: `find_tool failed against ${BASE}/api/find: HTTP ${res.status}` }], isError: true };
+        return { content: [{ type: "text", text: `catalog.find failed against ${BASE}/api/find: HTTP ${res.status}` }], isError: true };
       }
       const body = await res.json();
       const matches = (body.results || []).map((t) => ({
@@ -573,17 +566,17 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         example: t.example,
         required: t.required,
         inputSchema: t.inputSchema,
-        callWith: { name: "call_tool", arguments: { slug: t.slug, params: t.example ?? {} } },
+        callWith: { name: META_MCP_NAMES.call_tool, arguments: { slug: t.slug, params: t.example ?? {} } },
       }));
       return mcpJsonResult({
         task,
         matches,
         results: matches,
         ...(body.packs?.length ? { workflows: body.packs } : {}),
-        usage: "Run call_tool with the chosen {slug, params}.",
+        usage: "Run catalog.call with the chosen {slug, params}.",
       });
     }
-    if (name === "get_payment_info" || name === "payment_info") {
+    if (name === "payment.info") {
       let address = null;
       if (AGENT_KEY) {
         const { privateKeyToAccount } = await import("viem/accounts");
@@ -623,17 +616,17 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           npm: "npx -y agent402-mcp",
           maintainer: "Havok Holdings LLC",
         },
-        positioning: "Deterministic tools layer beside LLM gateways: flagship search/answer first, 500+ long-tail tools via find_tool / search_tools / call_tool.",
-        ecosystem: "Call list_top_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h — discovers the live economy beyond this catalog.",
+        positioning: "Deterministic tools layer beside LLM gateways: flagship search/answer first, 500+ long-tail tools via catalog.find / catalog.search / catalog.call.",
+        ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog.",
       });
     }
-    if (name === "describe_server" || name === "describe_agent402" || name === "about_agent402") {
+    if (name === "server.describe") {
       return mcpJsonResult({
         service: BASE,
         connector: "stdio npm package (agent402-mcp)",
         maintainer: "Havok Holdings LLC",
         startHere: {
-          firstJob: "Search the web and answer questions. Call search_web or answer_question directly, or find_tool with your task.",
+          firstJob: "Search the web and answer questions. Call web.search or web.answer directly, or catalog.find with your task.",
           mode: HAS_WALLET ? "usdc" : "proof-of-work",
         },
         install: {
@@ -644,11 +637,11 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         },
         tools: catalog.size,
         toolsEvergreen: "500+",
-        missingATool: "Call request_tool on the hosted connector, or POST /api/wish.",
+        missingATool: "Call demand.request on the hosted connector, or POST /api/wish.",
         docs: `${BASE}/llms.txt`,
       });
     }
-    if (name === "list_top_sellers" || name === "list_x402_sellers" || name === "top_x402_sellers") {
+    if (name === "sellers.list") {
       const limit = Math.min(Math.max(parseInt(args.limit, 10) || 10, 1), 50);
       const sort = args.sort === "calls" ? "calls" : "usd";
       const include = args.include === "all" ? "all" : "external";
@@ -708,18 +701,18 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     // Curated tools are exposed verb_noun for tools/list consistency, but the
     // real slug is kebab — accept exposed name, plain snake, or raw slug.
     const mcpToSlug = new Map(Object.entries(FLAGSHIP_MCP_NAMES).map(([slug, mcp]) => [mcp, slug]));
-    const wanted = name === "call_tool"
+    const wanted = name === "catalog.call"
       ? String(args.slug ?? "")
       : (catalog.has(name) ? name
         : mcpToSlug.get(name) || name.replace(/_/g, "-"));
     const tool = catalog.get(wanted);
     if (!tool) {
-      return { content: [{ type: "text", text: `Unknown tool slug "${wanted}". Use search_tools to find the right slug.` }], isError: true };
+      return { content: [{ type: "text", text: `Unknown tool slug "${wanted}". Use catalog.search to find the right slug.` }], isError: true };
     }
-    const out = await callEndpoint(tool, name === "call_tool" ? (args.params ?? {}) : args);
-    // call_tool: wrap structuredContent in {slug, result} to match META_OUTPUT_SCHEMAS.call_tool
+    const out = await callEndpoint(tool, name === "catalog.call" ? (args.params ?? {}) : args);
+    // call_tool: wrap structuredContent in {slug, result} to match META_OUTPUT_SCHEMAS["catalog.call"]
     // while keeping content text as the native tool JSON.
-    if (name === "call_tool" && !out.isError && out.structuredContent) {
+    if (name === "catalog.call" && !out.isError && out.structuredContent) {
       return {
         content: out.content,
         structuredContent: { slug: tool.slug, result: out.structuredContent },
