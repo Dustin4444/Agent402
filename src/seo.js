@@ -251,7 +251,7 @@ export function llmsTxt(baseUrl, catalog) {
 
   return `# Agent402.Tools
 
-> Pay-per-call web tools for AI agents. **First job: search the web and answer questions** (`/api/search`, `/api/answer`, `/api/search-news`) — then the long catalog of 500+ deterministic tools via `/api/find`. Call an endpoint, receive an HTTP 402 with exact payment requirements, and settle from your own wallet in USDC via the x402 protocol - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
+> Pay-per-call web tools for AI agents. **First job: search the web and answer questions** (\`/api/search\`, \`/api/answer\`, \`/api/search-news\`) — then the long catalog of 500+ deterministic tools via \`/api/find\`. Call an endpoint, receive an HTTP 402 with exact payment requirements, and settle from your own wallet in USDC via the x402 protocol - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
 
 Base URL: ${baseUrl}
 
