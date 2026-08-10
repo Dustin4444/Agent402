@@ -52,14 +52,10 @@ const BUDGET = num(process.env.AGENT402_BUDGET) ?? Infinity;
 let spentUsd = 0;
 
 const DEFAULT_CURATED = [
-  // the tools agents can't replicate locally: live search, browser, PDF, shared memory
-  "search", "extract", "render", "screenshot", "pdf", "meta", "dns", "http-check", "tls-cert", "whois",
-  "memory-write", "memory-read", "memory-remember", "memory-recall",
-  // wallet management — balance + history, first-class so directories and
-  // agents see the capability by name (they execute here when AGENT_KEY is set)
-  "wallet-balances", "wallet-balance", "wallet-transactions",
-  // one cheap pure-CPU tool so wallet-less clients see the proof-of-work path work
-  "hash",
+  // Flagship demand set — keep aligned with src/mcp-flagship.js FLAGSHIP_SLUGS.
+  // Search/answer is the front door; long tail stays behind search_tools/call_tool.
+  "search", "answer", "search-news", "render",
+  "stock-quote", "transcribe", "memory-read", "memory-write",
 ];
 
 // stdout is the MCP protocol channel — all logging goes to stderr.
@@ -238,8 +234,32 @@ async function callEndpoint(tool, args = {}) {
 
 // ---------------------------------------------------------------------------
 // Tool search over the full catalog (for everything not exposed first-class).
+// Front-door phrase boosts mirror src/find.js applyFrontDoorTerms so stdio
+// search_tools agrees with /api/find (package stays dependency-free).
+function applyFrontDoorTerms(terms, q) {
+  const ql = String(q || "").toLowerCase();
+  if (!terms.includes("websearch") && (
+    /\b(search\s+the\s+web|web\s+search|search\s+online|google\s+|bing\s+|look\s+up\s+online|find\s+on\s+the\s+web)\b/.test(ql)
+  )) {
+    // pricing descriptions carry "web search" / "Live web search" — boost those.
+    terms.push("web", "search");
+  }
+  if (!terms.includes("answer") && (
+    /\b(answer\s+(this\s+)?(question|me)|answer\s+with\s+citations|cited?\s+answer|grounded\s+answer)\b/.test(ql)
+  )) {
+    terms.push("answer", "citations");
+  }
+  if (!terms.includes("news") && (
+    /\b(latest\s+news|breaking\s+news|news\s+(about|on|for)|headlines|current\s+events)\b/.test(ql)
+  )) {
+    terms.push("news", "breaking");
+  }
+}
+
 function searchTools(query, limit = 10) {
-  const terms = String(query).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  const q = String(query || "");
+  const terms = q.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+  applyFrontDoorTerms(terms, q);
   const scored = [];
   for (const t of catalog.values()) {
     const slug = t.slug.toLowerCase();
@@ -352,24 +372,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     {
       name: "search_tools",
       description:
-        `Search the full Agent402 catalog (${catalog.size} pay-per-call tools: live market data like stock-quote at $0.003, encoding, crypto, data conversion, text, time, validation, math, unit conversions, network, browser, memory). Many pure-CPU tools are free via proof-of-work — no wallet needed. There is also an OpenAI-compatible LLM gateway at ${BASE}/v1, flat per-call (chat nano $0.003, auto $0.01, embeddings $0.002) with no API key — a funded wallet is the account; its tiers are callable here via call_tool (slugs v1-chat-nano, v1-chat-auto, v1-embeddings) when a wallet key is set. Returns matching tools with price, payment options, and input schema — call them with call_tool. Also returns matching multi-tool workflow templates (skill packs) when the query is task-shaped; fetch the whole template via prompts/get { name: "<slug>", arguments: { … } }.`,
+        `BROWSE the long catalog behind the flagship set: keyword search over Agent402's 500+ deterministic pay-per-call tools (exact count ${catalog.size}). Start with listed flagships for search/answer/news/render/stock/transcribe/memory; use this for long-tail slugs. Counterpart find_tool resolves a task to ONE ready-to-run pick. Many pure-CPU tools are free via proof-of-work. OpenAI-compatible LLM gateway at ${BASE}/v1 (chat nano $0.003, auto $0.01, embeddings $0.002) via call_tool when a wallet key is set. Returns matching tools + workflow templates; call them with call_tool.`,
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "What you need, e.g. \"convert miles to km\", \"decode JWT\", \"cron next run\"" },
+          query: { type: "string", description: "What you need, e.g. \"search the web for x402\", \"answer a question with citations\", \"convert miles to km\"" },
           limit: { type: "number", description: "Max results (default 10)" },
         },
         required: ["query"],
       },
     },
     {
-      name: "call_tool",
+      name: "find_tool",
       description:
-        "Call any Agent402 tool by slug (find slugs and input schemas with search_tools). Payment is handled automatically: USDC via x402 if this server has a wallet key, otherwise free proof-of-work on eligible pure-CPU tools (no wallet needed). Wallet-keyed highlights: live market data (stock-quote $0.003) and the /v1 LLM gateway tiers (chat nano $0.003, embeddings $0.002 — no API key).",
+        "DECIDE, don't browse: resolve a plain-language task to the single best-matching Agent402 tool via the hosted /api/find resolver. Prefer this for anything outside the flagship list. Returns { task, matches } with the top pick first; then run call_tool with the chosen slug + params.",
       inputSchema: {
         type: "object",
         properties: {
-          slug: { type: "string", description: "Tool slug from search_tools, e.g. \"unit-convert\"" },
+          task: { type: "string", description: "What you want to do, e.g. \"search the web for x402 adoption\" or \"convert miles to km\"" },
+          limit: { type: "number", description: "Max results (default 5)" },
+        },
+        required: ["task"],
+      },
+    },
+    {
+      name: "call_tool",
+      description:
+        "Call any Agent402 tool by slug (find slugs with find_tool or search_tools). Payment is handled automatically: USDC via x402 if this server has a wallet key, otherwise free proof-of-work on eligible pure-CPU tools (no wallet needed). Wallet-keyed highlights: live search/answer, stock-quote, render, transcribe, memory, and the /v1 LLM gateway tiers.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          slug: { type: "string", description: "Tool slug from search_tools, e.g. \"search\" or \"unit-convert\"" },
           params: { type: "object", description: "Tool input parameters, matching the tool's inputSchema" },
         },
         required: ["slug"],
@@ -377,7 +410,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     },
     {
       name: "payment_info",
-      description: "How this MCP server is paying for Agent402 calls (USDC wallet vs proof-of-work), and what that unlocks.",
+      description: "How this MCP server is paying for Agent402 calls (USDC wallet vs proof-of-work), and what that unlocks. Includes Claude Code / Cursor / npm install one-liners.",
       inputSchema: { type: "object", properties: {} },
     },
     // Discovery primitive: who's earning USDC on x402 right now? Proxies the
@@ -434,6 +467,42 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         }],
       };
     }
+    if (name === "find_tool") {
+      const task = String(args.task ?? "").trim();
+      if (!task) {
+        return { content: [{ type: "text", text: "find_tool requires a 'task' (plain-language description of what you need)." }], isError: true };
+      }
+      const limit = Math.min(Math.max(Number(args.limit) || 5, 1), 25);
+      const url = new URL(`${BASE}/api/find`);
+      url.searchParams.set("q", task);
+      url.searchParams.set("k", String(limit));
+      const res = await fetch(url);
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `find_tool failed against ${BASE}/api/find: HTTP ${res.status}` }], isError: true };
+      }
+      const body = await res.json();
+      const matches = (body.results || []).map((t) => ({
+        slug: t.slug,
+        name: t.name,
+        price: t.price,
+        description: t.description,
+        example: t.example,
+        required: t.required,
+        inputSchema: t.inputSchema,
+        callWith: { name: "call_tool", arguments: { slug: t.slug, params: t.example ?? {} } },
+      }));
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            task,
+            matches,
+            ...(body.packs?.length ? { workflows: body.packs } : {}),
+            usage: "Run call_tool with the chosen {slug, params}.",
+          }, null, 2),
+        }],
+      };
+    }
     if (name === "payment_info") {
       let address = null;
       if (AGENT_KEY) {
@@ -470,6 +539,14 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             note: HAS_WALLET
               ? "Every tool is available; each call is paid in USDC via x402 from the configured wallet(s) — EVM chains via AGENT_KEY, Solana via SOLANA_AGENT_KEY — within the spend controls above."
               : `No wallet configured: ${computePayable} pure-CPU tools are free via proof-of-work; the ${catalog.size - computePayable} network/browser/memory tools need a funded wallet (set AGENT_KEY for Base/Polygon/Arbitrum and/or SOLANA_AGENT_KEY for Solana).`,
+            install: {
+              claudeCodeHosted: `claude mcp add --transport http agent402 ${BASE}/mcp`,
+              claudeCodeNpm: "claude mcp add agent402 -s user -- npx -y agent402-mcp@latest",
+              cursorHosted: { mcpServers: { agent402: { url: `${BASE}/mcp` } } },
+              npm: "npx -y agent402-mcp",
+              maintainer: "Havok Holdings LLC",
+            },
+            positioning: "Deterministic tools layer beside LLM gateways: flagship search/answer first, 500+ long-tail tools via find_tool / search_tools / call_tool.",
             ecosystem: "Call top_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h — discovers the live economy beyond this catalog.",
           }, null, 2),
         }],

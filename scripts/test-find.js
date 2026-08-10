@@ -1,8 +1,9 @@
 // Unit tests for the one-call tool resolver (/api/find). Pure, no network.
-import { findTools } from "../src/find.js";
+import { findTools, applyFrontDoorTerms } from "../src/find.js";
 import { API_TOOLS } from "../src/tools/api-kit.js";
 import { CRYPTO_TOOLS } from "../src/tools/crypto-kit.js";
 import { MEV_AND_L2_TOOLS } from "../src/tools/mev-and-l2-kit.js";
+import { SEARCH_TOOLS } from "../src/tools/search.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "../src/tools/route-execute.js";
 
 let pass = 0, fail = 0;
@@ -334,6 +335,34 @@ JSON.parse(JSON.stringify(findTools(CATALOG, "extract", { baseUrl: "https://agen
   // gap that no longer exists and buries the ones that do.
   ok(f("l2beat").rarestTermCovered === true,
     `"l2beat" no longer registers as a find-miss (rarest=${f("l2beat").rarestTerm})`);
+}
+
+// --- Front door: search / answer / news phrasing ----------------------------
+//
+// Product intent: common "search the web / answer a question / news" queries
+// must land on the flagship web tools first. Phrase-gated so bare English
+// ("search tools catalog") does not hijack unrelated tasks.
+{
+  const terms = ["something"];
+  applyFrontDoorTerms(terms, "search the web for x402");
+  ok(terms.includes("web-search"), `applyFrontDoorTerms adds web-search for "search the web" (got ${terms.join(",")})`);
+  const terms2 = [];
+  applyFrontDoorTerms(terms2, "decode a jwt token");
+  ok(!terms2.includes("web-search") && !terms2.includes("answer"),
+    `applyFrontDoorTerms is a no-op on unrelated queries (got ${terms2.join(",") || "empty"})`);
+
+  const C = {};
+  for (const t of SEARCH_TOOLS) C[t.route] = t;
+  // Distractor that used to compete on loose "search" vocabulary.
+  C["POST /api/hash"] = { name: "Hash", slug: "hash", category: "encoding", price: "$0.001", description: "Hash text.", tags: ["digest"], discovery: {} };
+  const top1 = (q) => findTools(C, q, { k: 3, baseUrl: "https://agent402.tools" }).results[0]?.slug;
+
+  ok(top1("search the web for x402 adoption") === "search",
+    `"search the web…" → search (got ${top1("search the web for x402 adoption")})`);
+  ok(top1("answer this question with citations: what is x402?") === "answer",
+    `"answer this question with citations…" → answer (got ${top1("answer this question with citations: what is x402?")})`);
+  ok(top1("latest news about the Federal Reserve") === "search-news",
+    `"latest news about…" → search-news (got ${top1("latest news about the Federal Reserve")})`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
