@@ -1,7 +1,7 @@
 // Unit tests for the paid-canary's decision logic — proves the canary pages on
 // real BUYING failures and only warns on upstream/data hiccups (the chronic
 // false-alarm fix). Pure, no network, no wallet.
-import { classifyResult, decideCanary, settleRejectReason } from "./paid-canary.js";
+import { classifyResult, decideCanary, settleRejectReason, classifyRailOutcome } from "./paid-canary.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -92,6 +92,12 @@ ok(
 );
 ok(settleRejectReason(hdrs({ "payment-response": "!!!garbage!!!" })) === null, "malformed receipt, no challenge → null");
 ok(settleRejectReason(hdrs({})) === null, "no headers → null");
+
+// --- classifyRailOutcome (2026-08-10: Stellar-only fail must not be exit 1) ---
+ok(classifyRailOutcome({ toolBroken: false, railFailures: [] }) === "ok", "tools green + no rail fails → ok");
+ok(classifyRailOutcome({ toolBroken: false, railFailures: ["stellar: simulation_failed"] }) === "partial-rail", "tools green + rail fail → partial-rail");
+ok(classifyRailOutcome({ toolBroken: true, railFailures: ["stellar: simulation_failed"] }) === "broken", "tools broken + rail fail → broken (systemic wins)");
+ok(classifyRailOutcome({ toolBroken: true, railFailures: [] }) === "broken", "tools broken alone → broken");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

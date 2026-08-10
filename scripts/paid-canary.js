@@ -16,7 +16,9 @@
 // ("PAID CANARY FAILED / buying may be broken" when a single data API blipped).
 //
 // Exit codes: 0 = buying works (warnings allowed) · 1 = buying broken · 2 = misconfig
-import { readFileSync, existsSync } from "node:fs";
+//   · 3 = underfunded (settlement proven; burner empty) · 4 = green but burner low
+//   · 5 = partial-rail (tools settled; one or more chain rail legs failed)
+import { readFileSync, existsSync, appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHmac } from "node:crypto";
 // The x402 client + viem are imported dynamically inside main() so this module
@@ -514,6 +516,25 @@ export function decideCanary(results, { coreKit = CORE_KIT } = {}) {
     .map((r) => `${r.kit}:${r.path} [${r.cls}]${r.status ? ` HTTP ${r.status}` : ""}${typeof r.shapeOk === "string" ? ` — ${r.shapeOk}` : ""}`);
 
   return { broken: reasons.length > 0, coreSettled, settled, unsettled, unreachable, rows, warnings, reasons };
+}
+
+/**
+ * Grade rail-leg failures against the tool-leg verdict.
+ *
+ * 2026-08-10: Stellar alone failed while 30/30 tools settled; exit 1 made
+ * /status paint "Active outage" / "could not complete a real USDC purchase"
+ * even though buying was proven. Same doctrine as underfunded (2026-07-27):
+ * when settlement is proven, do not file a buying-outage observation — page
+ * the broken rail separately (exit 5 = partial-rail).
+ *
+ *   • tools broken (decideCanary.broken) → "broken" regardless of rails
+ *   • tools green + rail failures      → "partial-rail"
+ *   • tools green + no rail failures   → "ok"
+ */
+export function classifyRailOutcome({ toolBroken, railFailures = [] } = {}) {
+  if (toolBroken) return "broken";
+  if (railFailures.length) return "partial-rail";
+  return "ok";
 }
 
 // Rail-leg failures. The chain legs live outside `results`, so decideCanary()
@@ -1153,14 +1174,23 @@ async function main() {
   // The rail legs are not part of `results`, so decideCanary() cannot see them.
   // Without this check a rail failure has no path to the exit code at all,
   // which is why Stellar failed ten consecutive runs under a green verdict.
-  if (railFailures.length) {
+  // Exit 5 (partial-rail), not 1: tools already proved USDC settlement, so
+  // /status must not claim a buying outage (mirrors underfunded → exit 3).
+  if (classifyRailOutcome({ toolBroken: false, railFailures }) === "partial-rail") {
+    const railKeys = railFailures.map((r) => String(r).split(":")[0].trim()).filter(Boolean);
+    if (process.env.GITHUB_OUTPUT) {
+      try {
+        appendFileSync(process.env.GITHUB_OUTPUT, `rails=${railKeys.join(",")}\n`);
+      } catch { /* output file missing in local runs — ignore */ }
+    }
     console.error(
-      `\nPAID CANARY FAILED — ${railFailures.length} rail leg(s) did not settle cleanly:\n  ` +
+      `\nPAID CANARY PARTIAL — ${railFailures.length} rail leg(s) did not settle cleanly:\n  ` +
         railFailures.join("\n  ") +
-        `\n  (the tool legs are fine: ${decision.settled}/${results.length} settled. A rail leg is a ` +
-        `per-chain payment proof and is graded separately.)`
+        `\n  (settlement PROVEN: ${decision.settled}/${results.length} tools settled. A rail leg is a ` +
+        `per-chain payment proof and is graded separately. Exiting 5 so /status records ` +
+        `settlement as proven with the failed rail named, not as a buying outage.)`
     );
-    process.exit(1);
+    process.exit(5);
   }
   console.log(`\npaid-canary OK — buying works (${decision.settled}/${results.length} settled${decision.warnings.length ? `; ${decision.warnings.length} upstream warning(s)` : ""}; all rail legs settled).`);
   // Low-water check AFTER a green verdict: page for a top-up while buying

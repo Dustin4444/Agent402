@@ -335,7 +335,7 @@ jobs:
               gh workflow run paid-canary.yml --repo "$GITHUB_REPOSITORY" --ref main \
                 && HEAL="A canary run has been dispatched automatically (a dispatch always buys - the freshness gate applies to scheduled runs only). If it settles, this issue closes itself on the next heartbeat." \
                 || HEAL="Automatic dispatch FAILED, so nothing is retrying on its own."
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "No canary has proven a real USDC purchase in ${AGEH}h, so /status reports the settlement component as \`unknown\` and the public page reads \"Partially measured\".
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "No canary has proven a real USDC purchase in ${AGEH}h, so /status reports the settlement component as \`unknown\` and the public page reads \"Degraded\".
 
           This means the daily proof that BUYING works is not running. It does not by itself mean buying is broken - the 2026-08-02 case was a gate that skipped every scheduled attempt while the workflow reported success, which is why this alarm watches the observation rather than the workflow's own conclusion.
 
