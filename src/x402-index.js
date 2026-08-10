@@ -1878,6 +1878,50 @@ export function computeAliasOrigins(cacheMap) {
     for (const s of mine) if (!theirs.has(s)) { subset = false; break; }
     if (subset) aliases.add(origin);
   }
+
+  // Some sellers expose the same service on both a durable custom domain and
+  // Railway's generated deployment hostname. Both manifests can be
+  // self-canonical, so the homepage rule above cannot identify the deployment
+  // origin as an alias. Collapse only the measured, fail-closed case: exactly
+  // one non-Railway origin has the same complete tool contract and the same
+  // payees as one or more `*.up.railway.app` origins. Shared wallets alone do
+  // not collapse anything, and two custom origins remain distinct.
+  const canonicalPayees = (tools) => Object.entries(allPayTosByNetwork(tools))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([network, values]) => [network, [...values].map((value) => String(value).toLowerCase()).sort()]);
+  const exactServiceKey = (v) => {
+    const tools = v?.tools || [];
+    const payees = canonicalPayees(tools);
+    if (!tools.length || !payees.length) return null;
+    const contracts = tools.map((t) => [
+      String(t.method || "GET").toUpperCase(),
+      String(t.route || ""),
+      String(t.slug || ""),
+      String(t.price ?? ""),
+      t.paid === false ? "free" : "paid-or-unknown",
+      [...(t.networks || [])].map(String).sort(),
+    ]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    return JSON.stringify({ payees, contracts });
+  };
+  const railwayDeploymentOrigin = (origin) => {
+    try { return new URL(origin).hostname.toLowerCase().endsWith(".up.railway.app"); }
+    catch { return false; }
+  };
+  const exactGroups = new Map();
+  for (const [origin, v] of cacheMap) {
+    if (v?.error || aliases.has(origin)) continue;
+    const key = exactServiceKey(v);
+    if (!key) continue;
+    if (!exactGroups.has(key)) exactGroups.set(key, []);
+    exactGroups.get(key).push(origin);
+  }
+  for (const origins of exactGroups.values()) {
+    const durable = origins.filter((origin) => !railwayDeploymentOrigin(origin));
+    if (durable.length !== 1) continue;
+    for (const origin of origins) {
+      if (origin !== durable[0] && railwayDeploymentOrigin(origin)) aliases.add(origin);
+    }
+  }
   return aliases;
 }
 
