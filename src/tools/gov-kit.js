@@ -1,6 +1,6 @@
 // Gov-data kit — live US public-domain data, keyless and deterministic. These
 // are the data.gov-ecosystem sources agents actually want at runtime:
-//   gov-data            search 300k+ datasets on catalog.data.gov (CKAN API)
+//   gov-data            search 300k+ datasets on catalog.data.gov (Catalog API v4)
 //   weather-alerts      active NWS alerts by state (api.weather.gov)
 //   earthquakes         USGS real-time earthquake feed
 //   drug-recalls        FDA drug recall/enforcement (openFDA)
@@ -14,13 +14,31 @@
 //   federal-awards      US federal contract awards (USAspending, POST search)
 //   geo-lookup          lat/lon -> county/state/census block (FCC Area API)
 //   fema-disasters      FEMA disaster declarations by state (openFEMA)
-// All documented public APIs serving public-domain data; no scraping. College
-// Scorecard + FEC use the api.data.gov key (DATA_GOV_API_KEY, DEMO_KEY fallback);
-// the rest are keyless. (Treasury debt/rates live in macro-kit; don't dup here.)
+// All documented public APIs serving public-domain data; no scraping. gov-data,
+// College Scorecard + FEC use the api.data.gov key (DATA_GOV_API_KEY, DEMO_KEY
+// fallback); the rest are keyless. (Treasury debt/rates live in macro-kit; don't
+// dup here.)
 import { safeFetch } from "./fetch-guard.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
+}
+
+// Catalog API v4 descriptions are often HTML; strip tags for the notes field.
+function plainNotes(html) {
+  return String(html ?? "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+// DCAT distributions use format and/or mediaType, and either downloadURL or
+// accessURL. Normalize to the {format, url} shape buyers already expect.
+function dcatResources(dists) {
+  const list = Array.isArray(dists) ? dists : [];
+  return list
+    .map((r) => ({
+      format: r.format || (typeof r.mediaType === "string" ? r.mediaType.split("/").pop() : null) || null,
+      url: r.downloadURL || r.accessURL || null,
+    }))
+    .filter((r) => r.url);
 }
 
 async function getJson(url, opts = {}) {
@@ -82,8 +100,8 @@ export const GOV_TOOLS = [
   {
     route: "GET /api/gov-data", name: "US gov dataset search", slug: "gov-data", category: "data", price: "$0.003",
     description:
-      "Search 300,000+ US government datasets on catalog.data.gov (CKAN): titles, publishing org, formats, and direct resource URLs - the index agents need before fetching public data. ?q=electric+vehicles&rows=5.",
-    tags: ["data.gov", "datasets", "open-data", "government", "ckan"],
+      "Search 300,000+ US government datasets on catalog.data.gov (Catalog API): titles, publishing org, formats, and direct resource URLs - the index agents need before fetching public data. ?q=electric+vehicles&rows=5.",
+    tags: ["data.gov", "datasets", "open-data", "government", "catalog"],
     discovery: {
       input: { q: "electric vehicle charging stations", rows: 5 },
       inputSchema: {
@@ -95,8 +113,8 @@ export const GOV_TOOLS = [
       },
       output: {
         example: {
-          query: "electric vehicle charging stations", totalFound: 312,
-          results: [{ title: "Alternative Fueling Station Locator", organization: "Department of Energy", datasetUrl: "https://catalog.data.gov/dataset/…", formats: ["CSV", "JSON"], resources: [{ format: "CSV", url: "https://…" }] }],
+          query: "electric vehicle charging stations", totalFound: 5,
+          results: [{ title: "Electric Vehicle Charging Stations", organization: "Town of Cary, North Carolina", datasetUrl: "https://catalog.data.gov/dataset/…", formats: ["json", "csv"], resources: [{ format: "csv", url: "https://…" }] }],
         },
       },
     },
@@ -104,34 +122,40 @@ export const GOV_TOOLS = [
       const q = String(i.q ?? "").trim();
       if (!q) throw bad('"q" is required');
       const rows = Math.min(Math.max(parseInt(i.rows, 10) || 5, 1), 20);
-      // data.gov retired the public catalog.data.gov/api/3/action CKAN API (now
-      // 404s). The current CKAN-compatible endpoint is proxied through api.data.gov
-      // at api.gsa.gov/technology/datagov/v3 and needs an x-api-key. DATA_GOV_API_KEY
-      // (set on Railway) → the real key; falls back to the public rate-limited
-      // DEMO_KEY so the tool still works if the key isn't configured.
+      // data.gov retired the CKAN Action API (catalog.data.gov/api/3 and the
+      // api.gsa.gov/.../datagov/v3 proxy both 404 — the proxy still names
+      // catalog-old.data.gov). Current surface is Catalog API v4:
+      // https://api.gsa.gov/technology/datagov/v4/search (docs:
+      // resources.data.gov/catalog-api/). Needs X-Api-Key; DATA_GOV_API_KEY on
+      // Railway, DEMO_KEY fallback for keyless boots.
       const key = process.env.DATA_GOV_API_KEY || "DEMO_KEY";
       const data = await getJson(
-        `https://api.gsa.gov/technology/datagov/v3/action/package_search?q=${encodeURIComponent(q)}&rows=${rows}`,
+        `https://api.gsa.gov/technology/datagov/v4/search?q=${encodeURIComponent(q)}&per_page=${rows}`,
         { headers: { "x-api-key": key } },
       );
-      // CKAN's shape is { success, result: { count, results } } — a missing result
-      // block is an honest 502 rather than silently returning nulls.
-      const result = data?.result;
-      if (data?.success !== true || !result || (result.count === undefined && !Array.isArray(result.results))) {
+      // v4 shape is { results, after?, sort } — no CKAN success envelope, and
+      // no catalog-wide count (cursor pagination). Missing results → 502.
+      if (!Array.isArray(data?.results)) {
         throw bad("data.gov is not returning results right now (upstream outage) - retry later", 502);
       }
-      const results = Array.isArray(result.results) ? result.results : [];
+      const results = data.results;
       return {
         query: q,
-        totalFound: result.count ?? results.length,
-        results: results.map((d) => ({
-          title: d.title,
-          organization: d.organization?.title ?? null,
-          notes: (d.notes ?? "").replace(/\s+/g, " ").slice(0, 240),
-          datasetUrl: `https://catalog.data.gov/dataset/${d.name}`,
-          formats: [...new Set((d.resources ?? []).map((r) => r.format).filter(Boolean))],
-          resources: (d.resources ?? []).slice(0, 3).map((r) => ({ format: r.format || null, url: r.url })),
-        })),
+        // v4 has no total hit count; report this page's size (hasMore when
+        // the cursor says more pages exist).
+        totalFound: results.length,
+        hasMore: Boolean(data.after),
+        results: results.map((d) => {
+          const resources = dcatResources(d.dcat?.distribution).slice(0, 3);
+          return {
+            title: d.title,
+            organization: d.organization?.name ?? d.publisher ?? null,
+            notes: plainNotes(d.description ?? d.dcat?.description),
+            datasetUrl: d.slug ? `https://catalog.data.gov/dataset/${d.slug}` : null,
+            formats: [...new Set(resources.map((r) => r.format).filter(Boolean))],
+            resources,
+          };
+        }),
       };
     },
   },
