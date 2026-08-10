@@ -46,7 +46,7 @@ const names = (list.result?.tools ?? []).map((t) => t.name).sort();
 // band is ~3–15; keep the list tight and SWAP flagships rather than grow.
 const META = [
   "search_tools", "find_tool", "call_tool", "get_payment_info",
-  "about_agent402", "top_x402_sellers", "request_tool",
+  "describe_agent402", "list_x402_sellers", "request_tool",
 ];
 const FLAGSHIP_NAMES = FLAGSHIP_SLUGS.map((s) => FLAGSHIP_MCP_NAMES[s] || s.replace(/-/g, "_"));
 const EXPECTED_LIST = [...META, ...FLAGSHIP_NAMES].sort();
@@ -63,8 +63,24 @@ assert(
   "old free-utility curated names are no longer listed (still route as aliases)"
 );
 assert(
+  !names.includes("about_agent402") && !names.includes("top_x402_sellers"),
+  "legacy non-verb-first names are aliases only, not listed"
+);
+assert(
   (list.result?.tools ?? []).every((t) => t.title && typeof t.annotations?.readOnlyHint === "boolean"),
   "every tool carries a title + safety annotations (directory requirement)"
+);
+assert(
+  (list.result?.tools ?? []).every((t) => t.outputSchema?.type === "object" && t.outputSchema?.properties && Object.keys(t.outputSchema.properties).length > 0),
+  "every tool carries a named-field outputSchema (Smithery Capability Quality)"
+);
+assert(
+  typeof init.result?.serverInfo?.description === "string" && init.result.serverInfo.description.length > 40,
+  "initialize.serverInfo.description is set"
+);
+assert(
+  typeof init.result?.serverInfo?.websiteUrl === "string" && init.result.serverInfo.websiteUrl.includes("http"),
+  "initialize.serverInfo.websiteUrl is set"
 );
 // Writers: request_tool (wish) + write_memory (durable state). Everything else
 // is read-only so clients that trust readOnlyHint are not misled.
@@ -134,14 +150,22 @@ assert(paid.result?.isError === true, "flagship wallet-only tool (search_web) is
 assert(paidText.includes("agent402-mcp") && paidText.includes("AGENT_KEY"), "refusal explains the paid path (agent402-mcp + AGENT_KEY)");
 assert(!paidText.includes("<html"), "wallet-only tool did NOT execute");
 
-// about_agent402: flagship-first copy + install one-liners; never names missing tools.
-const about = await rpc("tools/call", { name: "about_agent402", arguments: {} });
-const aboutText = about.result?.content?.[0]?.text ?? "";
-assert(!about.result?.isError, "about_agent402 succeeds");
-assert(aboutText.includes("firstJob") && aboutText.includes("search"), "about leads with search/answer front door");
-assert(aboutText.includes("Havok Holdings LLC"), "about credits Havok Holdings LLC");
-assert(aboutText.includes("claude mcp add") && aboutText.includes("cursorMcpJson"), "about includes install one-liners");
-assert(aboutText.includes("500+"), "about uses evergreen 500+ count");
-assert(!aboutText.includes("generate_hash"), "about does not advertise removed curated utilities");
+// describe_agent402 (+ legacy about_agent402 alias): flagship-first copy + install.
+for (const aboutName of ["describe_agent402", "about_agent402"]) {
+  const about = await rpc("tools/call", { name: aboutName, arguments: {} });
+  const aboutText = about.result?.content?.[0]?.text ?? "";
+  assert(!about.result?.isError, `${aboutName} succeeds`);
+  assert(aboutText.includes("firstJob") && aboutText.includes("search"), `${aboutName} leads with search/answer front door`);
+  assert(aboutText.includes("Havok Holdings LLC"), `${aboutName} credits Havok Holdings LLC`);
+  assert(aboutText.includes("claude mcp add") && aboutText.includes("cursorMcpJson"), `${aboutName} includes install one-liners`);
+  assert(aboutText.includes("500+"), `${aboutName} uses evergreen 500+ count`);
+  assert(!aboutText.includes("generate_hash"), `${aboutName} does not advertise removed curated utilities`);
+  assert(about.result?.structuredContent?.service, `${aboutName} returns structuredContent`);
+}
+
+// Sample listed tool: search_tools outputSchema + structuredContent.
+const searchToolDef = (list.result?.tools ?? []).find((t) => t.name === "search_tools");
+assert(searchToolDef?.outputSchema?.properties?.results, "search_tools lists outputSchema.properties.results");
+assert(search.result?.structuredContent?.results, "search_tools call returns structuredContent.results");
 
 console.log("\nremote MCP connector: all checks passed");

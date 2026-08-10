@@ -81,20 +81,28 @@ try {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
   for (const required of [
-    "search_tools", "find_tool", "call_tool", "payment_info", "top_x402_sellers", "route_and_execute",
-    "search", "answer", "search_news", "render", "stock_quote", "transcribe", "memory_read", "memory_write",
+    "search_tools", "find_tool", "call_tool", "get_payment_info", "describe_agent402",
+    "list_x402_sellers", "route_and_execute",
+    "search_web", "answer_question", "search_news", "render_page", "get_stock_quote",
+    "transcribe_audio", "read_memory", "write_memory",
   ]) {
     if (!names.includes(required)) fail(`tools/list missing "${required}" (got: ${names.join(", ")})`);
   }
   if (names.some((n) => n.includes("-"))) fail(`tools/list names must be snake_case, found kebab: ${names.filter((n) => n.includes("-")).join(", ")}`);
+  if (names.includes("payment_info") || names.includes("top_x402_sellers") || names.includes("about_agent402")) {
+    fail("legacy non-verb-first names must not be listed (aliases only)");
+  }
   // backward-compat: the raw kebab slug must still resolve on call.
   const kebabCall = await client.callTool({ name: "memory-write", arguments: { key: "k", value: "v" } });
   if (kebabCall.isError && /Unknown tool/i.test(text(kebabCall))) fail("kebab slug memory-write must still resolve (backward compat)");
   if (tools.length > 20) fail(`tools/list too large (${tools.length}) — must stay flagship-sized, not dump the catalog`);
   if (tools.length < 10) fail(`tools/list too small (${tools.length}) — flagships + meta missing`);
-  const searchTool = tools.find((t) => t.name === "search");
-  if (!searchTool?.inputSchema?.properties?.q) fail("search tool lost its input schema");
-  console.log(`tools/list → ${tools.length} tools, flagship set + search/find/call/payment_info ✓`);
+  const searchTool = tools.find((t) => t.name === "search_web");
+  if (!searchTool?.inputSchema?.properties?.q) fail("search_web tool lost its input schema");
+  if (!tools.every((t) => t.outputSchema?.type === "object" && t.outputSchema?.properties && Object.keys(t.outputSchema.properties).length > 0)) {
+    fail("every tools/list entry must carry a named-field outputSchema");
+  }
+  console.log(`tools/list → ${tools.length} tools, flagship set + meta + outputSchema ✓`);
 
   // search_tools finds catalog tools that are not first-class
   const search = await client.callTool({ name: "search_tools", arguments: { query: "convert miles to kilometers" } });
@@ -125,26 +133,28 @@ try {
   console.log("call_tool long-tail call settled with proof-of-work ✓");
 
   // wallet-only flagship without a key → helpful error, not a crash
-  const render = await client.callTool({ name: "render", arguments: { url: "https://example.com" } });
+  const render = await client.callTool({ name: "render_page", arguments: { url: "https://example.com" } });
   if (!render.isError || !text(render).includes("AGENT_KEY")) fail(`wallet-only tool should explain AGENT_KEY: ${text(render).slice(0, 300)}`);
   console.log("wallet-only tool returns funding guidance without a key ✓");
 
-  // payment_info reports the mode honestly
-  const info = await client.callTool({ name: "payment_info", arguments: {} });
-  if (!text(info).includes("proof-of-work")) fail(`payment_info should report proof-of-work mode: ${text(info).slice(0, 300)}`);
-  console.log("payment_info reports proof-of-work mode ✓");
+  // get_payment_info (+ payment_info alias) reports the mode honestly
+  for (const payName of ["get_payment_info", "payment_info"]) {
+    const info = await client.callTool({ name: payName, arguments: {} });
+    if (!text(info).includes("proof-of-work")) fail(`${payName} should report proof-of-work mode: ${text(info).slice(0, 300)}`);
+  }
+  console.log("get_payment_info reports proof-of-work mode ✓");
 
-  // top_x402_sellers: thin proxy over /api/leaderboard, free to call (no
-  // payment / no PoW). Even when the leaderboard cache is warming (CI may run
-  // before the first chain scan finishes) the envelope must be well-formed
-  // and link back to the canonical /api/leaderboard.
-  const sellers = await client.callTool({ name: "top_x402_sellers", arguments: { limit: 5, sort: "calls", include: "all" } });
-  if (sellers.isError) fail(`top_x402_sellers should not error on warming cache: ${text(sellers).slice(0, 300)}`);
+  // list_x402_sellers (+ top_x402_sellers alias): thin proxy over /api/leaderboard.
+  // Even when the leaderboard cache is warming the envelope must be well-formed.
+  const sellers = await client.callTool({ name: "list_x402_sellers", arguments: { limit: 5, sort: "calls", include: "all" } });
+  if (sellers.isError) fail(`list_x402_sellers should not error on warming cache: ${text(sellers).slice(0, 300)}`);
   const sellersJson = JSON.parse(text(sellers));
-  if (sellersJson.sort !== "calls" || sellersJson.include !== "all") fail(`top_x402_sellers should echo sort+include (got sort=${sellersJson.sort}, include=${sellersJson.include})`);
-  if (!Array.isArray(sellersJson.results) || sellersJson.results.length > 5) fail(`top_x402_sellers should honor limit (got ${sellersJson.results?.length} rows)`);
-  if (typeof sellersJson.source !== "string" || !sellersJson.source.endsWith("/api/leaderboard")) fail(`top_x402_sellers should link to /api/leaderboard`);
-  console.log("top_x402_sellers proxies the leaderboard with limit/sort/include ✓");
+  if (sellersJson.sort !== "calls" || sellersJson.include !== "all") fail(`list_x402_sellers should echo sort+include (got sort=${sellersJson.sort}, include=${sellersJson.include})`);
+  if (!Array.isArray(sellersJson.results) || sellersJson.results.length > 5) fail(`list_x402_sellers should honor limit (got ${sellersJson.results?.length} rows)`);
+  if (typeof sellersJson.source !== "string" || !sellersJson.source.endsWith("/api/leaderboard")) fail(`list_x402_sellers should link to /api/leaderboard`);
+  const sellersAlias = await client.callTool({ name: "top_x402_sellers", arguments: { limit: 3 } });
+  if (sellersAlias.isError) fail(`top_x402_sellers alias should still route: ${text(sellersAlias).slice(0, 200)}`);
+  console.log("list_x402_sellers proxies the leaderboard with limit/sort/include ✓");
 
   // route_and_execute: the SOR external router. Without a task it self-explains;
   // with a task in PoW mode (no wallet) it returns the wallet-required guide
@@ -186,11 +196,11 @@ try {
       fail(`spend cap should refuse before paying: ${text(refused).slice(0, 300)}`);
     }
     console.log("spend controls refuse before any payment is signed ✓");
-    const info2 = await capped.callTool({ name: "payment_info", arguments: {} });
+    const info2 = await capped.callTool({ name: "get_payment_info", arguments: {} });
     if (!text(info2).includes("spendControls") || !text(info2).includes("0.0005")) {
-      fail(`payment_info should report spend controls: ${text(info2).slice(0, 300)}`);
+      fail(`get_payment_info should report spend controls: ${text(info2).slice(0, 300)}`);
     }
-    console.log("payment_info reports spend controls ✓");
+    console.log("get_payment_info reports spend controls ✓");
   } finally {
     await capped.close().catch(() => {});
   }

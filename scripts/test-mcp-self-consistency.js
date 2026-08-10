@@ -267,7 +267,7 @@ for (const name of [...listedNames].sort()) {
 // ------------------------------------------------- 2. the text agents read
 // Every free, self-describing surface: the tool list itself, plus the payloads
 // of the meta-tools whose entire job is to orient an agent.
-const about = await rpc("tools/call", { name: "about_agent402", arguments: {} });
+const about = await rpc("tools/call", { name: "describe_agent402", arguments: {} });
 const payment = await rpc("tools/call", { name: "get_payment_info", arguments: {} });
 const textOf = (r) => (r.content || []).map((c) => c.text || "").join("\n");
 const llms = await fetch(`${TARGET}/llms.txt`).then((r) => r.text());
@@ -279,12 +279,12 @@ const init = await rpc("initialize", {
 });
 assert(
   typeof init.instructions === "string" && init.instructions.length > 40,
-  "initialize.instructions is populated (clients that never call about_agent402 still get oriented)",
+  "initialize.instructions is populated (clients that never call describe_agent402 still get oriented)",
 );
 
 const surfaces = [
   ["tools/list", (listed.tools || []).map((t) => `${t.title}\n${t.description}`).join("\n\n")],
-  ["about_agent402", textOf(about)],
+  ["describe_agent402", textOf(about)],
   ["get_payment_info", textOf(payment)],
   ["initialize.instructions", init.instructions || ""],
   ["/llms.txt", llms],
