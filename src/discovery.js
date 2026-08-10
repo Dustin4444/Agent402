@@ -204,7 +204,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       // only prose in llms.txt) lets cross-protocol routers dispatch on it.
       leaderboardSurfaces: {
         http: `${baseUrl}/api/leaderboard`,
-        mcpTool: "top_x402_sellers",
+        mcpTool: "list_x402_sellers",
         sdkMethod: "topSellers",
       },
       includeOptions: ["all", "external", "local"],

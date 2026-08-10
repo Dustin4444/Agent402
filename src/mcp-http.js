@@ -30,8 +30,14 @@ import {
   FLAGSHIP_MCP_NAMES,
   FLAGSHIP_OPEN_WORLD,
   FLAGSHIP_WRITERS,
+  FLAGSHIP_OUTPUT_SCHEMAS,
+  META_OUTPUT_SCHEMAS,
+  MCP_SERVER_DESCRIPTION,
+  MCP_SERVER_WEBSITE,
   mcpInstallHints,
   mcpInitializeInstructions,
+  mcpJsonResult,
+  outputSchemaFromExample,
 } from "./mcp-flagship.js";
 import {
   createLimiter,
@@ -204,7 +210,13 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
 
   function buildServer(ip, signal) {
     const server = new Server(
-      { name: "agent402", version: VERSION },
+      {
+        name: "agent402",
+        version: VERSION,
+        title: "Agent402",
+        description: MCP_SERVER_DESCRIPTION,
+        websiteUrl: baseUrl || MCP_SERVER_WEBSITE,
+      },
       { capabilities: { tools: {}, prompts: {} }, instructions: mcpInitializeInstructions(baseUrl) },
     );
 
@@ -255,13 +267,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             },
             required: ["query"],
           },
+          outputSchema: META_OUTPUT_SCHEMAS.search_tools,
         },
         {
           name: "find_tool",
           title: "Resolve a task to the one best Agent402 tool",
           annotations: { title: "Resolve a task to the one best Agent402 tool", ...SAFE },
           description:
-            "DECIDE, don't browse: resolve a plain-language task to the single best-matching Agent402 tool, returned call-ready - slug, price, input schema, and a worked example (its counterpart search_tools returns a list of candidates to compare - search explores, find decides). Prefer this for anything outside the flagship list. Returns { task, matches } with the top pick first; then run call_tool with the chosen slug + params.",
+            "DECIDE, don't browse: resolve a plain-language task to the single best-matching Agent402 tool, returned call-ready - slug, price, input schema, and a worked example (its counterpart search_tools returns a list of candidates to compare - search explores, find decides). Prefer this for anything outside the flagship list. Returns { task, results } with the top pick first; then run call_tool with the chosen slug + params.",
           inputSchema: {
             type: "object",
             properties: {
@@ -270,6 +283,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             },
             required: ["task"],
           },
+          outputSchema: META_OUTPUT_SCHEMAS.find_tool,
         },
         {
           name: "call_tool",
@@ -285,6 +299,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             },
             required: ["slug"],
           },
+          outputSchema: META_OUTPUT_SCHEMAS.call_tool,
         },
         {
           name: "get_payment_info",
@@ -293,6 +308,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           description:
             `How paying for Agent402 tools works and how to manage a wallet. This hosted connector holds NO wallet: ${freeCount} pure-CPU tools run free here (or solve a proof-of-work puzzle), the rest - including search/answer and the /v1 OpenAI-compatible LLM gateway - settle in USDC via x402. Covers: the free vs paid split, how to configure a funded wallet + per-call and budget spend caps, the rails (${RAILS_OR}), and checking a wallet's balance/transaction history via call_tool on wallet-balances / wallet-transactions. Returns { connector, freeTier, pay, spendControls, balanceAndHistory }.`,
           inputSchema: { type: "object", properties: {} },
+          outputSchema: META_OUTPUT_SCHEMAS.get_payment_info,
         },
         // Flagship demand tools — listed first-class so agents see search/answer
         // as the front door without a discovery round-trip. Wallet-only on this
@@ -308,12 +324,15 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           const walletNote = free
             ? ""
             : " This hosted connector holds no wallet, so calling it here returns paid-access setup; run it with a funded wallet via npx agent402-mcp or any x402 client.";
+          const outSchema = FLAGSHIP_OUTPUT_SCHEMAS[slug]
+            || outputSchemaFromExample(def.discovery?.output?.example);
           return {
             name: mcpNameOf(slug),
             title: def.name,
             annotations: { title: def.name, ...ann },
             description: `${access} ${def.description}${returnsHint(def)}${walletNote}`,
             inputSchema: schemaOf(def),
+            outputSchema: outSchema,
           };
         }),
         // request_tool is the only meta tool that WRITES (a wish row).
@@ -337,19 +356,23 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             required: ["need"],
             additionalProperties: false,
           },
+          outputSchema: META_OUTPUT_SCHEMAS.request_tool,
         },
         {
-          name: "about_agent402",
+          // Verb-first name (Smithery naming). about_agent402 remains a CallTool alias.
+          name: "describe_agent402",
           title: "About this Agent402 connector",
           annotations: { title: "About this Agent402 connector", ...SAFE },
-          description: "[free] What this connector is: flagship-first tools layer (search/answer as the front door), how to install (Claude Code / Cursor / npm), free vs paid tiers, and discovery URLs. Call this first.",
+          description: "[free] Describe this connector: flagship-first tools layer (search/answer as the front door), how to install (Claude Code / Cursor / npm), free vs paid tiers, and discovery URLs. Call this first.",
           inputSchema: { type: "object", properties: {}, additionalProperties: false },
+          outputSchema: META_OUTPUT_SCHEMAS.describe_agent402,
         },
         ...(getLeaderboard ? [{
-          name: "top_x402_sellers",
-          title: "Top x402 sellers",
-          annotations: { title: "Top x402 sellers", ...SAFE },
-          description: "[free] Ranked x402 sellers from the on-chain settlement leaderboard: settled call counts, USDC totals and distinct buyers per seller. Use it to find other services in the open x402 ecosystem. This host's own wallet is excluded unless include is set to all.",
+          // Verb-first name (Smithery naming). top_x402_sellers remains a CallTool alias.
+          name: "list_x402_sellers",
+          title: "List top x402 sellers",
+          annotations: { title: "List top x402 sellers", ...SAFE },
+          description: "[free] List ranked x402 sellers from the on-chain settlement leaderboard: settled call counts, USDC totals and distinct buyers per seller. Use it to find other services in the open x402 ecosystem. This host's own wallet is excluded unless include is set to all.",
           inputSchema: {
             type: "object",
             properties: {
@@ -359,6 +382,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             },
             additionalProperties: false,
           },
+          outputSchema: META_OUTPUT_SCHEMAS.list_x402_sellers,
         }] : []),
       ],
     }));
@@ -383,19 +407,19 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // request_tool call (or find_tool's find-miss capture) is the
           // actual demand signal.
           const weak = results.length === 0 || topScore < FIND_WEAK_SCORE;
-          return {
-            content: [{
-              type: "text",
-              text: results.length || workflows.length
-                ? JSON.stringify({
-                    results,
-                    ...(workflows.length ? { workflows, workflowsUsage: "One call: call_tool { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
-                    ...(weak ? { hint: WISH_HINT_TEXT } : {}),
-                    usage: 'call_tool {"slug": …, "params": …}',
-                  }, null, 2)
-                : `No tools matched "${q}". Full catalog: ${baseUrl}/tools. ${WISH_HINT_TEXT}`,
-            }],
-          };
+          if (!results.length && !workflows.length) {
+            return mcpJsonResult({
+              results: [],
+              message: `No tools matched "${q}". Full catalog: ${baseUrl}/tools. ${WISH_HINT_TEXT}`,
+              hint: WISH_HINT_TEXT,
+            });
+          }
+          return mcpJsonResult({
+            results,
+            ...(workflows.length ? { workflows, workflowsUsage: "One call: call_tool { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
+            ...(weak ? { hint: WISH_HINT_TEXT } : {}),
+            usage: 'call_tool {"slug": …, "params": …}',
+          });
         }
         if (name === "find_tool") {
           capturePostHogDiscovery({ surface: "mcp:find_tool" });
@@ -434,21 +458,22 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           if (weak && taskStr.trim() && !relatedSellers) {
             try { recordWish({ need: taskStr.trim(), source: "find-miss" }); } catch { /* best-effort */ }
           }
-          return {
-            content: [{
-              type: "text",
-              text: results.length || r.packs?.length
-                ? JSON.stringify({
-                    task: r.query,
-                    results,
-                    ...(r.packs?.length ? { workflows: r.packs, workflowsUsage: "One call: call_tool { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
-                    ...(relatedSellers ? { relatedSellers } : {}),
-                    ...(weak && !relatedSellers ? { hint: WISH_HINT_TEXT } : {}),
-                    usage: "Run call_tool with the chosen {slug, params}. Free results execute here; wallet-only need the agent402-mcp npm server.",
-                  }, null, 2)
-                : `No tool matched "${taskStr}". Browse the catalog: ${baseUrl}/tools. ${WISH_HINT_TEXT}`,
-            }],
-          };
+          if (!results.length && !r.packs?.length) {
+            return mcpJsonResult({
+              task: taskStr,
+              results: [],
+              message: `No tool matched "${taskStr}". Browse the catalog: ${baseUrl}/tools. ${WISH_HINT_TEXT}`,
+              ...(weak && !relatedSellers ? { hint: WISH_HINT_TEXT } : {}),
+            });
+          }
+          return mcpJsonResult({
+            task: r.query,
+            results,
+            ...(r.packs?.length ? { workflows: r.packs, workflowsUsage: "One call: call_tool { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
+            ...(relatedSellers ? { relatedSellers } : {}),
+            ...(weak && !relatedSellers ? { hint: WISH_HINT_TEXT } : {}),
+            usage: "Run call_tool with the chosen {slug, params}. Free results execute here; wallet-only need the agent402-mcp npm server.",
+          });
         }
         if (name === "request_tool") {
           // The other half of the wish loop: an explicit "I needed something
@@ -457,60 +482,55 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           // clustered by normalized text, surfaced at GET /api/wishes.
           try {
             const result = recordWish({ need: args.need, context: args.context, source: "mcp", ip });
-            return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+            return mcpJsonResult(result);
           } catch (err) {
             return { content: [{ type: "text", text: err.message }], isError: true };
           }
         }
-        if (name === "about_agent402") {
+        if (name === "describe_agent402" || name === "about_agent402") {
           capturePostHogDiscovery({ surface: "mcp:about" });
           const install = mcpInstallHints(baseUrl);
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                service: baseUrl,
-                connector: "hosted free tier (authless)",
-                maintainer: "Havok Holdings LLC",
-                // Flagship-first positioning: tools layer beside LLM gateways,
-                // search/answer as the default job, evergreen 500+ catalog.
-                startHere: {
-                  firstJob: "Search the web and answer questions. Call search_web or answer_question directly, or find_tool with your task. Agent402 is the deterministic tools layer beside LLM gateways (e.g. BlockRun): flagship tools first, 500+ long-tail tools via find_tool / search_tools / call_tool.",
-                  flagships: [...flagshipSet].map((slug) => ({
-                    mcpName: mcpNameOf(slug),
-                    slug,
-                    price: tools.get(slug).def.price,
-                    access: tools.get(slug).free ? "free here" : "wallet required on this hosted connector",
-                  })),
-                  llmGateway: `OpenAI-compatible LLM gateway at ${baseUrl}/v1 - flat per-call pricing: chat nano $0.003, auto (eval-ranked model routing) $0.01, embeddings $0.002. No API key: a funded wallet IS the account (x402 settles per call). Reach tiers via call_tool (slugs v1-chat-nano, v1-chat-auto, v1-embeddings) on the npm server.`,
-                  freeTier: `${freeCount} pure-CPU tools run free right here with no wallet - payable with ~milliseconds of proof-of-work CPU (discover via find_tool / search_tools).`,
-                },
-                install,
-                tools: tools.size,
-                toolsEvergreen: "500+",
-                freeHere: freeCount,
-                walletOnly: tools.size - freeCount,
-                rateLimit: `${MAX_CALLS_PER_BURST}/min, ${MAX_CALLS_PER_WINDOW}/hour per client`,
-                workflows: {
-                  count: SKILL_PACKS.length,
-                  usage: "prompts/list → prompts/get { name: '<slug>', arguments: { … } } - same slugs as below.",
-                  items: SKILL_PACKS.map((p) => ({
-                    slug: p.slug,
-                    title: p.title,
-                    toolCount: (p.toolSlugs || []).length,
-                    tagline: p.tagline,
-                  })),
-                },
-                clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
-                paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50.`,
-                ...(getLeaderboard ? { ecosystem: "Call top_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog." } : {}),
-                missingATool: "Call request_tool (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
-                docs: `${baseUrl}/llms.txt`,
-              }, null, 2),
-            }],
-          };
+          return mcpJsonResult({
+            service: baseUrl,
+            connector: "hosted free tier (authless)",
+            maintainer: "Havok Holdings LLC",
+            // Flagship-first positioning: tools layer beside LLM gateways,
+            // search/answer as the default job, evergreen 500+ catalog.
+            startHere: {
+              firstJob: "Search the web and answer questions. Call search_web or answer_question directly, or find_tool with your task. Agent402 is the deterministic tools layer beside LLM gateways (e.g. BlockRun): flagship tools first, 500+ long-tail tools via find_tool / search_tools / call_tool.",
+              flagships: [...flagshipSet].map((slug) => ({
+                mcpName: mcpNameOf(slug),
+                slug,
+                price: tools.get(slug).def.price,
+                access: tools.get(slug).free ? "free here" : "wallet required on this hosted connector",
+              })),
+              llmGateway: `OpenAI-compatible LLM gateway at ${baseUrl}/v1 - flat per-call pricing: chat nano $0.003, auto (eval-ranked model routing) $0.01, embeddings $0.002. No API key: a funded wallet IS the account (x402 settles per call). Reach tiers via call_tool (slugs v1-chat-nano, v1-chat-auto, v1-embeddings) on the npm server.`,
+              freeTier: `${freeCount} pure-CPU tools run free right here with no wallet - payable with ~milliseconds of proof-of-work CPU (discover via find_tool / search_tools).`,
+            },
+            install,
+            tools: tools.size,
+            toolsEvergreen: "500+",
+            freeHere: freeCount,
+            walletOnly: tools.size - freeCount,
+            rateLimit: `${MAX_CALLS_PER_BURST}/min, ${MAX_CALLS_PER_WINDOW}/hour per client`,
+            workflows: {
+              count: SKILL_PACKS.length,
+              usage: "prompts/list → prompts/get { name: '<slug>', arguments: { … } } - same slugs as below.",
+              items: SKILL_PACKS.map((p) => ({
+                slug: p.slug,
+                title: p.title,
+                toolCount: (p.toolSlugs || []).length,
+                tagline: p.tagline,
+              })),
+            },
+            clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
+            paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50.`,
+            ...(getLeaderboard ? { ecosystem: "Call list_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog." } : {}),
+            missingATool: "Call request_tool (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
+            docs: `${baseUrl}/llms.txt`,
+          });
         }
-        if (name === "top_x402_sellers" && getLeaderboard) {
+        if ((name === "list_x402_sellers" || name === "top_x402_sellers") && getLeaderboard) {
           const snap = getLeaderboard() || {};
           const limit = Math.min(Math.max(parseInt(args.limit, 10) || 10, 1), 50);
           const sort = args.sort === "calls" ? "calls" : "usd";
@@ -546,49 +566,42 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             };
           });
           const anyExternal = rows.some((r) => r.untrustedContent);
-          return {
-            content: [{
-              type: "text",
-              text: JSON.stringify({
-                window: snap.windowLabel || "24h",
-                asOf: snap.asOf,
-                sort,
-                include,
-                totalSellers: (snap.leaderboard || []).length,
-                results: rows,
-                ...(anyExternal ? { containsUntrustedContent: true } : {}),
-                ...(snap.warming || snap.scanSkipped ? { note: "Cache is warming - results may be partial. Retry in ~60s." } : {}),
-                source: `${baseUrl}/api/leaderboard`,
-              }, null, 2),
-            }],
-          };
+          return mcpJsonResult({
+            window: snap.windowLabel || "24h",
+            asOf: snap.asOf,
+            sort,
+            include,
+            totalSellers: (snap.leaderboard || []).length,
+            results: rows,
+            ...(anyExternal ? { containsUntrustedContent: true } : {}),
+            ...(snap.warming || snap.scanSkipped ? { note: "Cache is warming - results may be partial. Retry in ~60s." } : {}),
+            source: `${baseUrl}/api/leaderboard`,
+          });
         }
         // Curated tools called by name: route to the same handler as
         // call_tool but use `name` as the slug and `args` as params directly.
         if (name === "get_payment_info" || name === "payment_info") {
-          return {
-            content: [{ type: "text", text: JSON.stringify({
-              connector: "hosted free tier - no wallet is held on this connector (authless)",
-              freeTier: {
-                pureCpuToolsFree: freeCount,
-                how: "pure-CPU tools run free here (rate-limited); wallet-only tools return paid-access instructions",
-                proofOfWork: "a walletless client can solve a proof-of-work puzzle instead of paying on eligible tools",
-              },
-              pay: {
-                model: "HTTP 402 + x402, settled in USDC on-chain, non-custodial (you hold the key)",
-                rails: RAILS_PAREN,
-                setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
-                prices: "most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50 - see each tool's exact price in search_tools results",
-                llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way - point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
-              },
-              spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },
-              balanceAndHistory: {
-                balance: "check a wallet's USDC balance via call_tool with slug wallet-balances (multi-chain) or wallet-balance (single)",
-                transactions: "pull a wallet's transaction history via call_tool with slug wallet-transactions",
-                note: "these are on-chain read tools - they need a wallet/paid access, or run them on the npm server",
-              },
-            }, null, 2) }],
-          };
+          return mcpJsonResult({
+            connector: "hosted free tier - no wallet is held on this connector (authless)",
+            freeTier: {
+              pureCpuToolsFree: freeCount,
+              how: "pure-CPU tools run free here (rate-limited); wallet-only tools return paid-access instructions",
+              proofOfWork: "a walletless client can solve a proof-of-work puzzle instead of paying on eligible tools",
+            },
+            pay: {
+              model: "HTTP 402 + x402, settled in USDC on-chain, non-custodial (you hold the key)",
+              rails: RAILS_PAREN,
+              setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
+              prices: "most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50 - see each tool's exact price in search_tools results",
+              llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way - point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
+            },
+            spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },
+            balanceAndHistory: {
+              balance: "check a wallet's USDC balance via call_tool with slug wallet-balances (multi-chain) or wallet-balance (single)",
+              transactions: "pull a wallet's transaction history via call_tool with slug wallet-transactions",
+              note: "these are on-chain read tools - they need a wallet/paid access, or run them on the npm server",
+            },
+          });
         }
         // First-class tools are exposed under their MCP name (mcpNameOf), but
         // the router accepts every historical spelling — exposed name, legacy
@@ -686,9 +699,23 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         }
         onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: false });
         if (result && result.__binary) {
-          return { content: [{ type: "image", data: Buffer.from(result.__binary).toString("base64"), mimeType: result.contentType }] };
+          return {
+            content: [{ type: "image", data: Buffer.from(result.__binary).toString("base64"), mimeType: result.contentType }],
+            structuredContent: {
+              slug: entry.def.slug,
+              result: { contentType: result.contentType, encoding: "base64", note: "Binary payload is in the image content block" },
+            },
+          };
         }
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        // Named flagships: structuredContent is the native tool result (matches
+        // FLAGSHIP_OUTPUT_SCHEMAS). call_tool: envelope {slug, result} so the
+        // meta outputSchema has stable named fields while content text stays
+        // the raw tool JSON agents already parse.
+        if (isNamed) return mcpJsonResult(result);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          structuredContent: { slug: entry.def.slug, result },
+        };
       } catch (err) {
         return { content: [{ type: "text", text: `Agent402: ${err.message}` }], isError: true };
       }
