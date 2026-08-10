@@ -205,6 +205,20 @@ if (rn) {
   // suppressed by the freshness window.
   ok(/if:\s*github\.event_name\s*==\s*'schedule'/.test(wf),
     "the freshness skip applies to SCHEDULED runs only; a manual dispatch always buys");
+
+  // 2026-08-10: a rail-only fail (tools settled) must not paint /status as a
+  // buying outage. Exit 5 → partial-rail → settlement ok=true + rail detail;
+  // alert title is rail-scoped, not "Paid-path canary FAILED".
+  ok(/CODE.*=.*"5".*partial-rail|result=partial-rail/.test(wf.replace(/\s+/g, " ")),
+    "exit 5 maps to result=partial-rail (tools settled, rail leg failed)");
+  ok(/partial-rail\)[\s\S]*?OK=true/.test(wf) && /rail fail:/.test(wf),
+    "partial-rail records settlement ok=true with a rail-named detail (underfunded doctrine)");
+  ok(/Paid canary rail FAILED/.test(wf),
+    "partial-rail pages a rail-scoped issue title, not the buying-broken title alone");
+  // The buying-broken detail must stay on the fail branch only — not on partial-rail.
+  const partialBlock = wf.match(/partial-rail\)[\s\S]*?;;/);
+  ok(partialBlock && !/could not complete a real USDC purchase/.test(partialBlock[0]),
+    "partial-rail detail must not claim buying could not complete a USDC purchase");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

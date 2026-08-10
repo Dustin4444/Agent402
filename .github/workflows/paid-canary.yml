@@ -159,10 +159,14 @@ jobs:
             # below the cheapest failed leg). Exit 4 = the run was GREEN but
             # the burner is below the low-water mark - page for a top-up
             # before the next run starves (2026-07-27: it emptied silently
-            # and the empty-wallet run paged as an outage). Anything else is
-            # a real failure.
+            # and the empty-wallet run paged as an outage). Exit 5 =
+            # tools settled but one or more chain rail legs failed
+            # (2026-08-10: Stellar alone failed while 30/30 tools settled —
+            # painting that as a buying outage on /status was the false
+            # alarm). Anything else is a real buying failure.
             if [ "$CODE" = "3" ]; then echo "result=underfunded" >> "$GITHUB_OUTPUT"
             elif [ "$CODE" = "4" ]; then echo "result=ok-low" >> "$GITHUB_OUTPUT"
+            elif [ "$CODE" = "5" ]; then echo "result=partial-rail" >> "$GITHUB_OUTPUT"
             else echo "result=fail" >> "$GITHUB_OUTPUT"; fi
           fi
 
@@ -180,6 +184,7 @@ jobs:
         env:
           OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
           RESULT: ${{ steps.canary.outputs.result }}
+          RAILS: ${{ steps.canary.outputs.rails }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           [ -n "$OP_TOKEN" ] || { echo "no operator token — skipping status record"; exit 0; }
@@ -194,8 +199,22 @@ jobs:
             # buyers were settling fine (2026-07-27). It is an ok observation
             # with the funding named; the funding issue below still pages us.
             underfunded) OK=true; DETAIL="settlement proven; canary burner needs a top-up (funding, not an outage)" ;;
+            # Partial-rail = tools settled (buying works) but one or more
+            # chain rail legs failed. Same /status doctrine as underfunded:
+            # settlement is proven, so ok=true with the failed rail named.
+            # The rail-scoped issue below still pages us (2026-08-10).
+            partial-rail)
+              OK=true
+              if [ -n "$RAILS" ]; then
+                DETAIL="settlement proven; rail fail: ${RAILS} (not a buying outage)"
+              else
+                DETAIL="settlement proven; one or more payment rails failed (not a buying outage — see canary run)"
+              fi
+              ;;
             *)    echo "canary result '$RESULT' — nothing was bought, so no observation to record"; exit 0 ;;
           esac
+          # status-store caps detail at 500 chars.
+          DETAIL=$(printf '%s' "$DETAIL" | cut -c1-500)
           BODY=$(jq -nc --arg u "$RUN_URL" --arg d "$DETAIL" --argjson ok "$OK" \
             '{source:"paid-canary", ts:(now*1000|floor), url:$u,
               components:{"settlement":{ok:$ok, detail:(if $d=="" then null else $d end)}}}')
@@ -204,13 +223,16 @@ jobs:
             -d "$BODY" >/dev/null && echo "settlement recorded (ok=$OK)" || echo "settlement not recorded (prod unreachable)"
 
       - name: Alert on failure / clear on recovery
+        env:
+          RESULT: ${{ steps.canary.outputs.result }}
+          RAILS: ${{ steps.canary.outputs.rails }}
         run: |
           TITLE="Paid-path canary FAILED"
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           # Funding starvation gets its own issue and CLOSES the outage-class
           # one: "buying may be broken" must not stay open when the run proved
           # buying works and only our wallet is empty.
-          if [ "${{ steps.canary.outputs.result }}" = "underfunded" ]; then
+          if [ "$RESULT" = "underfunded" ]; then
             FTITLE="Canary burner EMPTY (Base)"
             FOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$FTITLE\"" --json number --jq '.[0].number // empty')
             if [ -z "$FOPEN" ]; then
@@ -221,7 +243,26 @@ jobs:
             [ -n "$OPEN" ] && gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Reclassified: the failure is canary-wallet funding, not a broken paid path — settlement was proven in the same run. Tracking in the funding issue."
             exit 0
           fi
-          if [ "${{ steps.canary.outputs.result }}" = "ok-low" ]; then
+          # Partial rail failure: buying is proven; do NOT keep/open the
+          # systemic "Paid-path canary FAILED" issue (that copy claims buying
+          # may be broken). Page a rail-scoped issue instead (2026-08-10).
+          if [ "$RESULT" = "partial-rail" ]; then
+            RTITLE="Paid canary rail FAILED"
+            ROPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$RTITLE\"" --json number --jq '.[0].number // empty')
+            RAIL_LIST="${RAILS:-see run log}"
+            RBODY="The daily paid canary settled real USDC tool purchases, but one or more chain rail legs failed ($RAIL_LIST). This is a per-rail payment proof failure, not a buying outage — /status records settlement as proven with the failed rail named.
+
+          Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          Check the named rail's burner balance/trustline and its facilitator; a fully green canary closes this."
+            if [ -z "$ROPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$RTITLE" --body "$RBODY"
+            else
+              gh issue comment "$ROPEN" --repo "$GITHUB_REPOSITORY" --body "Still failing ($RAIL_LIST) at $(date -u +%FT%TZ). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            fi
+            [ -n "$OPEN" ] && gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Reclassified: tools settled this run — failure is rail-scoped ($RAIL_LIST), not a broken paid path. Tracking in the rail issue."
+            exit 1
+          fi
+          if [ "$RESULT" = "ok-low" ]; then
             LTITLE="Canary burner LOW"
             LOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$LTITLE\"" --json number --jq '.[0].number // empty')
             if [ -z "$LOPEN" ]; then
@@ -230,15 +271,18 @@ jobs:
               gh issue comment "$LOPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ). Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             fi
           fi
-          if [ "${{ steps.canary.outputs.result }}" = "ok" ]; then
+          if [ "$RESULT" = "ok" ]; then
             FTITLE="Canary burner EMPTY (Base)"
             FOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$FTITLE\"" --json number --jq '.[0].number // empty')
             [ -n "$FOPEN" ] && gh issue close "$FOPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: full canary green at $(date -u +%FT%TZ)."
             LTITLE="Canary burner LOW"
             LOPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$LTITLE\"" --json number --jq '.[0].number // empty')
             [ -n "$LOPEN" ] && gh issue close "$LOPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: green run with a healthy balance at $(date -u +%FT%TZ)."
+            RTITLE="Paid canary rail FAILED"
+            ROPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$RTITLE\"" --json number --jq '.[0].number // empty')
+            [ -n "$ROPEN" ] && gh issue close "$ROPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: all rail legs settled at $(date -u +%FT%TZ)."
           fi
-          if [ "${{ steps.canary.outputs.result }}" = "fail" ]; then
+          if [ "$RESULT" = "fail" ]; then
             BODY="The daily paid-path canary could not complete a real USDC purchase from production — *buying may be broken* (paywall, facilitator, or settlement). The free/proof-of-work path is checked separately by the Heartbeat.
           Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
           If this is a funding issue, top up the test burner; otherwise check the x402 facilitator + the paywall on the Railway service."
@@ -248,6 +292,6 @@ jobs:
               gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
             fi
             exit 1
-          elif [ "${{ steps.canary.outputs.result }}" = "ok" ] && [ -n "$OPEN" ]; then
+          elif [ "$RESULT" = "ok" ] && [ -n "$OPEN" ]; then
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: a real USDC purchase settled at $(date -u +%FT%TZ)."
           fi
