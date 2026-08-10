@@ -33,7 +33,7 @@
 // fails. render/screenshot skip LOUDLY only when Playwright Chromium is
 // missing locally (CI installs chromium — those must pass there).
 //
-// Also soft-skip LOUDLY (after retry) two free-public flakes that are NOT the
+// Also soft-skip LOUDLY (after retry) free-public flakes that are NOT the
 // dead-tool class and would otherwise thrash [test]:
 //   • media-info / audio-convert / audio-normalize — example URLs are third-
 //     party Wikimedia; handlers are covered by scripts/test-media.js on a
@@ -41,6 +41,9 @@
 //     paste-error after retry is "source host flaked", not "tool is gone".
 //   • price-feed kit 502 "malformed JSON" — DeFiLlama/CoinGecko occasionally
 //     return garbage bodies; a bare outage 502 without that wording still fails.
+//   • client-side AbortSignal timeouts (status 0) — FREE_MODE sweeps under
+//     concurrency hit slow free-public hosts; a permanently dead tool returns
+//     502/503 quickly, not a 25s hang twice. Server 504 after retry still fails.
 //
 // CONTROL: grading asserts 502 would fail (the NETWORK hole), gov-data must be
 // in-scope, and a planted Brave slug must be out-of-scope — vacuous green is
@@ -190,6 +193,11 @@ function isTransientMalformedPriceFeed(status, body, threw) {
   return status === 502 && /Price feed upstream returned malformed JSON/i.test(errText(body, threw));
 }
 
+/** Client AbortSignal / connect flake (status 0). Server 502/504 stay hard fails. */
+function isClientTimeoutFlake(status, body, threw) {
+  return status === 0 && /timeout|aborted|AbortError|ETIMEDOUT|UND_ERR_CONNECT|ECONNRESET|fetch failed/i.test(errText(body, threw));
+}
+
 function shouldRetry(status, body, threw, slug) {
   // One retry on transient flakes. 503 is included because several free-public
   // handlers surface upstream rate limits as 503 (CoinGecko), not 429.
@@ -317,6 +325,10 @@ ok(isTransientMalformedPriceFeed(502, { error: "Price feed upstream returned mal
   "control: price-feed malformed-JSON 502 is a soft-skip");
 ok(isTransientMalformedPriceFeed(502, { error: "data.gov is not returning results" }, null) === false,
   "control: bare dead-upstream 502 is NOT a price-feed soft-skip (gov-data class)");
+ok(isClientTimeoutFlake(0, null, "The operation was aborted due to timeout") === true,
+  "control: client AbortSignal timeout is a soft-skip");
+ok(isClientTimeoutFlake(504, { error: "timeout" }, null) === false,
+  "control: server HTTP 504 timeout is NOT a client-timeout soft-skip");
 ok(isStrictFailure(503, { error: "capacity" }, null) === true,
   "control: HTTP 503 is a hard fail");
 ok(isStrictFailure(504, { error: "timeout" }, null) === true,
@@ -383,6 +395,7 @@ async function main() {
   let skippedRateLimit = 0;
   let skippedMediaSource = 0;
   let skippedPriceFeed = 0;
+  let skippedClientTimeout = 0;
   const liveFails = [];
 
   await mapPool(work, CONCURRENCY, async (t) => {
@@ -420,6 +433,12 @@ async function main() {
       return;
     }
 
+    if (isClientTimeoutFlake(r.status, r.body, r.threw)) {
+      skippedClientTimeout++;
+      console.log(`\nskip - ${t.slug}: client timeout after retry (${errText(r.body, r.threw).slice(0, 100)})`);
+      return;
+    }
+
     const err = r.threw || (r.body && r.body.error) || `HTTP ${r.status}`;
     const msg = `${t.method.toUpperCase()} ${t.path} (${t.slug}) → ${r.status || "threw"} ${String(typeof err === "object" ? JSON.stringify(err) : err).slice(0, 160)}`;
     liveFails.push(msg);
@@ -438,13 +457,16 @@ async function main() {
   if (skippedPriceFeed) {
     console.log(`skip - ${skippedPriceFeed} price-feed tool(s) soft-skipped after malformed-JSON upstream flake`);
   }
+  if (skippedClientTimeout) {
+    console.log(`skip - ${skippedClientTimeout} tool(s) soft-skipped after client timeout (retry exhausted)`);
+  }
 
-  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed;
+  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed + skippedClientTimeout;
   const asserted = work.length - softSkipped;
   ok(liveFails.length === 0,
     liveFails.length
       ? `every in-scope example returns 200 without body.error — ${liveFails.length} FAILED:\n     ${liveFails.slice(0, 30).join("\n     ")}${liveFails.length > 30 ? `\n     …and ${liveFails.length - 30} more` : ""}`
-      : `every in-scope example returns 200 without body.error (${asserted} asserted, ${skippedBrowser} browser-skipped, ${skippedRateLimit} rate-limit-skipped, ${skippedMediaSource} media-source-skipped, ${skippedPriceFeed} price-feed-skipped)`);
+      : `every in-scope example returns 200 without body.error (${asserted} asserted, ${skippedBrowser} browser-skipped, ${skippedRateLimit} rate-limit-skipped, ${skippedMediaSource} media-source-skipped, ${skippedPriceFeed} price-feed-skipped, ${skippedClientTimeout} client-timeout-skipped)`);
   // Refuse a vacuous green where almost everything soft-skipped.
   ok(asserted >= Math.floor(MIN_IN_SCOPE * 0.8),
     `enough tools were actually asserted (${asserted}), not soft-skipped away`);
