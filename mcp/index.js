@@ -354,8 +354,8 @@ const INIT_INSTRUCTIONS = [
   "Front door: call search_web or answer_question for live web search and cited answers.",
   "Also listed: search_news, render_page, get_stock_quote, transcribe_audio, read_memory, write_memory.",
   "Long catalog (500+ tools): call find_tool with your task, or search_tools then call_tool.",
-  "Orientation: call describe_agent402. Payment rails / wallet setup: call get_payment_info.",
-  "Missing a tool: call request_tool. Ecosystem sellers: call list_x402_sellers.",
+  "Orientation: call describe_server. Payment rails / wallet setup: call get_payment_info.",
+  "Missing a tool: call request_tool. Ecosystem sellers: call list_top_sellers.",
   `Install (hosted): claude mcp add --transport http agent402 ${BASE}/mcp`,
   "Install (this npm server + wallet): claude mcp add agent402 -s user -- npx -y agent402-mcp@latest",
   `Cursor mcp.json: { "mcpServers": { "agent402": { "command": "npx", "args": ["-y", "agent402-mcp"], "env": { "AGENT_KEY": "0x…" } } } }`,
@@ -483,18 +483,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       outputSchema: META_OUTPUT_SCHEMAS.get_payment_info,
     },
     {
-      name: "describe_agent402",
+      // Pure verb_noun (Smithery Naming). describe_agent402 / about_agent402 stay aliases.
+      name: "describe_server",
       title: "About this Agent402 connector",
       annotations: { title: "About this Agent402 connector", ...SAFE },
       description: "Describe this stdio MCP server: flagship-first tools, install one-liners, free vs paid, and discovery URLs. Call this first.",
       inputSchema: { type: "object", properties: {} },
-      outputSchema: META_OUTPUT_SCHEMAS.describe_agent402,
+      outputSchema: META_OUTPUT_SCHEMAS.describe_server,
     },
     // Discovery primitive: who's earning USDC on x402 right now? Proxies the
     // hosted /api/leaderboard (free, unpaywalled) and trims to the same compact
     // shape as the hosted MCP connector so cross-surface agents see the same UX.
     {
-      name: "list_x402_sellers",
+      // Pure verb_noun (Smithery Naming). list_x402_sellers / top_x402_sellers stay aliases.
+      name: "list_top_sellers",
       title: "List top x402 sellers",
       annotations: { title: "List top x402 sellers", ...SAFE },
       description:
@@ -507,7 +509,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           include: { type: "string", enum: ["external", "all"], description: "'external' (default) hides this service's own wallet; 'all' includes it" },
         },
       },
-      outputSchema: META_OUTPUT_SCHEMAS.list_x402_sellers,
+      outputSchema: META_OUTPUT_SCHEMAS.list_top_sellers,
     },
     {
       name: "route_and_execute",
@@ -622,10 +624,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           maintainer: "Havok Holdings LLC",
         },
         positioning: "Deterministic tools layer beside LLM gateways: flagship search/answer first, 500+ long-tail tools via find_tool / search_tools / call_tool.",
-        ecosystem: "Call list_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h — discovers the live economy beyond this catalog.",
+        ecosystem: "Call list_top_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h — discovers the live economy beyond this catalog.",
       });
     }
-    if (name === "describe_agent402" || name === "about_agent402") {
+    if (name === "describe_server" || name === "describe_agent402" || name === "about_agent402") {
       return mcpJsonResult({
         service: BASE,
         connector: "stdio npm package (agent402-mcp)",
@@ -646,7 +648,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         docs: `${BASE}/llms.txt`,
       });
     }
-    if (name === "list_x402_sellers" || name === "top_x402_sellers") {
+    if (name === "list_top_sellers" || name === "list_x402_sellers" || name === "top_x402_sellers") {
       const limit = Math.min(Math.max(parseInt(args.limit, 10) || 10, 1), 50);
       const sort = args.sort === "calls" ? "calls" : "usd";
       const include = args.include === "all" ? "all" : "external";
