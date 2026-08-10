@@ -359,17 +359,19 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           outputSchema: META_OUTPUT_SCHEMAS.request_tool,
         },
         {
-          // Verb-first name (Smithery naming). about_agent402 remains a CallTool alias.
-          name: "describe_agent402",
+          // Pure verb_noun, no digits/brand (Smithery Naming). Prior names
+          // describe_agent402 / about_agent402 remain CallTool aliases.
+          name: "describe_server",
           title: "About this Agent402 connector",
           annotations: { title: "About this Agent402 connector", ...SAFE },
           description: "[free] Describe this connector: flagship-first tools layer (search/answer as the front door), how to install (Claude Code / Cursor / npm), free vs paid tiers, and discovery URLs. Call this first.",
           inputSchema: { type: "object", properties: {}, additionalProperties: false },
-          outputSchema: META_OUTPUT_SCHEMAS.describe_agent402,
+          outputSchema: META_OUTPUT_SCHEMAS.describe_server,
         },
         ...(getLeaderboard ? [{
-          // Verb-first name (Smithery naming). top_x402_sellers remains a CallTool alias.
-          name: "list_x402_sellers",
+          // Pure verb_noun, no digits/protocol token (Smithery Naming). Prior
+          // names list_x402_sellers / top_x402_sellers remain CallTool aliases.
+          name: "list_top_sellers",
           title: "List top x402 sellers",
           annotations: { title: "List top x402 sellers", ...SAFE },
           description: "[free] List ranked x402 sellers from the on-chain settlement leaderboard: settled call counts, USDC totals and distinct buyers per seller. Use it to find other services in the open x402 ecosystem. This host's own wallet is excluded unless include is set to all.",
@@ -382,7 +384,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             },
             additionalProperties: false,
           },
-          outputSchema: META_OUTPUT_SCHEMAS.list_x402_sellers,
+          outputSchema: META_OUTPUT_SCHEMAS.list_top_sellers,
         }] : []),
       ],
     }));
@@ -487,7 +489,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             return { content: [{ type: "text", text: err.message }], isError: true };
           }
         }
-        if (name === "describe_agent402" || name === "about_agent402") {
+        if (name === "describe_server" || name === "describe_agent402" || name === "about_agent402") {
           capturePostHogDiscovery({ surface: "mcp:about" });
           const install = mcpInstallHints(baseUrl);
           return mcpJsonResult({
@@ -525,12 +527,12 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             },
             clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
             paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50.`,
-            ...(getLeaderboard ? { ecosystem: "Call list_x402_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog." } : {}),
+            ...(getLeaderboard ? { ecosystem: "Call list_top_sellers to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog." } : {}),
             missingATool: "Call request_tool (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
             docs: `${baseUrl}/llms.txt`,
           });
         }
-        if ((name === "list_x402_sellers" || name === "top_x402_sellers") && getLeaderboard) {
+        if ((name === "list_top_sellers" || name === "list_x402_sellers" || name === "top_x402_sellers") && getLeaderboard) {
           const snap = getLeaderboard() || {};
           const limit = Math.min(Math.max(parseInt(args.limit, 10) || 10, 1), 50);
           const sort = args.sort === "calls" ? "calls" : "usd";

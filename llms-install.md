@@ -100,7 +100,7 @@ Five MCP tools that cover all 500+ underlying Agent402 tools:
   proof-of-work (free tier) or x402 payment (paid tier) under the hood.
 - `payment_info` - which mode the server is in (proof-of-work or wallet),
   the spend caps in force, what has been spent, and what a wallet unlocks.
-- `top_x402_sellers` - the live x402 seller leaderboard by settled USDC.
+- `list_top_sellers` - the live x402 seller leaderboard by settled USDC.
   Free to call, no payment and no proof-of-work.
 - `route_and_execute(task, params, maxUsd)` - reach a tool OUTSIDE this
   catalog: Agent402 resolves a proven external x402 seller, pays it on your

@@ -46,7 +46,7 @@ const names = (list.result?.tools ?? []).map((t) => t.name).sort();
 // band is ~3–15; keep the list tight and SWAP flagships rather than grow.
 const META = [
   "search_tools", "find_tool", "call_tool", "get_payment_info",
-  "describe_agent402", "list_x402_sellers", "request_tool",
+  "describe_server", "list_top_sellers", "request_tool",
 ];
 const FLAGSHIP_NAMES = FLAGSHIP_SLUGS.map((s) => FLAGSHIP_MCP_NAMES[s] || s.replace(/-/g, "_"));
 const EXPECTED_LIST = [...META, ...FLAGSHIP_NAMES].sort();
@@ -63,8 +63,13 @@ assert(
   "old free-utility curated names are no longer listed (still route as aliases)"
 );
 assert(
-  !names.includes("about_agent402") && !names.includes("top_x402_sellers"),
-  "legacy non-verb-first names are aliases only, not listed"
+  !names.includes("about_agent402") && !names.includes("top_x402_sellers") &&
+    !names.includes("describe_agent402") && !names.includes("list_x402_sellers"),
+  "legacy brand/digit names are aliases only, not listed"
+);
+assert(
+  names.every((n) => /^[a-z]+(_[a-z]+)+$/.test(n)),
+  "every listed tool name is pure snake_case verb_noun (no digits) for Smithery Naming"
 );
 assert(
   (list.result?.tools ?? []).every((t) => t.title && typeof t.annotations?.readOnlyHint === "boolean"),
@@ -150,8 +155,8 @@ assert(paid.result?.isError === true, "flagship wallet-only tool (search_web) is
 assert(paidText.includes("agent402-mcp") && paidText.includes("AGENT_KEY"), "refusal explains the paid path (agent402-mcp + AGENT_KEY)");
 assert(!paidText.includes("<html"), "wallet-only tool did NOT execute");
 
-// describe_agent402 (+ legacy about_agent402 alias): flagship-first copy + install.
-for (const aboutName of ["describe_agent402", "about_agent402"]) {
+// describe_server (+ prior describe_agent402 / about_agent402 aliases).
+for (const aboutName of ["describe_server", "describe_agent402", "about_agent402"]) {
   const about = await rpc("tools/call", { name: aboutName, arguments: {} });
   const aboutText = about.result?.content?.[0]?.text ?? "";
   assert(!about.result?.isError, `${aboutName} succeeds`);

@@ -28,11 +28,11 @@ It exposes a **flagship-first** tools/list (~15 tools, each with titles + safety
 | `search_tools` | Browse the long catalog by description; returns slugs + input schemas |
 | `call_tool` | Execute any catalog tool by slug. Pure-CPU tools run **free** here (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
 | `get_payment_info` | Free vs paid rails, wallet setup, spend caps |
-| `about_agent402` | Service description, install one-liners, free-vs-paid breakdown |
+| `describe_server` | Service description, install one-liners, free-vs-paid breakdown |
 | `request_tool` | Tell us a tool you needed that is missing |
-| `top_x402_sellers` | On-chain x402 seller leaderboard (ecosystem discovery) |
+| `list_top_sellers` | On-chain x402 seller leaderboard (ecosystem discovery) |
 
-`initialize` also returns **instructions** with the same front-door story and Claude/Cursor install one-liners, so clients that never call `about_agent402` still get oriented.
+`initialize` also returns **instructions** with the same front-door story and Claude/Cursor install one-liners, so clients that never call `describe_server` still get oriented.
 
 Flagship tools that need egress or durable state (`search_web`, `answer_question`, `render_page`, memory, …) are **listed** on the hosted connector but require a funded wallet to execute. On this authless host they return paid-path setup (run the npm server with `AGENT_KEY`, or call over HTTP with any x402 client). Pure-CPU long-tail tools via `call_tool` still run free and rate-limited.
 

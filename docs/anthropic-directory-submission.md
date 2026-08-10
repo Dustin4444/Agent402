@@ -68,11 +68,11 @@ Flagship demand tools first, then meta discovery for the long catalog.
 12. **get_payment_info** - "Payment and wallet setup". Explains the free vs paid
     split, wallet setup, spend caps, and settlement rails. Static guidance,
     read-only.
-13. **about_agent402** - "About this Agent402 connector". Flagship-first
+13. **describe_server** - "About this Agent402 connector". Flagship-first
     orientation, Claude/Cursor/npm install one-liners, free vs paid, discovery
     URLs. Free, read-only. Also returned in initialize.instructions.
 14. **request_tool** - "Request a missing tool". Writer; records demand.
-15. **top_x402_sellers** - "Top x402 sellers". Ranked sellers from the on-chain
+15. **list_top_sellers** - "List top x402 sellers". Ranked sellers from the on-chain
     settlement leaderboard. Free, read-only.
 
 ## Connection requirements

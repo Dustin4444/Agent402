@@ -159,7 +159,8 @@ export const META_OUTPUT_SCHEMAS = {
     },
     additionalProperties: true,
   },
-  describe_agent402: {
+  // Keep keys in sync with src/mcp-flagship.js META_OUTPUT_SCHEMAS.
+  describe_server: {
     type: "object",
     properties: {
       service: { type: "string" },
@@ -182,7 +183,7 @@ export const META_OUTPUT_SCHEMAS = {
     required: ["service", "maintainer", "startHere"],
     additionalProperties: true,
   },
-  list_x402_sellers: {
+  list_top_sellers: {
     type: "object",
     properties: {
       window: { type: "string" },

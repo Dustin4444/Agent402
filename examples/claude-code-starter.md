@@ -14,7 +14,7 @@ That's it. Claude Code now has access to:
 - `call_tool` - execute it (free via proof-of-work on the pure-CPU tools)
 - `payment_info` - which mode the server is in, the spend caps, and what a
   funded wallet unlocks
-- `top_x402_sellers` - the live x402 seller leaderboard by settled USDC (free)
+- `list_top_sellers` - the live x402 seller leaderboard by settled USDC (free)
 - `route_and_execute` - resolve and pay a proven external x402 seller in one
   call, result relayed back (needs a funded wallet)
 

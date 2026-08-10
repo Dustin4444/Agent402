@@ -81,16 +81,23 @@ try {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
   for (const required of [
-    "search_tools", "find_tool", "call_tool", "get_payment_info", "describe_agent402",
-    "list_x402_sellers", "route_and_execute",
+    "search_tools", "find_tool", "call_tool", "get_payment_info", "describe_server",
+    "list_top_sellers", "route_and_execute",
     "search_web", "answer_question", "search_news", "render_page", "get_stock_quote",
     "transcribe_audio", "read_memory", "write_memory",
   ]) {
     if (!names.includes(required)) fail(`tools/list missing "${required}" (got: ${names.join(", ")})`);
   }
   if (names.some((n) => n.includes("-"))) fail(`tools/list names must be snake_case, found kebab: ${names.filter((n) => n.includes("-")).join(", ")}`);
-  if (names.includes("payment_info") || names.includes("top_x402_sellers") || names.includes("about_agent402")) {
-    fail("legacy non-verb-first names must not be listed (aliases only)");
+  if (
+    names.includes("payment_info") || names.includes("top_x402_sellers") ||
+    names.includes("about_agent402") || names.includes("describe_agent402") ||
+    names.includes("list_x402_sellers")
+  ) {
+    fail("legacy brand/digit names must not be listed (aliases only)");
+  }
+  if (!names.every((n) => /^[a-z]+(_[a-z]+)+$/.test(n))) {
+    fail("every listed tool name must be pure snake_case verb_noun (no digits)");
   }
   // backward-compat: the raw kebab slug must still resolve on call.
   const kebabCall = await client.callTool({ name: "memory-write", arguments: { key: "k", value: "v" } });
@@ -144,17 +151,19 @@ try {
   }
   console.log("get_payment_info reports proof-of-work mode ✓");
 
-  // list_x402_sellers (+ top_x402_sellers alias): thin proxy over /api/leaderboard.
+  // list_top_sellers (+ prior list_x402_sellers / top_x402_sellers aliases).
   // Even when the leaderboard cache is warming the envelope must be well-formed.
-  const sellers = await client.callTool({ name: "list_x402_sellers", arguments: { limit: 5, sort: "calls", include: "all" } });
-  if (sellers.isError) fail(`list_x402_sellers should not error on warming cache: ${text(sellers).slice(0, 300)}`);
+  const sellers = await client.callTool({ name: "list_top_sellers", arguments: { limit: 5, sort: "calls", include: "all" } });
+  if (sellers.isError) fail(`list_top_sellers should not error on warming cache: ${text(sellers).slice(0, 300)}`);
   const sellersJson = JSON.parse(text(sellers));
-  if (sellersJson.sort !== "calls" || sellersJson.include !== "all") fail(`list_x402_sellers should echo sort+include (got sort=${sellersJson.sort}, include=${sellersJson.include})`);
-  if (!Array.isArray(sellersJson.results) || sellersJson.results.length > 5) fail(`list_x402_sellers should honor limit (got ${sellersJson.results?.length} rows)`);
-  if (typeof sellersJson.source !== "string" || !sellersJson.source.endsWith("/api/leaderboard")) fail(`list_x402_sellers should link to /api/leaderboard`);
-  const sellersAlias = await client.callTool({ name: "top_x402_sellers", arguments: { limit: 3 } });
-  if (sellersAlias.isError) fail(`top_x402_sellers alias should still route: ${text(sellersAlias).slice(0, 200)}`);
-  console.log("list_x402_sellers proxies the leaderboard with limit/sort/include ✓");
+  if (sellersJson.sort !== "calls" || sellersJson.include !== "all") fail(`list_top_sellers should echo sort+include (got sort=${sellersJson.sort}, include=${sellersJson.include})`);
+  if (!Array.isArray(sellersJson.results) || sellersJson.results.length > 5) fail(`list_top_sellers should honor limit (got ${sellersJson.results?.length} rows)`);
+  if (typeof sellersJson.source !== "string" || !sellersJson.source.endsWith("/api/leaderboard")) fail(`list_top_sellers should link to /api/leaderboard`);
+  for (const alias of ["list_x402_sellers", "top_x402_sellers"]) {
+    const sellersAlias = await client.callTool({ name: alias, arguments: { limit: 3 } });
+    if (sellersAlias.isError) fail(`${alias} alias should still route: ${text(sellersAlias).slice(0, 200)}`);
+  }
+  console.log("list_top_sellers proxies the leaderboard with limit/sort/include ✓");
 
   // route_and_execute: the SOR external router. Without a task it self-explains;
   // with a task in PoW mode (no wallet) it returns the wallet-required guide

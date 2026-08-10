@@ -168,7 +168,10 @@ export const META_OUTPUT_SCHEMAS = {
     },
     additionalProperties: true,
   },
-  describe_agent402: {
+  // Smithery Naming wants pure [a-z_]+ verb_noun — no digits / brand tokens
+  // (describe_agent402 / list_x402_sellers failed the scan). Old names stay
+  // CallTool aliases.
+  describe_server: {
     type: "object",
     properties: {
       service: { type: "string" },
@@ -191,7 +194,7 @@ export const META_OUTPUT_SCHEMAS = {
     required: ["service", "maintainer", "startHere"],
     additionalProperties: true,
   },
-  list_x402_sellers: {
+  list_top_sellers: {
     type: "object",
     properties: {
       window: { type: "string" },
@@ -441,7 +444,7 @@ export function mcpInstallHints(baseUrl) {
 
 /**
  * MCP initialize.instructions — orientation for clients that never call
- * describe_agent402. Keep tool names listed-only (self-consistency) and lead
+ * describe_server. Keep tool names listed-only (self-consistency) and lead
  * with search/answer as the front door.
  */
 export function mcpInitializeInstructions(baseUrl) {
@@ -452,8 +455,8 @@ export function mcpInitializeInstructions(baseUrl) {
     "Front door: call search_web or answer_question for live web search and cited answers.",
     "Also listed: search_news, render_page, get_stock_quote, transcribe_audio, read_memory, write_memory.",
     "Long catalog (500+ tools): call find_tool with your task, or search_tools then call_tool.",
-    "Orientation: call describe_agent402. Payment rails / wallet setup: call get_payment_info.",
-    "Missing a tool: call request_tool. Ecosystem sellers: call list_x402_sellers.",
+    "Orientation: call describe_server. Payment rails / wallet setup: call get_payment_info.",
+    "Missing a tool: call request_tool. Ecosystem sellers: call list_top_sellers.",
     `Install (hosted, zero wallet): ${install.claudeCodeHosted}`,
     `Install (npm + wallet for paid flagships): ${install.claudeCodeNpm}`,
     `Cursor mcp.json: { "mcpServers": { "agent402": { "url": "${hosted}" } } }`,

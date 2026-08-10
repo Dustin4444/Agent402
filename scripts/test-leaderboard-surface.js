@@ -42,7 +42,7 @@ ok(llms.includes("/api/route") && llms.includes("/api/find"), "llms.txt still ad
 // MCP + SDK parity: the leaderboard primitive lives on three surfaces now;
 // llms.txt must mention all three so an LLM crawling the doc learns it can
 // reach the same data via the MCP tool or the SDK method, not just the JSON.
-ok(llms.includes("list_x402_sellers"), "llms.txt names the MCP tool list_x402_sellers");
+ok(llms.includes("list_top_sellers"), "llms.txt names the MCP tool list_top_sellers");
 ok(llms.includes("topSellers"), "llms.txt names the SDK method topSellers()");
 ok(/\?sort=usd\|calls/.test(llms), "llms.txt documents the ?sort=usd|calls param");
 
@@ -66,7 +66,7 @@ ok(manifest.discovery.sortOptions.includes("usd") && manifest.discovery.sortOpti
 // or custom router can dispatch on the typed shape (not just prose).
 ok(manifest.discovery.leaderboardSurfaces && typeof manifest.discovery.leaderboardSurfaces === "object", "manifest.discovery.leaderboardSurfaces present");
 ok(manifest.discovery.leaderboardSurfaces.http === `${BASE}/api/leaderboard`, "leaderboardSurfaces.http = /api/leaderboard");
-ok(manifest.discovery.leaderboardSurfaces.mcpTool === "list_x402_sellers", "leaderboardSurfaces.mcpTool = list_x402_sellers");
+ok(manifest.discovery.leaderboardSurfaces.mcpTool === "list_top_sellers", "leaderboardSurfaces.mcpTool = list_top_sellers");
 ok(manifest.discovery.leaderboardSurfaces.sdkMethod === "topSellers", "leaderboardSurfaces.sdkMethod = topSellers");
 ok(manifest.machineReadable.findTool && manifest.discovery.neutralRouter, "manifest still exposes find + router");
 // Must serialize (it is served as JSON).
@@ -86,7 +86,7 @@ ok(/How do I see which x402 sellers are most used\?/.test(html), "FAQ JSON-LD/vi
 // The leaderboard FAQ answer is the entry point for any LLM crawling SEO;
 // since the same primitive now ships as an MCP tool + SDK method, the answer
 // must name those paths or agents will only discover the HTTP one.
-ok(/list_x402_sellers/.test(html), "leaderboard FAQ answer names MCP tool list_x402_sellers");
+ok(/list_top_sellers/.test(html), "leaderboard FAQ answer names MCP tool list_top_sellers");
 ok(/topSellers/.test(html), "leaderboard FAQ answer names SDK method topSellers()");
 
 // JSON-LD FAQPage must include the leaderboard question on the machine side too.
