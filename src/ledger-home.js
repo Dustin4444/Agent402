@@ -273,6 +273,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       </div>
     </div>
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:14px;">+ zero-dep adapters: openai · anthropic · langchain · llamaindex · vercel-ai · google-adk · aws-strands</div>
+    <div style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:12px;">Also on <a href="https://smithery.ai/servers/mike-kq9d/agent402" rel="noopener" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">Smithery</a> · install from the registry or paste <span style="color:var(--ink);">https://agent402.tools/mcp</span></div>
   </section>
 
   <!-- CATALOG INDEX -->

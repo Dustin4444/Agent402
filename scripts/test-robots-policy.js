@@ -65,6 +65,7 @@ try {
     "Amazonbot",      // Amazon
     "cohere-ai",      // Cohere
     "Meta-ExternalAgent", // Meta AI
+    "SmitheryBot",    // Smithery registry backlink / listing scanner
   ];
 
   // Each bot must get its own User-agent block (not fall through to *) AND

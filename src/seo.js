@@ -16,6 +16,9 @@ export function robotsTxt(baseUrl) {
     "GPTBot", "OAI-SearchBot", "ChatGPT-User", "ClaudeBot", "Claude-Web", "anthropic-ai",
     "PerplexityBot", "Google-Extended", "Googlebot", "Bingbot", "Applebot", "Applebot-Extended",
     "CCBot", "Bytespider", "Amazonbot", "cohere-ai", "Meta-ExternalAgent", "DuckDuckBot",
+    // Smithery registry scanner (User-Agent SmitheryBot/1.0) - needs to read
+    // homepage + /llms.txt for the listing backlink check; never Disallow it.
+    "SmitheryBot",
   ];
   // COST, not secrecy, is why the seller-scoped market views are disallowed.
   // `/<chain>?seller=<host>` and `/api/market/<chain>/panel` run a per-wallet
@@ -301,7 +304,7 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 - [Hosted MCP connector](${baseUrl}/mcp): flagship-first remote MCP (search/answer/render/data/transcribe/memory + find_tool / call_tool for the 500+ long tail). Install one-liners:
   - Claude Code: \`claude mcp add --transport http agent402 ${baseUrl}/mcp\`
   - Cursor: add to \`~/.cursor/mcp.json\` → \`{"mcpServers":{"agent402":{"url":"${baseUrl}/mcp"}}}\`
-  - Smithery: paste \`${baseUrl}/mcp\` at https://smithery.ai/new
+  - Smithery: listed at https://smithery.ai/servers/mike-kq9d/agent402 (paste \`${baseUrl}/mcp\` at https://smithery.ai/new)
 - [agent402-mcp](https://www.npmjs.com/package/agent402-mcp): npm MCP server with payment underneath (\`npx -y agent402-mcp\`, optional \`AGENT_KEY\` for USDC via x402). Claude Code: \`claude mcp add agent402 -s user -- npx -y agent402-mcp@latest\`
 
 ## Framework adapters (zero-dependency npm)
