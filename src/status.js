@@ -72,18 +72,24 @@ const WINDOWS = [
   { key: "90d", label: "90 days", ms: 90 * DAY },
 ];
 
-/** Worst state wins. One component down means the service is not "all
- *  operational"; pretending otherwise is how status pages stop meaning
- *  anything. Components we have never measured cannot vote. */
+/** Core serving components — only these can force overall "outage".
+ *  Settlement / rails outages alone roll up to "degraded" so a single failed
+ *  canary rail cannot paint the public page as Active outage while the API
+ *  and paywall are fine (2026-08-10 Stellar false alarm). */
+export const CORE_STATUS_KEYS = Object.freeze(["api", "catalog", "mcp", "paywall", "paid-call"]);
+
+/** Worst state wins among what we have measured, with core-scoped outage.
+ *  Components we have never measured cannot vote. */
 export function overallState(components) {
-  const states = components.filter((c) => c.observed > 0).map((c) => c.current.state);
-  if (!states.length) return "unknown";
-  if (states.includes("outage")) return "outage";
+  const voting = components.filter((c) => c.observed > 0);
+  if (!voting.length) return "unknown";
+  const core = new Set(CORE_STATUS_KEYS);
+  if (voting.some((c) => core.has(c.key) && c.current?.state === "outage")) return "outage";
   // Everything stale is not "degraded" — degraded asserts we know something is
-  // wrong. If no component has a fresh observation we simply do not know, and
-  // saying so is the honest answer.
-  if (states.every((s) => s === "unknown")) return "unknown";
-  if (states.includes("unknown")) return "degraded";
+  // wrong (or that measurement is incomplete). If no component has a fresh
+  // observation we simply do not know, and saying so is the honest answer.
+  if (voting.every((c) => c.current?.state === "unknown")) return "unknown";
+  if (voting.some((c) => ["outage", "degraded", "unknown"].includes(c.current?.state))) return "degraded";
   return "operational";
 }
 
@@ -331,11 +337,19 @@ table.inc td::before{content:attr(data-l) ": ";color:var(--faint);font-family:va
  */
 export function statusPage(baseUrl, stats, snap) {
   const api = snap.components.find((c) => c.key === "api");
+  const settlement = snap.components.find((c) => c.key === "settlement");
   const headline =
     snap.overall === "operational" ? "All systems operational"
       : snap.overall === "outage" ? "Active outage"
-        : snap.overall === "degraded" ? "Partially measured"
-          : "Not yet measured";
+        : snap.overall === "degraded" ? "Degraded"
+          : snap.overall === "unknown" ? "Partially measured"
+            : "Not yet measured";
+
+  const settlementDetail = settlement?.current?.detail;
+  const heroExtra =
+    snap.overall === "degraded" && settlementDetail
+      ? `<p class="hm">${esc(settlementDetail)}</p>`
+      : "";
 
   const windowList =
     api && api.observed
@@ -360,6 +374,7 @@ export function statusPage(baseUrl, stats, snap) {
   <p class="hm">${measuringSince
     ? `Probed every few minutes by two independent observers since ${esc(measuringSince)}, across ${snap.measurement.totalObservations.toLocaleString()} recorded observation${plural(snap.measurement.totalObservations)}.`
     : "No observations recorded yet, so no availability is claimed."}</p>
+  ${heroExtra}
 </div>
 
 ${windowList}

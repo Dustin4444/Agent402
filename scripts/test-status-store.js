@@ -138,13 +138,16 @@ const NOW = Date.UTC(2026, 6, 25, 12, 0, 0); // 2026-07-25T12:00:00Z
 // ── Overall rollup (src/status.js) ───────────────────────────────────────────
 {
   const { overallState } = await import("../src/status.js");
-  const c = (state, observed = 10) => ({ observed, current: { state } });
-  check("all operational rolls up to operational", overallState([c("operational"), c("operational")]) === "operational");
-  check("one outage dominates everything else", overallState([c("operational"), c("outage")]) === "outage");
-  check("a mix of fresh and stale is degraded", overallState([c("operational"), c("unknown")]) === "degraded");
-  check("ALL stale is 'unknown', not 'degraded' (we don't know, vs we know it's bad)", overallState([c("unknown"), c("unknown")]) === "unknown");
-  check("never-observed components do not vote", overallState([c("operational"), c("outage", 0)]) === "operational");
-  check("nothing observed at all is unknown", overallState([c("unknown", 0)]) === "unknown");
+  // Rollup is key-aware: only core serving components can force overall outage.
+  const c = (key, state, observed = 10) => ({ key, observed, current: { state } });
+  check("all operational rolls up to operational", overallState([c("api", "operational"), c("settlement", "operational")]) === "operational");
+  check("a core outage dominates everything else", overallState([c("api", "outage"), c("settlement", "operational")]) === "outage");
+  check("settlement-only outage rolls up to degraded (not Active outage)", overallState([c("api", "operational"), c("settlement", "outage")]) === "degraded");
+  check("rails-only outage rolls up to degraded", overallState([c("mcp", "operational"), c("rails", "outage")]) === "degraded");
+  check("a mix of fresh and stale is degraded", overallState([c("api", "operational"), c("settlement", "unknown")]) === "degraded");
+  check("ALL stale is 'unknown', not 'degraded' (we don't know, vs we know it's bad)", overallState([c("api", "unknown"), c("settlement", "unknown")]) === "unknown");
+  check("never-observed components do not vote", overallState([c("api", "operational"), c("settlement", "outage", 0)]) === "operational");
+  check("nothing observed at all is unknown", overallState([c("api", "unknown", 0)]) === "unknown");
 }
 
 _resetForTest();
