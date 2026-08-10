@@ -1357,6 +1357,14 @@ jobs:
       - name: gov-data Catalog API v4 (retired CKAN v3 proxy 404s on catalog-old)
         run: node scripts/test-gov-data.js
 
+      # Strict FREE_MODE sweep of paid tools that do NOT burn Brave/OpenAI/
+      # OpenRouter/E2B/Blockscout-buyer/FRED/Neynar/etc. Fails on 502/503/504
+      # (unlike test-all.js NETWORK leniency — that hole kept gov-data green
+      # while dead; issue #730). Filter never calls metered routes; own-boot
+      # strips keys too. Uses the shared FREE_MODE server when TARGET_URL is set.
+      - name: Non-metered paid examples (strict — 502/503/504 fail; NETWORK leniency hole)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-non-metered-examples.js
+
       - name: Paid scan budget (a public route must not spend without limit)
         run: node scripts/test-paid-scan-budget.js
 
