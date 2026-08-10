@@ -272,11 +272,21 @@ const payment = await rpc("tools/call", { name: "get_payment_info", arguments: {
 const textOf = (r) => (r.content || []).map((c) => c.text || "").join("\n");
 const llms = await fetch(`${TARGET}/llms.txt`).then((r) => r.text());
 const manifest = await fetch(`${TARGET}/.well-known/x402`).then((r) => r.text());
+const init = await rpc("initialize", {
+  protocolVersion: "2025-03-26",
+  capabilities: {},
+  clientInfo: { name: "test-mcp-self-consistency", version: "0.0.0" },
+});
+assert(
+  typeof init.instructions === "string" && init.instructions.length > 40,
+  "initialize.instructions is populated (clients that never call about_agent402 still get oriented)",
+);
 
 const surfaces = [
   ["tools/list", (listed.tools || []).map((t) => `${t.title}\n${t.description}`).join("\n\n")],
   ["about_agent402", textOf(about)],
   ["get_payment_info", textOf(payment)],
+  ["initialize.instructions", init.instructions || ""],
   ["/llms.txt", llms],
   ["/.well-known/x402", manifest],
 ];

@@ -146,6 +146,7 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   const homeCatalog = {
     "POST /api/hash": { name: "Hash", slug: "hash", category: "encoding", price: "$0.001", description: "Hash text", tags: [] },
     "POST /api/search": { name: "Web search", slug: "search", category: "search", price: "$0.01", description: "Search the web", tags: [] },
+    "POST /api/answer": { name: "Answer", slug: "answer", category: "search", price: "$0.01", description: "Cited answer", tags: [] },
   };
   const html = ledgerHomePage(BASE_URL, homeCatalog, {}, {}, [], { chainSellerCounts: {} });
   ok(/href="\/marketplace"/.test(html), "homepage: CTA points to /marketplace");
@@ -153,6 +154,10 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   ok((html.match(/\/marketplaces\b/g) || []).length === 0, "homepage: no /marketplaces links remain");
   ok(!/href="\/index"/.test(html), "homepage: no href=\"/index\" links remain");
   ok(/the neutral index/.test(html), "homepage: neutral-index positioning survives as prose");
+  ok(/search, answer, and 500\+ pay-per-call tools/i.test(html), "homepage: title/OG lead with search+answer, not skill packs");
+  ok(/href="\/status"/.test(html), "homepage: trust strip links to live /status");
+  ok(/Start with search and answer/.test(html), "homepage: flagship jobs section before skill packs");
+  ok(/How do I connect my agent\?/.test(html), "homepage: visible FAQ includes connect path");
 }
 
 // --- F23: seller homepage href scheme guard (dormant legacy renderer) --------
