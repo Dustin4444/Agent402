@@ -1,4 +1,4 @@
-# Agent402.Tools - search + answer front door, 500+ pay-per-call tools, open x402 index
+# Agent402.Tools - search + answer front door, 500+ tools, open x402 index
 
 > **What makes it different:** Agent402 is **open-source and self-hostable** - and a
 > single integration gives a buyer **three free primitives over the whole x402
