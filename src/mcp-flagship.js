@@ -22,18 +22,68 @@ export const FLAGSHIP_SLUGS = [
   "memory-write",
 ];
 
-// verb_noun MCP names (Glama naming-consistency + Smithery verb-first). CallTool
-// also accepts the kebab slug and plain snake form.
+// Smithery Naming grades DOT notation (domain.action tree), not snake_case —
+// stuck-at-98 lesson: "Tool names should form a navigable tree using
+// dot-notation (e.g. admin.tools.list)". CallTool still accepts prior snake /
+// digit names via MCP_CALL_ALIASES.
 export const FLAGSHIP_MCP_NAMES = {
-  search: "search_web",
-  answer: "answer_question",
-  "search-news": "search_news",
-  render: "render_page",
-  "stock-quote": "get_stock_quote",
-  transcribe: "transcribe_audio",
-  "memory-read": "read_memory",
-  "memory-write": "write_memory",
+  search: "web.search",
+  answer: "web.answer",
+  "search-news": "web.news",
+  render: "browser.render",
+  "stock-quote": "market.quote",
+  transcribe: "audio.transcribe",
+  "memory-read": "memory.read",
+  "memory-write": "memory.write",
 };
+
+/** Meta tools listed alongside flagships — dotted canonical names. */
+export const META_MCP_NAMES = {
+  search_tools: "catalog.search",
+  find_tool: "catalog.find",
+  call_tool: "catalog.call",
+  get_payment_info: "payment.info",
+  request_tool: "demand.request",
+  describe_server: "server.describe",
+  list_top_sellers: "sellers.list",
+};
+
+/**
+ * CallTool aliases → canonical listed name. Every prior public name stays
+ * callable so clients/docs that still say search_web / describe_server keep
+ * working after the Smithery dot rename.
+ */
+export const MCP_CALL_ALIASES = {
+  // flagships (snake → dotted)
+  search_web: "web.search",
+  answer_question: "web.answer",
+  search_news: "web.news",
+  render_page: "browser.render",
+  get_stock_quote: "market.quote",
+  transcribe_audio: "audio.transcribe",
+  read_memory: "memory.read",
+  write_memory: "memory.write",
+  // meta (snake / legacy → dotted)
+  search_tools: "catalog.search",
+  find_tool: "catalog.find",
+  call_tool: "catalog.call",
+  get_payment_info: "payment.info",
+  payment_info: "payment.info",
+  request_tool: "demand.request",
+  describe_server: "server.describe",
+  describe_agent402: "server.describe",
+  about_agent402: "server.describe",
+  list_top_sellers: "sellers.list",
+  list_x402_sellers: "sellers.list",
+  top_x402_sellers: "sellers.list",
+};
+
+/** Resolve any CallTool name to the canonical listed dotted name. */
+export function resolveListedName(name) {
+  if (!name) return name;
+  if (MCP_CALL_ALIASES[name]) return MCP_CALL_ALIASES[name];
+  return name;
+}
 
 /** Open-world / egress tools — honest annotations for directory clients. */
 export const FLAGSHIP_OPEN_WORLD = new Set([
@@ -45,7 +95,7 @@ export const FLAGSHIP_WRITERS = new Set(["memory-write"]);
 
 /** initialize.serverInfo description (MCP Implementation.description). */
 export const MCP_SERVER_DESCRIPTION =
-  "Deterministic pay-per-call tools for AI agents: live web search and cited answers, news, browser render, market data, speech-to-text, wallet-keyed memory, plus 500+ long-tail tools via find_tool. Settle in USDC via x402 or free via proof-of-work. Maintained by Havok Holdings LLC.";
+  "Deterministic pay-per-call tools for AI agents: live web search and cited answers, news, browser render, market data, speech-to-text, wallet-keyed memory, plus 500+ long-tail tools via catalog.find. Settle in USDC via x402 or free via proof-of-work. Maintained by Havok Holdings LLC.";
 
 /** initialize.serverInfo.websiteUrl */
 export const MCP_SERVER_WEBSITE = "https://agent402.tools";
@@ -70,7 +120,7 @@ const toolHit = {
     required: { type: "array", items: { type: "string" } },
     callWith: {
       type: "object",
-      description: "Ready-to-run call_tool invocation",
+      description: "Ready-to-run catalog.call invocation",
       properties: {
         name: { type: "string" },
         arguments: { type: "object", additionalProperties: true },
@@ -96,19 +146,19 @@ const workflowHit = {
 
 /** Meta-tool output schemas keyed by listed MCP name. */
 export const META_OUTPUT_SCHEMAS = {
-  search_tools: {
+  "catalog.search": {
     type: "object",
     properties: {
       results: { type: "array", items: toolHit, description: "Matching catalog tools" },
       workflows: { type: "array", items: workflowHit, description: "Matching skill-pack workflows" },
       workflowsUsage: { type: "string" },
-      hint: { type: "string", description: "Shown when the match is weak — points at request_tool" },
+      hint: { type: "string", description: "Shown when the match is weak - points at demand.request" },
       usage: { type: "string" },
       message: { type: "string", description: "Present when nothing matched" },
     },
     required: ["results"],
   },
-  find_tool: {
+  "catalog.find": {
     type: "object",
     properties: {
       task: { type: "string" },
@@ -123,7 +173,7 @@ export const META_OUTPUT_SCHEMAS = {
     },
     required: ["task"],
   },
-  call_tool: {
+  "catalog.call": {
     type: "object",
     description: "Envelope around the invoked catalog tool's native JSON result",
     properties: {
@@ -132,7 +182,7 @@ export const META_OUTPUT_SCHEMAS = {
     },
     required: ["slug", "result"],
   },
-  get_payment_info: {
+  "payment.info": {
     type: "object",
     properties: {
       connector: { type: "string" },
@@ -157,7 +207,7 @@ export const META_OUTPUT_SCHEMAS = {
     },
     additionalProperties: true,
   },
-  request_tool: {
+  "demand.request": {
     type: "object",
     properties: {
       ok: { type: "boolean" },
@@ -171,7 +221,7 @@ export const META_OUTPUT_SCHEMAS = {
   // Smithery Naming wants pure [a-z_]+ verb_noun — no digits / brand tokens
   // (describe_agent402 / list_x402_sellers failed the scan). Old names stay
   // CallTool aliases.
-  describe_server: {
+  "server.describe": {
     type: "object",
     properties: {
       service: { type: "string" },
@@ -194,7 +244,7 @@ export const META_OUTPUT_SCHEMAS = {
     required: ["service", "maintainer", "startHere"],
     additionalProperties: true,
   },
-  list_top_sellers: {
+  "sellers.list": {
     type: "object",
     properties: {
       window: { type: "string" },
@@ -444,7 +494,7 @@ export function mcpInstallHints(baseUrl) {
 
 /**
  * MCP initialize.instructions — orientation for clients that never call
- * describe_server. Keep tool names listed-only (self-consistency) and lead
+ * server.describe. Keep tool names listed-only (dotted Smithery form) (self-consistency) and lead
  * with search/answer as the front door.
  */
 export function mcpInitializeInstructions(baseUrl) {
@@ -452,11 +502,11 @@ export function mcpInitializeInstructions(baseUrl) {
   const hosted = install.hostedUrl;
   return [
     "Agent402 is a deterministic tools layer for AI agents (Havok Holdings LLC).",
-    "Front door: call search_web or answer_question for live web search and cited answers.",
-    "Also listed: search_news, render_page, get_stock_quote, transcribe_audio, read_memory, write_memory.",
-    "Long catalog (500+ tools): call find_tool with your task, or search_tools then call_tool.",
-    "Orientation: call describe_server. Payment rails / wallet setup: call get_payment_info.",
-    "Missing a tool: call request_tool. Ecosystem sellers: call list_top_sellers.",
+    "Front door: call web.search or web.answer for live web search and cited answers.",
+    "Also listed: web.news, browser.render, market.quote, audio.transcribe, memory.read, memory.write.",
+    "Long catalog (500+ tools): call catalog.find with your task, or catalog.search then catalog.call.",
+    "Orientation: call server.describe. Payment rails / wallet setup: call payment.info.",
+    "Missing a tool: call demand.request. Ecosystem sellers: call sellers.list.",
     `Install (hosted, zero wallet): ${install.claudeCodeHosted}`,
     `Install (npm + wallet for paid flagships): ${install.claudeCodeNpm}`,
     `Cursor mcp.json: { "mcpServers": { "agent402": { "url": "${hosted}" } } }`,

@@ -76,36 +76,38 @@ await client.connect(new StdioClientTransport({ command: process.execPath, args:
 
 try {
   // tools/list: flagship + meta tools present, catalog NOT dumped wholesale.
-  // Names are snake_case for one consistent convention (memory_write, not the
-  // kebab slug memory-write); CallTool still accepts the raw slug too.
+  // Smithery Naming wants dotted domain.action; CallTool still accepts prior
+  // snake/digit aliases and raw kebab slugs.
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
   for (const required of [
-    "search_tools", "find_tool", "call_tool", "get_payment_info", "describe_server",
-    "list_top_sellers", "route_and_execute",
-    "search_web", "answer_question", "search_news", "render_page", "get_stock_quote",
-    "transcribe_audio", "read_memory", "write_memory",
+    "catalog.search", "catalog.find", "catalog.call", "payment.info", "server.describe",
+    "sellers.list", "route_and_execute",
+    "web.search", "web.answer", "web.news", "browser.render", "market.quote",
+    "audio.transcribe", "memory.read", "memory.write",
   ]) {
     if (!names.includes(required)) fail(`tools/list missing "${required}" (got: ${names.join(", ")})`);
   }
-  if (names.some((n) => n.includes("-"))) fail(`tools/list names must be snake_case, found kebab: ${names.filter((n) => n.includes("-")).join(", ")}`);
+  if (names.some((n) => n.includes("-"))) fail(`tools/list names must not use kebab, found: ${names.filter((n) => n.includes("-")).join(", ")}`);
   if (
     names.includes("payment_info") || names.includes("top_x402_sellers") ||
     names.includes("about_agent402") || names.includes("describe_agent402") ||
-    names.includes("list_x402_sellers")
+    names.includes("list_x402_sellers") || names.includes("search_tools") ||
+    names.includes("search_web") || names.includes("describe_server") ||
+    names.includes("list_top_sellers")
   ) {
-    fail("legacy brand/digit names must not be listed (aliases only)");
+    fail("legacy snake/digit names must not be listed (aliases only)");
   }
-  if (!names.every((n) => /^[a-z]+(_[a-z]+)+$/.test(n))) {
-    fail("every listed tool name must be pure snake_case verb_noun (no digits)");
+  if (!names.every((n) => n === "route_and_execute" || /^[a-z]+(\.[a-z]+)+$/.test(n))) {
+    fail("every listed tool name must be dotted domain.action (route_and_execute is the stdio-only exception)");
   }
   // backward-compat: the raw kebab slug must still resolve on call.
   const kebabCall = await client.callTool({ name: "memory-write", arguments: { key: "k", value: "v" } });
   if (kebabCall.isError && /Unknown tool/i.test(text(kebabCall))) fail("kebab slug memory-write must still resolve (backward compat)");
   if (tools.length > 20) fail(`tools/list too large (${tools.length}) — must stay flagship-sized, not dump the catalog`);
   if (tools.length < 10) fail(`tools/list too small (${tools.length}) — flagships + meta missing`);
-  const searchTool = tools.find((t) => t.name === "search_web");
-  if (!searchTool?.inputSchema?.properties?.q) fail("search_web tool lost its input schema");
+  const searchTool = tools.find((t) => t.name === "web.search");
+  if (!searchTool?.inputSchema?.properties?.q) fail("web.search tool lost its input schema");
   if (!tools.every((t) => t.outputSchema?.type === "object" && t.outputSchema?.properties && Object.keys(t.outputSchema.properties).length > 0)) {
     fail("every tools/list entry must carry a named-field outputSchema");
   }

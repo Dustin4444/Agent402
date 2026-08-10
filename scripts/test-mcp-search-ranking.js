@@ -86,8 +86,8 @@ const TOPN = [
 ];
 
 const searchSlugs = async (query, limit = 5) => {
-  const r = await rpc("tools/call", { name: "search_tools", arguments: { query, limit } });
-  if (r.result?.isError) throw new Error(`search_tools "${query}" returned isError: ${r.result?.content?.[0]?.text ?? ""}`);
+  const r = await rpc("tools/call", { name: "catalog.search", arguments: { query, limit } });
+  if (r.result?.isError) throw new Error(`catalog.search "${query}" returned isError: ${r.result?.content?.[0]?.text ?? ""}`);
   const text = r.result?.content?.[0]?.text ?? "";
   try {
     const parsed = JSON.parse(text);
@@ -112,7 +112,7 @@ try {
 
   const list = await rpc("tools/list", {});
   const names = (list.result?.tools ?? []).map((t) => t.name);
-  ok(names.includes("search_tools"), `tools/list exposes search_tools (got ${names.join(",")})`);
+  ok(names.includes("catalog.search"), `tools/list exposes catalog.search (got ${names.join(",")})`);
 
   for (const [q, expected] of TOP1) {
     const found = await searchSlugs(q, 3);

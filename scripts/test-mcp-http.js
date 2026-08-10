@@ -36,17 +36,18 @@ const init = await rpc("initialize", {
 });
 assert(init.result?.serverInfo?.name === "agent402", `initialize returns serverInfo.name=agent402 (got ${JSON.stringify(init.result?.serverInfo)})`);
 assert(
-  typeof init.result?.instructions === "string" && init.result.instructions.includes("search_web") && init.result.instructions.includes("claude mcp add"),
-  "initialize.instructions orients with search_web front door + install one-liners"
+  typeof init.result?.instructions === "string" && init.result.instructions.includes("web.search") && init.result.instructions.includes("claude mcp add"),
+  "initialize.instructions orients with web.search front door + install one-liners"
 );
 
 const list = await rpc("tools/list", {});
 const names = (list.result?.tools ?? []).map((t) => t.name).sort();
 // Flagship-first surface: meta discovery + demand SKUs. Glama's well-scoped
 // band is ~3–15; keep the list tight and SWAP flagships rather than grow.
+// Smithery Naming wants dotted domain.action names (not snake_case).
 const META = [
-  "search_tools", "find_tool", "call_tool", "get_payment_info",
-  "describe_server", "list_top_sellers", "request_tool",
+  "catalog.search", "catalog.find", "catalog.call", "payment.info",
+  "server.describe", "sellers.list", "demand.request",
 ];
 const FLAGSHIP_NAMES = FLAGSHIP_SLUGS.map((s) => FLAGSHIP_MCP_NAMES[s] || s.replace(/-/g, "_"));
 const EXPECTED_LIST = [...META, ...FLAGSHIP_NAMES].sort();
@@ -64,12 +65,14 @@ assert(
 );
 assert(
   !names.includes("about_agent402") && !names.includes("top_x402_sellers") &&
-    !names.includes("describe_agent402") && !names.includes("list_x402_sellers"),
-  "legacy brand/digit names are aliases only, not listed"
+    !names.includes("describe_agent402") && !names.includes("list_x402_sellers") &&
+    !names.includes("search_web") && !names.includes("describe_server") &&
+    !names.includes("search_tools") && !names.includes("call_tool"),
+  "legacy snake/digit names are aliases only, not listed"
 );
 assert(
-  names.every((n) => /^[a-z]+(_[a-z]+)+$/.test(n)),
-  "every listed tool name is pure snake_case verb_noun (no digits) for Smithery Naming"
+  names.every((n) => /^[a-z]+(\.[a-z]+)+$/.test(n)),
+  "every listed tool name is dotted domain.action for Smithery Naming"
 );
 assert(
   (list.result?.tools ?? []).every((t) => t.title && typeof t.annotations?.readOnlyHint === "boolean"),
@@ -87,12 +90,12 @@ assert(
   typeof init.result?.serverInfo?.websiteUrl === "string" && init.result.serverInfo.websiteUrl.includes("http"),
   "initialize.serverInfo.websiteUrl is set"
 );
-// Writers: request_tool (wish) + write_memory (durable state). Everything else
+// Writers: demand.request (wish) + memory.write (durable state). Everything else
 // is read-only so clients that trust readOnlyHint are not misled.
 const writers = (list.result?.tools ?? []).filter((t) => t.annotations?.readOnlyHint === false).map((t) => t.name).sort();
 assert(
-  writers.length === 2 && writers.includes("request_tool") && writers.includes("write_memory"),
-  `writers are request_tool + write_memory (got ${writers.join(",") || "none"})`
+  writers.length === 2 && writers.includes("demand.request") && writers.includes("memory.write"),
+  `writers are demand.request + memory.write (got ${writers.join(",") || "none"})`
 );
 
 // Legacy free-utility aliases still route (not listed, but CallTool works).
@@ -149,14 +152,14 @@ const callStrText = callStr.result?.content?.[0]?.text ?? "";
 assert(!callStr.result?.isError && callStrText.includes("26.097590074"), `call_tool accepts params as a JSON string (got ${callStrText.slice(0, 120)})`);
 
 // Flagship wallet-only by name → paid-access guidance (does not execute).
-const paid = await rpc("tools/call", { name: "search_web", arguments: { q: "x402" } });
+const paid = await rpc("tools/call", { name: "web.search", arguments: { q: "x402" } });
 const paidText = paid.result?.content?.[0]?.text ?? "";
-assert(paid.result?.isError === true, "flagship wallet-only tool (search_web) is refused on the free tier");
+assert(paid.result?.isError === true, "flagship wallet-only tool (web.search) is refused on the free tier");
 assert(paidText.includes("agent402-mcp") && paidText.includes("AGENT_KEY"), "refusal explains the paid path (agent402-mcp + AGENT_KEY)");
 assert(!paidText.includes("<html"), "wallet-only tool did NOT execute");
 
 // describe_server (+ prior describe_agent402 / about_agent402 aliases).
-for (const aboutName of ["describe_server", "describe_agent402", "about_agent402"]) {
+for (const aboutName of ["server.describe", "describe_server", "describe_agent402", "about_agent402"]) {
   const about = await rpc("tools/call", { name: aboutName, arguments: {} });
   const aboutText = about.result?.content?.[0]?.text ?? "";
   assert(!about.result?.isError, `${aboutName} succeeds`);
@@ -168,9 +171,9 @@ for (const aboutName of ["describe_server", "describe_agent402", "about_agent402
   assert(about.result?.structuredContent?.service, `${aboutName} returns structuredContent`);
 }
 
-// Sample listed tool: search_tools outputSchema + structuredContent.
-const searchToolDef = (list.result?.tools ?? []).find((t) => t.name === "search_tools");
-assert(searchToolDef?.outputSchema?.properties?.results, "search_tools lists outputSchema.properties.results");
-assert(search.result?.structuredContent?.results, "search_tools call returns structuredContent.results");
+// Sample listed tool: catalog.search outputSchema + structuredContent.
+const searchToolDef = (list.result?.tools ?? []).find((t) => t.name === "catalog.search");
+assert(searchToolDef?.outputSchema?.properties?.results, "catalog.search lists outputSchema.properties.results");
+assert(search.result?.structuredContent?.results, "catalog.search call returns structuredContent.results");
 
 console.log("\nremote MCP connector: all checks passed");

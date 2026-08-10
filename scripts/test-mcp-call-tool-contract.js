@@ -74,7 +74,8 @@ try {
 
   const list = await rpc("tools/list", {});
   const toolNames = (list.result?.tools ?? []).map((t) => t.name);
-  ok(toolNames.includes("call_tool"), `tools/list exposes call_tool (got ${toolNames.join(",")})`);
+  ok(toolNames.includes("catalog.call"), `tools/list exposes catalog.call (got ${toolNames.join(",")})`);
+  // Prior snake name remains a CallTool alias; listed name is dotted.
 
   // 2. Canonical {slug, params} call. 10 km → 6.21371... mi via unit-convert.
   const canonical = await rpc("tools/call", {
@@ -127,7 +128,7 @@ try {
   });
   ok(unknown.result?.isError === true, `unknown slug → isError:true (got ${unknown.result?.isError})`);
   const unknownText = unknown.result?.content?.[0]?.text || "";
-  ok(unknownText.includes("search_tools"), `unknown-slug guidance points to search_tools (got '${unknownText.slice(0, 120)}…')`);
+  ok(unknownText.includes("search_tools") || unknownText.includes("catalog.search"), `unknown-slug guidance points to discovery (got '${unknownText.slice(0, 120)}…')`);
 
   // 7. Bad input → self-correction envelope. Pick a tool with a required
   // field and omit it. hash requires `text`.
@@ -144,7 +145,7 @@ try {
     ok(hint && k in hint, `hint carries '${k}' for self-correction (got keys: ${hint ? Object.keys(hint).join(",") : "n/a"})`);
   }
   ok(hint?.tool === "hash", `hint.tool='hash' (got ${hint?.tool})`);
-  ok(hint?.callWith?.name === "call_tool", `hint.callWith.name='call_tool' (got ${hint?.callWith?.name})`);
+  ok(hint?.callWith?.name === "catalog.call", `hint.callWith.name='catalog.call' (got ${hint?.callWith?.name})`);
   ok(hint?.callWith?.arguments?.slug === "hash", `hint.callWith.arguments.slug='hash' (got ${hint?.callWith?.arguments?.slug})`);
 
   console.log(`\n${pass} passed (call_tool contract: canonical + flattened + stringified + wallet-refusal + unknown + self-correction)`);

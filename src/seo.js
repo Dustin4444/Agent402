@@ -291,7 +291,7 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 - [/api/route](${baseUrl}/api/route): Smart Order Router - rank tools across every x402 seller crawled from public registries; \`include:"external"\` excludes Agent402 for neutral cross-seller discovery
 - [/api/route/execute](${baseUrl}/api/route/execute): the SOR that also PAYS. Send a task, and Agent402 resolves the best-matching tool, pays the seller over x402 on your behalf (any proven seller in the open index, not just ours), and relays the result with a receipt - one payment, one request, one wallet. You never hold a wallet on their chain or sign up with them. \`{"task":"...","include":"external"}\`. Proportional tiers: $0.01 covers tools <= $0.005, \`/api/route/execute-plus\` at $0.05 covers <= $0.04, \`/api/route/execute-max\` at $0.55 covers <= $0.50 - an over-cap task gets a self-correcting 409 naming the tier that fits
 - [/api/index](${baseUrl}/api/index): JSON snapshot of every seller indexed (health, routable flag, crawl history)
-- [/api/leaderboard](${baseUrl}/api/leaderboard): public on-chain ranking of x402 sellers by Base USDC settled volume (pipeline: Bazaar discovery → \`eth_getLogs\` on Base USDC → per-call ceiling filter → aggregate by payTo; params \`?sort=usd|calls\`, \`?top=N\`, \`?include=external|all\`) - same data as the MCP tool \`list_top_sellers\` and the \`agent402-client\` SDK method \`topSellers()\`
+- [/api/leaderboard](${baseUrl}/api/leaderboard): public on-chain ranking of x402 sellers by Base USDC settled volume (pipeline: Bazaar discovery → \`eth_getLogs\` on Base USDC → per-call ceiling filter → aggregate by payTo; params \`?sort=usd|calls\`, \`?top=N\`, \`?include=external|all\`) - same data as the MCP tool \`sellers.list\` and the \`agent402-client\` SDK method \`topSellers()\`
 - [/.well-known/x402](${baseUrl}/.well-known/x402): one-fetch service manifest (identity, payment options, capability map, MCP, trust signals)
 - [/api/reliability](${baseUrl}/api/reliability): structured reliability / SLA report with a verification URL per claim
 - [/api/pricing](${baseUrl}/api/pricing): machine-readable catalog (every endpoint, price, category, docs URL)
@@ -301,7 +301,7 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 - [/health](${baseUrl}/health): health check
 
 ## Connect via MCP
-- [Hosted MCP connector](${baseUrl}/mcp): flagship-first remote MCP (search/answer/render/data/transcribe/memory + find_tool / call_tool for the 500+ long tail). Install one-liners:
+- [Hosted MCP connector](${baseUrl}/mcp): flagship-first remote MCP (search/answer/render/data/transcribe/memory + catalog.find / catalog.call for the 500+ long tail). Install one-liners:
   - Claude Code: \`claude mcp add --transport http agent402 ${baseUrl}/mcp\`
   - Cursor: add to \`~/.cursor/mcp.json\` → \`{"mcpServers":{"agent402":{"url":"${baseUrl}/mcp"}}}\`
   - Smithery: listed at https://smithery.ai/servers/mike-kq9d/agent402 (paste \`${baseUrl}/mcp\` at https://smithery.ai/new)
