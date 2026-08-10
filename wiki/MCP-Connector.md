@@ -13,14 +13,28 @@ Add **`https://agent402.tools/mcp`** as a remote MCP server:
 - **VS Code (GitHub Copilot Chat with MCP):** *MCP: Add Server* → HTTP → `https://agent402.tools/mcp`.
 - Any client speaking **streamable HTTP** (the endpoint is stateless - every JSON-RPC message is self-contained).
 
-It exposes four read-only tools (each carries safety annotations):
+It exposes a **flagship-first** tools/list (~15 tools, each with titles + safety annotations). Search and answer are the front door; the long catalog (500+ tools) stays behind `find_tool` / `search_tools` / `call_tool`.
 
 | Tool | Does |
 |---|---|
-| `find_tool` | Describe a task in plain language; returns the best-matching tool(s) **ready to call** - slug, price, input schema, an example, and the exact `call_tool` invocation. Skips the token-heavy "explore to find a tool" step |
-| `search_tools` | Find tools by description across the catalog; returns slugs + input schemas |
-| `call_tool` | Execute a tool by slug. The 200+ pure-CPU tools run **free** (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
-| `about_agent402` | Service description, free-vs-paid breakdown |
+| `search_web` | Live web search (title, URL, snippet). Start here to discover pages |
+| `answer_question` | Cited answer grounded in live web search |
+| `search_news` | News search |
+| `render_page` | Headless Chromium render → markdown |
+| `get_stock_quote` | Live stock quote |
+| `transcribe_audio` | Speech-to-text |
+| `read_memory` / `write_memory` | Durable wallet-keyed memory |
+| `find_tool` | Describe a task in plain language; returns the best-matching tool(s) **ready to call** - slug, price, input schema, an example, and the exact `call_tool` invocation |
+| `search_tools` | Browse the long catalog by description; returns slugs + input schemas |
+| `call_tool` | Execute any catalog tool by slug. Pure-CPU tools run **free** here (rate-limited: 20/min, 120/hr per client); wallet-only tools return paid-path instructions instead of executing |
+| `get_payment_info` | Free vs paid rails, wallet setup, spend caps |
+| `about_agent402` | Service description, install one-liners, free-vs-paid breakdown |
+| `request_tool` | Tell us a tool you needed that is missing |
+| `top_x402_sellers` | On-chain x402 seller leaderboard (ecosystem discovery) |
+
+`initialize` also returns **instructions** with the same front-door story and Claude/Cursor install one-liners, so clients that never call `about_agent402` still get oriented.
+
+Flagship tools that need egress or durable state (`search_web`, `answer_question`, `render_page`, memory, …) are **listed** on the hosted connector but require a funded wallet to execute. On this authless host they return paid-path setup (run the npm server with `AGENT_KEY`, or call over HTTP with any x402 client). Pure-CPU long-tail tools via `call_tool` still run free and rate-limited.
 
 ## 2. `agent402-mcp` (npm) - the full catalog, payment underneath
 
@@ -38,7 +52,7 @@ It exposes four read-only tools (each carries safety annotations):
 - **With `AGENT_KEY`** (an EVM wallet holding USDC on Base, Polygon, or Arbitrum) **and/or `SOLANA_AGENT_KEY`** (a Solana wallet holding USDC on Solana): every tool works; each call settles via x402 invisibly under the MCP call. The underlying service also accepts USDC on Stellar and Algorand, and USDG on Robinhood Chain, but this npm server currently signs only EVM and Solana payments. Spend controls (`AGENT402_BUDGET`, `AGENT402_MAX_PER_CALL`) are enforced *before any payment is signed*.
 - **Without a key:** the pure-CPU tools work free via proof-of-work; wallet-only tools explain what they'd cost and how to enable them.
 
-High-value tools (`search`, `extract`, `render`, `screenshot`, `pdf`, `meta`, `dns`, the `memory-*` family, …) are first-class MCP tools; the long tail is reachable via `search_tools` + `call_tool` to keep your context window small.
+The same flagship set is first-class; the long tail is reachable via `search_tools` + `call_tool` to keep your context window small.
 
 Since 0.12.0 the npm server also exposes **`route_and_execute`** `{ task, params?, maxUsd? }`: describe a task and the Smart Order Router resolves the best-matching **external** x402 seller (the MCP tool always sends `include: "external"`; for this catalog's own tools, call the tool directly), pays it from your configured wallet, and relays the result marked `untrustedContent`. Sellers qualify only with proven on-chain settled volume. See [[x402 Index and Router|x402-Index-and-Router]].
 
@@ -53,7 +67,7 @@ Other env knobs: `AGENT402_URL` (target service), `AGENT402_TOOLS` (override the
 | Install | none | `npx` |
 | Works in claude.ai | ✅ | ❌ (stdio is Desktop/Code only) |
 | Pure-CPU tools | free, rate-limited | free (PoW), unlimited |
-| Search/browser/PDF/memory | ❌ (refused with guidance) | ✅ with a funded wallet |
+| Flagship search / render / memory | listed; wallet required to execute (returns paid-path setup here) | ✅ with a funded wallet |
 | Identity | anonymous | your wallet = your identity (unlocks [[Memory and Coordination]]) |
 
 ## Troubleshooting
@@ -63,8 +77,8 @@ Other env knobs: `AGENT402_URL` (target service), `AGENT402_TOOLS` (override the
 | **Connector won't connect** in claude.ai/Claude Code | Confirm the URL is exactly `https://agent402.tools/mcp` (HTTPS, no trailing path). In Claude Code, `claude mcp list` should show `agent402 ✓ Connected`. If it's mid-deploy it can briefly drop - retry in ~60s. |
 | **"Error occurred during tool execution"** (transient) | Usually a redeploy window on the host; the same call succeeds on retry. The endpoint is health-gated in CI on every deploy. |
 | **`call_tool` says a field is missing / "must be a number"** | Pass `params` as a JSON object, e.g. `{"slug":"unit-convert","params":{"value":42,"from":"kilometers","to":"miles"}}`. A stringified object (`"{\"value\":42}"`) is also accepted. |
-| **A tool returns "wallet required" / paid-path guidance** | That tool (live search, browser render, screenshots, PDFs, durable memory) isn't in the hosted free tier. Run the npm server `npx -y agent402-mcp` with `AGENT_KEY` set to a funded Base wallet, or call it over HTTP with any x402 client. |
+| **A tool returns "wallet required" / paid-path guidance** | That flagship (live search, browser render, STT, durable memory, …) isn't free on the authless hosted connector. Run the npm server `npx -y agent402-mcp` with `AGENT_KEY` set to a funded Base wallet, or call it over HTTP with any x402 client. |
 | **"Free-tier rate limit reached"** | The hosted connector is capped at 20 calls/min, 120/hour per client. Wait, or use the npm server with a wallet for unmetered access. |
-| **Finding the right tool** | Call `find_tool` with a plain-language task - it returns the best match ready to call (slug + example + the exact `call_tool` invocation). `search_tools` is the broader, lower-level search. |
+| **Finding the right tool** | Call `find_tool` with a plain-language task - it returns the best match ready to call (slug + example + the exact `call_tool` invocation). `search_tools` is the broader, lower-level browse. |
 
 More: [[Paying with x402]] · [[Paying with Compute]] · [Open an issue](https://github.com/MikeyPetrillo/Agent402/issues).

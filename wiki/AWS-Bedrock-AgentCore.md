@@ -20,7 +20,7 @@ The fastest path. Agent402 exposes a hosted [MCP](https://modelcontextprotocol.i
 2. **Gateway target:** in AgentCore Gateway, add an MCP target:
    - URL: `https://agent402.tools/mcp`
    - Auth: none (free tier) or attach the `PaymentCredentialProvider` from step 1 (wallet tier)
-3. **Done.** Your agent sees the four Agent402 MCP tools (`search_tools`, `find_tool`, `call_tool`, `about_agent402`) plus, via `call_tool`, the full 500+ tool catalog. Payments - proof-of-work for free tools, USDC for wallet-only - happen in the request path; AgentCore logs every settled call to CloudWatch.
+3. **Done.** Your agent sees Agent402's flagship-first MCP surface (~15 tools): `search_web` / `answer_question` as the front door, plus news/render/stock/transcribe/memory, meta tools (`search_tools`, `find_tool`, `call_tool`, `about_agent402`, …), and via `call_tool` the full 500+ tool catalog. Payments - proof-of-work for free tools, USDC for wallet-only - happen in the request path; AgentCore logs every settled call to CloudWatch.
 
 > Want to host the catalog yourself instead? Run Agent402 anywhere (`FREE_MODE=false` with `WALLET_ADDRESS` + CDP keys), and point Gateway at `https://your-host/mcp` the same way.
 

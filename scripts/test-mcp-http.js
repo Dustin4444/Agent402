@@ -35,6 +35,10 @@ const init = await rpc("initialize", {
   clientInfo: { name: "test-mcp-http", version: "0.0.0" },
 });
 assert(init.result?.serverInfo?.name === "agent402", `initialize returns serverInfo.name=agent402 (got ${JSON.stringify(init.result?.serverInfo)})`);
+assert(
+  typeof init.result?.instructions === "string" && init.result.instructions.includes("search_web") && init.result.instructions.includes("claude mcp add"),
+  "initialize.instructions orients with search_web front door + install one-liners"
+);
 
 const list = await rpc("tools/list", {});
 const names = (list.result?.tools ?? []).map((t) => t.name).sort();

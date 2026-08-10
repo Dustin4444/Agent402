@@ -31,6 +31,7 @@ import {
   FLAGSHIP_OPEN_WORLD,
   FLAGSHIP_WRITERS,
   mcpInstallHints,
+  mcpInitializeInstructions,
 } from "./mcp-flagship.js";
 import {
   createLimiter,
@@ -202,7 +203,10 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   }
 
   function buildServer(ip, signal) {
-    const server = new Server({ name: "agent402", version: VERSION }, { capabilities: { tools: {}, prompts: {} } });
+    const server = new Server(
+      { name: "agent402", version: VERSION },
+      { capabilities: { tools: {}, prompts: {} }, instructions: mcpInitializeInstructions(baseUrl) },
+    );
 
     // Skill packs are exposed as MCP prompts: each pack becomes a discoverable
     // prompt the client can render in a slash menu (Claude Desktop, Cursor,

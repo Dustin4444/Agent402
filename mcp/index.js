@@ -326,7 +326,25 @@ function rankWorkflows(query, k = 2) {
 
 // ---------------------------------------------------------------------------
 // MCP wiring
-const server = new Server({ name: "agent402", version: VERSION }, { capabilities: { tools: {}, prompts: {} } });
+// Initialize instructions mirror src/mcp-flagship.js mcpInitializeInstructions
+// (stdio package cannot import src/ when published). Keep tool names listed-only.
+const INIT_INSTRUCTIONS = [
+  "Agent402 is a deterministic tools layer for AI agents (Havok Holdings LLC).",
+  "Front door: call search_web or answer_question for live web search and cited answers.",
+  "Also listed: search_news, render_page, get_stock_quote, transcribe_audio, read_memory, write_memory.",
+  "Long catalog (500+ tools): call find_tool with your task, or search_tools then call_tool.",
+  "Orientation: call about_agent402. Payment rails / wallet setup: call get_payment_info.",
+  "Missing a tool: call request_tool. Ecosystem sellers: call top_x402_sellers.",
+  `Install (hosted): claude mcp add --transport http agent402 ${BASE}/mcp`,
+  "Install (this npm server + wallet): claude mcp add agent402 -s user -- npx -y agent402-mcp@latest",
+  `Cursor mcp.json: { "mcpServers": { "agent402": { "command": "npx", "args": ["-y", "agent402-mcp"], "env": { "AGENT_KEY": "0x…" } } } }`,
+  `Docs: ${BASE}/llms.txt · ${BASE}/api/find?q=… · status ${BASE}/status`,
+].join("\n");
+
+const server = new Server(
+  { name: "agent402", version: VERSION },
+  { capabilities: { tools: {}, prompts: {} }, instructions: INIT_INSTRUCTIONS },
+);
 
 // Skill packs are exposed as MCP prompts — discoverable in slash menus on any
 // MCP-aware client. The list is fetched once at boot in loadCatalog(); the
