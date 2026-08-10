@@ -251,11 +251,11 @@ export function llmsTxt(baseUrl, catalog) {
 
   return `# Agent402.Tools
 
-> Pay-per-call web tools for AI agents. Call an endpoint, receive an HTTP 402 with exact payment requirements, and settle from your own wallet in USDC via the x402 protocol - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
+> Pay-per-call web tools for AI agents. **First job: search the web and answer questions** (\`/api/search\`, \`/api/answer\`, \`/api/search-news\`) — then the long catalog of 500+ deterministic tools via \`/api/find\`. Call an endpoint, receive an HTTP 402 with exact payment requirements, and settle from your own wallet in USDC via the x402 protocol - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
 
 Base URL: ${baseUrl}
 
-**Open source and two-sided.** Agent402 is an open-source, self-hostable x402 + MCP server: ${tools.length} deterministic pay-per-call tools for agents to buy (browser rendering, web search, PDFs, OCR, images, live financial / crypto / macro data, SEC EDGAR, wallet-keyed memory), a neutral cross-seller index and on-chain leaderboard for the whole x402 ecosystem, and \`agent402-tollbooth\` for API sellers to charge AI crawlers per request. Read every line and run it yourself: https://github.com/MikeyPetrillo/Agent402
+**Open source and two-sided.** Agent402 is an open-source, self-hostable x402 + MCP server: 500+ deterministic pay-per-call tools for agents to buy (live web search + cited answers, browser rendering, PDFs, OCR, images, live financial / crypto / macro data, SEC EDGAR, wallet-keyed memory), a neutral cross-seller index and on-chain leaderboard for the whole x402 ecosystem, and \`agent402-tollbooth\` for API sellers to charge AI crawlers per request. Positioned as the tools layer beside LLM gateways - not a competing chat router. Maintainer: Havok Holdings LLC. Read every line and run it yourself: https://github.com/MikeyPetrillo/Agent402
 
 **This is machine-to-machine commerce, and you can verify it.** Run the full loop with no human and no funds - \`node scripts/demo-payment.js\` discovers the catalog, gets quoted over HTTP 402, pays with compute, and uses the result. Every USDC call settles on-chain to agent402.base.eth on Base, verifiable on Basescan; live economy stats are at ${baseUrl}/api/stats and a machine-readable reliability report (each claim with a verification URL) at ${baseUrl}/api/reliability.
 
@@ -281,7 +281,10 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 **MPP clients are first-class (dual-stack).** Every paid endpoint also speaks MPP (Machine Payments Protocol, the IETF-track \`Payment\` HTTP auth scheme): the same 402 carries a \`WWW-Authenticate: Payment\` challenge (evm charge, EIP-3009 USDC), \`Authorization: Payment\` credentials settle on-chain identically to x402, and settled responses return a signed \`Payment-Receipt\` header. An \`mppx\` client (\`Fetch.from\` with \`evm.charge\`) works out of the box - same URL, same price, same settlement as x402, whichever dialect your client speaks.
 
 ## Key machine surfaces
-- [/api/find](${baseUrl}/api/find): resolve a plain-language task to the best-matching tools with route, price, input schema, and a ready example (GET \`?q={task}\` or POST \`{"task":"..."}\`)
+- [/api/search](${baseUrl}/api/search): **front door** - live web search (title, URL, snippet). Start here to discover pages; follow with extract or answer
+- [/api/answer](${baseUrl}/api/answer): **front door** - cited answer grounded in live web search results
+- [/api/search-news](${baseUrl}/api/search-news): live news search for current events / headlines
+- [/api/find](${baseUrl}/api/find): resolve a plain-language task to the best-matching tools with route, price, input schema, and a ready example (GET \`?q={task}\` or POST \`{"task":"..."}\`) - long-tail discovery behind the flagships
 - [/api/route](${baseUrl}/api/route): Smart Order Router - rank tools across every x402 seller crawled from public registries; \`include:"external"\` excludes Agent402 for neutral cross-seller discovery
 - [/api/route/execute](${baseUrl}/api/route/execute): the SOR that also PAYS. Send a task, and Agent402 resolves the best-matching tool, pays the seller over x402 on your behalf (any proven seller in the open index, not just ours), and relays the result with a receipt - one payment, one request, one wallet. You never hold a wallet on their chain or sign up with them. \`{"task":"...","include":"external"}\`. Proportional tiers: $0.01 covers tools <= $0.005, \`/api/route/execute-plus\` at $0.05 covers <= $0.04, \`/api/route/execute-max\` at $0.55 covers <= $0.50 - an over-cap task gets a self-correcting 409 naming the tier that fits
 - [/api/index](${baseUrl}/api/index): JSON snapshot of every seller indexed (health, routable flag, crawl history)
@@ -295,8 +298,11 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 - [/health](${baseUrl}/health): health check
 
 ## Connect via MCP
-- [Hosted MCP connector](${baseUrl}/mcp): add \`${baseUrl}/mcp\` as a remote MCP server (streamable HTTP, no auth) in claude.ai, Claude Code, Cursor, ChatGPT, or VS Code - free pure-CPU tools via \`search_tools\` + \`call_tool\`, plus \`top_x402_sellers\` to discover the live x402 economy
-- [agent402-mcp](https://www.npmjs.com/package/agent402-mcp): npm MCP server exposing the full catalog with payment underneath (\`AGENT_KEY\` for USDC via x402, or proof-of-work without a key)
+- [Hosted MCP connector](${baseUrl}/mcp): flagship-first remote MCP (search/answer/render/data/transcribe/memory + find_tool / call_tool for the 500+ long tail). Install one-liners:
+  - Claude Code: \`claude mcp add --transport http agent402 ${baseUrl}/mcp\`
+  - Cursor: add to \`~/.cursor/mcp.json\` → \`{"mcpServers":{"agent402":{"url":"${baseUrl}/mcp"}}}\`
+  - Smithery: paste \`${baseUrl}/mcp\` at https://smithery.ai/new
+- [agent402-mcp](https://www.npmjs.com/package/agent402-mcp): npm MCP server with payment underneath (\`npx -y agent402-mcp\`, optional \`AGENT_KEY\` for USDC via x402). Claude Code: \`claude mcp add agent402 -s user -- npx -y agent402-mcp@latest\`
 
 ## Framework adapters (zero-dependency npm)
 - [agent402-openai-tools](https://www.npmjs.com/package/agent402-openai-tools): OpenAI function-calling (chat.completions / Assistants / Responses)

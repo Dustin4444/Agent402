@@ -154,15 +154,19 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         <div class="ml-stagger" style="position:relative;">
           <div style="background:var(--surface);--accent:var(--accent-lit);border:1.5px solid var(--ink);box-shadow:none;">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>~ / agent402</span><span>SH</span></div>
-            <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># ${fmtNum(count)} x402 tools in Claude Code.
-# no signup, no API key.
+            <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># 500+ deterministic tools in Claude / Cursor.
+# first job: search the web + answer questions.
+</span><span style="color:var(--accent);">$</span> <span style="color:var(--on-dark);">claude mcp add --transport http agent402 \\
+    https://agent402.tools/mcp
+
+</span><span style="color:var(--dk-muted3);"># or with a wallet (paid search/render/memory):
 </span><span style="color:var(--accent);">$</span> <span style="color:var(--on-dark);">claude mcp add agent402 -s user \\
     -- npx -y agent402-mcp@latest
 
-</span><span style="color:var(--dk-muted3);"># then ask Claude:
-# "quote AAPL and its 52-week range"
-# "run financial-research on NVDA"
-# "audit example.com for SEO"
+</span><span style="color:var(--dk-muted3);"># then ask:
+# "search the web for x402 adoption"
+# "answer: what is the Sahm Rule, with citations"
+# "render example.com"
 # free tier pays in compute -
 # ${RAILS_SHORT} when you scale.</span></pre>
           </div>
@@ -227,8 +231,8 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       </div>
       <div style="padding:22px;border-right:1.5px solid var(--ink);display:flex;flex-direction:column;background:var(--card);">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">02 / CLAUDE · MCP</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Paste the hosted connector URL - zero install. Pure-CPU tools run free, rate-limited.</p>
-        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Settings → Connectors
+        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Paste the hosted connector URL - zero install. Flagship search/answer first; pure-CPU tools run free.</p>
+        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Settings → Connectors / Cursor mcp.json
 </span>https://agent402.tools/mcp</pre>
         <a href="/docs" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">add connector →</a>
       </div>

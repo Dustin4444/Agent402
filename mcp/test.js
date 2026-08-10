@@ -75,27 +75,36 @@ const client = new Client({ name: "agent402-mcp-test", version: "0.0.0" });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(ROOT, "mcp", "index.js")], env }));
 
 try {
-  // tools/list: curated + meta tools present, catalog NOT dumped wholesale.
+  // tools/list: flagship + meta tools present, catalog NOT dumped wholesale.
   // Names are snake_case for one consistent convention (memory_write, not the
   // kebab slug memory-write); CallTool still accepts the raw slug too.
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
-  for (const required of ["search_tools", "call_tool", "payment_info", "top_x402_sellers", "route_and_execute", "extract", "render", "hash", "memory_write"]) {
+  for (const required of [
+    "search_tools", "find_tool", "call_tool", "payment_info", "top_x402_sellers", "route_and_execute",
+    "search", "answer", "search_news", "render", "stock_quote", "transcribe", "memory_read", "memory_write",
+  ]) {
     if (!names.includes(required)) fail(`tools/list missing "${required}" (got: ${names.join(", ")})`);
   }
   if (names.some((n) => n.includes("-"))) fail(`tools/list names must be snake_case, found kebab: ${names.filter((n) => n.includes("-")).join(", ")}`);
   // backward-compat: the raw kebab slug must still resolve on call.
   const kebabCall = await client.callTool({ name: "memory-write", arguments: { key: "k", value: "v" } });
   if (kebabCall.isError && /Unknown tool/i.test(text(kebabCall))) fail("kebab slug memory-write must still resolve (backward compat)");
-  if (tools.length > 30) fail(`tools/list too large (${tools.length}) — must stay curated, not dump the catalog`);
-  const hashTool = tools.find((t) => t.name === "hash");
-  if (!hashTool.inputSchema?.properties?.text) fail("hash tool lost its input schema");
-  console.log(`tools/list → ${tools.length} tools, curated set + search/call/payment_info ✓`);
+  if (tools.length > 20) fail(`tools/list too large (${tools.length}) — must stay flagship-sized, not dump the catalog`);
+  if (tools.length < 10) fail(`tools/list too small (${tools.length}) — flagships + meta missing`);
+  const searchTool = tools.find((t) => t.name === "search");
+  if (!searchTool?.inputSchema?.properties?.q) fail("search tool lost its input schema");
+  console.log(`tools/list → ${tools.length} tools, flagship set + search/find/call/payment_info ✓`);
 
   // search_tools finds catalog tools that are not first-class
   const search = await client.callTool({ name: "search_tools", arguments: { query: "convert miles to kilometers" } });
   if (!text(search).includes("unit-convert")) fail(`search_tools missed the conversion tool: ${text(search).slice(0, 300)}`);
   console.log("search_tools finds long-tail catalog tools ✓");
+
+  // find_tool reaches long-tail via hosted /api/find
+  const found = await client.callTool({ name: "find_tool", arguments: { task: "convert miles to kilometers", limit: 3 } });
+  if (found.isError || !text(found).includes("unit-convert")) fail(`find_tool missed unit-convert: ${text(found).slice(0, 300)}`);
+  console.log("find_tool resolves long-tail tasks ✓");
 
   // search_tools surfaces matching multi-tool workflow templates (skill packs)
   // so a task-shaped query also points the agent at the curated prompt — not
@@ -105,17 +114,17 @@ try {
   if (!text(workflowSearch).includes("workflows")) fail(`search_tools response should include the workflows key: ${text(workflowSearch).slice(0, 400)}`);
   console.log("search_tools recommends matching workflow templates ✓");
 
-  // first-class tool, no wallet → settles via proof-of-work
-  const hashed = await client.callTool({ name: "hash", arguments: { text: "hello world" } });
+  // long-tail pure-CPU via call_tool, no wallet → settles via proof-of-work
+  const hashed = await client.callTool({ name: "call_tool", arguments: { slug: "hash", params: { text: "hello world" } } });
   if (hashed.isError || !text(hashed).includes("b94d27b9")) fail(`PoW-paid hash call wrong: ${text(hashed).slice(0, 300)}`);
-  console.log("first-class call settled with proof-of-work ✓");
+  console.log("call_tool hash settled with proof-of-work ✓");
 
   // call_tool reaches the long tail with payment handled
   const converted = await client.callTool({ name: "call_tool", arguments: { slug: "unit-convert", params: { value: 10, from: "miles", to: "kilometers" } } });
   if (converted.isError || !text(converted).includes("16.09344")) fail(`call_tool conversion wrong: ${text(converted).slice(0, 300)}`);
   console.log("call_tool long-tail call settled with proof-of-work ✓");
 
-  // wallet-only tool without a key → helpful error, not a crash
+  // wallet-only flagship without a key → helpful error, not a crash
   const render = await client.callTool({ name: "render", arguments: { url: "https://example.com" } });
   if (!render.isError || !text(render).includes("AGENT_KEY")) fail(`wallet-only tool should explain AGENT_KEY: ${text(render).slice(0, 300)}`);
   console.log("wallet-only tool returns funding guidance without a key ✓");

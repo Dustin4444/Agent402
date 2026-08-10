@@ -95,10 +95,20 @@ AGENT_KEY=0xYOUR_FUNDED_KEY node demo.js</pre>
       <h2 id="add" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 18px;">Three ways in.</h2>
 
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:8px;">A / MCP - Claude &amp; any MCP client</div>
-      <div style="border:1.5px solid var(--ink);background:var(--surface);margin-bottom:22px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Claude Code - no signup, no API key
+      <div style="border:1.5px solid var(--ink);background:var(--surface);margin-bottom:22px;"><pre style="margin:0;padding:16px;font-family:var(--font-mono);font-size:13px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Claude Code - hosted flagship MCP (search/answer first)
+</span>claude mcp add --transport http agent402 https://agent402.tools/mcp
+
+<span style="color:var(--dk-muted3);"># Claude Code - npm with wallet (paid tools settle via x402)
 </span>claude mcp add agent402 -s user -- npx -y agent402-mcp@latest
 
-<span style="color:var(--dk-muted3);"># or paste the hosted connector (Settings &rarr; Connectors)
+<span style="color:var(--dk-muted3);"># Cursor - ~/.cursor/mcp.json
+</span>{
+  "mcpServers": {
+    "agent402": { "url": "https://agent402.tools/mcp" }
+  }
+}
+
+<span style="color:var(--dk-muted3);"># Smithery - paste at smithery.ai/new
 </span>https://agent402.tools/mcp</pre></div>
 
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:8px;">B / x402 client - pay in code</div>

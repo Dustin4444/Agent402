@@ -133,19 +133,22 @@ const handlerBranches = [...mcpSource.matchAll(/^\s*if \(.*$/gm)]
 // branch" - the two questions have different right answers for call_tool.
 const handledNames = new Set([...mcpSource.matchAll(/\bname\s*[!=]==\s*"([a-z0-9_]+)"/g)].map((m) => m[1]));
 
-// Curated catalog tools are listed under an MCP name that is NOT always the
-// slug with dashes swapped for underscores - MCP_NAME_OVERRIDES renames them to
-// the verb_noun convention (unit-convert is listed as convert_units). Reversing
-// that map is what lets the "advertised but unimplemented" check resolve a
-// listed name back to a real catalog entry.
-const overrideBlock = mcpSource.match(/MCP_NAME_OVERRIDES\s*=\s*\{([\s\S]*?)\n\s*\};/);
+// Flagship catalog tools are listed under an MCP name that is NOT always the
+// slug with dashes swapped for underscores - FLAGSHIP_MCP_NAMES in
+// mcp-flagship.js renames them to the verb_noun convention (search is listed
+// as search_web). Reversing that map is what lets the "advertised but
+// unimplemented" check resolve a listed name back to a real catalog entry.
+const flagshipSource = readFileSync(join(SRC, "mcp-flagship.js"), "utf8");
+const overrideBlock = flagshipSource.match(/FLAGSHIP_MCP_NAMES\s*=\s*\{([\s\S]*?)\n\};/);
 const slugForMcpName = new Map();
-// Keys are quoted only when the slug contains a dash ("unit-convert"), bare
-// otherwise (hash, qr, uuid) - both forms are real entries in that object.
+// Keys are quoted only when the slug contains a dash ("search-news"), bare
+// otherwise (search, answer, render) - both forms are real entries.
 for (const m of (overrideBlock?.[1] ?? "").matchAll(/(?:"([^"]+)"|([a-z0-9-]+)):\s*"([^"]+)"/g)) {
   slugForMcpName.set(m[3], m[1] ?? m[2]);
 }
-if (slugForMcpName.size === 0) throw new Error("could not parse MCP_NAME_OVERRIDES - the rename table moved, and this check would silently pass without it");
+if (slugForMcpName.size === 0) throw new Error("could not parse FLAGSHIP_MCP_NAMES - the rename table moved, and this check would silently pass without it");
+assert(slugForMcpName.get("search_web") === "search", "FLAGSHIP_MCP_NAMES maps search_web → search");
+assert(slugForMcpName.get("answer_question") === "answer", "FLAGSHIP_MCP_NAMES maps answer_question → answer");
 
 // Registered express routes, read from the source rather than probed, because
 // probing cannot distinguish "route does not exist" from "route exists but is

@@ -45,6 +45,38 @@ const DELEGATION_VERBS = new Set(["buy", "purchase", "pay", "order", "hire", "re
 const THIRD_PARTY_MARKERS = new Set(["external", "another", "other", "others", "someone", "somebody", "seller", "sellers", "vendor", "third", "party", "third-party", "behalf", "elsewhere", "ecosystem", "marketplace"]);
 
 /**
+ * Append curated front-door tags for web-search / answer / news phrasing.
+ * Shared by /api/find and the hosted MCP search_tools lexical scorer so both
+ * surfaces agree on the default job. Mutates `terms` in place; safe no-op when
+ * the query is not front-door shaped.
+ * @param {string[]} terms
+ * @param {string} q
+ */
+export function applyFrontDoorTerms(terms, q) {
+  const ql = String(q || "").toLowerCase();
+  // Web search: "search the web", "google X", "look up online", "web search for"
+  if (!terms.includes("web-search") && (
+    /\b(search\s+the\s+web|web\s+search|search\s+online|google\s+|bing\s+|look\s+up\s+online|look\s+up\s+on\s+the\s+web|find\s+on\s+the\s+web)\b/.test(ql)
+    || /\b(search|look\s+up)\s+(for\s+)?(pages?|sites?|urls?|links?)\b/.test(ql)
+  )) {
+    terms.push("web-search");
+  }
+  // Cited answer: "answer this question", "with citations", "grounded answer"
+  if (!terms.includes("answer") && (
+    /\b(answer\s+(this\s+)?(question|me)|answer\s+with\s+citations|cited?\s+answer|grounded\s+answer|question\s+with\s+citations)\b/.test(ql)
+    || /\b(what\s+is|who\s+is|explain)\b.+\b(with\s+sources|with\s+citations|cite\s+sources)\b/.test(ql)
+  )) {
+    terms.push("answer");
+  }
+  // News: "latest news", "breaking news", "headlines about"
+  if (!terms.includes("breaking-news") && (
+    /\b(latest\s+news|breaking\s+news|news\s+(about|on|for|headlines)|headlines\s+(about|on|for)|current\s+events)\b/.test(ql)
+  )) {
+    terms.push("breaking-news");
+  }
+}
+
+/**
  * Rank catalog tools against a free-text task description.
  * @param {object} catalog  CATALOG map (route -> def)
  * @param {string} query    natural-language task / keywords
@@ -85,6 +117,11 @@ export function findTools(catalog, query, { k = 5, baseUrl = "", powSlugs } = {}
   // and "layer of encryption" to l2-tvl at high confidence. "layer" is ordinary
   // English; "layer 2" is not.
   if (!terms.includes("l2") && /\blayer[\s-]*2\b/.test(q.toLowerCase())) terms.push("l2");
+  // Front-door bias (search / answer / news): common agent jobs should land on
+  // the flagship web tools first. Phrase-gated like "layer 2" so ordinary words
+  // ("search" inside "search tools catalog", bare "question") do not hijack
+  // unrelated tasks. Tags appended are curated on search / answer / search-news.
+  applyFrontDoorTerms(terms, q);
   const limit = Math.min(Math.max(parseInt(k, 10) || 5, 1), 25);
   if (!terms.length) return { query: q, count: 0, results: [] };
 
