@@ -33,6 +33,15 @@
 // fails. render/screenshot skip LOUDLY only when Playwright Chromium is
 // missing locally (CI installs chromium — those must pass there).
 //
+// Also soft-skip LOUDLY (after retry) two free-public flakes that are NOT the
+// dead-tool class and would otherwise thrash [test]:
+//   • media-info / audio-convert / audio-normalize — example URLs are third-
+//     party Wikimedia; handlers are covered by scripts/test-media.js on a
+//     local ffmpeg tone. A 422 "media could not be processed" / content-type
+//     paste-error after retry is "source host flaked", not "tool is gone".
+//   • price-feed kit 502 "malformed JSON" — DeFiLlama/CoinGecko occasionally
+//     return garbage bodies; a bare outage 502 without that wording still fails.
+//
 // CONTROL: grading asserts 502 would fail (the NETWORK hole), gov-data must be
 // in-scope, and a planted Brave slug must be out-of-scope — vacuous green is
 // refused (floor on in-scope count).
@@ -105,6 +114,9 @@ const METERED_SLUGS = new Set([
 ]);
 
 const BROWSER_SLUGS = new Set(["render", "screenshot"]);
+// Handlers proven offline by scripts/test-media.js; live examples depend on
+// Wikimedia (same URL for all three). Soft-skip source-host flakes only.
+const MEDIA_EXAMPLE_SLUGS = new Set(["media-info", "audio-convert", "audio-normalize"]);
 
 const METERED_PACK_SLUGS = new Set();
 for (const p of SKILL_PACKS) {
@@ -157,15 +169,37 @@ function isRateLimited(status, body, threw) {
   return /\b429\b|rate.?limit|throttl/i.test(errText(body, threw));
 }
 
-function shouldRetry(status, body, threw) {
+/** Wikimedia (or similar) media-source flake — NOT a dead tool (test-media covers handlers). */
+function isUpstreamMediaSourceFlake(slug, status, body, threw) {
+  if (!MEDIA_EXAMPLE_SLUGS.has(slug)) return false;
+  const msg = errText(body, threw);
+  // Generic ffprobe/ffmpeg failure after a bad/truncated download, or the
+  // content-type pre-screen when the host served a webpage/JSON error page.
+  if (status === 422 && /media could not be processed|Content-Type .+ not audio\/video|webpage URL/i.test(msg)) {
+    return true;
+  }
+  // Fetch-guard upstream HTTP errors on the example media URL.
+  if ((status === 502 || status === 503 || status === 504) && /Source URL returned HTTP|fetch failed|ECONNRESET|ETIMEDOUT/i.test(msg)) {
+    return true;
+  }
+  return false;
+}
+
+/** Free price-feed hosts occasionally return non-JSON bodies → 502. Narrow match only. */
+function isTransientMalformedPriceFeed(status, body, threw) {
+  return status === 502 && /Price feed upstream returned malformed JSON/i.test(errText(body, threw));
+}
+
+function shouldRetry(status, body, threw, slug) {
   // One retry on transient flakes. 503 is included because several free-public
   // handlers surface upstream rate limits as 503 (CoinGecko), not 429.
   // Permanent dead upstreams still fail on the second attempt (gov-data class).
   if (status === 502 || status === 503 || status === 504 || status === 429) return true;
+  if (isUpstreamMediaSourceFlake(slug, status, body, threw)) return true;
   return /timeout|aborted|AbortError|UND_ERR_CONNECT|ECONNRESET|ETIMEDOUT|fetch failed|rate.?limit/i.test(errText(body, threw));
 }
 
-async function callExample(path, method, op) {
+async function callExample(path, method, op, slug) {
   const isSkill = path.startsWith("/api/skill/");
   const timeout = isSkill ? SKILL_TIMEOUT_MS : TIMEOUT_MS;
   let url, init;
@@ -200,7 +234,7 @@ async function callExample(path, method, op) {
   };
 
   let r = await attempt();
-  if (!isStrictPass(r.status, r.body) && shouldRetry(r.status, r.body, r.threw)) {
+  if (!isStrictPass(r.status, r.body) && shouldRetry(r.status, r.body, r.threw, slug)) {
     await sleep(1500);
     r = await attempt();
   }
@@ -275,6 +309,14 @@ ok(isRateLimited(502, { error: "data.gov is not returning results right now (ups
   "control: bare dead-upstream 502 is NOT a rate-limit soft-skip");
 ok(isRateLimited(502, { error: "Source URL returned HTTP 429" }, null) === true,
   "control: fetch-guard 429 wording is recognized as rate-limit");
+ok(isUpstreamMediaSourceFlake("media-info", 422, { error: "media could not be processed (is the input a valid audio/video file?)" }, null) === true,
+  "control: Wikimedia media-source 422 is a soft-skip for media example slugs");
+ok(isUpstreamMediaSourceFlake("gov-data", 422, { error: "media could not be processed (is the input a valid audio/video file?)" }, null) === false,
+  "control: media-source soft-skip does NOT apply outside media example slugs");
+ok(isTransientMalformedPriceFeed(502, { error: "Price feed upstream returned malformed JSON" }, null) === true,
+  "control: price-feed malformed-JSON 502 is a soft-skip");
+ok(isTransientMalformedPriceFeed(502, { error: "data.gov is not returning results" }, null) === false,
+  "control: bare dead-upstream 502 is NOT a price-feed soft-skip (gov-data class)");
 ok(isStrictFailure(503, { error: "capacity" }, null) === true,
   "control: HTTP 503 is a hard fail");
 ok(isStrictFailure(504, { error: "timeout" }, null) === true,
@@ -339,10 +381,12 @@ async function main() {
   let done = 0;
   let skippedBrowser = 0;
   let skippedRateLimit = 0;
+  let skippedMediaSource = 0;
+  let skippedPriceFeed = 0;
   const liveFails = [];
 
   await mapPool(work, CONCURRENCY, async (t) => {
-    const r = await callExample(t.path, t.method, t.op);
+    const r = await callExample(t.path, t.method, t.op, t.slug);
     done++;
     if (done % 40 === 0 || done === work.length) {
       process.stdout.write(`\r[non-metered] ${done}/${work.length}`);
@@ -364,6 +408,18 @@ async function main() {
       return;
     }
 
+    if (isUpstreamMediaSourceFlake(t.slug, r.status, r.body, r.threw)) {
+      skippedMediaSource++;
+      console.log(`\nskip - ${t.slug}: upstream media source flaked after retry (${r.status} ${errText(r.body, r.threw).slice(0, 100)})`);
+      return;
+    }
+
+    if (isTransientMalformedPriceFeed(r.status, r.body, r.threw)) {
+      skippedPriceFeed++;
+      console.log(`\nskip - ${t.slug}: price-feed upstream returned malformed JSON after retry (${r.status})`);
+      return;
+    }
+
     const err = r.threw || (r.body && r.body.error) || `HTTP ${r.status}`;
     const msg = `${t.method.toUpperCase()} ${t.path} (${t.slug}) → ${r.status || "threw"} ${String(typeof err === "object" ? JSON.stringify(err) : err).slice(0, 160)}`;
     liveFails.push(msg);
@@ -376,12 +432,19 @@ async function main() {
   if (skippedRateLimit) {
     console.log(`skip - ${skippedRateLimit} tool(s) soft-skipped after upstream rate-limit (retry exhausted)`);
   }
+  if (skippedMediaSource) {
+    console.log(`skip - ${skippedMediaSource} media tool(s) soft-skipped after upstream media-source flake (handlers covered by test-media.js)`);
+  }
+  if (skippedPriceFeed) {
+    console.log(`skip - ${skippedPriceFeed} price-feed tool(s) soft-skipped after malformed-JSON upstream flake`);
+  }
 
-  const asserted = work.length - skippedBrowser - skippedRateLimit;
+  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed;
+  const asserted = work.length - softSkipped;
   ok(liveFails.length === 0,
     liveFails.length
       ? `every in-scope example returns 200 without body.error — ${liveFails.length} FAILED:\n     ${liveFails.slice(0, 30).join("\n     ")}${liveFails.length > 30 ? `\n     …and ${liveFails.length - 30} more` : ""}`
-      : `every in-scope example returns 200 without body.error (${asserted} asserted, ${skippedBrowser} browser-skipped, ${skippedRateLimit} rate-limit-skipped)`);
+      : `every in-scope example returns 200 without body.error (${asserted} asserted, ${skippedBrowser} browser-skipped, ${skippedRateLimit} rate-limit-skipped, ${skippedMediaSource} media-source-skipped, ${skippedPriceFeed} price-feed-skipped)`);
   // Refuse a vacuous green where almost everything soft-skipped.
   ok(asserted >= Math.floor(MIN_IN_SCOPE * 0.8),
     `enough tools were actually asserted (${asserted}), not soft-skipped away`);
