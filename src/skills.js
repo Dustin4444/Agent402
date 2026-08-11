@@ -38,6 +38,12 @@ export const PACK_PRICES = {
   "content-extraction":    0.30,
   "media-pipeline":        0.25,
   "document-intel":        0.20,
+  // Light 3-step bundle (pdf-info $0.002 + pdf-summarize $0.03 + pdf-extract-pages
+  // $0.003 = $0.035 a la carte). pdf-summarize's real upstream LLM cost is
+  // already most of the value here, so this isn't priced like a multi-source
+  // premium fanout - a modest ~1.4x convenience premium, same tier as
+  // wallet-readiness/cheapest-rail.
+  "document-brief":        0.05,
   "trend-analysis":        0.20,
   "any-to-markdown":       0.20,
   "structured-scrape":     0.20,
@@ -780,6 +786,34 @@ export const SKILL_PACKS = [
     ],
     claudePrompt:
       "Process this invoice with Agent402: https://example.com/invoice.pdf. (1) Run pdf-info to confirm it's a PDF, get the page count, check the `encrypted` flag. (2) If not encrypted, call pdf-to-markdown with the URL. (3) Inspect the returned markdown - if it has <50 chars of text, the PDF is scanned: call pdf-extract-pages to get each page as an image, then run image-ocr on each. (4) If you still can't find a tracking number after parsing the OCR text, run barcode-decode on page 1 to surface an embedded QR / barcode payload. (5) Return a single JSON object: {invoiceNumber, totalAmount, vendor, lineItems, trackingNumber, source: \"pdf-to-markdown\" | \"image-ocr\" | \"barcode-decode\"} - populate `source` based on which extraction path actually produced the data. Budget ≤ $0.05 per document; all of these tools are wallet-only (paid per call).",
+  },
+  {
+    slug: "document-brief",
+    title: "Document brief",
+    tagline:
+      "Metadata, an AI-written summary, and a preview of the opening pages of a PDF - understand what a document says without reading the whole thing. The catalog's first AI-summarization pack, complementary to document-intel's deterministic format extraction (no AI, no summarization there).",
+    useCase:
+      "An agent is handed a PDF link - a research paper, an earnings report, a whitepaper, a long contract - and needs the gist before deciding whether to read further or which section to pull next. document-intel answers \"what format is this and can I get the raw text out\"; document-brief answers \"what does this document actually say.\"",
+    promptArgs: [
+      {
+        name: "url",
+        description: "PDF URL to summarize (e.g. https://example.com/report.pdf)",
+        required: true,
+        substitute: "https://bitcoin.org/bitcoin.pdf",
+      },
+    ],
+    // Three complementary, independent views of the same document - all fanout
+    // from the one URL, no dependency between steps. pdf-summarize is the only
+    // AI-powered tool in this pack (and in the whole pdf family); the other two
+    // are the same deterministic pdf-kit tools document-intel already uses.
+    toolSlugs: ["pdf-info", "pdf-summarize", "pdf-extract-pages"],
+    workflow: [
+      "Run pdf-info first - page count, title, author, encryption flag, byte size. Confirms the URL is really a PDF and gives you the page count before spending on the AI summary.",
+      "Run pdf-summarize for the actual gist - a factual, AI-written summary of the document's content, with the model that served disclosed in the response. This is the one paid-AI step in the pack; the other two are pure deterministic extraction.",
+      "Run pdf-extract-pages for a quick visual preview of the opening pages (default \"1-2\") - useful when you want to show the document's actual formatting/layout alongside the summary, not just prose about it.",
+    ],
+    claudePrompt:
+      "Give me a brief on this PDF: https://bitcoin.org/bitcoin.pdf. Use Agent402's document-brief skill pack to get (1) the document's metadata and page count, (2) a ~150-word AI summary of what it actually says, and (3) the first two pages as a preview PDF. Present the summary first, then the metadata, and note the preview is available if I want to see the original formatting.",
   },
   {
     slug: "loan-comparison",
