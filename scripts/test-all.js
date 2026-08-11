@@ -72,6 +72,13 @@ const NETWORK = new Set([
   "/api/captcha-verify",
   "/api/pdf-info", "/api/pdf-merge", "/api/pdf-extract-pages", "/api/pdf-rotate", "/api/images-to-pdf",
   "/api/pdf-to-markdown",
+  // pdf-summarize: live PDF fetch (same as /api/pdf above) PLUS an in-process
+  // call into the v1-chat gateway tier — same acceptable-cost class already
+  // applied to the gateway tiers themselves (503s harmlessly without
+  // OPENROUTER_API_KEY, which CI's test job doesn't set; a real call when the
+  // key IS present costs at most the v1-chat tier's own margin-clamped
+  // worst case, ~$0.014).
+  "/api/pdf-summarize",
   "/api/media-info", "/api/audio-convert", "/api/audio-normalize",
   "/api/gov-data", "/api/weather-alerts", "/api/earthquakes",
   "/api/drug-recalls", "/api/food-recalls", "/api/drug-adverse-events", "/api/vin-decode", "/api/vehicle-recalls",

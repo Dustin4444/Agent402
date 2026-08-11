@@ -259,6 +259,12 @@ export const WALLET_ONLY_SLUGS = new Set([
   // Image generation kit: every call burns real upstream inference credit
   // (OpenAI GPT Image API). Same rationale as LLM proxy.
   "image-gen", "image-gen-hd", "image-gen-premium",
+  // PDF summarize: calls the v1-chat gateway tier in-process to summarize
+  // extracted text - real upstream inference credit burned per call, same
+  // rationale as the LLM proxy kit above. Added at build time specifically
+  // so this can never repeat the route-execute-pro gap (a paid tier that
+  // shipped without this line and was free-tier-reachable for days).
+  "pdf-summarize",
   // Code execution kit: every call spins up an E2B sandbox (compute cost).
   // PoW would let one client farm our E2B quota for free.
   "code-run", "code-run-pro",
