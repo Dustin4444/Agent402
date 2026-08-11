@@ -3197,8 +3197,8 @@ const cardSvg = (width = 1200, height = 630) => {
   <text x="170" y="127" font-size="34" font-weight="800" font-family=${display} letter-spacing="-0.5" fill="${BRAND.ink}">AGENT402<tspan fill="${BRAND.accent}">.</tspan>TOOLS</text>
   <text x="1116" y="127" font-size="24" font-weight="700" font-family=${mono} text-anchor="end" fill="${BRAND.accent}">agent402.tools</text>
   <line x1="84" y1="172" x2="1116" y2="172" stroke="${BRAND.ink}" stroke-width="2.5"/>
-  <text x="84" y="330" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">Where agents pay</text>
-  <text x="84" y="416" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">agents<tspan fill="${BRAND.accent}">.</tspan></text>
+  <text x="84" y="330" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">Tools your agent</text>
+  <text x="84" y="416" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">can pay for<tspan fill="${BRAND.accent}">.</tspan></text>
   <line x1="84" y1="462" x2="1116" y2="462" stroke="${BRAND.hairline}" stroke-width="2"/>
   <text x="84" y="510" font-size="27" font-family=${mono} fill="${BRAND.muted}">The open x402 index: ${n.toLocaleString("en-US")} tools + ${SKILL_PACKS.length} skill packs.</text>
   <text x="84" y="554" font-size="23" font-family=${mono} fill="${BRAND.muted}">${RAILS_SHORT}</text>

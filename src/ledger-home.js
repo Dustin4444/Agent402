@@ -158,7 +158,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <div class="ml-hero-grid" style="display:grid;grid-template-columns:1.08fr .92fr;gap:50px;align-items:start;">
         <div class="ml-stagger">
           <div class="ml-hero-eyebrow" style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">open source · <span style="color:var(--accent);">x402</span> + mpp · mcp-native</div>
-          <h1 class="ml-hero-h1" style="font-family:var(--font-body);font-weight:800;font-size:70px;line-height:.94;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);">Where agents<br><span style="color:var(--accent);">pay</span> agents.</h1>
+          <h1 class="ml-hero-h1" style="font-family:var(--font-body);font-weight:800;font-size:70px;line-height:.94;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);">Tools your agent<br>can <span style="color:var(--accent);">pay</span> for.</h1>
           <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 28px;"><strong style="color:var(--ink);font-weight:700;">500+ deterministic tools. Pay per call in USDC.</strong> Search the web and get cited answers first - then the long catalog. No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
           <div class="ml-hero-ctas" style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;margin-bottom:18px;">
             <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;box-shadow:none;">ADD TO CLAUDE →</a>
