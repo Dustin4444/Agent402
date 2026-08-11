@@ -27,6 +27,7 @@ import {
   probeRows, latestByComponent, earliestObservation, totalObservations, statusPersistent,
   uptimeFrom, dailyFrom, incidentsFrom, stateFrom,
 } from "./status-store.js";
+import { RAILS } from "./rails.js";
 
 const REPO = "https://github.com/MikeyPetrillo/Agent402";
 const HEARTBEAT_RUNS = `${REPO}/actions/workflows/heartbeat.yml`;
@@ -54,6 +55,21 @@ const QUARTER_HOURLY = 45 * 60_000; // ~3 missed observations at the 5-15 min ca
 // GitHub is merely late, and drag the whole page to "degraded" with it.
 const HOURLY_OBSERVER = 3 * 3600_000; // ~3 missed hourly heartbeat runs
 const DAILY = 26 * 3600_000; // a day plus slack for a late scheduled run
+
+// Per-rail components (rail_base, rail_stellar, ...), derived from RAILS
+// (src/rails.js's single source of truth for chain names) so this can never
+// silently drift from what's actually advertised - a new rail added there
+// gets a status row here for free. "Robinhood Chain" -> "robinhood" matches
+// the key the paid canary's rail legs already use for that chain (see
+// scripts/paid-canary.js). Observations arrive once per canary run (up to
+// 3x/day via its cron), so DAILY is the right staleness bound, same as the
+// existing "settlement" component below.
+export const RAIL_COMPONENTS = RAILS.map((r) => ({
+  key: `rail_${r.name.toLowerCase().replace(/\s+chain$/, "")}`,
+  label: r.name,
+  blurb: `Real ${r.asset} settlement on ${r.name}, proven daily by the paid canary.`,
+  staleAfterMs: DAILY,
+}));
 
 export const COMPONENTS = [
   { key: "api", label: "Tool serving", blurb: "The paid API answering requests: /health reachable and the catalog mounted.", staleAfterMs: QUARTER_HOURLY },
@@ -98,7 +114,10 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
   const latest = new Map(latestByComponent().map((r) => [r.component, r]));
   const since = nowMs - historyDays * DAY;
 
-  const components = COMPONENTS.map((c) => {
+  // Shared shape between the core components and the per-rail breakdown below
+  // - same store functions, same windows, same daily-bar computation, so a
+  // rail row means exactly the same thing as any other component row.
+  const toComponent = (c) => {
     const rows = probeRows(c.key, since);
     const windows = {};
     for (const w of WINDOWS) windows[w.key] = uptimeFrom(rows.filter((r) => r.ts >= nowMs - w.ms));
@@ -111,7 +130,13 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
       windows,
       daily: dailyFrom(rows, { days: historyDays, nowMs }),
     };
-  });
+  };
+  const components = COMPONENTS.map(toComponent);
+  // Rails are informational, not core - a single failed chain never flips
+  // overall to "outage" (same doctrine as the existing aggregate "rails"
+  // component and CORE_STATUS_KEYS below), so this is computed separately
+  // and never fed into overallState().
+  const railComponents = RAIL_COMPONENTS.map(toComponent);
 
   // Incidents come from the availability component: the one with full history.
   const incidents = incidentsFrom(probeRows("api", since)).slice(0, 25);
@@ -134,6 +159,7 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
         "observation is stale is reported as unknown rather than operational.",
     },
     components,
+    railComponents,
     incidents: incidents.map((i) => ({
       startedAt: new Date(i.startedAt).toISOString(),
       endedAt: new Date(i.endedAt).toISOString(),
@@ -383,6 +409,10 @@ ${windowList}
 <p class="lead">Each bar is one UTC day; hover for that day's probe count. Grey means no observation was made that day, shown as absence rather than counted as uptime.</p>
 <p class="bar-legend"><i class="b up"></i> every probe passed <i class="b partial"></i> some probes failed <i class="b down"></i> every probe failed <i class="b nodata"></i> no observation</p>
 ${snap.components.map(componentRow).join("\n")}
+
+<h2 id="rails">Payment rails</h2>
+<p class="lead">Each chain settled by the daily paid canary, graded independently - a single rail failing here never counts as a service outage above; it means that specific chain isn't settling right now.</p>
+${snap.railComponents.map(componentRow).join("\n")}
 
 ${incidentsSection(snap.incidents)}
 

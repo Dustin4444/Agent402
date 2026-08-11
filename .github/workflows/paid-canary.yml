@@ -188,6 +188,7 @@ jobs:
           OP_TOKEN: ${{ secrets.AGENT402_OPERATOR_TOKEN }}
           RESULT: ${{ steps.canary.outputs.result }}
           RAILS: ${{ steps.canary.outputs.rails }}
+          RAIL_STATUS: ${{ steps.canary.outputs.rail_status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           [ -n "$OP_TOKEN" ] || { echo "no operator token — skipping status record"; exit 0; }
@@ -218,12 +219,22 @@ jobs:
           esac
           # status-store caps detail at 500 chars.
           DETAIL=$(printf '%s' "$DETAIL" | cut -c1-500)
-          BODY=$(jq -nc --arg u "$RUN_URL" --arg d "$DETAIL" --argjson ok "$OK" \
+          # Per-rail components (rail_base, rail_stellar, ...), derived from the
+          # canary's own rail_status output - a JSON array of {key, ok, detail}
+          # for every rail actually attempted this run (a skipped leg, e.g. no
+          # burner key configured, is simply absent, never a false "down").
+          # Folded into the SAME POST as settlement above: same source data,
+          # same operator token, no new secret exposure.
+          RAIL_COMPONENTS=$(printf '%s' "${RAIL_STATUS:-[]}" | jq -c '
+            if type == "array" then
+              (map({("rail_" + .key): {ok: .ok, detail: (.detail // null)}}) | add) // {}
+            else {} end')
+          BODY=$(jq -nc --arg u "$RUN_URL" --arg d "$DETAIL" --argjson ok "$OK" --argjson rails "$RAIL_COMPONENTS" \
             '{source:"paid-canary", ts:(now*1000|floor), url:$u,
-              components:{"settlement":{ok:$ok, detail:(if $d=="" then null else $d end)}}}')
+              components:({"settlement":{ok:$ok, detail:(if $d=="" then null else $d end)}} + $rails)}')
           curl -sf --max-time 20 -X POST "$TARGET_URL/api/status/probe" \
             -H "Content-Type: application/json" -H "X-Operator-Token: $OP_TOKEN" \
-            -d "$BODY" >/dev/null && echo "settlement recorded (ok=$OK)" || echo "settlement not recorded (prod unreachable)"
+            -d "$BODY" >/dev/null && echo "settlement + rails recorded (ok=$OK, rails=$(printf '%s' "$RAIL_COMPONENTS" | jq -c 'keys'))" || echo "settlement not recorded (prod unreachable)"
 
       - name: Alert on failure / clear on recovery
         env:

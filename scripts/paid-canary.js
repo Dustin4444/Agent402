@@ -571,6 +571,21 @@ const railFailures = [];
 function railFail(key, detail) {
   railFailures.push(`${key}: ${detail}`);
   console.error(`\nFAIL  ${key} leg — ${detail}`);
+  noteRail(key, false, detail);
+}
+
+// Per-rail status observations for the /status page — deliberately SEPARATE
+// from railFailures above, which drives partial-rail paging (exit 5). This
+// array only feeds observability (POSTed to /api/status/probe by the
+// workflow's own separate step, same as the existing "settlement"
+// component), so a bug here can never change what pages Mike. Solana/
+// Algorand/Robinhood are WARN-only by design (their failures must never
+// page — see each leg's own comment), so they call noteRail() directly
+// instead of railFail(); a skipped leg (no burner key) records nothing,
+// matching /status's "no observation is no data, never uptime" rule.
+const railStatus = [];
+function noteRail(key, ok, detail) {
+  railStatus.push({ key, ok, detail: detail ? String(detail).slice(0, 300) : undefined });
 }
 
 // Did a Stellar payment land AFTER we answered?
@@ -729,7 +744,9 @@ async function main() {
           try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"))?.transaction || null; } catch { /* best-effort */ }
         }
         console.log(`\nOK    solana     /api/skill/decode-blob  → settled $0.05 USDC on Solana (payer ${signer.address})${tx ? `\n      tx: https://solscan.io/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+        noteRail("solana", true);
       } else if (res.status === 402) {
+        noteRail("solana", false, `did not settle (HTTP 402, payer ${signer.address})`);
         console.warn(`\nWARN  solana leg did NOT settle (HTTP 402, payer ${signer.address}) — decoding diagnostics:`);
         // A settle rejection's reason rides the PAYMENT-RESPONSE header
         // (settleRejectReason reads it); the PAYMENT-REQUIRED header on the
@@ -755,9 +772,11 @@ async function main() {
           console.warn(`      (could not re-fetch challenge for diagnostics: ${(e2?.message || String(e2)).slice(0, 100)})`);
         }
       } else {
+        noteRail("solana", false, `HTTP ${res.status}`);
         console.warn(`\nWARN  solana leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
       }
     } catch (e) {
+      noteRail("solana", false, `errored: ${(e?.message || String(e)).slice(0, 160)}`);
       console.warn(`\nWARN  solana leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
     }
   })();
@@ -780,6 +799,7 @@ async function main() {
       const reqInit = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "usdg-canary" }) };
       const bare = await synthFetch(`${TARGET}/api/hash`, reqInit);
       if (bare.status !== 402) {
+        noteRail("robinhood", false, `expected a 402, got HTTP ${bare.status}`);
         console.warn(`\nWARN  robinhood leg: expected a 402 challenge from /api/hash, got HTTP ${bare.status}`);
         return;
       }
@@ -788,11 +808,13 @@ async function main() {
         const bareBody = await bare.json().catch(() => undefined);
         paymentRequired = http.getPaymentRequiredResponse((n) => bare.headers.get(n), bareBody);
       } catch (e) {
+        noteRail("robinhood", false, `could not parse the 402 challenge: ${(e?.message || String(e)).slice(0, 120)}`);
         console.warn(`\nWARN  robinhood leg: could not parse the 402 challenge: ${(e?.message || String(e)).slice(0, 120)}`);
         return;
       }
       const rh = (paymentRequired.accepts || []).filter((a) => String(a.network || "") === "eip155:4663");
       if (!rh.length) {
+        noteRail("robinhood", false, "eip155:4663 not among the live 402 accepts");
         console.warn(`\nWARN  robinhood leg: eip155:4663 NOT among the live 402 accepts — the Robinhood/USDG rail has dropped out of the offer (PAYMENT_NETWORKS or ROBINHOOD_FACILITATOR_URL changed on prod?)`);
         return;
       }
@@ -814,13 +836,17 @@ async function main() {
           } catch { /* best-effort */ }
         }
         console.log(`\nOK    robinhood  /api/hash  → settled $0.001 USDG on Robinhood Chain (payer ${account.address}${net ? `, network ${net}` : ""})${tx ? `\n      tx: https://robinhoodchain.blockscout.com/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+        noteRail("robinhood", true);
       } else if (paid.status === 402) {
         const reason = settleRejectReason(paid.headers);
+        noteRail("robinhood", false, `did not settle (HTTP 402) — ${JSON.stringify(reason)}`);
         console.warn(`\nWARN  robinhood leg did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded USDG burner, facilitator outage, or EIP-712 domain drift)`);
       } else {
+        noteRail("robinhood", false, `HTTP ${paid.status}`);
         console.warn(`\nWARN  robinhood leg: HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
       }
     } catch (e) {
+      noteRail("robinhood", false, `errored: ${(e?.message || String(e)).slice(0, 160)}`);
       console.warn(`\nWARN  robinhood leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
     }
   })();
@@ -882,6 +908,7 @@ async function main() {
           railFail("mpp", "settled 200 over Authorization: Payment but carried no Payment-Receipt header — MPP receipt mirroring is broken");
         } else {
           console.log(`\nOK    mpp        /api/uuid  → settled $0.001 over the NATIVE MPP wire (Authorization: Payment, payer ${account.address})${ref ? `\n      Payment-Receipt tx: https://basescan.org/tx/${ref}` : ""}`);
+          noteRail("mpp", true);
         }
       } else if (paid.status === 402) {
         const reason = settleRejectReason(paid.headers);
@@ -930,6 +957,7 @@ async function main() {
           railFail("mpp-celo", "settled 200 over Authorization: Payment on Celo but carried no Payment-Receipt header");
         } else {
           console.log(`\nOK    mpp-celo   /api/uuid  → settled $0.001 over the NATIVE MPP wire on Celo (payer ${account.address})${celoRef ? `\n      Payment-Receipt tx: https://celoscan.io/tx/${celoRef}` : ""}`);
+          noteRail("mpp-celo", true);
         }
       } else if (celoPaid.status === 402) {
         const reason = settleRejectReason(celoPaid.headers);
@@ -997,6 +1025,7 @@ async function main() {
           } catch { /* best-effort */ }
         }
         console.log(`\nOK    ${leg.key.padEnd(9)} /api/hash  → settled $0.001 ${leg.sym} on ${leg.chainLabel} (payer ${account.address}${net ? `, network ${net}` : ""})${tx ? `\n      tx: ${leg.tx(tx)}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+        noteRail(leg.key, true);
       } else if (paid.status === 402) {
         const reason = settleRejectReason(paid.headers);
         railFail(leg.key, `did NOT settle (HTTP 402, payer ${account.address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded ${leg.sym} burner on ${leg.chainLabel}, facilitator outage, or EIP-712 domain drift)`);
@@ -1050,6 +1079,7 @@ async function main() {
           try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"))?.transaction || null; } catch { /* best-effort */ }
         }
         console.log(`\nOK    stellar    /api/hash  → settled $0.001 USDC on Stellar (payer ${keypair.publicKey()})${tx ? `\n      tx: https://stellar.expert/explorer/public/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+        noteRail("stellar", true);
       } else if (res.status === 402) {
         // Ask the CHAIN before believing the 402. See stellarDebitedSince().
         const reason = settleRejectReason(res.headers);
@@ -1131,13 +1161,17 @@ async function main() {
           try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8"))?.transaction || null; } catch { /* best-effort */ }
         }
         console.log(`\nOK    algorand   /api/hash  → settled $0.001 USDC on Algorand (payer ${address})${tx ? `\n      tx: https://allo.info/tx/${tx}` : "\n      (no settle receipt header found — settlement claimed by 200 only)"}`);
+        noteRail("algorand", true);
       } else if (res.status === 402) {
         const reason = settleRejectReason(res.headers);
+        noteRail("algorand", false, `did not settle (HTTP 402) — ${JSON.stringify(reason)}`);
         console.warn(`\nWARN  algorand leg did NOT settle (HTTP 402, payer ${address}) — facilitator reason: ${JSON.stringify(reason)} (unfunded or not-opted-in USDC burner, facilitator outage, or algorand missing from the live accepts)`);
       } else {
+        noteRail("algorand", false, `HTTP ${res.status}`);
         console.warn(`\nWARN  algorand leg: HTTP ${res.status} ${JSON.stringify(body).slice(0, 120)}`);
       }
     } catch (e) {
+      noteRail("algorand", false, `errored: ${(e?.message || String(e)).slice(0, 160)}`);
       console.warn(`\nWARN  algorand leg errored: ${(e?.message || String(e)).slice(0, 160)}`);
     }
   })();
@@ -1193,6 +1227,22 @@ async function main() {
   })();
 
   const decision = decideCanary(results);
+  // Base is graded through `results`/decideCanary, not railFail — its
+  // observation is derived read-only from the SAME coreSettled value that
+  // already decides the canary's own broken/not-broken verdict above, so
+  // this can never disagree with or influence that decision.
+  noteRail("base", decision.coreSettled, decision.coreSettled ? undefined : `core tool "${CORE_KIT}" did not settle`);
+  // Written unconditionally, before any process.exit() branch below, so
+  // per-rail status is captured on every outcome (broken, underfunded,
+  // partial-rail, or fully green) - not just the partial-rail path the
+  // existing `rails=` output below is scoped to. A skipped leg (no burner
+  // key configured) never called noteRail, so it's simply absent here -
+  // matching /status's "no observation is no data" rule, not a false "down".
+  if (process.env.GITHUB_OUTPUT) {
+    try {
+      appendFileSync(process.env.GITHUB_OUTPUT, `rail_status=${JSON.stringify(railStatus)}\n`);
+    } catch { /* output file missing in local runs — ignore */ }
+  }
   const spentUsd = decision.rows.filter((r) => r.cls === "settled").reduce((s, r) => s + (r.priceUsd || 0), 0);
   console.log(`\npayer ${account.address}`);
   console.log(`tools: ${decision.settled} settled, ${results.length - decision.settled} not | spent ~$${spentUsd.toFixed(3)} USDC on Base`);
