@@ -3,13 +3,14 @@
 // googling "x402 example" or "AI agent payments" before their agents do.
 import { marked } from "marked";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { RAILS_OR, RAILS_AMP } from "./rails.js";
 
 const GUIDES = [
   {
     slug: "x402-in-5-minutes",
     title: "Make your AI agent pay for what it needs: x402 in 5 minutes",
     description:
-      "A working example of the x402 payment protocol: your agent calls an API, gets an HTTP 402 quote, pays USDC on Base (or Solana, Polygon, Arbitrum, Stellar - or USDG on Robinhood Chain) from its own wallet, and gets the result - no signup, no API key.",
+      `A working example of the x402 payment protocol: your agent calls an API, gets an HTTP 402 quote, pays ${RAILS_OR} from its own wallet, and gets the result - no signup, no API key.`,
     md: `
 The useful web hides behind signups, captchas, and API keys - none of which an
 autonomous agent can obtain mid-task. [x402](https://x402.org) fixes this with
@@ -36,7 +37,7 @@ curl -i -X POST https://agent402.tools/api/extract \\
 
 ## Pay it (JavaScript)
 
-Fund a wallet with a little USDC on Base (or Solana, Polygon, Arbitrum, Stellar - the payer needs no ETH on EVM chains; USDG works too, on Robinhood Chain), then:
+Fund a wallet with a little ${RAILS_OR} (no gas needed on EVM chains - the facilitator sponsors it), then:
 
 \`\`\`js
 import { wrapFetchWithPayment } from "@x402/fetch";
@@ -179,7 +180,7 @@ for the full API.
     slug: "sell-your-api-over-x402",
     title: "Sell your API to AI agents over x402 - no billing system required",
     description:
-      "Put a per-call USDC paywall in front of any HTTP endpoint with the x402 protocol: quote over HTTP 402, settle on Base (or Solana, Polygon, Arbitrum, Stellar - even USDG on Robinhood Chain) through a facilitator, and get discovered by agents - no accounts, invoices, or payment forms.",
+      `Put a per-call USDC paywall in front of any HTTP endpoint with the x402 protocol: quote over HTTP 402, settle on ${RAILS_AMP} through a facilitator, and get discovered by agents - no accounts, invoices, or payment forms.`,
     md: `
 If you run an API, the next wave of customers can't sign up for it. Autonomous
 agents don't have credit cards, can't pass captchas, and won't wait for a sales
@@ -622,6 +623,146 @@ provenance stays explicit.
 Browse the live economy the router draws from at
 [/marketplace](https://agent402.tools/marketplace), or quote a task right now:
 \`GET https://agent402.tools/api/route?q=summarize a pdf\`.
+`,
+  },
+  {
+    slug: "x402-and-mpp",
+    title: "x402 and MPP on the same paywall: one server, two payment protocols",
+    description:
+      "x402 is not the only HTTP payment scheme in flight. Agent402 serves both x402 and the Merchant Payments Protocol (MPP) from the exact same routes - same settlement, same guarantees, whichever header your client sends.",
+    md: `
+[x402](https://x402.org) reused HTTP 402 for a specific shape of payment: an
+unsigned request, an on-chain settle, a retry with proof attached. It is not
+the only proposal doing this. [MPP](https://paymentauth.org) - the Merchant
+Payments Protocol, an IETF-track spec for a \`Payment\` HTTP auth scheme -
+solves the same problem with a different wire format: a \`WWW-Authenticate:
+Payment\` challenge instead of a bare 402 body, and an \`Authorization: Payment\`
+credential on retry instead of a custom header.
+
+Two clients, two conventions, one seller who doesn't want to run two paywalls.
+So Agent402 speaks both, from the same routes, with the same settlement
+underneath.
+
+## What actually changes on the wire
+
+Nothing about settlement. **\`@x402/express\` keeps sole settlement
+authority** - it still verifies, still settles, still decides pass or fail.
+What changes is the envelope around it:
+
+- A 402 also carries \`WWW-Authenticate: Payment\`, one HMAC-bound challenge
+  per EVM rail we offer. The x402 \`accepts\` entry for that rail rides inside
+  the challenge's own metadata, verbatim - so the challenge needs nothing
+  stored server-side to issue or check later. Same statelessness x402 already
+  has, extended to a second header.
+- An inbound \`Authorization: Payment\` credential that verifies against that
+  HMAC gets re-encoded as \`PAYMENT-SIGNATURE\` and falls through the normal
+  x402 pipeline unchanged - the same replay guard, the same payer
+  attribution, the same idempotency-key handling an x402 buyer gets.
+- A settled 200 mirrors its \`PAYMENT-RESPONSE\` back as \`Payment-Receipt\`,
+  MPP's expected receipt header.
+
+The shim is a pure translation layer sitting in front of the paywall, not a
+second payment path beside it. \`mppx\` (the reference codec) is only used for
+encode/decode primitives here - its own request-guard and settle path are
+never mounted, because two components with settlement authority is how you
+get a double-settle bug.
+
+## Try it
+
+If you already have an MPP-capable client, point it at any paid Agent402
+route the normal way - no separate config, no MPP-specific endpoint:
+
+\`\`\`bash
+curl -i -X POST https://agent402.tools/api/hash -d '{"text":"hi","algo":"sha256"}'
+# HTTP/2 402
+# www-authenticate: Payment realm="agent402.tools", evm=eip155:8453;charge="…"
+\`\`\`
+
+Sign against that challenge the way your MPP client already knows how to,
+retry with \`Authorization: Payment ...\`, and you get back \`200\` plus a
+\`Payment-Receipt\` header - not a custom Agent402 format, the receipt shape
+MPP itself defines.
+
+## Why bother running two protocols
+
+Because the buyer shouldn't have to guess which one a seller picked. An agent
+built against MPP tooling should be able to pay an x402-native seller without
+a special case, and vice versa - and that only holds if sellers on both sides
+actually do it, not just say they support it. This one is verified end to
+end: a real \`mppx\` client buying over the native wire against this server,
+one verify-and-settle, the EIP-712 signature checked against Base USDC's
+actual on-chain domain, x402 traffic on the same routes untouched, and a
+tampered or expired challenge rejected before it reaches a handler.
+
+Rollout is a single switch server-side (present or absent, no partial state),
+and which EVM rails get an MPP challenge is configurable per deployment - so
+a seller can offer MPP on their primary chain without promising it everywhere
+they offer x402. The two protocols don't have to agree on everything to both
+work today.
+`,
+  },
+  {
+    slug: "why-twelve-chains",
+    title: "Why Agent402 settles on twelve chains instead of just Base",
+    description:
+      "Base is where x402 volume actually is today. Agent402 also settles on Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand, and Robinhood Chain (USDG) anyway - here's the actual reason, chain by chain.",
+    md: `
+Most x402 volume, ours included, settles on Base. That's not a secret and
+this guide isn't going to pretend otherwise. So the honest question is: why
+run eleven more rails if that's where the traffic already is?
+
+## The reason isn't "more chains, more revenue"
+
+It's optionality. An agent doesn't get to choose what chain its wallet
+already holds USDC on - it was funded once, for some other reason, on
+whatever chain that happened to be. A seller who only accepts Base is
+invisible to every agent funded anywhere else, no matter how good the tool
+is. Twelve rails means twelve populations of already-funded buyers who never
+have to bridge, swap, or wait for a transfer just to pay for one API call.
+
+## What's actually live, and who settles it
+
+Every rail below is a real, working \`payTo\` you can quote against right now
+- \`GET https://agent402.tools/api/pricing\` lists the live \`accepts\` for any
+tool, per network:
+
+- **Base** - the primary rail, settled via Coinbase's CDP facilitator (also
+  where [x402 Bazaar](https://docs.cdp.coinbase.com/x402/docs/bazaar)
+  discovery lives).
+- **Solana, Polygon, Arbitrum, Avalanche, Sei** - settled via the PayAI
+  facilitator, free up to a generous monthly settlement quota.
+- **Optimism** - settled via Solvador, a fee-charging facilitator; the price
+  quoted on Optimism is bumped to cover that fee, so what you're quoted is
+  what actually clears.
+- **Monad, Celo** - each on its own dedicated facilitator.
+- **Stellar** - USDC via a Soroban-based facilitator (OpenZeppelin Channels);
+  settlement here is confirmed against the chain itself, not just trusted
+  from the facilitator's word, because Stellar's ~5-second ledger close can
+  outlast a synchronous HTTP request.
+- **Algorand** - USDC via a dedicated AVM facilitator (GoPlausible); every
+  payment carries a signed validity window sized to the tool it's paying
+  for, so a slow tool can never receive a payment that expires mid-call.
+- **Robinhood Chain** - the one non-USDC rail: USDG, via a keyless
+  facilitator.
+
+Every facilitator is health-checked at boot. One going down drops only its
+own rail from the offer - the other eleven, and the free proof-of-work tier,
+are unaffected.
+
+## What doesn't change per chain
+
+The guarantee is identical everywhere: a failed or unmatched call never
+settles, regardless of which of the twelve rails it failed on. Chain choice
+changes *where* the USDC moves, never *whether* a bad call gets charged.
+
+## The Smart Order Router uses this directly
+
+When [the router](/guides/smart-order-router) pays an external seller on
+your behalf, it settles on the SAME chain you paid it on - an Algorand
+payment funds an Algorand purchase, a Base payment funds a Base purchase.
+Twelve rails isn't just about who can pay us; it's what lets the router keep
+your money on the chain you already trusted it on, instead of quietly
+routing everything through one chain regardless of what you sent.
 `,
   },
 ];
