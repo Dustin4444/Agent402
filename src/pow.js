@@ -246,6 +246,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   "skill-feed-watch",        // calls feed-parse + extract (both wallet-only)
   "skill-subtitle-pipeline", // calls transcribe (wallet-only — OpenAI upstream credit)
   "skill-locale-brief",      // calls public-holidays (wallet-only — Nager.Date egress)
+  "skill-document-brief",    // calls pdf-summarize (wallet-only — real upstream LLM cost)
   // LLM proxy kit: every call burns real upstream inference credit (OpenAI).
   // PoW would let one client farm our API keys for free.
   "llm", "llm-pro", "llm-premium",

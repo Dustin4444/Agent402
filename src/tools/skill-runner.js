@@ -1253,6 +1253,17 @@ export const PACK_STEPS = {
     ],
   },
 
+  // Three independent views of the same PDF, all deriving input from the
+  // single `url` arg - fanout, no step depends on another's result.
+  "document-brief": {
+    mode: "fanout",
+    steps: [
+      { slug: "pdf-info",          mapInput: (a) => ({ url: a.url }) },
+      { slug: "pdf-summarize",     mapInput: (a) => ({ url: a.url, maxWords: a.maxWords || 150 }) },
+      { slug: "pdf-extract-pages", mapInput: (a) => ({ url: a.url, pages: a.previewPages || "1-2" }) },
+    ],
+  },
+
   // Bake-off: backtest 4 methods, then forecast forward with all 4. Both
   // fetchers fire — stock-history wins for tickers, fred-series wins for
   // FRED series ids; the loser fails cleanly. forecast-eval is called 4×
