@@ -11,8 +11,10 @@
 //   transfer-authorization build EIP-3009 transferWithAuthorization typed data
 //
 // All chain tools take an optional `network` (base default; also polygon,
-// arbitrum, optimism, ethereum). Marked wallet-only so they stay OFF the free
-// hosted connector — the payments surface is the paid HTTP/npm path.
+// arbitrum, optimism, ethereum, monad, celo, avalanche, sei, robinhood -
+// robinhood is chain-read only, see requireUsdc()). Marked wallet-only so they
+// stay OFF the free hosted connector - the payments surface is the paid
+// HTTP/npm path.
 import { randomBytes } from "node:crypto";
 import sha3 from "js-sha3"; // CommonJS — default import, then destructure
 const { keccak256 } = sha3;
@@ -63,27 +65,67 @@ function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
-// Native Circle USDC per chain (EIP-712 domain name "USD Coin" / version "2").
+// Native Circle USDC per chain. `name` is the on-chain EIP-712 domain name
+// signed into the transferWithAuthorization typed data - Circle's canonical
+// deployments answer "USD Coin", but Monad, Celo, and Sei's native Circle USDC
+// report the domain name as "USDC" instead (verified against each chain
+// directly - see src/payments.js, which settles the same four chains and
+// carries the same addresses/names, independently confirmed on-chain again
+// here 2026-08-11). Getting this field wrong makes a buyer sign a valid-looking
+// authorization against the WRONG domain, which a facilitator's exact/EIP-3009
+// verify then silently rejects - so it is explicit per chain, never assumed.
 const NETWORKS = {
   base: {
-    chainId: 8453, usdc: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
+    chainId: 8453, usdc: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", name: "USD Coin",
     rpcs: ["https://mainnet.base.org", "https://base-rpc.publicnode.com", "https://base.llamarpc.com", "https://base.drpc.org"],
   },
   polygon: {
-    chainId: 137, usdc: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+    chainId: 137, usdc: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359", name: "USD Coin",
     rpcs: ["https://polygon-rpc.com", "https://polygon-bor-rpc.publicnode.com", "https://polygon.llamarpc.com", "https://polygon.drpc.org"],
   },
   arbitrum: {
-    chainId: 42161, usdc: "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
+    chainId: 42161, usdc: "0xaf88d065e77c8cc2239327c5edb3a432268e5831", name: "USD Coin",
     rpcs: ["https://arb1.arbitrum.io/rpc", "https://arbitrum-one-rpc.publicnode.com", "https://arbitrum.llamarpc.com", "https://arbitrum.drpc.org"],
   },
   optimism: {
-    chainId: 10, usdc: "0x0b2c639c533813f4aa9d7837caf62653d097ff85",
+    chainId: 10, usdc: "0x0b2c639c533813f4aa9d7837caf62653d097ff85", name: "USD Coin",
     rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com", "https://optimism.llamarpc.com", "https://optimism.drpc.org"],
   },
   ethereum: {
-    chainId: 1, usdc: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+    chainId: 1, usdc: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", name: "USD Coin",
     rpcs: ["https://ethereum-rpc.publicnode.com", "https://eth.llamarpc.com", "https://eth.drpc.org", "https://cloudflare-eth.com"],
+  },
+  // Monad (EVM L1, chain 143). Native Circle USDC, but the on-chain EIP-712
+  // domain name is "USDC" not "USD Coin" (same fact src/payments.js's
+  // makeMonadUsdcScheme relies on for settlement; verified again directly
+  // against the chain 2026-08-11: name()="USDC", version()="2", decimals=6).
+  monad: {
+    chainId: 143, usdc: "0x754704Bc059F8C67012fEd69BC8A327a5aafb603", name: "USDC",
+    rpcs: ["https://rpc.monad.xyz", "https://rpc2.monad.xyz"],
+  },
+  // Celo (EVM L2, chain 42220). Native Circle USDC, on-chain EIP-712 domain
+  // name "USDC" not "USD Coin" (same fact src/payments.js's
+  // makeCeloUsdcScheme relies on; verified again directly 2026-08-11).
+  celo: {
+    chainId: 42220, usdc: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C", name: "USDC",
+    rpcs: ["https://forno.celo.org"],
+  },
+  // Avalanche C-Chain (chain 43114). Native Circle USDC, standard "USD Coin"
+  // domain name (verified 2026-08-11).
+  avalanche: {
+    chainId: 43114, usdc: "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", name: "USD Coin",
+    rpcs: ["https://api.avax.network/ext/bc/C/rpc", "https://avalanche-c-chain-rpc.publicnode.com"],
+  },
+  // Sei (pacific-1 EVM, chain 1329). Native Circle USDC - NOT Noble's IBC
+  // token (0x3894…) - on-chain EIP-712 domain name "USDC" (verified 2026-08-11,
+  // same address src/payments.js and src/revenue-live.js already settle/scan).
+  // evm-rpc.sei-apis.com is known to reject eth_getLogs from Railway's egress
+  // IPs (see revenue-live.js) - irrelevant here, these tools never call
+  // eth_getLogs, only eth_call/eth_gasPrice/eth_getTransactionReceipt, all
+  // verified working against this same endpoint 2026-08-11.
+  sei: {
+    chainId: 1329, usdc: "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392", name: "USDC",
+    rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"],
   },
   // Robinhood Chain — Arbitrum Orbit / Nitro L2, EVM-equivalent, AI-native RWA
   // chain (tokenized US stocks/ETFs, 24/7 markets), mainnet live 2026-07-01.
@@ -304,7 +346,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/usdc-balance", name: "USDC balance", slug: "usdc-balance", category: "payments", price: "$0.003",
     description:
-      "Read the USDC balance of any address on Base, Polygon, Arbitrum, Optimism, or Ethereum. Read-only on-chain call. The minimal single-token read for payment flows - for EVERY token a wallet holds in one call use wallet-balance. ?address=0x…&network=base",
+      "Read the USDC balance of any address on Base, Polygon, Arbitrum, Optimism, Ethereum, Monad, Celo, Avalanche, or Sei. Read-only on-chain call. The minimal single-token read for payment flows - for EVERY token a wallet holds in one call use wallet-balance. ?address=0x…&network=base",
     tags: ["usdc", "balance", "wallet", "erc20", "multichain"],
     discovery: {
       input: { address: "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0", network: "base" },
@@ -324,7 +366,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/tx-status", name: "Transaction status", slug: "tx-status", category: "payments", price: "$0.003",
     description:
-      "Check the confirmation status of a transaction by hash on Base/Polygon/Arbitrum/Optimism/Ethereum/Robinhood Chain: success / failed / pending / not found, with block, from, to, gas used. Read-only. ?hash=0x…&network=base",
+      "Check the confirmation status of a transaction by hash on Base/Polygon/Arbitrum/Optimism/Ethereum/Monad/Celo/Avalanche/Sei/Robinhood Chain: success / failed / pending / not found, with block, from, to, gas used. Read-only. ?hash=0x…&network=base",
     tags: ["transaction", "status", "receipt", "confirmation", "multichain", "robinhood", "usdg"],
     discovery: {
       input: { hash: "0x0000000000000000000000000000000000000000000000000000000000000000", network: "base" },
@@ -350,7 +392,7 @@ export const X402_TOOLS = [
   {
     route: "GET /api/gas-estimate", name: "Gas price", slug: "gas-estimate", category: "payments", price: "$0.002",
     description:
-      "Current gas price (gwei and wei) on Base, Polygon, Arbitrum, Optimism, Ethereum, or Robinhood Chain - for an agent budgeting a transaction. Read-only. ?network=base",
+      "Current gas price (gwei and wei) on Base, Polygon, Arbitrum, Optimism, Ethereum, Monad, Celo, Avalanche, Sei, or Robinhood Chain - for an agent budgeting a transaction. Read-only. ?network=base",
     tags: ["gas", "gas-price", "fees", "gwei", "multichain", "robinhood", "usdg"],
     discovery: {
       input: { network: "base" },
@@ -404,7 +446,7 @@ export const X402_TOOLS = [
   {
     route: "POST /api/transfer-authorization", name: "Build USDC transfer authorization", slug: "transfer-authorization", category: "payments", price: "$0.003",
     description:
-      "Build the EIP-3009 transferWithAuthorization typed data for a gasless USDC transfer on Base/Polygon/Arbitrum/Optimism/Ethereum - the exact EIP-712 object an agent signs with its OWN key to authorize an x402 payment. We construct it; we never sign or send. Non-custodial.",
+      "Build the EIP-3009 transferWithAuthorization typed data for a gasless USDC transfer on Base/Polygon/Arbitrum/Optimism/Ethereum/Monad/Celo/Avalanche/Sei - the exact EIP-712 object an agent signs with its OWN key to authorize an x402 payment. We construct it; we never sign or send. Non-custodial.",
     tags: ["x402", "eip-3009", "eip-712", "usdc", "transfer", "authorization", "gasless", "multichain"],
     discovery: {
       bodyType: "json",
@@ -434,7 +476,7 @@ export const X402_TOOLS = [
       const nonce = "0x" + randomBytes(32).toString("hex");
       return {
         typedData: {
-          domain: { name: "USD Coin", version: "2", chainId: net.chainId, verifyingContract: net.usdc },
+          domain: { name: net.name, version: "2", chainId: net.chainId, verifyingContract: net.usdc },
           types: {
             TransferWithAuthorization: [
               { name: "from", type: "address" }, { name: "to", type: "address" }, { name: "value", type: "uint256" },
