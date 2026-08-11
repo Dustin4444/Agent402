@@ -7,6 +7,14 @@ import { ADAPTERS } from "./adapter-docs.js";
 import { RAILS, RAILS_OR } from "./rails.js";
 import { CHAIN_PAGES } from "./market-page.js";
 
+// Computed ONCE when this module loads (i.e. once per deploy, since Railway
+// restarts the process), not per-request. Every sitemap lastmod below reuses
+// this so it genuinely reflects "the deploy that regenerated this sitemap" -
+// previously each call recomputed new Date() fresh, so hitting /sitemap.xml
+// on day N+1 of the same deploy claimed everything had "just changed," a
+// signal crawlers learn to discount.
+const BOOT_DATE = new Date().toISOString().slice(0, 10);
+
 export function robotsTxt(baseUrl) {
   // Explicitly welcome AI/agent crawlers and search engines; point them at the
   // machine-readable surfaces. Disallow the wallet-scoped memory endpoints and
@@ -54,7 +62,7 @@ Sitemap: ${baseUrl}/sitemapindex.xml
 export function sitemapXml(baseUrl, catalog) {
   // lastmod reflects the deploy that regenerated this sitemap (the pages are
   // server-rendered, so a deploy is the freshness signal crawlers should see).
-  const lastmod = new Date().toISOString().slice(0, 10);
+  const lastmod = BOOT_DATE;
   const staticUrls = [
     { loc: `${baseUrl}/`, priority: "1.0" },
     { loc: `${baseUrl}/tools`, priority: "0.9" },
@@ -137,13 +145,13 @@ function subSitemap(urls, lastmod) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.map((u) => `  <url><loc>${u.loc}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>${u.priority}</priority></url>`).join("\n")}\n</urlset>`;
 }
 export function sitemapIndex(baseUrl) {
-  const lastmod = new Date().toISOString().slice(0, 10);
+  const lastmod = BOOT_DATE;
   const subs = ["sitemap-pages.xml", "sitemap-tools.xml", "sitemap-guides.xml", "sitemap-skills.xml"];
   const entries = subs.map((s) => `  <sitemap><loc>${baseUrl}/${s}</loc><lastmod>${lastmod}</lastmod></sitemap>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</sitemapindex>`;
 }
 export function sitemapPages(baseUrl, catalog) {
-  const lastmod = new Date().toISOString().slice(0, 10);
+  const lastmod = BOOT_DATE;
   const urls = [
     { loc: `${baseUrl}/`, priority: "1.0" },
     { loc: `${baseUrl}/tools`, priority: "0.9" },
@@ -193,15 +201,15 @@ export function sitemapPages(baseUrl, catalog) {
   return subSitemap(urls, lastmod);
 }
 export function sitemapTools(baseUrl, catalog) {
-  const lastmod = new Date().toISOString().slice(0, 10);
+  const lastmod = BOOT_DATE;
   return subSitemap(toolList(catalog).map((t) => ({ loc: `${baseUrl}/tools/${t.slug}`, priority: "0.8" })), lastmod);
 }
 export function sitemapGuides(baseUrl) {
-  const lastmod = new Date().toISOString().slice(0, 10);
+  const lastmod = BOOT_DATE;
   return subSitemap([{ loc: `${baseUrl}/guides`, priority: "0.8" }, ...guideSlugs().map((s) => ({ loc: `${baseUrl}/guides/${s}`, priority: "0.8" }))], lastmod);
 }
 export function sitemapSkills(baseUrl) {
-  const lastmod = new Date().toISOString().slice(0, 10);
+  const lastmod = BOOT_DATE;
   return subSitemap([{ loc: `${baseUrl}/skills`, priority: "0.8" }, ...skillSlugs().map((s) => ({ loc: `${baseUrl}/skills/${s}`, priority: "0.8" }))], lastmod);
 }
 
