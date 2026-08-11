@@ -1,7 +1,7 @@
 // Unit tests for the paid-canary's decision logic — proves the canary pages on
 // real BUYING failures and only warns on upstream/data hiccups (the chronic
 // false-alarm fix). Pure, no network, no wallet.
-import { classifyResult, decideCanary, settleRejectReason, classifyRailOutcome } from "./paid-canary.js";
+import { classifyResult, decideCanary, settleRejectReason, settleRejectDetail, classifyRailOutcome } from "./paid-canary.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
@@ -92,6 +92,22 @@ ok(
 );
 ok(settleRejectReason(hdrs({ "payment-response": "!!!garbage!!!" })) === null, "malformed receipt, no challenge → null");
 ok(settleRejectReason(hdrs({})) === null, "no headers → null");
+
+// --- settleRejectDetail (Stellar simulation_failed needs the HostError too) ---
+{
+  const d = settleRejectDetail(hdrs({
+    "payment-response": b64({
+      success: false,
+      errorReason: "invalid_exact_stellar_payload_simulation_failed",
+      errorMessage: "HostError: Error(Auth, InvalidAction)",
+      network: "stellar:pubnet",
+    }),
+  }));
+  ok(d?.errorReason === "invalid_exact_stellar_payload_simulation_failed", "detail keeps errorReason");
+  ok(d?.errorMessage === "HostError: Error(Auth, InvalidAction)", "detail keeps errorMessage");
+  ok(d?.network === "stellar:pubnet", "detail keeps network");
+}
+ok(settleRejectDetail(hdrs({})) === null, "detail: no headers → null");
 
 // --- classifyRailOutcome (2026-08-10: Stellar-only fail must not be exit 1) ---
 ok(classifyRailOutcome({ toolBroken: false, railFailures: [] }) === "ok", "tools green + no rail fails → ok");
