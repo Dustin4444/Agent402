@@ -21,6 +21,25 @@ ok(taPoly.typedData.domain.verifyingContract === "0x3c499c542cef5e3811e1192ce70d
 const taArb = h("transfer-authorization")({ from: "0x1111111111111111111111111111111111111111", to: "0x2222222222222222222222222222222222222222", amount: 1, network: "arbitrum" });
 ok(taArb.typedData.domain.chainId === 42161, "transfer-auth arbitrum chainId 42161");
 
+// --- EIP-712 domain NAME per chain: Circle's standard deployments sign "USD
+// Coin", but Monad/Celo/Sei's native USDC reports "USDC" on-chain instead
+// (same fact src/payments.js's settlement path relies on). Signing the wrong
+// name produces a validly-shaped but wrong-domain signature that a
+// facilitator's exact/EIP-3009 verify silently rejects - added 2026-08-11
+// after this toolkit was found not to cover these four chains at all, with
+// the domain name hardcoded to "USD Coin" for every network.
+for (const [network, chainId, usdc, name] of [
+  ["monad", 143, "0x754704Bc059F8C67012fEd69BC8A327a5aafb603", "USDC"],
+  ["celo", 42220, "0xcebA9300f2b948710d2653dD7B07f33A8B32118C", "USDC"],
+  ["avalanche", 43114, "0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6E", "USD Coin"],
+  ["sei", 1329, "0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392", "USDC"],
+]) {
+  const t = h("transfer-authorization")({ from: "0x1111111111111111111111111111111111111111", to: "0x2222222222222222222222222222222222222222", amount: 1, network });
+  ok(t.typedData.domain.chainId === chainId, `transfer-auth ${network} chainId ${chainId}`);
+  ok(t.typedData.domain.verifyingContract === usdc, `transfer-auth ${network} USDC address`);
+  ok(t.typedData.domain.name === name, `transfer-auth ${network} EIP-712 domain name is "${name}" (got "${t.typedData.domain.name}")`);
+}
+
 // --- validation (deterministic) ---
 for (const [slug, args, label] of [
   ["usdc-balance", { address: "nope" }, "usdc-balance rejects bad address"],
