@@ -49,14 +49,26 @@ because /v1 settles before the handler and an empty balance = charged-but-failed
 
 ## Dev / CI / deploy workflow
 - **Develop on branch `claude/sweet-brown-i99jl3`.** `main` is protected (PR required, no force-push).
-- CI (`.github/workflows/deploy.yml`) triggers on push to the dev branch **and** a touched
-  `.github/trigger-*` path, with jobs gated on **commit-message markers**:
+- CI (`.github/workflows/deploy.yml`) triggers on push to the dev branch OR to `main`. Jobs gate
+  on **commit-message markers** - no `.github/trigger-*` file needs touching (that path filter
+  was removed 2026-08-11; it can't be scoped per-branch in one `push:` block, and it made `main`
+  effectively un-triggerable since a PR merge commit never touches one):
   - `[test]` → full test job · `[deploy]` → Railway deploy · `[publish]` → npm + MCP Registry
   - `[probe]` → live prod probe · `[paytest]`/`[drain]`/`[purl]`
-  - To trigger: bump the matching `.github/trigger-<name>` file and put the marker(s) in the commit message.
+  - **A push to `main` tests + deploys unconditionally, no marker required.** A PR merge commit
+    (usually just the PR title) never carries our marker convention, so `main` can't be
+    marker-gated the way the dev branch is - merging to main already means "this should be
+    live." Closes a real class of bug (found 2026-08-11): five PRs, one an external contributor's,
+    three from throwaway Cursor branches, merged clean, passed CI, and sat undeployed for hours
+    because nothing separately pushed the dev branch afterward. One was a duplicate-seller bug
+    the same contributor found live in production after their own fix had already merged.
+  - `.github/trigger-tool-alert`, `-charged-alert`, `-heartbeat`, `-announce`, `-b20check`,
+    `-x-verify`, `-self-consistency-alert` are unrelated to deploy.yml - each still gates its
+    own dedicated workflow's path filter, untouched by the above.
 - **Flow:** commit to the dev branch (with markers) → push → open a **draft PR** → CI runs →
-  merge to `main`. The `create_pull_request` tool auto-appends a session-link footer; **strip it**
-  via `update_pull_request` before/after creating (no session links in PR bodies/commits).
+  merge to `main` (deploys on its own now, whether or not the dev branch was ever synced). The
+  `create_pull_request` tool auto-appends a session-link footer; **strip it** via
+  `update_pull_request` before/after creating (no session links in PR bodies/commits).
 - **Heartbeat** (`heartbeat.yml`) probes prod every 15 min and opens a "production DOWN" issue on
   failure; a daily paid canary buys a $0.001 tool. No open issues = prod healthy. Also
   watches the **PayAI settlement quota** (PayAI is PRIMARY for Solana/Polygon/Arbitrum/
