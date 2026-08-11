@@ -1,0 +1,101 @@
+name: Discovery self-consistency (live)
+
+# The guard that would have caught #705 before an outside agent did — checks
+# whether prod's own agent-facing text (tools/list, about_agent402,
+# get_payment_info, /llms.txt, /.well-known/x402) still matches what is
+# actually registered in source. scripts/test-mcp-self-consistency.js already
+# runs this pre-merge against a fresh CI boot (deploy.yml's [test] job), but
+# that only proves the code we SHIPPED was internally consistent — it says
+# nothing about what is actually running on Railway right now. A stale or
+# rolled-back deploy (see the var-upsert race documented in CLAUDE.md, which
+# can leave prod "healthy, wrong version") could silently break
+# discoverability for real agents with nothing to catch it, the same way
+# #705, the router-alias duplicate, and the priceless-listing bug were all
+# found by outsiders first instead of us.
+#
+# Safe by construction: the script itself never live-probes /api or /v1 (its
+# routeExists() oracle hard-returns false for those two families and defers
+# to the static source scan instead — read the script before assuming
+# otherwise), so this can never spend money or reach a paid handler. Every
+# live call it makes is to a free, unpaywalled surface: /mcp, /api/pricing,
+# /llms.txt, /.well-known/x402.
+#
+# Same alarm shape as tool-alert.yml: open on failure, comment while it stays
+# down, close on recovery. An unreadable target (prod fully down) is NOT a
+# finding here — that is heartbeat's domain — so it skips quietly rather than
+# double-alarming.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  push:
+    branches:
+      - "main"
+      - "claude/sweet-brown-i99jl3"
+    paths:
+      - ".github/trigger-self-consistency-alert"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  PROD: https://agent402.tools
+
+jobs:
+  consistency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_URL: https://agent402.tools
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+        with:
+          ref: main
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Run self-consistency against live prod
+        id: check
+        run: |
+          set +e
+          OUT="$(node scripts/test-mcp-self-consistency.js 2>&1)"
+          CODE=$?
+          set -e
+          echo "$OUT"
+          if ! echo "$OUT" | grep -q "assertions passed"; then
+            echo "target unreadable (prod outage is heartbeat's domain) — skipping"
+            echo "status=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$CODE" -eq 0 ]; then
+            echo "all agent-facing surfaces consistent with source"
+            echo "status=up" >> "$GITHUB_OUTPUT"
+          else
+            DETAIL="$(echo "$OUT" | sed -n '/^Failures:/,$p' | tail -n +2)"
+            echo "status=down" >> "$GITHUB_OUTPUT"
+            { echo "detail<<EOF"; echo "$DETAIL"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open, comment, or close the alert issue
+        if: steps.check.outputs.status != 'skip'
+        run: |
+          TITLE="Discovery self-consistency: live prod drifted from source"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ "${{ steps.check.outputs.status }}" = "down" ]; then
+            BODY="Live agent402.tools's agent-facing text (tools/list, about_agent402, get_payment_info, /llms.txt, /.well-known/x402) no longer matches what source says is registered — the same class of defect as #705, caught here before an outside agent reports it.
+
+          \`\`\`
+          ${{ steps.check.outputs.detail }}
+          \`\`\`
+
+          Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            if [ -n "$OPEN" ]; then
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still drifted at $(date -u +%FT%TZ)."
+            else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$BODY"
+            fi
+            exit 1
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: live prod matches source again at $(date -u +%FT%TZ)."
+          fi
