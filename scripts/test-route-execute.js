@@ -219,5 +219,28 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
     `the upstream buyer low-water default ($${BUYER_LOW_DEFAULT_USD}) covers the largest tier's underlying spend ($${biggest}) - otherwise "ok" can mean "cannot fund one call"`);
 }
 
+// --- every spend-capable tier MUST require a real wallet payment ------------
+// route-execute-pro (underlyingMaxUsd $3.00) shipped 2026-08-07 and was never
+// added to WALLET_ONLY_SLUGS - live PoW-eligible (free) for days. Found and
+// fixed 2026-08-11. The free tier has NO per-caller spend cap for this class
+// of call: external-spend-guard.js's maySpend() explicitly returns ok:true,
+// UNCAPPED, whenever the payer is unattributable - exactly every free/PoW
+// call, since there is no signed EIP-3009 authorization to attribute to. A
+// free caller could have solved a cheap PoW puzzle and directed our upstream
+// spending wallet to pay up to $3.00 to a seller of their own choosing,
+// repeated with zero cumulative limit. This asserts the invariant
+// structurally, derived from EXEC_TIERS itself, so the NEXT tier can't ship
+// with the same gap - no one has to remember to update a hand-written list.
+{
+  const { WALLET_ONLY_SLUGS } = await import("../src/pow.js");
+  const { EXEC_TIERS: TIERS } = await import("../src/tools/route-execute.js");
+  for (const t of TIERS) {
+    if (t.underlyingMaxUsd > 0) {
+      ok(WALLET_ONLY_SLUGS.has(t.slug),
+        `${t.slug} can spend up to $${t.underlyingMaxUsd} of our upstream wallet, so it MUST be wallet-only (unattributable free/PoW callers get no cumulative spend cap at all)`);
+    }
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
