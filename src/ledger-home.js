@@ -16,6 +16,19 @@ import { chainLogoStrip } from "./chain-logos.js";
 // buyers want something else up front.
 const FLAGSHIP_PACKS = ["financial-research", "search-and-cite", "onchain-analyst", "seo-audit", "wallet-readiness", "decode-blob"];
 
+// Four of the five /v1 chat tiers merchandised on the home page (the plain
+// $0.02 base tier is skipped - nano/auto/pro/premium already span the price
+// range and tell a clearer story). Prices are resolved live from the catalog
+// below, never hardcoded here - only the display label/model list is curated,
+// same convention as FLAGSHIP_PACKS above.
+const GATEWAY_SLUGS = ["v1-chat-nano", "v1-chat-auto", "v1-chat-pro", "v1-chat-premium"];
+const GATEWAY_TIER_COPY = {
+  "v1-chat-nano": { label: "Nano - agent loops", models: "GPT-4.1 nano, GPT-5 nano, Gemini Flash-Lite, small Llama/Qwen/Mistral" },
+  "v1-chat-auto": { label: "Auto - no model needed", models: "Server picks the best fit per task - ranked, price-neutral" },
+  "v1-chat-pro": { label: "Pro", models: "Claude Sonnet, GPT-4o, Gemini Pro, Grok" },
+  "v1-chat-premium": { label: "Premium - frontier", models: "Claude Opus, GPT-5, o3, o4" },
+};
+
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 
 export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks) {
@@ -29,6 +42,12 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const served = stats?.toolCallsServed;
   const board = Array.isArray(leaderboardSnapshot?.leaderboard) ? leaderboardSnapshot.leaderboard : [];
   const packCount = Array.isArray(skillPacks) ? skillPacks.length : 42;
+  // /v1 gateway tiers for the merchandising section below - resolved from the
+  // same live catalog as every other price on this page.
+  const gatewayTools = GATEWAY_SLUGS.map((slug) => tools.find((t) => t.slug === slug)).filter(Boolean);
+  const embeddingsTool = tools.find((t) => t.slug === "v1-embeddings");
+  const imagesTool = tools.find((t) => t.slug === "v1-images");
+  const speechTool = tools.find((t) => t.slug === "v1-audio-speech");
 
   // Category data for the index
   const catEntries = Object.entries(CATEGORIES);
@@ -240,6 +259,27 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       }).join("\n      ")}
     </div>
     <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;"><a href="/skills" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">browse all ${packCount} skill packs →</a></div>
+  </section>
+
+  <!-- LLM GATEWAY -->
+  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 0;">
+    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /v1/chat/completions</div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">Or skip the API key entirely.</h2>
+      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">openai-compatible · claude · gpt · gemini · grok</span>
+    </div>
+    <p style="font-size:16px;color:var(--muted);max-width:640px;margin:0 0 28px;">An OpenAI-compatible gateway to the major model families. Point any OpenAI SDK's <span style="font-family:var(--font-mono);font-size:14px;">base_url</span> at <span style="font-family:var(--font-mono);font-size:14px;">https://agent402.tools/v1</span> and pay per call in USDC - no account, no billing dashboard, no key to leak or rotate.</p>
+    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px solid var(--ink);">
+      ${gatewayTools.map((t, i) => {
+        const copy = GATEWAY_TIER_COPY[t.slug] || {};
+        return `<a href="/tools/${t.slug}" style="padding:20px 18px;${i < gatewayTools.length - 1 ? "border-right:1.5px solid var(--ink);" : ""}background:var(--card);text-decoration:none;color:var(--ink);display:flex;flex-direction:column;gap:8px;">
+        <div style="font-family:var(--font-mono);font-weight:700;font-size:17px;color:var(--accent);">${esc(t.price)}</div>
+        <div style="font-weight:800;font-size:14.5px;">${esc(copy.label || t.name)}</div>
+        <p style="font-size:12.5px;line-height:1.5;color:var(--muted);margin:0;flex:1;">${esc(copy.models || "")}</p>
+      </a>`;
+      }).join("\n      ")}
+    </div>
+    <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;color:var(--muted);">+ ${esc(embeddingsTool?.price || "$0.002")} embeddings · ${esc(imagesTool?.price || "$0.08")} image generation · ${esc(speechTool?.price || "$0.06")} text-to-speech <a href="/docs" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;margin-left:6px;">gateway docs →</a></div>
   </section>
 
   <!-- THREE WAYS IN -->
