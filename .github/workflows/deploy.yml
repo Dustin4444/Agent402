@@ -12,26 +12,51 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  # NO path filter on this push trigger, deliberately - GitHub Actions applies
+  # `paths:` to every branch in a single push block, there is no way to scope
+  # it to claude/sweet-brown-i99jl3 only. It used to be here, and used to gate
+  # BOTH branches; removing it is what actually lets `main` fire at all (see
+  # below), so it could not simply be duplicated onto a second push entry -
+  # `on:` only accepts one `push:` key.
+  #
+  # `claude/sweet-brown-i99jl3` is unaffected in practice: every real commit
+  # there already carries a marker by convention (a marker-less push just
+  # means the lightweight `markers` job runs and every other job correctly
+  # skips - negligible cost, not a correctness change).
+  #
+  # `main` NEEDS no path filter and no marker: a PR merge's commit is
+  # whatever the PR contained (its subject is usually the PR title), so an
+  # external contributor's merge will never touch a trigger-* file and, more
+  # to the point, will never carry our [deploy] marker either. A push to main
+  # is asked to test-and-deploy UNCONDITIONALLY instead (see the test/deploy
+  # jobs' own `if:` below) - merging to main means "this should be live" in
+  # this project's model, full stop, no marker required.
+  #
+  # Found the hard way 2026-08-11: five PRs merged straight to main (one from
+  # an external contributor, three from throwaway Cursor branches) landed
+  # correct-in-source and green-in-CI while production silently kept serving
+  # the pre-merge build for hours, because this trigger only ever watched the
+  # dev branch. One of those five was a duplicate-seller bug an external
+  # contributor found LIVE IN PRODUCTION after their own fix had already
+  # merged - they were right, and CI could not have told them otherwise.
+  #
+  # Trade-off accepted knowingly: the normal flow (commit to the dev branch
+  # with a trigger bump, THEN merge to main) now deploys twice in a row for
+  # the same content - once from the dev-branch push, once from the merge.
+  # Wasteful (a redundant quiet-gate wait and Railway build), never wrong
+  # (deploying identical content twice is a no-op in effect), and correctness
+  # for the class of merge that has no dev-branch push at all is worth it.
   push:
     branches:
       - "claude/sweet-brown-i99jl3"
-    paths:
-      - ".github/trigger-probe"
-      - ".github/trigger-deploy"
-      - ".github/trigger-test"
-      - ".github/trigger-paytest"
-      - ".github/trigger-purl"
-      - ".github/trigger-publish"
-      - ".github/trigger-drain"
-      - ".github/trigger-bazaar-refresh"
-      - ".github/trigger-bazaar-register"
-      - ".github/trigger-bazaar-solana"
+      - "main"
   # PRs into main run the test + markers jobs so branch-protection required
   # checks always report (N-04 hardening). SAFE by construction: the markers
   # job emits ALL markers false on any non-push event, and every deploy/money
-  # job gates on `workflow_dispatch && mode==X || markers.X == 'true'` — so
-  # none of them can fire on a pull_request. Only the test job opts in (via its
-  # own `github.event_name == 'pull_request'` condition below).
+  # job gates on `workflow_dispatch && mode==X || markers.X == 'true'` (plus,
+  # for test/deploy, the unconditional-on-main-push clause below) — so none
+  # of them can fire on a pull_request itself. Only the test job opts in (via
+  # its own `github.event_name == 'pull_request'` condition below).
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -658,10 +683,11 @@ jobs:
     # design, not by developer discipline.
     needs: markers
     # Runs on the [test]/[deploy]/[publish] markers, on the matching
-    # workflow_dispatch modes, AND on every PR into main (N-04: so the
-    # required `test` status check always reports). No money/deploy job shares
-    # this pull_request opt-in — they stay marker/dispatch-gated only.
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
+    # workflow_dispatch modes, on every PR into main (N-04: so the required
+    # `test` status check always reports), AND unconditionally on every push
+    # to main — a merge to main has no marker to scan (see the `on:` block
+    # above) and needs none: it is asked to test-and-deploy regardless.
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
     # A REAL redis, because until 2026-08-07 nothing in CI ever connected to
     # one. test-shared-limit.js injects a fake store deliberately (it proves
@@ -2499,7 +2525,10 @@ jobs:
 
   deploy:
     needs: [markers, test]
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
+    # Unconditional on a push to main (same reasoning as the test job above -
+    # a merge to main has no marker to scan and needs none), otherwise the
+    # existing dispatch/marker gates for the dev branch.
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' || needs.markers.outputs.deploy == 'true'
     runs-on: ubuntu-latest
     # F01: bind the production-mutating job to the protected GitHub environment.
     # Today this just associates the job; once the owner configures the
