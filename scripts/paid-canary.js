@@ -377,6 +377,31 @@ export function settleRejectReason(headers) {
   return null;
 }
 
+/**
+ * Full settle-rejection receipt (reason + message + network), for rails where
+ * the reason code alone is a bucket (e.g. Stellar simulation_failed) and the
+ * facilitator may also return errorMessage with the underlying simulate error.
+ * Pure — unit-tested in test-paid-canary.js.
+ */
+export function settleRejectDetail(headers) {
+  for (const name of ["payment-response", "x-payment-response"]) {
+    const h = headers.get(name);
+    if (!h) continue;
+    try {
+      const receipt = JSON.parse(Buffer.from(h, "base64").toString("utf8"));
+      if (receipt?.success === false) {
+        return {
+          errorReason: receipt.errorReason || null,
+          errorMessage: receipt.errorMessage || null,
+          network: receipt.network || null,
+        };
+      }
+    } catch { /* fall through */ }
+  }
+  const reason = settleRejectReason(headers);
+  return reason ? { errorReason: reason, errorMessage: null, network: null } : null;
+}
+
 // Classify one tool result. Pure — unit-tested in scripts/test-paid-canary.js.
 //   settled | bad-shape | unsettled | upstream | request-error | unreachable
 export function classifyResult({ status, shapeOk, transportError } = {}) {
@@ -1028,12 +1053,31 @@ async function main() {
       } else if (res.status === 402) {
         // Ask the CHAIN before believing the 402. See stellarDebitedSince().
         const reason = settleRejectReason(res.headers);
+        const detail = settleRejectDetail(res.headers);
+        // simulation_failed is a durable verify-time reject (payload parsed,
+        // amount/asset/payTo matched, then Soroban simulateTransaction failed
+        // on the facilitator's RPC). It is NOT the late-settle race, and it is
+        // NOT an empty burner — those have different signatures. Log the full
+        // receipt so the next page names the underlying HostError, not only the
+        // bucket code (measured 2026-08-10: three consecutive canaries, OZ
+        // fee-bump account quiet since 11:23Z while our offer stayed live).
+        if (detail?.errorMessage) {
+          console.error(`      stellar facilitator detail: ${JSON.stringify(detail)}`);
+        }
         const late = await stellarDebitedSince(keypair.publicKey(), legStart);
         if (late) {
           railFail("stellar",
             `SETTLED LATE — we answered 402 (facilitator reason ${JSON.stringify(reason)}) but ` +
             `${late.amount} USDC left the payer on-chain at ${late.created_at}. The rail is NOT broken; ` +
             `we judged the settle before Stellar could close a ledger, so the buyer WAS charged and got nothing.`);
+        } else if (reason === "invalid_exact_stellar_payload_simulation_failed") {
+          const msgBit = detail?.errorMessage ? `; errorMessage=${JSON.stringify(detail.errorMessage)}` : "";
+          railFail("stellar",
+            `VERIFY SIMULATION FAILED (HTTP 402, payer ${keypair.publicKey()}) — OpenZeppelin ` +
+            `facilitator rejected the signed Soroban transfer at verify ` +
+            `(invalid_exact_stellar_payload_simulation_failed${msgBit}). No USDC left the burner. ` +
+            `Our 402 still offers stellar:pubnet; this is facilitator/RPC-side, not a missing ` +
+            `accept or an empty wallet.`);
         } else {
           railFail("stellar",
             `did NOT settle (HTTP 402, payer ${keypair.publicKey()}) — facilitator reason ` +
