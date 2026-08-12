@@ -100,6 +100,12 @@ export const WALLET_ONLY_SLUGS = new Set([
   // PUBLIC key, mints nothing, and the gate protecting someone's database
   // should never be the step that fails for want of a wallet.
   "sql-guard",
+  // action-gate has zero real upstream cost (pure deterministic checks, no
+  // network I/O) but is wallet-only for the same reasoning as sql-guard just
+  // above: the VERDICT, not any signed artifact, is the thing a caller
+  // relies on to decide whether to proceed with a real action. Metered with
+  // money so it can't be farmed at unlimited volume over PoW.
+  "action-gate",
   // captcha-verify relays a secret to a provider (egress); captcha-generate
   // is pure-CPU and stays PoW-eligible (NOT listed here).
   "captcha-verify",
