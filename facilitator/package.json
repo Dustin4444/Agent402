@@ -1,0 +1,49 @@
+{
+  "name": "agent402-facilitator",
+  "version": "0.1.0",
+  "description": "Open-source, self-hostable x402 facilitator for Stellar: verify and settle exact-scheme USDC payments on Soroban yourself, with correct on-chain settlement confirmation. No third-party facilitator, no signup.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "signer.js",
+    "shape.js",
+    "queue.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "express": "^5.0.0",
+    "@x402/core": "2.21.0",
+    "@x402/stellar": "2.21.0",
+    "@stellar/stellar-sdk": "16.2.0"
+  },
+  "keywords": [
+    "x402",
+    "facilitator",
+    "stellar",
+    "soroban",
+    "usdc",
+    "self-hosted",
+    "http-402",
+    "micropayments",
+    "agent402"
+  ],
+  "author": "Havok Holdings LLC <mike@agent402.tools> (https://agent402.tools)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MikeyPetrillo/Agent402.git",
+    "directory": "facilitator"
+  },
+  "homepage": "https://github.com/MikeyPetrillo/Agent402/tree/main/facilitator"
+}
