@@ -52,10 +52,23 @@ const INJECTION_PATTERNS = [
   { id: "secret_exfiltration", weight: 35, re: /\b(reveal|print|show|output|repeat)\s+(me\s+|your\s+)?(the\s+)?(system\s+)?prompt\b/i },
   { id: "secret_exfiltration", weight: 30, re: /\b(leak|dump|exfiltrate)\s+(the\s+)?(secret|key|credential|token)s?\b/i },
 ];
+// Zero-width/invisible formatting characters: ZWSP, ZWNJ, ZWJ, BOM/ZWNBSP,
+// word joiner, Mongolian vowel separator. Stripped before pattern matching -
+// found live (2026-08-12): inserting U+200B between words in an otherwise
+// textbook "ignore all previous instructions...reveal the system prompt"
+// dropped the score from 85 (high_signal) to 55 (medium_signal), because
+// \s+ does not match a zero-width character, breaking the word-adjacency
+// every pattern above depends on. Same class of defense the free demo of
+// the tool this was benchmarked against (GoldKey) shows in its own
+// normalization step (form/before_sha256/after_sha256/removed_count).
+const INVISIBLE_CODEPOINTS = [8203, 8204, 8205, 65279, 8288, 6158]; // ZWSP, ZWNJ, ZWJ, BOM/ZWNBSP, word joiner, Mongolian vowel separator
+const INVISIBLE_RE = new RegExp("[" + INVISIBLE_CODEPOINTS.map((c) => String.fromCharCode(c)).join("") + "]", "g");
 function scanPrompt(text) {
   const signals = [];
   let score = 0;
-  const s = String(text || "");
+  const raw = String(text || "");
+  const s = raw.normalize("NFC").replace(INVISIBLE_RE, "");
+  const removedCount = raw.length - raw.replace(INVISIBLE_RE, "").length;
   for (const p of INJECTION_PATTERNS) {
     const m = s.match(p.re);
     if (m) {
@@ -69,6 +82,7 @@ function scanPrompt(text) {
     classification,
     risk_score: score,
     signals,
+    normalization: { form: "NFC", removed_invisible_chars: removedCount },
     limitation: "Deterministic pattern match only; low_signal does not prove content is safe.",
   };
 }
@@ -87,7 +101,15 @@ function checkUrl(rawUrl) {
   }
   const hostname = u.hostname;
   const isRawIp = /^[0-9.]+$/.test(hostname) || hostname.includes(":");
-  const priv = isRawIp && isPrivateIp(hostname);
+  // WHATWG URL keeps brackets on an IPv6 hostname ("[::1]"), but isPrivateIp
+  // (fetch-guard.js) expects a bare address and fails CLOSED - returns true,
+  // "private" - on anything it can't parse. Found live (2026-08-12): every
+  // IPv6-literal URL, public or private, was hard-BLOCKed because the
+  // brackets made expandV6() fail to parse, not because the address was
+  // actually private. Strip them before the check; `hostname` (with
+  // brackets) is still what's reported back.
+  const bareHost = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+  const priv = isRawIp && isPrivateIp(bareHost);
   if (priv) {
     return { status: "fail", reason_codes: ["private_or_loopback_address"], normalized_url: u.toString(), hostname, verdict: "block" };
   }
@@ -119,13 +141,25 @@ function checkPayload(payload, schema) {
   }
   const errors = [];
   const props = schema.properties || {};
+  // Object.hasOwn, not the `in` operator: `in` walks the prototype chain, so
+  // a required/property name like "constructor" or "hasOwnProperty" was
+  // found "in" any plain object via Object.prototype even when absent as an
+  // own property - found live (2026-08-12), let such a field evade both the
+  // required check and additionalProperties:false undetected.
   for (const req of schema.required || []) {
-    if (!(req in payload)) errors.push(`missing required field "${req}"`);
+    if (!Object.hasOwn(payload, req)) errors.push(`missing required field "${req}"`);
   }
   for (const [key, val] of Object.entries(payload)) {
-    if (key in props) {
-      const jsType = props[key].type;
-      if (jsType && JS_TYPES[jsType] && !typeOk(val, jsType)) errors.push(`field "${key}" expected type "${jsType}"`);
+    if (Object.hasOwn(props, key)) {
+      // Guard against a null/non-object property schema (e.g. properties:
+      // {foo: null}) throwing on .type instead of a clean validation error.
+      const propSchema = props[key];
+      const jsType = propSchema && typeof propSchema === "object" ? propSchema.type : undefined;
+      if (propSchema && typeof propSchema !== "object") {
+        errors.push(`schema.properties["${key}"] must be an object`);
+      } else if (jsType && JS_TYPES[jsType] && !typeOk(val, jsType)) {
+        errors.push(`field "${key}" expected type "${jsType}"`);
+      }
     } else if (schema.additionalProperties === false) {
       errors.push(`unexpected field "${key}" (additionalProperties: false)`);
     }
@@ -155,6 +189,14 @@ function checkSpend(spend) {
   const maxPerTx = toBig(mandate.max_per_tx_atomic, "mandate.max_per_tx_atomic");
   const maxPeriod = toBig(mandate.max_period_atomic, "mandate.max_period_atomic");
   const spentPeriod = toBig(mandate.spent_period_atomic ?? "0", "mandate.spent_period_atomic");
+
+  // Found live (2026-08-12): a negative amount_atomic passed every check
+  // below (a negative number is never > a positive cap) and produced a
+  // nonsensical remaining_after_atomic that was LARGER than remaining_before
+  // (subtracting a negative amount is addition). None of the four atomic
+  // values in this block are meaningful negative - check all of them.
+  if (amount < 0n) reasons.push("negative_amount");
+  if (maxPerTx < 0n || maxPeriod < 0n || spentPeriod < 0n) reasons.push("negative_mandate_value");
 
   if (amount > maxPerTx) reasons.push("exceeds_max_per_tx");
   if (spentPeriod + amount > maxPeriod) reasons.push("exceeds_max_period");

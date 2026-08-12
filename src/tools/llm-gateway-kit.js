@@ -1510,6 +1510,18 @@ export const LLM_GATEWAY_TOOLS = [
   },
 ];
 
+// server.js's global express.json({limit:"100kb"}) runs before every /v1/*
+// route and rejects a bigger body with a 413 before a tier's own
+// maxInputChars is ever checked. Found live (2026-08-12): v1-chat-premium
+// advertises maxInputChars:200000 here, but nothing past ~90k chars is
+// actually reachable - a caller who trusts this discovery field gets an
+// opaque 413 instead of being served, or the tier's own clean "too large"
+// 400. Every OTHER tier's cap (<=48k) already fits safely under 100kb, so
+// this only clamps what premium advertises, not what it internally
+// enforces (that stays 200_000 - harmless groundwork for when the body
+// limit itself is raised, see that change's own commit message).
+const ADVERTISED_MAX_INPUT_CHARS = 85_000;
+
 /** OpenAI-compatible GET /v1/models payload — free discovery surface. */
 export function modelsList() {
   const data = [];
@@ -1519,7 +1531,7 @@ export function modelsList() {
         id: p.endsWith("/") ? `${p}*` : p,
         object: "model",
         owned_by: p.split("/")[0],
-        x402: { tier: slug, endpoint: tier.route.split(" ")[1], priceUsd: tier.price, maxTokens: tier.maxTokens, maxInputChars: tier.maxInputChars },
+        x402: { tier: slug, endpoint: tier.route.split(" ")[1], priceUsd: tier.price, maxTokens: tier.maxTokens, maxInputChars: Math.min(tier.maxInputChars, ADVERTISED_MAX_INPUT_CHARS) },
       });
     }
   }

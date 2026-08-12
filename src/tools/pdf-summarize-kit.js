@@ -17,6 +17,12 @@
 import { pdfToText } from "./pdf.js";
 import { LLM_GATEWAY_TOOLS } from "./llm-gateway-kit.js";
 
+// The Unicode replacement character (U+FFFD) that Buffer#toString("utf8")
+// silently emits when a byte-boundary truncation splits a multi-byte
+// character - built from a numeric code point rather than typed literally,
+// so the source file never carries a raw invisible/non-ASCII byte sequence.
+const REPLACEMENT_CHAR_TAIL_RE = new RegExp(String.fromCharCode(0xfffd) + "+$");
+
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
@@ -73,10 +79,21 @@ export const PDF_SUMMARIZE_TOOLS = [
       if (!text || !text.trim()) {
         throw bad('PDF has no extractable text - it may be a scanned image; try an OCR tool first', 422);
       }
-      const maxWords = Math.min(Math.max(parseInt(i.maxWords, 10) || 200, 50), 500);
+      // Found live (2026-08-12): `parseInt(i.maxWords,10) || 200` treats an
+      // explicit maxWords:0 as "not provided" (0 is falsy) and jumps to the
+      // 200-word default instead of clamping to the 50-word floor like every
+      // other out-of-range value. Distinguish "not provided" from "provided
+      // as 0" explicitly instead of relying on truthiness.
+      const parsedMaxWords = parseInt(i.maxWords, 10);
+      const maxWords = Math.min(Math.max(Number.isFinite(parsedMaxWords) ? parsedMaxWords : 200, 50), 500);
       const overCap = Buffer.byteLength(text, "utf8") > MAX_SUMMARY_INPUT_BYTES;
+      // Buffer.subarray truncates on a raw byte boundary, which can split a
+      // multi-byte UTF-8 character (accented Latin, CJK, emoji) in half;
+      // toString("utf8") doesn't throw, it silently emits a trailing U+FFFD
+      // replacement character. Strip that rather than send corrupted text
+      // to the model - found live (2026-08-12) on a non-English PDF.
       const clipped = overCap
-        ? Buffer.from(text, "utf8").subarray(0, MAX_SUMMARY_INPUT_BYTES).toString("utf8")
+        ? Buffer.from(text, "utf8").subarray(0, MAX_SUMMARY_INPUT_BYTES).toString("utf8").replace(REPLACEMENT_CHAR_TAIL_RE, "")
         : text;
       const completion = await chatHandler({
         model: "openai/gpt-4o-mini",
