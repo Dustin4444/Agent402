@@ -8,14 +8,18 @@
 // Complements the US-only NWS tools (weather-forecast, weather-alerts) in
 // data-kit and gov-kit by covering every location worldwide.
 // Source: api.open-meteo.com (CC BY 4.0).
-import { safeFetch } from "./fetch-guard.js";
+import { safeFetch, retryTransient } from "./fetch-guard.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
+// One retry on a transient 502/503/504 - added 2026-08-12 after
+// weather-hourly hit exactly this shape live in CI (a plain 15s timeout,
+// zero retries previously; api.open-meteo.com answered fine on a later
+// attempt). retryTransient never retries a deterministic 4xx.
 async function getJson(url) {
-  const { html } = await safeFetch(url, { maxBytes: 2 * 1024 * 1024 });
+  const { html } = await retryTransient(() => safeFetch(url, { maxBytes: 2 * 1024 * 1024 }));
   try {
     return JSON.parse(html);
   } catch {

@@ -192,6 +192,38 @@ export async function assertPublicUrl(rawUrl) {
   return url;
 }
 
+// Retry a thunk on TRANSIENT upstream failures only — 504 (timeout/network),
+// 502/503 (gateway). A 4xx (e.g. safeFetch's 422 for a caller-attributable
+// upstream error) is deterministic: the request itself is wrong, so retrying
+// just wastes the caller's time budget — fail fast. Capped at one extra
+// attempt by default so worst-case latency stays bounded.
+//
+// Originally lived in macro-kit.js (built for api.fiscaldata.treasury.gov's
+// ~4-7% transient 504 rate); moved here 2026-08-12 after the same shape of
+// failure — a legitimate-but-occasionally-slow public API losing the single
+// fixed-timeout safeFetch attempt — recurred across gov-kit.js and
+// weather-kit.js (different tool each time: weather-hourly, fec-candidates,
+// vehicle-recalls, feed-parse, all in one day) instead of staying macro-kit-
+// specific. macro-kit.js re-exports this so its own import path and tests
+// (test-macro-kit.js) are unaffected by the move.
+export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      const sc = e?.statusCode;
+      if (attempt < retries && (sc === 504 || sc === 502 || sc === 503)) {
+        await new Promise((r) => setTimeout(r, backoffMs));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
 /**
  * Fetch a public http(s) URL with SSRF protection, size cap, and timeout.
  * Returns { finalUrl, html } — or { finalUrl, buffer } with `binary: true`.

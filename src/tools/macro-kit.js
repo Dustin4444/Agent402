@@ -24,8 +24,13 @@
 // Covers the cluster of macro/financial routes that show up across the x402
 // ecosystem (yield curves, FX time series, GDP/inflation indicators, CPI YoY,
 // fed funds, recession signals). Pure HTTP wrappers, deterministic.
-import { safeFetch, assertPublicUrl } from "./fetch-guard.js";
+import { safeFetch, assertPublicUrl, retryTransient } from "./fetch-guard.js";
 import { redactSecrets } from "./redact.js";
+
+// Moved to fetch-guard.js 2026-08-12 (now used by gov-kit.js and
+// weather-kit.js too, not just here) — re-exported so this file's own
+// consumers and test-macro-kit.js don't need an import-path change.
+export { retryTransient };
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -40,29 +45,6 @@ function bad(message, statusCode = 400) {
 // deterministic, so retrying just wastes the caller's ~30s budget. Capped at one
 // extra attempt so worst-case latency stays within a tool's time budget
 // (2 × the 15s fetch timeout).
-// Retry a thunk on TRANSIENT upstream failures only — 504 (timeout/network),
-// 502/503 (gateway). A 4xx (400/422) is deterministic: the request itself is
-// wrong, so retrying just wastes the caller's budget — fail fast. Capped at one
-// extra attempt by default so worst-case latency stays within a tool's time
-// budget. Exported so the policy is unit-locked (test-macro-kit.js) — the
-// "never retry a deterministic error" rule is the part that must not regress.
-export async function retryTransient(fn, { retries = 1, backoffMs = 300 } = {}) {
-  let lastErr;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await fn();
-    } catch (e) {
-      lastErr = e;
-      const sc = e?.statusCode;
-      if (attempt < retries && (sc === 504 || sc === 502 || sc === 503)) {
-        await new Promise((r) => setTimeout(r, backoffMs));
-        continue;
-      }
-      throw e;
-    }
-  }
-  throw lastErr;
-}
 
 // Serve-stale-on-error for slow-moving datasets. FRED's /releases/dates
 // endpoint runs 15-60s under load and sometimes blows FRED's own 60s gateway
