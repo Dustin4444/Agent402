@@ -211,7 +211,30 @@ export const TIERS = {
   "v1-chat-premium": {
     route: "POST /v1/premium/chat/completions",
     price: 0.50,
-    maxInputChars: 64_000,
+    // Raised from 64k -> 200k chars (2026-08-11) for genuine long-context use
+    // (a 10-K, a research paper, a large diff) - safe to raise on its own
+    // because maxInputChars is a separate, simpler guard from the real
+    // margin protection: clampToMargin() below computes worst-case upstream
+    // cost from the ACTUAL input size on every call and shrinks max_tokens
+    // (or rejects outright below MIN_OUT_TOKENS) to stay within price*MARGIN,
+    // independent of this cap's value. Raising it only lets more requests
+    // reach that already-robust math, never bypasses it. A model whose real
+    // context window is smaller than 200k chars just fails upstream and the
+    // chain below tries the next one - never a buyer charge (settlement is
+    // post-handler, and a <400 response is required to settle).
+    //
+    // NOT YET REACHABLE past ~90k chars: server.js's global
+    // `app.use(express.json({ limit: "100kb" }))` runs before this route and
+    // rejects a bigger body with a 413 first (confirmed live - a 60k-char
+    // input passes both layers, 150k/250k both 413 identically at the outer
+    // layer regardless of this cap). The old 64k cap always fit safely under
+    // 100kb; this one won't until that route (or /v1/* generally) gets its
+    // own larger express.json limit - deliberately NOT done in this change,
+    // since the only clean way found (mounting a path-scoped express.json
+    // ahead of the global one) risks a second body-parser pass on an
+    // already-consumed stream for the same request, which needs its own
+    // careful verification, not a same-night bolt-on.
+    maxInputChars: 200_000,
     maxTokens: 8192,
     maxPrice: { prompt: 20, completion: 100 }, // priciest allowlisted: claude opus ~$15/$75
     prefixes: [
