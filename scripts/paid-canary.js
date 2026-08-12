@@ -33,6 +33,14 @@ export const CORE_KIT = "core"; // deterministic baseline (hash): no upstream, s
 // reuses the SAME body to prove the free repeat.
 export const EMBED_CANARY_INPUT = `agent402 canary embedding ${Date.now()}`;
 
+// The three text legs below all send "Reply with exactly: OK" - shape checks
+// alone (non-empty string) would pass a coherent-looking but WRONG answer,
+// which is exactly the class of regression a shape check can't catch. Case-
+// insensitive with an optional trailing . or ! so ordinary model formatting
+// noise doesn't false-page, but garbled/off-topic/truncated content still
+// fails the canary.
+const isExactOkReply = (content) => typeof content === "string" && /^ok[.!]?$/i.test(content.trim());
+
 // Per-tool spec: { kit, path, method, body?, priceUsd, check(body) → true | string }
 export const TOOLS = [
   {
@@ -163,7 +171,7 @@ export const TOOLS = [
     method: "POST",
     body: { model: "openai/gpt-4o-mini", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
     priceUsd: 0.02,
-    check: (r) => (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0) || `expected choices[0].message.content, got ${JSON.stringify(r).slice(0, 100)}`,
+    check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
     // Nano tier — the loop-priced gateway. Same upstream path as the base
@@ -175,7 +183,7 @@ export const TOOLS = [
     method: "POST",
     body: { model: "openai/gpt-4.1-nano", messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
     priceUsd: 0.003,
-    check: (r) => (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0) || `expected choices[0].message.content, got ${JSON.stringify(r).slice(0, 100)}`,
+    check: (r) => isExactOkReply(r.choices?.[0]?.message?.content) || `expected an exact "OK" reply, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
     // Streaming leg — stream: true must settle AND deliver real SSE frames.
@@ -203,10 +211,10 @@ export const TOOLS = [
     body: { messages: [{ role: "user", content: "Reply with exactly: OK" }], max_tokens: 5 },
     priceUsd: 0.01,
     check: (r) =>
-      (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0 &&
+      (isExactOkReply(r.choices?.[0]?.message?.content) &&
         r.agent402_router?.category === "general" && r.agent402_router?.quality === "balanced" &&
         typeof r.agent402_router?.served === "string") ||
-      `expected routed completion + agent402_router {category, quality, served}, got ${JSON.stringify(r).slice(0, 120)}`,
+      `expected an exact "OK" reply + agent402_router {category, quality, served}, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
     // Embeddings tier — OpenAI wire path, loop-priced. Asserts the untouched
