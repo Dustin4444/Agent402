@@ -24,7 +24,7 @@
 // checks opt-in via WEB_LIVE_TEST=1).
 
 import { JSDOM } from "jsdom";
-import { ssrfDispatcher, safeFetch, assertPublicUrl, isSsrfBlock } from "./fetch-guard.js";
+import { ssrfDispatcher, safeFetch, assertPublicUrl, isSsrfBlock, retryTransient } from "./fetch-guard.js";
 
 const USER_AGENT = "Mozilla/5.0 (compatible; Agent402/1.0; +https://github.com/MikeyPetrillo/Agent402)";
 
@@ -355,10 +355,15 @@ export const WEB_TOOLS = [
     handler: async (i) => {
       const url = takeUrl(i.url);
       const limit = Math.min(Math.max(parseInt(i.limit, 10) || FEED_DEFAULT_ITEMS, 1), FEED_MAX_ITEMS);
-      const { finalUrl, html: text } = await safeFetch(url, {
+      // One retry on a transient 502/503/504 - added 2026-08-12 after
+      // feed-parse hit exactly this shape live in CI (a plain 15s timeout on
+      // a caller-supplied feed URL, zero retries previously). Safe for a
+      // caller-supplied URL too: retryTransient never retries a deterministic
+      // 4xx, so a genuinely wrong/dead URL still fails fast.
+      const { finalUrl, html: text } = await retryTransient(() => safeFetch(url, {
         maxBytes: FEED_MAX_BYTES,
         headers: { Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*" },
-      });
+      }));
       assertSaneNesting(text);
       const warnings = [];
       const doc = parseFeedXml(text, warnings);

@@ -46,12 +46,18 @@ async function getJson(url, opts = {}) {
   // Retry once — data.gov and weather.gov intermittently 404/502 on first
   // attempt then succeed immediately. Without this, Bazaar registration and
   // paid-canary fail on the same tools every run.
+  //
+  // 504 added 2026-08-12: this condition never covered a plain timeout, so
+  // any tool whose upstream took a hair over safeFetch's fixed 15s window
+  // (vehicle-recalls/NHTSA, fec-candidates/FEC — both observed live in CI,
+  // ~10-16s responses) got zero retries while 422/502 got one. The upstream
+  // wasn't dead, this loop just didn't give it the same second chance.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       ({ html } = await safeFetch(url, { maxBytes: 5 * 1024 * 1024, ...opts }));
       break;
     } catch (e) {
-      if (attempt === 0 && (e.statusCode === 422 || e.statusCode === 502)) continue;
+      if (attempt === 0 && (e.statusCode === 422 || e.statusCode === 502 || e.statusCode === 504)) continue;
       if (e.statusCode === 422) throw bad(e.message, 502);
       throw e;
     }
