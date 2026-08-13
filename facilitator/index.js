@@ -1,17 +1,18 @@
-// Self-hostable x402 facilitator for Stellar (Phase 1: testnet only).
+// Self-hostable x402 facilitator for Stellar.
 //
 // Wires the official @x402/core orchestration (x402Facilitator) to the
 // official @x402/stellar facilitator-side scheme (ExactStellarScheme), which
 // already implements Soroban simulation/auth-entry validation and on-chain
 // settlement confirmation internally - this file is glue, not a payment
-// protocol reimplementation.
+// protocol reimplementation. Testnet by default; mainnet is an explicit
+// opt-in via FACILITATOR_NETWORK=pubnet (see signer.js).
 //
 //   node index.js          (reads FACILITATOR_STELLAR_SECRET, PORT from env)
 import express from "express";
 import { x402Facilitator } from "@x402/core/facilitator";
 import { ExactStellarScheme } from "@x402/stellar/exact/facilitator";
 import { getHorizonClient } from "@x402/stellar";
-import { loadSigner, NETWORK } from "./signer.js";
+import { loadSigner, NETWORK, RPC_CONFIG } from "./signer.js";
 import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "./shape.js";
 import { createSerialQueue } from "./queue.js";
 
@@ -37,6 +38,7 @@ const horizon = getHorizonClient(NETWORK);
 // transaction fee on every settlement regardless of this flag's value.
 const stellarScheme = new ExactStellarScheme([signer], {
   areFeesSponsored: true,
+  ...(RPC_CONFIG ? { rpcConfig: RPC_CONFIG } : {}),
 });
 
 const facilitator = new x402Facilitator().register(NETWORK, stellarScheme);
@@ -162,10 +164,33 @@ app.get("/health", async (req, res) => {
 // same file as a child process, which is exactly that case; importing this
 // module for in-process testing would not be.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  app.listen(PORT, () => {
+  const httpServer = app.listen(PORT, () => {
     console.log(`agent402-facilitator (Stellar, ${NETWORK}) listening on :${PORT}`);
     console.log(`facilitator address: ${signer.address}`);
   });
+
+  // Graceful shutdown: a Railway redeploy sends SIGTERM. Stop accepting new
+  // connections but let an in-flight /verify or /settle finish - these are
+  // money-moving requests, and a hard kill mid-settle is the same "took the
+  // work, dropped the answer" failure src/server.js's own drain logic exists
+  // to prevent. Only works if the platform grants a grace period (Railway
+  // defaults to 0s between SIGTERM and SIGKILL - RAILWAY_DEPLOYMENT_DRAINING_SECONDS
+  // must be set on this service, same as the main app's).
+  let shuttingDown = false;
+  function shutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`${signal} received - draining in-flight requests`);
+    httpServer.close(() => process.exit(0));
+    httpServer.closeIdleConnections();
+    setInterval(() => httpServer.closeIdleConnections(), 5_000).unref();
+    // A settle's worst case is ExactStellarScheme's own poll (15 attempts x
+    // 1s default) - 30s stays comfortably above that without holding a
+    // redeploy open indefinitely on a stuck request.
+    setTimeout(() => process.exit(0), 30_000).unref();
+  }
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 export { app };

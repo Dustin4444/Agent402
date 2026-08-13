@@ -1,0 +1,27 @@
+# Self-hostable x402 Stellar facilitator image (facilitator/). Deliberately
+# lighter than the main Dockerfile/Dockerfile.worker: no ffmpeg, no
+# Playwright/Chromium - facilitator/'s only real dependencies are express,
+# @x402/core, @x402/stellar, @stellar/stellar-sdk.
+#
+# No /data volume, so unlike the main image this runs as USER node directly
+# rather than starting as root + a gosu entrypoint - there's nothing that
+# ever needs root (no volume to chown).
+#
+# Base pinned by DIGEST, same as the main image (node:22-slim as of
+# 2026-07-18). Re-pin deliberately, same procedure as Dockerfile's header.
+FROM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+COPY facilitator/package.json facilitator/package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY facilitator/index.js facilitator/signer.js facilitator/shape.js facilitator/queue.js ./
+
+# Strip setuid/setgid bits (same hardening as the main image).
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + 2>/dev/null || true
+
+USER node
+EXPOSE 4021
+CMD ["node", "index.js"]
