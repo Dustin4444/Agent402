@@ -2,7 +2,7 @@
 // and network-id normalization, used when indexing open facilitator
 // registries like PayAI. No network.
 import assert from "node:assert";
-import { itemHasMainnetAccept, isJunkOrigin, bazaarItemToTool } from "../src/x402-index.js";
+import { itemHasMainnetAccept, isJunkOrigin, bazaarItemToTool, isMppChallenge } from "../src/x402-index.js";
 
 // --- itemHasMainnetAccept: keep mainnet, drop testnet-only ------------------
 const mainnetBase = { accepts: [{ network: "eip155:8453" }] };
@@ -78,6 +78,19 @@ const unknownShorthand = bazaarItemToTool(
   "https://mystery-chain.example"
 );
 assert.strictEqual(unknownShorthand.networks[0], "some-future-chain", "unrecognized shorthand left untouched, not guessed at");
+
+// --- isMppChallenge: detect native MPP dual-stack from a live 402's
+// WWW-Authenticate header (the same check src/mpp-shim.js emits and
+// scripts/paid-canary.js's mpp leg verifies against a real prod response).
+assert.strictEqual(isMppChallenge('Payment evm-charge="0xabc...", network="eip155:8453"'), true, "real-shaped Payment challenge detected");
+assert.strictEqual(isMppChallenge("Payment"), true, "bare scheme with no params still detected");
+assert.strictEqual(isMppChallenge("  Payment realm=x  "), true, "leading/trailing whitespace tolerated");
+assert.strictEqual(isMppChallenge("payment realm=x"), true, "scheme match is case-insensitive");
+assert.strictEqual(isMppChallenge(null), false, "no header at all -> not MPP");
+assert.strictEqual(isMppChallenge(""), false, "empty header -> not MPP");
+assert.strictEqual(isMppChallenge("Basic realm=x"), false, "a different auth scheme is not mistaken for MPP");
+assert.strictEqual(isMppChallenge("Bearer"), false, "Bearer is not Payment");
+assert.strictEqual(isMppChallenge("PaymentFoo realm=x"), false, "a scheme name merely starting with \"Payment\" does not match (word boundary)");
 
 // --- isJunkOrigin: drop documentation/placeholder hosts ---------------------
 assert.strictEqual(isJunkOrigin("https://api.example.com"), true, "example.com dropped");

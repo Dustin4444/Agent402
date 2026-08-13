@@ -1511,6 +1511,15 @@ async function enrichLiveQuotes(tools, originUrl) {
   return tools;
 }
 
+// A native MPP-dual-stack seller's 402 carries WWW-Authenticate: Payment -
+// exactly what our own src/mpp-shim.js emits, and the same check the paid
+// canary's mpp leg uses. Extracted as its own pure function (mirrors
+// itemHasMainnetAccept/isJunkOrigin above) so the detection logic is
+// directly unit-testable without mocking an HTTP server.
+export function isMppChallenge(wwwAuthHeaderValue) {
+  return !!wwwAuthHeaderValue && /^Payment\b/i.test(String(wwwAuthHeaderValue).trim());
+}
+
 async function probePaywall(tools) {
   // A cached tool row has NO `url` field — the callable URL is derived as
   // seller + route, the same way routeQuery builds it (see the `url:` mapping
@@ -1546,9 +1555,17 @@ async function probePaywall(tools) {
     });
     // 402 is the ONLY healthy answer for an unpaid call to a paid route. A 200
     // means the route is not actually paywalled; a 5xx means it is broken.
-    return { ok: res.status === 402, status: res.status, url: target, at: Date.now() };
+    //
+    // Piggybacks the SAME response for MPP detection - zero extra requests.
+    // A native MPP-dual-stack seller's 402 carries WWW-Authenticate: Payment
+    // (this is exactly what our own src/mpp-shim.js emits, and how the paid
+    // canary's mpp leg checks for it - same pattern here). This is a real,
+    // live-verified signal (we made the request and read the actual header),
+    // never a claim inferred from a registry or a manifest field.
+    const mpp = isMppChallenge(res.headers.get("www-authenticate"));
+    return { ok: res.status === 402, status: res.status, url: target, at: Date.now(), mpp };
   } catch (e) {
-    return { ok: false, status: 0, url: target, at: Date.now(), error: String(e?.message || e).slice(0, 120) };
+    return { ok: false, status: 0, url: target, at: Date.now(), error: String(e?.message || e).slice(0, 120), mpp: false };
   }
 }
 
@@ -2393,6 +2410,10 @@ export function sellerDetail(originOrHost) {
       // says the manifest parsed; a seller whose every paid route 500s scores a
       // perfect 1.0 on it. null = not probed yet (never assume healthy).
       paywall: v.paywall || null,
+      // Same probe, no extra request: does this seller's paid route also
+      // carry WWW-Authenticate: Payment (native MPP dual-stack)? null = never
+      // probed yet, matching paywall's own convention.
+      mpp: v.paywall?.mpp ?? null,
       // Registry-only records (the origin never answered) are not evidence the
       // seller works. Surfaced so a consumer can tell a crawled seller from a
       // listed one.
@@ -2463,6 +2484,12 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     local: false,
     health: healthScore(v),
     routable: isRoutable(v),
+    // Rides the SAME probe as `paywall` below, not a separate request -
+    // whether this seller's paid route also carries WWW-Authenticate:
+    // Payment (native MPP dual-stack, same signal our own src/mpp-shim.js
+    // emits). null = never probed yet (honest "don't know", not "no"),
+    // matching paywall's own null-until-probed convention.
+    mpp: v.paywall?.mpp ?? null,
     history: Array.isArray(v.history) ? v.history.slice() : [],
     source: v.source || (v.manifest && !v.manifest.synthesized ? "manifest" : null),
     // Union of the chains this seller's crawled 402s advertise. Manifest-
