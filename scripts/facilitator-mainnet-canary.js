@@ -25,6 +25,17 @@ const PAYTO = process.env.PAYTO || "";
 const RPC_URL = process.env.STELLAR_MAINNET_RPC_URL || "https://rpc.lightsail.network/";
 const NETWORK = "stellar:pubnet";
 
+// Some providers (e.g. Alchemy) embed an API key directly in the RPC path -
+// this repo is public, so never print RPC_URL verbatim (host only).
+function redactRpcUrl(url) {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return "(unparseable URL)";
+  }
+}
+
 function need(name, val) {
   if (!val) { console.error(`FAIL: ${name} is required`); process.exit(1); }
   return val;
@@ -45,7 +56,19 @@ const requirements = {
   asset: USDC_PUBNET_ADDRESS,
   amount: "10000", // 0.001 USDC at 7 decimals
   payTo: PAYTO,
-  maxTimeoutSeconds: 60,
+  // @x402/stellar anchors the transaction's ledgerbounds to THIS value at
+  // client-side createPaymentPayload() time, then the facilitator copies
+  // those same bounds onto its rebuilt tx and separately polls for
+  // maxTimeoutSeconds MORE seconds starting from ITS OWN (later) submission
+  // - so a short value here systematically expires the tx's real validity
+  // window before the facilitator ever broadcasts, once you account for the
+  // /verify + /settle round trips in between. Measured live 2026-08-13:
+  // two different RPC providers (Lightsail, Alchemy) both showed "accepted
+  // into the pending pool, then genuinely never landed on a ledger" with
+  // maxTimeoutSeconds:60 - a short-window structural expiry, not a provider
+  // fault. 120s leaves real margin while staying well under this job's
+  // timeout-minutes.
+  maxTimeoutSeconds: 120,
   extra: { areFeesSponsored: true },
 };
 
@@ -96,7 +119,7 @@ if (settle.status !== 200 || settle.body.success !== true) {
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getTransaction", params: { hash: settle.body.transaction } }),
       });
       const rpcBody = await rpcRes.json();
-      console.error(`RPC (${RPC_URL}): status=${rpcBody?.result?.status}`);
+      console.error(`RPC (${redactRpcUrl(RPC_URL)}): status=${rpcBody?.result?.status}`);
     } catch (e) {
       console.error(`RPC check failed: ${e?.message || String(e)}`);
     }
@@ -111,8 +134,21 @@ console.log(`\nsettled tx: ${txHash}`);
 console.log(`explorer: https://stellar.expert/explorer/public/tx/${txHash}`);
 
 // Independently confirm on Horizon mainnet - the whole point of this exercise.
+// Horizon's own indexer typically lags the network by a second or two right
+// after a ledger closes (measured live 2026-08-13: an immediate lookup 404'd
+// on a transaction that WAS already successful moments later) - retry
+// through that normal ingestion lag rather than treating it as a failure.
 const horizon = getHorizonClient(NETWORK);
-const tx = await horizon.transactions().transaction(txHash).call();
+let tx;
+for (let attempt = 1; attempt <= 5; attempt++) {
+  try {
+    tx = await horizon.transactions().transaction(txHash).call();
+    break;
+  } catch (e) {
+    if (e?.response?.status !== 404 || attempt === 5) throw e;
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+}
 if (tx.successful !== true) {
   console.error(`FAIL: Horizon reports successful=${tx.successful} for ${txHash}`);
   process.exit(1);
