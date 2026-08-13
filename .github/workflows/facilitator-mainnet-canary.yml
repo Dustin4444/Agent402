@@ -1,0 +1,34 @@
+name: Facilitator mainnet canary (one-off verification)
+
+# ONE-OFF: proves the newly-deployed agent402-facilitator settles a REAL
+# mainnet Stellar payment correctly, using the existing paid-canary Stellar
+# burner (already holds real USDC, already proven against the old
+# OpenZeppelin facilitator). Trivial amount ($0.001), payTo is our own
+# existing revenue wallet - nothing leaves our control. Dispatch-only, never
+# runs on a push, not a recurring job.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install dependencies (no secrets in scope for this step - audit R-07 pattern)
+        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/stellar@2.21.0 @stellar/stellar-sdk@16.2.0
+      - name: Settle one real payment through the new facilitator
+        env:
+          FACILITATOR_URL: https://agent402-facilitator-production.up.railway.app
+          FACILITATOR_TOKEN: ${{ secrets.AGENT402_FACILITATOR_AUTH_TOKEN }}
+          STELLAR_BURNER_SECRET: ${{ secrets.STELLAR_BURNER_SECRET }}
+          # Public Stellar address (our own existing revenue wallet) - not
+          # sensitive, no need to store as a secret.
+          PAYTO: GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL
+        run: node scripts/facilitator-mainnet-canary.js
