@@ -32,7 +32,8 @@ const ROSTER_CSS = `
 .mlr-stat.bad{color:var(--accent)}
 .mlr-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
 .mlr-stat.bad .mlr-dot{background:var(--accent)}
-.mlr-badge{background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px}`;
+.mlr-badge{background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px}
+.mlr-mpp{border:1px solid var(--green);color:var(--green);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:0 4px;margin-left:4px}`;
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 // Crawled manifests are third-party input: only http(s) may become an href.
@@ -706,7 +707,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
         const good = s.local || s.routable;
         return `
     <a href="${activityHref(s)}"${rowData(s)} data-seller-link data-seller-host="${s.local ? "" : esc(hostOf(s.homepage).toLowerCase())}" data-seller-local="${s.local ? "1" : "0"}" class="ml-roster-compact mlr-row${isSelected(s) ? " sel" : ""}">
-      <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}</span>
+      <span class="mlr-name">${esc(s.displayName)}${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}${s.mpp === true ? ' <span class="mlr-mpp" title="Also reachable over the native MPP wire">MPP</span>' : ""}</span>
       <span class="mlr-host">${esc(hostOf(s.homepage))}</span>
       <span class="mlr-tools">${s.toolCount || 0} tool${s.toolCount === 1 ? "" : "s"}${paidSuffix(s)}${txSuffix(s)}${endpointsNote(s)}</span>
       <span class="mlr-stat${good ? "" : " bad"}"><span class="mlr-dot"></span>${s.local ? "live" : (s.routable ? "healthy" : "unreachable")}</span>
@@ -719,7 +720,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
     <div${rowData(s)} style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;">${esc(s.displayName)}</a>
-        ${s.local ? '<span class="mlr-badge">THIS HOST</span>' : ""}
+        ${s.local ? '<span class="mlr-badge">THIS HOST</span>' : ""}${s.mpp === true ? '<span class="mlr-mpp" title="Also reachable over the native MPP wire">MPP</span>' : ""}
       </div>
       <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
@@ -1109,7 +1110,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
     return `
     <div${rowData(s)} class="mlr-row ml-roster-compact"${s.local ? ' style="background:var(--card-zebra);"' : ""}>
       <div>
-        <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;">${esc(s.displayName)}</a>${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}
+        <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;">${esc(s.displayName)}</a>${s.local ? ' <span class="mlr-badge">THIS HOST</span>' : ""}${s.mpp === true ? ' <span class="mlr-mpp" title="Also reachable over the native MPP wire">MPP</span>' : ""}
         <div class="mlr-host">${esc(hostOf(s.homepage))}</div>
       </div>
       <span style="font-family:var(--font-mono);font-size:12.5px;">${chainCell(s)}</span>

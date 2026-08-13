@@ -25,8 +25,24 @@ let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const PORT = 3900 + (process.pid % 90);
-const FAC_PORT = PORT + 100;
+// OS-assigned ephemeral ports, not a fixed pid-derived range. The old
+// `3900 + (pid % 90)` scheme had only 90 possible values and collided under
+// CI's closely-sequential PIDs - it surfaced as unrelated-looking 500s on
+// whatever else happened to be bound to the same port, not an obvious port
+// clash. PORT needs a probe-and-release (the child process needs the number
+// before it can bind it itself); the facilitator server binds directly to 0
+// since we hold it open for the test's own lifetime. Same pattern already
+// proven in scripts/test-backup.js.
+const getFreePort = async () => {
+  const probe = createServer();
+  const port = await new Promise((resolve, reject) => {
+    probe.on("error", reject);
+    probe.listen(0, () => resolve(probe.address().port));
+  });
+  await new Promise((r) => probe.close(r));
+  return port;
+};
+const PORT = await getFreePort();
 const base = `http://localhost:${PORT}`;
 let log = "";
 
@@ -45,7 +61,8 @@ const facilitator = createServer((req, res) => {
     res.writeHead(404); res.end();
   });
 });
-await new Promise((r) => facilitator.listen(FAC_PORT, r));
+await new Promise((r) => facilitator.listen(0, r));
+const FAC_PORT = facilitator.address().port;
 const child = spawn(process.execPath, ["src/server.js"], {
   env: {
     ...process.env,

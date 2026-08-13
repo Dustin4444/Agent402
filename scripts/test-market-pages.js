@@ -478,5 +478,34 @@ for (const c of NEW_CHAINS) {
   ok(!/showing the top/.test(uncapped), "?all=1 shows no cap note");
 }
 
+// --- MPP badge: a seller whose live paywall probe found a native MPP
+// challenge (WWW-Authenticate: Payment, see isMppChallenge in x402-index.js)
+// gets an "MPP" tag next to its name. null/false/absent must render nothing -
+// this is a live-verified signal, never a default-on claim.
+{
+  const mkSeller = (host, mpp) => ({ origin: `https://${host}`, displayName: host, homepage: `https://${host}`, local: false, toolCount: 3, routable: true, networks: ["eip155:8453"], mpp });
+  const snapshot = { sellers: [LOCAL, mkSeller("mpp-yes.example", true), mkSeller("mpp-no.example", false), mkSeller("mpp-unprobed.example", null), mkSeller("mpp-absent.example", undefined)] };
+
+  // All-chains view.
+  const allHtml = marketPage(null, "https://agent402.tools", { snapshot, leaderboardSnap: { leaderboard: [] } });
+  ok(/mpp-yes\.example[\s\S]{0,120}class="mlr-mpp"/.test(allHtml), "all view: seller with mpp:true gets the MPP badge");
+  ok(!new RegExp('mpp-no\\.example[\\s\\S]{0,120}class="mlr-mpp"').test(allHtml), "all view: seller with mpp:false gets no badge");
+  ok(!new RegExp('mpp-unprobed\\.example[\\s\\S]{0,120}class="mlr-mpp"').test(allHtml), "all view: never-probed (null) seller gets no badge, not a false positive");
+  ok(!new RegExp('mpp-absent\\.example[\\s\\S]{0,120}class="mlr-mpp"').test(allHtml), "all view: seller with no mpp field at all gets no badge (undefined !== true)");
+  ok(!allHtml.includes('Agent402.Tools (agent402.base.eth)<span class="mlr-mpp"') && !/THIS HOST<\/span>\s*<span class="mlr-mpp"/.test(allHtml), "all view: THIS HOST row (mpp never set) carries no badge either");
+
+  // Per-chain compact view (>12 sellers forces compact rows) - the badge must
+  // render there too, not just the all-chains table row shape.
+  const many = Array.from({ length: 13 }, (_, i) => mkSeller(`e${i}.example`, i === 0 ? true : false));
+  const chainHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, ...many] }, rail: null, activity: null, wallet: "0x1" });
+  ok(/e0\.example[\s\S]{0,120}class="mlr-mpp"/.test(chainHtml), "chain compact view: mpp:true seller gets the badge");
+  ok(!new RegExp('e1\\.example[\\s\\S]{0,120}class="mlr-mpp"').test(chainHtml), "chain compact view: mpp:false seller gets no badge");
+
+  // Per-chain card view (<=12 sellers).
+  const cardHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, mkSeller("card-mpp.example", true), mkSeller("card-no.example", false)] }, rail: null, activity: null, wallet: "0x1" });
+  ok(/card-mpp\.example[\s\S]{0,120}class="mlr-mpp"/.test(cardHtml), "chain card view: mpp:true seller gets the badge");
+  ok(!new RegExp('card-no\\.example[\\s\\S]{0,120}class="mlr-mpp"').test(cardHtml), "chain card view: mpp:false seller gets no badge");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
