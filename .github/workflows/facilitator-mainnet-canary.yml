@@ -8,6 +8,11 @@ name: Facilitator mainnet canary (one-off verification)
 # runs on a push, not a recurring job.
 on:
   workflow_dispatch:
+    inputs:
+      rpc_url:
+        description: "Soroban mainnet RPC URL to test against (client-side sim; the facilitator's own RPC is set separately on Railway)"
+        required: false
+        default: "https://stellar.api.onfinality.io/public"
 
 permissions:
   contents: read
@@ -28,6 +33,7 @@ jobs:
           FACILITATOR_URL: https://agent402-facilitator-production.up.railway.app
           FACILITATOR_TOKEN: ${{ secrets.AGENT402_FACILITATOR_AUTH_TOKEN }}
           STELLAR_BURNER_SECRET: ${{ secrets.STELLAR_BURNER_SECRET }}
+          STELLAR_MAINNET_RPC_URL: ${{ inputs.rpc_url }}
           # Public Stellar address (our own existing revenue wallet) - not
           # sensitive, no need to store as a secret.
           PAYTO: GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL

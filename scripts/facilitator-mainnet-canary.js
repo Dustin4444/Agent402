@@ -74,6 +74,35 @@ const settle = await post("/settle", { x402Version: 2, paymentPayload, paymentRe
 console.log(`\n/settle -> HTTP ${settle.status}:`, JSON.stringify(settle.body));
 if (settle.status !== 200 || settle.body.success !== true) {
   console.error("FAIL: settle did not return success:true.");
+  // A non-empty transaction means something WAS broadcast (per shape.js's own
+  // convention - "" means nothing was ever submitted). Check both independent
+  // sources ourselves instead of leaving that for a human to do by hand
+  // afterward - found live 2026-08-13 that a facilitator "pending" submission
+  // can still never confirm (a provider-side node-consistency issue, not a
+  // late-settle race - Horizon and the RPC both agreed NOT_FOUND, not "found
+  // but pending").
+  if (settle.body.transaction) {
+    console.error(`\n${settle.body.transaction} WAS submitted (non-empty transaction) - checking independently...`);
+    const horizon = getHorizonClient(NETWORK);
+    try {
+      const tx = await horizon.transactions().transaction(settle.body.transaction).call();
+      console.error(`Horizon: successful=${tx.successful}`);
+    } catch (e) {
+      console.error(`Horizon: ${e?.response?.status === 404 ? "NOT_FOUND (never reached a ledger)" : (e?.message || String(e))}`);
+    }
+    try {
+      const rpcRes = await fetch(RPC_URL, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getTransaction", params: { hash: settle.body.transaction } }),
+      });
+      const rpcBody = await rpcRes.json();
+      console.error(`RPC (${RPC_URL}): status=${rpcBody?.result?.status}`);
+    } catch (e) {
+      console.error(`RPC check failed: ${e?.message || String(e)}`);
+    }
+  } else {
+    console.error("\ntransaction is empty - nothing was ever broadcast (submission itself failed, not a confirmation race).");
+  }
   process.exit(1);
 }
 
