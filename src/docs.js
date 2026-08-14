@@ -121,7 +121,13 @@ function parseSidebar(raw) {
         current.items.push({ kind: "doc", display, slug });
         continue;
       }
-      const md = main.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      // No trailing $ anchor: a markdown link can be followed by plain
+      // parenthetical prose ("(managed)") that the em-dash strip above
+      // doesn't catch, since it isn't separated by an em-dash. An anchored
+      // match silently dropped that whole bullet - found live via
+      // "[Try Tollbooth Cloud](url) (managed)" missing from the rendered
+      // sidebar entirely, not just its trailing text.
+      const md = main.match(/^\[([^\]]+)\]\(([^)]+)\)/);
       if (md) {
         current.items.push({ kind: "link", display: md[1].trim(), href: md[2].trim() });
         continue;
@@ -134,8 +140,31 @@ function parseSidebar(raw) {
 
 const SIDEBAR_SECTIONS = parseSidebar(SIDEBAR_RAW);
 
-function renderSidebar(currentSlug) {
-  const parts = [];
+// Flat, reading-order list of every real doc page in the sidebar (skips
+// external links and the synthetic __api__/Home markers) - the basis for
+// prev/next navigation. "Home" is prepended explicitly since the sidebar
+// renders it as a standalone top link, not inside a titled section.
+function flatDocEntries() {
+  const entries = [{ slug: "Home", display: "Home", href: "/docs" }];
+  for (const sec of SIDEBAR_SECTIONS) {
+    for (const it of sec.items) {
+      if (it.kind === "doc" && it.slug !== "Home") entries.push({ slug: it.slug, display: it.display, href: `/docs/${it.slug}` });
+    }
+  }
+  return entries;
+}
+const FLAT_DOC_ENTRIES = flatDocEntries();
+
+/** Prev/next neighbors for a doc slug in sidebar reading order, or null at
+ * either end. "Home" is a valid slug (the /docs landing page). */
+export function docNeighbors(slug) {
+  const i = FLAT_DOC_ENTRIES.findIndex((e) => e.slug === slug);
+  if (i === -1) return { prev: null, next: null };
+  return { prev: FLAT_DOC_ENTRIES[i - 1] || null, next: FLAT_DOC_ENTRIES[i + 1] || null };
+}
+
+export function renderSidebar(currentSlug) {
+  const parts = [`<div class="ml-docs-search"><input type="search" id="ml-docs-search-input" placeholder="Filter docs…" aria-label="Filter docs by title"></div>`];
   for (const sec of SIDEBAR_SECTIONS) {
     if (sec.title) parts.push(`<div class="ml-docs-side-h">${esc(sec.title)}</div>`);
     parts.push('<ul class="ml-docs-side-ul">');
@@ -166,8 +195,42 @@ function renderSidebar(currentSlug) {
   return parts.join("\n");
 }
 
-function shell(baseUrl, title, description, path, body, currentSlug) {
-  const extraCss = `
+/** The full sidebar+main 2-col layout, shared by every /docs page (the
+ * landing page in ledger-docs.js and every /docs/:slug wiki page here) so
+ * there is exactly one place that builds this wrapper. Includes a
+ * mobile-only toggle button: below the 900px breakpoint the sidebar was
+ * simply display:none with no alternative access at all, so a phone reader
+ * could follow prev/next through the doc tree but never jump to an
+ * arbitrary page from /docs - the one thing a docs hub's sidebar exists
+ * for. */
+export function docsLayoutHtml(currentSlug, mainHtml) {
+  return `<div class="ml-docs-layout">
+    <button type="button" class="ml-docs-mobile-toggle" id="ml-docs-mobile-toggle" aria-expanded="false" aria-controls="ml-docs-side">Browse docs &#9776;</button>
+    <aside class="ml-docs-side" id="ml-docs-side">${renderSidebar(currentSlug)}</aside>
+    <main class="ml-docs-main">${mainHtml}</main>
+  </div>`;
+}
+
+/** Prev/next footer nav, same shape wherever it's rendered (a doc page here,
+ * or the /docs landing page in ledger-docs.js). */
+export function docPrevNextHtml(slug) {
+  const { prev, next } = docNeighbors(slug);
+  if (!prev && !next) return "";
+  const side = (e, label, align) => e
+    ? `<a class="ml-docs-pn-a" href="${esc(e.href)}" style="text-align:${align};">
+         <span class="ml-docs-pn-label">${label}</span>
+         <span class="ml-docs-pn-title">${align === "left" ? "&larr; " : ""}${esc(e.display)}${align === "right" ? " &rarr;" : ""}</span>
+       </a>`
+    : `<span></span>`;
+  return `<nav class="ml-docs-pn" aria-label="Doc navigation">${side(prev, "Previous", "left")}${side(next, "Next", "right")}</nav>`;
+}
+
+// Shared 2-col sidebar+content layout CSS, exported so ledger-docs.js (the
+// /docs landing page) can render inside the SAME shell as every /docs/:slug
+// wiki page - before this they were two unrelated layouts, so clicking from
+// the landing page into any real doc page felt like leaving the site rather
+// than navigating within it.
+export const DOCS_LAYOUT_CSS = `
   .ml-docs-layout { display:block; }
   .ml-docs-side { display:none; }
   .ml-docs-main { min-width:0; }
@@ -190,30 +253,86 @@ function shell(baseUrl, title, description, path, body, currentSlug) {
   .ml-docs-crumbs { color:var(--faint);font-size:.85rem;margin-bottom:14px; }
   .ml-docs-crumbs a { color:var(--faint);text-decoration:none; }
   .ml-docs-crumbs a:hover { color:var(--accent); }
+  .ml-docs-search { margin-bottom:14px; }
+  .ml-docs-search input { width:100%;box-sizing:border-box;background:var(--card);border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-size:.85rem;padding:8px 10px;outline:none; }
+  .ml-docs-search input:focus { border-color:var(--accent); }
+  .ml-docs-mobile-toggle { display:block;width:100%;box-sizing:border-box;margin-bottom:16px;padding:11px 14px;background:var(--card);border:1px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-align:left;cursor:pointer; }
+  .ml-docs-side.ml-docs-side-open { display:block !important; }
   .ml-docs-side-h { font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:18px 0 6px; }
   .ml-docs-side-ul { list-style:none;padding:0;margin:0 0 8px; }
   .ml-docs-side-ul li { margin:0; }
   .ml-docs-side-a { display:block;padding:5px 10px;margin:1px 0;color:var(--ink);text-decoration:none;font-size:.92rem;line-height:1.35; }
   .ml-docs-side-a:hover { background:var(--card); }
   .ml-docs-side-a.active { background:var(--card);color:var(--accent);border-left:2px solid var(--accent);padding-left:8px;font-weight:600; }
+  .ml-docs-side-hidden { display:none !important; }
   .ml-docs-api-cat { font-family:var(--font-body);font-weight:800;font-size:22px;letter-spacing:-.02em;margin:28px 0 8px;padding-bottom:6px;border-bottom:1.5px solid var(--ink);color:var(--ink); }
   .ml-docs-api-row { display:grid;grid-template-columns:1.2fr 2fr .5fr;gap:14px;padding:8px 0;border-bottom:1px solid var(--hairline);font-size:.9rem; }
   .ml-docs-api-row .slug { font-family:var(--font-mono);color:var(--ink); }
   .ml-docs-api-row .desc { color:var(--muted); }
   .ml-docs-api-row .price { color:var(--accent);text-align:right;font-family:var(--font-mono);font-size:.85rem;font-weight:700; }
+  .ml-docs-pn { display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:48px;padding-top:24px;border-top:1px solid var(--hairline); }
+  .ml-docs-pn-a { display:flex;flex-direction:column;gap:4px;padding:14px 16px;border:1px solid var(--hairline);background:var(--card);text-decoration:none; }
+  .ml-docs-pn-a:hover { border-color:var(--accent);text-decoration:none; }
+  .ml-docs-pn-label { font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint); }
+  .ml-docs-pn-title { color:var(--ink);font-weight:700;font-size:.95rem; }
   @media (min-width:900px) {
     .ml-docs-layout { display:grid;grid-template-columns:240px 1fr;gap:44px;align-items:start; }
     .ml-docs-side { display:block;position:sticky;top:92px;max-height:calc(100vh - 100px);overflow-y:auto;padding-right:8px; }
-  }`;
+    .ml-docs-mobile-toggle { display:none; }
+  }
+  @media (max-width:640px) { .ml-docs-pn { grid-template-columns:1fr; } }`;
+
+// Mobile sidebar toggle: below 900px the sidebar is display:none by default
+// (CSS), with no other way to reach it - this opens/closes it in place
+// above the main content. Desktop never sees the button (CSS hides it at
+// the same breakpoint the sidebar itself becomes permanently visible), so
+// there's nothing to wire up there.
+const DOCS_MOBILE_TOGGLE_SCRIPT = `(function(){
+  var toggle=document.getElementById('ml-docs-mobile-toggle');
+  var side=document.getElementById('ml-docs-side');
+  if(!toggle||!side)return;
+  toggle.addEventListener('click',function(){
+    var open=side.classList.toggle('ml-docs-side-open');
+    toggle.setAttribute('aria-expanded',open?'true':'false');
+  });
+})();`;
+
+// Sidebar filter: hides non-matching <li> items as you type. No network, no
+// fetch - the sidebar is already fully rendered, this just toggles
+// visibility client-side. Group headers with zero visible items also hide,
+// so a filter doesn't leave an empty "Reference" label floating above
+// nothing.
+export const DOCS_SEARCH_SCRIPT = `<script>${DOCS_MOBILE_TOGGLE_SCRIPT}(function(){
+  var input=document.getElementById('ml-docs-search-input');
+  if(!input)return;
+  var side=input.closest('.ml-docs-side');
+  if(!side)return;
+  input.addEventListener('input',function(){
+    var q=input.value.trim().toLowerCase();
+    var lists=side.querySelectorAll('.ml-docs-side-ul');
+    lists.forEach(function(ul){
+      var anyVisible=false;
+      ul.querySelectorAll('li').forEach(function(li){
+        var match=!q||(li.textContent||'').toLowerCase().indexOf(q)>-1;
+        li.classList.toggle('ml-docs-side-hidden',!match);
+        if(match)anyVisible=true;
+      });
+      var h=ul.previousElementSibling;
+      if(h&&h.classList.contains('ml-docs-side-h'))h.classList.toggle('ml-docs-side-hidden',!anyVisible);
+      ul.classList.toggle('ml-docs-side-hidden',!anyVisible);
+    });
+  });
+})();</script>`;
+
+function shell(baseUrl, title, description, path, body, currentSlug) {
+  const extraCss = DOCS_LAYOUT_CSS;
 
   const pageBody = `
   <div style="max-width:1180px;margin:0 auto;padding:50px 30px 64px;">
-    <div class="ml-docs-layout">
-      <aside class="ml-docs-side">${renderSidebar(currentSlug)}</aside>
-      <main class="ml-docs-main">${body}</main>
-    </div>
+    ${docsLayoutHtml(currentSlug, body)}
   </div>
-  ${ledgerFooterCompact()}`;
+  ${ledgerFooterCompact()}
+  ${DOCS_SEARCH_SCRIPT}`;
 
   return ledgerShell({
     title: `${title} - Agent402 Docs`,
@@ -264,7 +383,7 @@ export function docsPage(baseUrl, slug) {
     title,
     description,
     `/docs/${slug}`,
-    `${crumbs}${renderMarkdown(md)}`,
+    `${crumbs}${renderMarkdown(md)}${docPrevNextHtml(slug)}`,
     slug
   );
 }
