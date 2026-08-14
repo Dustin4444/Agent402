@@ -91,6 +91,34 @@ function rangeAdmits(range, version) {
   return null; // unparsed
 }
 
+/** Direct `./relative` imports (static or dynamic) out of a single file's source. */
+function directImports(filePath) {
+  if (!existsSync(filePath)) return [];
+  const body = readFileSync(filePath, "utf8");
+  return [...new Set([
+    ...[...body.matchAll(/from\s+"\.\/([^"]+)"/g)].map((m) => m[1]),
+    ...[...body.matchAll(/import\("\.\/([^"]+)"\)/g)].map((m) => m[1]),
+  ])];
+}
+
+/** Every local file reachable from `entryFile` by following relative imports
+ *  transitively (not just the entry point's own direct imports) - a future
+ *  file importing a second new sibling two hops deep must still be caught. */
+function transitiveLocalImports(dir, entryFile) {
+  const seen = new Set();
+  const queue = [entryFile];
+  while (queue.length) {
+    const f = queue.pop();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    for (const imp of directImports(join(ROOT, dir, f))) {
+      if (!seen.has(imp)) queue.push(imp);
+    }
+  }
+  seen.delete(entryFile);
+  return [...seen];
+}
+
 for (const d of dirs) {
   const pkg = JSON.parse(readFileSync(join(ROOT, d, "package.json"), "utf8"));
   const name = pkg.name || d;
@@ -99,16 +127,8 @@ for (const d of dirs) {
 
   // --- the tarball must contain everything the entry point imports -----------
   if (files.size) {
-    const entryPath = join(ROOT, d, main);
-    if (existsSync(entryPath)) {
-      const body = readFileSync(entryPath, "utf8");
-      const imports = [...new Set([
-        ...[...body.matchAll(/from\s+"\.\/([^"]+)"/g)].map((m) => m[1]),
-        ...[...body.matchAll(/import\("\.\/([^"]+)"\)/g)].map((m) => m[1]),
-      ])];
-      const missing = imports.filter((i) => !files.has(i) && i !== main);
-      ok(missing.length === 0, `${name}: entry-point imports are all in files${missing.length ? ` (missing: ${missing.join(", ")})` : ""}`);
-    }
+    const missing = directImports(join(ROOT, d, main)).filter((i) => !files.has(i) && i !== main);
+    ok(missing.length === 0, `${name}: entry-point imports are all in files${missing.length ? ` (missing: ${missing.join(", ")})` : ""}`);
     // --- and everything files promises must exist ---------------------------
     const ghosts = [...files].filter((f) => !f.includes("*") && !existsSync(join(ROOT, d, f)));
     ok(ghosts.length === 0, `${name}: every files entry exists${ghosts.length ? ` (absent: ${ghosts.join(", ")})` : ""}`);
@@ -123,6 +143,35 @@ for (const d of dirs) {
       ok(admits === true,
         `${name}: ${field}.${dep} "${range}" admits the version we ship (${current})${admits === null ? " [unparsed range - tighten this test]" : ""}`);
     }
+  }
+}
+
+// --- facilitator/ ALSO ships as a Docker image with its own, separate file
+// manifest - Dockerfile.facilitator's explicit COPY list, distinct from
+// package.json's `files` (which only governs the npm tarball). A real
+// deploy broke on this exact gap (2026-08-14): timeout.js was added to
+// `files` and imported from index.js, but Dockerfile.facilitator's COPY
+// line was never updated, so the built image threw ERR_MODULE_NOT_FOUND on
+// boot - caught only by the actual Railway deploy failing, not by CI, not
+// by this file (which didn't look at the Dockerfile at all). No other
+// package in this repo has this shape: the main Dockerfile/Dockerfile.worker
+// COPY whole directories (src/), so an added file is included automatically
+// - this per-file COPY list is unique to facilitator's minimal image and so
+// is this check.
+{
+  const dockerfilePath = join(ROOT, "Dockerfile.facilitator");
+  if (existsSync(dockerfilePath)) {
+    const dockerfile = readFileSync(dockerfilePath, "utf8");
+    const copiedFiles = new Set(
+      [...dockerfile.matchAll(/^COPY\s+((?:facilitator\/\S+\s*)+)\S+\s*$/gm)]
+        .flatMap((m) => m[1].trim().split(/\s+/))
+        .map((f) => f.replace(/^facilitator\//, "")),
+    );
+    ok(copiedFiles.size > 0, `Dockerfile.facilitator: found at least one COPY of a facilitator/ file (got ${copiedFiles.size})`);
+    const needed = transitiveLocalImports("facilitator", "index.js");
+    const missingFromImage = needed.filter((f) => !copiedFiles.has(f));
+    ok(missingFromImage.length === 0,
+      `Dockerfile.facilitator: every local module index.js imports (transitively) is COPYd into the image${missingFromImage.length ? ` (missing: ${missingFromImage.join(", ")})` : ""}`);
   }
 }
 
