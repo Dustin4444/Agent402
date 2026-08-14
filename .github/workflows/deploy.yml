@@ -1347,6 +1347,9 @@ jobs:
       - name: Skill packs index page tests (offline, live SKILL_PACKS data)
         run: node scripts/test-skills-index-page.js
 
+      - name: Marketplace index page tests (offline, fixture snapshot)
+        run: node scripts/test-marketplace-index-page.js
+
       - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
         run: node scripts/test-operator-wishes.js
 

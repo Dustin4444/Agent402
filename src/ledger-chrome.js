@@ -354,9 +354,9 @@ function chainRowHtml(c, live) {
     // the two numbers an agent picks a chain on. Tools omitted (not zeroed) if
     // the count is missing, never a fabricated 0.
     const toolsSpan = typeof c.tools === "number" && c.tools > 0
-      ? `<span style="color:var(--faint);">${fmt(c.tools)} tools</span>`
+      ? `<span style="color:var(--faint);">${fmt(c.tools)} tool${c.tools === 1 ? "" : "s"}</span>`
       : "";
-    return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:10px;"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${fmt(c.sellers)} sellers</span>${toolsSpan}</span></a>`;
+    return `<a href="${esc(c.href)}" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">${esc(c.label)}</span><span style="display:inline-flex;align-items:center;gap:10px;"><span style="display:inline-flex;align-items:center;gap:6px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${fmt(c.sellers)} seller${c.sellers === 1 ? "" : "s"}</span>${toolsSpan}</span></a>`;
   }
   // Provider returned this chain but its data failed - honesty rule:
   // "unavailable", never zero.
