@@ -4,13 +4,17 @@ Open-source, self-hostable x402 facilitator for Stellar. Verify and settle
 `exact`-scheme USDC payments on Soroban yourself, with correct on-chain
 settlement confirmation. No third-party facilitator, no signup.
 
-**Status: Phase 1 — testnet only.** This wires the official
-[`@x402/core`](https://www.npmjs.com/package/@x402/core) orchestration to the
-official [`@x402/stellar`](https://www.npmjs.com/package/@x402/stellar)
-facilitator scheme, which already implements Soroban simulation/auth-entry
-validation and on-chain settlement confirmation internally — this package is
-glue, not a payment protocol reimplementation. The network is hardcoded to
-`stellar:testnet`; there is no code path to mainnet yet.
+This wires the official [`@x402/core`](https://www.npmjs.com/package/@x402/core)
+orchestration to the official
+[`@x402/stellar`](https://www.npmjs.com/package/@x402/stellar) facilitator
+scheme, which already implements Soroban simulation/auth-entry validation and
+on-chain settlement confirmation internally — this package is glue, not a
+payment protocol reimplementation.
+
+**Network: testnet by default, mainnet as an explicit opt-in**
+(`FACILITATOR_NETWORK=pubnet`, see below) — never the reverse. This is what
+[agent402.tools](https://agent402.tools) itself runs in production for its
+Stellar rail as of 2026-08-13.
 
 ## Why
 
@@ -35,9 +39,17 @@ FACILITATOR_STELLAR_SECRET=S... npm start
 
 - `FACILITATOR_STELLAR_SECRET` — required. The facilitator's own Stellar
   secret seed (starts with `S`). This account pays transaction fees for
-  every settlement — generate a fresh testnet keypair and fund it for free
-  via [Friendbot](https://friendbot.stellar.org/?addr=YOUR_PUBLIC_KEY).
-  **Testnet only in this phase — never put a mainnet secret here.**
+  every settlement. For testnet, generate a fresh keypair and fund it for
+  free via [Friendbot](https://friendbot.stellar.org/?addr=YOUR_PUBLIC_KEY).
+  **For mainnet this must be a REAL, FUNDED secret — never generate or fund
+  one casually, and never commit it.**
+- `FACILITATOR_NETWORK` — optional, default unset (testnet). Set to exactly
+  `pubnet` to opt into mainnet — any other value, including a typo, stays on
+  testnet by design (fail closed to the safe value).
+- `FACILITATOR_MAINNET_RPC_URL` — required when `FACILITATOR_NETWORK=pubnet`.
+  `@x402/stellar` ships a working default RPC for testnet but none for
+  mainnet; the server fails loudly at startup rather than failing
+  confusingly on the first request.
 - `PORT` — optional, defaults to `4021`.
 - `FACILITATOR_AUTH_TOKEN` — optional. When set, `/verify`, `/settle`, and
   `/supported` all require `Authorization: Bearer <token>`. When unset, those
@@ -50,6 +62,16 @@ FACILITATOR_STELLAR_SECRET=S... npm start
   facilitator can otherwise be used by anyone as a free Stellar gas sponsor.
 - `FACILITATOR_LOW_BALANCE_XLM` — optional, default `5`. Threshold for the
   `low` flag on `GET /health`.
+- `FACILITATOR_SETTLE_TIMEOUT_MS` / `FACILITATOR_VERIFY_TIMEOUT_MS` /
+  `FACILITATOR_HEALTH_TIMEOUT_MS` — optional, default `60000` / `30000` /
+  `10000`. Bounds how long a single `/settle`, `/verify`, or `/health` call
+  waits on the underlying Stellar RPC before failing fast with a
+  self-explaining reason (`settle_timed_out` / `verify_timed_out`) instead of
+  hanging indefinitely — added after a real production incident where a
+  `/settle` call hung for 300s with nothing bounding it at all. Raising
+  `FACILITATOR_SETTLE_TIMEOUT_MS` also means raising
+  `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` (or your platform's equivalent) to
+  match, so a redeploy's grace period still comfortably exceeds it.
 
 The server exposes the three standard x402 facilitator endpoints —
 `GET /supported`, `POST /verify`, `POST /settle` — plus an always-open,
@@ -57,7 +79,12 @@ unauthenticated `GET /health` (`{ signerAddress, xlmBalance, low }`) for
 external monitoring. `/settle` calls are serialized internally: the
 facilitator's single signer account has one Stellar sequence number, and
 concurrent settlements racing on it is a real failure mode (proven live —
-see `test.js` step 10), not a theoretical one.
+see `test.js` step 10), not a theoretical one. A `/settle` call that times
+out or otherwise never gets a result from the underlying SDK still returns a
+best-effort `payer` field on its failure response — callers running their
+own "ask the chain before believing a failure" check (this facilitator's own
+motivating use case) need it, since the underlying settlement may have
+already been submitted, or may yet be, in the background.
 
 ## Running the tests
 

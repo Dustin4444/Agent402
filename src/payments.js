@@ -700,12 +700,16 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     }, solvadorPrimaryWanted));
     console.log(`Solvador (primary, filtered): settling USDC on ${solvadorPrimaryWanted.join(", ")}`);
   }
-  // Stellar — settlement via the OpenZeppelin-operated x402 facilitator on pubnet.
-  // STELLAR_FACILITATOR_URL defaults to the public OpenZeppelin endpoint; override
-  // for a self-hosted or private facilitator instance. Requires a Bearer token
-  // (STELLAR_FACILITATOR_KEY) generated at https://channels.openzeppelin.com/gen
-  // via GitHub OAuth. Without the key, the facilitator returns 401 on /supported
-  // and the scheme registration is skipped (same graceful-degrade as Solana).
+  // Stellar — settlement via an x402 facilitator on pubnet. STELLAR_FACILITATOR_URL
+  // defaults to the public OpenZeppelin endpoint (code default only) BUT PRODUCTION
+  // OVERRIDES THIS to our own self-hosted facilitator (facilitator/, deployed as
+  // the agent402-facilitator Railway service - see facilitator/README.md) as of
+  // 2026-08-13; check the live Railway variable before assuming which one is in
+  // use. STELLAR_FACILITATOR_KEY is a Bearer token either way — for OpenZeppelin,
+  // generated at https://channels.openzeppelin.com/gen; for our own facilitator,
+  // its own FACILITATOR_AUTH_TOKEN. Without the key, the facilitator returns 401
+  // on /supported and the scheme registration is skipped (same graceful-degrade
+  // as Solana).
   // The CLIENT is constructed here, with the other facilitators, so the boot
   // /supported probe below sees the complete set; the scheme registers further
   // down, once the resource server exists, and only for surviving networks.

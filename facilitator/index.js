@@ -15,12 +15,26 @@ import { getHorizonClient } from "@x402/stellar";
 import { loadSigner, NETWORK, RPC_CONFIG } from "./signer.js";
 import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "./shape.js";
 import { createSerialQueue } from "./queue.js";
+import { withTimeout } from "./timeout.js";
 
 const PORT = Number(process.env.PORT) || 4021;
 const AUTH_TOKEN = (process.env.FACILITATOR_AUTH_TOKEN || "").trim();
 const ALLOWED_PAYTO = (process.env.FACILITATOR_ALLOWED_PAYTO || "")
   .split(",").map((s) => s.trim()).filter(Boolean);
 const LOW_BALANCE_XLM = Number(process.env.FACILITATOR_LOW_BALANCE_XLM) || 5;
+// Found live in production (2026-08-14, first full day on mainnet): a
+// /settle call hung for 300s straight - no timeout, no error, nothing on
+// Horizon either (verified after the fact: neither the payer nor this
+// facilitator's own signer account shows any transaction from that window,
+// so the underlying RPC call stalled before ever submitting anything). The
+// calling side eventually gave up and closed the connection; Railway logged
+// it as a 499 with an empty body, which surfaced upstream as an opaque 502.
+// @x402/stellar's own documented worst case is a 15-attempt x 1s poll
+// (~15s) AFTER submission - these bounds exist to fail fast and loud well
+// before that, not to fit real-world settlement time exactly.
+const SETTLE_TIMEOUT_MS = Number(process.env.FACILITATOR_SETTLE_TIMEOUT_MS) || 60_000;
+const VERIFY_TIMEOUT_MS = Number(process.env.FACILITATOR_VERIFY_TIMEOUT_MS) || 30_000;
+const HEALTH_TIMEOUT_MS = Number(process.env.FACILITATOR_HEALTH_TIMEOUT_MS) || 10_000;
 
 if (!AUTH_TOKEN) {
   console.warn("[startup] FACILITATOR_AUTH_TOKEN is not set - /verify, /settle, and /supported are UNAUTHENTICATED.");
@@ -74,6 +88,27 @@ function safeMessage(err) {
   return (err?.message || String(err)).slice(0, 300);
 }
 
+// Best-effort payer recovery for a /settle call that never returned a
+// vendor result at all (threw, or hit our own timeout above). A normal
+// vendor-reported failure already carries `payer` on every branch of its
+// result object (verified against @x402/stellar's own source - it resolves
+// `payer` once, early, from the verify step, and threads it through every
+// return path); it's only the "we never got a result back" case that has
+// nothing. Without this, src/stellar-confirm.js's settlePayerOf(res) reads
+// undefined and its whole "ask the chain before believing a failure" check
+// silently no-ops - exactly the class of quietly-dead safety net this
+// codebase has hit before (see its own header comment). verify() is
+// read-only simulation, so calling it again here has no side effects and no
+// cost on the (far more common) non-error path.
+async function bestEffortPayer(paymentPayload, paymentRequirements) {
+  try {
+    const v = await withTimeout(facilitator.verify(paymentPayload, paymentRequirements), 10_000, "payer_recovery_verify");
+    return typeof v?.payer === "string" && v.payer.trim() ? v.payer.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
 // Auth failure is an access-control rejection, not a business outcome, so it
 // is NOT held to the "always 200" rule below - a 401 is exactly what
 // @x402/core's HTTPFacilitatorClient already treats any non-2xx as (a
@@ -116,11 +151,12 @@ app.post("/verify", requireAuth, async (req, res) => {
     return res.status(200).json(invalidVerify("payto_not_allowed"));
   }
   try {
-    const result = await facilitator.verify(paymentPayload, paymentRequirements);
+    const result = await withTimeout(facilitator.verify(paymentPayload, paymentRequirements), VERIFY_TIMEOUT_MS, "verify");
     res.status(200).json(normalizeVerify(result));
   } catch (err) {
     console.error("[/verify] dispatch error:", err);
-    res.status(200).json(invalidVerify("facilitator_dispatch_error", undefined, safeMessage(err)));
+    const reason = err?.code === "FACILITATOR_TIMEOUT" ? "verify_timed_out" : "facilitator_dispatch_error";
+    res.status(200).json(invalidVerify(reason, undefined, safeMessage(err)));
   }
 });
 
@@ -133,11 +169,36 @@ app.post("/settle", requireAuth, async (req, res) => {
     return res.status(200).json(invalidSettle("payto_not_allowed", paymentRequirements.network));
   }
   try {
-    const result = await enqueueSettle(() => facilitator.settle(paymentPayload, paymentRequirements));
+    // The timeout wraps the JOB ITSELF, not just this HTTP call - so
+    // enqueueSettle's internal chain advances to the next queued settlement
+    // once this rejects, even though the underlying vendor call is still
+    // running unseen in the background. That reopens a narrower version of
+    // the exact sequence-number race this queue exists to prevent: if the
+    // abandoned call eventually DOES submit, and a later queued call reads
+    // the signer's sequence number before that submission lands, both
+    // transactions can conflict. Accepted trade-off, not an oversight - the
+    // alternative (never time out) is the failure this fix exists for, and
+    // a stall long enough to matter here is already rare enough that this
+    // codebase's usual answer applies: bound the failure, then let the
+    // calling side's own chain-confirmation (src/stellar-confirm.js) catch
+    // whatever lands late, the same way it already does for OpenZeppelin.
+    const result = await enqueueSettle(() => withTimeout(
+      facilitator.settle(paymentPayload, paymentRequirements),
+      SETTLE_TIMEOUT_MS,
+      "settle",
+    ));
     res.status(200).json(normalizeSettle(result, paymentRequirements.network));
   } catch (err) {
     console.error("[/settle] dispatch error:", err);
-    res.status(200).json(invalidSettle("facilitator_dispatch_error", paymentRequirements.network, safeMessage(err)));
+    const reason = err?.code === "FACILITATOR_TIMEOUT" ? "settle_timed_out" : "facilitator_dispatch_error";
+    // The underlying settle may already have submitted, or may yet submit in
+    // the background (see the comment above) - either way this response is
+    // reporting failure without knowing that for certain, so the calling
+    // side needs `payer` to be able to check the chain itself. Best-effort:
+    // if this also fails, the response is no worse than it was before this
+    // fix, just still missing payer.
+    const payer = await bestEffortPayer(paymentPayload, paymentRequirements);
+    res.status(200).json({ ...invalidSettle(reason, paymentRequirements.network, safeMessage(err)), payer });
   }
 });
 
@@ -146,7 +207,7 @@ app.post("/settle", requireAuth, async (req, res) => {
 // without needing the facilitator's own auth token.
 app.get("/health", async (req, res) => {
   try {
-    const account = await horizon.loadAccount(signer.address);
+    const account = await withTimeout(horizon.loadAccount(signer.address), HEALTH_TIMEOUT_MS, "health");
     const native = account.balances.find((b) => b.asset_type === "native");
     const xlmBalance = native ? Number(native.balance) : 0;
     res.status(200).json({
@@ -184,10 +245,17 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     httpServer.close(() => process.exit(0));
     httpServer.closeIdleConnections();
     setInterval(() => httpServer.closeIdleConnections(), 5_000).unref();
-    // A settle's worst case is ExactStellarScheme's own poll (15 attempts x
-    // 1s default) - 30s stays comfortably above that without holding a
-    // redeploy open indefinitely on a stuck request.
-    setTimeout(() => process.exit(0), 30_000).unref();
+    // Must stay ABOVE SETTLE_TIMEOUT_MS (our own settle call is now bounded
+    // by it, see above), or a redeploy could hard-exit while a legitimate,
+    // still-within-its-own-bound settlement is in flight - the exact failure
+    // this drain logic exists to prevent. Default 60s + 15s margin = 75s,
+    // comfortably under production's RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90
+    // (the point Railway sends SIGKILL regardless, so exiting any later than
+    // that achieves nothing but a worse-attributed crash). Raising
+    // FACILITATOR_SETTLE_TIMEOUT_MS past ~75s means also raising
+    // RAILWAY_DEPLOYMENT_DRAINING_SECONDS on the Railway service to match -
+    // this only derives the floor, it cannot widen Railway's own deadline.
+    setTimeout(() => process.exit(0), Math.max(SETTLE_TIMEOUT_MS + 15_000, 30_000)).unref();
   }
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
