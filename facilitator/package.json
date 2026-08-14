@@ -12,6 +12,7 @@
     "signer.js",
     "shape.js",
     "queue.js",
+    "timeout.js",
     "README.md"
   ],
   "engines": {

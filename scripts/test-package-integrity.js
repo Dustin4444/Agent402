@@ -38,7 +38,11 @@ const ok = (cond, msg) => {
 
 /** Every directory in the repo that publishes to npm. */
 function publishableDirs() {
-  const dirs = ["mcp", "client", "tollbooth"];
+  // facilitator was missing here until 2026-08-14: its own files allowlist
+  // didn't list a new sibling module (timeout.js) that its entry point
+  // imports, the exact class of bug (1) in the header comment above - this
+  // gate simply never looked at that package at all.
+  const dirs = ["mcp", "client", "tollbooth", "facilitator"];
   const adapters = join(ROOT, "adapters");
   if (existsSync(adapters)) {
     for (const name of readdirSync(adapters)) {

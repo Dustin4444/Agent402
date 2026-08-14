@@ -13,6 +13,19 @@
 // NOT_FOUND for the losing transaction). Fixed by serializing settlement
 // through queue.js - see step 9 below for the regression test.
 //
+// Step 17 regression-tests a second real bug, found live in PRODUCTION
+// (2026-08-14, this facilitator's first full day on mainnet): a /settle
+// call hung for exactly 300s with no timeout anywhere, until the calling
+// side gave up and closed the connection - Railway logged it as a 499,
+// which surfaced upstream as an opaque 502. Neither the buyer's account nor
+// this facilitator's own signer showed any transaction from that window, so
+// the underlying RPC call stalled before ever submitting anything. Fixed
+// with a bounded timeout on both /verify and /settle (timeout.js), plus
+// best-effort payer recovery on a settle timeout/dispatch error - without
+// that second part, src/stellar-confirm.js's "ask the chain before
+// believing a failure" safety net in the main app reads an undefined payer
+// from our own facilitator's error responses and silently never fires.
+//
 //   node test.js          (run from facilitator/, after `npm install`)
 //
 // One real manual setup step is required and CANNOT be automated: Circle's
@@ -33,6 +46,7 @@ import {
   createEd25519Signer, ExactStellarScheme, USDC_TESTNET_ADDRESS, getHorizonClient,
 } from "@x402/stellar";
 import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "./shape.js";
+import { withTimeout, TimeoutError } from "./timeout.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const NETWORK = "stellar:testnet";
@@ -65,6 +79,48 @@ const horizon = getHorizonClient(NETWORK);
   ok(normalizeSettle({ success: true, transaction: "abc", network: "stellar:testnet" }).transaction === "abc", "normalizeSettle: preserves real transaction");
   ok(normalizeSettle({ success: false }, "stellar:testnet").transaction === "", "normalizeSettle: missing transaction -> empty string");
   console.log("shape.js unit tests ✓");
+}
+
+// 0b) Offline unit tests for timeout.js - fast, deterministic, no network.
+// Added after a real production incident (2026-08-14): a /settle call hung
+// for 300s with no timeout at all, eventually killed by the CALLER giving
+// up, which surfaced as an opaque 502. These lock the mechanism that fixes
+// it directly, independent of ever reproducing a real RPC stall.
+{
+  const wt = await withTimeout(Promise.resolve("fast"), 200, "quick");
+  ok(wt === "fast", "withTimeout: resolves normally when the promise wins the race");
+
+  let timedOut = false;
+  try {
+    await withTimeout(new Promise(() => {}), 20, "never-resolves");
+  } catch (e) {
+    timedOut = e instanceof TimeoutError && e.code === "FACILITATOR_TIMEOUT";
+  }
+  ok(timedOut, "withTimeout: a promise that never settles rejects with TimeoutError once the timer fires");
+
+  let rejectedFast = false;
+  try {
+    await withTimeout(Promise.reject(new Error("boom")), 200, "quick-reject");
+  } catch (e) {
+    rejectedFast = e.message === "boom"; // the ORIGINAL rejection, not a timeout
+  }
+  ok(rejectedFast, "withTimeout: a promise that rejects before the timer still surfaces its own error, not a timeout");
+
+  // The loser of a lost race must never produce an unhandled rejection -
+  // this is what actually crashes/warns a Node process, not just a log line.
+  // Constructed so the WRAPPED promise rejects LATE (after the timeout has
+  // already won and the caller has already moved on) - the exact shape of
+  // an abandoned, still-running /settle call that eventually fails.
+  let unhandled = false;
+  const onUnhandled = () => { unhandled = true; };
+  process.on("unhandledRejection", onUnhandled);
+  const slowRejecter = new Promise((_, reject) => setTimeout(() => reject(new Error("late failure")), 40));
+  await withTimeout(slowRejecter, 10, "abandoned").catch(() => {});
+  await new Promise((r) => setTimeout(r, 80)); // outlive slowRejecter's own 40ms rejection
+  process.off("unhandledRejection", onUnhandled);
+  ok(!unhandled, "withTimeout: a lost race's eventual rejection never surfaces as an unhandled rejection");
+
+  console.log("timeout.js unit tests ✓");
 }
 
 async function friendbotFund(publicKey) {
@@ -342,4 +398,53 @@ if (!(await waitForHealthy(AUTH_BASE_URL))) fail("hardened facilitator did not b
 }
 
 authProc.kill("SIGKILL");
+
+// 17) Settle/verify timeout - regression test for the real production
+// incident (2026-08-14): a /settle call hung for 300s with nothing bounding
+// it, until the CALLING side gave up and closed the connection, which
+// Railway logged as a 499 and which surfaced upstream as an opaque 502. A
+// deliberately absurd timeout (1ms) guarantees a REAL, valid settle call
+// cannot possibly finish in time - no fault injection or mocked hang
+// needed, since a real Stellar round-trip is always slower than 1ms.
+const IMPATIENT_PORT = 4101;
+const IMPATIENT_BASE_URL = `http://localhost:${IMPATIENT_PORT}`;
+const impatientKp = Keypair.random();
+await friendbotFund(impatientKp.publicKey());
+const impatientProc = spawn(process.execPath, [join(ROOT, "index.js")], {
+  cwd: ROOT,
+  env: {
+    ...process.env,
+    FACILITATOR_STELLAR_SECRET: impatientKp.secret(),
+    FACILITATOR_SETTLE_TIMEOUT_MS: "1",
+    FACILITATOR_VERIFY_TIMEOUT_MS: "1",
+    PORT: String(IMPATIENT_PORT),
+  },
+  stdio: ["ignore", "inherit", "inherit"],
+});
+process.on("exit", () => { try { impatientProc.kill("SIGKILL"); } catch { /* already dead */ } });
+if (!(await waitForHealthy(IMPATIENT_BASE_URL))) fail("impatient facilitator did not become healthy");
+
+{
+  const req = buildRequirements(sellerKp.publicKey(), "3000");
+  const payload = await signPayment(payerSigner, req);
+
+  const v = await post(IMPATIENT_BASE_URL, "/verify", { x402Version: 2, paymentPayload: payload, paymentRequirements: req });
+  ok(v.status === 200, `timeout: /verify HTTP 200 even on timeout (got ${v.status})`);
+  ok(v.body.isValid === false, "timeout: /verify isValid false");
+  ok(v.body.invalidReason === "verify_timed_out", `timeout: /verify carries its own reason, not a generic one (got ${JSON.stringify(v.body)})`);
+
+  const s = await post(IMPATIENT_BASE_URL, "/settle", { x402Version: 2, paymentPayload: payload, paymentRequirements: req });
+  ok(s.status === 200, `timeout: /settle HTTP 200 even on timeout (got ${s.status})`);
+  ok(s.body.success === false, "timeout: /settle success false");
+  ok(s.body.transaction === "", "timeout: /settle transaction is the empty-string placeholder, never a guess");
+  ok(s.body.errorReason === "settle_timed_out", `timeout: /settle carries its own reason, not a generic one (got ${JSON.stringify(s.body)})`);
+  // The actual point of this whole test: without payer recovery,
+  // src/stellar-confirm.js's settlePayerOf(res) would read undefined here
+  // and its "ask the chain before believing a failure" check would never
+  // fire for our own facilitator's errors - silently inert, not merely
+  // untested.
+  ok(s.body.payer === payerKp.publicKey(), `timeout: /settle recovers the real payer despite never getting a vendor result (got ${s.body.payer})`);
+}
+
+impatientProc.kill("SIGKILL");
 console.log(`\n${passed} assertions passed.`);
