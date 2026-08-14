@@ -64,7 +64,6 @@ const pruneRecent = db.prepare("DELETE FROM recent_calls WHERE id <= (SELECT MAX
 const getRecent = db.prepare("SELECT slug, method, ts FROM recent_calls ORDER BY id DESC LIMIT ?");
 const bumpPaidTool = db.prepare("INSERT INTO paid_tool_counts (slug, n) VALUES (?, 1) ON CONFLICT(slug) DO UPDATE SET n = n + 1");
 const usdcNetCounters = db.prepare("SELECT k, n FROM counters WHERE k LIKE 'usdcNet:%'");
-const topPaid = db.prepare("SELECT slug, n FROM paid_tool_counts ORDER BY n DESC LIMIT 10");
 const allPaid = db.prepare("SELECT slug, n FROM paid_tool_counts");
 // Per-tool count of internal heartbeat probes (PoW path, agent402-heartbeat UA).
 // Kept separate so the operator dashboard can show real external PoW adoption
@@ -260,13 +259,6 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
   const num = (k) => getCounter.get(k)?.n ?? 0;
   const priceOf = (slug) => (prices && Number(prices[slug])) || 0;
   const estimatedRevenueUsd = +allPaid.all().reduce((s, r) => s + r.n * priceOf(r.slug), 0).toFixed(4);
-  // Public rows carry the PURCHASE COUNT only. Per-tool revenue is what the paid
-  // bestsellers tool sells and what /api/sales was reduced to stop giving away;
-  // publishing it here too was the same leak on a different route, and it named
-  // our highest-earning tools as a ranked clone target. The full per-tool
-  // revenue table (plus pow/heartbeat splits and prices) stays available to the
-  // operator via getOperatorBreakdown.
-  const topPaidTools = topPaid.all().map((r) => ({ slug: r.slug, purchases: r.n }));
   const firstServed = parseInt(getMeta.get("firstServed")?.v ?? Date.now(), 10);
   const explorer = network === "base-sepolia" ? "https://sepolia.basescan.org" : "https://basescan.org";
   return {
@@ -316,8 +308,16 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       .filter((r) => Number(r.status) !== 402).length,
     chargedButFailedNote:
       "chargedButFailed is a LIFETIME counter containing a since-fixed miscount: settlement REJECTIONS (buyer keeps their money) were recorded as charged failures. Use chargedButFailedGenuine, which excludes them, for current quality.",
+    // topTools ranks by RAW CALL VOLUME (free + paid combined, from allTools),
+    // never by purchases alone - a "topPaidTools" purchase-count ranking used
+    // to be published right beside it (found externally 2026-08-14). Stripping
+    // that field to counts-only (no dollar figures) was NOT the fix it looked
+    // like: /api/pricing is public, so purchases × price reconstructs exact
+    // per-tool revenue anyway, and even without that math the ranking itself
+    // is a "which tools to clone" signal - the same class of leak /api/sales
+    // was reduced to stop giving away. The full per-tool breakdown (paid
+    // count, revenue, price) stays operator-only via getOperatorBreakdown.
     topTools: allTools.all(),
-    topPaidTools, // most-PURCHASED tools (USDC only) - counts only, no per-tool revenue
     estimatedRevenueUsd, // sum of price × USDC-purchase count (counters; chain is source of truth)
     recentCalls: getRecent.all(RECENT_SHOW).map((r) => ({
       slug: r.slug,
