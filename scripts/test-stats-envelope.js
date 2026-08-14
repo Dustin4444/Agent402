@@ -16,8 +16,8 @@
 //   1. GET /api/stats → 200 application/json.
 //   2. Envelope keys: service, summary, tools, payment, walletName,
 //      onchainRevenueProof, onchainNote, toolCallsServed, chargedButFailed,
-//      topTools, topPaidTools, estimatedRevenueUsd, recentCalls,
-//      servingSince, uptimeSeconds.
+//      topTools, estimatedRevenueUsd, recentCalls, servingSince,
+//      uptimeSeconds.
 //   3. toolCallsServed has total + viaUSDC + viaProofOfWork + viaHeartbeat,
 //      all non-negative integers (`total === viaUSDC + viaProofOfWork +
 //      viaHeartbeat` would be tempting but the chargedButFailed path drops
@@ -27,6 +27,11 @@
 //   5. estimatedRevenueUsd is a number, uptimeSeconds is a non-negative
 //      number, servingSince is a parseable ISO string.
 //   6. topTools / recentCalls are arrays.
+//   7. topPaidTools is ABSENT (found live 2026-08-14: a purchase-count
+//      bestsellers ranking was public here, and since /api/pricing is also
+//      public, purchases × price reconstructs exact per-tool revenue - a
+//      regression that re-adds the field must fail this test, not just go
+//      unnoticed by an envelope check that only ever asserted presence).
 //
 //   node scripts/test-stats-envelope.js
 import { spawn } from "node:child_process";
@@ -56,9 +61,10 @@ try {
   ok((res.headers.get("content-type") || "").includes("application/json"), `content-type is application/json`);
   const body = await res.json();
 
-  for (const k of ["service", "summary", "tools", "payment", "walletName", "onchainRevenueProof", "onchainNote", "toolCallsServed", "chargedButFailed", "topTools", "topPaidTools", "estimatedRevenueUsd", "recentCalls", "servingSince", "uptimeSeconds"]) {
+  for (const k of ["service", "summary", "tools", "payment", "walletName", "onchainRevenueProof", "onchainNote", "toolCallsServed", "chargedButFailed", "topTools", "estimatedRevenueUsd", "recentCalls", "servingSince", "uptimeSeconds"]) {
     ok(k in body, `envelope key '${k}' present (got: ${Object.keys(body).join(",")})`);
   }
+  ok(!("topPaidTools" in body), `topPaidTools is NOT in the public envelope (purchase-count bestsellers ranking - reconstructs exact revenue via public /api/pricing, stays operator-only)`);
   ok(body.service === "Agent402.Tools", `service='Agent402.Tools' (got ${body.service})`);
   ok(typeof body.summary === "string" && body.summary.length > 0, `summary is non-empty (got len ${body.summary?.length})`);
 
@@ -84,7 +90,6 @@ try {
   // Top tools / recent calls — arrays the homepage iterates over. May be
   // empty in a fresh boot; only the type lock matters here.
   ok(Array.isArray(body.topTools), `topTools is an array`);
-  ok(Array.isArray(body.topPaidTools), `topPaidTools is an array`);
   ok(Array.isArray(body.recentCalls), `recentCalls is an array`);
 
   // Headline revenue number. May be 0 in a fresh boot but must be a number
