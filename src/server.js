@@ -1311,7 +1311,10 @@ app.get("/terms", (_req, res) => htmlCache(res, 300, 900).send(termsPage(BASE_UR
 app.get("/transparency", async (_req, res) => htmlCache(res, 300, 900).send(transparencyPage(BASE_URL, await repoTraffic().catch(() => null))));
 app.get("/contact", (_req, res) => htmlCache(res, 300, 900).send(contactPage(BASE_URL)));
 app.get("/quickstart", (_req, res) => htmlCache(res, 300, 900).send(quickstartPage(BASE_URL)));
-app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402Page(BASE_URL)));
+app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402Page(BASE_URL, {
+  stats: getStats({ wallet: WALLET_ADDRESS, walletName: WALLET_ENS, network: NETWORK, toolCount: Object.keys(CATALOG).length, baseUrl: BASE_URL, prices: TOOL_PRICES }),
+  leaderboardSnapshot: getLeaderboardSnapshot(),
+})));
 app.get("/what-is-mpp", (_req, res) => htmlCache(res, 300, 900).send(whatIsMppPage(BASE_URL)));
 app.get("/faq", (_req, res) => htmlCache(res, 300, 900).send(faqPage(BASE_URL)));
 app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerIntegrationsPage(BASE_URL)));
@@ -2939,9 +2942,7 @@ app.get("/marketplace", async (req, res) => {
 // degrades to "temporarily unavailable" text rather than a half-rendered page.
 app.get("/sell", (_req, res) => {
   try {
-    htmlCache(res, 120, 600).send(
-      sellPage(BASE_URL, { leaderboardSnapshot: getLeaderboardSnapshot(), indexSnapshot: getIndexSnapshot() })
-    );
+    htmlCache(res, 120, 600).send(sellPage(BASE_URL));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }

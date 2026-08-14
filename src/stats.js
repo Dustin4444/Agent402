@@ -141,7 +141,7 @@ export function recordServedCall(slug, method, network = null, wire = null) {
 }
 
 // CAIP-2 → the short names used across /api/pricing and PAYMENT_NETWORKS.
-const CAIP2_NAMES = {
+export const CAIP2_NAMES = {
   "eip155:8453": "base",
   "eip155:137": "polygon",
   "eip155:42161": "arbitrum",
