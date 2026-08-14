@@ -3291,13 +3291,21 @@ function indexCatalog(catalog) {
 }
 
 const SKILLS_CSS = `
-.sk-grid { display:grid; gap:14px; margin-top:24px; }
-@media (min-width:640px){ .sk-grid { grid-template-columns:repeat(2,1fr); } }
-.sk-card { display:block; padding:20px 22px; border:1.5px solid var(--ink); background:var(--card); color:inherit; text-decoration:none; transition:border-color .15s; }
-.sk-card:hover { border-color:var(--accent); }
-.sk-card h3 { margin:0 0 6px; font-family:var(--font-body); font-weight:800; font-size:17px; color:var(--ink); }
-.sk-card p { margin:0; color:var(--muted); font-size:14px; line-height:1.55; }
-.sk-card .sk-meta { display:block; margin-top:10px; color:var(--accent); font-family:var(--font-mono); font-size:12px; letter-spacing:.06em; text-transform:uppercase; }
+.sk-hero, .sk-2col { display:grid; gap:0; }
+@media (max-width:900px){ .sk-hero, .sk-2col { grid-template-columns:minmax(0,1fr) !important; } }
+.sk-cardgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--hairline); border:1.5px solid var(--ink); }
+@media (max-width:900px){ .sk-cardgrid { grid-template-columns:repeat(2,1fr); } }
+@media (max-width:640px){ .sk-cardgrid { grid-template-columns:1fr; } }
+.sk-flagship { display:flex; flex-direction:column; gap:11px; padding:24px; background:var(--card); color:inherit; text-decoration:none; }
+.sk-flagship:hover .sk-flagship-slug { color:var(--accent); }
+.sk-flagship-slug { font-family:var(--font-mono); font-weight:700; font-size:16px; color:var(--ink); transition:color .15s; }
+.sk-flagship-body { font-size:14px; line-height:1.55; color:var(--muted); flex:1; }
+.sk-flagship-tools { font-family:var(--font-mono); font-size:11px; line-height:1.6; color:var(--faint); }
+.sk-flagship-cta { font-family:var(--font-mono); font-size:11.5px; color:var(--accent); }
+.sk-rest-chip { display:inline-block; border:1px solid var(--hairline); padding:7px 11px; font-family:var(--font-mono); font-size:12px; color:var(--muted); text-decoration:none; }
+.sk-rest-chip:hover { border-color:var(--accent); color:var(--ink); }
+.sk-scroll { overflow-x:auto; }
+.sk-scroll table { min-width:640px; }
 .sk-tl { margin:18px 0 8px; padding:0; list-style:none; }
 .sk-tl li { padding:16px 18px; border:1.5px solid var(--ink); margin-bottom:10px; background:var(--card); }
 .sk-tl .row { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
@@ -3321,33 +3329,212 @@ const SKILLS_CSS = `
 .sk-prompt pre { background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); padding:18px 20px; overflow-x:auto; font-size:13px; line-height:1.6; white-space:pre-wrap; border:none; }
 `;
 
+const SKILLS_TABS = [
+  ["Tools", "/tools"],
+  ["Skill packs", "/skills"],
+  ["Playground", "/playground"],
+  ["Pricing", "/pricing"],
+  ["Integrations", "/integrations"],
+];
+
+// The six flagship packs, verbatim tool sequences. Checked against the live
+// SKILL_PACKS data before shipping (the design handoff's own README flagged
+// an earlier draft got trend-analysis wrong): five of six matched exactly.
+// forecasting-bake-off's design copy dropped the "forecast-" prefix on four
+// slugs ("naive"/"ses"/"holt"/"holt-winters") - those aren't real catalog
+// slugs (the actual tools are forecast-naive/forecast-ses/forecast-holt/
+// forecast-holt-winters), so a reader clicking through to /tools/naive would
+// 404. Corrected here rather than ported as-is.
+const FLAGSHIP_PACKS = ["security-audit", "trend-analysis", "structured-scrape", "document-intel", "decode-blob", "forecasting-bake-off"];
+
+// Illustrative run for the "partial success" example below - security-audit
+// is the hero pack (7 tools, matches the comparison table). Labelled
+// illustrative in the visible copy and the caption; each pack's real
+// contract lives on its own page and in /api/skill-packs.json.
+const ILLUSTRATIVE_RUN = [
+  ["1", "cert-transparency", "14 certificates logged, none unexpected", true],
+  ["2", "dns-lookup", "A, AAAA, MX, NS, TXT resolved", true],
+  ["3", "spf-check", "single include, hard fail policy", true],
+  ["4", "dmarc-check", "p=none - reporting only, no enforcement", true],
+  ["5", "http-headers", "HSTS present, CSP missing", true],
+  ["6", "tls-cert", "handshake timed out after 5s", false],
+  ["7", "tech-stack", "nginx, Cloudflare, Next.js", true],
+];
+
+const SKILLS_FAQS = [
+  { q: "What is a skill pack?", a: "A multi-tool workflow that runs server-side in a single request. Instead of your agent calling seven tools in sequence - seven payments, seven round trips, seven things to handle when one fails - you make one call to POST /api/skill/{slug}, pay once, and get every step back in one response." },
+  { q: "What happens if one step fails?", a: "You get a partial-success envelope rather than an error. Every step that succeeded returns its result, the failed step is marked with its reason, and the response is still usable. That is the real difference from orchestrating the sequence yourself, where a failure mid-chain leaves you holding partial state you have already paid for and have to reconcile." },
+  { q: "Why does a pack cost more than a single tool?", a: "Because it runs several. A pack is $0.05 to $1.50 depending on how much work it does, against a $0.001 floor for one deterministic tool. The comparison that matters is against calling those tools yourself: one payment instead of several, and no orchestration code to write or maintain." },
+  { q: "Can I see which tools a pack will run before paying?", a: "Yes. Every pack publishes its tool sequence up front, on its own page and in /api/skill-packs.json. Packs are fixed sequences, not an agent improvising - the same inputs run the same steps in the same order every time." },
+  { q: "Which chains can I pay a pack on?", a: `The same rails as any other call: ${RAILS_SHORT}. Gas is sponsored on EVM chains, so you need only the stablecoin, or run free over proof-of-work where a pack is pure-CPU.` },
+];
+
 export function skillsIndex(baseUrl) {
   const e = ledgerEsc;
-  const cards = SKILL_PACKS.map(
-    (p) => `<a class="sk-card" href="/skills/${p.slug}">
-  <h3>${e(p.title)}</h3>
-  <p>${e(p.tagline)}</p>
-  <span class="sk-meta">${p.toolSlugs.length} tools</span>
-</a>`
-  ).join("\n");
+  const packCount = SKILL_PACKS.length;
+  const flagship = FLAGSHIP_PACKS.map((slug) => SKILL_PACKS.find((p) => p.slug === slug)).filter(Boolean);
+  const flagshipSet = new Set(flagship.map((p) => p.slug));
+  const rest = SKILL_PACKS.filter((p) => !flagshipSet.has(p.slug));
 
-  const body = `<div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
-<div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:10px;">SKILL PACKS</div>
-<h1 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:.96;letter-spacing:-.03em;margin-bottom:14px;">Curated workflows</h1>
-<p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:8px;">Multi-tool workflows for specific jobs - pay per call (${RAILS_SHORT}) or run free with proof-of-work. Each pack is one paste of context for your agent.</p>
-<div class="sk-grid">${cards}</div>
-<h2 style="font-weight:800;font-size:22px;margin-top:48px;letter-spacing:-.01em;">Install once, use any pack</h2>
-<pre style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);padding:18px 20px;font-size:13px;line-height:1.6;border:none;margin-top:12px;">claude mcp add agent402 -s user -- npx -y agent402-mcp@latest</pre>
-<p style="color:var(--muted);font-size:15px;margin-top:12px;">Then ask Claude to run the pack's example prompt - it discovers the tools automatically via the hosted MCP connector.</p>
+  const tabsHtml = SKILLS_TABS.map(([label, href]) =>
+    href === "/skills"
+      ? `<span style="padding:13px 16px;color:var(--ink);font-weight:700;border-bottom:2px solid var(--accent);white-space:nowrap;">${e(label)}</span>`
+      : `<a href="${href}" style="padding:13px 16px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap;">${e(label)}</a>`
+  ).join("") + `<a href="/marketplace/tools" style="padding:13px 16px;color:var(--faint);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap;">All indexed tools ↗</a>`;
+
+  const comparisonRowsHtml = [
+    ["payments to sign", "7", "1", false],
+    ["round trips", "7", "1", false],
+    ["settlements to reconcile", "7", "1", false],
+    ["failure paths to handle", "7", "0", false],
+    ["orchestration code", "yours", "none", true],
+  ].map(([label, alone, packed, green]) =>
+    `<tr style="border-bottom:1px solid var(--dark-border);"><th scope="row" style="text-align:left;font-weight:400;padding:11px 18px;color:var(--dk-muted3);">${e(label)}</th><td style="padding:11px 18px;text-align:right;color:var(--dk-muted2);">${e(alone)}</td><td style="padding:11px 18px;text-align:right;color:${green ? "var(--accent-lit)" : "var(--on-dark)"};font-weight:700;">${e(packed)}</td></tr>`
+  ).join("");
+
+  const illustrativeRowsHtml = ILLUSTRATIVE_RUN.map(([n, tool, out, okStep]) =>
+    `<tr style="border-bottom:1px solid var(--hairline);"><td style="padding:12px 18px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">${e(n)}</td><th scope="row" style="text-align:left;font-weight:700;padding:12px 18px;font-family:var(--font-mono);font-size:13px;color:var(--ink);white-space:nowrap;">${e(tool)}</th><td style="padding:12px 18px;color:var(--muted);font-size:13.5px;line-height:1.5;">${e(out)}</td><td style="padding:12px 18px;text-align:right;font-family:var(--font-mono);font-size:12px;white-space:nowrap;"><span style="color:${okStep ? "var(--accent-lit)" : "var(--accent)"};">${okStep ? "ok" : "failed"}</span></td></tr>`
+  ).join("");
+
+  const flagshipCardsHtml = flagship.map((p) =>
+    `<a class="sk-flagship" href="/skills/${e(p.slug)}"><span class="sk-flagship-slug">${e(p.slug)}</span><span class="sk-flagship-body">${e(p.tagline)}</span><span class="sk-flagship-tools">${e(p.toolSlugs.join(" · "))}</span><span class="sk-flagship-cta">${p.toolSlugs.length} tools · one payment →</span></a>`
+  ).join("");
+
+  const restChipsHtml = rest.map((p) => `<a class="sk-rest-chip" href="/skills/${e(p.slug)}">${e(p.slug)}</a>`).join("");
+
+  const faqHtml = SKILLS_FAQS.map((f) => `<article style="padding:22px 0;border-bottom:1px solid var(--hairline);"><h3 style="font-weight:800;font-size:17.5px;margin:0 0 10px;color:var(--ink);">${e(f.q)}</h3><p style="font-size:15.5px;line-height:1.65;color:var(--muted);margin:0;">${e(f.a)}</p></article>`).join("");
+
+  const body = `
+<div style="border-bottom:1.5px solid var(--ink);background:var(--footer-bg);">
+  <div style="max-width:1180px;margin:0 auto;padding:0 30px;display:flex;gap:0;overflow-x:auto;font-family:var(--font-mono);font-size:12.5px;">${tabsHtml}</div>
 </div>
+
+<header style="border-bottom:1.5px solid var(--ink);">
+  <div style="max-width:1180px;margin:0 auto;padding:40px 30px 38px;">
+    <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:20px;"><a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <a href="/tools" style="color:var(--muted);text-decoration:none;">our tools</a> / <span style="color:var(--ink);">skill packs</span></nav>
+    <div class="sk-hero" style="grid-template-columns:1.05fr .95fr;gap:50px;align-items:start;">
+      <div>
+        <h1 style="font-weight:800;font-size:56px;line-height:.96;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);">Seven tools.<br>One <span style="color:var(--accent);">payment</span>.</h1>
+        <p style="font-size:18px;line-height:1.55;color:var(--muted);margin:0 0 16px;">A real job is never one call. Auditing a domain takes seven tools; parsing a document takes seven more. Orchestrate that yourself and you are running seven payments, seven round trips and seven failure modes - and writing the code that holds it together.</p>
+        <p style="font-size:16px;line-height:1.6;color:var(--faint);margin:0 0 30px;">A skill pack runs the sequence server-side. One request, one settlement, one response with every step in it. <strong style="color:var(--ink);font-weight:700;">${packCount}+ packs, $0.05 to $1.50.</strong></p>
+        <div style="display:flex;flex-wrap:wrap;gap:11px;">
+          <a class="ml-cta" href="#packs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">BROWSE THE PACKS →</a>
+          <a class="ml-cta" href="/api/skill-packs.json" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">skill-packs.json</a>
+        </div>
+      </div>
+      <div style="border:1.5px solid var(--ink);background:var(--surface);">
+        <div style="padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);display:flex;justify-content:space-between;gap:12px;"><span>THE SAME JOB, TWO WAYS</span><span style="color:var(--dk-muted3);">security-audit</span></div>
+        <table style="font-family:var(--font-mono);font-size:12.5px;">
+          <thead><tr style="border-bottom:1px solid var(--dark-border);color:var(--dk-muted3);"><th scope="col" style="text-align:left;font-weight:400;padding:10px 18px;"></th><th scope="col" style="text-align:right;font-weight:400;padding:10px 18px;">you orchestrate</th><th scope="col" style="text-align:right;font-weight:700;padding:10px 18px;color:var(--accent);">one pack</th></tr></thead>
+          <tbody>${comparisonRowsHtml}</tbody>
+        </table>
+        <div style="padding:12px 18px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">the pack still runs all seven tools - you just stop managing them</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/skill/security-audit</div>
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
+    <h2 style="font-weight:800;font-size:40px;line-height:1.02;letter-spacing:-.025em;margin:0;color:var(--ink);">Partial success is a result, not an error.</h2>
+    <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">the part that matters</span>
+  </div>
+  <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:740px;margin:0 0 28px;">This is the real difference, and it only shows up when something goes wrong. Orchestrate seven calls yourself and a failure on step six leaves you holding five results you have already paid for, a broken chain, and the job of working out what to retry. A pack returns the whole ledger: what succeeded, what did not, and why - in one response you can act on.</p>
+  <div class="sk-scroll" style="border:1.5px solid var(--ink);background:var(--surface);">
+    <table style="font-family:var(--font-body);font-size:14px;">
+      <caption style="text-align:left;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:14px 18px;border-bottom:1px solid var(--dark-border);">One run · a step failed · the response is still usable</caption>
+      <thead><tr style="border-bottom:1.5px solid var(--dark-border2);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dk-muted3);"><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;width:44px;">step</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">tool</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">outcome</th><th scope="col" style="text-align:right;font-weight:700;padding:12px 18px;">status</th></tr></thead>
+      <tbody>
+        ${illustrativeRowsHtml}
+        <tr style="background:var(--footer-bg);border-top:1.5px solid var(--dark-border2);"><td style="padding:16px 18px;"></td><th scope="row" style="text-align:left;font-weight:700;padding:16px 18px;color:var(--on-dark);font-family:var(--font-mono);font-size:13px;">charged</th><td style="padding:16px 18px;color:var(--dk-muted2);font-size:13.5px;line-height:1.5;">One settlement for the run. Six of seven steps returned data, and you have the reason for the seventh - no second payment to find out.</td><td style="padding:16px 18px;text-align:right;font-family:var(--font-mono);font-size:13px;color:var(--accent-lit);white-space:nowrap;">1 payment</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:14px 0 0;">Illustrative run. Each pack's exact step list and response contract is on its own page and in <a href="/api/skill-packs.json" style="color:var(--muted);">/api/skill-packs.json</a>.</p>
+</section>
+
+<section id="packs" style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/skill-packs.json</div>
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
+    <h2 style="font-weight:800;font-size:40px;line-height:1.02;letter-spacing:-.025em;margin:0;color:var(--ink);">Every pack, and what it runs.</h2>
+    <a href="/api/skill-packs.json" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">the machine-readable list →</a>
+  </div>
+  <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:700px;margin:0 0 28px;">Every pack publishes its tool sequence before you pay. These are deterministic sequences, not an agent improvising - the same inputs run the same steps in the same order, every time. Six are set out in full below; the rest of the ${packCount} follow.</p>
+  <div class="sk-cardgrid">${flagshipCardsHtml}</div>
+  <div style="border:1.5px solid var(--ink);border-top:none;background:var(--footer-bg);padding:22px 24px;">
+    <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dk-muted3);margin-bottom:14px;">${rest.length} more · every pack links to its own sequence</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">${restChipsHtml}</div>
+  </div>
+</section>
+
+<section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
+  <div class="sk-2col" style="grid-template-columns:1fr 1fr;border:1.5px solid var(--ink);">
+    <div style="padding:28px;border-right:1.5px solid var(--ink);background:var(--card);">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">IN CODE</div>
+      <h2 style="font-weight:800;font-size:24px;margin:0 0 14px;color:var(--ink);">One POST, over x402 or MPP</h2>
+      <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 16px;">The pack quotes its price in the 402 challenge, your client signs once, and the response carries every step. Nothing to install and no key to rotate.</p>
+      <pre style="margin:0;background:var(--surface);border:1px solid var(--dark-border);color:var(--on-dark);padding:15px;font-family:var(--font-mono);font-size:11.5px;line-height:1.8;white-space:pre-wrap;word-break:break-word;">curl -X POST \\
+  https://agent402.tools/api/skill/security-audit \\
+  -H 'content-type: application/json' \\
+  -d '{"domain":"example.com"}'</pre>
+    </div>
+    <div style="padding:28px;background:var(--card);">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">IN CLAUDE</div>
+      <h2 style="font-weight:800;font-size:24px;margin:0 0 14px;color:var(--ink);">One tool call, payment handled</h2>
+      <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 16px;">Through MCP a pack is a single tool the model can pick. Ask for the job in words - the connector chooses the pack, settles the payment, and returns the ledger.</p>
+      <pre style="margin:0 0 16px;background:var(--surface);border:1px solid var(--dark-border);color:var(--on-dark);padding:15px;font-family:var(--font-mono);font-size:11.5px;line-height:1.8;white-space:pre-wrap;word-break:break-word;">claude mcp add agent402 -s user -- npx -y agent402-mcp@latest
+
+<span style="color:var(--dk-muted3);">"run a security audit on example.com"</span></pre>
+      <a href="/docs#add" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">connector setup →</a>
+    </div>
+  </div>
+</section>
+
+<section style="max-width:900px;margin:0 auto;padding:56px 30px 0;">
+  <h2 style="font-weight:800;font-size:34px;line-height:1.02;letter-spacing:-.025em;margin:0 0 24px;color:var(--ink);">About skill packs.</h2>
+  <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+</section>
+
+<section style="max-width:1180px;margin:0 auto;padding:44px 30px 52px;">
+  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:46px 40px;position:relative;overflow:hidden;">
+    <div style="position:absolute;right:24px;top:-32px;font-weight:900;font-size:210px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
+    <div style="position:relative;">
+      <h2 style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Stop writing the glue.</h2>
+      <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 26px;max-width:520px;">Describe the job and let the pack run the sequence. One payment, one response, and a result you can use even when a step fails.</p>
+      <div style="display:flex;gap:11px;flex-wrap:wrap;">
+        <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO CLAUDE →</a>
+        <a class="ml-cta" href="#packs" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">BROWSE THE PACKS</a>
+        <a class="ml-cta" href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--dk-muted);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">SINGLE TOOLS</a>
+      </div>
+    </div>
+  </div>
+</section>
+
 ${ledgerFooterCompact()}`;
 
+  const canonical = `${baseUrl}/skills`;
+  const title = "Skill packs - multi-tool agent workflows for one x402 payment";
+  const description = `${packCount}+ skill packs run a whole multi-tool job server-side for one USDC payment: several tools, one settlement, one response. Partial-success envelope means a failed step never costs you the whole call. $0.05-$1.50 per pack, no signup.`;
+
+  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, sameAs: ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools"] };
+  const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
+    { "@type": "ListItem", position: 2, name: "Our tools", item: `${baseUrl}/tools` },
+    { "@type": "ListItem", position: 3, name: "Skill packs", item: canonical },
+  ] };
+  const collectionLd = { "@type": "CollectionPage", "@id": `${canonical}#page`, name: "Agent402 skill packs", url: canonical, description: `${packCount}+ multi-tool workflows that run server-side in one request: one payment, one settlement, and a single response with a partial-success envelope if a step fails.`, isPartOf: { "@id": `${baseUrl}/#organization` }, mainEntity: { "@id": `${canonical}#packs` } };
+  const appLd = { "@type": "SoftwareApplication", "@id": `${canonical}#app`, name: "Agent402 skill packs", applicationCategory: "DeveloperApplication", operatingSystem: "HTTP, MCP (streamable HTTP)", offers: { "@type": "AggregateOffer", offerCount: String(packCount), lowPrice: "0.05", highPrice: "1.50", priceCurrency: "USD", description: "One USDC payment per pack run, settled on twelve rails. No signup, no API key." } };
+  const itemListLd = { "@type": "ItemList", "@id": `${canonical}#packs`, name: "Featured skill packs", itemListElement: flagship.map((p, i) => ({ "@type": "ListItem", position: i + 1, name: p.slug, url: `${baseUrl}/skills/${p.slug}` })) };
+  const faqLd = { "@type": "FAQPage", "@id": `${canonical}#faq`, mainEntity: SKILLS_FAQS.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) };
+
   return ledgerShell({
-    title: "Skill packs: multi-tool agent workflows, one x402 payment each -- Agent402",
-    description: "Pre-built workflows - security audit, email deliverability, financial research, macro economics, DNS health, crypto research, content extraction. Pay per call in USDC or run free with proof-of-work.",
-    canonical: `${baseUrl}/skills`,
+    title,
+    description,
+    canonical,
     baseUrl,
     activePath: "/skills",
+    jsonLd: [orgLd, breadcrumbLd, collectionLd, appLd, itemListLd, faqLd],
     extraCss: SKILLS_CSS,
     body,
   });

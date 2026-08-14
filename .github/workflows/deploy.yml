@@ -1341,6 +1341,12 @@ jobs:
       - name: Homepage tests (offline, fixture snapshot)
         run: node scripts/test-home-page.js
 
+      - name: Leaderboard page tests (offline, fixture snapshot)
+        run: node scripts/test-leaderboard-page.js
+
+      - name: Skill packs index page tests (offline, live SKILL_PACKS data)
+        run: node scripts/test-skills-index-page.js
+
       - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
         run: node scripts/test-operator-wishes.js
 
