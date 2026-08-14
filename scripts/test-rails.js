@@ -13,7 +13,7 @@
 //
 //   node scripts/test-rails.js                       # offline only
 //   TARGET_URL=http://localhost:3000 node scripts/test-rails.js
-import { RAILS, RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT, RAIL_CHAIN_NAMES, RAILS_OS, RAILS_NOTE, RAILS_TICKER } from "../src/rails.js";
+import { RAILS, RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT, RAIL_CHAIN_NAMES, RAILS_OS, RAILS_NOTE } from "../src/rails.js";
 import { NETWORKS } from "../src/payments.js";
 import { railsCoveredByLiveView } from "../src/revenue-live.js";
 
@@ -58,6 +58,13 @@ ok(railsCoveredByLiveView(), "/revenue live view has a read-config for every rai
 // to the public internet - re-publishing them daily.
 
 // --- 2. live pages render the rails (opt-in via TARGET_URL) ---------------
+// The status-band ticker this block used to also check for (RAILS_TICKER)
+// was deliberately retired in the Aug 2026 site revamp - it repeated the
+// chain list a third time above the fold (nav dropdown + footer already
+// carry it). The per-name/per-asset checks below are the actual guarantee
+// this block exists for (every rail + every asset named somewhere on each
+// key page, guarding the 2026-07-03 "website doesn't mention USDG" class)
+// and are unaffected by which surface carries the mention.
 const TARGET = process.env.TARGET_URL;
 if (TARGET) {
   const PAGES = ["/", "/pricing", "/tools", "/docs", "/faq"];
@@ -67,7 +74,6 @@ if (TARGET) {
     ok(res.status === 200, `${p} responds 200`);
     for (const r of RAILS) ok(html.includes(r.name), `${p} mentions ${r.name}`);
     for (const a of assets) ok(html.includes(a), `${p} mentions ${a}`);
-    ok(html.includes(RAILS_TICKER), `${p} topbar strip carries the full rail ticker`);
   }
   const manifest = await (await fetch(`${TARGET}/.well-known/x402`)).json();
   for (const r of RAILS) ok((manifest.ecosystem?.chains || []).includes(r.name), `manifest chains include ${r.name}`);
