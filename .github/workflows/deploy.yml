@@ -1445,6 +1445,7 @@ jobs:
           node scripts/test-encoding-kit.js
           node scripts/test-math-kit.js
           node scripts/test-theme.js
+          node scripts/test-reveal-on-scroll.js
           node scripts/test-validation-kit.js
           node scripts/test-text-analysis-kit.js
           node scripts/test-heartbeat-token.js

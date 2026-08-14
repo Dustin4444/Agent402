@@ -697,8 +697,7 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <head>
 <meta charset="utf-8">
 <script>function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}
-/* a402: reveal-on-scroll for [data-reveal] sections (opt-in per page, none
-   yet - inert until a later stage's pages start using it). Anonymous function
+/* a402: reveal-on-scroll for [data-reveal] sections. Anonymous function
    expression on purpose, not a declaration - avoids a leading-"function"
    source line, the exact shape test-theme.js's markup-safety assertions
    guard against. Class added here (JS), never baked into static
@@ -707,9 +706,18 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
    decides visibility, not a separate getBoundingClientRect measurement taken
    before the map canvas/webfonts settle layout (that early-measurement bug
    made most sections read as already-above-the-fold and never animate).
-   Stays subscribed rather than disconnecting after one reveal, so a reload
-   deep in the page still animates sections back in as they scroll into view. */
-document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('[data-reveal]');if(!els.length||!window.IntersectionObserver)return;els.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){e.target.classList.toggle('ml-reveal-in',e.isIntersecting);});},{threshold:.08});els.forEach(function(el){io.observe(el);});}catch(e){}});</script>
+   ONE-SHOT: once a section reveals, it is unobserved and never re-hidden.
+   An earlier version toggled ml-reveal-in on every intersection change (added
+   AND removed), meant to let a reload deep in the page still animate
+   sections into view - but a reload doesn't need the removal half, only the
+   addition: a section already in view on the observer's first callback
+   reveals immediately either way. The removal half had a real, reported bug:
+   a tall section scrolling past the top edge drops under the 8% threshold
+   *while still partially on screen*, so it visibly faded out and shifted
+   down 18px in front of the user mid-scroll - "content going off screen"
+   on a normal scroll, not a rendering glitch. Revealed content now stays
+   revealed, matching how every other scroll-reveal effect on the web works. */
+document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('[data-reveal]');if(!els.length||!window.IntersectionObserver)return;els.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});els.forEach(function(el){io.observe(el);});}catch(e){}});</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
