@@ -162,9 +162,14 @@ for (const d of dirs) {
   const dockerfilePath = join(ROOT, "Dockerfile.facilitator");
   if (existsSync(dockerfilePath)) {
     const dockerfile = readFileSync(dockerfilePath, "utf8");
+    // Plain string splitting, not a single combined regex: CodeQL flagged the
+    // prior version (nested \S+\s* quantifiers inside a repeated group) as
+    // vulnerable to exponential backtracking. Splitting on whitespace in JS
+    // has no backtracking at all, and is simpler besides.
     const copiedFiles = new Set(
-      [...dockerfile.matchAll(/^COPY\s+((?:facilitator\/\S+\s*)+)\S+\s*$/gm)]
+      [...dockerfile.matchAll(/^COPY\s+(.+)$/gm)]
         .flatMap((m) => m[1].trim().split(/\s+/))
+        .filter((tok) => tok.startsWith("facilitator/"))
         .map((f) => f.replace(/^facilitator\//, "")),
     );
     ok(copiedFiles.size > 0, `Dockerfile.facilitator: found at least one COPY of a facilitator/ file (got ${copiedFiles.size})`);
