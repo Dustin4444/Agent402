@@ -137,11 +137,12 @@ ok(i1 > -1 && i2 > -1 && i1 < i2, "default sort is usd desc: higher-revenue sell
 const callsAscPage = indexPage(bigSnapshot, { baseUrl: BASE_URL, leaderboardSnap, sort: "calls", dir: "asc" });
 ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction arrow");
 
-// --- homepage: one marketplace story (index/marketplaces merge) --------------
-// The homepage merged its separate "index" and "marketplaces" pitches into a
-// single marketplace story: every CTA lands on /marketplace (or a chain page),
-// never the old /index or /marketplaces URLs. The neutral positioning survives
-// as prose, not as a nav-style "/index" destination.
+// --- homepage: one marketplace story (Aug 2026 revamp, src/ledger-home.js) ---
+// Repositioned from "tools your agent can pay for" to "the applied layer for
+// x402 and MPP", with the index/marketplace pitch merged into one story:
+// every CTA lands on /marketplace (or a chain page), never the old /index or
+// /marketplaces URLs, and the neutral-index positioning survives as prose
+// under the real "The index, not just a seller." section.
 {
   const homeCatalog = {
     "POST /api/hash": { name: "Hash", slug: "hash", category: "encoding", price: "$0.001", description: "Hash text", tags: [] },
@@ -150,14 +151,25 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   };
   const html = ledgerHomePage(BASE_URL, homeCatalog, {}, {}, [], { chainSellerCounts: {} });
   ok(/href="\/marketplace"/.test(html), "homepage: CTA points to /marketplace");
-  ok(/Explore the marketplace/.test(html), "homepage: single merged marketplace CTA copy renders");
+  ok(/The index, not just a seller\./.test(html), "homepage: single merged marketplace section copy renders");
   ok((html.match(/\/marketplaces\b/g) || []).length === 0, "homepage: no /marketplaces links remain");
   ok(!/href="\/index"/.test(html), "homepage: no href=\"/index\" links remain");
-  ok(/the neutral index/.test(html), "homepage: neutral-index positioning survives as prose");
-  ok(/search, answer, and 500\+ pay-per-call tools/i.test(html), "homepage: title/OG lead with search+answer, not skill packs");
+  ok(/a neutral index has to be checkable/.test(html), "homepage: neutral-index positioning survives as prose");
+  ok(/The applied layer<br>for/.test(html) && /x402 &amp; MPP applied layer/.test(html), "homepage: title/hero lead with the x402 + MPP repositioning, not the old search+answer pitch");
   ok(/href="\/status"/.test(html), "homepage: trust strip links to live /status");
-  ok(/Start with search and answer/.test(html), "homepage: flagship jobs section before skill packs");
-  ok(/How do I connect my agent\?/.test(html), "homepage: visible FAQ includes connect path");
+  // The old "flagship jobs" section (a standalone search+answer callout ahead
+  // of a skill-packs teaser) doesn't exist in the new structure - the design
+  // folds that same search-then-answer job into the real agent transcript
+  // instead. Lock that the transcript still demonstrates it, live-callable.
+  ok(/agent402_find\(q: "sec 10-K filing text"\)/.test(html) && /agent402_call\(answer,/.test(html), "homepage: agent-pays transcript still demonstrates a real search-then-answer job");
+  // The old 7-question FAQ (incl. "How do I connect my agent?") is now a
+  // deliberately trimmed 3-question set matching the FAQPage JSON-LD 1:1.
+  ok(/How do I sell my API for USDC per call\?/.test(html), "homepage: visible FAQ includes the sell-side question");
+  ok(/Do I need a wallet to try it\?/.test(html), "homepage: visible FAQ includes the no-wallet question");
+  ok(/Is it open source, and can I run my own\?/.test(html), "homepage: visible FAQ includes the open-source question");
+  ok(html.includes('"@type":"FAQPage"'), "homepage: FAQPage JSON-LD present");
+  const faqQCount = (html.match(/"@type":"Question"/g) || []).length;
+  ok(faqQCount === 3, `homepage: FAQPage JSON-LD has exactly 3 questions matching the visible 3 (got ${faqQCount})`);
 }
 
 // --- F23: seller homepage href scheme guard (dormant legacy renderer) --------

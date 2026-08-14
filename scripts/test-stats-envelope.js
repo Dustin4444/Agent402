@@ -74,7 +74,7 @@ try {
 
   // Rail breakdown — the four rails serve different stories on the dashboard.
   ok(typeof body.toolCallsServed === "object" && body.toolCallsServed != null, `toolCallsServed is an object`);
-  for (const k of ["total", "viaUSDC", "viaProofOfWork", "viaHeartbeat", "viaMPPWire"]) {
+  for (const k of ["total", "viaUSDC", "viaProofOfWork", "viaHeartbeat", "viaMPPWire", "viaRouter"]) {
     ok(typeof body.toolCallsServed[k] === "number" && body.toolCallsServed[k] >= 0, `toolCallsServed.${k} is non-negative number (got ${body.toolCallsServed[k]})`);
   }
   // viaHeartbeat is the HMAC-signed probe-attribution bucket. We can't
