@@ -12,7 +12,7 @@
 // compact roster, per-seller activity switching via ?seller=.
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { CATEGORIES } from "./pages.js";
-import { chainMark } from "./chain-logos.js";
+import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { discoveryNote } from "./discovery-note.js";
 
 // Seller-roster row styles hoisted to classes. A busy chain (e.g. Base) renders
@@ -1130,22 +1130,40 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   ${capNote}
   ${honesty}`;
 
+  // Real tool-listing total across every indexed endpoint (not just this
+  // host) - the design's "tool listings" ambition, computed from data we
+  // already have rather than a second, differently-scoped guess. Distinct
+  // from the economy strip's settled-volume/payers figures below (chain-wide
+  // EIP-3009 transfers) on purpose: two "settled" headlines with different
+  // scopes on one page is exactly the kind of confusable-metric problem
+  // marketOperatorCount's own comment already warns about, so this row
+  // stays about the DIRECTORY (who/what is listed), the economy strip stays
+  // about SETTLEMENT (what moved on chain) - never merged into one card.
+  const totalToolListings = sellers.reduce((sum, s) => sum + (Number(s.toolCount) || 0), 0);
+
   const statsHtml = `
-  <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:26px 0 0;">
+  <div class="ml-2col ml-4col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} endpoints indexed</div></div>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOL LISTINGS</div><div style="font-size:26px;font-weight:800;">${totalToolListings.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">advertised &middot; ours and every other seller</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">CHAINS SUPPORTED</div><div style="font-size:26px;font-weight:800;">${Object.keys(CHAIN_PAGES).length}</div></div>
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${(sellers.find((s) => s.local)?.toolCount || 0).toLocaleString("en-US")}</div></div>
   </div>`;
 
+  // "Sellers on Base" for the hero subhead - live, not the design's frozen
+  // snapshot figure (which would be wrong the moment it shipped and only
+  // get worse from there).
+  const baseSellerCount = marketOperatorCount("base", { sellers }, leaderboardSnap);
+
   const headerHtml = `
   <div>
     <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The x402 marketplace.</h1>
-    <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">Pay-per-call tools for AI agents, settled on-chain across every supported rail - no signup, no API keys, the wallet is the account.</p>
+    <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">The open index of paid APIs for agentic commerce - ${baseSellerCount.toLocaleString("en-US")} sellers on Base alone, theirs as well as ours, with what they charge and what they have actually settled.</p>
     <div style="margin:18px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--card);max-width:640px;">
       <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--faint);margin-bottom:10px;">START HERE · BUYER PATH</div>
       <form action="/tools" method="get" style="display:flex;gap:0;border:1.5px solid var(--ink);background:var(--paper);margin-bottom:12px;">
-        <input name="q" type="search" placeholder="what do you need? e.g. pdf ocr, web search" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:13px;color:var(--ink);padding:11px 14px;outline:none;" />
-        <button type="submit" style="border:none;border-left:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;">FIND →</button>
+        <span aria-hidden="true" style="display:flex;align-items:center;padding:0 0 0 13px;color:var(--faint);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:block;"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.5-4.5"></path></svg></span>
+        <input name="q" type="search" placeholder="what do you need? e.g. pdf ocr, web search" style="flex:1;min-width:0;border:none;background:transparent;font-family:var(--font-mono);font-size:13px;color:var(--ink);padding:11px 12px;outline:none;" />
+        <button type="submit" style="border:none;border-left:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;white-space:nowrap;">FIND →</button>
       </form>
       <div style="display:flex;flex-wrap:wrap;gap:14px;font-family:var(--font-mono);font-size:12.5px;">
         <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>
@@ -1153,8 +1171,81 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
         <a href="#sellers" style="color:var(--muted);text-decoration:none;">browse all sellers</a>
       </div>
     </div>
-    <p style="font-size:13px;color:var(--faint);margin:10px 0 0;">the neutral x402 index - every seller, not just ours. Skip the picking with the <a href="/guides/smart-order-router" style="color:var(--muted);">Smart Order Router</a>.</p>
+    <p style="font-size:13px;color:var(--faint);margin:10px 0 0;">Describe the job, not the tool name - filters as you type. Resolving is free (<span style="color:var(--muted);">GET /api/find</span>), you only pay to execute. This is the neutral x402 index: every seller, not just ours.</p>
     ${statsHtml}
+  </div>`;
+
+  // "Markets by chain" - real per-chain seller + tool counts, computed the
+  // same way as everywhere else on the site (marketSellers/marketOperatorCount),
+  // never the design's frozen 12-entry lookup table. Deliberately its own
+  // section rather than counts bolted onto marketFilterBar's tabs: that
+  // function is shared with all 12 per-chain pages, and giving it real
+  // per-chain stats would mean every /{chain} page computing all 12 chains'
+  // numbers on every load just to render its own tab strip - real added
+  // cost for a value only this page needs.
+  const chainGridHtml = CHAIN_ORDER.map(([slug, name]) => {
+    const chainSellers = marketSellers(slug, { sellers });
+    const sellerCount = marketOperatorCount(slug, { sellers }, leaderboardSnap);
+    const toolCount = chainSellers.reduce((sum, s) => sum + (Number(s.toolCount) || 0), 0);
+    const asset = CHAIN_PAGES[slug]?.asset || "USDC";
+    return `<a href="/${slug}" title="${esc(name)} x402 marketplace" style="display:block;padding:17px 19px;border-right:1px solid var(--hairline);border-bottom:1px solid var(--hairline);background:var(--card);text-decoration:none;color:var(--muted);">
+      <span style="display:flex;align-items:center;gap:9px;margin-bottom:12px;">${chainMark(slug, 19)}<span style="font-family:var(--font-mono);font-size:13px;font-weight:700;color:var(--ink);white-space:nowrap;">${esc(name)}</span><span style="font-family:var(--font-mono);font-size:10px;color:var(--faint);white-space:nowrap;margin-left:auto;">${asset}</span></span>
+      <span style="display:flex;align-items:baseline;gap:6px;font-family:var(--font-mono);font-size:12.5px;flex-wrap:wrap;"><span style="color:var(--green);font-variant-numeric:tabular-nums;">${sellerCount.toLocaleString("en-US")}</span><span style="color:var(--faint);font-size:11px;">seller${sellerCount === 1 ? "" : "s"}</span><span style="color:var(--on-dark2);font-variant-numeric:tabular-nums;margin-left:6px;">${toolCount.toLocaleString("en-US")}</span><span style="color:var(--faint);font-size:11px;">tool${toolCount === 1 ? "" : "s"}</span></span>
+    </a>`;
+  }).join("");
+
+  const chainGridSection = `
+  <h2 style="font-size:21px;font-weight:800;margin:48px 0 4px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Markets by chain</h2>
+  <p style="font-size:13px;color:var(--faint);margin:8px 0 16px;">every rail has its own market page - a seller appears under every chain it accepts, so these do not sum to a distinct total</p>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0;border:1.5px solid var(--ink);">${chainGridHtml}</div>
+  <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:12px;">Buying from a seller on another rail? The Smart Order Router settles with them on their chain and relays the result.</p>`;
+
+  const routerAndMethodSection = `
+  <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);margin-top:48px;">
+    <div style="padding:26px;border-right:1.5px solid var(--ink);background:var(--card);">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">$ POST /api/route</div>
+      <h2 style="font-weight:800;font-size:22px;margin:0 0 14px;color:var(--ink);">Or skip the browsing</h2>
+      <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 16px;">Describe the task and the Smart Order Router resolves it to a tool - from this index, ours or anyone else's - then runs it. It ranks by match score, then rolling crawl health, then price, and it will pay an external seller on your behalf.</p>
+      <pre style="margin:0 0 14px;background:var(--surface);border:1px solid var(--dark-border);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># free to resolve, you only pay to execute
+</span>curl 'https://agent402.tools/api/find?q=ocr+an+image'</pre>
+      <a href="/guides/smart-order-router" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">how the router ranks →</a>
+    </div>
+    <div style="padding:26px;background:var(--card);">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">HOW THE INDEX IS BUILT</div>
+      <h2 style="font-weight:800;font-size:22px;margin:0 0 14px;color:var(--ink);">Crawled, not curated</h2>
+      <div style="display:flex;flex-direction:column;">${[
+        "Discovery: the Coinbase CDP Bazaar plus our own crawler, plus anyone who self-registers at POST /api/index/register.",
+        "We read each seller's manifest for its tools, routes and prices, and its live 402 challenge for the chains it accepts.",
+        "An hourly probe records whether the manifest and challenge still respond. Probes are never paid calls.",
+        "Rolling health feeds the Smart Order Router, which breaks ties on health rather than price alone and routes around sellers that are down.",
+      ].map((body_, i) => `<div style="display:grid;grid-template-columns:26px 1fr;gap:12px;padding:11px 0;border-bottom:1px solid var(--hairline);"><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${String(i + 1).padStart(2, "0")}</span><span style="font-size:13.5px;line-height:1.55;color:var(--muted);">${esc(body_)}</span></div>`).join("")}</div>
+      <p style="font-size:13px;line-height:1.6;color:var(--faint);margin:14px 0 0;">No editorial gate, no pay-for-placement, and no removal on request unless a seller stops serving. A seller that goes dark drops out on its own.</p>
+    </div>
+  </div>`;
+
+  const MARKET_FAQS = [
+    { q: "What is an x402 marketplace?", a: "A directory of services that accept x402 payments, so an AI agent can find something to buy and pay for it in one round trip without an account. This index lists every seller it can crawl, not only our own tools, and publishes the tool counts, settlement chains and crawl health it observes." },
+    { q: "How does a seller get listed?", a: "By serving x402 challenges and registering its origin with POST /api/index/register, or by appearing in the Coinbase CDP Bazaar, which the crawler reads on its hourly pass. Listing is free, there is no review queue, and there is no pay-for-placement." },
+    { q: "What does crawl health mean?", a: "A rolling success rate across recent crawls of a seller's manifest and 402 challenge. One bad hour does not delist anyone, and a new seller is not penalised for having no history. The Smart Order Router uses it to break ties and to route around sellers that are down." },
+    { q: "Why do tool counts and settled volume disagree?", a: "Tool counts are what a seller advertises; settled volume is what buyers actually paid for. A large catalog with no settlements has not found buyers yet, and a small catalog with heavy volume has found exactly the right one. Both numbers are shown so you can see the difference." },
+  ];
+  const faqHtml = MARKET_FAQS.map((f) => `<article style="padding:22px 0;border-bottom:1px solid var(--hairline);"><h3 style="font-weight:800;font-size:17.5px;margin:0 0 10px;color:var(--ink);">${esc(f.q)}</h3><p style="font-size:15px;line-height:1.65;color:var(--muted);margin:0;">${esc(f.a)}</p></article>`).join("");
+  const faqSection = `
+  <div style="max-width:760px;margin:56px 0 0;">
+    <h2 style="font-weight:800;font-size:26px;letter-spacing:-.02em;margin:0 0 20px;color:var(--ink);">About this index.</h2>
+    <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+  </div>`;
+
+  const closingCta = `
+  <div style="margin:48px 0 0;background:var(--surface);border:1.5px solid var(--ink);padding:40px 36px;position:relative;overflow:hidden;">
+    <div style="position:relative;">
+      <h2 style="font-weight:800;font-size:30px;letter-spacing:-.02em;margin:0 0 12px;color:var(--on-dark);">Add your API to the index.</h2>
+      <p style="font-size:15.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;max-width:520px;">Free, no signup, nothing deducted. Serve a 402, register the origin, and the crawler picks you up on the next hourly pass.</p>
+      <div style="display:flex;gap:11px;flex-wrap:wrap;">
+        <a href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">LIST YOUR API - FREE →</a>
+        <a href="/leaderboard" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">SEE THE LEADERBOARD</a>
+      </div>
+    </div>
   </div>`;
 
   const jsonLd = [
@@ -1178,6 +1269,34 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
         { "@type": "ListItem", position: 2, name: "Marketplace", item: `${baseUrl}/marketplace` },
       ],
     },
+    {
+      "@context": "https://schema.org",
+      "@type": "Dataset",
+      "@id": `${baseUrl}/marketplace#dataset`,
+      name: "x402 seller index",
+      description: "Hourly crawl of every discoverable x402 seller: origin, advertised tools with route and price, settlement networks from the 402 challenge, last successful fetch and rolling crawl health. Discovery is the Coinbase CDP Bazaar plus Agent402's own crawler.",
+      license: "https://www.gnu.org/licenses/agpl-3.0.html",
+      isAccessibleForFree: true,
+      variableMeasured: [
+        { "@type": "PropertyValue", name: "toolCount", description: "Tools the seller advertises in its manifest" },
+        { "@type": "PropertyValue", name: "networks", description: "CAIP-2 settlement networks accepted" },
+        { "@type": "PropertyValue", name: "health", description: "Rolling crawl success rate" },
+      ],
+      distribution: { "@type": "DataDownload", encodingFormat: "application/json", contentUrl: `${baseUrl}/api/index` },
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      "@id": `${baseUrl}/marketplace#chains`,
+      name: "x402 marketplaces by settlement chain",
+      itemListElement: CHAIN_ORDER.map(([slug, name], i) => ({ "@type": "ListItem", position: i + 1, name, url: `${baseUrl}/${slug}` })),
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "@id": `${baseUrl}/marketplace#faq`,
+      mainEntity: MARKET_FAQS.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
+    },
   ];
 
   const body = `
@@ -1185,19 +1304,23 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   ${headerHtml}
   ${marketFilterBar(null, baseUrl)}
   ${rosterHtml}
+  ${chainGridSection}
   ${economyStripHtml(economySnap)}
+  ${routerAndMethodSection}
+  ${faqSection}
+  ${closingCta}
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({
-    title: "The x402 marketplace - pay-per-call tools for AI agents, every chain",
-    description: "The x402 marketplace: the neutral x402 index of pay-per-call agent tools across every supported chain - every seller, not just Agent402's own catalog. MPP (Machine Payments Protocol) buyers settle on the same routes.",
+    title: "x402 marketplace - every indexed seller, tool count, network and health",
+    description: "The open directory of every x402 seller we can crawl: advertised tools, settlement networks, crawl health and routability. Free to browse, free to query, and the operator is excluded from its own ranking.",
     canonical: `${baseUrl}/marketplace`,
     baseUrl,
     activePath: "/marketplace",
     jsonLd,
-    extraCss: ROSTER_CSS,
+    extraCss: `${ROSTER_CSS}\n@media (max-width: 900px) { .ml-4col { grid-template-columns: repeat(2,1fr) !important; } }`,
     body,
   });
 }
