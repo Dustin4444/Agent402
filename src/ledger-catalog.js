@@ -1,6 +1,7 @@
-// Machine Ledger — Catalog page (/tools)
-// Full tool index with live search, category filters, sample endpoints,
-// skill packs grid, and bottom CTA.
+// Machine Ledger — Catalog page (/tools), Aug 2026 revamp.
+// Tab strip (Tools / Skill packs / Playground / Pricing / Integrations),
+// live search, "browse by category" table with a real cpu/usdc/mixed
+// pays-with column, free-tier + paid-tools explainer, closing CTA.
 
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { toolList, CATEGORIES } from "./pages.js";
@@ -8,27 +9,14 @@ import { isComputePayable } from "./pow.js";
 import { RAILS_SHORT } from "./rails.js";
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
-const fmtPrice = (p) => {
-  const n = parseFloat(String(p).replace("$", ""));
-  return `$${n}`;
-};
 
-// ---------------------------------------------------------------------------
-// Sample endpoints — static showcase rows for the dark table
-// ---------------------------------------------------------------------------
-
-const SAMPLE_ENDPOINTS = [
-  { method: "POST", route: "/api/extract", slug: "extract", note: "$0.010 \u00b7 clean markdown out" },
-  { method: "POST", route: "/api/render", slug: "render", note: "$0.02 \u00b7 headless browser, JS executed" },
-  { method: "POST", route: "/api/unit-convert", slug: "unit-convert", note: "$0.001 · every unit pair, one route" },
-  { method: "POST", route: "/api/memory", slug: "memory", note: "$0.002 \u00b7 durable, wallet-keyed" },
-  { method: "POST", route: "/api/hash", slug: "hash", note: "free \u00b7 proof-of-work" },
-  { method: "GET", route: "/api/leaderboard", slug: "leaderboard", note: "free \u00b7 on-chain ranking" },
+const TABS = [
+  ["Tools", "/tools"],
+  ["Skill packs", "/skills"],
+  ["Playground", "/playground"],
+  ["Pricing", "/pricing"],
+  ["Integrations", "/integrations"],
 ];
-
-// ---------------------------------------------------------------------------
-// Exported page renderer
-// ---------------------------------------------------------------------------
 
 export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   const tools = toolList(catalog);
@@ -36,267 +24,175 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
   const freeCount = tools.filter(isComputePayable).length;
   const packCount = Array.isArray(skillPacks) ? skillPacks.length : 42;
 
-  // ---- category data ----
+  // ---- category data, with a REAL per-category "pays with" derivation ----
+  // Categories are not homogeneous: real data shows several (crypto, data,
+  // payments, skill-pack, time, validation, web, api) mix free and paid
+  // tools. A hardcoded per-category CPU/USDC guess would misrepresent that -
+  // e.g. "time" is 9 free + 1 paid, not purely free. Derived here from
+  // isComputePayable() per tool, the same source src/ledger-home.js already
+  // uses for the sitewide free-tier count, so it can't drift into a second,
+  // competing classification.
   const catEntries = Object.entries(CATEGORIES);
   const catData = catEntries.map(([key, { label, blurb }]) => {
     const inCat = tools.filter((t) => t.category === key);
     if (!inCat.length) return null;
-    const cheapest = inCat.reduce((a, t) => Math.min(a, parseFloat(String(t.price).replace("$", ""))), Infinity);
-    return { key, label, blurb, count: inCat.length, price: `from $${cheapest}` };
+    const cpuCount = inCat.filter(isComputePayable).length;
+    const pays = cpuCount === inCat.length ? "cpu" : cpuCount === 0 ? "usdc" : "mixed";
+    const payColor = pays === "cpu" ? "var(--green)" : pays === "usdc" ? "var(--accent)" : "var(--muted)";
+    const payLabel = pays === "mixed" ? "cpu + usdc" : pays;
+    return { key, label, blurb, count: inCat.length, href: key === "skill-pack" ? "/skills" : `/tools/category/${key}`, pays, payLabel, payColor };
   }).filter(Boolean);
-  const mid = Math.ceil(catData.length / 2);
-  const leftCats = catData.slice(0, mid);
-  const rightCats = catData.slice(mid);
-
-  // Short blurb for index table (truncate to a manageable subtitle)
-  const shortBlurb = (b) => (b.length > 50 ? b.slice(0, 50) + "\u2026" : b);
-
-  // ---- category row renderer ----
-  // A real <a href="/tools/category/<key>"> — not just a div — so the
-  // catalog page has a crawlable (no-JS) path to every category page, and
-  // from there to every individual tool page (category pages already link
-  // every tool in the category).
-  const catRow = (c, last) =>
-    `<a class="ml-cat-row" data-cat="${esc(c.key)}" href="/tools/category/${esc(c.key)}" style="display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;padding:13px 18px;text-decoration:none;color:inherit;${last ? "" : "border-bottom:1px solid var(--hairline);"}"><div><div style="font-weight:700;font-size:15px;">${esc(c.label)}</div><div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">${esc(shortBlurb(c.blurb))}</div></div><span style="font-family:var(--font-mono);font-weight:700;font-size:15px;">${fmtNum(c.count)}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent);width:72px;text-align:right;">${c.price}</span></a>`;
-
-  // ---- sample endpoint row ----
-  const endpointRow = (ep, last) => {
-    const methodColor = ep.method === "GET" ? "var(--green)" : "var(--accent)";
-    const tryLink = ep.slug
-      ? `<a href="/playground?slug=${esc(ep.slug)}" style="color:var(--accent);text-decoration:none;font-weight:700;">try →</a>`
-      : "";
-    return `<div style="display:grid;grid-template-columns:64px 1fr auto auto;gap:14px;align-items:center;padding:12px 18px;${last ? "" : "border-bottom:1px solid var(--dark-border);"}"><span style="color:${methodColor};font-weight:700;">${ep.method}</span><span style="color:var(--on-dark);">${esc(ep.route)}</span><span class="ml-endpoint-note" style="color:var(--dk-muted);">${esc(ep.note)}</span>${tryLink}</div>`;
-  };
-
-  // ---- skill packs grid cells ----
-  const packs = Array.isArray(skillPacks) ? skillPacks : [];
-  const firstFive = packs.slice(0, 5);
-  const packCell = (p, isLastInRow) => {
-    const borderRight = isLastInRow ? "" : "border-right:1.5px solid var(--ink);";
-    return `<div style="padding:20px;${borderRight}border-bottom:1.5px solid var(--ink);background:var(--card);"><div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);margin-bottom:8px;">${esc(p.slug)}</div><div style="font-weight:700;font-size:15px;margin-bottom:5px;">${esc(p.title)}</div><div style="font-size:13px;color:var(--muted);line-height:1.45;">${esc(p.tagline)}</div></div>`;
-  };
-
-  // Build 2-row x 3-col grid: row 1 = packs[0..2], row 2 = packs[3..4] + browse-all
-  const packCells = [];
-  firstFive.forEach((p, i) => {
-    const col = i % 3;
-    const isLastInRow = col === 2;
-    packCells.push(packCell(p, isLastInRow));
-  });
-  // 6th cell: dark "Browse all" CTA
-  packCells.push(`<a href="/skills" style="padding:20px;background:var(--surface);text-decoration:none;display:flex;flex-direction:column;justify-content:center;border-bottom:1.5px solid var(--ink);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--on-dark);">Browse all ${packCount} packs \u2192</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);margin-top:6px;">prompts/list \u2192 prompts/get</span></a>`);
-
-  // ---- filter chip data: group buckets (Core / Data / Crypto / AI / Packs) ----
-  // Flat category chips were unreadable (~20). Groups filter the index table;
-  // individual categories stay reachable via the rows themselves.
-  const CAT_GROUPS = [
-    { key: "all", label: "all", cats: null },
-    { key: "core", label: "core", cats: ["web", "network", "conversion", "text", "math", "encoding", "identifiers", "time", "validation", "date-time", "api", "memory"] },
-    { key: "data", label: "data", cats: ["data", "research"] },
-    { key: "crypto", label: "crypto", cats: ["crypto", "chain", "wallet", "payments", "x402"] },
-    { key: "ai", label: "ai", cats: ["llm", "ai", "agent"] },
-    { key: "packs", label: "packs", cats: ["skill-pack"] },
-  ];
-  const chipData = CAT_GROUPS.map((g) => {
-    if (!g.cats) return { key: g.key, label: g.label, count, cats: null };
-    const keys = new Set(g.cats);
-    const n = catData.filter((c) => keys.has(c.key)).reduce((s, c) => s + c.count, 0);
-    return { key: g.key, label: g.label, count: n, cats: g.cats };
-  }).filter((g) => g.key === "all" || g.count > 0);
 
   // ---- SEO ----
   const canonical = baseUrl + "/tools";
-  const title = `Tool Catalog - ${fmtNum(count)} x402 pay-per-call tools | Agent402`;
-  const description = `Browse all ${fmtNum(count)} deterministic, pay-per-call API tools. ${fmtNum(freeCount)} free via proof-of-work, the rest from $0.001/call - ${RAILS_SHORT}. No signup, no API key.`;
-  const jsonLd = {
-    "@context": "https://schema.org",
-    "@type": "WebPage",
-    name: `Agent402 Tool Catalog`,
-    url: canonical,
-    description,
-    isPartOf: { "@type": "WebSite", name: "Agent402.Tools", url: baseUrl },
-  };
+  const title = `${fmtNum(count)} pay-per-call tools for AI agents - the Agent402 catalog`;
+  const description = `${fmtNum(count)} deterministic tools an AI agent can call and pay for per request in USDC. ${fmtNum(freeCount)} run free on proof-of-work. No signup, no API keys. Browse by category, or describe a task and let the router resolve it.`;
 
-  // ---- extra CSS for responsive + search highlight ----
+  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, sameAs: [`https://github.com/MikeyPetrillo/Agent402`, "https://x.com/Agent402Tools"] };
+  const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
+    { "@type": "ListItem", position: 2, name: "Our tools", item: canonical },
+  ] };
+  const pageLd = { "@type": "CollectionPage", "@id": `${canonical}#page`, name: "Agent402 tool catalog", url: canonical, description, isPartOf: { "@id": `${baseUrl}/#organization` }, mainEntity: { "@id": `${canonical}#categories` } };
+  const listLd = { "@type": "ItemList", "@id": `${canonical}#categories`, name: "Tool categories", itemListOrder: "https://schema.org/ItemListUnordered", itemListElement: catData.map((c, i) => ({ "@type": "ListItem", position: i + 1, name: c.label, url: `${baseUrl}${c.href}` })) };
+  const appLd = { "@type": "SoftwareApplication", "@id": `${canonical}#app`, name: "Agent402 tool catalog", applicationCategory: "DeveloperApplication", operatingSystem: "HTTP, MCP (streamable HTTP)", offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "1.50", priceCurrency: "USD", description: "Per-call micropayments in USDC, or free via single-use sha256 proof-of-work on pure-CPU tools" } };
+
   const extraCss = `
-  .ml-cat-row[data-cat].ml-hidden { display: none !important; }
-  .ml-chip-group { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
-  .ml-chip-select { display: none; font-family: var(--font-mono); font-size: 13px; border: 1.5px solid var(--ink); background: var(--card); color: var(--ink); padding: 10px 12px; max-width: 280px; }
-  @media (max-width: 900px) {
-    .ml-catalog-grid { grid-template-columns: 1fr !important; }
-    .ml-catalog-left { border-right: none !important; border-bottom: 1.5px solid var(--ink); }
-    .ml-packs-grid { grid-template-columns: 1fr !important; }
-    .ml-packs-grid > * { border-right: none !important; }
-  }
-  @media (max-width: 600px) {
-    .ml-catalog-h1 { font-size: 36px !important; }
-    .ml-endpoint-grid { grid-template-columns: 48px 1fr !important; }
-    .ml-endpoint-note { display: none !important; }
-    .ml-chip-group { display: none !important; }
-    .ml-chip-select { display: block; width: 100%; max-width: 560px; }
-  }
-  `;
+.cat-scroll{overflow-x:auto}
+.cat-scroll table{min-width:780px}
+table{border-collapse:collapse;width:100%}
+@media (max-width:900px){.cat-2col{grid-template-columns:minmax(0,1fr)!important}}
+`;
 
-  // ---- body ----
+  const tabsHtml = TABS.map(([label, href]) =>
+    href === "/tools"
+      ? `<span style="padding:13px 16px;color:var(--ink);font-weight:700;border-bottom:2px solid var(--accent);white-space:nowrap;">${esc(label)}</span>`
+      : `<a href="${href}" style="padding:13px 16px;color:var(--muted);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap;">${esc(label)}</a>`
+  ).join("") + `<a href="/marketplace/tools" style="padding:13px 16px;color:var(--faint);text-decoration:none;border-bottom:2px solid transparent;white-space:nowrap;">All indexed tools ↗</a>`;
+
+  const catRowsHtml = catData.map((c) =>
+    `<tr class="cat-row" data-cat="${esc(c.key)}" style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:14px 18px;color:var(--ink);font-size:15px;"><a href="${esc(c.href)}" style="color:var(--ink);text-decoration:none;">${esc(c.label)}</a></th><td class="cat-blurb" style="padding:14px 18px;color:var(--muted);font-size:13.5px;line-height:1.5;">${esc(c.blurb)}</td><td style="padding:14px 18px;text-align:right;font-family:var(--font-mono);font-size:13px;color:var(--on-dark2);font-variant-numeric:tabular-nums;">${fmtNum(c.count)}</td><td style="padding:14px 18px;text-align:right;font-family:var(--font-mono);font-size:11.5px;white-space:nowrap;"><span style="color:${c.payColor};">${esc(c.payLabel)}</span></td></tr>`
+  ).join("");
+
   const body = `
-  <!-- PAGE HEAD -->
-  <section style="max-width:1180px;margin:0 auto;padding:56px 30px 30px;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:14px;">$ GET /tools</div>
-    <h1 class="ml-catalog-h1" style="font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;color:var(--ink);">The index.<br>${fmtNum(count)} tools, ${catData.length} categories.</h1>
-    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:600px;margin:0 0 30px;">Every tool is deterministic code - parsers, hashes, a real browser - priced flat, with no LLM in the serving path. One real HTTP endpoint each. Free via proof-of-work; ${RAILS_SHORT} from $0.001/call.</p>
+<div style="border-bottom:1.5px solid var(--ink);background:var(--footer-bg);">
+  <div style="max-width:1180px;margin:0 auto;padding:0 30px;display:flex;gap:0;overflow-x:auto;font-family:var(--font-mono);font-size:12.5px;">${tabsHtml}</div>
+</div>
 
-    <!-- search bar -->
-    <div style="display:flex;align-items:center;gap:0;border:1.5px solid var(--ink);background:var(--card);max-width:560px;margin-bottom:16px;">
-      <span style="font-family:var(--font-mono);color:var(--accent);padding:0 12px;font-weight:700;">\u2315</span>
-      <input id="ml-search" type="text" placeholder="search ${fmtNum(count)} tools - e.g. &quot;extract pdf&quot;, &quot;geocode&quot;" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:14px;color:var(--ink);padding:13px 0;outline:none;" />
+<header style="border-bottom:1.5px solid var(--ink);">
+  <div style="max-width:1180px;margin:0 auto;padding:36px 30px 34px;">
+    <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:18px;">
+      <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">our tools</span>
+    </nav>
+    <h1 style="font-weight:800;font-size:46px;line-height:1;letter-spacing:-.03em;margin:0 0 12px;color:var(--ink);">Our tools</h1>
+    <p style="font-size:16.5px;line-height:1.55;color:var(--muted);margin:0;max-width:640px;">${fmtNum(count)} deterministic tools an agent can call and pay for per request. Around ${fmtNum(freeCount)} of them run free on proof-of-work. This is <em style="color:var(--on-dark2);">our own</em> catalog - for every tool in the index, ours and other sellers', see <a href="/marketplace/tools" style="color:var(--ink);border-bottom:1px solid var(--accent);text-decoration:none;">all indexed tools</a>.</p>
+
+    <div style="display:flex;gap:0;border:1.5px solid var(--ink);background:var(--card);max-width:760px;margin:22px 0 0;">
+      <label for="cat-search" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">Search tools</label>
+      <span style="font-family:var(--font-mono);color:var(--accent);padding:0 12px;display:flex;align-items:center;font-weight:700;">⌕</span>
+      <input id="cat-search" type="text" placeholder="Describe a task: decode a JWT, OCR an image, verify a settlement…" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--ink);font-family:var(--font-mono);font-size:14px;padding:15px 0;">
     </div>
+    <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:11px 0 0;">Filters the table below as you type. Agents skip the browsing and call <span style="color:var(--muted);">GET /api/find</span> directly - free, no wallet.</p>
 
-    <!-- category group chips (desktop) + select (mobile) -->
-    <div id="ml-chips" class="ml-chip-group">
-      ${chipData.map((c, i) =>
-        `<button type="button" data-filter="${c.key}" data-cats="${c.cats ? esc(c.cats.join(",")) : ""}" class="ml-chip${i === 0 ? " ml-chip-active" : ""}" style="font-family:var(--font-mono);font-size:11.5px;border:1.5px solid var(--ink);padding:5px 10px;cursor:pointer;background:${i === 0 ? "var(--surface)" : "transparent"};color:${i === 0 ? "var(--on-dark)" : "var(--ink)"};">${esc(c.label)}${c.count ? " \u00b7 " + fmtNum(c.count) : ""}</button>`
-      ).join("\n      ")}
+    <div style="display:flex;flex-wrap:wrap;margin-top:30px;border-top:1px dashed var(--dash);">
+      <div style="flex:1 1 140px;padding:16px 20px 16px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:21px;line-height:1;font-variant-numeric:tabular-nums;">${fmtNum(count)}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">tools</div></div>
+      <div style="flex:1 1 140px;padding:16px 20px 16px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:21px;line-height:1;font-variant-numeric:tabular-nums;color:var(--green);">${fmtNum(freeCount)}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">free · proof-of-work</div></div>
+      <div style="flex:1 1 140px;padding:16px 20px 16px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:21px;line-height:1;font-variant-numeric:tabular-nums;"><span style="color:var(--accent);">$</span>0.001</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">floor price</div></div>
+      <div style="flex:1 1 140px;padding:16px 20px 16px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:21px;line-height:1;font-variant-numeric:tabular-nums;">${catData.length}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">categories</div></div>
+      <div style="flex:1 1 140px;padding:16px 0;"><div style="font-family:var(--font-mono);font-weight:700;font-size:21px;line-height:1;font-variant-numeric:tabular-nums;">0</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">api keys needed</div></div>
     </div>
-    <select id="ml-chip-select" class="ml-chip-select" aria-label="Filter by group">
-      ${chipData.map((c) => `<option value="${esc(c.key)}" data-cats="${c.cats ? esc(c.cats.join(",")) : ""}">${esc(c.label)}${c.count ? " · " + fmtNum(c.count) : ""}</option>`).join("\n      ")}
-    </select>
-  </section>
+  </div>
+</header>
 
-  <!-- INDEX TABLE -->
-  <section style="max-width:1180px;margin:0 auto;padding:0 30px;">
-    <div id="ml-index" style="border:1.5px solid var(--ink);background:var(--card);">
-      <div class="ml-catalog-grid" style="display:grid;grid-template-columns:1fr 1fr;">
-        <div class="ml-catalog-left" style="border-right:1.5px solid var(--ink);">
-          ${leftCats.map((c, i) => catRow(c, i === leftCats.length - 1)).join("\n          ")}
-        </div>
-        <div>
-          ${rightCats.map((c, i) => catRow(c, false)).join("\n          ")}
-          <div id="ml-total-row" style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:14px 18px;background:var(--surface);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--on-dark);">total \u00b7 <span id="ml-total-count">${fmtNum(count)}</span> tools</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);">+${packCount} skill packs</span></div>
-        </div>
+<section style="max-width:1180px;margin:0 auto;padding:52px 30px 0;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/pricing</div>
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
+    <h2 style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0;color:var(--ink);">Browse by category.</h2>
+    <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">counts from the live catalog</span>
+  </div>
+  <div class="cat-scroll" style="border:1.5px solid var(--ink);background:var(--card);">
+    <table style="font-size:14px;">
+      <thead>
+        <tr style="border-bottom:1.5px solid var(--ink);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);">
+          <th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;width:250px;">category</th>
+          <th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">what is in it</th>
+          <th scope="col" style="text-align:right;font-weight:700;padding:12px 18px;white-space:nowrap;">tools</th>
+          <th scope="col" style="text-align:right;font-weight:700;padding:12px 18px;white-space:nowrap;">pays with</th>
+        </tr>
+      </thead>
+      <tbody id="cat-body">${catRowsHtml}</tbody>
+    </table>
+  </div>
+  <p id="cat-empty" style="display:none;font-family:var(--font-mono);font-size:13px;color:var(--faint);padding:20px 0;text-align:center;">No categories match "<span id="cat-empty-q"></span>" - try <a href="/api/find" style="color:var(--accent);">GET /api/find</a> for a task-level search across every tool.</p>
+  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:14px 0 0;">A tool can appear under more than one category, so the column does not sum to ${fmtNum(count)}. <span style="color:var(--green);">cpu</span> means every tool in it is payable in compute via proof-of-work; <span style="color:var(--accent);">usdc</span> means all of them cost real money; <span style="color:var(--muted);">cpu + usdc</span> means the category mixes both.</p>
+</section>
+
+<section style="max-width:1180px;margin:0 auto;padding:52px 30px 0;">
+  <div class="cat-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
+    <div style="padding:28px;border-right:1.5px solid var(--ink);background:var(--footer-bg);">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--green);margin-bottom:14px;">FREE TIER</div>
+      <h2 style="font-weight:800;font-size:25px;margin:0 0 14px;color:var(--ink);">Pay with CPU, not USDC</h2>
+      <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 16px;">Every pure-CPU tool is payable in compute. Your machine solves a single-use sha256 puzzle - about 85,000 hashes, a tenth of a second - and the call goes through. No wallet, no funding, no signup.</p>
+      <pre style="margin:0 0 16px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># the MCP connector solves it for you
+</span>claude mcp add --transport http \
+  agent402 https://agent402.tools/mcp</pre>
+      <a href="/playground" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--green);padding-bottom:1px;">watch it run in the playground →</a>
+    </div>
+    <div style="padding:28px;background:var(--footer-bg);">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">PAID TOOLS</div>
+      <h2 style="font-weight:800;font-size:25px;margin:0 0 14px;color:var(--ink);">Quoted before you're charged</h2>
+      <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 16px;">Anything that costs us money to run - live search, browser rendering, inference, stored memory - is priced per call and states its price in the 402 challenge. A failed call is never charged, and there is no key to leak.</p>
+      <pre style="margin:0 0 16px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># price, asset and rail, before paying
+</span>curl -i https://agent402.tools/api/search \
+  -d '{"q":"x402 adoption"}'</pre>
+      <a href="/pricing" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">the full price list →</a>
+    </div>
+  </div>
+</section>
+
+<section style="max-width:1180px;margin:0 auto;padding:44px 30px 52px;">
+  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:46px 40px;position:relative;overflow:hidden;">
+    <div style="position:absolute;right:24px;top:-32px;font-weight:900;font-size:210px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
+    <div style="position:relative;">
+      <h2 style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Don't browse. Just ask.</h2>
+      <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 26px;max-width:520px;">Paste the MCP URL and describe the job. The connector picks the tool, solves the proof-of-work or signs the payment, and hands back the result.</p>
+      <div style="display:flex;gap:11px;flex-wrap:wrap;">
+        <a href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO CLAUDE →</a>
+        <a href="/playground" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">TRY THE PLAYGROUND</a>
+        <a href="/skills" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--dk-muted);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">BIGGER JOBS → SKILL PACKS</a>
       </div>
     </div>
-  </section>
+  </div>
+</section>
+${ledgerFooterCompact()}
 
-  <!-- SAMPLE ENDPOINTS -->
-  <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">// sample endpoints</div>
-    <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 22px;">Call any of them in one round trip.</h2>
-    <div style="border:1.5px solid var(--ink);background:var(--surface);font-family:var(--font-mono);font-size:13px;">
-      ${SAMPLE_ENDPOINTS.map((ep, i) => endpointRow(ep, i === SAMPLE_ENDPOINTS.length - 1)).join("\n      ")}
-    </div>
-    <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:12px;">full machine-readable catalog: GET /api/pricing \u00b7 GET /openapi.json</div>
-  </section>
-
-  <!-- SKILL PACKS -->
-  <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /skills</div>
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0;">${packCount} multi-tool skill packs.</h2>
-      <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">curated workflows \u00b7 callable as an MCP prompt or plain HTTP</span>
-    </div>
-    <div class="ml-packs-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1.5px solid var(--ink);">
-      ${packCells.join("\n      ")}
-    </div>
-  </section>
-
-  <!-- CTA BAR -->
-  <section style="max-width:1180px;margin:0 auto;padding:56px 30px 64px;">
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
-      <div>
-        <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0 0 6px;">Wire the catalog into your agent.</h2>
-        <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0;">npx -y agent402-mcp \u00b7 or paste the hosted connector</p>
-      </div>
-      <div style="display:flex;gap:11px;">
-        <a href="/playground" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">TRY PLAYGROUND \u2192</a>
-        <a href="/docs" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">QUICKSTART</a>
-      </div>
-    </div>
-  </section>
-
-  ${ledgerFooterCompact()}
-
-  <!-- CLIENT-SIDE SEARCH + FILTER -->
-  <script>
-  (function() {
-    var search = document.getElementById('ml-search');
-    var chips = document.querySelectorAll('.ml-chip');
-    var select = document.getElementById('ml-chip-select');
-    var rows = document.querySelectorAll('.ml-cat-row');
-    var totalEl = document.getElementById('ml-total-count');
-    var activeFilter = 'all';
-    var activeCats = null; // null = all categories
-
-    // Category metadata for search matching
-    var catMeta = ${JSON.stringify(catData.map((c) => ({ key: c.key, label: c.label, blurb: c.blurb, count: c.count })))};
-
-    function setChipStyles(activeKey) {
-      chips.forEach(function(c) {
-        var isActive = c.getAttribute('data-filter') === activeKey;
-        c.classList.toggle('ml-chip-active', isActive);
-        c.style.background = isActive ? 'var(--surface)' : 'transparent';
-        c.style.color = isActive ? 'var(--on-dark)' : 'var(--ink)';
-      });
-      if (select) select.value = activeKey;
-    }
-
-    function applyFilters() {
-      var q = (search.value || '').toLowerCase().trim();
-      var visibleCount = 0;
-
-      rows.forEach(function(row) {
-        var cat = row.getAttribute('data-cat');
-        var meta = catMeta.find(function(m) { return m.key === cat; });
-        if (!meta) { row.classList.add('ml-hidden'); return; }
-
-        var matchesGroup = !activeCats || activeCats.indexOf(cat) !== -1;
-        var matchesSearch = !q || meta.label.toLowerCase().indexOf(q) !== -1 || meta.blurb.toLowerCase().indexOf(q) !== -1 || meta.key.toLowerCase().indexOf(q) !== -1;
-
-        if (matchesGroup && matchesSearch) {
-          row.classList.remove('ml-hidden');
-          visibleCount += meta.count;
-        } else {
-          row.classList.add('ml-hidden');
-        }
-      });
-
-      if (totalEl) {
-        totalEl.textContent = visibleCount.toLocaleString('en-US');
-      }
-    }
-
-    function activate(key, catsAttr) {
-      activeFilter = key;
-      activeCats = catsAttr ? catsAttr.split(',').filter(Boolean) : null;
-      setChipStyles(key);
-      applyFilters();
-    }
-
-    chips.forEach(function(chip) {
-      chip.addEventListener('click', function() {
-        activate(chip.getAttribute('data-filter'), chip.getAttribute('data-cats') || '');
-      });
+<script>
+(function() {
+  var search = document.getElementById('cat-search');
+  var rows = document.querySelectorAll('.cat-row');
+  var empty = document.getElementById('cat-empty');
+  var emptyQ = document.getElementById('cat-empty-q');
+  function applyFilter() {
+    var q = (search.value || '').toLowerCase().trim();
+    var visible = 0;
+    rows.forEach(function(row) {
+      var label = row.querySelector('th a').textContent.toLowerCase();
+      var blurb = row.querySelector('.cat-blurb').textContent.toLowerCase();
+      var match = !q || label.indexOf(q) !== -1 || blurb.indexOf(q) !== -1;
+      row.style.display = match ? '' : 'none';
+      if (match) visible++;
     });
+    empty.style.display = visible === 0 ? 'block' : 'none';
+    if (visible === 0) emptyQ.textContent = search.value;
+  }
+  search.addEventListener('input', applyFilter);
+  try {
+    var params = new URLSearchParams(window.location.search);
+    var q0 = params.get('q');
+    if (q0) { search.value = q0; applyFilter(); }
+  } catch (e) {}
+})();
+</script>`;
 
-    if (select) {
-      select.addEventListener('change', function() {
-        var opt = select.options[select.selectedIndex];
-        activate(select.value, opt ? (opt.getAttribute('data-cats') || '') : '');
-      });
-    }
-
-    search.addEventListener('input', applyFilters);
-
-    // Deep-link: /tools?q=pdf seeds the search box on load.
-    try {
-      var params = new URLSearchParams(window.location.search);
-      var q0 = params.get('q');
-      if (q0) {
-        search.value = q0;
-        applyFilters();
-      }
-    } catch (e) {}
-  })();
-  </script>`;
-
-  return ledgerShell({ title, description, canonical, baseUrl, activePath: "/tools", jsonLd, extraCss, body });
+  return ledgerShell({ title, description, canonical, baseUrl, activePath: "/tools", jsonLd: [orgLd, breadcrumbLd, pageLd, listLd, appLd], extraCss, body });
 }

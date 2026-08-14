@@ -1335,6 +1335,9 @@ jobs:
       - name: What-is-x402 pillar page tests (offline, fixture snapshot)
         run: node scripts/test-what-is-x402-page.js
 
+      - name: Tools catalog page tests (offline, fixture snapshot)
+        run: node scripts/test-catalog-page.js
+
       - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
         run: node scripts/test-operator-wishes.js
 
