@@ -1,4 +1,4 @@
-import { RAILS_AMP, RAILS_OS, RAILS_TICKER } from "./rails.js";
+import { RAILS, RAILS_AMP, RAILS_OS } from "./rails.js";
 // Machine Ledger design system — shared chrome for the Agent402 marketing site.
 // Exports the status line, nav, footers (full + compact), design-token CSS,
 // and a ledgerShell() wrapper that composes a full HTML page.
@@ -105,14 +105,24 @@ body { transition: background-color .18s ease, color .18s ease; }
 .ml-mm-link:hover, .ml-mm-link:active { background:var(--card-zebra); }
 .ml-mm-active { color:var(--accent); font-weight:700; }
 .ml-mm-cta { background:var(--surface); color:var(--on-dark); font-weight:700; border-bottom:none; }
-@media (max-width:880px){
-  .ml-nav-links, .ml-nav-gh, .ml-nav-cta { display:none !important; }
+/* Two-stage collapse (Aug 2026 revamp): the link row + github hide first at
+   1100px and the burger takes over; the CTA button keeps its own slot next to
+   the burger until 900px, then folds into the burger menu too (as its first
+   row - see mobileMenuHtml). One shared breakpoint value for both stages
+   would either crowd the CTA out too early on a mid-size tablet or leave it
+   overlapping the burger too late - kept as two literals, both cited here so
+   they can't drift apart if one is edited without the other. */
+@media (max-width:1100px){
+  .ml-nav-links, .ml-nav-gh { display:none !important; }
   .ml-burger { display:inline-flex; }
   html.ml-menu-open .ml-mobile-menu { display:block; }
   html.ml-menu-open .ml-burger-open { display:none; }
   html.ml-menu-open .ml-burger-close { display:inline; }
 }
-@media (min-width:881px){ .ml-mobile-menu { display:none !important; } }
+@media (max-width:900px){
+  .ml-nav-cta { display:none !important; }
+}
+@media (min-width:1101px){ .ml-mobile-menu { display:none !important; } }
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { background: var(--paper); font-family: var(--font-body); color: var(--ink); -webkit-font-smoothing: antialiased; }
@@ -210,11 +220,18 @@ a { color: inherit; }
 .ml-cta:hover { transform: translateY(-2px); }
 .ml-spec-cell:last-child { border-right: none; margin-right: 0; }
 .ml-slip-cell:hover { background: var(--card); }
+/* Reveal-on-scroll (Aug 2026 revamp) - opt-in per section via .ml-reveal,
+   applied by JS only (see a402InitReveal in ledgerShell's head script), never
+   baked in here as a default-hidden state: a JS failure must leave the page
+   fully visible, not blank. Class added by JS, transition lives in CSS. */
+.ml-reveal { opacity: 0; transform: translateY(18px); transition: opacity .75s cubic-bezier(.22,.61,.36,1), transform .75s cubic-bezier(.22,.61,.36,1); }
+.ml-reveal.ml-reveal-in { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) {
   .ml-stagger > * { opacity: 1; transform: none; animation: none; }
   .ml-dot { animation: none; }
   .ml-nav-link, .ml-cta, .mlr-row, tr[data-mfb-row], .ml-chip, .ml-faq-mark { transition: none !important; }
   .ml-cta:hover { transform: none; }
+  .ml-reveal, .ml-reveal.ml-reveal-in { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
 .mfb-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;}
 .mfb-tab{font-family:var(--font-mono);font-size:12px;padding:5px 11px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);text-decoration:none;white-space:nowrap;}
@@ -230,11 +247,18 @@ a { color: inherit; }
 // Status line (top of every page)
 // ---------------------------------------------------------------------------
 
+// Status band content, Aug 2026 revamp: the old right-hand rails ticker
+// repeated the chain list a third time above the fold (nav dropdown + footer
+// already carry it) — replaced with tool/rail/fee headline figures instead.
+// "500+ tools" stays evergreen per this repo's own convention (never an exact
+// catalog count on served-page copy - the design mockup said "531", which
+// would just go stale); "12 rails" is RAILS.length, always live-accurate
+// since RAILS is this repo's single source of truth for chain count.
 function statusLine() {
-  return `<div style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:12px;letter-spacing:.02em;">
+  return `<div style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-size:12px;letter-spacing:.02em;border-bottom:1px solid var(--dark-border);">
   <div class="ml-status-in" style="max-width:1180px;margin:0 auto;padding:8px 30px;display:flex;align-items:center;justify-content:space-between;gap:16px;">
-    <span class="ml-status-left" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">HTTP/1.1 <span style="color:var(--accent-lit);font-weight:700;">402</span> PAYMENT REQUIRED</span>
-    <span class="ml-status-ticker" style="color:var(--dk-muted);white-space:nowrap;">agent402.base.eth · ${RAILS_TICKER}</span>
+    <span class="ml-status-left" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">HTTP/1.1 <span style="color:var(--accent-lit);font-weight:700;">402</span> PAYMENT REQUIRED · <span style="color:var(--dk-muted);">x402 + MPP dual-stack</span></span>
+    <span class="ml-status-ticker" style="color:var(--dk-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">500+ tools · ${RAILS.length} rails · <span style="color:var(--accent-lit);">0%</span> seller fee</span>
   </div>
 </div>`;
 }
@@ -243,22 +267,30 @@ function statusLine() {
 // Nav (sticky, every page)
 // ---------------------------------------------------------------------------
 
-// Three zones: buyer primaries (skills / catalog / playground / pricing) |
-// grouped doors (marketplace / sell) | docs. Ops proof pages (revenue,
-// status, what-is-x402) live in the footer + mobile "More" group so the
-// sticky row stays scannable. See UI/UX review Aug 2026.
+// Three zones, divider after zone1 and after zone2: sell/marketplace/
+// leaderboard | our tools | x402+mpp/docs (Aug 2026 revamp — SEO-focused
+// redesign). "sell" and "marketplace" stay hover-dropdown TRIGGERS (see
+// PANEL_HTML below): the flat 6-item nav in the design spec has no dropdown
+// markup at all, but that structure - by-chain rows, smart order router,
+// playground, tollbooth, contribute - was itself a deliberate UI/UX pass this
+// same month (see chainRowHtml/marketPanelNav/sellPanelHtml below), and
+// dropping it would silently remove those pages' most direct desktop-nav
+// path. Decision: adopt the new visual language and item SET, keep the
+// dropdown mechanism. "our tools" is a new panel (see ourToolsPanelNav)
+// housing catalog/skills/playground/pricing, which have no top-level slot in
+// the new 6-item design. Ops proof pages (revenue, status) still live in the
+// footer + mobile "More" group.
 const NAV_ZONES = [
   [
-    { href: "/skills", label: "skills" },
-    { href: "/tools", label: "catalog" },
-    { href: "/playground", label: "playground" },
-    { href: "/pricing", label: "pricing" },
-  ],
-  [
-    { href: "/marketplace", label: "marketplace", panel: "marketplace" },
     { href: "/sell", label: "sell", panel: "sell" },
+    { href: "/marketplace", label: "marketplace", panel: "marketplace" },
+    { href: "/leaderboard", label: "leaderboard" },
   ],
   [
+    { href: "/tools", label: "our tools", panel: "tools" },
+  ],
+  [
+    { href: "/what-is-x402", label: "x402 + mpp" },
     { href: "/docs", label: "docs" },
   ],
 ];
@@ -333,8 +365,10 @@ function chainRowHtml(c, live) {
 
 // Marketplace dropdown - the single buy-side door (the old separate
 // "marketplaces" and "index" panels, merged): one row per rail (live
-// chainRows/health), the leaderboard row carried over from the old index
-// panel, and the ink footer row linking the unified /marketplace directory.
+// chainRows/health), and the ink footer row linking the unified /marketplace
+// directory. No leaderboard row here (Aug 2026 revamp) - leaderboard is now
+// its own top-level nav item, so a row here would just duplicate it one hover
+// away from itself.
 function marketPanelNav(chainInfo) {
   const rows = chainInfo.chains.map((c) => chainRowHtml(c, chainInfo.live)).join("\n                ");
   return `<span class="mlnav-dd">
@@ -345,9 +379,24 @@ function marketPanelNav(chainInfo) {
                 <a href="/playground" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">playground</span><span style="color:var(--faint);">try free · PoW</span></a>
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
                 ${rows}
-                <a href="/leaderboard" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">leaderboard</span><span style="color:var(--faint);">by USDC settled</span></a>
                 <a href="/marketplace/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">every tool indexed</span><span style="color:var(--faint);">ours + third-party</span></a>
                 <a href="/marketplace" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/marketplace</span></a>
+              </span>
+            </span>`;
+}
+
+// "Our tools" dropdown (new, Aug 2026 revamp) - catalog/skills/playground/
+// pricing, the four items that had a top-level nav slot before the flat
+// 6-item redesign left no room for them. Same visual pattern as the other
+// two panels.
+function ourToolsPanelNav() {
+  return `<span class="mlnav-dd">
+              <span style="display:block;width:280px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">OUR 500+ TOOL CATALOG</span>
+                <a href="/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">catalog</span><span style="color:var(--faint);">browse by category</span></a>
+                <a href="/skills" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">skill packs</span><span style="color:var(--faint);">one payment, N tools</span></a>
+                <a href="/playground" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">playground</span><span style="color:var(--faint);">try free · PoW</span></a>
+                <a href="/pricing" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">pricing →</span><span style="color:var(--dk-muted);">/pricing</span></a>
               </span>
             </span>`;
 }
@@ -364,7 +413,7 @@ function sellPanelHtml() {
             </span>`;
 }
 
-const PANEL_HTML = { marketplace: marketPanelNav, sell: sellPanelHtml };
+const PANEL_HTML = { marketplace: marketPanelNav, sell: sellPanelHtml, tools: () => ourToolsPanelNav() };
 
 function directLinkHtml(l, activePath) {
   const active = l.href === activePath;
@@ -378,75 +427,84 @@ function groupTriggerHtml(item, active, panelHtml) {
       </span>`;
 }
 
+// A zone can mix direct links and dropdown triggers now (sell/marketplace/
+// leaderboard share zone1) - render per item on whether it carries a panel,
+// rather than assuming a whole zone is uniformly one or the other.
+function navItemHtml(item, activePath, chainInfo, groupHrefs) {
+  if (!item.panel) return directLinkHtml(item, activePath);
+  return groupTriggerHtml(item, groupHrefs[item.panel].has(activePath), PANEL_HTML[item.panel](chainInfo));
+}
+
 const mmLink = (href, label, active, extra = "") =>
   `<a href="${esc(href)}" class="ml-mm-link${active ? " ml-mm-active" : ""}${extra}">${esc(label)}</a>`;
 
 // Mobile menu - every destination flattened into a tap list (the hover
-// dropdowns don't work on touch, so the chains, sell, and marketplace
-// sub-items all live here directly). Shown ≤880px via the hamburger; hidden
-// on desktop.
+// dropdowns don't work on touch, so the chains, sell, marketplace, and "our
+// tools" sub-items all live here directly). Shown ≤1100px via the hamburger;
+// hidden on desktop. Groups match the desktop dropdown panels one-for-one
+// (Sell / The index / Buy=our-tools / More) - Aug 2026 revamp.
 function mobileMenuHtml(chainInfo, activePath) {
   const chains = chainInfo.chains.map((c) => mmLink(c.href, c.label, c.href === activePath)).join("");
   return `<div id="ml-mobile-menu" class="ml-mobile-menu">
-    <div class="ml-mm-group">
-      ${mmLink("/skills", "skills", activePath === "/skills")}
-      ${mmLink("/tools", "catalog", activePath === "/tools")}
-      ${mmLink("/playground", "playground", activePath === "/playground")}
-      ${mmLink("/pricing", "pricing", activePath === "/pricing")}
-      ${mmLink("/docs", "docs", activePath === "/docs")}
-    </div>
-    <div class="ml-mm-h">Marketplace</div>
-    <div class="ml-mm-group">
-      ${mmLink("/marketplace", "all sellers · every chain", activePath === "/marketplace")}
-      ${mmLink("/guides/smart-order-router", "smart order router", activePath === "/guides/smart-order-router")}
-      ${mmLink("/marketplace/tools", "every tool indexed", activePath === "/marketplace/tools")}
-      ${chains}
-      ${mmLink("/leaderboard", "leaderboard", activePath === "/leaderboard")}
-    </div>
     <div class="ml-mm-h">Sell</div>
     <div class="ml-mm-group">
       ${mmLink("/sell", "list your API", activePath === "/sell")}
-      ${mmLink("/tollbooth", "tollbooth", activePath === "/tollbooth")}
+      ${mmLink("/tollbooth", "tollbooth · pay-per-crawl", activePath === "/tollbooth")}
       ${mmLink("/contribute", "contribute a tool", activePath === "/contribute")}
+    </div>
+    <div class="ml-mm-h">The index</div>
+    <div class="ml-mm-group">
+      ${mmLink("/marketplace", "marketplace · every chain", activePath === "/marketplace")}
+      ${mmLink("/leaderboard", "leaderboard", activePath === "/leaderboard")}
+      ${mmLink("/guides/smart-order-router", "smart order router", activePath === "/guides/smart-order-router")}
+      ${mmLink("/marketplace/tools", "every tool indexed", activePath === "/marketplace/tools")}
+      ${chains}
+    </div>
+    <div class="ml-mm-h">Buy</div>
+    <div class="ml-mm-group">
+      ${mmLink("/tools", "our tools · 500+", activePath === "/tools")}
+      ${mmLink("/skills", "skill packs", activePath === "/skills")}
+      ${mmLink("/playground", "playground", activePath === "/playground")}
+      ${mmLink("/pricing", "pricing", activePath === "/pricing")}
     </div>
     <div class="ml-mm-h">More</div>
     <div class="ml-mm-group">
+      ${mmLink("/what-is-x402", "what is x402 / MPP", activePath === "/what-is-x402")}
+      ${mmLink("/docs", "docs", activePath === "/docs")}
       ${mmLink("/revenue", "revenue · on-chain", activePath === "/revenue")}
       ${mmLink("/status", "status · uptime", activePath === "/status")}
-      ${mmLink("/what-is-x402", "what is x402/MPP", activePath === "/what-is-x402")}
       ${mmLink("/integrations", "integrations", activePath === "/integrations")}
       <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
-      ${activePath === "" ? "" : mmLink("/docs#add", "ADD TO CLAUDE →", false, " ml-mm-cta")}
-      ${activePath === "" || activePath === "/playground" ? "" : mmLink("/playground", "TRY PLAYGROUND →", false, " ml-mm-cta")}
+      ${activePath === "" || activePath === "/sell" ? "" : mmLink("/sell", "LIST YOUR API - FREE →", false, " ml-mm-cta")}
     </div>
   </div>`;
 }
 
-// The "ADD TO CLAUDE" nav CTA points at /docs#add — the "Three ways in"
-// section with the actual connector instructions — not /docs. A button whose
-// label names an action must not land the reader at the top of a long
-// reference page to go hunting for it.
-//
-// It is also suppressed on the homepage (activePath === ""), where the hero
-// carries the identical button: nav + hero were both on screen at first paint,
-// same label, same destination, so home was showing the same CTA three times
-// counting the closing band. Interior pages keep it — there it is the only
-// call to action on the page.
+// Nav CTA is "LIST YOUR API →" -> /sell (Aug 2026 revamp): seller signup is
+// now priority 1 across the whole site (every page's nav CTA points at
+// /sell), replacing the old buyer-facing "ADD TO CLAUDE" -> /docs#add button.
+// Suppressed on / and /sell themselves, where each page's own hero already
+// carries an equivalent CTA - nav + hero both on screen at first paint with
+// the same label/destination reads as showing the same button twice. The
+// /sell page is expected to grow its own contextual nav-CTA label (e.g.
+// "REGISTER NOW ->") once its body is ported in a later stage; suppressing
+// for now is the conservative choice rather than guessing at an anchor that
+// doesn't exist yet.
 function nav(activePath) {
   const chainInfo = chainRows();
   const groupHrefs = {
-    // One buy-side door: /marketplace, every chain page, and /leaderboard (its
-    // panel row) all light the marketplace trigger - a future chain page lights
-    // it up with zero nav edits.
-    marketplace: new Set(["/marketplace", "/leaderboard", ...chainInfo.chains.map((c) => c.href)]),
+    // Marketplace trigger lights for /marketplace + every chain page - a
+    // future chain page lights it up with zero nav edits. Leaderboard is now
+    // its own top-level item (not folded into this set) since it's no longer
+    // inside the marketplace panel either.
+    marketplace: new Set(["/marketplace", ...chainInfo.chains.map((c) => c.href)]),
     sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
+    tools: new Set(["/tools", "/skills", "/playground", "/pricing"]),
   };
 
-  const zone1 = NAV_ZONES[0].map((l) => directLinkHtml(l, activePath)).join("\n      ");
-  const zone2 = NAV_ZONES[1]
-    .map((item) => groupTriggerHtml(item, groupHrefs[item.panel].has(activePath), PANEL_HTML[item.panel](chainInfo)))
-    .join("\n      ");
-  const zone3 = NAV_ZONES[2].map((l) => directLinkHtml(l, activePath)).join("\n      ");
+  const zone1 = NAV_ZONES[0].map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
+  const zone2 = NAV_ZONES[1].map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
+  const zone3 = NAV_ZONES[2].map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
   const divider = `<span style="width:1px;height:15px;background:var(--hairline);flex:none;"></span>`;
 
   return `<nav style="border-bottom:1.5px solid var(--ink);background:var(--paper);position:sticky;top:0;z-index:50;">
@@ -464,8 +522,8 @@ function nav(activePath) {
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:14px;">
       <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="font-family:var(--font-mono);font-size:13px;color:var(--muted);text-decoration:none;">github</a>
-      
-      ${activePath === "" ? "" : `<a class="ml-nav-cta" href="/docs#add" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;">ADD TO CLAUDE →</a>`}
+
+      ${activePath === "" || activePath === "/sell" ? "" : `<a class="ml-nav-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;white-space:nowrap;">LIST YOUR API →</a>`}
       <button type="button" onclick="a402ToggleMenu()" class="ml-burger" aria-label="Open menu" aria-expanded="false">
         <svg class="ml-burger-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
         <svg class="ml-burger-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -638,7 +696,20 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}</script>
+<script>function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}
+/* a402: reveal-on-scroll for [data-reveal] sections (opt-in per page, none
+   yet - inert until a later stage's pages start using it). Anonymous function
+   expression on purpose, not a declaration - avoids a leading-"function"
+   source line, the exact shape test-theme.js's markup-safety assertions
+   guard against. Class added here (JS), never baked into static
+   CSS as a default-hidden state, so a throw/no-run leaves every section fully
+   visible instead of stuck at opacity:0. The observer's own first callback
+   decides visibility, not a separate getBoundingClientRect measurement taken
+   before the map canvas/webfonts settle layout (that early-measurement bug
+   made most sections read as already-above-the-fold and never animate).
+   Stays subscribed rather than disconnecting after one reveal, so a reload
+   deep in the page still animates sections back in as they scroll into view. */
+document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('[data-reveal]');if(!els.length||!window.IntersectionObserver)return;els.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){e.target.classList.toggle('ml-reveal-in',e.isIntersecting);});},{threshold:.08});els.forEach(function(el){io.observe(el);});}catch(e){}});</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
