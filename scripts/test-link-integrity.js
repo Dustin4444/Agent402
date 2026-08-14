@@ -100,17 +100,25 @@ await Promise.all(seeds.map(async (path) => {
 const brokenSeeds = [...hrefsByPage.entries()].filter(([, v]) => v.error);
 ok(brokenSeeds.length === 0, `all ${seeds.length} seed pages load (0 broken)${brokenSeeds.length ? ` - broken: ${brokenSeeds.map(([p, v]) => `${p} (${v.error})`).join(", ")}` : ""}`);
 
+// Some crawled pages (e.g. /marketplace) render OTHER PEOPLE'S URLs as hrefs
+// (seller homepages, etc.) - real URL parsing, never a prefix/substring
+// match, so a lookalike host (agent402.tools.evil.example) can't be
+// misclassified as one of ours.
+const OWN_HOST = new URL(BASE).host.toLowerCase();
 const internalPaths = new Set();
 for (const [, v] of hrefsByPage) {
   if (!v.hrefs) continue;
   for (const h of v.hrefs) {
-    if (!h || h.startsWith("#") || h.startsWith("mailto:") || h.startsWith("javascript:") || h.startsWith("tel:")) continue;
-    if (h.startsWith("http://") || h.startsWith("https://")) {
-      if (!h.startsWith(BASE) && !h.startsWith("https://agent402.tools")) continue; // external - out of scope, see header note
-      internalPaths.add(h.replace(/^https?:\/\/[^/]+/, ""));
-    } else if (h.startsWith("/")) {
-      internalPaths.add(h.split("#")[0]);
+    if (!h || h.startsWith("/")) {
+      if (h) internalPaths.add(h.split("#")[0]);
+      continue;
     }
+    let u;
+    try { u = new URL(h); } catch { continue; } // not an absolute URL (mailto:, javascript:, tel:, ...) - not a page to check
+    if (u.protocol !== "http:" && u.protocol !== "https:") continue;
+    const host = u.host.toLowerCase();
+    if (host !== OWN_HOST && host !== "agent402.tools") continue; // external - out of scope, see header note
+    internalPaths.add(u.pathname + u.search);
   }
 }
 ok(internalPaths.size > 50, `crawl surfaced a substantial set of unique internal links (got ${internalPaths.size})`);
