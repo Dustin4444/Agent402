@@ -207,7 +207,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
       <a href="/openapi.json" style="color:var(--muted);text-decoration:none;">openapi.json</a>
       <a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a>
       <a href="/api/pricing" style="color:var(--muted);text-decoration:none;">/api/pricing</a>
-      <a href="/mcp" style="color:var(--muted);text-decoration:none;">/mcp</a>
+      <span style="color:var(--muted);" title="POST-only JSON-RPC endpoint - not a browsable page">/mcp</span>
     </span>
   </div>
 </section>

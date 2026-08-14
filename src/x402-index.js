@@ -2339,6 +2339,16 @@ export function routableSellerSummaries() {
   const out = [];
   for (const [origin, v] of cache.entries()) {
     if (v?.error || !isRoutable(v)) continue;
+    // The crawler can discover and cache the real, publicly-registered
+    // agent402.tools origin regardless of what BASE_URL this instance is
+    // configured with (see indexSnapshot's identical guard) - this feeds
+    // agent-facing find/route responses, so a self-entry here isn't just a
+    // display artifact, it's "here's a third-party alternative" pointing
+    // right back at the same server. No baseUrl parameter is threaded
+    // through this function's many call sites, so this checks the
+    // well-known domain only (the scenario that's actually been observed),
+    // not a dynamic instance-specific one.
+    if (origin.replace(/\/+$/, "").toLowerCase() === "https://agent402.tools") continue;
     let host = "";
     try { host = new URL(origin).host.toLowerCase(); } catch { continue; }
     out.push({
@@ -2457,7 +2467,21 @@ export function sellerDetail(originOrHost) {
  */
 export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, walletName }) {
   const local = buildLocalEntry({ baseUrl, catalog, prices, network, toolCount, walletName });
-  const remote = [...cache.entries()].map(([origin, v]) => ({
+  // Exclude the crawled self-entry two ways: the caller's own baseUrl (works
+  // whenever this instance's BASE_URL matches what was crawled - true in
+  // real production), AND the well-known, permanent production domain by
+  // name (works everywhere else - CI, local dev, preview deploys - where
+  // BASE_URL points at localhost/a preview host but the crawler can still
+  // reach and cache the real, publicly-registered agent402.tools origin).
+  // Measured live: without the second check, /marketplace and
+  // /marketplace/tools both listed agent402.tools as an unlabelled
+  // "third-party" seller of its own tools on any non-production boot.
+  const selfBase = String(baseUrl || "").replace(/\/+$/, "").toLowerCase();
+  const isSelfOrigin = (origin) => {
+    const o = String(origin).replace(/\/+$/, "").toLowerCase();
+    return (selfBase && o === selfBase) || o === "https://agent402.tools";
+  };
+  const remote = [...cache.entries()].filter(([origin]) => !isSelfOrigin(origin)).map(([origin, v]) => ({
     origin,
     displayName: v.manifest?.name || origin.replace(/^https?:\/\//, ""),
     homepage: v.manifest?.homepage || origin,
@@ -2672,10 +2696,22 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
     ? []
     : local.tools.map((t) => ({ ...t, sellerHome: baseUrl, sellerName: local.displayName, health: 1 }));
   const aliasOrigins = inc === "local" ? null : computeAliasOrigins(cache);
+  // Same self-exclusion as indexSnapshot/routableSellerSummaries: the crawler
+  // can discover and cache the real agent402.tools origin regardless of this
+  // instance's own BASE_URL. Our own tools are already in localPool above -
+  // without this, a crawled self-entry would additionally rank as a
+  // duplicate "external" candidate, and a route-execute call against it
+  // would pay our own wallet through the external-settlement path instead
+  // of just running the local call directly.
+  const selfBase = String(baseUrl || "").replace(/\/+$/, "").toLowerCase();
+  const isSelfOrigin = (origin) => {
+    const o = String(origin).replace(/\/+$/, "").toLowerCase();
+    return (selfBase && o === selfBase) || o === "https://agent402.tools";
+  };
   const remotePool = inc === "local"
     ? []
     : [...cache.entries()]
-        .filter(([origin, v]) => isRoutable(v) && !aliasOrigins.has(origin))
+        .filter(([origin, v]) => isRoutable(v) && !aliasOrigins.has(origin) && !isSelfOrigin(origin))
         .flatMap(([, v]) =>
           (v.tools || [])
             // paid:false = the seller's own doc says this operation is free.
@@ -3479,6 +3515,21 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
   // agent402.tools as just another seller and our tools would otherwise appear
   // in a catalog whose entire premise is "these are NOT ours". Keyed on the
   // caller-supplied origin because the index module has no BASE_URL of its own.
+  //
+  // That excludeOrigin match is NOT enough by itself: it only excludes the
+  // crawled self-entry when it matches the CURRENT server instance's own
+  // BASE_URL exactly. In real production BASE_URL is set to the real domain
+  // so the two agree, but the crawler runs (and can discover the real,
+  // publicly-registered agent402.tools origin) in ANY environment regardless
+  // of that instance's own BASE_URL - a CI test server, a local dev boot, or
+  // a preview deploy all have BASE_URL pointing at localhost or a preview
+  // hostname while the crawl can still reach and cache the real production
+  // origin. Measured live: X402_SYNC_ON_START=false does not stop the
+  // background crawl from running, so a CI/local boot with a mismatched
+  // BASE_URL genuinely lists agent402.tools as a "third-party" seller of its
+  // own tools within about a minute. Excluding the real, permanent domain by
+  // name as a second, hardcoded check closes that regardless of which
+  // BASE_URL any given instance happens to be configured with.
   const self = String(excludeOrigin || "").replace(/\/+$/, "").toLowerCase();
   if (flatCache.self !== self) flatCache = { at: 0, rows: [], self };
   if (Date.now() - flatCache.at < FLAT_TTL_MS && flatCache.rows.length) return flatCache.rows;
@@ -3486,7 +3537,9 @@ function flattenedThirdPartyTools(excludeOrigin = "") {
   const seen = new Set();
   for (const [origin, v] of cache.entries()) {
     if (!origin.startsWith("https:")) continue; // same bar as /api/index/register
-    if (self && origin.replace(/\/+$/, "").toLowerCase() === self) continue;
+    const normOrigin = origin.replace(/\/+$/, "").toLowerCase();
+    if (self && normOrigin === self) continue;
+    if (normOrigin === "https://agent402.tools") continue;
     if (v?.error) continue;
     if (healthScore(v) <= 0) continue;
     const sellerName = v?.manifest?.name || origin.replace(/^https?:\/\//, "");

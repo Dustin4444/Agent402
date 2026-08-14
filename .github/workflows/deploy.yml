@@ -948,6 +948,12 @@ jobs:
       - name: Public-surface leak gate (no buyer addresses, no per-tool revenue, operator feeds stay 404)
         run: TARGET_URL=http://localhost:3000 node scripts/test-public-surface-leak.js
 
+      - name: Link integrity (every sitemap URL + every crawled internal href resolves; /mcp never a real <a href>)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-link-integrity.js
+
+      - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
+        run: node scripts/test-self-listing-exclusion.js
+
       - name: Economy history unit tests (daily upsert idempotency + week-over-week math — offline)
         run: node scripts/test-x402-economy.js
 
