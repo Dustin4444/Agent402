@@ -1350,6 +1350,9 @@ jobs:
       - name: Marketplace index page tests (offline, fixture snapshot)
         run: node scripts/test-marketplace-index-page.js
 
+      - name: What-is-MPP page tests (offline)
+        run: node scripts/test-what-is-mpp-page.js
+
       - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
         run: node scripts/test-operator-wishes.js
 
