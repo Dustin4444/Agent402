@@ -1149,7 +1149,17 @@ app.use((_req, res, next) => {
   res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+    // script-src carries one narrow exception: unpkg.com, for the homepage's
+    // pinned, SRI-verified d3 + topojson-client tags (the dot-map, Aug 2026
+    // revamp - the site's first-ever third-party script, an explicit,
+    // knowing tradeoff against the "everything self-hosted" posture used
+    // everywhere else, incl. fonts). A specific host, never a wildcard or
+    // 'unsafe-eval' — SRI on the tags themselves is a second, independent
+    // layer (a compromised unpkg response with a mismatched hash is refused
+    // by the browser before it ever executes). connect-src's existing
+    // 'https:' already covers the map's runtime fetch of the world-atlas
+    // geometry from jsdelivr, so no change needed there.
+    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
   );
   next();
 });

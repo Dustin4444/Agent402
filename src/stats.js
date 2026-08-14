@@ -53,6 +53,10 @@ db.exec(`
 const RECENT_KEEP = 200; // rows retained
 const RECENT_SHOW = 25;  // rows exposed in /api/stats
 
+// The router-execute tiers: the only catalog slugs Agent402 earns a margin
+// on (every other paid call is buyer wallet straight to seller wallet).
+const ROUTER_SLUGS = new Set(["route-execute", "route-execute-plus", "route-execute-max", "route-execute-pro"]);
+
 const bumpCounter = db.prepare("INSERT INTO counters (k, n) VALUES (?, 1) ON CONFLICT(k) DO UPDATE SET n = n + 1");
 const bumpTool = db.prepare("INSERT INTO tool_counts (slug, n) VALUES (?, 1) ON CONFLICT(slug) DO UPDATE SET n = n + 1");
 const getCounter = db.prepare("SELECT n FROM counters WHERE k = ?");
@@ -114,6 +118,15 @@ const recordCall = db.transaction((slug, method, network, wire) => {
   // Payment, translated by src/mpp-shim.js). Counted only for usdc — the MPP
   // adoption signal after the MPPScan/tempo directory listings.
   if (method === "usdc" && wire === "mpp") bumpCounter.run("viaMPPWire");
+  // Router executions are the only paid calls Agent402 earns a margin on -
+  // every other paid call is buyer wallet straight to seller wallet. Counted
+  // only for usdc (a free/PoW router call, if one ever exists, earns no
+  // margin either) so the disclosure line's ratio against viaUSDC is
+  // meaningful. ROUTER_SLUGS mirrors pow.js's route-execute* wallet-only
+  // set - if a future tier is added there without an update here, it simply
+  // undercounts rather than breaking, so this is deliberately a local
+  // literal rather than an import that could pull in unrelated PoW logic.
+  if (method === "usdc" && ROUTER_SLUGS.has(slug)) bumpCounter.run("viaRouter");
   if (method === "heartbeat") bumpHeartbeatTool.run(slug); // internal probe traffic
   // Privacy-safe activity feed: tool + settlement method + time only — never a
   // payload, wallet, or IP. Only successful (200) served calls reach here.
@@ -284,6 +297,11 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       // (Authorization: Payment, translated by src/mpp-shim.js) instead of
       // x402's PAYMENT-SIGNATURE. The MPP-adoption signal.
       viaMPPWire: num("viaMPPWire"),
+      // Subset of viaUSDC that came through the router (route-execute*) -
+      // the only paid calls Agent402 earns a margin on. Pages render the
+      // "how we earn" disclosure line only when this is present (it wasn't,
+      // before this field existed) rather than guessing a value.
+      viaRouter: num("viaRouter"),
     },
     // Charged on-chain but handler returned non-200 — should always be 0. Any
     // value here means we billed the buyer and gave them an error. The dashboard

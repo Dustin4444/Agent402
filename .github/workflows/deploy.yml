@@ -1338,6 +1338,9 @@ jobs:
       - name: Tools catalog page tests (offline, fixture snapshot)
         run: node scripts/test-catalog-page.js
 
+      - name: Homepage tests (offline, fixture snapshot)
+        run: node scripts/test-home-page.js
+
       - name: Operator demand-board page tests (verdict rendering, no double-escape, robots disallow — offline)
         run: node scripts/test-operator-wishes.js
 

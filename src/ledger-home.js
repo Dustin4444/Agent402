@@ -1,440 +1,651 @@
-// Machine Ledger — Home page ("Agent402 Ledger")
-// The primary marketing page: hero, connect path, flagship jobs, skill packs,
-// catalog index, leaderboard preview, sell band, proof, FAQ, CTA, footer.
-// Humans browse here to decide trust before funding agents; agents spend.
+// Machine Ledger — Home page ("Agent402 Ledger"), Aug 2026 revamp.
+// Hero (dot world map + live counter panel + rail marks), agent-pays
+// transcript, real PoW demo, sell block, index/leaderboard, lane-level
+// demand teaser, FAQ, closing CTA, footer.
 
 import { ledgerShell, ledgerFooterFull, esc } from "./ledger-chrome.js";
-import { toolList, CATEGORIES } from "./pages.js";
+import { toolList } from "./pages.js";
 import { isComputePayable } from "./pow.js";
-import { RAILS, RAILS_AMP, RAILS_SHORT } from "./rails.js";
-import { PACK_PRICES } from "./tools/skill-runner.js";
-import { chainLogoStrip } from "./chain-logos.js";
-
-// The six packs merchandised on the home page — a deliberate mix: two premium
-// research jobs, two of the newest agent-ops jobs, one security classic, one
-// free-over-PoW on-ramp. Revisit when the sales ledger (/api/sales) says
-// buyers want something else up front.
-const FLAGSHIP_PACKS = ["financial-research", "search-and-cite", "onchain-analyst", "seo-audit", "wallet-readiness", "decode-blob"];
-
-// Four of the five /v1 chat tiers merchandised on the home page (the plain
-// $0.02 base tier is skipped - nano/auto/pro/premium already span the price
-// range and tell a clearer story). Prices are resolved live from the catalog
-// below, never hardcoded here - only the display label/model list is curated,
-// same convention as FLAGSHIP_PACKS above.
-const GATEWAY_SLUGS = ["v1-chat-nano", "v1-chat-auto", "v1-chat-pro", "v1-chat-premium"];
-const GATEWAY_TIER_COPY = {
-  "v1-chat-nano": { label: "Nano - agent loops", models: "GPT-4.1 nano, GPT-5 nano, Gemini Flash-Lite, small Llama/Qwen/Mistral" },
-  "v1-chat-auto": { label: "Auto - no model needed", models: "Server picks the best fit per task - ranked, price-neutral" },
-  "v1-chat-pro": { label: "Pro", models: "Claude Sonnet, GPT-4o, Gemini Pro, Grok" },
-  "v1-chat-premium": { label: "Premium - frontier", models: "Claude Opus, GPT-5, o3, o4" },
-};
+import { RAILS } from "./rails.js";
+import { CAIP2_NAMES } from "./stats.js";
+import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
+import { railKey } from "./rails.js";
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
+
+// Decorative marquee of real tool slugs - names only, no purchase data, so
+// this carries no commercial-sensitivity weight (contrast the "what agents
+// pay for" section below, which does).
+const MARQUEE_SLUGS = [
+  "search", "answer", "render", "extract", "image-ocr", "pdf-to-markdown", "sec-edgar",
+  "fred-series", "crypto-price", "usdc-balance", "event-logs", "tls-cert", "dmarc-check",
+  "black-scholes", "forecast-holt", "sql-guard", "seller-trust", "agent-memory", "x402-verify",
+];
+
+// Lane-level demand teaser only - see /sell's identical rule. Per-tool slugs
+// and purchase counts are the paid /api/bestsellers product and the one
+// demand signal no block explorer can reconstruct; the pre-revamp design
+// draft for this section rendered exact slugs+counts sourced from a
+// topPaidTools field this session removed from /api/stats as a real
+// privacy fix (see PR #774) - ported here as lanes instead, matching /sell.
+const DEMAND_LANES = [
+  ["Hashing & encoding", "sha256/sha512 digests, HMAC, base64, JWT decoding."],
+  ["Market & financial data", "Live quotes, historical series, Treasury yield curves, SEC lookups."],
+  ["Live web search & cited answers", "Ranked results, and grounded answers with sources attached."],
+];
+
+/** Real per-rail settlement counts, sorted by volume. Same CAIP2_NAMES join
+ * as /what-is-x402's rails table - single source of truth, can't drift. */
+function railsByVolume(stats) {
+  const byNet = stats?.toolCallsServed?.viaUSDCByNetwork || {};
+  return RAILS.map((r) => {
+    const key = CAIP2_NAMES[r.caip2] || r.name.toLowerCase();
+    const n = Number(byNet[key]) || 0;
+    return { name: r.name, asset: r.asset, slug: railKey(r), n, calls: n ? fmtNum(n) : "·" };
+  }).sort((a, b) => b.n - a.n);
+}
+
+/** Live leaderboard top rows, excluding Agent402's own row (best-effort name
+ * match - same approach as /what-is-x402's adoption table). */
+function externalLeaderboardRows(leaderboardSnapshot, limit = 6) {
+  const board = Array.isArray(leaderboardSnapshot?.leaderboard) ? leaderboardSnapshot.leaderboard : [];
+  return board
+    .filter((r) => !/^agent402/i.test(String(r?.name || "")))
+    .slice(0, limit)
+    .map((r, i) => ({
+      rank: String(i + 1).padStart(2, "0"),
+      name: r.name,
+      usd: `$${Number(r.totalUsd || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      calls: fmtNum(r.callsSettled),
+      buyers: fmtNum(r.uniqueBuyers),
+    }));
+}
 
 export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks) {
   const tools = toolList(catalog);
   const count = tools.length;
-  // The catalog's entries split into plain tools and skill-pack routes — the
-  // curation story ("N tools + M packs") needs the composition, and it
-  // must derive like everything else (never hardcode the counts here).
-  const toolOnlyCount = tools.filter((t) => t.category !== "skill-pack").length;
   const freeCount = tools.filter(isComputePayable).length;
-  const served = stats?.toolCallsServed;
-  const board = Array.isArray(leaderboardSnapshot?.leaderboard) ? leaderboardSnapshot.leaderboard : [];
   const packCount = Array.isArray(skillPacks) ? skillPacks.length : 42;
-  // /v1 gateway tiers for the merchandising section below - resolved from the
-  // same live catalog as every other price on this page.
-  const gatewayTools = GATEWAY_SLUGS.map((slug) => tools.find((t) => t.slug === slug)).filter(Boolean);
-  const embeddingsTool = tools.find((t) => t.slug === "v1-embeddings");
-  const imagesTool = tools.find((t) => t.slug === "v1-images");
-  const speechTool = tools.find((t) => t.slug === "v1-audio-speech");
-
-  // Category data for the index
-  const catEntries = Object.entries(CATEGORIES);
-  const catData = catEntries.map(([key, { label, blurb }]) => {
-    const inCat = tools.filter((t) => t.category === key);
-    if (!inCat.length) return null;
-    const cheapest = inCat.reduce((a, t) => Math.min(a, parseFloat(t.price.slice(1))), Infinity);
-    return { key, label, blurb, count: inCat.length, price: `$${cheapest}` };
-  }).filter(Boolean);
-  const mid = Math.ceil(catData.length / 2);
-  const leftCats = catData.slice(0, mid);
-  const rightCats = catData.slice(mid);
-
-  const catRow = (c, last) =>
-    `<div style="display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;padding:13px 18px;${last ? "" : "border-bottom:1px solid var(--hairline);"}${c.key === "convert" ? "background:var(--card-zebra);" : ""}"><div><div style="font-weight:700;font-size:15px;">${esc(c.label)}</div><div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">${esc(c.blurb.length > 50 ? c.blurb.slice(0, 50) + "…" : c.blurb)}</div></div><span style="font-family:var(--font-mono);font-weight:700;font-size:15px;">${fmtNum(c.count)}</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--accent);width:56px;text-align:right;">${c.price}</span></div>`;
-
-  // Leaderboard preview (top 5)
-  const top5 = board.slice(0, 5);
-  const lbRow = (r, i) => {
-    const rank = String(i + 1).padStart(2, "0");
-    const isFirst = i === 0;
-    return `<div style="display:grid;grid-template-columns:26px 1fr 86px 56px;gap:10px;padding:11px 18px;color:var(--on-dark);${i < top5.length - 1 ? "border-bottom:1px solid var(--dark-border);" : ""}${isFirst ? "background:linear-gradient(90deg,#d63c1a1f,transparent);" : ""}"><span style="color:${isFirst ? "var(--accent)" : "var(--dk-muted3)"};">${rank}</span><span>${esc(r.name)}</span><span style="text-align:right;color:var(--on-dark2);">$${Number(r.totalUsd || 0).toFixed(2)}</span><span style="text-align:right;color:var(--dk-muted2);">${fmtNum(r.uniqueBuyers || 0)}</span></div>`;
-  };
+  const served = stats?.toolCallsServed || {};
+  const viaUsdc = Number(served.viaUSDC) || 0;
+  const viaPow = Number(served.viaProofOfWork) || 0;
+  const mppWire = Number(served.viaMPPWire) || 0;
+  const viaRouter = Number(served.viaRouter) || 0;
+  const routerPct = viaUsdc ? (viaRouter / viaUsdc < 0.001 ? "under 0.1%" : `${((100 * viaRouter) / viaUsdc).toFixed(1)}%`) : "0%";
+  const rails = railsByVolume(stats);
+  const attributed = rails.reduce((sum, r) => sum + r.n, 0);
+  const board = externalLeaderboardRows(leaderboardSnapshot);
 
   const canonical = baseUrl + "/";
-  const title = `Agent402 - search, answer, and 500+ pay-per-call tools for AI agents`;
-  const description = `Deterministic web tools your agent can call and pay for per request: live search and cited answers first, then 500+ tools from $0.001. USDC over x402 on ${RAILS.length} rails (plus USDG on Robinhood), or free via proof-of-work. No signup - the wallet is the identity. Open source, live status, MCP-native.`;
+  const title = `x402 & MPP applied layer - Agent402: agentic payments for AI agents`;
+  const description = `Agent402 is the applied layer for x402 and MPP: the open index, router and on-chain ranking for agentic payments. Sell your API for USDC per call, or give your AI agent ${fmtNum(count)} pay-per-call tools. No signup, no API keys - the wallet is the identity.`;
 
-  // One source of truth for the FAQ: these Q&As render as the visible section
-  // below AND as FAQPage JSON-LD (rich-result eligibility the old landing page
-  // had and the ledger redesign initially dropped — the deploy workflow's SEO
-  // gate greps prod for both surfaces).
-  //
-  // Audience: a HUMAN deciding whether this is real enough to fund an agent.
-  // Agents still use /llms.txt, /api/find, and the MCP connector; this page
-  // must answer in ~10 seconds: is it real, can I trust money, how do I
-  // connect, what do I get. Depth (rails, MPP, /v1, the router, self-hosting,
-  // privacy) lives on /faq. Answers are rendered with esc(), so they are
-  // plain text: name a page in words rather than linking it.
+  const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", alternateName: "Agent402.Tools", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, email: "mike@agent402.tools", parentOrganization: { "@type": "Organization", name: "Havok Holdings LLC" }, sameAs: ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools", "https://www.npmjs.com/package/agent402-mcp", "https://www.npmjs.com/package/agent402-client", "https://www.npmjs.com/package/agent402-tollbooth", "https://pypi.org/project/agent402-langchain/", "https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d"] };
+  const websiteLd = { "@type": "WebSite", "@id": `${baseUrl}/#website`, name: "Agent402.Tools", url: baseUrl, publisher: { "@id": `${baseUrl}/#organization` }, description: "The applied layer for x402 and MPP: open index, Smart Order Router and on-chain ranking for agentic payments.", potentialAction: { "@type": "SearchAction", target: `${baseUrl}/api/find?q={search_term_string}`, "query-input": "required name=search_term_string" } };
+  const appLd = { "@type": "SoftwareApplication", "@id": `${baseUrl}/#app`, name: "Agent402", url: baseUrl, applicationCategory: "DeveloperApplication", operatingSystem: RAILS.map((r) => r.name).join(", "), license: "https://www.gnu.org/licenses/agpl-3.0.html", description: `Open-source, self-hostable x402 + MPP server: ${fmtNum(count)} deterministic pay-per-call tools and ${packCount}+ skill packs for AI agents, plus an open index, Smart Order Router and on-chain seller leaderboard.`, offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "1.50", priceCurrency: "USD", description: "Per-call micropayments in USDC on eleven chains plus USDG on Robinhood Chain, or free with proof-of-work" } };
+  const datasetLd = { "@type": "Dataset", "@id": `${baseUrl}/#leaderboard`, name: "x402 seller leaderboard - Base USDC settled volume", description: "Hourly on-chain snapshot ranking every indexed x402 seller by Base USDC settled volume: calls settled, total USD, unique buyers per seller.", creator: { "@id": `${baseUrl}/#organization` }, license: "https://www.gnu.org/licenses/agpl-3.0.html", isAccessibleForFree: true, distribution: { "@type": "DataDownload", encodingFormat: "application/json", contentUrl: `${baseUrl}/api/leaderboard` } };
+  const surfacesLd = { "@type": "ItemList", "@id": `${baseUrl}/#surfaces`, name: "Free x402 discovery primitives", itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Find - resolve a task to the best-matching tool", url: `${baseUrl}/api/find` },
+    { "@type": "ListItem", position: 2, name: "Route - neutral Smart Order Router across every x402 seller", url: `${baseUrl}/api/route` },
+    { "@type": "ListItem", position: 3, name: "Leaderboard - on-chain ranking by USDC settled volume", url: `${baseUrl}/api/leaderboard` },
+    { "@type": "ListItem", position: 4, name: "Marketplace - every indexed seller, tool count, network, health", url: `${baseUrl}/marketplace` },
+  ] };
   const faqs = [
-    { q: "What is Agent402?", a: `An open-source catalog of 500+ deterministic web tools an AI agent can call and pay for per request - live search and cited answers first, then extract, render, data, memory, and more. No signup and no API key: the wallet is the identity. Humans browse here; agents spend.` },
-    { q: "How do I connect my agent?", a: "Paste https://agent402.tools/mcp into Claude, Cursor, or any streamable-HTTP MCP client - zero install. Or run npx -y agent402-mcp with a funded wallet for paid flagships. Claude Code one-liner: claude mcp add --transport http agent402 https://agent402.tools/mcp. Full docs live on the docs page and llms.txt." },
-    { q: "Do I need crypto or a wallet to try it?", a: `No. ${fmtNum(freeCount)} of the ${fmtNum(count)} tools run free on proof-of-work: your own computer solves a short puzzle instead of paying, which costs a second of CPU and nothing else. A wallet only matters for tools that cost real money to run (search, render, memory, …), and those quote their price before anything is charged.` },
-    { q: "How do I know the money side is honest?", a: "The whole server is open source, so the payment code can be read line by line. Settlement happens on a public blockchain, so every payment is independently verifiable. A failed call is never charged - payment only completes on a successful response. Live status is on the status page; reliability and refunds are documented on the reliability and terms pages." },
-    { q: "What is x402?", a: "When the web was designed, HTTP set aside a response for \"payment required\" - status code 402 - and then left it unused for about thirty years. x402 finally fills it in: ask for something, get a price back, pay, and the same request goes through. It is an open standard rather than anything we invented, and it is what lets a program buy one thing in one round trip with no subscription and no checkout page. There is a plain-English explainer on the what-is-x402 page." },
-    { q: "Why would software need to buy anything?", a: "An AI agent working on a real task keeps running into things it cannot answer from memory: fetch a live page, pull a filing, convert a file, look up an address on a blockchain. Signing up for twenty different APIs is not something an agent can do on its own - it has no email, no credit card, and no way to agree to terms. Paying a fraction of a cent per call is something it can do." },
-    { q: "What is MPP, and does Agent402 support it?", a: "MPP (Machine Payments Protocol) is the IETF-track standard that gives HTTP a native \"Payment\" authorization scheme - a second wire for the same idea as x402. Agent402 serves both on the same routes: an MPP client gets a standard Payment challenge on the 402, pays over its own wire, and receives a Payment-Receipt header, with the same prices, the same replay protection, and the same never-charged-on-failure guarantee as x402 buyers. There is nothing to configure on either side." },
-    { q: "I have a website or an API. Is there anything here for me?", a: "Yes, it runs in both directions. If you have an API, you can charge for it the same way and buyers pay straight into your wallet with nothing taken in between. If you have a website that AI crawlers keep hitting, agent402-tollbooth is an open-source gate that charges them per page instead of blocking them. Listing is free." },
+    { q: "How do I sell my API for USDC per call?", a: "Serve x402 challenges on your endpoint and register the origin with POST /api/index/register. Listing is free, there is no signup, and nothing is deducted from your price: buyers pay straight into your wallet. Agent402 earns on the buyer side, from a flat routing fee when a buyer asks it to execute a call on their behalf. The crawler probes you hourly, the Smart Order Router ranks you by match score then health then price, and your settled volume appears on the public on-chain leaderboard. If your site is not x402-native yet, agent402-tollbooth is an open pay-per-crawl gate you can install instead." },
+    { q: "Do I need a wallet to try it?", a: "No. The pure-CPU tools are payable in compute: your own machine solves a single-use, slug-scoped sha256 proof-of-work instead of paying, which costs about a second of CPU. A wallet only matters for tools that cost real money to run, and those quote their price in the 402 challenge before anything is charged." },
+    { q: "Is it open source, and can I run my own?", a: "Yes. The server is AGPL-3.0 and self-hostable; the client SDK, MCP connector and tollbooth packages are MIT. Clone it and run FREE_MODE=true npm start for all tools as an HTTP API plus MCP, with no payments and no keys." },
   ];
+  const faqLd = { "@type": "FAQPage", "@id": `${baseUrl}/#faq`, mainEntity: faqs.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) };
 
-  // Visible FAQ = the four questions a first-time human visitor actually has.
-  // The rest stay in FAQPage JSON-LD and live in full on /faq.
-  const homeFaqs = faqs.slice(0, 4);
+  const extraCss = `
+@keyframes hm-marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.hm-marquee-track { display: flex; width: max-content; animation: hm-marquee 46s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .hm-marquee-track { animation: none; } }
+.hm-2col { display: grid; grid-template-columns: 1fr 1fr; }
+@media (max-width: 900px) { .hm-2col, .hm-3col, .hm-hero { grid-template-columns: minmax(0,1fr) !important; } }
+`;
 
-  const jsonLd = [
-    // Organization entity with a sameAs graph — the structured signal search
-    // engines use to resolve which entity a brand name refers to. Every
-    // sameAs URL is a profile we control and that links back here.
-    {
-      "@context": "https://schema.org",
-      "@type": "Organization",
-      "@id": `${baseUrl}/#organization`,
-      name: "Agent402",
-      alternateName: "Agent402.Tools",
-      url: baseUrl,
-      logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` },
-      sameAs: [
-        "https://github.com/MikeyPetrillo/Agent402",
-        "https://x.com/Agent402Tools",
-        "https://www.npmjs.com/package/agent402-mcp",
-        "https://www.npmjs.com/package/agent402-client",
-        "https://www.npmjs.com/package/agent402-tollbooth",
-        "https://pypi.org/project/agent402-langchain/",
-        "https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d",
-      ],
-    },
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      name: "Agent402.Tools",
-      url: baseUrl,
-      publisher: { "@id": `${baseUrl}/#organization` },
-      description,
-      potentialAction: { "@type": "SearchAction", target: `${baseUrl}/api/find?q={search_term_string}`, "query-input": "required name=search_term_string" },
-    },
-    {
-      "@context": "https://schema.org",
-      "@type": "WebApplication",
-      name: "Agent402.Tools",
-      url: baseUrl,
-      applicationCategory: "DeveloperApplication",
-      operatingSystem: "Any",
-      // AggregateOffer (not a single Offer): the catalog spans $0.001 tool
-      // calls to $0.50 premium-tier calls, and offerCount is the catalog size.
-      offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "1.50", priceCurrency: "USD", description: `Per-call micropayments ${RAILS_AMP}, or free with proof-of-work` },
-    },
-    {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      mainEntity: faqs.map(({ q, a }) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })),
-    },
-  ];
+  const railLinksHtml = CHAIN_ORDER.map(([slug, name]) =>
+    `<a href="/${slug}" title="${esc(name)} x402 marketplace" style="display:inline-flex;align-items:center;gap:7px;color:var(--muted);text-decoration:none;">${chainMark(slug, 19)}<span style="font-family:var(--font-mono);font-size:12px;white-space:nowrap;">${esc(name)}</span></a>`
+  ).join("");
+
+  const marqueeSpan = (aria) => `<span style="display:flex;gap:34px;padding-right:34px;white-space:nowrap;"${aria ? ' aria-hidden="true"' : ""}>${MARQUEE_SLUGS.map((s) => `<span>${esc(s)}</span><span style="color:var(--accent);">·</span>`).join("")}</span>`;
+
+  const railRowsHtml = rails.map((r) =>
+    `<a href="/${r.slug}" title="${esc(r.name)} x402 marketplace" style="display:flex;flex-direction:column;gap:9px;padding:15px 16px;text-decoration:none;color:var(--on-dark2);border-right:1px solid var(--dark-border);border-bottom:1px solid var(--dark-border);"><span style="display:flex;align-items:center;gap:9px;">${chainMark(r.slug, 19)}<span style="font-weight:700;font-size:14.5px;color:var(--on-dark);">${esc(r.name)}</span></span><span style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-family:var(--font-mono);"><span style="font-weight:700;font-size:17px;color:var(--on-dark);font-variant-numeric:tabular-nums;">${esc(r.calls)}</span><span style="font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dk-muted3);">${esc(r.asset)}</span></span></a>`
+  ).join("");
+
+  const leaderboardRowsHtml = board.length
+    ? board.map((r) => `<tr style="border-bottom:1px solid var(--dark-border);color:var(--on-dark);"><td style="padding:11px 18px;color:var(--dk-muted3);">${esc(r.rank)}</td><td style="padding:11px 18px;">${esc(r.name)}</td><td style="padding:11px 18px;text-align:right;color:var(--on-dark2);">${esc(r.usd)}</td><td style="padding:11px 18px;text-align:right;color:var(--dk-muted2);">${esc(r.calls)}</td><td style="padding:11px 18px;text-align:right;color:var(--dk-muted2);">${esc(r.buyers)}</td></tr>`).join("")
+    : `<tr><td colspan="5" style="padding:20px 18px;color:var(--dk-muted3);">unavailable - the leaderboard snapshot has not populated yet</td></tr>`;
+
+  const demandLanesHtml = DEMAND_LANES.map(([lane, body_], i) =>
+    `<div style="display:grid;grid-template-columns:28px 1fr;gap:14px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--hairline);background:var(--card);"><span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${String(i + 1).padStart(2, "0")}</span><div><div style="font-family:var(--font-mono);font-size:14px;color:var(--ink);font-weight:700;">${esc(lane)}</div><div style="font-size:12.5px;color:var(--muted);margin-top:2px;">${esc(body_)}</div></div></div>`
+  ).join("");
+
+  const faqHtml = faqs.map((f, i) =>
+    `<details style="border-bottom:1px solid var(--hairline);"><summary style="list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:17px 0;"><h3 style="font-weight:700;font-size:17px;margin:0;color:var(--ink);">${esc(f.q)}</h3><span class="ml-faq-mark" style="font-family:var(--font-mono);font-weight:400;font-size:20px;color:var(--accent);line-height:1;flex:none;">+</span></summary><p style="font-size:15.5px;line-height:1.65;color:var(--muted);margin:0;padding:0 0 20px;max-width:760px;">${esc(f.a)}</p></details>`
+  ).join("");
 
   const body = `
-  <!-- HERO -->
-  <header style="position:relative;overflow:hidden;border-bottom:1.5px solid var(--ink);">
-    <div style="max-width:1180px;margin:0 auto;padding:52px 30px 44px;position:relative;">
-      <div class="ml-hero-grid" style="display:grid;grid-template-columns:1.08fr .92fr;gap:50px;align-items:start;">
-        <div class="ml-stagger">
-          <div class="ml-hero-eyebrow" style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:20px;">open source · <span style="color:var(--accent);">x402</span> + mpp · mcp-native</div>
-          <h1 class="ml-hero-h1" style="font-family:var(--font-body);font-weight:800;font-size:70px;line-height:.94;letter-spacing:-.035em;margin:0 0 20px;color:var(--ink);">Tools your agent<br>can <span style="color:var(--accent);">pay</span> for.</h1>
-          <p style="font-size:18px;line-height:1.5;color:var(--muted);max-width:520px;margin:0 0 28px;"><strong style="color:var(--ink);font-weight:700;">500+ deterministic tools. Pay per call in USDC.</strong> Search the web and get cited answers first - then the long catalog. No signup, no API keys. <strong style="color:var(--ink);font-weight:700;">The wallet is the identity.</strong></p>
-          <div class="ml-hero-ctas" style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;margin-bottom:18px;">
-            <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;box-shadow:none;">ADD TO CLAUDE →</a>
-            <a class="ml-cta" href="/playground" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">TRY PLAYGROUND</a>
-          </div>
-          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-bottom:14px;">
-            <span class="ml-dot"></span><span>live · <strong style="color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums;">${fmtNum(served?.total || 0)}</strong> calls settled</span>
-            <a href="/status" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">status</a>
-            <a href="/api/reliability" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">reliability</a>
-            <a href="https://github.com/MikeyPetrillo/Agent402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">open source</a>
-            <a href="/marketplace" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">marketplace</a>
-          </div>
-          <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">MCP URL · <span style="color:var(--ink);">https://agent402.tools/mcp</span> · ${RAILS.length} settlement rails</div>
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+
+<header style="position:relative;overflow:hidden;border-bottom:1.5px solid var(--ink);">
+  <div style="max-width:1180px;margin:0 auto;padding:52px 30px 0;position:relative;">
+    <div class="hm-hero" style="display:grid;grid-template-columns:1.06fr .94fr;gap:56px;align-items:start;">
+      <div>
+        <div style="font-family:var(--font-mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:22px;">open source · <span style="color:var(--accent);">x402</span> + <span style="color:var(--accent);">mpp</span> dual-stack · mcp-native</div>
+        <h1 style="font-weight:800;font-size:66px;line-height:.92;letter-spacing:-.038em;margin:0 0 22px;color:var(--ink);">The applied layer<br>for <span style="color:var(--accent);">x402</span> and <span style="color:var(--accent);">MPP</span>.</h1>
+        <p style="font-size:18.5px;line-height:1.5;color:var(--muted);max-width:560px;margin:0 0 30px;">Most of the ecosystem ships the protocol. Agent402 ships the <strong style="color:var(--ink);font-weight:700;">market that runs on it</strong> - an open index, a neutral router, and an on-chain ranking of every x402 seller. List your API and get paid in USDC per call, straight to your wallet. No signup, no API keys, and nothing deducted from your price.</p>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;margin-bottom:24px;">
+          <a class="ml-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">LIST YOUR API - FREE →</a>
+          <a class="ml-cta" href="/docs#add" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">ADD TO CLAUDE</a>
         </div>
-        <div class="ml-stagger" style="position:relative;">
-          <div style="background:var(--surface);--accent:var(--accent-lit);border:1.5px solid var(--ink);box-shadow:none;">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:11px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>~ / agent402</span><span>SH</span></div>
-            <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12.5px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># 500+ deterministic tools in Claude / Cursor.
-# first job: search the web + answer questions.
-</span><span style="color:var(--accent);">$</span> <span style="color:var(--on-dark);">claude mcp add --transport http agent402 \\
-    https://agent402.tools/mcp
-
-</span><span style="color:var(--dk-muted3);"># or with a wallet (paid search/render/memory):
-</span><span style="color:var(--accent);">$</span> <span style="color:var(--on-dark);">claude mcp add agent402 -s user \\
-    -- npx -y agent402-mcp@latest
-
-</span><span style="color:var(--dk-muted3);"># then ask:
-# "search the web for x402 adoption"
-# "answer: what is the Sahm Rule, with citations"
-# "render example.com"
-# free tier pays in compute -
-# ${RAILS_SHORT} when you scale.</span></pre>
-          </div>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;font-family:var(--font-mono);font-size:12.5px;color:var(--muted);">
+          <span class="ml-dot"></span><span>${RAILS.length} rails live</span>
+          <a href="/status" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">status</a>
+          <a href="/api/reliability" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">reliability</a>
+          <a href="https://github.com/MikeyPetrillo/Agent402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">AGPL-3.0 source</a>
+          <a href="/marketplace" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--dash);">the index</a>
+        </div>
+        <div style="margin-top:22px;padding-top:20px;border-top:1px dashed var(--dash);">
+          <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:13px;">x402 settlement rails - USDC on eleven chains plus USDG on Robinhood</div>
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:11px 20px;">${railLinksHtml}</div>
+          <p style="font-size:13.5px;line-height:1.6;color:var(--faint);margin:18px 0 0;max-width:520px;">New to this? <strong style="color:var(--muted);font-weight:400;">x402</strong> fills in the <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);">402 Payment Required</span> status code the web reserved in 1997 and never used, and <strong style="color:var(--muted);font-weight:400;">MPP</strong> is the IETF-track version of the same handshake. <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">Read the explainer →</a></p>
         </div>
       </div>
-    </div>
-  </header>
 
-  <!-- SPEC STRIP - below the hero fold -->
-  <div style="border-bottom:1.5px solid var(--ink);background:var(--card);">
-    <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
-      <div style="display:flex;flex-wrap:wrap;max-width:100%;">
-        ${[[fmtNum(count),"tools"],[String(packCount),"skill packs"],[fmtNum(freeCount),"free · pow"],['<span style="color:var(--accent);">$</span>0.001',"per call"],[String(RAILS.length),"chains"]].map(([n,l])=>`<div class="ml-spec-cell" style="flex:1 1 120px;padding:14px 16px 13px 0;margin-right:16px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:19px;line-height:1;font-variant-numeric:tabular-nums;">${n}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-top:5px;">${l}</div></div>`).join("")}
+      <div style="border:1.5px solid var(--ink);background:var(--surface);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);">
+          <span>LIVE / ON-CHAIN · ${RAILS.length} RAILS</span>
+          <span style="display:inline-flex;align-items:center;gap:6px;color:var(--accent-lit);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent-lit);display:inline-block;animation:ml-pulse 1.8s ease-in-out infinite;"></span>GET /api/stats</span>
+        </div>
+        <div style="background:var(--footer-bg);padding:14px 0 6px;overflow:hidden;">
+          <canvas id="hm-map" role="img" aria-label="World map showing agent payment settlements moving between regions" style="display:block;width:100%;"></canvas>
+        </div>
+        <div style="padding:16px 22px 20px;background:var(--footer-bg);border-bottom:1px solid var(--dark-border2);">
+          <div id="hm-counter" style="font-family:var(--font-body);font-weight:800;font-size:66px;line-height:.9;letter-spacing:-.035em;color:var(--on-dark);font-variant-numeric:tabular-nums;">${viaUsdc ? fmtNum(viaUsdc) : ""}</div>
+          <div id="hm-counter-empty" style="display:${viaUsdc ? "none" : "flex"};align-items:center;gap:11px;">
+            <span style="width:8px;height:8px;border-radius:50%;background:var(--accent-lit);flex:none;animation:ml-pulse 1.6s ease-in-out infinite;"></span>
+            <span style="font-family:var(--font-mono);font-size:15.5px;color:var(--on-dark2);">Listening for on-chain payments…</span>
+          </div>
+          <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-top:9px;">calls paid in stablecoin · GET /api/stats</div>
+          <div style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted3);margin-top:12px;padding-top:12px;border-top:1px solid var(--dark-border);">+ <strong id="hm-freepow" style="color:var(--on-dark2);font-weight:700;">${fmtNum(viaPow)}</strong> more served free over proof-of-work</div>
+        </div>
+        <table style="font-family:var(--font-mono);font-size:12px;"><tbody>
+          <tr style="border-top:1px solid var(--dark-border);"><td style="padding:10px 22px;color:var(--dk-muted3);">rails</td><td style="padding:10px 22px;text-align:right;color:var(--on-dark);">${RAILS.length} chains · USDC + USDG</td></tr>
+          <tr style="border-top:1px solid var(--dark-border);"><td style="padding:10px 22px;color:var(--dk-muted3);">base receiving</td><td style="padding:10px 22px;text-align:right;color:var(--on-dark);">agent402.base.eth</td></tr>
+          <tr style="border-top:1px solid var(--dark-border);"><td style="padding:10px 22px;color:var(--dk-muted3);">floor price</td><td style="padding:10px 22px;text-align:right;color:var(--on-dark);">$0.001 / call</td></tr>
+          <tr style="border-top:1px solid var(--dark-border);"><td style="padding:10px 22px;color:var(--dk-muted3);">seller fee</td><td style="padding:10px 22px;text-align:right;color:var(--accent-lit);">0% deducted</td></tr>
+          <tr style="border-top:1px solid var(--dark-border);"><td style="padding:10px 22px;color:var(--dk-muted3);">failed calls</td><td style="padding:10px 22px;text-align:right;color:var(--on-dark);">never charged</td></tr>
+        </tbody></table>
+        <a href="https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 22px;border-top:1px solid var(--dark-border2);text-decoration:none;font-family:var(--font-mono);font-size:12px;color:var(--accent-lit);"><span>Verify Base settlements on Basescan ↗</span><span style="color:var(--dk-muted3);">0xaBF4…a9D0</span></a>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;margin-top:52px;border-top:1px dashed var(--dash);">
+      <div style="flex:1 1 150px;padding:18px 20px 18px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:22px;line-height:1;font-variant-numeric:tabular-nums;">${fmtNum(count)}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">tools indexed</div></div>
+      <div style="flex:1 1 150px;padding:18px 20px 18px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:22px;line-height:1;font-variant-numeric:tabular-nums;">${packCount}+</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">skill packs</div></div>
+      <div style="flex:1 1 150px;padding:18px 20px 18px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:22px;line-height:1;font-variant-numeric:tabular-nums;">${RAILS.length}</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">settlement rails</div></div>
+      <div style="flex:1 1 150px;padding:18px 20px 18px 0;margin-right:20px;border-right:1px dashed var(--dash);"><div style="font-family:var(--font-mono);font-weight:700;font-size:22px;line-height:1;font-variant-numeric:tabular-nums;">2</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">protocols · x402 + mpp</div></div>
+      <div style="flex:1 1 150px;padding:18px 0;"><div style="font-family:var(--font-mono);font-weight:700;font-size:22px;line-height:1;font-variant-numeric:tabular-nums;color:var(--accent);">0%</div><div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin-top:6px;">deducted from sellers</div></div>
+    </div>
+  </div>
+  <div style="border-top:1px solid var(--hairline);background:var(--footer-bg);overflow:hidden;padding:13px 0;">
+    <div class="hm-marquee-track" style="font-family:var(--font-mono);font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);">${marqueeSpan(false)}${marqueeSpan(true)}</div>
+  </div>
+</header>
+
+<section style="border-bottom:1.5px solid var(--ink);background:var(--footer-bg);">
+  <div style="max-width:1180px;margin:0 auto;padding:20px 30px;display:flex;align-items:center;justify-content:space-between;gap:20px 32px;flex-wrap:wrap;">
+    <p style="font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--dk-muted3);margin:0;">
+      <span style="color:var(--accent);letter-spacing:.12em;text-transform:uppercase;">Reading this as an agent?</span>
+      Start at <a href="/llms.txt" style="color:var(--on-dark);border-bottom:1px solid var(--accent);text-decoration:none;">llms.txt</a>, or resolve a task in one free call: <span style="color:var(--on-dark);">GET /api/find?q=</span>
+    </p>
+    <span style="display:flex;gap:8px 18px;flex-wrap:wrap;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
+      <a href="/openapi.json" style="color:var(--muted);text-decoration:none;">openapi.json</a>
+      <a href="/.well-known/x402" style="color:var(--muted);text-decoration:none;">.well-known/x402</a>
+      <a href="/api/pricing" style="color:var(--muted);text-decoration:none;">/api/pricing</a>
+      <a href="/mcp" style="color:var(--muted);text-decoration:none;">/mcp</a>
+    </span>
+  </div>
+</section>
+
+<section style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ claude mcp add agent402</div>
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
+    <h2 style="font-weight:800;font-size:42px;line-height:1;letter-spacing:-.025em;margin:0;color:var(--ink);">Watch an agent pay its way.</h2>
+    <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">402 → signed auth → verified → receipt</span>
+  </div>
+  <p style="font-size:16px;color:var(--muted);max-width:660px;margin:0 0 30px;">One round trip. The agent asks, the paywall quotes, the wallet signs, the response comes back with a receipt that settles on chain. No checkout, no key, no human in the loop.</p>
+  <div class="hm-2col" style="display:grid;grid-template-columns:1.25fr .75fr;gap:0;border:1.5px solid var(--ink);">
+    <div style="background:var(--surface);">
+      <div style="display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;color:var(--dk-muted);"><span style="color:var(--accent-lit);">●</span><span>claude code · agent402 mcp</span></div>
+      <pre style="margin:0;padding:22px 20px;font-family:var(--font-mono);font-size:12.5px;line-height:1.9;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--accent-lit);">❯</span> pull the latest 10-K risk factors for TSLA and summarise
+
+<span style="color:var(--dk-muted3);">⏺</span> agent402_find(q: "sec 10-K filing text")
+<span style="color:var(--faint);">  ⎿ edgar-filing-text · $0.004 · POST /api/edgar-filing-text</span>
+
+<span style="color:var(--dk-muted3);">⏺</span> agent402_call(edgar-filing-text, { cik: "TSLA", form: "10-K" })
+<span style="color:var(--faint);">  ⎿ HTTP/1.1 402 PAYMENT REQUIRED
+     WWW-Authenticate: Payment realm="agent402"
+  ⎿ signed EIP-3009 USDC authorization → facilitator
+  ⎿ verified · settled · Payment-Receipt: 0x8f2a…c41d</span>
+<span style="color:var(--accent-lit);">  ✓</span> <span style="color:var(--on-dark);">$0.004 settled on Base · 41 risk factors extracted</span>
+
+<span style="color:var(--dk-muted3);">⏺</span> agent402_call(answer, { q: "summarise these risk factors" })
+<span style="color:var(--accent-lit);">  ✓</span> <span style="color:var(--on-dark);">$0.010 settled · 6 themes, 12 citations</span>
+
+<span style="color:var(--faint);">total spend $0.014 · 2 calls · 0 API keys · 0 signups</span></pre>
+    </div>
+    <div style="background:var(--card);border-left:1.5px solid var(--ink);">
+      <div style="padding:20px;border-bottom:1px solid var(--hairline);">
+        <h3 style="font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px;">Same URL, either dialect</h3>
+        <p style="font-size:13.5px;line-height:1.55;color:var(--muted);margin:0;">The paywall answers x402 <em>and</em> MPP on the same route. An <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);">mppx</span> client gets a <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);">WWW-Authenticate: Payment</span> challenge; an <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);">@x402/fetch</span> client gets the x402 challenge. Same price, same facilitator, same receipt. The buyer's client picks.</p>
+      </div>
+      <div style="padding:20px;border-bottom:1px solid var(--hairline);">
+        <h3 style="font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px;">Add it in one line</h3>
+        <pre style="margin:0;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:12px;font-family:var(--font-mono);font-size:11px;line-height:1.7;white-space:pre-wrap;word-break:break-word;">claude mcp add --transport http \
+  agent402 https://agent402.tools/mcp</pre>
+      </div>
+      <div style="padding:20px;">
+        <h3 style="font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:0 0 10px;">No wallet? Still works</h3>
+        <p style="font-size:13.5px;line-height:1.55;color:var(--muted);margin:0;">Pure-CPU tools are payable in compute: a single-use, slug-scoped sha256 proof-of-work the MCP server solves for you in under a second.</p>
       </div>
     </div>
   </div>
+</section>
 
-  <!-- SETTLEMENT RAILS - chain logo strip -->
-  <div style="border-bottom:1.5px solid var(--ink);background:var(--paper);">
-    <div style="max-width:1180px;margin:0 auto;padding:0 30px;">
-      ${chainLogoStrip({ label: "Settles natively on twelve networks - USDC on eleven chains plus USDG on Robinhood" })}
+<section style="max-width:1180px;margin:0 auto;padding:70px 30px 0;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/pow/challenge?slug=hash</div>
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
+    <h2 style="font-weight:800;font-size:42px;line-height:1;letter-spacing:-.025em;margin:0;color:var(--ink);">Or pay with CPU instead.</h2>
+    <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">no wallet · no signup · runs in this tab</span>
+  </div>
+  <p style="font-size:16px;color:var(--muted);max-width:700px;margin:0 0 30px;">The pure-CPU tools are payable in compute: the server issues a signed sha256 puzzle, you burn a fraction of a second solving it, and the call is served free. This is not a diagram - press the button and your browser will fetch a real challenge from the live server, solve it here, and make a real paid call.</p>
+  <div class="hm-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
+    <div style="padding:26px;border-right:1.5px solid var(--ink);background:var(--card);">
+      <label for="hm-demo-in" style="display:block;font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;">Text to hash</label>
+      <input id="hm-demo-in" type="text" value="hello" placeholder="anything at all" style="width:100%;background:var(--paper);border:1.5px solid var(--hairline);color:var(--on-dark);font-family:var(--font-mono);font-size:14px;padding:13px 14px;margin-bottom:14px;outline:none;box-sizing:border-box;" />
+      <button type="button" id="hm-demo-run" style="background:var(--accent);color:#fff;border:none;font-family:var(--font-mono);font-weight:700;font-size:13.5px;padding:13px 20px;cursor:pointer;width:100%;">RUN IT FREE →</button>
+      <ol style="margin:20px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">
+        <li style="display:grid;grid-template-columns:22px 1fr;gap:12px;padding:13px 0;border-bottom:1px solid var(--hairline);"><span id="hm-step1-mark" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">·</span><span><span style="font-size:14px;color:var(--ink);font-weight:700;">Request a challenge</span><br><span id="hm-step1" style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">signed, single-use, scoped to one tool</span></span></li>
+        <li style="display:grid;grid-template-columns:22px 1fr;gap:12px;padding:13px 0;border-bottom:1px solid var(--hairline);"><span id="hm-step2-mark" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">·</span><span><span style="font-size:14px;color:var(--ink);font-weight:700;">Solve it in your browser</span><br><span id="hm-step2" style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">~65k hashes at 16 bits</span></span></li>
+        <li style="display:grid;grid-template-columns:22px 1fr;gap:12px;padding:13px 0;"><span id="hm-step3-mark" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">·</span><span><span style="font-size:14px;color:var(--ink);font-weight:700;">Call the tool, free</span><br><span id="hm-step3" style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">hash the challenge, submit the token</span></span></li>
+      </ol>
+    </div>
+    <div style="background:var(--footer-bg);display:flex;flex-direction:column;">
+      <div style="padding:14px 20px;border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);display:flex;justify-content:space-between;gap:12px;">
+        <span>POST /api/hash</span>
+        <span id="hm-demo-status" style="color:var(--faint);">idle</span>
+      </div>
+      <pre id="hm-demo-out" style="margin:0;padding:20px;font-family:var(--font-mono);font-size:12px;line-height:1.75;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;flex:1;"># the same three steps, from a shell:
+curl -s '/api/pow/challenge?slug=hash'
+# solve: sha256("&lt;challenge&gt;:" + nonce) with N leading zero bits
+curl -X POST /api/hash \
+  -H 'content-type: application/json' \
+  -H 'X-Pow-Solution: &lt;token&gt;:&lt;nonce&gt;' \
+  -d '{"text":"hello","algo":"sha256"}'</pre>
+      <div id="hm-demo-receipt" style="padding:14px 20px;border-top:1px solid var(--hairline);font-family:var(--font-mono);font-size:11.5px;color:var(--green);">no wallet needed · press Run to spend CPU instead</div>
     </div>
   </div>
+  <div style="margin-top:16px;display:flex;gap:20px;flex-wrap:wrap;font-family:var(--font-mono);font-size:13px;">
+    <a href="/playground" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">try every free tool in the playground →</a>
+    <a href="/guides/x402-in-5-minutes" style="color:var(--muted);text-decoration:none;">how the free tier works →</a>
+  </div>
+</section>
 
-  <!-- TRY FIRST - flagship jobs before skill packs -->
-  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 0;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/search · /api/answer</div>
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">Start with search and answer.</h2>
-      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">flagship MCP tools · pay per call</span>
+<section id="sell" style="max-width:1180px;margin:0 auto;padding:70px 30px 0;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/index/register</div>
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
+    <h2 style="font-weight:800;font-size:42px;line-height:1;letter-spacing:-.025em;margin:0;color:var(--ink);">Sell into the agent economy.</h2>
+    <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">free listing · nothing deducted · non-custodial</span>
+  </div>
+  <p style="font-size:16.5px;color:var(--muted);max-width:680px;margin:0 0 34px;">Agents are already buying, and they cannot fill in a signup form. If you run an API - or a site AI crawlers keep scraping for free - the same rails that let them buy let you charge. Money moves buyer wallet → your wallet. Nothing sits in between.</p>
+  <div class="hm-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);margin-bottom:20px;">
+    <div style="padding:26px;border-right:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column;">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">01 / LIST AN x402 API</div>
+      <h3 style="font-weight:800;font-size:22px;margin:0 0 12px;color:var(--ink);">Get routed by the Smart Order Router</h3>
+      <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">Serve x402 challenges, register your origin, and the index crawler picks you up hourly. You get ranked next to ${fmtNum(count)} of our own tools by match score, then health, then price - and a public leaderboard row once your on-chain volume shows up.</p>
+      <pre style="margin:0 0 18px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># we probe, you appear - no signup
+</span>curl -X POST https://agent402.tools/api/index/register \
+  -H 'content-type: application/json' \
+  -d '{"origin":"https://api.you.com"}'</pre>
+      <a class="ml-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:12px 18px;align-self:flex-start;">LIST YOUR API →</a>
     </div>
-    <p style="font-size:16px;color:var(--muted);max-width:640px;margin:0 0 28px;">The jobs agents already buy in a loop. Connect the MCP URL, then ask Claude to search the web or answer with citations. The rest of the 500+ catalog is one find away.</p>
-    <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
-      <a href="/tools/search" style="padding:22px;border-right:1.5px solid var(--ink);background:var(--card);text-decoration:none;color:var(--ink);display:flex;flex-direction:column;gap:10px;">
-        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">01 / SEARCH</div>
-        <div style="font-weight:800;font-size:18px;">Live web search</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0;flex:1;">Ranked results with title, URL, snippet. MCP name <span style="font-family:var(--font-mono);font-size:12.5px;">search_web</span> · HTTP <span style="font-family:var(--font-mono);font-size:12.5px;">POST /api/search</span>.</p>
-        <span style="font-family:var(--font-mono);font-size:12.5px;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">try search →</span>
-      </a>
-      <a href="/tools/answer" style="padding:22px;background:var(--card);text-decoration:none;color:var(--ink);display:flex;flex-direction:column;gap:10px;">
-        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">02 / ANSWER</div>
-        <div style="font-weight:800;font-size:18px;">Cited answers</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0;flex:1;">A grounded answer from live search, with sources. MCP name <span style="font-family:var(--font-mono);font-size:12.5px;">answer_question</span> · HTTP <span style="font-family:var(--font-mono);font-size:12.5px;">POST /api/answer</span>.</p>
-        <span style="font-family:var(--font-mono);font-size:12.5px;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">try answer →</span>
-      </a>
-    </div>
-  </section>
-
-  <!-- THE PRODUCT - SKILL PACKS -->
-  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 0;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/skill/{slug}</div>
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">Or run a whole job in one payment.</h2>
-      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">${packCount} packs · $0.05–$1.50 · partial-success per step</span>
-    </div>
-    <p style="font-size:16px;color:var(--muted);max-width:620px;margin:0 0 30px;">Skill packs orchestrate the right tools server-side and return every step in one envelope. Useful after search/answer - not the first thing to try.</p>
-    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
-      ${FLAGSHIP_PACKS.map((slug) => {
-        const p = (skillPacks || []).find((x) => x.slug === slug);
-        if (!p) return "";
-        const price = PACK_PRICES[slug] ?? 0.05;
-        const tag = p.tagline.length > 150 ? p.tagline.slice(0, 147) + "…" : p.tagline;
-        return `<a href="/skills/${p.slug}" style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;text-decoration:none;color:var(--ink);display:flex;flex-direction:column;gap:10px;">
-        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;"><span style="font-weight:800;font-size:16px;">${esc(p.title)}</span><span style="font-family:var(--font-mono);font-weight:700;font-size:13px;color:var(--accent);white-space:nowrap;">$${price.toFixed(2)}</span></div>
-        <span style="font-size:13.5px;line-height:1.5;color:var(--muted);flex:1;">${esc(tag)}</span>
-        <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">${p.toolSlugs.length} tools · POST /api/skill/${p.slug} →</span>
-      </a>`;
-      }).join("\n      ")}
-    </div>
-    <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;"><a href="/skills" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">browse all ${packCount} skill packs →</a></div>
-  </section>
-
-  <!-- LLM GATEWAY -->
-  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 0;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /v1/chat/completions</div>
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">Or skip the API key entirely.</h2>
-      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">openai-compatible · claude · gpt · gemini · grok</span>
-    </div>
-    <p style="font-size:16px;color:var(--muted);max-width:640px;margin:0 0 28px;">An OpenAI-compatible gateway to the major model families. Point any OpenAI SDK's <span style="font-family:var(--font-mono);font-size:14px;">base_url</span> at <span style="font-family:var(--font-mono);font-size:14px;">https://agent402.tools/v1</span> and pay per call in USDC - no account, no billing dashboard, no key to leak or rotate.</p>
-    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px solid var(--ink);">
-      ${gatewayTools.map((t, i) => {
-        const copy = GATEWAY_TIER_COPY[t.slug] || {};
-        return `<a href="/tools/${t.slug}" style="padding:20px 18px;${i < gatewayTools.length - 1 ? "border-right:1.5px solid var(--ink);" : ""}background:var(--card);text-decoration:none;color:var(--ink);display:flex;flex-direction:column;gap:8px;">
-        <div style="font-family:var(--font-mono);font-weight:700;font-size:17px;color:var(--accent);">${esc(t.price)}</div>
-        <div style="font-weight:800;font-size:14.5px;">${esc(copy.label || t.name)}</div>
-        <p style="font-size:12.5px;line-height:1.5;color:var(--muted);margin:0;flex:1;">${esc(copy.models || "")}</p>
-      </a>`;
-      }).join("\n      ")}
-    </div>
-    <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;color:var(--muted);">+ ${esc(embeddingsTool?.price || "$0.002")} embeddings · ${esc(imagesTool?.price || "$0.08")} image generation · ${esc(speechTool?.price || "$0.06")} text-to-speech <a href="/docs" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;margin-left:6px;">gateway docs →</a></div>
-  </section>
-
-  <!-- THREE WAYS IN -->
-  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 18px;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /connect</div>
-    <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Three ways in.</h2>
-    <p style="font-size:16px;color:var(--muted);max-width:540px;margin:0 0 36px;">Same surface underneath - payment handled automatically: proof-of-work for free tools, your x402 wallet for paid.</p>
-    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1.5px solid var(--ink);">
-      <div style="padding:22px;border-right:1.5px solid var(--ink);display:flex;flex-direction:column;background:var(--card);">
-        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">01 / YOUR AGENT</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Pay in code with any x402 client - <span style="font-family:var(--font-mono);font-size:12.5px;">@x402/fetch</span>, axios, or your framework.</p>
-        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);">// signs USDC, retries on 402
-</span>await payFetch(
-  "…/api/extract", { url })</pre>
-        <a href="/docs" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">read the docs →</a>
-      </div>
-      <div style="padding:22px;border-right:1.5px solid var(--ink);display:flex;flex-direction:column;background:var(--card);">
-        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">02 / CLAUDE · MCP</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Paste the hosted connector URL - zero install. Flagship search/answer first; pure-CPU tools run free.</p>
-        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># Settings → Connectors / Cursor mcp.json
-</span>https://agent402.tools/mcp</pre>
-        <a href="/docs" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">add connector →</a>
-      </div>
-      <div style="padding:22px;display:flex;flex-direction:column;background:var(--card);">
-        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">03 / YOUR CODE</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">The <span style="font-family:var(--font-mono);font-size:12.5px;">agent402-client</span> SDK resolves a task to a tool and pays automatically.</p>
-        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);">// free tier, zero deps
-</span>await a.call("hash",
-  { text, algo:"sha256" })</pre>
-        <a href="/docs" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">install the SDK →</a>
-      </div>
-    </div>
-    <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:14px;">+ zero-dep adapters: openai · anthropic · langchain · llamaindex · vercel-ai · google-adk · aws-strands</div>
-    <div style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:12px;">Also on <a href="https://smithery.ai/servers/mike-kq9d/agent402" rel="noopener" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">Smithery</a> · install from the registry or paste <span style="color:var(--ink);">https://agent402.tools/mcp</span></div>
-  </section>
-
-  <!-- CATALOG INDEX -->
-  <section style="max-width:1180px;margin:0 auto;padding:52px 30px 18px;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /catalog</div>
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">The index - ${fmtNum(count)} tools.</h2>
-      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">deterministic · flat-priced · no LLM in the path</span>
-    </div>
-    <p style="font-size:16px;color:var(--muted);max-width:640px;margin:0 0 28px;">${fmtNum(toolOnlyCount)} tools + ${packCount} skill packs, each tested against its own example on every deploy and priced to market. It grows only when a tool is worth calling.</p>
-    <div style="border:1.5px solid var(--ink);background:var(--card);">
-      <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;">
-        <div style="border-right:1.5px solid var(--ink);">
-          ${leftCats.map((c, i) => catRow(c, i === leftCats.length - 1)).join("\n          ")}
-        </div>
-        <div>
-          ${rightCats.map((c, i) => catRow(c, false)).join("\n          ")}
-          <a href="/tools" style="display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:14px 18px;text-decoration:none;color:var(--ink);background:var(--surface);"><span style="font-family:var(--font-mono);font-weight:700;font-size:14px;color:var(--on-dark);">Browse all ${fmtNum(count)} tools →</span><span style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);">+${packCount} skill packs</span></a>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- NEUTRAL LAYER / LEADERBOARD -->
-  <section style="background:var(--surface);--accent:var(--accent-lit);margin-top:70px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
-    <div style="max-width:1180px;margin:0 auto;padding:54px 30px;">
-      <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/leaderboard</div>
-      <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1.1fr;gap:50px;align-items:center;">
-        <div>
-          <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 16px;color:var(--on-dark2);">Not just a seller -<br>the neutral index.</h2>
-          <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;">An open index and Smart Order Router, ranked by <strong style="color:var(--on-dark2);font-weight:700;">real on-chain USDC volume</strong>. Route a task across every x402 seller, not just ours.</p>
-          <div style="display:flex;gap:20px;flex-wrap:wrap;font-family:var(--font-mono);font-size:13px;">
-            <a href="/marketplace" style="color:var(--accent);text-decoration:none;">Explore the marketplace →</a>
-            <a href="/marketplace/tools" style="color:var(--accent);text-decoration:none;margin-left:18px;">Every tool indexed, ours and theirs →</a>
-          </div>
-        </div>
-        <div style="border:1.5px solid var(--dark-border2);background:var(--ink-panel);">
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);">
-            <span style="font-size:11px;color:var(--dk-muted2);letter-spacing:.06em;">SELLERS · BY USDC SETTLED</span>
-            <span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;animation:ml-pulse 1.8s ease-in-out infinite;"></span>LIVE</span>
-          </div>
-          <div style="font-family:var(--font-mono);font-size:12.5px;">
-            <div style="display:grid;grid-template-columns:26px 1fr 86px 56px;gap:10px;padding:9px 18px;color:var(--dk-muted3);border-bottom:1px solid var(--dark-border);"><span>#</span><span>seller</span><span style="text-align:right;">usdc</span><span style="text-align:right;">buyers</span></div>
-            ${top5.map((r, i) => lbRow(r, i)).join("\n            ")}
-          </div>
-          <div style="padding:10px 18px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);">hourly on-chain snapshot · ?include=external</div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- SELL BAND -->
-  <section id="sell" style="max-width:1180px;margin:0 auto;padding:54px 30px 0;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /sell</div>
-    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:12px;">
-      <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--ink);">The other side of the ledger.</h2>
-      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">no signup · non-custodial · your wallet, your funds</span>
-    </div>
-    <p style="font-size:16px;color:var(--muted);max-width:620px;margin:0 0 30px;">Agents are buying. If you run an API - or a site AI crawlers keep hitting - the same rails pay you.</p>
-    <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
-      <div style="padding:22px;border-right:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column;">
-        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">01 / LIST YOUR API</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Serve x402 challenges and list it on /sell (free) and the index crawler picks it up - free, health-ranked, routed by the Smart Order Router next to ${fmtNum(count)} of our own tools.</p>
-        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># we probe, you appear
-</span>POST /api/index/register
-  { "origin": "https://api.you.com" }</pre>
-        <a href="/sell" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">list your API →</a>
-      </div>
-      <div style="padding:22px;background:var(--card);display:flex;flex-direction:column;">
-        <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">02 / TOLLBOOTH YOUR SITE</div>
-        <p style="font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 16px;flex:1;">Humans browse free; known AI crawlers get 402 and pay in USDC - or solve proof-of-work. Express, edge, proxy, or WordPress. MIT, no CDN lock-in.</p>
-        <pre style="margin:0 0 14px;background:var(--surface);color:var(--on-dark);padding:13px;font-family:var(--font-mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># one middleware
+    <div style="padding:26px;background:var(--card);display:flex;flex-direction:column;">
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">02 / TOLLBOOTH A SITE</div>
+      <h3 style="font-weight:800;font-size:22px;margin:0 0 12px;color:var(--ink);">Charge AI crawlers per page</h3>
+      <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">Humans browse free; known bots get <span style="font-family:var(--font-mono);font-size:13px;color:var(--ink);">402 Payment Required</span> and either pay in USDC or solve a proof-of-work. The open, crypto-native answer to closed pay-per-crawl: no CDN lock-in, no merchant-of-record, no signup.</p>
+      <pre style="margin:0 0 18px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># express · next.js · cloudflare · proxy · wordpress
 </span>npm i agent402-tollbooth</pre>
-        <a href="/tollbooth" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);align-self:flex-start;padding-bottom:1px;">gate your crawlers →</a>
+      <a class="ml-cta" href="/tollbooth" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">GATE YOUR CRAWLERS →</a>
+    </div>
+  </div>
+
+  <table style="font-family:var(--font-mono);font-size:13px;border:1.5px solid var(--ink);background:var(--card);">
+    <caption style="text-align:left;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:0 0 10px;">What a seller gets</caption>
+    <tbody>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);width:230px;">Listing fee</th><td style="padding:13px 18px;color:var(--muted);">None. Self-serve registration, no account, no review queue.</td><td style="padding:13px 18px;text-align:right;color:var(--accent);white-space:nowrap;">$0</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Commission</th><td style="padding:13px 18px;color:var(--muted);">Nothing is deducted from your price. Buyers pay your wallet directly and Agent402 never holds seller funds.</td><td style="padding:13px 18px;text-align:right;color:var(--accent);white-space:nowrap;">0%</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Routing</th><td style="padding:13px 18px;color:var(--muted);">Ranked by match, then rolling crawl health, then price. New sellers get the benefit of the doubt.</td><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">health-aware</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Discovery</th><td style="padding:13px 18px;color:var(--muted);">Marketplace page, per-chain market page, <span style="color:var(--ink);">/api/route</span>, and the on-chain leaderboard.</td><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">4 surfaces</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">How Agent402 earns</th><td style="padding:13px 18px;color:var(--muted);">On the buyer side only: when a buyer asks the router to execute a call for them, they pay a flat routing fee and we pay you your full price out of it. Buyers who find you and pay you directly cost you nothing.</td><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">buyer-side</td></tr>
+      <tr><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Cross-chain buyers</th><td style="padding:13px 18px;color:var(--muted);">The router pays you on the chain the buyer paid on and relays the result.</td><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">Base · Algorand</td></tr>
+    </tbody>
+  </table>
+  <p style="font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--dk-muted3);margin:14px 0 0;"><strong style="color:var(--on-dark);font-weight:700;">${fmtNum(viaRouter)}</strong> of ${fmtNum(viaUsdc)} paid calls (${esc(routerPct)}) came through the router, which is the only path Agent402 earns on. Every other paid call went buyer wallet to seller wallet.</p>
+  <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;"><a href="/sell" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">everything for sellers → /sell</a></div>
+</section>
+
+<section style="background:var(--surface);margin-top:70px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
+  <div style="max-width:1180px;margin:0 auto;padding:60px 30px;">
+    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/leaderboard?include=external</div>
+    <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
+      <h2 style="font-weight:800;font-size:42px;line-height:1;letter-spacing:-.025em;margin:0;color:var(--on-dark);">The index, not just a seller.</h2>
+      <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--dk-muted3);">hourly on-chain snapshot · Bazaar → eth_getLogs → aggregate by payTo</span>
+    </div>
+    <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);max-width:700px;margin:0 0 34px;">Every x402 seller we can crawl, ranked by <strong style="color:var(--on-dark);font-weight:700;">real Base USDC settled volume</strong> - not self-reported traffic. <span style="font-family:var(--font-mono);font-size:14px;color:var(--on-dark);">include=external</span> excludes us from our own ranking, because a neutral index has to be checkable.</p>
+
+    <div style="border:1.5px solid var(--dark-border2);background:var(--card);">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);">
+        <span style="font-size:11px;color:var(--dk-muted2);letter-spacing:.1em;">OTHER SELLERS · BY USDC SETTLED · 7d</span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--accent-lit);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent-lit);display:inline-block;animation:ml-pulse 1.8s ease-in-out infinite;"></span>LIVE</span>
+      </div>
+      <table style="font-family:var(--font-mono);font-size:12.5px;">
+        <thead><tr style="border-bottom:1px solid var(--dark-border);color:var(--dk-muted3);"><th scope="col" style="text-align:left;font-weight:400;padding:9px 18px;width:34px;">#</th><th scope="col" style="text-align:left;font-weight:400;padding:9px 18px;">seller</th><th scope="col" style="text-align:right;font-weight:400;padding:9px 18px;">usdc settled</th><th scope="col" style="text-align:right;font-weight:400;padding:9px 18px;">calls</th><th scope="col" style="text-align:right;font-weight:400;padding:9px 18px;">buyers</th></tr></thead>
+        <tbody>${leaderboardRowsHtml}</tbody>
+      </table>
+      <div style="padding:11px 18px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted3);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;"><span>Agent402 excluded · hourly snapshot</span><a href="/leaderboard" style="color:var(--accent-lit);text-decoration:none;">full leaderboard →</a></div>
+    </div>
+
+    <div style="margin-top:30px;border-top:1px dashed var(--dash);padding-top:24px;">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;">
+        <h3 style="font-weight:800;font-size:22px;margin:0;color:var(--on-dark);">Settled on every rail, not just Base.</h3>
+        <span style="font-family:var(--font-mono);font-size:12px;color:var(--dk-muted3);">calls settled per rail · live from /api/stats</span>
+      </div>
+      <p style="font-size:15px;line-height:1.6;color:var(--dk-muted2);max-width:700px;margin:0 0 20px;">All twelve rails carry real settled traffic, not just the headline one. Buyers pay on the chain they already hold stablecoins on, gas is sponsored on EVM, and the router pays external sellers on that same chain.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:0;border:1.5px solid var(--dark-border2);">${railRowsHtml}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px 26px;margin-top:16px;font-family:var(--font-mono);font-size:12.5px;color:var(--dk-muted3);">
+        <span><strong style="color:var(--on-dark);font-weight:700;">${fmtNum(attributed)}</strong> of ${fmtNum(viaUsdc)} paid calls carry a per-rail tag</span>
+        <span><strong style="color:var(--accent-lit);font-weight:700;">${fmtNum(mppWire)}</strong> settled over the MPP wire</span>
+        <a href="/what-is-x402" style="color:var(--accent-lit);text-decoration:none;">how the dual stack works →</a>
       </div>
     </div>
-    <div style="margin-top:16px;font-family:var(--font-mono);font-size:13px;"><a href="/sell" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">everything for sellers → /sell</a></div>
-  </section>
+  </div>
+</section>
 
-  <!-- PROOF -->
-  <section style="max-width:1180px;margin:0 auto;padding:54px 30px 18px;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /verify</div>
-    <h2 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Every claim, checkable.</h2>
-    <p style="font-size:16px;color:var(--muted);max-width:580px;margin:0 0 32px;">No sales calls, no contracts. Deterministic outputs, flat prices, a named maintainer, fully open source - asserted by nobody, verifiable by anybody.</p>
-    <div style="border:1.5px solid var(--ink);background:var(--card);">
-      <div class="ml-proof-row" style="display:grid;grid-template-columns:200px 1fr auto;gap:16px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--hairline);"><div style="display:flex;gap:9px;align-items:center;"><span style="color:var(--accent);font-weight:700;font-family:var(--font-mono);">✓</span><span style="font-weight:700;font-size:15px;">Live status</span></div><span style="font-size:13.5px;color:var(--muted);">Independent observers record api, catalog, MCP, and paywall health - not a self-reported uptime badge.</span><a href="/status" style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink);background:var(--card-zebra);padding:4px 8px;text-decoration:none;">/status</a></div>
-      <div class="ml-proof-row" style="display:grid;grid-template-columns:200px 1fr auto;gap:16px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--hairline);"><div style="display:flex;gap:9px;align-items:center;"><span style="color:var(--accent);font-weight:700;font-family:var(--font-mono);">✓</span><span style="font-weight:700;font-size:15px;">On-chain settlements</span></div><span style="font-size:13.5px;color:var(--muted);">Every paid call lands at agent402.base.eth on Base USDC - verifiable on Basescan. Failed calls are never charged.</span><code style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink);background:var(--card-zebra);padding:4px 8px;">0xaBF4…a9D0</code></div>
-      <div class="ml-proof-row" style="display:grid;grid-template-columns:200px 1fr auto;gap:16px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--hairline);"><div style="display:flex;gap:9px;align-items:center;"><span style="color:var(--accent);font-weight:700;font-family:var(--font-mono);">✓</span><span style="font-weight:700;font-size:15px;">Open source</span></div><span style="font-size:13.5px;color:var(--muted);">Read every line that serves and prices your call. Self-host the whole thing free.</span><code style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink);background:var(--card-zebra);padding:4px 8px;">github.com/…/Agent402</code></div>
-      <div class="ml-proof-row" style="display:grid;grid-template-columns:200px 1fr auto;gap:16px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--hairline);"><div style="display:flex;gap:9px;align-items:center;"><span style="color:var(--accent);font-weight:700;font-family:var(--font-mono);">✓</span><span style="font-weight:700;font-size:15px;">Deterministic</span></div><span style="font-size:13.5px;color:var(--muted);">No LLM in the deterministic tool path. Same input, same bytes - no token spend. (/v1 is a separate, opt-in LLM gateway.)</span><code style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink);background:var(--card-zebra);padding:4px 8px;">re-tested per deploy</code></div>
-      <div class="ml-proof-row" style="display:grid;grid-template-columns:200px 1fr auto;gap:16px;align-items:center;padding:16px 20px;border-bottom:1px solid var(--hairline);"><div style="display:flex;gap:9px;align-items:center;"><span style="color:var(--accent);font-weight:700;font-family:var(--font-mono);">✓</span><span style="font-weight:700;font-size:15px;">Reliability</span></div><span style="font-size:13.5px;color:var(--muted);">Machine-readable reliability report, paid canaries, and a refund ledger when a charged call fails to deliver.</span><a href="/api/reliability" style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink);background:var(--card-zebra);padding:4px 8px;text-decoration:none;">/api/reliability</a></div>
-      <div class="ml-proof-row" style="display:grid;grid-template-columns:200px 1fr auto;gap:16px;align-items:center;padding:16px 20px;"><div style="display:flex;gap:9px;align-items:center;"><span style="color:var(--accent);font-weight:700;font-family:var(--font-mono);">✓</span><span style="font-weight:700;font-size:15px;">Self-describing</span></div><span style="font-size:13.5px;color:var(--muted);">Full OpenAPI 3.1 spec and machine-readable pricing for the entire catalog.</span><code style="font-family:var(--font-mono);font-size:11.5px;color:var(--ink);background:var(--card-zebra);padding:4px 8px;">GET /openapi.json</code></div>
-    </div>
-  </section>
+<section style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/bestsellers · $0.005</div>
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:14px;">
+    <h2 style="font-weight:800;font-size:42px;line-height:1;letter-spacing:-.025em;margin:0;color:var(--ink);">What agents actually pay for.</h2>
+    <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">lanes shown · figures are a paid read</span>
+  </div>
+  <p style="font-size:16px;color:var(--muted);max-width:700px;margin:0 0 26px;">Settlements are on chain, but <em style="color:var(--on-dark2);">which tool an agent bought</em> is not - so this is the one demand signal no block explorer can reconstruct. Here are the lanes agents spend most in. The full per-tool ranking is itself a paid tool.</p>
+  <div style="display:grid;grid-template-columns:minmax(0,1fr);gap:0;border:1.5px solid var(--ink);">
+    ${demandLanesHtml}
+    <a href="/tools/bestsellers" style="display:grid;grid-template-columns:28px 1fr auto;gap:14px;align-items:center;padding:16px 18px;text-decoration:none;background:var(--footer-bg);">
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">·</span>
+      <span style="font-family:var(--font-mono);font-size:13px;color:var(--muted);">the full ranking, plus buyer-diversity, revenue and trend lenses</span>
+      <span style="font-family:var(--font-mono);font-size:13px;color:var(--accent-lit);white-space:nowrap;">$0.005 →</span>
+    </a>
+  </div>
+  <div style="display:flex;gap:20px;flex-wrap:wrap;margin-top:16px;font-family:var(--font-mono);font-size:13px;">
+    <a href="/sell" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">list an API in one of these lanes →</a>
+    <a href="/tools" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">all ${fmtNum(count)} tools →</a>
+    <a href="/pricing" style="color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">price list →</a>
+  </div>
+</section>
 
-  <!-- FAQ -->
-  <section style="max-width:860px;margin:0 auto;padding:52px 30px 26px;">
-    <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /faq</div>
-    <h2 style="font-family:var(--font-body);font-weight:800;font-size:40px;line-height:1;letter-spacing:-.02em;margin:0 0 28px;color:var(--ink);">Questions.</h2>
-    <div style="display:flex;flex-direction:column;">
-      ${homeFaqs.map(({ q, a }, i) => `<details${i === 0 ? " open" : ""} style="padding:0;border-top:${i === 0 ? "1.5px solid var(--ink)" : "1px solid var(--hairline)"};${i === homeFaqs.length - 1 ? "border-bottom:1.5px solid var(--ink);" : ""}"><summary style="list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 0;font-size:16px;font-weight:700;color:var(--ink);"><span>${esc(q)}</span><span class="ml-faq-mark" style="font-family:var(--font-mono);font-weight:400;font-size:20px;color:var(--accent);line-height:1;flex:none;">+</span></summary><p style="font-size:15px;line-height:1.55;color:var(--muted);margin:0;padding:0 0 20px;">${esc(a)}</p></details>`).join("\n      ")}
-    </div>
-    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:18px 0 0;">More questions, including pricing, data handling and the OpenAI-compatible endpoint: <a href="/faq" style="color:var(--accent);font-weight:700;">/faq</a></p>
-    <style>section details > summary::-webkit-details-marker{display:none;} section details[open] .ml-faq-mark{transform:rotate(45deg);} .ml-faq-mark{transition:transform .15s ease;display:inline-block;}</style>
-  </section>
+<section style="max-width:900px;margin:0 auto;padding:70px 30px 20px;">
+  <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /faq</div>
+  <h2 style="font-weight:800;font-size:40px;line-height:1;letter-spacing:-.025em;margin:0 0 32px;color:var(--ink);">Questions people and agents ask.</h2>
+  <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+  <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:20px 0 0;">More, including data handling and the OpenAI-compatible gateway: <a href="/faq" style="color:var(--accent);font-weight:700;">/faq</a></p>
+  <style>section details > summary::-webkit-details-marker{display:none;} section details[open] .ml-faq-mark{transform:rotate(45deg);} .ml-faq-mark{transition:transform .15s ease;display:inline-block;}</style>
+</section>
 
-  <!-- CTA -->
-  <section style="max-width:1180px;margin:0 auto;padding:18px 30px 46px;">
-    <div style="background:var(--surface);padding:52px 44px;position:relative;overflow:hidden;">
-      <div style="position:absolute;right:24px;top:-30px;font-family:var(--font-body);font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff12;pointer-events:none;">402</div>
-      <div style="position:relative;">
-        <h2 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 14px;color:var(--on-dark2);">No signup. No API keys.<br>Just pay-per-call.</h2>
-        <p style="font-size:16px;color:var(--dk-muted2);margin:0 0 26px;max-width:460px;">Add ${fmtNum(count)} tools to your agent in 60 seconds. Free tier, no wallet - settle in USDC when you scale.</p>
-        <div style="display:flex;gap:11px;flex-wrap:wrap;">
-          <a href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">ADD TO CLAUDE →</a>
-          <a href="/playground" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">TRY PLAYGROUND</a>
-        </div>
+<section style="max-width:1180px;margin:0 auto;padding:30px 30px 56px;">
+  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:56px 46px;position:relative;overflow:hidden;">
+    <div style="position:absolute;right:26px;top:-36px;font-weight:900;font-size:240px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
+    <div style="position:relative;">
+      <h2 style="font-weight:800;font-size:40px;line-height:1;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Not x402-native yet?<br>You still have a way in.</h2>
+      <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 30px;max-width:560px;">You do not have to rebuild anything. <strong style="color:var(--on-dark);font-weight:700;">agent402-tollbooth</strong> drops a pay-per-crawl gate in front of a site that speaks no protocol at all, and adding a tool to the catalog itself is roughly fifteen lines. Either route, you keep your own paywall and your own wallet.</p>
+      <div style="display:flex;gap:11px;flex-wrap:wrap;">
+        <a class="ml-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">LIST YOUR API - FREE →</a>
+        <a class="ml-cta" href="/tollbooth" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">TOLLBOOTH A SITE</a>
+        <a class="ml-cta" href="/contribute" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--dk-muted);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">CONTRIBUTE A TOOL</a>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  ${ledgerFooterFull()}`;
+${ledgerFooterFull()}
 
-  return ledgerShell({ title, description, canonical, baseUrl, activePath: "", jsonLd, body });
+<script>
+(function() {
+  // --- live counter + rails/leaderboard poll (seeds from server-rendered
+  // values above so the number is real and SEO-visible even with JS off;
+  // polling every 30s is a pure enhancement on top). ---
+  var counterEl = document.getElementById('hm-counter');
+  var counterEmptyEl = document.getElementById('hm-counter-empty');
+  var freePowEl = document.getElementById('hm-freepow');
+  var shownN = ${viaUsdc};
+  function animateTo(target, dur) {
+    var from = shownN, t0 = performance.now();
+    function step(t) {
+      var p = Math.min(1, (t - t0) / dur);
+      var eased = 1 - Math.pow(1 - p, 3);
+      var n = Math.round(from + (target - from) * eased);
+      counterEl.textContent = n.toLocaleString('en-US');
+      if (n > 0) { counterEl.style.display = ''; counterEmptyEl.style.display = 'none'; }
+      if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  function pollStats() {
+    fetch('/api/stats', { headers: { accept: 'application/json' } }).then(function(r) { return r.ok ? r.json() : null; }).then(function(j) {
+      if (!j || !j.toolCallsServed) return;
+      var paid = Number(j.toolCallsServed.viaUSDC) || 0;
+      var pow = Number(j.toolCallsServed.viaProofOfWork) || 0;
+      if (freePowEl) freePowEl.textContent = pow.toLocaleString('en-US');
+      if (paid && paid !== shownN) { animateTo(paid, shownN ? 1000 : 1500); shownN = paid; }
+    }).catch(function() {});
+  }
+  setInterval(pollStats, 30000);
+
+  // --- real, live proof-of-work demo: fetch a real challenge, solve it in
+  // this tab, submit it, exactly matching src/pow.js's own semantics
+  // (hash the "challenge" field, submit the "token" field). ---
+  var input = document.getElementById('hm-demo-in');
+  var runBtn = document.getElementById('hm-demo-run');
+  var statusEl = document.getElementById('hm-demo-status');
+  var outEl = document.getElementById('hm-demo-out');
+  var receiptEl = document.getElementById('hm-demo-receipt');
+  var step1 = document.getElementById('hm-step1'), step1m = document.getElementById('hm-step1-mark');
+  var step2 = document.getElementById('hm-step2'), step2m = document.getElementById('hm-step2-mark');
+  var step3 = document.getElementById('hm-step3'), step3m = document.getElementById('hm-step3-mark');
+  var busy = false;
+
+  function lzOf(buf) {
+    var bits = 0, arr = new Uint8Array(buf);
+    for (var i = 0; i < arr.length; i++) {
+      if (arr[i] === 0) { bits += 8; continue; }
+      bits += Math.clz32(arr[i]) - 24;
+      break;
+    }
+    return bits;
+  }
+
+  runBtn.addEventListener('click', function() {
+    if (busy) return;
+    var text = (input.value || 'hello').slice(0, 200);
+    busy = true;
+    runBtn.textContent = 'WORKING…';
+    statusEl.textContent = 'challenge';
+    outEl.textContent = 'requesting a signed challenge…';
+    receiptEl.textContent = 'waiting on the live server';
+    step1m.textContent = '·'; step2m.textContent = '·'; step3m.textContent = '·';
+
+    fetch('/api/pow/challenge?slug=hash', { headers: { accept: 'application/json' } })
+      .then(function(r) { if (!r.ok) throw new Error('challenge returned ' + r.status); return r.json(); })
+      .then(function(c) {
+        if (!c || !c.challenge || !c.token) throw new Error('challenge response missing challenge/token');
+        statusEl.textContent = c.difficulty + '-bit puzzle';
+        step1m.textContent = '✓';
+        step1.textContent = c.difficulty + '-bit sha256 puzzle issued';
+        outEl.textContent = 'solving…';
+
+        var t0 = performance.now();
+        var enc = new TextEncoder();
+        var BATCH = 512, CAP = 4000000, base = 0, nonce = null;
+
+        function solveBatch() {
+          var jobs = [];
+          for (var i = 0; i < BATCH; i++) jobs.push(crypto.subtle.digest('SHA-256', enc.encode(c.challenge + ':' + (base + i))));
+          return Promise.all(jobs).then(function(digests) {
+            for (var i = 0; i < BATCH; i++) {
+              if (lzOf(digests[i]) >= c.difficulty) { nonce = base + i; return; }
+            }
+            base += BATCH;
+            outEl.textContent = 'solving… ' + base.toLocaleString('en-US') + ' hashes tried';
+            step2.textContent = base.toLocaleString('en-US') + ' hashes…';
+            if (base > CAP) throw new Error('gave up after 4M hashes');
+            return solveBatch();
+          });
+        }
+
+        return solveBatch().then(function() {
+          var ms = Math.round(performance.now() - t0);
+          step2m.textContent = '✓';
+          step2.textContent = 'nonce ' + nonce.toLocaleString('en-US') + ' found in ' + ms + 'ms';
+          statusEl.textContent = 'X-Pow-Solution sent';
+          outEl.textContent = 'solution accepted locally - calling the tool…';
+          receiptEl.textContent = 'solved in ' + ms + 'ms';
+          return fetch('/api/hash', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'X-Pow-Solution': c.token + ':' + nonce },
+            body: JSON.stringify({ text: text, algo: 'sha256' }),
+          }).then(function(rr) {
+            return rr.text().then(function(body) {
+              if (!rr.ok) throw new Error('tool returned ' + rr.status + ' - ' + body.slice(0, 160));
+              var out = body;
+              try { out = JSON.stringify(JSON.parse(body), null, 2); } catch (e) {}
+              step3m.textContent = '✓';
+              step3.textContent = 'served free - no payment, no key';
+              statusEl.textContent = '200 OK';
+              outEl.textContent = out;
+              receiptEl.textContent = 'paid with ' + (nonce + 1).toLocaleString('en-US') + ' hashes · ' + ms + 'ms of your CPU · $0.00 · nonce ' + nonce.toLocaleString('en-US');
+            });
+          });
+        });
+      })
+      .catch(function(e) {
+        statusEl.textContent = 'error';
+        outEl.textContent = "couldn't complete the live call: " + (e && e.message ? e.message : 'unknown error');
+        receiptEl.textContent = 'try again, or see the curl example above';
+      })
+      .then(function() {
+        busy = false;
+        runBtn.textContent = 'RUN IT AGAIN';
+      });
+  });
+
+  // --- reveal-on-scroll (shared helper already runs from ledger-chrome.js
+  // via [data-reveal]; homepage sections opt in). ---
+  document.querySelectorAll('header, section').forEach(function(el) { el.setAttribute('data-reveal', ''); });
+
+  // --- dot world map: real Natural Earth geometry (world-atlas 110m, public
+  // domain), rasterised to a land mask, sampled into a dot grid, with
+  // animated settlement arcs. Waits for the pinned d3/topojson tags above. ---
+  (function() {
+    var c = document.getElementById('hm-map');
+    if (!c) return;
+    function waitForLibs(timeoutMs) {
+      return new Promise(function(resolve, reject) {
+        var t0 = Date.now();
+        (function tick() {
+          if (window.d3 && window.topojson) return resolve();
+          if (Date.now() - t0 > (timeoutMs || 8000)) return reject(new Error('d3/topojson did not load'));
+          setTimeout(tick, 60);
+        })();
+      });
+    }
+    waitForLibs().then(function() {
+      return fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json').then(function(r) { return r.json(); });
+    }).then(function(topo) {
+      var all = window.topojson.feature(topo, topo.objects.countries);
+      var land = { type: 'FeatureCollection', features: all.features.filter(function(f) { return String(f.id) !== '010'; }) };
+      var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var dpr = Math.min(2, window.devicePixelRatio || 1);
+      var ctx = c.getContext('2d');
+      var W = 0, H = 0, dots = [], arcs = [], raf = null;
+
+      function build() {
+        W = Math.max(300, c.parentElement.clientWidth);
+        H = Math.round(W / 2.05);
+        c.width = W * dpr; c.height = H * dpr;
+        c.style.height = H + 'px';
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        var proj = window.d3.geoEquirectangular().fitExtent([[8, 8], [W - 8, H - 8]], land);
+        var off = document.createElement('canvas');
+        off.width = W; off.height = H;
+        var octx = off.getContext('2d');
+        octx.fillStyle = '#fff';
+        octx.beginPath();
+        window.d3.geoPath(proj, octx)(land);
+        octx.fill();
+        var px = octx.getImageData(0, 0, W, H).data;
+        dots = [];
+        var step = W > 460 ? 4 : 5;
+        for (var y = 0; y < H; y += step) for (var x = 0; x < W; x += step) if (px[(y * W + x) * 4 + 3] > 140) dots.push([x + 0.5, y + 0.5]);
+        arcs = [];
+        var minSpan = W * 0.24;
+        for (var i = 0; i < 9 && dots.length > 40; i++) {
+          var a = null, b = null;
+          for (var tries = 0; tries < 60; tries++) {
+            var p = dots[(Math.random() * dots.length) | 0];
+            var q = dots[(Math.random() * dots.length) | 0];
+            if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= minSpan) { a = p; b = q; break; }
+          }
+          if (a && b) arcs.push({ a: a, b: b, phase: Math.random() });
+        }
+      }
+
+      function draw(t) {
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = '#8C8C88';
+        ctx.globalAlpha = 0.44;
+        for (var i = 0; i < dots.length; i++) { ctx.beginPath(); ctx.arc(dots[i][0], dots[i][1], 1.05, 0, 6.2832); ctx.fill(); }
+        for (var j = 0; j < arcs.length; j++) {
+          var arc = arcs[j], a = arc.a, b = arc.b;
+          var span = Math.hypot(a[0] - b[0], a[1] - b[1]);
+          var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - span * 0.34;
+          ctx.globalAlpha = 0.2; ctx.strokeStyle = '#F0522E'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(mx, my, b[0], b[1]); ctx.stroke();
+          ctx.fillStyle = '#F0522E'; ctx.globalAlpha = 0.7;
+          ctx.beginPath(); ctx.arc(a[0], a[1], 2, 0, 6.2832); ctx.fill();
+          ctx.beginPath(); ctx.arc(b[0], b[1], 2, 0, 6.2832); ctx.fill();
+          if (!reduce) {
+            var tt = (t * 0.00014 + arc.phase) % 1, u = 1 - tt;
+            var qx = u * u * a[0] + 2 * u * tt * mx + tt * tt * b[0];
+            var qy = u * u * a[1] + 2 * u * tt * my + tt * tt * b[1];
+            ctx.globalAlpha = 0.22; ctx.beginPath(); ctx.arc(qx, qy, 6.5, 0, 6.2832); ctx.fill();
+            ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(qx, qy, 2.6, 0, 6.2832); ctx.fill();
+          }
+        }
+        ctx.globalAlpha = 1;
+        if (!reduce) raf = requestAnimationFrame(draw);
+      }
+
+      build();
+      window.addEventListener('resize', function() { build(); if (reduce) draw(0); });
+      if (reduce) draw(0); else raf = requestAnimationFrame(draw);
+    }).catch(function() { /* map is decorative - silently fall back to the panel without it */ });
+  })();
+})();
+</script>`;
+
+  return ledgerShell({ title, description, canonical, baseUrl, activePath: "", jsonLd: [orgLd, websiteLd, appLd, datasetLd, surfacesLd, faqLd], extraCss, body });
 }
