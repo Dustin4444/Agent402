@@ -1,8 +1,15 @@
-// Machine Ledger — Docs page (/docs)
-// Two-column layout: sticky TOC (left) + content sections (right).
-// Quickstart, payment flow, three ways in, free tier, reference endpoints.
+// Machine Ledger — Docs landing page (/docs)
+// Quickstart, payment flow, three ways in, free tier, reference endpoints -
+// rendered inside the SAME sidebar+content shell every /docs/:slug wiki page
+// uses (src/docs.js), so the docs surface reads as one site with persistent
+// navigation instead of two unrelated layouts a click apart. Before this,
+// landing on /docs showed an anchor-only mini-TOC scoped to this one page;
+// clicking into any real wiki doc suddenly revealed a completely different
+// layout with a real navigation tree - the opposite of what a GitBook-style
+// docs hub should feel like.
 
 import { ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
+import { docsLayoutHtml, DOCS_LAYOUT_CSS, docPrevNextHtml, DOCS_SEARCH_SCRIPT } from "./docs.js";
 import { RAILS_PAREN } from "./rails.js";
 import { toolList } from "./pages.js";
 import { isComputePayable } from "./pow.js";
@@ -30,44 +37,10 @@ export function ledgerDocsPage(baseUrl, catalog) {
     },
   };
 
-  const extraCss = `
-  .ml-docs-grid [id] { scroll-margin-top: 110px; }
-  .ml-docs-toc a.active { color: var(--ink) !important; font-weight: 700; }
-  @media (max-width: 900px) {
-    /* minmax(0,1fr) (not bare 1fr, which floors at min-content) + min-width:0
-       lets the stacked column shrink to the phone viewport instead of being
-       widened by a grid item's intrinsic width. */
-    .ml-docs-grid { grid-template-columns: minmax(0, 1fr) !important; }
-    .ml-docs-grid > * { min-width: 0 !important; }
-    .ml-docs-toc > div { position: static !important; }
-    /* Nested content rows (endpoint/gateway tables: method · path · price) have
-       flexible 1fr columns that floor at their child's min-content. min-width:0
-       lets those columns actually shrink to the phone width; long tokens wrap. */
-    .ml-docs-grid main [style*="grid-template-columns"] > * { min-width: 0; overflow-wrap: anywhere; }
-  }`;
+  const extraCss = `${DOCS_LAYOUT_CSS}
+  #quickstart, #how, #add, #free, #gateway, #endpoints { scroll-margin-top: 110px; }`;
 
-  const body = `
-  <!-- DOCS LAYOUT -->
-  <div class="ml-docs-grid" style="max-width:1180px;margin:0 auto;padding:50px 30px 64px;display:grid;grid-template-columns:220px 1fr;gap:44px;">
-
-    <!-- TOC -->
-    <aside class="ml-docs-toc" style="font-family:var(--font-mono);font-size:13px;">
-      <div style="position:sticky;top:92px;">
-        <div style="font-size:11px;color:var(--accent);letter-spacing:.1em;margin-bottom:14px;">$ GET /docs</div>
-        <div style="display:flex;flex-direction:column;gap:11px;border-left:1.5px solid var(--ink);padding-left:16px;">
-          <a href="#quickstart" style="color:var(--ink);text-decoration:none;font-weight:700;">quickstart</a>
-          <a href="#how" style="color:var(--muted);text-decoration:none;">how payment works</a>
-          <a href="#add" style="color:var(--muted);text-decoration:none;">three ways in</a>
-          <a href="#free" style="color:var(--muted);text-decoration:none;">free tier &middot; PoW</a>
-          <a href="#gateway" style="color:var(--muted);text-decoration:none;">/v1 LLM gateway</a>
-          <a href="#endpoints" style="color:var(--muted);text-decoration:none;">endpoints</a>
-          <a href="/docs/adapters" style="color:var(--muted);text-decoration:none;">framework adapters &rarr;</a>
-        </div>
-      </div>
-    </aside>
-
-    <!-- CONTENT -->
-    <main>
+  const main = `
       <h1 style="font-family:var(--font-body);font-weight:800;font-size:52px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;">Quickstart.</h1>
       <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:620px;margin:0 0 30px;">Add ${fmtNum(totalCount)} deterministic tools - plus an open cross-seller Index, Smart Order Router, and an OpenAI-compatible /v1 gateway - to your agent in about a minute. No signup, no API key - start free with proof-of-work, settle ${RAILS_PAREN} when you scale.</p>
 
@@ -149,29 +122,15 @@ const out = await a.call("hash", { text: "hello", algo: "sha256" });</pre></div>
         <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;border-bottom:1px solid var(--hairline);"><span style="color:var(--accent);font-weight:700;">POST</span><span>/api/extract</span><span style="color:var(--faint);">$0.010 &middot; url &rarr; clean markdown</span></div>
         <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;"><span style="color:var(--green);font-weight:700;">GET</span><span>/llms.txt</span><span style="color:var(--faint);">agent-readable site map</span></div>
       </div>
-    </main>
+      ${docPrevNextHtml("Home")}`;
+
+  const body = `
+  <div style="max-width:1180px;margin:0 auto;padding:50px 30px 64px;">
+    ${docsLayoutHtml("Home", main)}
   </div>
 
   ${ledgerFooterCompact()}
-<script>
-(function(){
-  var links=document.querySelectorAll('.ml-docs-toc a[href^="#"]');
-  var ids=[].map.call(links,function(a){return a.getAttribute('href').slice(1);});
-  var sections=ids.map(function(id){return document.getElementById(id);}).filter(Boolean);
-  function update(){
-    var top=window.scrollY+130;
-    var active='';
-    sections.forEach(function(s){if(s.offsetTop<=top)active=s.id;});
-    links.forEach(function(a){
-      var h=a.getAttribute('href');
-      if(h==='#'+active)a.classList.add('active');
-      else a.classList.remove('active');
-    });
-  }
-  window.addEventListener('scroll',update,{passive:true});
-  update();
-})();
-</script>`;
+  ${DOCS_SEARCH_SCRIPT}`;
 
   return ledgerShell({
     title,
