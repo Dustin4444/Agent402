@@ -169,6 +169,16 @@ for (const aboutName of ["server.describe", "describe_server", "describe_agent40
   assert(aboutText.includes("500+"), `${aboutName} uses evergreen 500+ count`);
   assert(!aboutText.includes("generate_hash"), `${aboutName} does not advertise removed curated utilities`);
   assert(about.result?.structuredContent?.service, `${aboutName} returns structuredContent`);
+  // Regression: firstJob once named a real competitor ("Agent402 is the
+  // deterministic tools layer beside LLM gateways (e.g. BlockRun)") in this
+  // live, agent-served response - a direct violation of the project's own
+  // "we deliberately do not name competing sellers anywhere in user-facing
+  // copy" rule (src/economy.js). Found in a link/leak audit, not by any
+  // existing test. Locks the whole about/describe response text, not just
+  // firstJob, since any field here is equally "live positioning copy".
+  for (const name of ["BlockRun", "AgentUtility", "StableEnrich", "x402node", "Otto AI", "x402scan"]) {
+    assert(!aboutText.includes(name), `${aboutName} names no real competitor ("${name}") in its positioning copy`);
+  }
 }
 
 // Sample listed tool: catalog.search outputSchema + structuredContent.

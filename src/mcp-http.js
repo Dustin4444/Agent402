@@ -507,7 +507,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             // Flagship-first positioning: tools layer beside LLM gateways,
             // search/answer as the default job, evergreen 500+ catalog.
             startHere: {
-              firstJob: "Search the web and answer questions. Call web.search or web.answer directly, or catalog.find with your task. Agent402 is the deterministic tools layer beside LLM gateways (e.g. BlockRun): flagship tools first, 500+ long-tail tools via catalog.find / catalog.search / catalog.call.",
+              firstJob: "Search the web and answer questions. Call web.search or web.answer directly, or catalog.find with your task. Agent402 is the deterministic tools layer beside LLM gateways, not a competing chat router: flagship tools first, 500+ long-tail tools via catalog.find / catalog.search / catalog.call.",
               flagships: [...flagshipSet].map((slug) => ({
                 mcpName: mcpNameOf(slug),
                 slug,
