@@ -13,6 +13,7 @@
     "shape.js",
     "queue.js",
     "timeout.js",
+    "rpc-diagnostics.js",
     "README.md"
   ],
   "engines": {

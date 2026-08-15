@@ -223,12 +223,16 @@ export function blogIndex(baseUrl) {
 `;
 
   const body = `<div class="bl-wrap">
+  <section>
   <div class="bl-eyebrow">$ GET /blog</div>
   <h1>Blog</h1>
   <p class="bl-desc">${esc(pageDesc)}</p>
+  </section>
+  <section>
   <div class="blog-grid">
 ${cards}
   </div>
+  </section>
 </div>
 ${ledgerFooterCompact()}`;
 

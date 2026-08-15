@@ -125,13 +125,19 @@ export function workflowsPage(baseUrl) {
 
   const body = `
 <div class="wf-wrap">
+<section>
 <div class="wf-eyebrow">$ GET /workflows</div>
 <h1 class="wf-h1">Workflows</h1>
 <p class="wf-intro">Agent402 tools are designed to chain together. Each workflow below shows a multi-step pipeline an agent can run end-to-end, with estimated per-run cost at pay-per-call pricing.</p>
+</section>
+<section>
 <div class="wf-grid">
 ${cards}
 </div>
+</section>
+<section>
 <div class="wf-cta"><a href="/playground">Try it yourself &rarr;</a></div>
+</section>
 </div>
 ${ledgerFooterCompact()}`;
 

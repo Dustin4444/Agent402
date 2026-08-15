@@ -149,16 +149,22 @@ export function badgesPage(baseUrl) {
   const body = `
 <div class="bdg-wrap">
 
+<section>
 <div class="bdg-eyebrow">$ GET /badges</div>
 <h1 class="bdg-title">Badges & Embeds</h1>
 <p class="bdg-subtitle">Add an Agent402 badge to your README, docs, or website. Copy the snippet and paste.</p>
+</section>
 
+<section>
 ${badgeSections}
+</section>
 
+<section>
 <div class="bdg-note">
   <h3>Custom badge</h3>
   <p>The tools count in each badge updates automatically to reflect the current catalog size. Point the <code>src</code> at <code>${esc(baseUrl)}/badges/{style}.svg</code> and it will always show the latest count.</p>
 </div>
+</section>
 
 </div>
 ${ledgerFooterCompact()}

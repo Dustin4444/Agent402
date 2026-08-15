@@ -27,10 +27,13 @@ export function termsPage(baseUrl) {
 
   const body = `
 <div class="tm-wrap">
+<section>
 <div class="tm-eyebrow">$ GET /terms</div>
 <h1 class="tm-h1">Terms of Service</h1>
 <p class="tm-updated">Agent402 (agent402.tools) - last updated 2026-07-17.</p>
+</section>
 
+<section>
 <div class="tm-body">
 <p>Agent402 provides web tools that clients - human-operated or autonomous agents - call over HTTP.
 By using the service, including programmatically via the x402 payment protocol or the MCP connector,
@@ -145,6 +148,7 @@ survive any termination of your use.</p>
 <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">github.com/MikeyPetrillo/Agent402</a>,
 or <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a>.</p>
 </div>
+</section>
 </div>
 ${ledgerFooterCompact()}`;
 

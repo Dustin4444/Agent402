@@ -43,10 +43,13 @@ export function comparePage(baseUrl) {
 
   const body = `
 <div class="cmp-wrap">
+<section>
 <div class="cmp-eyebrow">$ GET /compare</div>
 <h1 class="cmp-h1">How Agent402 Compares</h1>
 <p class="cmp-intro">Agent402 gives your AI agent 500+ deterministic tools behind a single protocol. Here is how it stacks up against the common alternatives.</p>
+</section>
 
+<section>
 <div class="cmp-section">
 <h2>Agent402 vs. building your own tool server</h2>
 <p class="cmp-desc">Standing up a custom tool server means writing handlers, managing uptime, handling payments, and keeping up with upstream API changes. Agent402 ships all of that out of the box.</p>
@@ -62,7 +65,9 @@ export function comparePage(baseUrl) {
 </tbody>
 </table>
 </div>
+</section>
 
+<section>
 <div class="cmp-section">
 <h2>Agent402 vs. raw API calls</h2>
 <p class="cmp-desc">Wiring an agent directly to upstream APIs means juggling API keys, reading per-provider docs, and building error handling for each service individually.</p>
@@ -77,7 +82,9 @@ export function comparePage(baseUrl) {
 </tbody>
 </table>
 </div>
+</section>
 
+<section>
 <div class="cmp-section">
 <h2>Agent402 vs. hosted AI tool platforms</h2>
 <p class="cmp-desc">Hosted platforms can get you started fast, but they typically lock you in with proprietary APIs, monthly fees, and opaque LLM-dependent tool logic.</p>
@@ -92,7 +99,9 @@ export function comparePage(baseUrl) {
 </tbody>
 </table>
 </div>
+</section>
 
+<section>
 <div class="cmp-section">
 <h2>agent402-tollbooth vs. platform monetization gateways</h2>
 <p class="cmp-desc">The other side of the protocol: charging AI crawlers and agents for <em>your</em> content. Cloudflare's announced Monetization Gateway (waitlist at the time of writing) brings x402 charging to sites behind Cloudflare - strong validation that pay-per-request is the business model of the agentic web. <a href="/tollbooth">agent402-tollbooth</a> is the open-source take on the same idea: self-hostable, in front of any origin.</p>
@@ -109,12 +118,15 @@ export function comparePage(baseUrl) {
 </tbody>
 </table>
 </div>
+</section>
 
+<section>
 <div class="cmp-cta">
 <h2>Ready to get started?</h2>
 <p>Connect your agent to 500+ tools in under five minutes. No API keys, no subscriptions, no lock-in.</p>
 <a class="btn" href="/quickstart">Start building &rarr;</a>
 </div>
+</section>
 </div>
 ${ledgerFooterCompact()}`;
 

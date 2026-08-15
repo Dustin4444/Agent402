@@ -28,10 +28,13 @@ export function privacyPage(baseUrl) {
 
   const body = `
 <div class="pv-wrap">
+<section>
 <div class="pv-eyebrow">$ GET /privacy</div>
 <h1 class="pv-h1">Privacy policy</h1>
 <p class="pv-updated">Agent402 (agent402.tools) - last updated 2026-07-17.</p>
+</section>
 
+<section>
 <div class="pv-body">
 <p>Agent402 has no accounts, no signups, no cookies, and no browser trackers or ad trackers on its
 pages. The entire server is <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open source</a>,
@@ -99,6 +102,7 @@ and abuse reports: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a>.
 <a href="https://github.com/MikeyPetrillo/Agent402/issues" rel="noopener">GitHub issues</a>,
 or <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a>.</p>
 </div>
+</section>
 </div>
 ${ledgerFooterCompact()}`;
 

@@ -16,6 +16,12 @@ import { loadSigner, NETWORK, RPC_CONFIG } from "./signer.js";
 import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "./shape.js";
 import { createSerialQueue } from "./queue.js";
 import { withTimeout } from "./timeout.js";
+import { installRpcDiagnostics } from "./rpc-diagnostics.js";
+
+// Must install before ExactStellarScheme ever calls getRpcClient() /
+// sendTransaction() - a patch applied after the first real request would
+// simply miss it.
+installRpcDiagnostics();
 
 const PORT = Number(process.env.PORT) || 4021;
 const AUTH_TOKEN = (process.env.FACILITATOR_AUTH_TOKEN || "").trim();

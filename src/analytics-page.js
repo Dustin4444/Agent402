@@ -241,6 +241,7 @@ function renderShell({ baseUrl, windowHuman, hours, includeSynthetic, syntheticH
   const shellBody = `
 <div class="an-wrap">
 
+<section>
 <h1 class="an-h1">Analytics</h1>
 <p class="an-sub">Live, public usage data for Agent402. Every tool call records four aggregate fields after responding - slug, latency, cache flag, error flag - with no PII. Window: <b>${esc(windowHuman)}</b>.</p>
 
@@ -255,10 +256,15 @@ ${(syntheticHidden > 0 || includeSynthetic) ? `<p class="an-foot" style="margin:
 ${(probesHidden > 0 || includeProbes) ? `<p class="an-foot" style="margin:6px 0 0;font-size:13px;">${includeProbes
     ? `Showing <b>probe</b> calls (empty-input scans). <a href="/analytics?hours=${hours}${includeSynthetic ? "&include_synthetic=1" : ""}">Hide probes</a>`
     : `<b>${esc(String(probesHidden))}</b> probe call${probesHidden === 1 ? "" : "s"} hidden (empty-input scans - not real errors). <a href="/analytics?hours=${hours}${includeSynthetic ? "&include_synthetic=1" : ""}&include_probes=1">Show all</a>`}</p>` : ""}
+</section>
 
+<section>
 ${body}
+</section>
 
+<section>
 <p class="an-foot" style="margin-top:24px;">Analytics is open-source - part of <a href="https://github.com/MikeyPetrillo/Agent402">Agent402</a>. Self-hosters get the same dashboard by attaching a Postgres instance.</p>
+</section>
 
 </div>
 ${ledgerFooterCompact()}`;

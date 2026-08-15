@@ -50,10 +50,13 @@ export function contactPage(baseUrl) {
 
   const body = `
 <div class="ct-wrap">
+  <section>
   <div class="ct-eyebrow">$ GET /contact</div>
   <h1 class="ct-h1">Get in touch.</h1>
   <p class="ct-intro">Have a question, want to integrate, or just want to say hi? Reach out through any of the channels below.</p>
+  </section>
 
+  <section>
   <div class="ct-channels">
     <div class="ct-card">
       <div class="ct-card-label">email</div>
@@ -76,7 +79,9 @@ export function contactPage(baseUrl) {
       <p>Open source, open book.</p>
     </div>
   </div>
+  </section>
 
+  <section>
   <div class="ct-sent" id="ctSent">Thanks for reaching out! I'll get back to you soon.</div>
 
   <div class="ct-form" id="ctForm">
@@ -98,6 +103,7 @@ export function contactPage(baseUrl) {
       <button type="submit" class="ct-submit">Send message &rarr;</button>
     </form>
   </div>
+  </section>
 </div>
 ${ledgerFooterCompact()}`;
 

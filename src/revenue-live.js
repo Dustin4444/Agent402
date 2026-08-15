@@ -1609,6 +1609,7 @@ export function revenuePage(baseUrl, snap) {
   };
   const body = `
   <main style="max-width:1100px;margin:0 auto;padding:56px 30px;">
+    <section>
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/revenue</div>
     <h1 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink);">Live revenue.</h1>
     <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:640px;margin:0 0 8px;">
@@ -1617,13 +1618,20 @@ export function revenuePage(baseUrl, snap) {
     </p>
     ${snap.allTime ? `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:22px;">${snap.allTime.allTimeExternalCount.toLocaleString()}</strong> verifiable external payment${snap.allTime.allTimeExternalCount === 1 ? "" : "s"} all-time <span style="color:var(--muted);">- $${snap.allTime.allTimeExternalUsd.toFixed(4)} settled on-chain, each linked to its explorer proof${snap.allTime.syncing ? " · ledger backfilling - total still rising" : ""}</span></p>` : ""}
     <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>every figure is <strong style="color:var(--accent);">external</strong> revenue only - our own canary/test/funding money never counts (wallet balances are float, not earnings, and are not shown)</p>
+    </section>
+    <section>
     ${revenueChartSection()}
+    </section>
+    <section>
     <div class="ml-2col" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
       ${snap.rails.map(railCard).join("\n")}
     </div>
+    </section>
+    <section>
     <p style="font-size:13.5px;color:var(--muted);margin-top:26px;">Recent-window transfers are the last few hours of inbound stablecoin on each rail, classified with the same rule as the daily revenue digest: a payment is <strong>external</strong> only if it comes from a wallet that isn't ours (canary/test burners are excluded) and is per-call-sized (≤ $${MAX_CALL_USD}); bigger inbound is funding or tests, not a buy. Rails read best-effort: a flaky public RPC marks that rail unavailable without hiding the others.</p>
     <p style="font-size:13.5px;color:var(--muted);margin-top:10px;">Don't take our word for it: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our on-chain settlements independently →</a> Their totals count <em>all</em> traffic to our wallets - including our own canary and test buys - so they read higher than the external-only figures above. Their seller row also groups our upstream <strong>spending</strong> wallet in with the treasury, and that wallet receives the revenue from the tools that fund external purchases, so part of what appears there as demand is our own self-funding loop rather than a third party paying us. Both figures are correct; they measure different things, and the external-only series above is the one that answers "did someone else pay for this".</p>
     ${mppSection(snap.mpp)}
+    </section>
   </main>
   ${ledgerFooterCompact(baseUrl)}`;
   return ledgerShell({

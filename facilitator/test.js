@@ -26,6 +26,20 @@
 // believing a failure" safety net in the main app reads an undefined payer
 // from our own facilitator's error responses and silently never fires.
 //
+// A third real bug, found live in PRODUCTION (2026-08-15, the day after the
+// timeout fix shipped): a genuine, fast (1.4s, not a hang) settle rejection
+// with no diagnostic value at all - @x402/stellar reduces any
+// sendTransaction() rejection to one bucket, errorReason "settle_exact_
+// stellar_transaction_submission_failed", discarding the RPC's actual
+// response (status, errorResultXdr - the real reason: bad sequence,
+// insufficient fee, a specific operation-level failure). Fixed with
+// rpc-diagnostics.js, a diagnostics-only patch on the Stellar SDK's
+// rpc.Server.prototype (the vendor scheme constructs its own RPC client
+// internally per-call, so this is the only interception point available)
+// that logs the decoded rejection reason without altering what the caller
+// sees. Step "0c" below unit-tests the XDR decoder against real,
+// self-encoded xdr.TransactionResult objects (not hand-authored base64).
+//
 //   node test.js          (run from facilitator/, after `npm install`)
 //
 // One real manual setup step is required and CANNOT be automated: Circle's
@@ -40,13 +54,14 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
-  Keypair, Asset, Operation, TransactionBuilder, BASE_FEE, Networks,
+  Keypair, Asset, Operation, TransactionBuilder, BASE_FEE, Networks, xdr,
 } from "@stellar/stellar-sdk";
 import {
   createEd25519Signer, ExactStellarScheme, USDC_TESTNET_ADDRESS, getHorizonClient,
 } from "@x402/stellar";
 import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "./shape.js";
 import { withTimeout, TimeoutError } from "./timeout.js";
+import { decodeErrorResultXdr } from "./rpc-diagnostics.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const NETWORK = "stellar:testnet";
@@ -121,6 +136,51 @@ const horizon = getHorizonClient(NETWORK);
   ok(!unhandled, "withTimeout: a lost race's eventual rejection never surfaces as an unhandled rejection");
 
   console.log("timeout.js unit tests ✓");
+}
+
+// 0c) Offline unit tests for rpc-diagnostics.js's XDR decoder - fast,
+// deterministic, no network. Found live in production (2026-08-15): a real
+// canary settlement rejection surfaced only as errorReason:
+// "settle_exact_stellar_transaction_submission_failed", with @x402/stellar
+// discarding the actual RPC response. These construct REAL
+// xdr.TransactionResult objects with the Stellar SDK's own encoder (not
+// hand-authored base64) and round-trip them through the decoder, so a
+// mistaken assumption about the SDK's own union/getter shape fails loudly
+// here instead of silently mis-decoding a real production incident later.
+{
+  const encodeResult = (resultResult) =>
+    new xdr.TransactionResult({
+      feeCharged: new xdr.Int64(0),
+      result: resultResult,
+      ext: xdr.TransactionResultExt.fromXDR("00000000", "hex"),
+    }).toXDR("base64");
+
+  const badSeq = decodeErrorResultXdr(encodeResult(xdr.TransactionResultResult.txBadSeq()));
+  ok(badSeq.code === "txBadSeq", `decodeErrorResultXdr: simple top-level code round-trips (got ${JSON.stringify(badSeq)})`);
+
+  // txFailed with one invokeHostFunction op that hit a resource limit -
+  // exercises the three-level unwrap (outer switch -> .tr() -> per-op-type
+  // getter) that a bad assumption about the SDK's shape would silently
+  // mis-decode rather than throw on.
+  const invokeOp = xdr.OperationResult.opInner(
+    xdr.OperationResultTr.invokeHostFunction(xdr.InvokeHostFunctionResult.invokeHostFunctionResourceLimitExceeded()),
+  );
+  const failed = decodeErrorResultXdr(encodeResult(xdr.TransactionResultResult.txFailed([invokeOp])));
+  ok(failed.code === "txFailed" && failed.opCodes[0] === "invokeHostFunction:invokeHostFunctionResourceLimitExceeded",
+    `decodeErrorResultXdr: per-operation reason unwraps through opInner+tr()+getter (got ${JSON.stringify(failed)})`);
+
+  // A direct op-level error (the operation never ran at all) needs NO
+  // further unwrapping - its own top-level switch name IS the reason.
+  const badAuthOp = xdr.OperationResult.opBadAuth();
+  const badAuth = decodeErrorResultXdr(encodeResult(xdr.TransactionResultResult.txFailed([badAuthOp])));
+  ok(badAuth.opCodes[0] === "opBadAuth", `decodeErrorResultXdr: a direct op-level error skips the tr() unwrap (got ${JSON.stringify(badAuth)})`);
+
+  const garbage = decodeErrorResultXdr("not-valid-base64-xdr!!!");
+  ok(typeof garbage?.decodeError === "string", `decodeErrorResultXdr: malformed input never throws, falls back to decodeError (got ${JSON.stringify(garbage)})`);
+
+  ok(decodeErrorResultXdr(undefined) === null, "decodeErrorResultXdr: no errorResultXdr at all -> null, not a crash");
+
+  console.log("rpc-diagnostics.js unit tests ✓");
 }
 
 async function friendbotFund(publicKey) {

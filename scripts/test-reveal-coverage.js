@@ -40,7 +40,15 @@ ok(/querySelectorAll\('header,section,\[data-reveal\]'\)/.test(chromeSrc),
 // whole page) still fails instead of hiding behind the sections that
 // weren't touched. Bumping a number here is expected and fine when a page
 // legitimately gains/loses a section; a silent drop is what this catches. */
-const MIN_SECTIONS = { "/": 10, "/base": 5, "/marketplace": 8, "/pricing": 7, "/leaderboard": 6, "/skills": 7, "/tools": 5, "/what-is-x402": 11, "/sell": 10 };
+const MIN_SECTIONS = {
+  "/": 10, "/base": 5, "/marketplace": 8, "/pricing": 7, "/leaderboard": 6, "/skills": 7, "/tools": 5, "/what-is-x402": 11, "/sell": 10,
+  // Extended 2026-08-15: these 18 pages were <div>-only (zero real sections,
+  // zero reveal-on-scroll effect) until this pass gave each one real
+  // <section>/<header> markup for the shared observer to reach.
+  "/docs": 7, "/status": 5, "/faq": 3, "/revenue": 5, "/playground": 3, "/badges": 4, "/compare": 7, "/community": 7,
+  "/changelog": 3, "/blog": 3, "/transparency": 3, "/privacy": 3, "/terms": 3, "/contact": 4, "/analytics": 4,
+  "/workflows": 4, "/quickstart": 4, "/guides": 3,
+};
 for (const [path, min] of Object.entries(MIN_SECTIONS)) {
   const html = await (await fetch(`${BASE}${path}`)).text();
   const realSectionCount = (html.match(/<section[ >]/g) || []).length + (html.match(/<header[ >]/g) || []).length;

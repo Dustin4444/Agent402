@@ -58,10 +58,13 @@ export function quickstartPage(baseUrl) {
   const body = `
 <div class="qs-wrap">
 
+<section>
 <div class="qs-eyebrow">$ GET /quickstart</div>
 <h1 class="qs-title">Your first Agent402 call in 60 seconds</h1>
 <p class="qs-subtitle">Pick your stack, copy the snippet, and you're live.</p>
+</section>
 
+<section>
 <!-- Tab bar -->
 <div class="qs-tab-bar" role="tablist">
   <button class="qs-tab active" role="tab" aria-selected="true" data-tab="mcp">Claude / MCP</button>
@@ -254,7 +257,9 @@ const res = await payFetch("https://agent402.tools/api/extract", {
 </ul>
 </div>
 </div>
+</section>
 
+<section>
 <!-- What to try next cards -->
 <div class="qs-cards">
   <a class="qs-card" href="/tools">
@@ -270,6 +275,7 @@ const res = await payFetch("https://agent402.tools/api/extract", {
     <p>API reference, authentication, pricing, and advanced usage.</p>
   </a>
 </div>
+</section>
 
 </div>
 ${ledgerFooterCompact()}
