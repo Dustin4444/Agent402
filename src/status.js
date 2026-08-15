@@ -391,6 +391,7 @@ export function statusPage(baseUrl, stats, snap) {
   const body = `
 <div class="st-wrap">
 
+<section>
 <h1 class="st-h1">Service status</h1>
 <p class="st-sub">Availability is measured from outside this server, so an outage is witnessed by something that stays up when we do not. <a href="${esc(HEARTBEAT_RUNS)}" rel="noopener">Every probe run is public</a>.</p>
 
@@ -404,7 +405,9 @@ export function statusPage(baseUrl, stats, snap) {
 </div>
 
 ${windowList}
+</section>
 
+<section>
 <h2 id="components">Components</h2>
 <p class="lead">Each bar is one UTC day; hover for that day's probe count. Grey means no observation was made that day, shown as absence rather than counted as uptime.</p>
 <p class="bar-legend"><i class="b up"></i> every probe passed <i class="b partial"></i> some probes failed <i class="b down"></i> every probe failed <i class="b nodata"></i> no observation</p>
@@ -413,11 +416,15 @@ ${snap.components.map(componentRow).join("\n")}
 <h2 id="rails">Payment rails</h2>
 <p class="lead">Each chain settled by the daily paid canary, graded independently - a single rail failing here never counts as a service outage above; it means that specific chain isn't settling right now.</p>
 ${snap.railComponents.map(componentRow).join("\n")}
+</section>
 
+<section>
 ${incidentsSection(snap.incidents)}
 
 ${liveSection(snap.live, stats)}
+</section>
 
+<section>
 <h2 id="method">How this is measured</h2>
 <div class="method">
 <ul>
@@ -437,6 +444,7 @@ ${liveSection(snap.live, stats)}
   <a href="/health">/health</a>
   ${onchain ? ` · <a href="${esc(onchain)}" rel="noopener">wallet on-chain</a>` : ""}
 </div>
+</section>
 
 </div>
 ${ledgerFooterCompact()}`;

@@ -825,12 +825,16 @@ export function guidesIndex(baseUrl) {
   ).join("\n      ");
 
   const body = `<div class="gi-wrap">
+  <section>
   <div class="gi-eyebrow">$ GET /guides</div>
   <h1>Guides</h1>
   <p class="gi-desc">Working code, no fluff - everything here runs against the live service.</p>
+  </section>
+  <section>
   <div class="gi-list">
       ${items}
   </div>
+  </section>
 </div>
 ${ledgerFooterCompact()}`;
 

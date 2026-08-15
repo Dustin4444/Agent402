@@ -267,13 +267,17 @@ export function changelogPage(baseUrl) {
 `;
 
   const body = `<div class="cl-wrap">
+  <section>
   <div class="cl-eyebrow">$ GET /changelog</div>
   <h1>Changelog</h1>
   <p class="cl-desc">${esc(description)}</p>
   <a class="cl-rss" href="${baseUrl}/changelog.xml">RSS feed</a>
+  </section>
+  <section>
   <div class="timeline">
 ${timelineHtml}
   </div>
+  </section>
 </div>
 ${ledgerFooterCompact()}`;
 

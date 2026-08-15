@@ -156,18 +156,23 @@ export function communityPage(baseUrl) {
 
   const body = `
 <div class="cm-wrap">
+<section>
 <div class="cm-eyebrow">$ GET /community</div>
 
 <div class="cm-hero">
   <h1>Built by the community</h1>
   <p>Agent402 is open source and built in the open. Explore the ecosystem, connect with other builders, and contribute tools, guides, and integrations.</p>
 </div>
+</section>
 
+<section>
 <div class="cm-section"><h2>Ecosystem</h2></div>
 <div class="cm-stats">
 ${statsHtml}
 </div>
+</section>
 
+<section>
 <div class="cm-section">
   <h2>Where to find us</h2>
   <p>Follow development, ask questions, and stay up to date.</p>
@@ -175,7 +180,9 @@ ${statsHtml}
 <div class="cm-grid-3">
 ${channelsHtml}
 </div>
+</section>
 
+<section>
 <div class="cm-section">
   <h2>How to contribute</h2>
   <p>Every contribution makes the platform better for every agent.</p>
@@ -183,7 +190,9 @@ ${channelsHtml}
 <div class="cm-grid-3">
 ${contributeHtml}
 </div>
+</section>
 
+<section>
 <div class="cm-section">
   <h2>Showcase</h2>
   <p>Example projects built on Agent402. Have something to share? Open a PR to add it.</p>
@@ -191,8 +200,11 @@ ${contributeHtml}
 <div class="cm-grid-4">
 ${showcaseHtml}
 </div>
+</section>
 
+<section>
 <div class="cm-cta"><a href="/quickstart">Start building &rarr;</a></div>
+</section>
 </div>
 ${ledgerFooterCompact()}`;
 

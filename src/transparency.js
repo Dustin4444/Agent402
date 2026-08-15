@@ -81,10 +81,13 @@ export function transparencyPage(baseUrl, traffic = null) {
 
   const body = `
 <div class="tp-wrap">
+<section>
 <div class="tp-eyebrow">$ GET /transparency</div>
 <h1 class="tp-h1">Transparency</h1>
 <p class="tp-updated">Agent402 (agent402.tools) · last updated 2026-07-29.</p>
+</section>
 
+<section>
 <div class="tp-body">
 <p>Agent402.Tools is an <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener">open-source</a> x402 + MCP
 tool server. When something material happens around the project, on-chain or off, it gets documented
@@ -175,6 +178,7 @@ and these are the receipts:</p>
 <h2>Questions</h2>
 <p>Contact <a href="https://x.com/Agent402Tools" rel="noopener">@Agent402Tools on X</a> for further details.</p>
 </div>
+</section>
 </div>
 ${ledgerFooterCompact()}`;
 

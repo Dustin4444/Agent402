@@ -100,11 +100,14 @@ export function playgroundPage(baseUrl, catalog) {
 
   const pageBody = `
 <script>var BASE='${baseUrl.replace(/'/g, "\\'")}';</script>
+<section>
 <div class="crumb"><a href="/">Agent402</a> / playground</div>
 <div class="pg-title">
   <h1>Playground</h1>
   <p>Try any of Agent402's ${freeCount} free-tier tools directly in your browser, or the OpenAI-compatible /v1 gateway. No signup, no wallet - proof-of-work pays automatically.</p>
 </div>
+</section>
+<section>
 <div class="pg-wrap">
   <div class="pg-left">
     <input class="pg-search" id="pgSearch" type="text" placeholder="Search tools..." autocomplete="off">
@@ -117,6 +120,7 @@ export function playgroundPage(baseUrl, catalog) {
     </div>
   </div>
 </div>
+</section>
 ${ledgerFooterCompact()}
 <script>
 (function(){

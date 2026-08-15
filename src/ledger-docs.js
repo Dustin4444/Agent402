@@ -41,6 +41,7 @@ export function ledgerDocsPage(baseUrl, catalog) {
   #quickstart, #how, #add, #free, #gateway, #endpoints { scroll-margin-top: 110px; }`;
 
   const main = `
+      <section>
       <h1 style="font-family:var(--font-body);font-weight:800;font-size:52px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;">Quickstart.</h1>
       <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:620px;margin:0 0 30px;">Add ${fmtNum(totalCount)} deterministic tools - plus an open cross-seller Index, Smart Order Router, and an OpenAI-compatible /v1 gateway - to your agent in about a minute. No signup, no API key - start free with proof-of-work, settle ${RAILS_PAREN} when you scale.</p>
 
@@ -55,16 +56,20 @@ node demo.js
 AGENT_KEY=0xYOUR_FUNDED_KEY node demo.js</pre>
       </div>
       <p style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);margin:0 0 44px;">// an autonomous buyer discovers the catalog, gets quoted over HTTP 402, settles, and uses the result - zero humans.</p>
+      </section>
 
       <!-- HOW -->
+      <section>
       <h2 id="how" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 18px;">How payment works.</h2>
       <div style="border:1.5px solid var(--ink);background:var(--card);margin-bottom:44px;">
         <div style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px 20px;border-bottom:1px solid var(--hairline);"><span style="font-family:var(--font-mono);font-weight:700;color:var(--accent);font-size:18px;">01</span><span style="font-size:15px;line-height:1.5;color:var(--muted);">Your agent calls a paid endpoint and receives <strong>HTTP 402 Payment Required</strong> with the price and payment details.</span></div>
         <div style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px 20px;border-bottom:1px solid var(--hairline);"><span style="font-family:var(--font-mono);font-weight:700;color:var(--accent);font-size:18px;">02</span><span style="font-size:15px;line-height:1.5;color:var(--muted);">An x402 client (<span style="font-family:var(--font-mono);font-size:13px;">@x402/fetch</span>, axios, or any framework adapter) signs a USDC payment from its wallet and retries.</span></div>
         <div style="display:grid;grid-template-columns:44px 1fr;gap:16px;padding:18px 20px;"><span style="font-family:var(--font-mono);font-weight:700;color:var(--accent);font-size:18px;">03</span><span style="font-size:15px;line-height:1.5;color:var(--muted);">Payment settles on Base in seconds and the response comes back. Total overhead: <strong>one round trip</strong>.</span></div>
       </div>
+      </section>
 
       <!-- THREE WAYS -->
+      <section>
       <h2 id="add" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 18px;">Three ways in.</h2>
 
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:8px;">A / MCP - Claude &amp; any MCP client</div>
@@ -96,13 +101,17 @@ const res = await payFetch("https://agent402.tools/api/extract", {
 import { Agent402 } from "agent402-client";
 const a = new Agent402();           <span style="color:var(--dk-muted3);">// free tier (proof-of-work)</span>
 const out = await a.call("hash", { text: "hello", algo: "sha256" });</pre></div>
+      </section>
 
       <!-- FREE -->
+      <section>
       <h2 id="free" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 14px;">Free tier - proof-of-work.</h2>
       <p style="font-size:15.5px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 18px;">${fmtNum(freeCount)} of the ${fmtNum(totalCount)} pure-CPU tools work with no wallet. Instead of paying USDC, your machine solves a short sha256 puzzle - a fraction of a second of CPU - and the call goes through. Nothing here consumes AI tokens.</p>
       <div style="border:1.5px solid var(--ink);background:var(--card);padding:16px 20px;font-family:var(--font-mono);font-size:13px;margin-bottom:44px;"><span style="color:var(--green);font-weight:700;">GET</span> <span style="color:var(--ink);">/api/pow</span>  <span style="color:var(--faint);">&rarr; returns a challenge; solve and resubmit. Free, rate-limited.</span></div>
+      </section>
 
       <!-- GATEWAY -->
+      <section>
       <h2 id="gateway" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 14px;">/v1 - OpenAI-compatible LLM gateway.</h2>
       <p style="font-size:15.5px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 18px;">Point any OpenAI SDK at <code>base_url https://agent402.tools/v1</code> and pay per call in USDC over x402 - no API key, no signup, same wallet-is-the-identity model as every other tool. Chat has five quality tiers ($0.003 nano to $0.50 premium) plus a $0.01 auto tier that routes on your prompt with no model required; embeddings are $0.002 with a default-on cache; image generation is $0.08 per image.</p>
       <div style="border:1.5px solid var(--ink);background:var(--card);font-family:var(--font-mono);font-size:13px;margin-bottom:44px;">
@@ -112,8 +121,10 @@ const out = await a.call("hash", { text: "hello", algo: "sha256" });</pre></div>
         <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;border-bottom:1px solid var(--hairline);"><span style="color:var(--accent);font-weight:700;">POST</span><span>/v1/images/generations</span><span style="color:var(--faint);">$0.08 per image</span></div>
         <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;"><span style="color:var(--accent);font-weight:700;">POST</span><span>/v1/audio/speech</span><span style="color:var(--faint);">$0.06 &middot; mp3/pcm bytes out</span></div>
       </div>
+      </section>
 
       <!-- ENDPOINTS -->
+      <section>
       <h2 id="endpoints" style="font-family:var(--font-body);font-weight:800;font-size:32px;letter-spacing:-.02em;margin:0 0 18px;">Reference endpoints.</h2>
       <div style="border:1.5px solid var(--ink);background:var(--card);font-family:var(--font-mono);font-size:13px;">
         <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;border-bottom:1px solid var(--hairline);"><span style="color:var(--green);font-weight:700;">GET</span><span>/api/pricing</span><span style="color:var(--faint);">machine-readable catalog</span></div>
@@ -122,7 +133,8 @@ const out = await a.call("hash", { text: "hello", algo: "sha256" });</pre></div>
         <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;border-bottom:1px solid var(--hairline);"><span style="color:var(--accent);font-weight:700;">POST</span><span>/api/extract</span><span style="color:var(--faint);">$0.010 &middot; url &rarr; clean markdown</span></div>
         <div style="display:grid;grid-template-columns:60px 1fr auto;gap:14px;padding:12px 18px;"><span style="color:var(--green);font-weight:700;">GET</span><span>/llms.txt</span><span style="color:var(--faint);">agent-readable site map</span></div>
       </div>
-      ${docPrevNextHtml("Home")}`;
+      ${docPrevNextHtml("Home")}
+      </section>`;
 
   const body = `
   <div style="max-width:1180px;margin:0 auto;padding:50px 30px 64px;">

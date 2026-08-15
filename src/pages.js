@@ -497,10 +497,14 @@ export function faqPage(baseUrl) {
   ).join("\n");
 
   const body = `<div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
+  <section>
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:10px;">FAQ</div>
   <h1 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:.96;letter-spacing:-.03em;margin-bottom:14px;">Frequently asked questions</h1>
   <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:32px;">Agent402 is the open-source, self-hostable x402 + MCP server: an open cross-seller Index, Smart Order Router, and on-chain leaderboard, built on pay-per-call web tools for AI agents - free via proof-of-work or paid in ${RAILS_AMP}.</p>
+  </section>
+  <section>
   ${items}
+  </section>
 </div>
 ${ledgerFooterCompact()}`;
 
