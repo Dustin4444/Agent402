@@ -9,6 +9,12 @@ import { RAILS, RAILS_AMP, RAILS_OS } from "./rails.js";
 export const esc = (s) =>
   String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+// Official GitHub mark (the "Octocat" silhouette) - fill:currentColor so it
+// tracks the surrounding text color (var(--muted), hover states) exactly
+// like the plain-text "github" link it replaces used to, with no separate
+// color rule needed.
+const GITHUB_ICON_SVG = `<svg width="19" height="19" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>`;
+
 // ---------------------------------------------------------------------------
 // Head links: Google Fonts + favicons
 // Browsers cache favicons in a separate, long-lived store keyed by URL - bump
@@ -521,7 +527,7 @@ function nav(activePath) {
       ${zone3}
     </div>
     <div style="margin-left:auto;display:flex;align-items:center;gap:14px;">
-      <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="font-family:var(--font-mono);font-size:13px;color:var(--muted);text-decoration:none;">github</a>
+      <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" aria-label="GitHub" title="GitHub" style="display:flex;align-items:center;color:var(--muted);text-decoration:none;">${GITHUB_ICON_SVG}</a>
 
       ${activePath === "" || activePath === "/sell" ? "" : `<a class="ml-nav-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;white-space:nowrap;">LIST YOUR API →</a>`}
       <button type="button" onclick="a402ToggleMenu()" class="ml-burger" aria-label="Open menu" aria-expanded="false">
@@ -697,27 +703,37 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <head>
 <meta charset="utf-8">
 <script>function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}
-/* a402: reveal-on-scroll for [data-reveal] sections. Anonymous function
-   expression on purpose, not a declaration - avoids a leading-"function"
-   source line, the exact shape test-theme.js's markup-safety assertions
-   guard against. Class added here (JS), never baked into static
-   CSS as a default-hidden state, so a throw/no-run leaves every section fully
-   visible instead of stuck at opacity:0. The observer's own first callback
-   decides visibility, not a separate getBoundingClientRect measurement taken
-   before the map canvas/webfonts settle layout (that early-measurement bug
-   made most sections read as already-above-the-fold and never animate).
-   ONE-SHOT: once a section reveals, it is unobserved and never re-hidden.
-   An earlier version toggled ml-reveal-in on every intersection change (added
-   AND removed), meant to let a reload deep in the page still animate
-   sections into view - but a reload doesn't need the removal half, only the
-   addition: a section already in view on the observer's first callback
-   reveals immediately either way. The removal half had a real, reported bug:
-   a tall section scrolling past the top edge drops under the 8% threshold
-   *while still partially on screen*, so it visibly faded out and shifted
-   down 18px in front of the user mid-scroll - "content going off screen"
-   on a normal scroll, not a rendering glitch. Revealed content now stays
-   revealed, matching how every other scroll-reveal effect on the web works. */
-document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('[data-reveal]');if(!els.length||!window.IntersectionObserver)return;els.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});els.forEach(function(el){io.observe(el);});}catch(e){}});</script>
+/* a402: reveal-on-scroll for every top-level header/section, site-wide. Was
+   opt-in per-page via [data-reveal] (only the homepage set it, so every
+   other page never got the effect at all); now applied here in the ONE
+   shared script every page already loads, so it needs zero duplication -
+   no per-page script block, no per-page attribute to remember to set.
+   Anonymous function expression on purpose, not a declaration - avoids a
+   leading-"function" source line, the exact shape test-theme.js's
+   markup-safety assertions guard against. Class added here (JS), never
+   baked into static CSS as a default-hidden state, so a throw/no-run leaves
+   every section fully visible instead of stuck at opacity:0. The observer's
+   own first callback decides visibility, not a separate getBoundingClientRect
+   measurement taken before the map canvas/webfonts settle layout (that
+   early-measurement bug made most sections read as already-above-the-fold
+   and never animate). ONE-SHOT: once a section reveals, it is unobserved and
+   never re-hidden. An earlier version toggled ml-reveal-in on every
+   intersection change (added AND removed), meant to let a reload deep in the
+   page still animate sections into view - but a reload doesn't need the
+   removal half, only the addition: a section already in view on the
+   observer's first callback reveals immediately either way. The removal
+   half had a real, reported bug: a tall section scrolling past the top edge
+   drops under the 8% threshold *while still partially on screen*, so it
+   visibly faded out and shifted down 18px in front of the user mid-scroll -
+   "content going off screen" on a normal scroll, not a rendering glitch.
+   Revealed content now stays revealed, matching how every other
+   scroll-reveal effect on the web works. querySelectorAll('header,section')
+   only reaches pages whose top-level blocks are actually <section>
+   elements - roughly half this site's page templates are, the rest use
+   plain <div> wrappers and get no reveal effect from this alone; converting
+   those is separate, per-template work, not something a shared script can
+   retrofit onto markup that was never semantic to begin with. */
+document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('header,section,[data-reveal]');if(!els.length||!window.IntersectionObserver)return;els.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});els.forEach(function(el){io.observe(el);});}catch(e){}});</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">

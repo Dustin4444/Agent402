@@ -33,7 +33,9 @@ const ROSTER_CSS = `
 .mlr-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
 .mlr-stat.bad .mlr-dot{background:var(--accent)}
 .mlr-badge{background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px}
-.mlr-mpp{border:1px solid var(--green);color:var(--green);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:0 4px;margin-left:4px}`;
+.mlr-mpp{border:1px solid var(--green);color:var(--green);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:0 4px;margin-left:4px}
+.ml-chain-h1-wrap{min-height:80px}
+@media (max-width: 900px) { .ml-chain-h1-wrap{min-height:120px} }`;
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 // Crawled manifests are third-party input: only http(s) may become an href.
@@ -794,7 +796,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const manifestRow = (label, value) => `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);flex:none;">${label}</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;min-width:0;overflow-wrap:anywhere;text-align:right;">${value}</span></div>`;
   const railManifestHtml = `
     <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-      <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· RAIL MANIFEST ··</span><span>${esc(C.tickerLabel)}</span></div>
+      <div style="display:flex;flex-direction:column;gap:4px;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· RAIL MANIFEST ··</span><span>${esc(C.tickerLabel)}</span></div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13px;">
         ${manifestRow("network", esc(C.caip2))}
         ${manifestRow("wires", C.mpp ? "x402 + MPP" : "x402")}
@@ -821,9 +823,9 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const headerHtml = `
   <div class="ml-2col" style="display:grid;grid-template-columns:1.15fr .85fr;gap:34px;align-items:start;">
     <div>
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:12px;">
-        <span style="width:44px;height:44px;border:2px solid var(--ink);color:var(--ink);display:flex;align-items:center;justify-content:center;" title="${esc(C.chainName)}">${chainMark(chainKey, 26) || `<span style="font-family:var(--font-mono);font-weight:700;font-size:12px;">${esc(C.ticker)}</span>`}</span>
-        <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0;">The ${esc(C.chainName)} x402 marketplace</h1>
+      <div class="ml-chain-h1-wrap" style="display:flex;align-items:flex-start;gap:14px;margin-bottom:12px;">
+        <span style="width:44px;height:44px;flex:none;border:2px solid var(--ink);color:var(--ink);display:flex;align-items:center;justify-content:center;" title="${esc(C.chainName)}">${chainMark(chainKey, 26) || `<span style="font-family:var(--font-mono);font-weight:700;font-size:12px;">${esc(C.ticker)}</span>`}</span>
+        <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;margin:0;">The ${esc(C.chainName)} x402 marketplace</h1>
       </div>
       <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">${subheadHtml}</p>
       <div style="margin:16px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--card);">
@@ -840,7 +842,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       </div>
       <p style="font-size:13px;color:var(--faint);margin:10px 0 0;">An open index of the whole ${esc(C.chainName)} x402 economy - this host plus every independent seller the hourly crawl finds (CDP Bazaar included). Not a walled market: other venues' listings appear here too.</p>
       ${receiptHtml}
-      <p style="font-size:13px;color:var(--faint);margin:4px 0 0;">${C.canaryLine}</p>
+      <p style="font-size:13px;line-height:1.45;color:var(--faint);margin:4px 0 0;min-height:56px;">${C.canaryLine}</p>
     </div>
     ${railManifestHtml}
   </div>
@@ -876,16 +878,20 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
-  ${headerHtml}
-  <div id="market-panel">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
+  <section>${headerHtml}</section>
+  <section>
+    <div id="market-panel">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
 
-  ${rosterHtml}
+    ${rosterHtml}
+  </section>
 
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse ${esc(C.chainName)}-payable tools</h2>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">${groupsHtml}</div>
-  <p style="font-family:var(--font-mono);font-size:13px;background:var(--card-zebra);padding:10px 14px;margin:16px 0 0;">agents: GET ${esc(baseUrl)}/api/route?q=&lt;task&gt;&amp;network=${esc(C.networkParam)}</p>
+  <section>
+    <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse ${esc(C.chainName)}-payable tools</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">${groupsHtml}</div>
+    <p style="font-family:var(--font-mono);font-size:13px;background:var(--card-zebra);padding:10px 14px;margin:16px 0 0;">agents: GET ${esc(baseUrl)}/api/route?q=&lt;task&gt;&amp;network=${esc(C.networkParam)}</p>
+  </section>
 
-  ${sellSectionHtml}
+  <section>${sellSectionHtml}</section>
 
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=${esc(C.networkParam)}">/api/route?network=${esc(C.networkParam)}</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
@@ -1301,15 +1307,19 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
-  ${headerHtml}
-  ${marketFilterBar(null, baseUrl)}
-  ${rosterHtml}
-  ${chainGridSection}
-  ${economyStripHtml(economySnap)}
-  ${routerAndMethodSection}
-  ${faqSection}
-  ${closingCta}
-  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
+  <section>${headerHtml}</section>
+  <section>
+    ${marketFilterBar(null, baseUrl)}
+    ${rosterHtml}
+  </section>
+  <section>${chainGridSection}</section>
+  <section>${economyStripHtml(economySnap)}</section>
+  <section>${routerAndMethodSection}</section>
+  <section>${faqSection}</section>
+  <section>
+    ${closingCta}
+    <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
+  </section>
 </div>
 ${ledgerFooterCompact()}`;
 

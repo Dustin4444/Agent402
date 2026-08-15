@@ -329,15 +329,15 @@ curl -X POST /api/hash \
     </div>
   </div>
 
-  <table style="font-family:var(--font-mono);font-size:13px;border:1.5px solid var(--ink);background:var(--card);">
-    <caption style="text-align:left;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:0 0 10px;">What a seller gets</caption>
+  <table style="font-family:var(--font-mono);font-size:13px;border:1.5px solid var(--ink);background:var(--card);width:100%;max-width:480px;">
+    <caption style="text-align:left;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:0 0 10px;">What a seller gets - full detail at <a href="/sell" style="color:var(--faint);">/sell</a></caption>
     <tbody>
-      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);width:230px;">Listing fee</th><td style="padding:13px 18px;color:var(--muted);">None. Self-serve registration, no account, no review queue.</td><td style="padding:13px 18px;text-align:right;color:var(--accent);white-space:nowrap;">$0</td></tr>
-      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Commission</th><td style="padding:13px 18px;color:var(--muted);">Nothing is deducted from your price. Buyers pay your wallet directly and Agent402 never holds seller funds.</td><td style="padding:13px 18px;text-align:right;color:var(--accent);white-space:nowrap;">0%</td></tr>
-      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Routing</th><td style="padding:13px 18px;color:var(--muted);">Ranked by match, then rolling crawl health, then price. New sellers get the benefit of the doubt.</td><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">health-aware</td></tr>
-      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Discovery</th><td style="padding:13px 18px;color:var(--muted);">Marketplace page, per-chain market page, <span style="color:var(--ink);">/api/route</span>, and the on-chain leaderboard.</td><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">4 surfaces</td></tr>
-      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">How Agent402 earns</th><td style="padding:13px 18px;color:var(--muted);">On the buyer side only: when a buyer asks the router to execute a call for them, they pay a flat routing fee and we pay you your full price out of it. Buyers who find you and pay you directly cost you nothing.</td><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">buyer-side</td></tr>
-      <tr><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Cross-chain buyers</th><td style="padding:13px 18px;color:var(--muted);">The router pays you on the chain the buyer paid on and relays the result.</td><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">Base · Algorand</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);width:230px;">Listing fee</th><td style="padding:13px 18px;text-align:right;color:var(--accent);white-space:nowrap;">$0</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Commission</th><td style="padding:13px 18px;text-align:right;color:var(--accent);white-space:nowrap;">0%</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Routing</th><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">health-aware</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Discovery</th><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">4 surfaces</td></tr>
+      <tr style="border-bottom:1px solid var(--hairline);"><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">How Agent402 earns</th><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">buyer-side</td></tr>
+      <tr><th scope="row" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--ink);">Cross-chain buyers</th><td style="padding:13px 18px;text-align:right;color:var(--on-dark);white-space:nowrap;">Base · Algorand</td></tr>
     </tbody>
   </table>
   <p style="font-family:var(--font-mono);font-size:12.5px;line-height:1.6;color:var(--dk-muted3);margin:14px 0 0;"><strong style="color:var(--on-dark);font-weight:700;">${fmtNum(viaRouter)}</strong> of ${fmtNum(viaUsdc)} paid calls (${esc(routerPct)}) came through the router, which is the only path Agent402 earns on. Every other paid call went buyer wallet to seller wallet.</p>
@@ -585,9 +585,9 @@ ${ledgerFooterFull()}
     regIn.addEventListener('keydown', function(e) { if (e.key === 'Enter') submitReg(); });
   }
 
-  // --- reveal-on-scroll (shared helper already runs from ledger-chrome.js
-  // via [data-reveal]; homepage sections opt in). ---
-  document.querySelectorAll('header, section').forEach(function(el) { el.setAttribute('data-reveal', ''); });
+  // --- reveal-on-scroll: the shared script in ledger-chrome.js now applies
+  // this to every header/section site-wide on its own; no per-page opt-in
+  // needed here anymore. ---
 
   // --- dot world map: real Natural Earth geometry (world-atlas 110m, public
   // domain), rasterised to a land mask, sampled into a dot grid, with
