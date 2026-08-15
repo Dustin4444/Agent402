@@ -225,7 +225,19 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
   .tp-wrap { max-width:1180px; margin:0 auto; padding:56px 30px; }
   .tp-crumb { font-family:var(--font-mono); font-size:13px; color:var(--faint); margin-bottom:18px; }
   .tp-crumb a { color:var(--accent); text-decoration:none; }
-  .tp-h1 { font-family:var(--font-body); font-weight:800; font-size:38px; line-height:1; letter-spacing:-.02em; margin-bottom:10px; }
+  /* Tool names range from 3 chars ("hex") to 50+ ("EDGAR XBRL company-concept
+     (one tag, full history)") across 530 tools, and this H1's width shrinks
+     continuously as the viewport narrows (single-column layout, no grid
+     breakpoint to hook a "reserve the worst case" fix to like the per-chain
+     marketplace pages use) - so unlike those pages, a fixed min-height would
+     either waste a lot of space at in-between widths or still not cover the
+     true worst case at the narrowest ones. Capping to a fixed 2-line box
+     instead makes the height deterministic (max 2 lines) at EVERY viewport
+     width regardless of name length - only the small number of genuinely
+     long outlier names ever get visually truncated, and only at narrower
+     widths where 2 lines isn't enough; the full name is preserved via the
+     title attribute below and is always the actual page <title>. */
+  .tp-h1 { font-family:var(--font-body); font-weight:800; font-size:38px; line-height:1; letter-spacing:-.02em; margin-bottom:10px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; text-overflow:ellipsis; }
   .tp-badge { display:inline-block; background:var(--surface); color:var(--on-dark); font-family:var(--font-mono); font-size:13px; padding:8px 16px; margin:8px 0 6px; }
   .tp-sub { color:var(--muted); font-size:16px; line-height:1.6; max-width:720px; }
   .tp-h2 { font-weight:800; font-size:22px; margin:40px 0 10px; letter-spacing:-.01em; }
@@ -242,7 +254,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
 
   const body = `<div class="tp-wrap">
   <div class="tp-crumb"><a href="/">Agent402</a> / <a href="/tools">tools</a> / ${e(tool.slug)}</div>
-  <h1 class="tp-h1">${e(tool.name)}</h1>
+  <h1 class="tp-h1" title="${e(tool.name)}">${e(tool.name)}</h1>
   <div class="tp-badge">${
     computePayable
       ? `<span class="tp-free">FREE</span> <span style="color:var(--dk-muted);">with proof-of-work</span> · <span style="color:var(--dk-muted2);">or ${tool.price} in USDC</span>`

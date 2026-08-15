@@ -3592,7 +3592,7 @@ export function skillPackPage(baseUrl, slug, catalog) {
   };
 
   const body = `<div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
-<h1 style="font-family:var(--font-body);font-weight:800;font-size:38px;line-height:1;letter-spacing:-.02em;margin-bottom:10px;">${e(pack.title)}</h1>
+<h1 style="font-family:var(--font-body);font-weight:800;font-size:38px;line-height:1;letter-spacing:-.02em;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;" title="${e(pack.title)}">${e(pack.title)}</h1>
 <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;">${e(pack.tagline)}</p>
 ${packTool ? `
 <div class="sk-buy">
