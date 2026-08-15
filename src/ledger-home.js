@@ -103,6 +103,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 @media (prefers-reduced-motion: reduce) { .hm-marquee-track { animation: none; } }
 .hm-2col { display: grid; grid-template-columns: 1fr 1fr; }
 @media (max-width: 900px) { .hm-2col, .hm-3col, .hm-hero { grid-template-columns: minmax(0,1fr) !important; } }
+@media (max-width: 480px) { .hm-reg-row { flex-direction: column !important; } .hm-reg-row button { width: 100%; } }
 `;
 
   const railLinksHtml = CHAIN_ORDER.map(([slug, name]) =>
@@ -139,7 +140,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         <h1 style="font-weight:800;font-size:66px;line-height:.92;letter-spacing:-.038em;margin:0 0 22px;color:var(--ink);">The applied layer<br>for <span style="color:var(--accent);">x402</span> and <span style="color:var(--accent);">MPP</span>.</h1>
         <p style="font-size:18.5px;line-height:1.5;color:var(--muted);max-width:560px;margin:0 0 30px;">Most of the ecosystem ships the protocol. Agent402 ships the <strong style="color:var(--ink);font-weight:700;">market that runs on it</strong> - an open index, a neutral router, and an on-chain ranking of every x402 seller. List your API and get paid in USDC per call, straight to your wallet. No signup, no API keys, and nothing deducted from your price.</p>
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:11px;margin-bottom:24px;">
-          <a class="ml-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">LIST YOUR API - FREE →</a>
+          <a class="ml-cta" href="#sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">LIST YOUR API - FREE →</a>
           <a class="ml-cta" href="/docs#add" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">ADD TO CLAUDE</a>
         </div>
         <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;font-family:var(--font-mono);font-size:12.5px;color:var(--muted);">
@@ -308,11 +309,15 @@ curl -X POST /api/hash \
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">01 / LIST AN x402 API</div>
       <h3 style="font-weight:800;font-size:22px;margin:0 0 12px;color:var(--ink);">Get routed by the Smart Order Router</h3>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">Serve x402 challenges, register your origin, and the index crawler picks you up hourly. You get ranked next to ${fmtNum(count)} of our own tools by match score, then health, then price - and a public leaderboard row once your on-chain volume shows up.</p>
-      <pre style="margin:0 0 18px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># we probe, you appear - no signup
+      <pre style="margin:0 0 14px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># or paste your origin below - same call, no terminal needed
 </span>curl -X POST https://agent402.tools/api/index/register \
   -H 'content-type: application/json' \
   -d '{"origin":"https://api.you.com"}'</pre>
-      <a class="ml-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:12px 18px;align-self:flex-start;">LIST YOUR API →</a>
+      <div class="hm-reg-row" style="display:flex;gap:10px;margin-top:auto;">
+        <input id="hm-reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;min-width:0;font-family:var(--font-mono);font-size:13px;padding:10px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
+        <button id="hm-reg-go" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:10px 18px;cursor:pointer;white-space:nowrap;">LIST IT →</button>
+      </div>
+      <div id="hm-reg-out" style="font-family:var(--font-mono);font-size:11.5px;color:var(--dk-muted3);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers.</div>
     </div>
     <div style="padding:26px;background:var(--card);display:flex;flex-direction:column;">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">02 / TOLLBOOTH A SITE</div>
@@ -413,7 +418,7 @@ curl -X POST /api/hash \
       <h2 style="font-weight:800;font-size:40px;line-height:1;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Not x402-native yet?<br>You still have a way in.</h2>
       <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 30px;max-width:560px;">You do not have to rebuild anything. <strong style="color:var(--on-dark);font-weight:700;">agent402-tollbooth</strong> drops a pay-per-crawl gate in front of a site that speaks no protocol at all, and adding a tool to the catalog itself is roughly fifteen lines. Either route, you keep your own paywall and your own wallet.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
-        <a class="ml-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">LIST YOUR API - FREE →</a>
+        <a class="ml-cta" href="#sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">LIST YOUR API - FREE →</a>
         <a class="ml-cta" href="/tollbooth" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">TOLLBOOTH A SITE</a>
         <a class="ml-cta" href="/contribute" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--dk-muted);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">CONTRIBUTE A TOOL</a>
       </div>
@@ -551,6 +556,34 @@ ${ledgerFooterFull()}
         runBtn.textContent = 'RUN IT AGAIN';
       });
   });
+
+  // --- inline seller registration (same POST /api/index/register the /sell
+  // page's own form uses - listing an API shouldn't require a click-through
+  // to a second page just to paste one URL). ---
+  var regBtn = document.getElementById('hm-reg-go');
+  var regIn = document.getElementById('hm-reg-origin');
+  var regOut = document.getElementById('hm-reg-out');
+  // The two hero-style "LIST YOUR API" buttons jump here via #sell instead of
+  // navigating to /sell - focus the input so the jump visibly lands on
+  // something typeable, not just a scroll position.
+  document.querySelectorAll('a[href="#sell"]').forEach(function(a) {
+    a.addEventListener('click', function() { setTimeout(function() { if (regIn) regIn.focus(); }, 400); });
+  });
+  if (regBtn) {
+    function submitReg() {
+      regOut.textContent = 'probing...';
+      fetch('/api/index/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ origin: regIn.value }) })
+        .then(function(r) { return r.json(); })
+        .then(function(j) {
+          regOut.textContent = j.listed
+            ? ('Listed - ' + (j.seller && j.seller.displayName ? j.seller.displayName : j.origin) + ' (' + (j.seller && j.seller.toolCount ? j.seller.toolCount : 0) + ' tools). Appears on /marketplace and any chain page it advertises.')
+            : ('Not listed: ' + (j.error || 'unknown error'));
+        })
+        .catch(function() { regOut.textContent = 'submission failed - try again'; });
+    }
+    regBtn.addEventListener('click', submitReg);
+    regIn.addEventListener('keydown', function(e) { if (e.key === 'Enter') submitReg(); });
+  }
 
   // --- reveal-on-scroll (shared helper already runs from ledger-chrome.js
   // via [data-reveal]; homepage sections opt in). ---
