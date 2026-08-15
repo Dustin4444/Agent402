@@ -786,7 +786,7 @@ const GUIDE_PAGE_CSS = `
 .gp-crumb{font-family:var(--font-mono);font-size:13px;color:var(--faint);margin-bottom:20px;}
 .gp-crumb a{color:var(--accent);text-decoration:none;}
 .gp-crumb a:hover{text-decoration:underline;}
-.gp-wrap h1{font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 28px;color:var(--ink);}
+.gp-wrap h1{font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 28px;color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;}
 .gp-body{font-size:15px;line-height:1.55;color:var(--muted);}
 .gp-body h2{font-family:var(--font-body);font-weight:800;font-size:22px;line-height:1.1;letter-spacing:-.02em;color:var(--ink);margin:32px 0 12px;}
 .gp-body p{margin:0 0 16px;}
@@ -861,7 +861,7 @@ export function guidePage(baseUrl, slug) {
 
   const body = `<div class="gp-wrap">
   <div class="gp-crumb"><a href="/">Home</a> / <a href="/guides">Guides</a> / ${esc(g.title)}</div>
-  <h1>${esc(g.title)}</h1>
+  <h1 title="${esc(g.title)}">${esc(g.title)}</h1>
   <div class="gp-body">
     ${marked.parse(g.md)}
   </div>
