@@ -2,7 +2,6 @@
 // future deploy can't silently drop it. Offline — pure functions only, no
 // server, no network, no secrets.
 import { robotsTxt, sitemapXml, llmsTxt } from "../src/seo.js";
-import { landingPage } from "../src/landing.js";
 import { serviceManifest } from "../src/discovery.js";
 import { leaderboardPage, windowLabelFromBlocks } from "../src/leaderboard.js";
 
@@ -71,42 +70,6 @@ ok(manifest.discovery.leaderboardSurfaces.sdkMethod === "topSellers", "leaderboa
 ok(manifest.machineReadable.findTool && manifest.discovery.neutralRouter, "manifest still exposes find + router");
 // Must serialize (it is served as JSON).
 JSON.parse(JSON.stringify(manifest));
-
-// ---- landing page (HTML title, meta, JSON-LD FAQ, visible callout) ----
-const html = landingPage(BASE, "base", false, CATALOG, null);
-ok(/<title>[^<]*Leaderboard[^<]*<\/title>/i.test(html), "landing <title> mentions Leaderboard");
-ok(/<title>[^<]*Find[^<]*<\/title>/i.test(html), "landing <title> mentions Find");
-ok(/<title>[^<]*Router[^<]*<\/title>/i.test(html), "landing <title> mentions Router");
-ok(/<meta name="description"[^>]*Leaderboard/i.test(html) || /<meta name="description"[^>]*leaderboard/.test(html), "meta description mentions leaderboard");
-ok(/og:title[^>]*Leaderboard/i.test(html), "og:title mentions Leaderboard");
-ok(/og:image[^>]*\/card\.png/.test(html), "og:image points at /card.png");
-ok(/twitter:card[^>]*summary_large_image/.test(html), "twitter card present");
-ok(html.includes('href="/api/leaderboard"'), "landing has a visible link to /api/leaderboard");
-ok(/How do I see which x402 sellers are most used\?/.test(html), "FAQ JSON-LD/visible includes the leaderboard question");
-// The leaderboard FAQ answer is the entry point for any LLM crawling SEO;
-// since the same primitive now ships as an MCP tool + SDK method, the answer
-// must name those paths or agents will only discover the HTTP one.
-ok(/sellers\.list/.test(html), "leaderboard FAQ answer names MCP tool sellers.list");
-ok(/topSellers/.test(html), "leaderboard FAQ answer names SDK method topSellers()");
-
-// JSON-LD FAQPage must include the leaderboard question on the machine side too.
-const ldBlocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => m[1]);
-ok(ldBlocks.length >= 1, "at least one JSON-LD block present");
-let faqMatched = false;
-for (const block of ldBlocks) {
-  try {
-    const parsed = JSON.parse(block);
-    const graph = Array.isArray(parsed) ? parsed : (parsed["@graph"] || [parsed]);
-    for (const node of graph) {
-      if (node && node["@type"] === "FAQPage" && Array.isArray(node.mainEntity)) {
-        if (node.mainEntity.some((q) => /leaderboard/i.test(q.name) || /leaderboard/i.test(q?.acceptedAnswer?.text || ""))) {
-          faqMatched = true;
-        }
-      }
-    }
-  } catch { /* not strict JSON — skip */ }
-}
-ok(faqMatched, "JSON-LD FAQPage contains a leaderboard Q&A");
 
 // ---- windowLabelFromBlocks ----
 // Maps block count → human window label so the HTML page can say "24h" / "7d"

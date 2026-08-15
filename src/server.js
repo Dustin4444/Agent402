@@ -29,7 +29,6 @@ import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from 
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
 import { assertAvmValidityCovers } from "./avm-validity.js";
 import { paymentReplayKey, createReplayGuard } from "./replay-guard.js";
-import { landingPage } from "./landing.js";
 import { statusPage, statusSnapshot } from "./status.js";
 import { recordProbes } from "./status-store.js";
 import { tollboothLandingPage } from "./tollbooth-landing.js";
