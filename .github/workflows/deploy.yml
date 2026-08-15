@@ -975,6 +975,9 @@ jobs:
       - name: Chain page layout stability (no chain's page geometry shifts based on how long its name is)
         run: TARGET_URL=http://localhost:3000 node scripts/test-chain-page-layout-stability.js
 
+      - name: Reveal-on-scroll coverage (shared, site-wide - not a per-page opt-in that only ever reached the homepage)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-coverage.js
+
       - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
         run: node scripts/test-self-listing-exclusion.js
 

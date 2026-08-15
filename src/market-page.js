@@ -878,16 +878,20 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
-  ${headerHtml}
-  <div id="market-panel">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
+  <section>${headerHtml}</section>
+  <section>
+    <div id="market-panel">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
 
-  ${rosterHtml}
+    ${rosterHtml}
+  </section>
 
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse ${esc(C.chainName)}-payable tools</h2>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">${groupsHtml}</div>
-  <p style="font-family:var(--font-mono);font-size:13px;background:var(--card-zebra);padding:10px 14px;margin:16px 0 0;">agents: GET ${esc(baseUrl)}/api/route?q=&lt;task&gt;&amp;network=${esc(C.networkParam)}</p>
+  <section>
+    <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse ${esc(C.chainName)}-payable tools</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">${groupsHtml}</div>
+    <p style="font-family:var(--font-mono);font-size:13px;background:var(--card-zebra);padding:10px 14px;margin:16px 0 0;">agents: GET ${esc(baseUrl)}/api/route?q=&lt;task&gt;&amp;network=${esc(C.networkParam)}</p>
+  </section>
 
-  ${sellSectionHtml}
+  <section>${sellSectionHtml}</section>
 
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=${esc(C.networkParam)}">/api/route?network=${esc(C.networkParam)}</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
@@ -1303,15 +1307,19 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
-  ${headerHtml}
-  ${marketFilterBar(null, baseUrl)}
-  ${rosterHtml}
-  ${chainGridSection}
-  ${economyStripHtml(economySnap)}
-  ${routerAndMethodSection}
-  ${faqSection}
-  ${closingCta}
-  <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
+  <section>${headerHtml}</section>
+  <section>
+    ${marketFilterBar(null, baseUrl)}
+    ${rosterHtml}
+  </section>
+  <section>${chainGridSection}</section>
+  <section>${economyStripHtml(economySnap)}</section>
+  <section>${routerAndMethodSection}</section>
+  <section>${faqSection}</section>
+  <section>
+    ${closingCta}
+    <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
+  </section>
 </div>
 ${ledgerFooterCompact()}`;
 

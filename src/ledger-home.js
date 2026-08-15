@@ -585,9 +585,9 @@ ${ledgerFooterFull()}
     regIn.addEventListener('keydown', function(e) { if (e.key === 'Enter') submitReg(); });
   }
 
-  // --- reveal-on-scroll (shared helper already runs from ledger-chrome.js
-  // via [data-reveal]; homepage sections opt in). ---
-  document.querySelectorAll('header, section').forEach(function(el) { el.setAttribute('data-reveal', ''); });
+  // --- reveal-on-scroll: the shared script in ledger-chrome.js now applies
+  // this to every header/section site-wide on its own; no per-page opt-in
+  // needed here anymore. ---
 
   // --- dot world map: real Natural Earth geometry (world-atlas 110m, public
   // domain), rasterised to a land mask, sampled into a dot grid, with
