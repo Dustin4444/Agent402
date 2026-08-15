@@ -942,6 +942,27 @@ jobs:
         # through HTTP, which is where a buyer would feel the stall.
         run: node scripts/test-image-concurrency.js
 
+      - name: Gate agent402-facilitator (real signed Stellar testnet payments; boots its own servers on 4099-4101)
+        # Had ZERO CI coverage until 2026-08-15, unlike every other package in
+        # this repo - found only after a real production incident (unbounded
+        # /settle hang, then a broken Docker deploy shipped right past every
+        # existing check because none of them looked at this package at all).
+        # TEST_PAYER_STELLAR_SECRET is a persistent testnet-only Stellar
+        # account holding testnet USDC (Circle's faucet is CAPTCHA-gated, so
+        # it can't be minted fresh per run - see facilitator/README.md).
+        # Self-skips LOUDLY if the secret is ever unset, same pattern as the
+        # Robinhood settlement probe - never a silent pass.
+        run: |
+          if [ -z "$TEST_PAYER_STELLAR_SECRET" ]; then
+            echo "TEST_PAYER_STELLAR_SECRET unset - skipping facilitator/test.js (see facilitator/README.md)"
+            exit 0
+          fi
+          cd facilitator
+          npm ci --ignore-scripts
+          node test.js
+        env:
+          TEST_PAYER_STELLAR_SECRET: ${{ secrets.TEST_PAYER_STELLAR_SECRET }}
+
       - name: Docs truth (every documented route, slug and price matches the served catalog)
         run: TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js
 
