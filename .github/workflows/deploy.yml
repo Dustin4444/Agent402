@@ -972,6 +972,9 @@ jobs:
       - name: Link integrity (every sitemap URL + every crawled internal href resolves; /mcp never a real <a href>)
         run: TARGET_URL=http://localhost:3000 node scripts/test-link-integrity.js
 
+      - name: Chain page layout stability (no chain's page geometry shifts based on how long its name is)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-chain-page-layout-stability.js
+
       - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
         run: node scripts/test-self-listing-exclusion.js
 
