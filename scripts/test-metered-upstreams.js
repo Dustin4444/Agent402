@@ -50,7 +50,6 @@ const ALLOWED = {
   "revenue-live.js": { why: "rail snapshot RPC fan-out", bound: /SNAPSHOT_TTL_MS/ },
   "leaderboard.js": { why: "leaderboard scan", bound: /CACHE|TTL|cached/i },
   "x402-index.js": { why: "registry discovery poll", bound: /DISCOVERY_INTERVAL_MS/ },
-  "landing.js": { why: "unused legacy page (not mounted)", bound: /./ },
   "server.js": { why: "wallet activity scan", bound: /SQL_SCAN_DAILY_BUDGET/ },
 };
 
@@ -74,7 +73,10 @@ const reaching = files.filter((f) => {
   const src = readFileSync(new URL(f, dir), "utf8");
   return METERED.some((h) => src.includes(h));
 });
-ok(reaching.length >= 4,
+// Floor is 3 (was 4 until landing.js, the dead page whose only ALLOWED entry
+// was "unused legacy page (not mounted)", was deleted 2026-08-15 - it had
+// been padding this count the whole time).
+ok(reaching.length >= 3,
   `the scan found ${reaching.length} non-tool files touching a metered host (sanity: it is not blind)`);
 
 // The three specific bounds that were each added AFTER an invoice. Losing any

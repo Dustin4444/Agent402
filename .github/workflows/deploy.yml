@@ -975,6 +975,9 @@ jobs:
       - name: Chain page layout stability (no chain's page geometry shifts based on how long its name is)
         run: TARGET_URL=http://localhost:3000 node scripts/test-chain-page-layout-stability.js
 
+      - name: Title clamp coverage (tool/skill page titles never wrap unboundedly based on name length)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-title-clamp-coverage.js
+
       - name: Reveal-on-scroll coverage (shared, site-wide - not a per-page opt-in that only ever reached the homepage)
         run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-coverage.js
 
