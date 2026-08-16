@@ -773,22 +773,29 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const formHtml = `
   <div id="list-api" style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin-top:16px;">
     <div style="font-weight:800;font-size:15px;margin-bottom:8px;">List your API</div>
+    <label for="reg-origin" style="display:block;font-family:var(--font-mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Your API's origin</label>
     <div style="display:flex;gap:10px;">
       <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
       <button id="reg-go" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
-    <div id="reg-out" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
+    <div id="reg-out" role="status" aria-live="polite" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
   </div>
   <script>
   document.getElementById("reg-go").addEventListener("click", async () => {
+    const btn = document.getElementById("reg-go");
     const out = document.getElementById("reg-out");
+    if (btn.disabled) return;
+    btn.disabled = true;
+    out.style.color = "var(--muted)";
     out.textContent = "probing…";
     try {
       const r = await fetch("/api/index/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: document.getElementById("reg-origin").value }) });
       const j = await r.json();
       const n = j.seller?.toolCount || 0;
+      out.style.color = j.listed ? "var(--green)" : "var(--accent-lit)";
       out.textContent = j.listed ? ("Listed - " + (j.seller?.displayName || j.origin) + " (" + n + " tool" + (n === 1 ? "" : "s") + "). ${C.chainName} sellers appear on this page; all sellers appear on /index.") : ("Not listed: " + (j.error || "unknown error"));
-    } catch { out.textContent = "submission failed - try again"; }
+    } catch { out.style.color = "var(--accent-lit)"; out.textContent = "submission failed - try again"; }
+    finally { btn.disabled = false; }
   });
   </script>`;
 
