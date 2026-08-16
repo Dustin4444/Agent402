@@ -996,6 +996,9 @@ jobs:
       - name: Reveal-on-scroll no hero flash (the hero must never hide behind opacity:0 waiting on the observer)
         run: node scripts/test-reveal-no-hero-flash.js
 
+      - name: CSP violations sitewide (real browser, every distinct page template + real interactions on click-gated pages - script-src has no 'unsafe-inline' since 2026-08-16)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-csp-violations.js
+
       - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
         run: TARGET_URL=http://localhost:3000 node scripts/test-css-tokens-resolve.js
 
