@@ -1484,13 +1484,42 @@ export function revenueChartSection() {
         if(String(s)==="8")othList.forEach(function(c){tb+='<td style="color:var(--muted)">'+fmt((d.oth||{})[c]||0)+"</td>"})});tb+="<td>"+fmt(tot)+"</td></tr>"});
       document.getElementById("rvzTable").innerHTML=tb+"</table>";
     }
+    function buyersTrend(){
+      // Rolling recent-vs-prior comparison (last 14 days vs the 14 before
+      // that), not a lifetime first-half/second-half split - stays
+      // meaningful as history grows, rather than diluting toward flat as
+      // more old days accumulate. Needs 28 days of real data to say
+      // anything; thin history omits the line entirely rather than
+      // asserting a trend from a handful of points (found in an internal
+      // audit, 2026-08-16: buyer diversity fell 45% over 60 days,
+      // independent of any single wallet - this makes that visible without
+      // eyeballing the chart).
+      var rows=(state.buyers||[]).slice().sort(function(a,b){return a.day<b.day?-1:1});
+      if(rows.length<28)return null;
+      var recent=rows.slice(-14),prior=rows.slice(-28,-14);
+      var avg=function(xs){return xs.reduce(function(s,r){return s+(r.buyers||0)},0)/xs.length};
+      var ra=avg(recent),pa=avg(prior);
+      if(pa<=0)return null;
+      var pct=((ra-pa)/pa)*100;
+      return {recent:ra,prior:pa,pct:pct};
+    }
     function buyersNote(){
       var el=document.getElementById("rvzBuyersNote");
       if(state.metric!=="buyers"){el.style.display="none";return}
       el.style.display="block";
       var c=state.conc;
+      var t=buyersTrend();
+      var trendTxt="";
+      if(t){
+        var dir=t.pct<=-5?"down":t.pct>=5?"up":"flat";
+        var arrow=dir==="down"?"↓":dir==="up"?"↑":"→";
+        trendTxt=" "+arrow+" Last 14 days averaged "+t.recent.toFixed(1)+" distinct buyers/day, "+
+          (dir==="flat"?"about the same as":dir+" "+Math.abs(t.pct).toFixed(0)+"% from")+
+          " the 14 days before that ("+t.prior.toFixed(1)+"/day).";
+      }
       el.textContent="Distinct external wallets that settled a payment. Someone paying on two chains in one day is one buyer, and the cumulative line is a running union rather than a sum."+
-        (c&&c.buyers?" Over this window: "+c.buyers+" buyers, "+c.payments+" payments, biggest single wallet "+c.topSharePct+"% of them and the top five "+c.top5SharePct+"%.":"");
+        (c&&c.buyers?" Over this window: "+c.buyers+" buyers, "+c.payments+" payments, biggest single wallet "+c.topSharePct+"% of them and the top five "+c.top5SharePct+"%.":"")+
+        trendTxt;
     }
     function settleNote(){
       var el=document.getElementById("rvzSettleNote");
