@@ -207,7 +207,7 @@ export function docsLayoutHtml(currentSlug, mainHtml) {
   return `<div class="ml-docs-layout">
     <button type="button" class="ml-docs-mobile-toggle" id="ml-docs-mobile-toggle" aria-expanded="false" aria-controls="ml-docs-side">Browse docs &#9776;</button>
     <aside class="ml-docs-side" id="ml-docs-side">${renderSidebar(currentSlug)}</aside>
-    <main class="ml-docs-main">${mainHtml}</main>
+    <div class="ml-docs-main">${mainHtml}</div>
   </div>`;
 }
 

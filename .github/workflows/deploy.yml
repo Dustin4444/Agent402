@@ -990,6 +990,9 @@ jobs:
       - name: Focus-visible on search/demo inputs (real browser check - inline style can silently defeat a stylesheet :focus rule)
         run: TARGET_URL=http://localhost:3000 node scripts/test-focus-visible.js
 
+      - name: Single <main> landmark per page (no page-level renderer may nest a second <main> inside ledgerShell's own)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-single-main-landmark.js
+
       - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
         run: node scripts/test-self-listing-exclusion.js
 

@@ -1637,7 +1637,7 @@ export function revenuePage(baseUrl, snap) {
     </div>`;
   };
   const body = `
-  <main style="max-width:1100px;margin:0 auto;padding:56px 30px;">
+  <div style="max-width:1100px;margin:0 auto;padding:56px 30px;">
     <section>
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/revenue</div>
     <h1 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink);">Live revenue.</h1>
@@ -1661,7 +1661,7 @@ export function revenuePage(baseUrl, snap) {
     <p style="font-size:13.5px;color:var(--muted);margin-top:10px;">Don't take our word for it: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our on-chain settlements independently →</a> Their totals count <em>all</em> traffic to our wallets - including our own canary and test buys - so they read higher than the external-only figures above. Their seller row also groups our upstream <strong>spending</strong> wallet in with the treasury, and that wallet receives the revenue from the tools that fund external purchases, so part of what appears there as demand is our own self-funding loop rather than a third party paying us. Both figures are correct; they measure different things, and the external-only series above is the one that answers "did someone else pay for this".</p>
     ${mppSection(snap.mpp)}
     </section>
-  </main>
+  </div>
   ${ledgerFooterCompact(baseUrl)}`;
   return ledgerShell({
     title, description, canonical, baseUrl, activePath: "/revenue",

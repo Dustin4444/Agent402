@@ -342,7 +342,7 @@ export function adapterDocPage(baseUrl, slug) {
     </aside>
 
     <!-- CONTENT -->
-    <main>
+    <div>
       <p style="font-size:.85rem;color:var(--faint);margin:0 0 20px;"><a href="/" style="color:var(--faint);text-decoration:none;">Home</a> &rsaquo; <a href="/docs" style="color:var(--faint);text-decoration:none;">Docs</a> &rsaquo; <a href="/docs/adapters" style="color:var(--faint);text-decoration:none;">Adapters</a> &rsaquo; ${esc(adapter.name)}</p>
       <h1 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 10px;">${esc(adapter.name)} Adapter</h1>
       <span style="display:inline-block;font-family:var(--font-mono);font-size:.85rem;color:var(--accent);margin-bottom:18px;">${esc(adapter.pkg)}</span>
@@ -397,7 +397,7 @@ ${configRows}
         <a href="/integrations" style="color:var(--accent);text-decoration:none;font-size:.92rem;font-weight:600;">Integrations overview</a>
         <a href="${esc(adapter.github)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:.92rem;font-weight:600;">GitHub source &rarr;</a>
       </div>
-    </main>
+    </div>
   </div>
   ${ledgerFooterCompact()}
 
