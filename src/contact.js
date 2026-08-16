@@ -45,7 +45,8 @@ export function contactPage(baseUrl) {
 .ct-field textarea{min-height:120px;resize:vertical}
 .ct-submit{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;border:none;padding:12px 24px;cursor:pointer}
 .ct-submit:hover{opacity:.85}
-.ct-sent{display:none;background:var(--card);border:1.5px solid var(--green);padding:18px 22px;margin-bottom:44px;color:var(--ink);font-size:15px}
+.ct-fallback{color:var(--faint);font-size:12.5px;margin:14px 0 0;line-height:1.5}
+.ct-fallback a{color:var(--muted)}
 `;
 
   const body = `
@@ -82,11 +83,9 @@ export function contactPage(baseUrl) {
   </section>
 
   <section>
-  <div class="ct-sent" id="ctSent">Thanks for reaching out! I'll get back to you soon.</div>
-
   <div class="ct-form" id="ctForm">
     <h2>Send a message.</h2>
-    <p>I'll get back to you as soon as I can.</p>
+    <p>Opens in your email app, pre-filled and ready to send.</p>
     <form id="contactForm" action="mailto:mike@agent402.tools" method="POST" enctype="text/plain">
       <div class="ct-field">
         <label for="ct-name">Name</label>
@@ -102,6 +101,7 @@ export function contactPage(baseUrl) {
       </div>
       <button type="submit" class="ct-submit">Send message &rarr;</button>
     </form>
+    <p class="ct-fallback">No email app configured on this device? Copy the address instead: <a href="mailto:mike@agent402.tools">mike@agent402.tools</a></p>
   </div>
   </section>
 </div>
