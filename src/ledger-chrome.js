@@ -750,8 +750,20 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
    a scroll-triggered effect at all. The fix is DOM-order, not a
    getBoundingClientRect check - that's the deliberate difference from the
    early-measurement bug described above: no layout read before webfonts/map
-   settle, so it can't misjudge a below-fold section as already visible. */
-document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('header,section,[data-reveal]');if(els.length<2||!window.IntersectionObserver)return;var rest=Array.prototype.slice.call(els,1);rest.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});rest.forEach(function(el){io.observe(el);});}catch(e){}});</script>
+   settle, so it can't misjudge a below-fold section as already visible.
+   [data-reveal-eager] OPT-IN EXEMPTION (2026-08-16): some pages have a
+   SECOND section that's also reliably above the fold on load (found on
+   /pricing - the tier cards sit directly under a short hero, both visible
+   together on an ordinary viewport) and got the same flash the hero fix
+   above already solved for index 0. Rather than guessing "how many leading
+   sections are above the fold" generically (which would need either an
+   unsafe early layout read, or a blanket exemption for e.g. the first N
+   sections that's WRONG on every page where section N+1 really is below
+   the fold), this is a deliberate, explicit, per-section opt-in a page
+   template sets only when it knows its own layout - same DOM-order safety
+   property as the hero fix (no getBoundingClientRect), just marked by the
+   page author instead of inferred by position. */
+document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('header,section,[data-reveal]');if(els.length<2||!window.IntersectionObserver)return;var rest=Array.prototype.slice.call(els,1).filter(function(el){return !el.hasAttribute('data-reveal-eager');});if(!rest.length)return;rest.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});rest.forEach(function(el){io.observe(el);});}catch(e){}});</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">

@@ -999,6 +999,9 @@ jobs:
       - name: Wrong-method 405 with Allow header (a known catalog path hit with the wrong verb no longer looks like a dead route)
         run: TARGET_URL=http://localhost:3000 node scripts/test-wrong-method-405.js
 
+      - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-eager.js
+
       - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
         run: node scripts/test-self-listing-exclusion.js
 
