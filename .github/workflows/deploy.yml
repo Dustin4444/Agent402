@@ -1216,6 +1216,9 @@ jobs:
       - name: MCP outer transport limits (R-11 — per-IP cap + concurrency ceiling bound floods before server/transport allocation — spawns child)
         run: node scripts/test-mcp-limits.js
 
+      - name: MCP Registry find-latest-version helper (used by the publish job to auto-deprecate a superseded version — offline)
+        run: node scripts/test-mcp-find-latest-version.js
+
       - name: PostHog analytics proxy abuse controls (R-17 — method allowlist + per-IP cap before the upstream call — spawns child)
         run: node scripts/test-posthog-proxy.js
 
@@ -2356,9 +2359,17 @@ jobs:
           # "mcpName" to the server.json name and confirming the npm package is
           # published — so this runs after the npm publish above.
           VER=$(node -p "require('./mcp/package.json').version")
-          if curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402" | grep -q "\"version\":\"$VER\""; then
+          SEARCH_RESULT=$(curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402&limit=100")
+          if echo "$SEARCH_RESULT" | grep -q "\"version\":\"$VER\""; then
             echo "io.github.mikeypetrillo/agent402@$VER already in the MCP Registry — nothing to do"; exit 0
           fi
+          # Capture whichever version is isLatest RIGHT NOW - it's about to
+          # become stale the moment the new publish below lands. Deprecation
+          # tooling gap found 2026-08-16: nothing ever marked a superseded
+          # version deprecated, so 24 of 25 published versions were still
+          # "active" in the registry. Best-effort: a lookup failure here
+          # leaves PREV_LATEST empty and the deprecate step below just skips.
+          PREV_LATEST=$(echo "$SEARCH_RESULT" | node scripts/mcp-find-latest-version.js || true)
           asset="mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz"
           if [ -n "${MCP_PUBLISHER_VERSION:-}" ]; then base="https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION"; else base="https://github.com/modelcontextprotocol/registry/releases/latest/download"; fi
           # Download to disk and fail fast (no curl|tar of unverified bytes).
@@ -2401,6 +2412,16 @@ jobs:
           ../mcp-publisher login github-oidc
           ../mcp-publisher publish
           echo "published io.github.mikeypetrillo/agent402@$VER → https://registry.modelcontextprotocol.io"
+          # Deprecate the version this publish just superseded. Only ever
+          # touches the ONE immediately-previous version - never a bulk
+          # rewrite of history - and never fails the job: a registry hiccup
+          # here is a missed housekeeping step, not a publish failure.
+          if [ -n "$PREV_LATEST" ] && [ "$PREV_LATEST" != "$VER" ]; then
+            ../mcp-publisher status --status deprecated --message "Superseded by $VER" \
+              io.github.MikeyPetrillo/agent402 "$PREV_LATEST" \
+              && echo "deprecated superseded version $PREV_LATEST" \
+              || echo "::warning::failed to deprecate superseded version $PREV_LATEST (non-fatal)"
+          fi
 
   probe:
     needs: markers
