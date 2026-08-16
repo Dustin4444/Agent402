@@ -1014,6 +1014,9 @@ jobs:
       - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
         run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-eager.js
 
+      - name: Reveal-on-scroll skip-over safety net (a single fast scroll jump must never leave a section permanently invisible — real browser, found live on /marketplace 2026-08-16)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-scroll-skip.js
+
       - name: Hamburger menu aria-label toggles with aria-expanded (real browser click, not a static string check)
         run: TARGET_URL=http://localhost:3000 node scripts/test-burger-aria-label.js
 

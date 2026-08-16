@@ -763,7 +763,27 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
    template sets only when it knows its own layout - same DOM-order safety
    property as the hero fix (no getBoundingClientRect), just marked by the
    page author instead of inferred by position. */
-document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('header,section,[data-reveal]');if(els.length<2||!window.IntersectionObserver)return;var rest=Array.prototype.slice.call(els,1).filter(function(el){return !el.hasAttribute('data-reveal-eager');});if(!rest.length)return;rest.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});rest.forEach(function(el){io.observe(el);});}catch(e){}});</script>
+document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('header,section,[data-reveal]');if(els.length<2||!window.IntersectionObserver)return;var rest=Array.prototype.slice.call(els,1).filter(function(el){return !el.hasAttribute('data-reveal-eager');});if(!rest.length)return;rest.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});rest.forEach(function(el){io.observe(el);});
+/* SAFETY NET (2026-08-16) - a single large scroll jump (trackpad flick, End
+   key, scrollbar-track click - all ordinary user actions) can move a short
+   section from below the viewport to above it within one rendered frame, so
+   the IntersectionObserver above never sees it cross the threshold and it
+   stays at opacity:0 forever - proven live on /marketplace's "Markets by
+   chain" section, reachable on ANY page since every <section> opts in.
+   Revealed-content-stays-revealed elements are unobserve()'d, but a
+   never-intersected element stays observed with no further callbacks ever
+   firing for it, so subsequent normal scrolling does not self-heal it either.
+   This directly measures position instead of trusting IO fired: on a
+   debounced scroll (and once shortly after load, in case fonts/layout
+   settled late) reveal anything not yet revealed whose top edge has reached
+   or passed the viewport bottom - i.e. it is visible now OR already scrolled
+   past. Never force-reveals a section still below the viewport, so the
+   intended scroll-in effect for normal scrolling is untouched. */
+var revealPassed=function(){rest.forEach(function(el){if(el.classList.contains('ml-reveal-in'))return;if(el.getBoundingClientRect().top<window.innerHeight){el.classList.add('ml-reveal-in');io.unobserve(el);}});};
+var revealTimer=null;
+window.addEventListener('scroll',function(){clearTimeout(revealTimer);revealTimer=setTimeout(revealPassed,150);},{passive:true});
+setTimeout(revealPassed,500);
+}catch(e){}});</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
