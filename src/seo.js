@@ -291,6 +291,8 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 
 **MPP clients are first-class (dual-stack).** Every paid endpoint also speaks MPP (Machine Payments Protocol, the IETF-track \`Payment\` HTTP auth scheme): the same 402 carries a \`WWW-Authenticate: Payment\` challenge (evm charge, EIP-3009 USDC), \`Authorization: Payment\` credentials settle on-chain identically to x402, and settled responses return a signed \`Payment-Receipt\` header. An \`mppx\` client (\`Fetch.from\` with \`evm.charge\`) works out of the box - same URL, same price, same settlement as x402, whichever dialect your client speaks.
 
+**How to read our 402 if you only speak one dialect.** The same response carries BOTH headers, always - \`WWW-Authenticate: Payment\` is additive, never a replacement for the real x402 \`PAYMENT-REQUIRED\` header (full \`accepts\` array, \`exact\` scheme, EIP-3009). A client that hard-fails on an unrecognized \`WWW-Authenticate\` scheme instead of also checking for \`PAYMENT-REQUIRED\` will bail with something like "no supported rail" on a 402 it could have paid - this has happened at least once (see issue #794). If your parser only understands one of the two dialects, check for the header it understands FIRST rather than trusting whichever header happens to be read first; do not treat an unrecognized \`WWW-Authenticate\` scheme as "this server has no payment option for me."
+
 ## Key machine surfaces
 - [/api/search](${baseUrl}/api/search): **front door** - live web search (title, URL, snippet). Start here to discover pages; follow with extract or answer
 - [/api/answer](${baseUrl}/api/answer): **front door** - cited answer grounded in live web search results
