@@ -3,9 +3,15 @@
 import { ledgerCatalogPage } from "../src/ledger-catalog.js";
 import { WALLET_ONLY_SLUGS } from "../src/pow.js";
 import { CATEGORIES } from "../src/pages.js";
+import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
+
+// The search-filter script lives in assets/js/catalog-search.js (external
+// file, CSP hardening, 2026-08-16) — was inline in the page's own <script>
+// block before that.
+const catalogSearchScript = readFileSync(new URL("../assets/js/catalog-search.js", import.meta.url), "utf8");
 
 // A fabricated slug is guaranteed NOT in WALLET_ONLY_SLUGS (a fixed set of
 // real production slugs), so isComputePayable() reliably reports it free —
@@ -64,7 +70,7 @@ ok(html.includes(CATEGORIES.web.blurb.replace(/&/g, "&amp;")), "category blurb i
 // --- live client-side search filter (kept from the current page; the design
 // mockup's redirect-to-/api/find-on-submit would dump raw JSON at a human
 // visitor, so the working in-place filter is kept instead) -----------------
-ok(html.includes('id="cat-search"') && html.includes("addEventListener('input'"), "live search filter script is present and wired to the input event, not a form submit");
+ok(html.includes('id="cat-search"') && html.includes('<script src="/js/catalog-search.js"></script>') && catalogSearchScript.includes("addEventListener('input'"), "live search filter script is present and wired to the input event, not a form submit");
 ok(!html.includes("onSubmit"), "no form-submit-to-raw-JSON handler ships (the design mockup's behavior, deliberately not ported)");
 
 // --- structured data --------------------------------------------------------
