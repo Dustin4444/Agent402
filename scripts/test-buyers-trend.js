@@ -2,9 +2,11 @@
 // prior buyer-diversity comparison added after an internal audit found
 // distinct daily buyers fell 45% over 60 days, independent of any single
 // wallet, with nothing on the page surfacing that trend directly (a viewer
-// had to eyeball the chart). Extracts the actual function source out of
-// src/revenue-live.js and executes it for real - not a regex/string check -
-// since this is genuine arithmetic, not just DOM structure.
+// had to eyeball the chart). Extracts the actual function source and
+// executes it for real - not a regex/string check - since this is genuine
+// arithmetic, not just DOM structure. Lives in assets/js/revenue-chart.js
+// (external file, CSP hardening, 2026-08-16) - was inline in
+// src/revenue-live.js's shared <script> block before that.
 //
 // Offline - no server, no network.
 import { readFileSync } from "node:fs";
@@ -12,9 +14,9 @@ import { readFileSync } from "node:fs";
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 
-const src = readFileSync(new URL("../src/revenue-live.js", import.meta.url), "utf8");
+const src = readFileSync(new URL("../assets/js/revenue-chart.js", import.meta.url), "utf8");
 const m = src.match(/function buyersTrend\(\)\{[\s\S]*?\n    \}/);
-ok(!!m, "found buyersTrend() source in revenue-live.js");
+ok(!!m, "found buyersTrend() source in assets/js/revenue-chart.js");
 
 // Reconstruct it standalone, injecting `state` as a parameter instead of a
 // closure variable so fixture rows can be supplied directly.
