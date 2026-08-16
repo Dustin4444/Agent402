@@ -709,7 +709,7 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}
+<script>function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b){b.setAttribute('aria-expanded',o?'true':'false');b.setAttribute('aria-label',o?'Close menu':'Open menu');}}catch(e){}}
 /* a402: reveal-on-scroll for every top-level header/section, site-wide. Was
    opt-in per-page via [data-reveal] (only the homepage set it, so every
    other page never got the effect at all); now applied here in the ONE

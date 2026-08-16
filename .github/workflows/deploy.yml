@@ -1002,6 +1002,9 @@ jobs:
       - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
         run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-eager.js
 
+      - name: Hamburger menu aria-label toggles with aria-expanded (real browser click, not a static string check)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-burger-aria-label.js
+
       - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
         run: node scripts/test-self-listing-exclusion.js
 
