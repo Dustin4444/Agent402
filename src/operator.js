@@ -56,6 +56,13 @@ export function operatorPage(baseUrl, data) {
   const t = data?.totals || {};
   const tools = Array.isArray(data?.tools) ? data.tools : [];
   const recent = Array.isArray(data?.recentCalls) ? data.recentCalls : [];
+  // Call-volume and revenue are different leaderboards - the per-tool table
+  // below defaults to sorting by calls, which silently doubles as a revenue
+  // proxy unless someone thinks to click the Revenue header. Surfacing both
+  // top-5s side by side makes the divergence visible at a glance.
+  const topByRevenue = [...tools].sort((a, b) => b.revenueUsd - a.revenueUsd).slice(0, 5);
+  const topByCalls = [...tools].sort((a, b) => b.calls - a.calls).slice(0, 5);
+  const railBreakdown = Array.isArray(data?.railBreakdown) ? data.railBreakdown : [];
   const badge = (r) => r.walletOnly
     ? `<span class="op-badge op-badge-wallet" title="USDC only - no proof-of-work path">USDC-ONLY</span>`
     : `<span class="op-badge op-badge-pow" title="Also payable with proof-of-work (free tier)">FREE-W/POW</span>`;
@@ -130,7 +137,7 @@ td a:hover{color:var(--accent)}
   <div class="op-stat"><div class="op-k">USDC settled</div><div class="op-v" id="t-usdc">${esc(t.viaUSDC ?? 0)}</div><div class="op-s">on-chain proof at wallet</div></div>
   <div class="op-stat"><div class="op-k">PoW (external)</div><div class="op-v" id="t-pow">${esc(t.viaProofOfWork ?? 0)}</div><div class="op-s">real free-tier adoption</div></div>
   <div class="op-stat"><div class="op-k">Heartbeat probes</div><div class="op-v" id="t-hb">${esc(t.viaHeartbeat ?? 0)}</div><div class="op-s">internal /api/hash probe</div></div>
-  <div class="op-stat"><div class="op-k">Estimated revenue</div><div class="op-v" id="t-rev">$${esc((t.estimatedRevenueUsd ?? 0).toFixed ? t.estimatedRevenueUsd.toFixed(4) : t.estimatedRevenueUsd)}</div><div class="op-s">counter; chain is truth</div></div>
+  <div class="op-stat"><div class="op-k">Estimated revenue</div><div class="op-v" id="t-rev">$${esc((t.estimatedRevenueUsd ?? 0).toFixed(4))}</div><div class="op-s">counter; chain is truth</div></div>
   <div class="op-stat"><div class="op-k">Tools served</div><div class="op-v" id="t-tools">${esc(t.toolsServed ?? 0)}</div><div class="op-s">distinct slugs</div></div>
   <div class="op-stat"><div class="op-k">Uptime</div><div class="op-v" id="t-up">${esc(Math.floor((data?.processUptimeSeconds ?? 0) / 3600))}h</div><div class="op-s">since process boot</div></div>
 </div>
@@ -147,6 +154,33 @@ td a:hover{color:var(--accent)}
   <div class="op-panel op-feed">
     <div class="op-ph"><h2>Recent calls</h2></div>
     <ul id="feed">${feed || `<li style="text-align:center;color:var(--dk-muted);padding:16px;">No recent activity.</li>`}</ul>
+  </div>
+</div>
+
+<div class="op-layout" style="margin-top:18px">
+  <div class="op-panel">
+    <div class="op-ph"><h2>Top by revenue vs top by calls</h2></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+      <div style="border-right:1px solid var(--dark-border)">
+        <div style="padding:8px 14px;color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--dark-border)">By revenue</div>
+        <ol style="list-style:none;margin:0;padding:0">${topByRevenue.length ? topByRevenue.map((r) => `<li style="padding:8px 14px;border-bottom:1px solid var(--dark-border);font-family:var(--font-mono);font-size:13px;display:flex;justify-content:space-between;gap:8px"><a href="/tools/${esc(r.slug)}" style="color:var(--on-dark);text-decoration:none">${esc(r.slug)}</a><span class="op-rev">$${esc(r.revenueUsd.toFixed(4))}</span></li>`).join("") : `<li style="padding:16px;text-align:center;color:var(--dk-muted)">No data yet.</li>`}</ol>
+      </div>
+      <div>
+        <div style="padding:8px 14px;color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--dark-border)">By calls</div>
+        <ol style="list-style:none;margin:0;padding:0">${topByCalls.length ? topByCalls.map((r) => `<li style="padding:8px 14px;border-bottom:1px solid var(--dark-border);font-family:var(--font-mono);font-size:13px;display:flex;justify-content:space-between;gap:8px"><a href="/tools/${esc(r.slug)}" style="color:var(--on-dark);text-decoration:none">${esc(r.slug)}</a><span class="op-muted">${esc(r.calls)}</span></li>`).join("") : `<li style="padding:16px;text-align:center;color:var(--dk-muted)">No data yet.</li>`}</ol>
+      </div>
+    </div>
+  </div>
+
+  <div class="op-panel">
+    <div class="op-ph"><h2>Rails offered vs settled</h2></div>
+    <div style="max-height:280px;overflow:auto">
+      <table>
+        <thead><tr><th>Rail</th><th class="num">Settled calls</th></tr></thead>
+        <tbody>${railBreakdown.length ? railBreakdown.map((r) => `<tr><td>${esc(r.network)}${r.settledCalls === 0 ? ` <span class="op-badge" style="background:rgba(184,132,46,.14);color:#b8842e;border:1px solid rgba(184,132,46,.35)">ZERO REVENUE</span>` : ""}</td><td class="num${r.settledCalls === 0 ? " op-muted" : " op-paid"}">${esc(r.settledCalls)}</td></tr>`).join("") : `<tr><td colspan="2" class="op-muted" style="padding:16px;text-align:center">No configured rails.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <p style="padding:10px 14px;margin:0;color:var(--dk-muted);font-size:12px;border-top:1px solid var(--dark-border)">Rails currently in PAYMENT_NETWORKS with zero lifetime settled calls still carry facilitator config, canary legs, and test maintenance for zero return.</p>
   </div>
 </div>
 

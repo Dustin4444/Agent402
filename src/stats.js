@@ -407,7 +407,7 @@ export function dailyCallsRecordingSince() {
  * site so this module stays decoupled from CATALOG. Operator-only — gated by
  * AGENT402_OPERATOR_TOKEN at the route layer.
  */
-export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEEP } = {}) {
+export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEEP, offeredNetworks = [] } = {}) {
   const priceOf = (slug) => (prices && Number(prices[slug])) || 0;
   const isWalletOnly = (slug) => !!(walletOnlySet && walletOnlySet.has && walletOnlySet.has(slug));
   const paidBySlug = new Map(allPaid.all().map((r) => [r.slug, r.n]));
@@ -428,11 +428,23 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
       walletOnly: isWalletOnly(r.slug),
     };
   });
+  const viaUSDCByNetwork = mergeNetworkCounters(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n]));
+  // Offered rails vs settled rails: viaUSDCByNetwork only ever carries a key
+  // for a rail that has settled at least once — a rail with zero settlements
+  // has no key at all, so it's invisible by omission rather than flagged.
+  // offeredNetworks (the caller's enabledNetworks(NETWORK) list) turns that
+  // silence into an explicit zero-settled-revenue row an operator can act on
+  // — keep maintaining the rail's facilitator config/canary legs, or drop it.
+  const railKey = (n) => (n === "robinhood" ? "robinhood (USDG)" : n);
+  const railBreakdown = offeredNetworks.map((n) => ({
+    network: n,
+    settledCalls: viaUSDCByNetwork[railKey(n)] || 0,
+  }));
   return {
     totals: {
       total: getCounter.get("total")?.n ?? 0,
       viaUSDC: getCounter.get("viaUSDC")?.n ?? 0,
-      viaUSDCByNetwork: mergeNetworkCounters(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
+      viaUSDCByNetwork,
       viaProofOfWork: getCounter.get("viaProofOfWork")?.n ?? 0,
       viaTrial: getCounter.get("viaTrial")?.n ?? 0,
       viaHeartbeat: getCounter.get("viaHeartbeat")?.n ?? 0,
@@ -440,6 +452,7 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
       toolsServed: tools.length,
       chargedButFailed: getCounter.get("chargedButFailedTotal")?.n ?? 0,
     },
+    railBreakdown,
     tools,
     recentCalls: getRecentAll.all(limit).map((r) => ({
       slug: r.slug,
