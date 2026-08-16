@@ -49,12 +49,29 @@ const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } el
 // something this test can fix.
 const SELLER_SCAN_RE = /[?&]seller=/;
 
+// Single retry on a network-level exception only (connection reset/refused,
+// not an HTTP status) - CONCURRENCY=20 against a local CI-booted server,
+// often running right after a long battery of other test steps on a shared
+// runner, can drop a socket transiently (found 2026-08-16: /tools/
+// number-format failed once with a bare "fetch failed", no HTTP status at
+// all, while curling the same route directly against prod 200s cleanly).
+// Same single-retry doctrine already used elsewhere in this codebase
+// (scripts/heartbeat-probe.sh) to tell a real outage from a blip. Does NOT
+// retry an HTTP status (a real 404/500 is deterministic and should stay a
+// hard failure, not get a free pass).
+async function fetchStatus(path) {
+  const r = await fetch(`${BASE}${path}`, { redirect: "follow", signal: AbortSignal.timeout(20000) });
+  return r.status;
+}
 async function status(path) {
   try {
-    const r = await fetch(`${BASE}${path}`, { redirect: "follow", signal: AbortSignal.timeout(20000) });
-    return r.status;
+    return await fetchStatus(path);
   } catch (e) {
-    return `ERR:${e.message}`;
+    try {
+      return await fetchStatus(path);
+    } catch (e2) {
+      return `ERR:${e2.message}`;
+    }
   }
 }
 
