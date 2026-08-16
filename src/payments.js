@@ -1156,9 +1156,28 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
  * BEFORE the facilitator settles, so a blocked wallet is never charged — the
  * buyer gets the standard settle-failure 402 whose receipt carries
  * errorReason "wallet_blocked" (which the tally middleware records as a
- * settle_failed event, so blocks are visible in PostHog). EVM payers are
- * matched from the signature-covered EIP-3009 authorization.from; other
- * schemes match when their payload carries a recognizable payer field.
+ * settle_failed event, so blocks are visible in PostHog).
+ *
+ * NON-EVM PAYER ENRICHMENT (2026-08-16): beforeSettle only ever receives the
+ * raw, UNVERIFIED client payload (@x402/core's settlePayment() builds its own
+ * { paymentPayload, ... } context straight from the caller's argument — it
+ * never carries the verify() result). For SVM/Stellar/AVM's exact schemes the
+ * payer is never on that raw payload at all — it's derived by decoding the
+ * signed transaction, and only appears as a `payer` field on the verify
+ * RESULT (confirmed directly against the installed SDKs: @x402/svm, /stellar
+ * and /avm's facilitator verify() all return `{ isValid: true, payer }`).
+ * Before this fix, blockedPayerFromPayload only ever matched EVM's
+ * signature-covered authorization.from — a blocked wallet trivially evaded
+ * the ban by paying on Solana, Stellar, or Algorand instead.
+ * registerWalletBlocklistPayerEnrichment below closes that gap the only way
+ * @x402/core's hook API allows: onAfterVerify DOES receive the verify result,
+ * but can't itself abort settlement (a thrown/rejecting hook there is caught
+ * and only logged - see runAfterVerifyHooks). So it stashes the verified
+ * payer directly onto the SAME paymentPayload object instance that
+ * beforeSettle will receive moments later in the same request (verifyPayment
+ * and settlePayment both build their context from the exact object reference
+ * passed in by the caller - never a clone - so this is safe, request-scoped,
+ * and needs no external cache/keying).
  */
 export function blockedPayerFromPayload(paymentPayload) {
   const raw = (process.env.WALLET_BLOCKLIST || "").trim();
@@ -1171,6 +1190,7 @@ export function blockedPayerFromPayload(paymentPayload) {
     paymentPayload?.payload?.authorization?.from, // EVM exact scheme (signature-covered)
     paymentPayload?.payload?.payer,
     paymentPayload?.payer,
+    paymentPayload?.__verifiedPayer, // SVM/Stellar/AVM — see registerWalletBlocklistPayerEnrichment
   ];
   for (const c of candidates) {
     const normalized = normalizePayerAddress(c);
@@ -1179,7 +1199,22 @@ export function blockedPayerFromPayload(paymentPayload) {
   return null;
 }
 
+export function registerWalletBlocklistPayerEnrichment(server) {
+  server.onAfterVerify((ctx) => {
+    const payer = ctx?.result?.payer;
+    const payload = ctx?.paymentPayload;
+    if (payer && payload && !payload.payload?.authorization?.from) {
+      try {
+        payload.__verifiedPayer = payer;
+      } catch {
+        /* non-extensible payload object — blocklist just won't cover this one payment */
+      }
+    }
+  });
+}
+
 function registerWalletBlocklistHook(server) {
+  registerWalletBlocklistPayerEnrichment(server);
   server.onBeforeSettle((ctx) => {
     const blocked = blockedPayerFromPayload(ctx?.paymentPayload);
     if (!blocked) return;
