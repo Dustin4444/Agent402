@@ -99,7 +99,7 @@ export function playgroundPage(baseUrl, catalog) {
   `;
 
   const pageBody = `
-<script>var BASE='${baseUrl.replace(/'/g, "\\'")}';</script>
+<script>var BASE=${JSON.stringify(baseUrl)};</script>
 <section>
 <div class="crumb"><a href="/">Agent402</a> / playground</div>
 <div class="pg-title">
