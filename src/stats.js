@@ -48,6 +48,19 @@ db.exec(`
   -- deploy-proof series that can. One row per (day, upstream, caller) -
   -- a handful of upstreams x a handful of callers x 365 days - never pruned.
   CREATE TABLE IF NOT EXISTS daily_upstream_calls (day TEXT NOT NULL, upstream TEXT NOT NULL, caller TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, upstream, caller));
+  -- Self-serve seller conversion/churn (2026-08-16). Every previous seller
+  -- signal lives in x402-index.js's in-memory crawl cache (submittedSeeds is a
+  -- bare Set<origin> persisted with no timestamps at all), so there was no way
+  -- to answer "of everyone who registered via /sell, how many are still live,
+  -- and how many ever actually settled a payment" without hand-diffing JSON
+  -- snapshots. first_seen is stamped once, at registration. last_routable_seen
+  -- updates every crawl cycle the origin's x402 surface answers (churn signal —
+  -- stops advancing the moment a seller goes dark). last_settled_seen updates
+  -- only when that cycle's leaderboard snapshot shows the origin with
+  -- callsSettled > 0 (conversion signal — did they ever get paid, not just
+  -- stay reachable). Both nullable: a fresh registration has neither yet beyond
+  -- the initial routable stamp, and most registrations never settle at all.
+  CREATE TABLE IF NOT EXISTS seller_registrations (origin TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_routable_seen INTEGER, last_settled_seen INTEGER);
 `);
 
 const RECENT_KEEP = 200; // rows retained
@@ -87,6 +100,40 @@ const dailyUpstream = db.prepare("SELECT day, caller, n FROM daily_upstream_call
 const insertChargedFailure = db.prepare("INSERT INTO charged_failures (slug, status, ts) VALUES (?, ?, ?)");
 const pruneChargedFailures = db.prepare("DELETE FROM charged_failures WHERE id <= (SELECT MAX(id) FROM charged_failures) - ?");
 const getChargedFailures = db.prepare("SELECT slug, status, ts FROM charged_failures ORDER BY id DESC LIMIT ?");
+const upsertSellerRegistration = db.prepare(`
+  INSERT INTO seller_registrations (origin, first_seen, last_routable_seen, last_settled_seen)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(origin) DO UPDATE SET
+    last_routable_seen = excluded.last_routable_seen,
+    last_settled_seen = COALESCE(excluded.last_settled_seen, last_settled_seen)
+`);
+const allSellerRegistrations = db.prepare("SELECT origin, first_seen, last_routable_seen, last_settled_seen FROM seller_registrations ORDER BY first_seen DESC");
+
+/**
+ * Record that a self-serve-registered origin (from POST /api/index/register)
+ * answered a live probe this cycle — called once at registration and again on
+ * every periodic crawl tick the origin stays routable. first_seen is set only
+ * on the row's first insert (immutable); last_routable_seen always advances to
+ * now; last_settled_seen advances only when `settled` is true this call and is
+ * never erased by a later call that didn't observe a settlement.
+ */
+export function recordSellerRegistrationSeen(origin, { settled = false } = {}) {
+  const now = Date.now();
+  try {
+    upsertSellerRegistration.run(origin, now, now, settled ? now : null);
+  } catch {
+    /* best-effort — never break the crawl/registration path over telemetry */
+  }
+}
+
+/** Every self-serve registration with its conversion/churn timestamps, newest first. */
+export function getSellerRegistrations() {
+  try {
+    return allSellerRegistrations.all();
+  } catch {
+    return [];
+  }
+}
 
 setMetaIfAbsent.run("firstServed", String(Date.now()));
 const bootedAt = Date.now();

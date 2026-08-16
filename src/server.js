@@ -220,7 +220,7 @@ const trialToolLimiter = createRateLimiter("trial-tool", { perMin: TRIAL_PER_TOO
 const trialIpLimiter = createRateLimiter("trial-ip", { perMin: TRIAL_IP_MIN, perHour: TRIAL_IP_HOUR });
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals } from "./refund-ledger.js";
-import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls } from "./stats.js";
+import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
 const PORT = process.env.PORT || 3000;
@@ -1948,6 +1948,26 @@ app.get("/__operator/refunds.json", (req, res) => {
     totals: refundTotals(),
     status,
     refunds: listRefunds({ status, limit: Math.min(500, parseInt(req.query.limit, 10) || 200) }),
+  });
+});
+// Self-serve seller conversion/churn (2026-08-16). first_seen: when the
+// origin first registered via POST /api/index/register. last_routable_seen:
+// last crawl cycle it answered a live probe (advances only while the seller
+// stays up - a stalled value IS the churn signal). last_settled_seen: last
+// cycle its leaderboard row showed a real settled payment (conversion, not
+// just liveness) - null means it has never been observed settling.
+app.get("/__operator/seller-registrations.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const now = Date.now();
+  const rows = getSellerRegistrations().map((r) => ({
+    ...r,
+    everSettled: r.last_settled_seen != null,
+    daysSinceLastSeen: r.last_routable_seen != null ? Math.floor((now - r.last_routable_seen) / 86400000) : null,
+  }));
+  res.set("Cache-Control", "no-store").json({
+    total: rows.length,
+    everSettledCount: rows.filter((r) => r.everSettled).length,
+    registrations: rows,
   });
 });
 app.post("/__operator/refunds/update", express.json({ limit: "16kb" }), (req, res) => {

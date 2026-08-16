@@ -38,8 +38,9 @@ import { CHAIN_PAGES, marketSellers } from "./market-page.js";
 import { WELL_KNOWN_PATH, discoveryNote } from "./discovery-note.js";
 import { acceptsFromLive402, quoteFromAccepts, probeMethodsFor, isQuoteResponse } from "./x402-live-quote.js";
 import { summarize, fmtUsd, fmtPct } from "./economy.js";
-import { rankBy, canonicalHost } from "./leaderboard.js";
+import { rankBy, canonicalHost, getLeaderboardSnapshot } from "./leaderboard.js";
 import { routeExecuteHint } from "./tools/route-execute.js";
+import { recordSellerRegistrationSeen } from "./stats.js";
 
 // RAILS caip2 -> CHAIN_PAGES key, same join the homepage's by-chain strip uses
 // (see ledger-home.js) so /index's own row derives the same way: page
@@ -148,6 +149,11 @@ export function validateOriginInput(raw, { selfOrigin } = {}) {
 export async function registerOrigin(origin, { crawl } = {}) {
   const existing = cache.get(origin);
   if (existing && !existing.error) {
+    // Only a self-serve-submitted origin belongs in seller_registrations - this
+    // early-return path also serves origins already known from Bazaar/registry
+    // discovery, which never went through /sell and would misrepresent an
+    // ecosystem seller as one of ours if recorded here.
+    if (submittedSeeds.has(origin)) recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin) });
     return { listed: true, origin, seller: sellerSummary(origin, existing) };
   }
   // Cap applies only to origins that would grow the submitted set. An origin
@@ -165,9 +171,30 @@ export async function registerOrigin(origin, { crawl } = {}) {
     discoveredSeeds.add(origin);
     persistSubmittedSeeds();
     if (!cache.has(origin) && crawl) cache.set(origin, { ...v, fetchedAt: Date.now() });
+    recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin) });
     return { listed: true, origin, seller: sellerSummary(origin, cache.get(origin) || v) };
   }
   return { listed: false, origin, error: String(v?.error || "no x402 surface found (manifest, OpenAPI, or Bazaar entry)") };
+}
+
+// Has this origin's leaderboard row settled at least one payment? Joins on
+// canonical host (leaderboard rows carry `origins: string[]`) rather than
+// payTo address - the leaderboard already groups by host when a homepage is
+// known, and every origin here already has a URL we can hash the same way,
+// so this needs no new payTo-matching plumbing. Best-effort: any shape
+// surprise in the snapshot (still warming, scan error) reads as "not yet
+// observed settling", never a throw.
+function originHasSettled(origin) {
+  const host = canonicalHost(origin);
+  if (!host) return false;
+  try {
+    const snap = getLeaderboardSnapshot();
+    return (snap?.leaderboard || []).some(
+      (row) => (row.callsSettled || 0) > 0 && (row.origins || []).some((o) => canonicalHost(o) === host)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function sellerSummary(origin, v) {
@@ -2056,8 +2083,23 @@ async function runCrawl() {
     crawlCycle += 1;
     const ordered = seeds.length ? [...seeds.slice(start), ...seeds.slice(0, start)] : seeds;
     await runPool(ordered, CRAWL_CONCURRENCY, crawlSeller);
+    recordSubmittedSellerObservations();
   } finally {
     crawlInFlight = false;
+  }
+}
+
+// Post-cycle churn/conversion pass over ONLY self-serve-submitted origins
+// (not the operator-curated DEFAULT_SEEDS or registry-discovered sellers -
+// seller_registrations tracks /sell signups specifically). An origin whose
+// crawl failed this cycle is skipped entirely: last_routable_seen simply
+// stops advancing, which is the churn signal itself - stamping "now" on a
+// failed probe would hide the very thing this table exists to show.
+function recordSubmittedSellerObservations() {
+  for (const origin of submittedSeeds) {
+    const entry = cache.get(origin);
+    if (!entry || entry.error) continue;
+    recordSellerRegistrationSeen(origin, { settled: originHasSettled(origin) });
   }
 }
 
