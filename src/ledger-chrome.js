@@ -73,7 +73,14 @@ html { overflow-x: clip; }
   --ink: #ECECEA;
   --ink-panel: #171719;
   --muted: #9E9E98;
-  --faint: #6C6C68;
+  // Was #6C6C68 (3.15-3.66:1 against paper/card/card-zebra/footer-bg -
+  // fails WCAG AA's 4.5:1 for normal text) - --faint is used at 10-13px in
+  // shared nav/footer chrome that reaches every page. Raised to clear
+  // 4.5:1 with margin (4.86-5.64:1) against every dark surface it actually
+  // appears on, keeping the original warm tint (R=G, B slightly lower) and
+  // staying visually distinct from --muted (found in an internal audit,
+  // 2026-08-16).
+  --faint: #8B8B87;
   --hairline: #2A2A30;
   --dash: #35353B;
   --dark-border: #262626;
