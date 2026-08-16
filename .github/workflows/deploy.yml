@@ -996,6 +996,9 @@ jobs:
       - name: /compare tables scroll independently on narrow viewports (real browser check - scrollWidth>clientWidth alone can't prove overflow-x is enabled)
         run: TARGET_URL=http://localhost:3000 node scripts/test-compare-scroll.js
 
+      - name: Wrong-method 405 with Allow header (a known catalog path hit with the wrong verb no longer looks like a dead route)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-wrong-method-405.js
+
       - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
         run: node scripts/test-self-listing-exclusion.js
 

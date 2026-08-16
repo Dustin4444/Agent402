@@ -4593,6 +4593,35 @@ for (const tool of ALL_KIT) {
   });
 }
 
+// Wrong-method 405 for a known catalog path (audit finding, 2026-08-16):
+// each tool is registered on exactly ONE Express verb (app[lowerMethod](path,
+// ...) above), so a request to a real path with the wrong method never
+// matched any registered route and fell through to Express's bare, generic
+// HTML 404 — indistinguishable to a naive client from "this route doesn't
+// exist at all", when the real answer is "you used the wrong HTTP method".
+// Built from CATALOG (the same route strings /api/pricing and openapi.json
+// already derive from), so it can never drift from what's actually
+// registered. Runs after every real route has had a chance to match, before
+// the final error handler — an unmatched path (never in CATALOG at all)
+// just falls through unchanged to whatever 404 behavior already exists.
+const METHODS_BY_PATH = new Map();
+for (const route of Object.keys(CATALOG)) {
+  const [method, path] = route.split(" ");
+  if (!path) continue;
+  if (!METHODS_BY_PATH.has(path)) METHODS_BY_PATH.set(path, new Set());
+  METHODS_BY_PATH.get(path).add(method.toUpperCase());
+}
+app.use((req, res, next) => {
+  const methods = METHODS_BY_PATH.get(req.path);
+  if (!methods || methods.has(req.method)) return next();
+  const allow = [...methods].sort().join(", ");
+  res.set("Allow", allow);
+  res.status(405).json({
+    error: `Method ${req.method} not allowed on ${req.path}`,
+    allow: [...methods].sort(),
+  });
+});
+
 // Last-resort error handler. Express's default returns an HTML page with the
 // full stack trace, leaking absolute file paths and module structure. For API
 // routes (anything starting with /api or /__operator) return a small JSON
