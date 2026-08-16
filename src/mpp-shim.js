@@ -51,10 +51,22 @@ const STABLECOIN_DECIMALS = 6;
 // crawler-swept response) — so the default covers exactly what stock clients
 // can pay. MPP_CHALLENGE_NETWORKS overrides: "all" (every eip155 accepts
 // entry) or a CSV of chain ids. Call-time read, like other rollout knobs.
+//
+// VERIFIED against the installed mppx@0.8.17 source (2026-08-16, previously
+// an unconfirmed in-code claim): `mppx/evm`'s Chains.ts defines exactly four
+// chain ids (base 8453, baseSepolia 84532, celo 42220, celoSepolia
+// 11142220), and Assets.ts's known-USDC registry covers only those same four
+// - a stock client's Charge.ts resolves an accepted currency via
+// Assets.matches() against ONLY this registry, so a challenge for any other
+// chain has nothing for it to auto-sign without the caller manually passing
+// a raw address + explicit network override. Mainnets only, hence {8453,
+// 42220}. scripts/test-mpp-shim-mppx-registry.js locks this against the
+// installed package so a future mppx bump that adds a mainnet fails loudly
+// here instead of silently leaving that chain's challenge unoffered.
 const DEFAULT_CHALLENGE_CHAIN_IDS = new Set([8453, 42220]);
 
 /** @param {number} chainId */
-function challengeEnabledForChain(chainId) {
+export function challengeEnabledForChain(chainId) {
   const raw = (process.env.MPP_CHALLENGE_NETWORKS || "").trim();
   if (!raw) return DEFAULT_CHALLENGE_CHAIN_IDS.has(chainId);
   if (raw.toLowerCase() === "all") return true;
