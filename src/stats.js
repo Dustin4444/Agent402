@@ -343,7 +343,13 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       at: new Date(r.ts).toISOString(),
     })),
     servingSince: new Date(firstServed).toISOString(),
-    uptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000),
+    // NOT service-availability uptime - resets to 0 on every deploy. Named
+    // processUptimeSeconds (not uptimeSeconds) specifically so it can't be
+    // misread as a reliability claim: /api/reliability sits this right next
+    // to servingSince (a real ~2-month figure), and an agent parsing field
+    // names alone would otherwise derive ~0.02% uptime from a service that's
+    // actually 99.8-100% up (found in an internal audit, 2026-08-16).
+    processUptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000),
     runTheDemo: `${baseUrl}/llms.txt`,
   };
 }
@@ -446,6 +452,6 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
       at: new Date(r.ts).toISOString(),
     })),
     bootedAt: new Date(bootedAt).toISOString(),
-    uptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000),
+    processUptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000), // see the public getStats() comment above - same rename, same reason
   };
 }

@@ -251,7 +251,7 @@ export function reliabilityReport({ baseUrl, network, wallet, stats }) {
     status: "operational",
     asOf: new Date().toISOString(),
     servingSince: stats.servingSince,
-    uptimeSeconds: stats.uptimeSeconds,
+    processUptimeSeconds: stats.processUptimeSeconds,
     toolCallsServed: stats.toolCallsServed,
     onchain: {
       revenueProof: wallet ? `${explorer}/address/${wallet}#tokentxns` : null,

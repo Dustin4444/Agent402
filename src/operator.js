@@ -132,7 +132,7 @@ td a:hover{color:var(--accent)}
   <div class="op-stat"><div class="op-k">Heartbeat probes</div><div class="op-v" id="t-hb">${esc(t.viaHeartbeat ?? 0)}</div><div class="op-s">internal /api/hash probe</div></div>
   <div class="op-stat"><div class="op-k">Estimated revenue</div><div class="op-v" id="t-rev">$${esc((t.estimatedRevenueUsd ?? 0).toFixed ? t.estimatedRevenueUsd.toFixed(4) : t.estimatedRevenueUsd)}</div><div class="op-s">counter; chain is truth</div></div>
   <div class="op-stat"><div class="op-k">Tools served</div><div class="op-v" id="t-tools">${esc(t.toolsServed ?? 0)}</div><div class="op-s">distinct slugs</div></div>
-  <div class="op-stat"><div class="op-k">Uptime</div><div class="op-v" id="t-up">${esc(Math.floor((data?.uptimeSeconds ?? 0) / 3600))}h</div><div class="op-s">since process boot</div></div>
+  <div class="op-stat"><div class="op-k">Uptime</div><div class="op-v" id="t-up">${esc(Math.floor((data?.processUptimeSeconds ?? 0) / 3600))}h</div><div class="op-s">since process boot</div></div>
 </div>
 
 <div class="op-layout">
@@ -203,7 +203,7 @@ td a:hover{color:var(--accent)}
       document.getElementById('t-hb').textContent=tt.viaHeartbeat||0;
       document.getElementById('t-rev').textContent='$'+((tt.estimatedRevenueUsd||0).toFixed(4));
       document.getElementById('t-tools').textContent=tt.toolsServed||0;
-      document.getElementById('t-up').textContent=Math.floor((d.uptimeSeconds||0)/3600)+'h';
+      document.getElementById('t-up').textContent=Math.floor((d.processUptimeSeconds||0)/3600)+'h';
       rowsCache=d.tools||[]; renderRows();
       var feedHtml=(d.recentCalls||[]).map(function(x){
         var m=x.paidWith==='proof-of-work'?'PoW':x.paidWith==='heartbeat'?'HB':'$ USDC';
