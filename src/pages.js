@@ -588,15 +588,38 @@ export function openapiSpec(baseUrl, catalog) {
     };
     const props = discovery?.inputSchema?.properties ?? {};
     const required = discovery?.inputSchema?.required ?? [];
+    // Every route accepts Idempotency-Key; only PoW-eligible (non-wallet-only)
+    // routes accept X-Pow-Solution as an alternative to x402 payment. Neither
+    // was declared as a parameter before - a caller had to already know these
+    // headers exist from prose docs, not from the machine-readable spec.
+    const headerParams = [
+      {
+        name: "Idempotency-Key",
+        in: "header",
+        required: false,
+        description: "Optional client-supplied key. Replaying the same key with the same payment/PoW credential and request body returns the original result instead of charging again.",
+        schema: { type: "string" },
+      },
+      ...(isComputePayable(tool) ? [{
+        name: "X-Pow-Solution",
+        in: "header",
+        required: false,
+        description: `Free-tier alternative to x402 payment: "<token>:<nonce>" from a solved proof-of-work challenge (GET /api/pow/challenge). Omit when paying via x402.`,
+        schema: { type: "string" },
+      }] : []),
+    ];
     if (method === "GET") {
-      op.parameters = Object.entries(props).map(([name, schema]) => ({
-        name,
-        in: "query",
-        required: required.includes(name),
-        description: schema.description,
-        schema: { type: schema.type === "number" ? "number" : "string" },
-        ...(discovery?.input?.[name] !== undefined ? { example: discovery.input[name] } : {}),
-      }));
+      op.parameters = [
+        ...Object.entries(props).map(([name, schema]) => ({
+          name,
+          in: "query",
+          required: required.includes(name),
+          description: schema.description,
+          schema: { type: schema.type === "number" ? "number" : "string" },
+          ...(discovery?.input?.[name] !== undefined ? { example: discovery.input[name] } : {}),
+        })),
+        ...headerParams,
+      ];
     } else {
       op.requestBody = {
         required: true,
@@ -607,6 +630,7 @@ export function openapiSpec(baseUrl, catalog) {
           },
         },
       };
+      op.parameters = headerParams;
     }
     paths[path] = paths[path] ?? {};
     paths[path][method.toLowerCase()] = op;

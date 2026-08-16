@@ -884,6 +884,9 @@ jobs:
       - name: /openapi.json coverage (every CATALOG tool has a path + operationId + x-price)
         run: node scripts/test-openapi-coverage.js
 
+      - name: /openapi.json header parameters (Idempotency-Key on every op, X-Pow-Solution only where PoW-eligible)
+        run: node scripts/test-openapi-header-params.js
+
       - name: /.well-known/x402 manifest contract (envelope + payment + capabilities + discovery)
         run: node scripts/test-x402-manifest.js
 
@@ -1430,6 +1433,9 @@ jobs:
 
       - name: Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
         run: node scripts/test-operator-auth.js
+
+      - name: Operator revenue visibility (zero-revenue rail flagging + top-by-revenue vs top-by-calls, offline)
+        run: node scripts/test-operator-revenue-visibility.js
 
       - name: Index self-serve registration tests (offline)
         run: node scripts/test-index-register.js
