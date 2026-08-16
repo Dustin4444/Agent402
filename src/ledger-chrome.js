@@ -732,8 +732,19 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
    elements - roughly half this site's page templates are, the rest use
    plain <div> wrappers and get no reveal effect from this alone; converting
    those is separate, per-template work, not something a shared script can
-   retrofit onto markup that was never semantic to begin with. */
-document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('header,section,[data-reveal]');if(!els.length||!window.IntersectionObserver)return;els.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});els.forEach(function(el){io.observe(el);});}catch(e){}});</script>
+   retrofit onto markup that was never semantic to begin with.
+   FIRST MATCH IS EXEMPT (2026-08-15): every page's first header/section is
+   its hero - the block already sitting in the viewport on page load, on
+   every template checked (marketplace/tools/sell/leaderboard/skills/docs/
+   status/home). Hiding it behind opacity:0 first, same as every other
+   section, meant it always had to wait on the observer's first callback -
+   measured live at 100-300ms of near-zero opacity even though the content
+   was already fully in view, a real flash-of-blank-hero on every load, not
+   a scroll-triggered effect at all. The fix is DOM-order, not a
+   getBoundingClientRect check - that's the deliberate difference from the
+   early-measurement bug described above: no layout read before webfonts/map
+   settle, so it can't misjudge a below-fold section as already visible. */
+document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('header,section,[data-reveal]');if(els.length<2||!window.IntersectionObserver)return;var rest=Array.prototype.slice.call(els,1);rest.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});rest.forEach(function(el){io.observe(el);});}catch(e){}});</script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
