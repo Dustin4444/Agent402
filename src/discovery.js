@@ -63,7 +63,13 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     // /.well-known/x402 fan-out wants `version: 1` + a `resources` URL array.
     // Additive — everything below remains the richer agent-facing manifest.
     version: 1,
-    resources: Object.keys(catalog).map((route) => `${baseUrl}${route.split(" ")[1] || route}`),
+    // Dedupe by URL, not by catalog key: a handful of tools (e.g. /api/memory)
+    // are registered twice in the catalog, once per HTTP method (GET read,
+    // POST write) - x402scan's discovery format wants a flat resource-URL
+    // list, not a method-annotated one (openapi.json already carries that),
+    // so the honest fix here is "list the URL once" rather than emitting the
+    // same address twice with no way for a consumer to tell why.
+    resources: [...new Set(Object.keys(catalog).map((route) => `${baseUrl}${route.split(" ")[1] || route}`))],
     about: `${REPO}#agent402-in-the-x402-ecosystem`,
     name: "Agent402.Tools",
     summary:
