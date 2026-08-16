@@ -27,14 +27,24 @@ const dataNoNetworks = getOperatorBreakdown({ prices: {}, walletOnlySet: new Set
 ok(Array.isArray(dataNoNetworks.railBreakdown) && dataNoNetworks.railBreakdown.length === 0,
   "no offeredNetworks passed → railBreakdown is an empty array, not undefined");
 
-const offered = ["base", "polygon", "solana", "robinhood"];
+// "base"/"polygon"/"solana" are REAL production counter keys and this reads
+// the actual shared stats DB — in CI, other test steps in the same job
+// legitimately settle real USDC on "base" before this step runs, so
+// settledCalls for those cannot be asserted as exactly 0 here (that's a
+// process-shared resource, not a fixture). Use one fake network name that
+// can never collide with a real CAIP2_NAMES value for the "reports 0, never
+// undefined" behavior, and keep "robinhood" only for its name-preservation
+// check below (asserted on shape, not count).
+const offered = ["base", "polygon", "solana", "robinhood", "__test_fake_network_zzz__"];
 const dataWithNetworks = getOperatorBreakdown({ prices: {}, walletOnlySet: new Set(), offeredNetworks: offered });
 ok(dataWithNetworks.railBreakdown.length === offered.length,
   `railBreakdown has one row per offered network (got ${dataWithNetworks.railBreakdown.length}, expected ${offered.length})`);
 ok(offered.every((n) => dataWithNetworks.railBreakdown.some((r) => r.network === n)),
   "every offered network appears in railBreakdown by name");
-ok(dataWithNetworks.railBreakdown.every((r) => r.settledCalls === 0),
-  "a network with no settlements reports settledCalls:0 (never absent/undefined)");
+ok(dataWithNetworks.railBreakdown.every((r) => Number.isInteger(r.settledCalls) && r.settledCalls >= 0),
+  "every row's settledCalls is a non-negative integer, never absent/undefined/NaN");
+const fakeRow = dataWithNetworks.railBreakdown.find((r) => r.network === "__test_fake_network_zzz__");
+ok(fakeRow?.settledCalls === 0, "a network that has never settled anything reports settledCalls:0 exactly");
 
 // robinhood settles USDG, booked under the display name "robinhood (USDG)" in
 // viaUSDCByNetwork (see CAIP2_NAMES) — the offered-network row must still key
