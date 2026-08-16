@@ -902,6 +902,9 @@ jobs:
       - name: /llms.txt MPP/x402 dual-header reading note (issue #794 guidance, offline)
         run: node scripts/test-llms-mpp-header-note.js
 
+      - name: /llms.txt route-execute tier pricing derived from EXEC_TIERS (a future 5th tier can't go silently missing — offline)
+        run: node scripts/test-llms-route-execute-tiers.js
+
       - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
         run: TARGET_URL=http://localhost:3000 node scripts/test-rails.js
 
