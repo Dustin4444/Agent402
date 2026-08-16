@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+</head>
+<body>
+<script>
+(function(){
+  var pending = {};
+  var nextId = 1;
+
+  function callTool(slug, params, opts) {
+    return new Promise(function(resolve, reject) {
+      var id = nextId++;
+      pending[id] = { resolve: resolve, reject: reject };
+      window.parent.postMessage({ type: 'callTool', id: id, slug: slug, params: params, opts: opts || {} }, '*');
+    });
+  }
+
+  window.addEventListener('message', function(ev) {
+    var msg = ev.data;
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'callToolResult') {
+      var p = pending[msg.id];
+      if (p) { delete pending[msg.id]; p.resolve(msg.result); }
+      return;
+    }
+    if (msg.type === 'callToolError') {
+      var p2 = pending[msg.id];
+      if (p2) { delete pending[msg.id]; p2.reject(new Error(msg.error)); }
+      return;
+    }
+    if (msg.type === 'run') {
+      runCode(msg.code);
+    }
+  });
+
+  function runCode(code) {
+    var origLog = console.log;
+    console.log = function() {
+      var args = Array.prototype.slice.call(arguments).map(function(a) {
+        return typeof a === 'object' ? JSON.stringify(a, null, 2) : String(a);
+      }).join(' ');
+      window.parent.postMessage({ type: 'log', text: args }, '*');
+    };
+    Promise.resolve()
+      .then(function() {
+        // User-authored code, run inside this opaque-origin, network-less
+        // sandbox iframe only - see /sdk-playground/sandbox in server.js.
+        // eslint-disable-next-line no-new-func
+        var fn = new Function('callTool', '"use strict";return (async function(){' + code + '})()');
+        return fn(callTool);
+      })
+      .catch(function(e) {
+        window.parent.postMessage({ type: 'error', message: (e && e.message) || String(e) }, '*');
+      })
+      .then(function() {
+        console.log = origLog;
+        window.parent.postMessage({ type: 'done' }, '*');
+      });
+  }
+
+  window.parent.postMessage({ type: 'ready' }, '*');
+})();
+</script>
+</body>
+</html>

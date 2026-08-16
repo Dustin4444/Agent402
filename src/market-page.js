@@ -373,26 +373,7 @@ export function marketFilterBar(chainKey, _baseUrl) {
     <select class="mfb-sel" data-mfb-sort><option value="calls">most settled</option><option value="usd">volume</option><option value="buyers">buyers</option><option value="tools">tools</option><option value="health">health</option></select>
     <input class="mfb-search" data-mfb-search placeholder="search sellers">
   </div>
-  <script>document.addEventListener('DOMContentLoaded',function(){
-  var rows=Array.prototype.slice.call(document.querySelectorAll('[data-mfb-row]'));
-  if(!rows.length)return;
-  var parent=rows[0].parentNode;
-  var num=function(el,k){var v=Number(el.getAttribute('data-'+k));return isFinite(v)?v:0;};
-  var sortSel=document.querySelector('select[data-mfb-sort]');
-  if(sortSel)sortSel.addEventListener('change',function(){
-    var k=sortSel.value;
-    rows.slice().sort(function(a,b){
-      if(k==='health'&&num(a,'health')!==num(b,'health'))return num(b,'health')-num(a,'health');
-      var m=k==='health'?'calls':k;
-      return num(b,m)-num(a,m);
-    }).forEach(function(r){parent.appendChild(r);});
-  });
-  var searchIn=document.querySelector('input[data-mfb-search]');
-  if(searchIn)searchIn.addEventListener('input',function(){
-    var q=searchIn.value.trim().toLowerCase();
-    rows.forEach(function(r){r.style.display=!q||(r.textContent||'').toLowerCase().indexOf(q)>-1?'':'none';});
-  });
-});</script>`;
+  <script src="/js/market-filter-bar.js"></script>`;
 }
 
 function categoryGroups(tools, { maxCategories = 12, maxPerCategory = 6 } = {}) {
@@ -780,26 +761,9 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
       <button id="reg-go" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
-    <div id="reg-out" role="status" aria-live="polite" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
+    <div id="reg-out" role="status" aria-live="polite" data-listed-note="${esc(C.chainName)} sellers appear on this page; all sellers appear on /index." style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
   </div>
-  <script>
-  document.getElementById("reg-go").addEventListener("click", async () => {
-    const btn = document.getElementById("reg-go");
-    const out = document.getElementById("reg-out");
-    if (btn.disabled) return;
-    btn.disabled = true;
-    out.style.color = "var(--muted)";
-    out.textContent = "probing…";
-    try {
-      const r = await fetch("/api/index/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: document.getElementById("reg-origin").value }) });
-      const j = await r.json();
-      const n = j.seller?.toolCount || 0;
-      out.style.color = j.listed ? "var(--green)" : "var(--accent-lit)";
-      out.textContent = j.listed ? ("Listed - " + (j.seller?.displayName || j.origin) + " (" + n + " tool" + (n === 1 ? "" : "s") + "). ${C.chainName} sellers appear on this page; all sellers appear on /index.") : ("Not listed: " + (j.error || "unknown error"));
-    } catch { out.style.color = "var(--accent-lit)"; out.textContent = "submission failed - try again"; }
-    finally { btn.disabled = false; }
-  });
-  </script>`;
+  <script src="/js/reg-form.js"></script>`;
 
   const canary = canaryManifestStatus(rail);
   const manifestRow = (label, value) => `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);flex:none;">${label}</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;min-width:0;overflow-wrap:anywhere;text-align:right;">${value}</span></div>`;
@@ -889,7 +853,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   <section>${headerHtml}</section>
   <section>
-    <div id="market-panel">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
+    <div id="market-panel" data-chain="${esc(chainKey)}">${marketPanelHtml(chainKey, { snapshot, activity, selectedSeller, leaderboardSnap })}</div>
 
     ${rosterHtml}
   </section>
@@ -904,33 +868,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/route?q=hash&amp;network=${esc(C.networkParam)}">/api/route?network=${esc(C.networkParam)}</a> · <a href="/.well-known/x402">/.well-known/x402</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/api/reliability">/api/reliability</a></p>
 </div>
-<script>(function(){
-  // In-place seller switching: fetch the same-origin, server-rendered (and fully
-  // escaped) market panel and swap it without a full reload. Progressive
-  // enhancement - the roster links are real hrefs, so this whole block is a
-  // no-op fallback to normal navigation when JS/fetch/history are unavailable
-  // or a request fails. Content is parsed with createContextualFragment +
-  // replaceChildren (not innerHTML); it is our own output, never user input.
-  var CHAIN=${JSON.stringify(chainKey)}, panel=document.getElementById('market-panel');
-  if(!panel||!window.fetch||!window.history||!history.pushState||!document.createRange().createContextualFragment)return;
-  function loading(on){panel.style.transition='opacity .15s';panel.style.opacity=on?'.5':'';}
-  function mark(host){document.querySelectorAll('[data-seller-link]').forEach(function(a){var h=a.getAttribute('data-seller-host')||'';a.classList.toggle('sel',host?(h===host):(a.getAttribute('data-seller-local')==='1'));});}
-  function swap(html){panel.replaceChildren(document.createRange().createContextualFragment(html));}
-  function load(host,push){
-    loading(true);
-    return fetch('/api/market/'+CHAIN+'/panel'+(host?('?seller='+encodeURIComponent(host)):''),{headers:{accept:'application/json'}})
-      .then(function(r){if(!r.ok)throw 0;return r.json();})
-      .then(function(j){swap(j.html);mark(host);loading(false);
-        if(push){var u=host?(location.pathname.split('?')[0]+'?seller='+encodeURIComponent(host)):location.pathname.split('?')[0];history.pushState({s:host},'',u+'#activity');var el=document.getElementById('activity');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});}
-        return true;});
-  }
-  document.addEventListener('click',function(e){
-    var a=e.target.closest&&e.target.closest('[data-seller-link]');if(!a)return;
-    e.preventDefault();var host=a.getAttribute('data-seller-host')||'';
-    load(host,true).catch(function(){window.location.href=a.getAttribute('href');});
-  });
-  window.addEventListener('popstate',function(){var m=location.search.match(/[?&]seller=([^&#]+)/);load(m?decodeURIComponent(m[1]):'',false).catch(function(){location.reload();});});
-})();</script>
+<script src="/js/market-seller-switch.js"></script>
 ${ledgerFooterCompact()}`;
 
   return ledgerShell({

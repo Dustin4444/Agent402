@@ -1148,17 +1148,28 @@ app.use((_req, res, next) => {
   res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
   res.setHeader(
     "Content-Security-Policy",
-    // script-src carries one narrow exception: unpkg.com, for the homepage's
-    // pinned, SRI-verified d3 + topojson-client tags (the dot-map, Aug 2026
-    // revamp - the site's first-ever third-party script, an explicit,
-    // knowing tradeoff against the "everything self-hosted" posture used
-    // everywhere else, incl. fonts). A specific host, never a wildcard or
-    // 'unsafe-eval' — SRI on the tags themselves is a second, independent
-    // layer (a compromised unpkg response with a mismatched hash is refused
-    // by the browser before it ever executes). connect-src's existing
-    // 'https:' already covers the map's runtime fetch of the world-atlas
-    // geometry from jsdelivr, so no change needed there.
-    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+    // script-src drops 'unsafe-inline' (2026-08-16): every page-behavior
+    // script site-wide now lives in a real file under /js/:file (strict
+    // filename allowlist, no path traversal - see server.js's /js/:file
+    // route) or a dedicated route with its own scoped CSP (the SDK
+    // playground's eval sandbox at /sdk-playground/sandbox). This is
+    // defense-in-depth, not a fix for a live exploit — the site already
+    // manually-escapes all third-party/user content (crawled seller names,
+    // wish-board text, etc.) rather than relying on a templating engine's
+    // automatic escaping, across hundreds of call sites; removing
+    // 'unsafe-inline' means a future missed esc() call can no longer be
+    // turned into a working <script> injection, only inert markup. One
+    // narrow exception remains: unpkg.com, for the homepage's pinned,
+    // SRI-verified d3 + topojson-client tags (the dot-map, Aug 2026 revamp -
+    // the site's first-ever third-party script, an explicit, knowing
+    // tradeoff against the "everything self-hosted" posture used everywhere
+    // else, incl. fonts). A specific host, never a wildcard or 'unsafe-eval'
+    // — SRI on the tags themselves is a second, independent layer (a
+    // compromised unpkg response with a mismatched hash is refused by the
+    // browser before it ever executes). connect-src's existing 'https:'
+    // already covers the map's runtime fetch of the world-atlas geometry
+    // from jsdelivr, so no change needed there.
+    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' https://unpkg.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
   );
   next();
 });
@@ -3163,6 +3174,52 @@ app.get("/fonts/:file", (req, res) => {
   res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   res.type("font/woff2").send(buf);
 });
+// Self-hosted static JS (assets/js/), replacing what used to be inline
+// <script> content site-wide - the CSP hardening that dropped 'unsafe-inline'
+// from script-src (2026-08-16) means an inline script can no longer execute
+// at all, so every page-behavior script that has zero per-request server
+// data now lives here as a real file under script-src 'self'. Same safety
+// shape as /fonts/:file: a strict filename allowlist (no path traversal
+// possible - the regex admits only a known, closed set of names) and a
+// SHORT cache (5 min, not the fonts' 1-year immutable) because unlike a
+// font's content-addressed filename, these files keep the SAME name across
+// deploys and must not serve stale JS to a browser that cached the
+// pre-deploy version for a year.
+const JS_FILE_RE = /^[a-z][a-z0-9-]{2,60}\.js$/;
+app.get("/js/:file", (req, res) => {
+  const file = String(req.params.file || "");
+  if (!JS_FILE_RE.test(file)) return res.status(404).end();
+  let buf;
+  try { buf = readFileSync(new URL(`../assets/js/${file}`, import.meta.url)); }
+  catch { return res.status(404).end(); }
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.type("application/javascript").send(buf);
+});
+
+// Isolated eval sandbox for the SDK playground's "Run" button (2026-08-16,
+// found while converting /sdk-playground off inline scripts). A code
+// playground genuinely needs new Function()/eval to run what a visitor
+// types, but the site-wide CSP's script-src intentionally carries no
+// 'unsafe-eval' anywhere - so before this fix, every click here threw a CSP
+// violation in production with zero test coverage to catch it. Serving this
+// one document from its OWN route with its OWN response-level CSP (relaxed
+// only on this exact path) scopes the eval need to a sandbox="allow-scripts"
+// iframe (no allow-same-origin, so it gets an opaque origin and can never
+// read our real origin's cookies/localStorage) instead of loosening the
+// whole site. default-src 'none' below also means the sandboxed document
+// can never fetch/XHR anything itself - the actual network calls (PoW
+// challenge + tool call) stay in the trusted parent page, reached only via
+// postMessage RPC. A stricter sandbox than the pre-CSP-hardening inline
+// version ever had, not just a compliance shim.
+app.get("/sdk-playground/sandbox", (req, res) => {
+  let buf;
+  try { buf = readFileSync(new URL("../assets/sdk-sandbox.html", import.meta.url)); }
+  catch { return res.status(404).end(); }
+  res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'");
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.type("text/html").send(buf);
+});
+
 const BRAND_FONT_STYLE = `<style>
 @font-face{font-family:'Space Mono';font-weight:400;src:url(data:font/woff2;base64,${fontB64("spacemono-400.woff2")}) format('woff2')}
 @font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}

@@ -23,6 +23,10 @@
 //   node scripts/test-docs-gitbook.js
 import { docsPage, docNeighbors, renderSidebar, docsLayoutHtml, DOCS_SEARCH_SCRIPT, docsSlugs } from "../src/docs.js";
 import { ledgerDocsPage } from "../src/ledger-docs.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const docsSidebarScript = readFileSync(fileURLToPath(new URL("../assets/js/docs-sidebar.js", import.meta.url)), "utf8");
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -87,10 +91,11 @@ ok(slugs.includes("Getting-Started"), "a known real doc slug (Getting-Started) i
 // --- an unknown slug still 404s cleanly (unchanged by this pass) --------------
 ok(docsPage(BASE_URL, "Definitely-Not-A-Real-Page") === null, "an unknown slug returns null, not a broken page");
 
-// --- the search-filter script is present exactly once per page, wired to
-// the real input id ------------------------------------------------------------
-ok(DOCS_SEARCH_SCRIPT.includes("ml-docs-search-input"), "the exported search script targets the real input id");
-ok(DOCS_SEARCH_SCRIPT.includes("ml-docs-mobile-toggle"), "the exported script also wires the mobile toggle");
+// --- the search-filter script is present exactly once per page (external
+// file — CSP hardening, 2026-08-16), wired to the real input id --------------
+ok(DOCS_SEARCH_SCRIPT.includes('<script src="/js/docs-sidebar.js"></script>'), "the page references the external sidebar script");
+ok(docsSidebarScript.includes("ml-docs-search-input"), "the sidebar script targets the real input id");
+ok(docsSidebarScript.includes("ml-docs-mobile-toggle"), "the sidebar script also wires the mobile toggle");
 
 // --- docsLayoutHtml is the single source of the wrapper markup - both
 // callers must produce byte-identical structure for the same slug -----------

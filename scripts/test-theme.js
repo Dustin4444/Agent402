@@ -87,9 +87,22 @@ ok((html.match(/<script[\s>]/gi) || []).length === (html.match(/<\/script>/gi) |
 const headOnly = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
 ok(!/\n\s*function\s+\w+\s*\(/.test(headOnly),
   "no bare function declaration sitting outside a <script> in <head>");
-ok(/<script>[^<]*function a402ToggleMenu/.test(html),
-  "a402ToggleMenu is defined INSIDE a script element, so the burger menu works");
-ok(html.includes('onclick="a402ToggleMenu()"'), "the burger button is still wired to it");
+// CSP hardening (2026-08-16) moved the toggle function + its wiring out of
+// an inline <script> into assets/js/site-chrome.js (an inline
+// onclick="..." attribute is exactly as CSP-blocked as an inline <script>
+// tag, so it's gone too) - the burger menu now works via addEventListener
+// in that external file instead. The original historical-incident risk
+// this test guards (a stripped opening <script> tag stranding a function as
+// bare head text) is still fully covered by the two assertions above this
+// one, which apply to the page's OWN script tags regardless of what's in
+// them.
+ok(html.includes('<script src="/js/site-chrome.js">'),
+  "the page references the external site-chrome script that defines the burger toggle");
+ok(!html.includes('onclick="a402ToggleMenu()"') && !/\bonclick\s*=/.test(html),
+  "no inline onclick attribute anywhere - CSP-blocked, must be wired via addEventListener instead");
+const siteChromeJs = readFileSync(new URL("../assets/js/site-chrome.js", import.meta.url), "utf8");
+ok(/function\s+toggleMenu\s*\(/.test(siteChromeJs) && siteChromeJs.includes(".ml-burger") && siteChromeJs.includes("addEventListener('click'"),
+  "site-chrome.js defines the toggle and wires it to the burger button via addEventListener");
 
 // --- the revenue chart palette had to follow the theme ----------------------
 // Its dark series colours were keyed on [data-theme="dark"]. With the attribute

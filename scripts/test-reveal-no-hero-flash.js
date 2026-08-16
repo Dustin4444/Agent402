@@ -10,14 +10,16 @@
 // script in src/ledger-chrome.js for the full history and the deliberate
 // choice to key off DOM order rather than a getBoundingClientRect check.
 //
-// Offline - reads the source directly, no server needed.
+// Offline - reads the source directly, no server needed. CSP hardening
+// (2026-08-16) moved this script from an inline ledgerShell <script> into
+// assets/js/site-chrome.js.
 import { readFileSync } from "node:fs";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`FAIL - ${m}`); } };
 
-const src = readFileSync(new URL("../src/ledger-chrome.js", import.meta.url), "utf8");
-const scriptMatch = src.match(/document\.addEventListener\('DOMContentLoaded'[\s\S]*?<\/script>/);
+const src = readFileSync(new URL("../assets/js/site-chrome.js", import.meta.url), "utf8");
+const scriptMatch = src.match(/document\.addEventListener\('DOMContentLoaded'[\s\S]*?\}catch\(e\)\{\}\}\);/);
 ok(!!scriptMatch, "found the shared reveal-on-scroll DOMContentLoaded script block");
 const script = scriptMatch ? scriptMatch[0] : "";
 

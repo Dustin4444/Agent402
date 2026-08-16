@@ -282,21 +282,7 @@ TARGET_URL=http://localhost:3000 node scripts/test-mcp-all.js</code></pre>
 </div>
 ${ledgerFooterCompact()}
 
-<script>
-(function(){
-  document.querySelectorAll(".ct-copy").forEach(function(btn){
-    btn.addEventListener("click",function(){
-      var code=btn.parentElement.querySelector("code");
-      var text=code.textContent;
-      navigator.clipboard.writeText(text).then(function(){
-        btn.textContent="Copied!";
-        btn.classList.add("copied");
-        setTimeout(function(){btn.textContent="Copy";btn.classList.remove("copied")},1500);
-      });
-    });
-  });
-})();
-</script>`;
+<script src="/js/copy-buttons.js"></script>`;
 
   return ledgerShell({ title, description, canonical, baseUrl, activePath: "/contribute", extraCss, body });
 }

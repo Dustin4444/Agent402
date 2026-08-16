@@ -1,7 +1,11 @@
 // Reveal-on-scroll ([data-reveal] sections) — offline unit tests. No network,
-// no browser: string assertions on the inline script ledgerShell emits,
-// matching this repo's established pattern for validating inline-script
-// correctness structurally (see test-theme.js's a402ToggleMenu checks).
+// no browser: string assertions on the reveal-on-scroll script, matching
+// this repo's established pattern for validating script correctness
+// structurally (see test-theme.js's site-chrome.js checks). CSP hardening
+// (2026-08-16) moved this script out of ledgerShell's inline <script> into
+// assets/js/site-chrome.js - the CSS-hidden-state assertions still check the
+// page HTML (that part didn't move), but the script-behavior assertions now
+// read the external file directly.
 //
 // Real bug this locks in (found 2026-08-14 from a live mobile report - "some
 // screens go off screen while scrolling"): the observer used to TOGGLE
@@ -18,6 +22,7 @@
 // first callback reveals immediately regardless of whether removal exists).
 //
 //   node scripts/test-reveal-on-scroll.js
+import { readFileSync } from "node:fs";
 import { ledgerShell } from "../src/ledger-chrome.js";
 
 let pass = 0, fail = 0;
@@ -28,9 +33,11 @@ const html = ledgerShell({
   baseUrl: "https://agent402.tools", body: "<main>hi</main>",
 });
 
-const scriptMatch = html.match(/document\.addEventListener\('DOMContentLoaded',function\(\)\{try\{if\(window\.matchMedia[\s\S]*?data-reveal[\s\S]*?\}catch\(e\)\{\}\}\);/);
-ok(scriptMatch != null, "the reveal-on-scroll bootstrap script is present in every ledgerShell page");
-const src = scriptMatch ? scriptMatch[0] : "";
+ok(html.includes('<script src="/js/site-chrome.js">'),
+  "every ledgerShell page references the external site-chrome script carrying reveal-on-scroll");
+const src = readFileSync(new URL("../assets/js/site-chrome.js", import.meta.url), "utf8");
+const scriptMatch = /document\.addEventListener\('DOMContentLoaded',function\(\)\{try\{if\(window\.matchMedia[\s\S]*?data-reveal[\s\S]*?\}catch\(e\)\{\}\}\);/.test(src);
+ok(scriptMatch, "the reveal-on-scroll bootstrap script is present in site-chrome.js");
 
 // The exact regression: toggling ml-reveal-in with isIntersecting as the
 // second argument removes the class again once a section stops intersecting.

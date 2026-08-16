@@ -401,21 +401,7 @@ ${configRows}
   </div>
   ${ledgerFooterCompact()}
 
-  <script>
-  (function(){
-    document.querySelectorAll(".ml-adp-copy").forEach(function(btn){
-      btn.addEventListener("click",function(){
-        var code=btn.parentElement.querySelector("code");
-        var text=code.textContent;
-        navigator.clipboard.writeText(text).then(function(){
-          btn.textContent="Copied!";
-          btn.style.color="var(--accent)";
-          setTimeout(function(){btn.textContent="Copy";btn.style.color="";},1500);
-        });
-      });
-    });
-  })();
-  </script>`;
+  <script src="/js/copy-buttons.js"></script>`;
 
   return ledgerShell({
     title,

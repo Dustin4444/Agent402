@@ -96,23 +96,7 @@ const formHtml = `
     </div>
     <div id="reg-out" role="status" aria-live="polite" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Unreachable sellers drop out of routing (never off the roster) until they recover.</div>
   </div>
-  <script>
-  document.getElementById("reg-go").addEventListener("click", async () => {
-    const btn = document.getElementById("reg-go");
-    const out = document.getElementById("reg-out");
-    if (btn.disabled) return;
-    btn.disabled = true;
-    out.style.color = "var(--muted)";
-    out.textContent = "probing...";
-    try {
-      const r = await fetch("/api/index/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: document.getElementById("reg-origin").value }) });
-      const j = await r.json();
-      out.style.color = j.listed ? "var(--green)" : "var(--accent-lit)";
-      out.textContent = j.listed ? ("Listed - " + (j.seller?.displayName || j.origin) + " (" + (j.seller?.toolCount || 0) + " tools). Appears on /marketplace and any chain page it advertises.") : ("Not listed: " + (j.error || "unknown error"));
-    } catch { out.style.color = "var(--accent-lit)"; out.textContent = "submission failed - try again"; }
-    finally { btn.disabled = false; }
-  });
-  </script>`;
+  <script src="/js/reg-form.js"></script>`;
 
 export function sellPage(baseUrl) {
   const canonical = `${baseUrl}/sell`;

@@ -20,16 +20,17 @@ console.log(result);`,
   },
   {
     label: "Find tools by keyword",
-    code: `// Search for tools matching a query
+    code: `// Search for tools matching a query - /api/find is free and
+// unpaywalled, so this skips the proof-of-work step entirely.
 const result = await callTool("find", {
   q: "geocode"
-}, { path: "/api/find", method: "GET" });
+}, { path: "/api/find", method: "GET", free: true });
 console.log(result);`,
   },
   {
     label: "Generate a UUID",
     code: `// Generate a v4 UUID
-const result = await callTool("uuid", {});
+const result = await callTool("uuid", {}, { path: "/api/uuid", method: "GET" });
 console.log(result);`,
   },
   {
@@ -45,7 +46,7 @@ console.log(result);`,
   {
     label: "Base64 encode",
     code: `// Encode text to base64
-const result = await callTool("base64-encode", {
+const result = await callTool("base64", {
   text: "Agent402 is awesome"
 });
 console.log(result);`,
@@ -95,8 +96,7 @@ export function sdkPlaygroundPage(baseUrl) {
   `;
 
   const pageBody = `
-<script>var BASE='${baseUrl.replace(/'/g, "\\'")}';</script>
-<div class="sp-wrap">
+<div class="sp-wrap" data-base="${esc(baseUrl)}">
 <p class="sp-crumb"><a href="/">Home</a> &rsaquo; <a href="/playground">Playground</a> &rsaquo; SDK</p>
 <h1 class="sp-title">SDK Playground</h1>
 <p class="sp-sub">Write code and run it against the live API. Proof-of-work handles payment automatically. Based on <a href="/docs/adapters">agent402-client</a>.</p>
@@ -126,119 +126,7 @@ export function sdkPlaygroundPage(baseUrl) {
 </div>
 </div>
 ${ledgerFooterCompact()}
-<script>
-(function(){
-  var EXAMPLES=${JSON.stringify(EXAMPLES.map(function(e){ return {label:e.label,code:e.code}; }))};
-  var codeEl=document.getElementById('spCode');
-  var resultEl=document.getElementById('spResult');
-  var runBtn=document.getElementById('spRun');
-  var statusEl=document.getElementById('spStatus');
-  var exBtns=document.querySelectorAll('.sp-example');
-
-  exBtns.forEach(function(btn){
-    btn.addEventListener('click',function(){
-      exBtns.forEach(function(b){b.classList.remove('active');});
-      btn.classList.add('active');
-      var idx=parseInt(btn.getAttribute('data-idx'),10);
-      codeEl.value=EXAMPLES[idx].code;
-      clearResult();
-    });
-  });
-
-  function clearResult(){
-    while(resultEl.firstChild)resultEl.removeChild(resultEl.firstChild);
-    resultEl.textContent='Click Run to execute';
-  }
-
-  function addLine(cls,text){
-    var line=document.createElement('div');
-    line.className=cls;
-    line.textContent=text;
-    resultEl.appendChild(line);
-  }
-
-  async function sha256(msg){
-    var buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(msg));
-    return new Uint8Array(buf);
-  }
-  function leadingZeroBits(buf){
-    var n=0;
-    for(var i=0;i<buf.length;i++){
-      if(buf[i]===0){n+=8;continue;}
-      n+=Math.clz32(buf[i])-24;
-      break;
-    }
-    return n;
-  }
-  async function solvePow(challenge,difficulty){
-    var nonce=0;
-    while(true){
-      var hash=await sha256(challenge+':'+nonce);
-      if(leadingZeroBits(hash)>=difficulty)return nonce;
-      nonce++;
-      if(nonce%5000===0)await new Promise(function(r){setTimeout(r,0);});
-    }
-  }
-
-  async function callTool(slug,params,opts){
-    opts=opts||{};
-    var path=opts.path||('/api/'+slug);
-    var method=opts.method||'POST';
-
-    while(statusEl.firstChild)statusEl.removeChild(statusEl.firstChild);
-    var spin=document.createElement('span');
-    spin.className='spin';
-    statusEl.appendChild(spin);
-    statusEl.appendChild(document.createTextNode(' Solving PoW...'));
-
-    var cRes=await fetch(BASE+'/api/pow/challenge?slug='+encodeURIComponent(slug));
-    var cData=await cRes.json();
-    var nonce=await solvePow(cData.challenge,cData.difficulty);
-
-    while(statusEl.firstChild)statusEl.removeChild(statusEl.firstChild);
-    var spin2=document.createElement('span');
-    spin2.className='spin';
-    statusEl.appendChild(spin2);
-    statusEl.appendChild(document.createTextNode(' Calling tool...'));
-
-    var headers={'X-Pow-Solution':cData.token+':'+nonce};
-    var resp;
-    if(method==='GET'){
-      resp=await fetch(BASE+path+'?'+new URLSearchParams(params),{headers:headers});
-    }else{
-      headers['Content-Type']='application/json';
-      resp=await fetch(BASE+path,{method:'POST',headers:headers,body:JSON.stringify(params)});
-    }
-    statusEl.textContent='Done';
-    var ct=resp.headers.get('content-type')||'';
-    if(ct.indexOf('json')!==-1)return resp.json();
-    return resp.text();
-  }
-
-  /* User code runs entirely client-side via Function() - same sandbox model as
-     CodePen/JSFiddle. callTool is injected as a parameter so user code can
-     await it without importing anything. */
-  runBtn.addEventListener('click',async function(){
-    runBtn.disabled=true;
-    while(resultEl.firstChild)resultEl.removeChild(resultEl.firstChild);
-    var code=codeEl.value;
-    var origConsoleLog=console.log;
-    console.log=function(){
-      var args=Array.from(arguments).map(function(a){return typeof a==='object'?JSON.stringify(a,null,2):String(a);}).join(' ');
-      addLine('log',args);
-    };
-    try{
-      var fn=new Function('callTool','"use strict";return (async function(){'+code+'})()'); // eslint-disable-line no-new-func
-      await fn(callTool);
-    }catch(e){
-      addLine('err','Error: '+(e.message||String(e)));
-    }finally{
-      console.log=origConsoleLog;
-      runBtn.disabled=false;
-    }
-  });
-})();
-</script>`;
+<script src="/js/sdk-playground.js"></script>`;
 
   return ledgerShell({
     title,

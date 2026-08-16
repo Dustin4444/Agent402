@@ -74,8 +74,8 @@ ok(html.includes("SELLERS") && html.includes("PRICE FLOOR"), "stats strip render
 ok(html.includes("THIS HOST"), "local seller card carries the THIS HOST tag");
 ok(html.includes("ext1.example"), "seller card shows the hostname");
 
-// Self-serve form present
-ok(html.includes('id="list-api"') && html.includes("/api/index/register"), "List your API form renders");
+// Self-serve form present (submit handler is external — CSP hardening, 2026-08-16)
+ok(html.includes('id="list-api"') && html.includes('<script src="/js/reg-form.js"></script>'), "List your API form renders");
 
 // Activity section: cards + bars + honesty captions
 const buckets = Array.from({ length: 30 }, (_, i) => ({ date: "2026-06-" + String(11 + (i % 20)).padStart(2, "0"), tx: i === 29 ? 5 : 0, usd: i === 29 ? 0.05 : 0, buyers: i === 29 ? 2 : 0 }));
