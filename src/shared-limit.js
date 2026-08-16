@@ -61,6 +61,20 @@ function withDeadline(p, ms) {
   return Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms).unref?.())]);
 }
 
+/**
+ * Shared accessor for the module's Redis client — exported so other modules
+ * that need raw Redis primitives (not the counter-shaped spend/peek/refund
+ * above) can reuse the SAME connection instead of opening a second one to
+ * the same server. First consumer: src/replay-guard.js (cross-replica
+ * payment-nonce replay protection). Same contract as the internal callers
+ * below: null means "not configured or not currently reachable," and the
+ * caller decides its own fallback — this module's fail-closed choice is
+ * specific to rate-limiting and must not be assumed by every consumer.
+ */
+export async function getSharedRedisClient() {
+  return getClient();
+}
+
 async function getClient() {
   if (testClient) return testClient;
   if (!REDIS_URL) return null;

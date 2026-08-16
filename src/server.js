@@ -4151,7 +4151,7 @@ if (FREE_MODE) {
     // challenges, discovery crawls) return a null key and are never guarded.
     const replayKey = paymentReplayKey(req);
     if (replayKey) {
-      const verdict = replayGuard.begin(replayKey);
+      const verdict = await replayGuard.begin(replayKey);
       if (verdict !== "ok") {
         res.setHeader("X-Payment-Replay", verdict); // "consumed" | "inflight"
         return res.status(409).json({
@@ -4161,11 +4161,15 @@ if (FREE_MODE) {
         });
       }
       let resolved = false;
+      // Fire-and-forget from an event listener (finish/close aren't awaited by
+      // Express) - settle()/release() already swallow their own Redis errors
+      // internally, so the .catch() here is only a backstop against a
+      // synchronous throw reaching an unhandled rejection.
       const finishGuard = () => {
         if (resolved) return;
         resolved = true;
-        if (res.statusCode === 200) replayGuard.settle(replayKey);
-        else replayGuard.release(replayKey); // not granted (facilitator rejected, handler errored, client aborted)
+        if (res.statusCode === 200) replayGuard.settle(replayKey).catch(() => {});
+        else replayGuard.release(replayKey).catch(() => {}); // not granted (facilitator rejected, handler errored, client aborted)
       };
       res.on("finish", finishGuard);
       res.on("close", finishGuard); // client aborted before the response finished

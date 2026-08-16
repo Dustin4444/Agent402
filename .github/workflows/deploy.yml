@@ -1136,6 +1136,11 @@ jobs:
           REDIS_URL: redis://127.0.0.1:6379
         run: node scripts/test-redis-integration.js
 
+      - name: "Replay guard, cross-replica (REAL redis — two guard instances prove shared claim/settle/release; fails open to local state on a redis outage — 2026-08-16)"
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+        run: node scripts/test-replay-guard-redis.js
+
       - name: Well-known store (operator-published domain-verification docs; traversal impossible, reserved names refused, no shadowing of /.well-known/x402 — offline)
         run: node scripts/test-well-known-store.js
 
