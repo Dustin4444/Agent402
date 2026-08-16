@@ -104,6 +104,8 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 .hm-2col { display: grid; grid-template-columns: 1fr 1fr; }
 @media (max-width: 900px) { .hm-2col, .hm-3col, .hm-hero { grid-template-columns: minmax(0,1fr) !important; } }
 @media (max-width: 480px) { .hm-reg-row { flex-direction: column !important; } .hm-reg-row button { width: 100%; } }
+#hm-demo-in { border: 1.5px solid var(--hairline); }
+#hm-demo-in:focus { border-color: var(--accent); }
 `;
 
   const railLinksHtml = CHAIN_ORDER.map(([slug, name]) =>
@@ -268,7 +270,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   <div class="hm-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
     <div style="padding:26px;border-right:1.5px solid var(--ink);background:var(--card);">
       <label for="hm-demo-in" style="display:block;font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:10px;">Text to hash</label>
-      <input id="hm-demo-in" type="text" value="hello" placeholder="anything at all" style="width:100%;background:var(--paper);border:1.5px solid var(--hairline);color:var(--on-dark);font-family:var(--font-mono);font-size:14px;padding:13px 14px;margin-bottom:14px;outline:none;box-sizing:border-box;" />
+      <input id="hm-demo-in" type="text" value="hello" placeholder="anything at all" style="width:100%;background:var(--paper);color:var(--on-dark);font-family:var(--font-mono);font-size:14px;padding:13px 14px;margin-bottom:14px;outline:none;box-sizing:border-box;" />
       <button type="button" id="hm-demo-run" style="background:var(--accent);color:#fff;border:none;font-family:var(--font-mono);font-weight:700;font-size:13.5px;padding:13px 20px;cursor:pointer;width:100%;">RUN IT FREE →</button>
       <ol style="margin:20px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">
         <li style="display:grid;grid-template-columns:22px 1fr;gap:12px;padding:13px 0;border-bottom:1px solid var(--hairline);"><span id="hm-step1-mark" style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">·</span><span><span style="font-size:14px;color:var(--ink);font-weight:700;">Request a challenge</span><br><span id="hm-step1" style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);">signed, single-use, scoped to one tool</span></span></li>

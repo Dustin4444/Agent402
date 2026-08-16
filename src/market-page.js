@@ -35,7 +35,9 @@ const ROSTER_CSS = `
 .mlr-badge{background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px}
 .mlr-mpp{border:1px solid var(--green);color:var(--green);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:0 4px;margin-left:4px}
 .ml-chain-h1-wrap{min-height:80px}
-@media (max-width: 900px) { .ml-chain-h1-wrap{min-height:120px} }`;
+@media (max-width: 900px) { .ml-chain-h1-wrap{min-height:120px} }
+.mkt-search-wrap{border:1.5px solid var(--ink)}
+.mkt-search-wrap:focus-within{border-color:var(--accent)}`;
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 // Crawled manifests are third-party input: only http(s) may become an href.
@@ -837,7 +839,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
       <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">${subheadHtml}</p>
       <div style="margin:16px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--card);">
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--faint);margin-bottom:10px;">START HERE · BUYER PATH</div>
-        <form action="/tools" method="get" style="display:flex;gap:0;border:1.5px solid var(--ink);background:var(--paper);max-width:520px;margin-bottom:12px;">
+        <form action="/tools" method="get" class="mkt-search-wrap" style="display:flex;gap:0;background:var(--paper);max-width:520px;margin-bottom:12px;">
           <input name="q" type="search" placeholder="what do you need? e.g. pdf ocr, web search" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:13px;color:var(--ink);padding:11px 14px;outline:none;" />
           <button type="submit" style="border:none;border-left:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;">FIND →</button>
         </form>
@@ -1173,7 +1175,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
     <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">The open index of paid APIs for agentic commerce - ${baseSellerCount.toLocaleString("en-US")} sellers on Base alone, theirs as well as ours, with what they charge and what they have actually settled.</p>
     <div style="margin:18px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--card);max-width:640px;">
       <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--faint);margin-bottom:10px;">START HERE · BUYER PATH</div>
-      <form action="/tools" method="get" style="display:flex;gap:0;border:1.5px solid var(--ink);background:var(--paper);margin-bottom:12px;">
+      <form action="/tools" method="get" class="mkt-search-wrap" style="display:flex;gap:0;background:var(--paper);margin-bottom:12px;">
         <span aria-hidden="true" style="display:flex;align-items:center;padding:0 0 0 13px;color:var(--faint);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:block;"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.5-4.5"></path></svg></span>
         <input name="q" type="search" placeholder="what do you need? e.g. pdf ocr, web search" style="flex:1;min-width:0;border:none;background:transparent;font-family:var(--font-mono);font-size:13px;color:var(--ink);padding:11px 12px;outline:none;" />
         <button type="submit" style="border:none;border-left:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;white-space:nowrap;">FIND →</button>
