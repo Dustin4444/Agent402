@@ -80,6 +80,16 @@ try {
   const challenges = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": wwwAuth }));
   const tempoCh = challenges.find((c) => c.method === "tempo" && c.intent === "charge");
   ok(!!tempoCh, "a tempo/charge challenge is offered alongside evm");
+  // Regression lock for a bug caught live 2026-08-17: mintTempoChallenge()
+  // originally formatted amount as a DECIMAL string ("0.001000"), which a
+  // real mppx client rejects with "Cannot convert 0.001000 to a BigInt"
+  // before it ever reaches signing — no offline test caught it because
+  // Group 2 below only ever hand-builds its own (already-correct) fixture
+  // credential, never exercises mintTempoChallenge()'s own formatting.
+  // Amount must be a raw integer string in base units, same convention the
+  // evm challenge's x402 accepts entry already uses.
+  ok(/^\d+$/.test(tempoCh?.request?.amount || ""), `tempo challenge amount is a raw integer string, not decimal (got ${tempoCh?.request?.amount})`);
+  ok(tempoCh?.request?.amount === "1000", `tempo challenge amount matches the uuid tool's $0.001 price in base units (got ${tempoCh?.request?.amount})`);
   ok(Challenge.verify(tempoCh, { secretKey: SECRET }), "tempo challenge id HMAC-verifies");
   ok(Date.parse(tempoCh.expires) > Date.now(), "tempo challenge carries a future expires");
   const evmCh = challenges.find((c) => c.method === "evm" && c.intent === "charge");
@@ -133,7 +143,11 @@ function buildTempoCredential() {
     method: "tempo",
     intent: "charge",
     expires: new Date(Date.now() + 60_000),
-    request: { amount: "0.05", currency: TEMPO_CURRENCY, decimals: 6, recipient: TREASURY },
+    // Raw integer string in base units (50000 = $0.05 at 6 decimals) — NOT a
+    // decimal string. Matches mintTempoChallenge()'s real format; a real
+    // mppx client throws "Cannot convert 0.05 to a BigInt" on a decimal
+    // string (caught live 2026-08-17 against a real client, see mpp-tempo.js).
+    request: { amount: "50000", currency: TEMPO_CURRENCY, decimals: 6, recipient: TREASURY },
     secretKey: "irrelevant-to-this-group — validate() is stubbed, HMAC binding is proven in group 1",
   });
   return Credential.serialize({ challenge, payload: { hash: `0x${"ab".repeat(32)}`, type: "hash" } });

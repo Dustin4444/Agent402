@@ -90,7 +90,16 @@ export function mintTempoChallenge({ priceUsd, description, realm, secretKey, ti
     intent: "charge",
     expires: new Date(Date.now() + timeoutSeconds * 1000),
     request: {
-      amount: amount.toFixed(envDecimals()),
+      // Raw integer string in the token's smallest unit (e.g. "1000" for
+      // $0.001 at 6 decimals) — NOT a decimal string. Verified live against
+      // a real mppx client 2026-08-17: a decimal-formatted amount (the
+      // original version of this line, `amount.toFixed(decimals)` ->
+      // "0.001000") made the client throw "Cannot convert 0.001000 to a
+      // BigInt" before it ever reached signing — this is the same
+      // base-units convention the evm challenge's x402 accepts entry
+      // already uses (see challengeHeaderFromPaymentRequired in
+      // mpp-shim.js, which just forwards x402's own "1000"-style amount).
+      amount: String(Math.round(amount * 10 ** envDecimals())),
       currency: envCurrency(),
       decimals: envDecimals(),
       recipient: envRecipient(),
