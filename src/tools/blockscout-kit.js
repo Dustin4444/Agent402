@@ -199,11 +199,19 @@ export const BLOCKSCOUT_TOOLS = [
     category: "chain",
     price: "$0.010",
     description:
-      "Top holders of any token on any Blockscout-hosted chain - address, balance, and share of supply, ranked - bought per call from Blockscout's Pro API over x402, no API key. Concentration analysis for any ERC-20/721 on dozens of chains. Mega-tokens with millions of holders (USDC, WETH) can exceed the upstream time budget - that returns a 500 and you are not charged. Marked untrustedContent: external explorer data, analyze don't trust.",
+      "Top holders of any token on any Blockscout-hosted chain - address, balance, and share of supply, ranked - bought per call from Blockscout's Pro API over x402, no API key. Concentration analysis for any ERC-20/721 on dozens of chains. Mega-tokens with hundreds of thousands to millions of holders (USDC, WETH, AERO) can exceed the upstream time budget - that returns a 500 and you are not charged. Marked untrustedContent: external explorer data, analyze don't trust.",
     tags: ["token", "holders", "distribution", "concentration", "whales", "blockscout", "multichain", "x402-upstream"],
     discovery: {
       bodyType: "json",
-      input: { chain: "base", address: "0x940181a94A35A4569E4529A3CDfB74e38FD98631", limit: 10 },
+      // Was AERO (0x9401…8631, 833,810 holders) - measured 26s against
+      // Blockscout's real /holders endpoint, over the 20s payX402 timeout
+      // (src/x402-buyer.js), so the CATALOG'S OWN documented example
+      // deterministically hit the exact "mega-token exceeds the time budget"
+      // case the description above warns buyers about (found 2026-08-17,
+      // canary run 32006536872: image-gen-hd/token-holders 500s). COMP is a
+      // real, well-known token with a modest holder count (98,325) that
+      // measured a consistent ~6s response, comfortably inside budget.
+      input: { chain: "base", address: "0x9e1028F5F1D5eDe59748FFceE5532509976840E0", limit: 10 },
       inputSchema: {
         properties: {
           chain: { type: "string", description: "chain name or numeric id (default base)" },
