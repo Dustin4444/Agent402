@@ -187,7 +187,7 @@ import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledg
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
+import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince } from "./sales-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
@@ -1401,8 +1401,27 @@ app.get("/api/calls/daily", (_req, res) => {
     res.status(500).json({ error: "daily calls failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
+// Daily Tempo settlements — the second non-on-chain-scan companion to
+// /api/revenue/daily, same reasoning as /api/calls/daily above: Tempo is
+// deliberately excluded from RAILS (not x402-settleable), so the on-chain
+// wallet scan that endpoint reads never sees a Tempo transaction at all.
+// This reads src/sales-ledger.js's own recorded rows directly instead - real
+// dollars, unlike the free-tier lane, since a Tempo settlement is real money.
+app.get("/api/revenue/tempo-daily", (_req, res) => {
+  try {
+    res.set("Cache-Control", "public, max-age=60").json({
+      asOf: new Date().toISOString(),
+      recordingSince: tempoDailyRecordingSince(),
+      days: tempoDailyRevenue(),
+    });
+  } catch (e) {
+    res.status(500).json({ error: "tempo daily revenue failed", detail: String(e?.message || e).slice(0, 120) });
+  }
+});
 // Machine-readable MPP-wire settlements (behind the /revenue "MPP transactions"
-// button) — same on-chain USDC settlements as x402, filtered to the MPP wire.
+// button) — filtered to any MPP wire (mppSales() covers both "mpp",
+// evm-translated/same on-chain settlement as x402, and "mpp-tempo", native
+// via Tempo's own relay — genuinely different settlement, same MPP wire).
 app.get("/api/revenue/mpp", (req, res) => {
   try {
     // Itemized rows (tool + price per settlement) are operator-only; everyone
@@ -3807,7 +3826,15 @@ if (!FREE_MODE) {
     console.log("MPP dual-stack shim enabled (WWW-Authenticate/Authorization Payment ↔ x402 headers)");
   }
 
-  const tempoGate = createTempoGate();
+  // Dedicated replay guard for Tempo credentials — never shared with the
+  // x402 one instantiated later (identity spaces never collide, and this
+  // gate mounts well before that one exists in this file). See
+  // createTempoGate's own doc comment in mpp-tempo.js for why this closes a
+  // real concurrent-replay gap: Tempo bypasses the whole PoW/replay-guard/
+  // x402mw dispatcher, so replay-guard.js (EIP-3009-nonce-specific) never
+  // sees a Tempo credential at all.
+  const tempoReplayGuard = createReplayGuard();
+  const tempoGate = createTempoGate({ replayGuard: tempoReplayGuard });
   if (tempoGate) {
     app.use(tempoGate);
     console.log("Tempo MPP settlement enabled (native tempo/charge via Tempo's relay)");

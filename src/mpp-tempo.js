@@ -53,6 +53,16 @@ export function tempoEnabled() {
   return !!(process.env.TEMPO_API_KEY && envRecipient());
 }
 
+/** Discovery-surface accessor: the currency/decimals a Tempo challenge would
+ *  actually use, for machine-readable metadata (x-payment-info, etc.) that
+ *  wants to advertise the tempo method without duplicating the currency
+ *  default/env-override logic. Returns null when disabled — callers must
+ *  never advertise a method nobody can settle. */
+export function tempoDiscoveryInfo() {
+  if (!tempoEnabled()) return null;
+  return { currency: envCurrency(), decimals: envDecimals() };
+}
+
 // The configured Method.Server is cheap to hold but not free to rebuild per
 // request; memoize it, keyed on the config values that actually shape it so
 // an env change (redeploy-time only, never mid-process) rebuilds cleanly.
@@ -90,7 +100,16 @@ export function mintTempoChallenge({ priceUsd, description, realm, secretKey, ti
     intent: "charge",
     expires: new Date(Date.now() + timeoutSeconds * 1000),
     request: {
-      amount: amount.toFixed(envDecimals()),
+      // Raw integer string in the token's smallest unit (e.g. "1000" for
+      // $0.001 at 6 decimals) — NOT a decimal string. Verified live against
+      // a real mppx client 2026-08-17: a decimal-formatted amount (the
+      // original version of this line, `amount.toFixed(decimals)` ->
+      // "0.001000") made the client throw "Cannot convert 0.001000 to a
+      // BigInt" before it ever reached signing — this is the same
+      // base-units convention the evm challenge's x402 accepts entry
+      // already uses (see challengeHeaderFromPaymentRequired in
+      // mpp-shim.js, which just forwards x402's own "1000"-style amount).
+      amount: String(Math.round(amount * 10 ** envDecimals())),
       currency: envCurrency(),
       decimals: envDecimals(),
       recipient: envRecipient(),
@@ -99,6 +118,20 @@ export function mintTempoChallenge({ priceUsd, description, realm, secretKey, ti
     secretKey,
   });
   return Challenge.serialize(challenge);
+}
+
+/** Stable replay identity for a tempo credential — the challenge id it's
+ *  bound to (HMAC-verified, single-purpose per 402). Mirrors
+ *  replay-guard.js's paymentReplayKey() role for the x402 side. Returns
+ *  null for anything unparseable (nothing to guard). */
+export function tempoReplayKey(authorizationHeader) {
+  try {
+    const credential = Credential.deserialize(authorizationHeader);
+    const id = credential?.challenge?.id;
+    return typeof id === "string" && id ? `tempo:${id}` : null;
+  } catch {
+    return null;
+  }
 }
 
 /** True when `authorizationHeader` deserializes to a WELL-FORMED credential
@@ -219,8 +252,18 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
  *  functions above) so the ordering invariant — handler runs before
  *  broadcast, broadcast only on a successful handler — can be proven in a
  *  fast, deterministic offline test without needing Tempo's real relay wire
- *  format, same pattern mpp-index.js uses for its own injectable `verify`. */
-export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential } = {}) {
+ *  format, same pattern mpp-index.js uses for its own injectable `verify`.
+ *
+ *  `replayGuard` (optional but always passed by server.js in production) is
+ *  a src/replay-guard.js instance — dedicated to Tempo, never shared with
+ *  the x402 one, since credential identity spaces never collide. THIS gate
+ *  bypasses the whole PoW/replay-guard/x402mw dispatcher (that guard only
+ *  understands EIP-3009 nonces), so without a Tempo-specific claim here, one
+ *  signed credential fired concurrently at the same route could trigger N
+ *  free handler executions before Tempo's relay rejects the (N-1) duplicate
+ *  broadcasts at settlement time — the same "Five Attacks on x402" Attack II
+ *  class replay-guard.js documents, just unguarded on this second path. */
+export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, replayGuard } = {}) {
   if (!tempoEnabled()) return null;
   return function tempoGate(req, res, next) {
     const auth = req.headers.authorization;
@@ -228,6 +271,23 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
 
     validate(auth).then(async (v) => {
       if (!v.ok) return next(); // invalid credential — fall through to a fresh 402, same as an invalid evm credential today
+
+      // Claim the credential's identity BEFORE the handler runs — the whole
+      // point is to close the concurrent-replay window, not just the
+      // sequential one. Release-on-failure (handler fails, broadcast fails)
+      // so a legitimate retry of the still-valid credential still works.
+      const replayKey = replayGuard ? tempoReplayKey(auth) : null;
+      if (replayGuard && replayKey) {
+        const verdict = await replayGuard.begin(replayKey);
+        if (verdict !== "ok") {
+          return res.status(409).json({
+            error: "Tempo payment credential already used or in flight.",
+            reason: verdict,
+          });
+        }
+      }
+      const releaseReplay = () => { if (replayGuard && replayKey) replayGuard.release(replayKey).catch(() => {}); };
+      const settleReplay = () => { if (replayGuard && replayKey) replayGuard.settle(replayKey).catch(() => {}); };
 
       // From here on, money can move — buffer the handler's response and
       // decide after it completes. Bypass every x402-specific gate
@@ -270,6 +330,7 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         next(); // dispatch into the rest of the chain / the real route handler
       } catch (err) {
         restore();
+        releaseReplay();
         return next(err);
       }
 
@@ -280,6 +341,7 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         // charged, same invariant as every other rail.
         restore();
         replay();
+        releaseReplay();
         return;
       }
       const b = await broadcast(auth);
@@ -290,11 +352,13 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         bufferedCalls = [];
         restore();
         res.status(402).json({ error: "Tempo settlement failed", reason: b.error });
+        releaseReplay();
         return;
       }
       const receiptHeader = tempoReceiptHeader(b.receipt);
       restore();
       if (receiptHeader) res.setHeader("Payment-Receipt", receiptHeader);
+      settleReplay();
       // Settlement-attribution flag for server.js's shared per-catalog-route
       // stats tally (mounted much later in the chain, after this gate) — a
       // Tempo settlement carries no PAYMENT-RESPONSE header (no @x402/express

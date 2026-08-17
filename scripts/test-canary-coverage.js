@@ -151,6 +151,25 @@ if (rn) {
   ok(mppBlock.length > 500, "located the MPP dual-stack block for scoped assertions");
   ok(!/console\.warn\(`\\nWARN  mpp/.test(mppBlock),
     "MPP block has no WARN-only failure paths left (those hid the Stellar-class green)");
+
+  // Tempo is MPP's OWN native method, architecturally distinct from mpp/
+  // mpp-celo above: it settles via Tempo's own relay, never @x402/express,
+  // so it's the ONLY proof this repo has that the real relay wire format
+  // works (the offline test suite proves our own logic against injected
+  // stubs, by design). Same rigor as the evm-translated legs: real
+  // railFail (not WARN-only), assert the receipt, assert it's a genuinely
+  // separate try/catch so a Tempo failure can never be misattributed to
+  // the "mpp" rail key.
+  ok(/tempo:\s*mppTempo/.test(canarySrc),
+    "paid-canary destructures mppx/client's tempo method for the native Tempo relay buy");
+  ok(/railFail\(\s*["']mpp-tempo["']/.test(canarySrc),
+    "Tempo failures go through railFail (not WARN-only) so a dead relay integration fails the run");
+  ok(/mpp-tempo[\s\S]{0,400}Payment-Receipt/i.test(canarySrc),
+    "the Tempo leg asserts the settled Payment-Receipt header, same as every other MPP leg");
+  const tempoBlock = canarySrc.slice(canarySrc.indexOf("Tempo — MPP's OWN native method"), canarySrc.indexOf("Pinned EVM legs"));
+  ok(tempoBlock.length > 500, "located the Tempo leg block for scoped assertions");
+  ok(!/railFail\(\s*["']mpp["']/.test(tempoBlock),
+    "the Tempo leg's own catch block never attributes a failure to the mpp key (own try/catch, own rail identity)");
 }
 
 // --- the canary must actually RUN on the days it claims to ------------------

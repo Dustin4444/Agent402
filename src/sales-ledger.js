@@ -117,19 +117,28 @@ const qIntRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx
   FROM sales WHERE internal = 1
   ORDER BY ts DESC LIMIT 20`);
-// Settlements whose credential arrived over the MPP wire (Authorization:
-// Payment). Same on-chain USDC settlement as x402 — the `wire` column is the
-// only difference. Both external buys and internal (canary) MPP settlements
-// are included, since MPP is new and most current MPP traffic is the daily
+// Settlements whose credential arrived over an MPP wire — either "mpp"
+// (evm-translated, same on-chain USDC settlement as x402 via mpp-shim.js) or
+// "mpp-tempo" (native TIP-1034/TIP-20 via Tempo's own relay, src/mpp-tempo.js
+// — genuinely NOT the same settlement mechanism, just also arrived over an
+// MPP wire). Was `wire = 'mpp'` only, which silently excluded every Tempo
+// settlement from /api/revenue/mpp — caught in the post-launch Tempo audit,
+// 2026-08-17. Both external buys and internal (canary) MPP settlements are
+// included, since MPP is new and most current MPP traffic is the daily
 // canary's Base+Celo native-wire legs.
 const qMppRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx, internal
-  FROM sales WHERE wire = 'mpp'
+  FROM sales WHERE wire IN ('mpp', 'mpp-tempo')
   ORDER BY ts DESC LIMIT ?`);
 // Every MPP tx hash, for joining the wire onto the on-chain revenue ledger
 // (separate db) so the chart can filter by wire. Unbounded by design: the
-// series spans the whole chart window, not just the recent list.
-const qMppTx = db.prepare("SELECT tx FROM sales WHERE wire = 'mpp' AND tx IS NOT NULL");
+// series spans the whole chart window, not just the recent list. Widened to
+// 'mpp-tempo' for consistency with qMppRecent above, though it's currently a
+// no-op there: the on-chain revenue ledger only scans RAILS-listed chains,
+// and Tempo is deliberately excluded from RAILS (not x402-settleable), so no
+// Tempo tx hash could match anyway — see the revenue-chart Tempo gap noted
+// in the same audit (Tempo settlements aren't a chart series yet).
+const qMppTx = db.prepare("SELECT tx FROM sales WHERE wire IN ('mpp', 'mpp-tempo') AND tx IS NOT NULL");
 // Settlement RECEIPTS we recorded: one row per call we served on a paying rail
 // and believed was paid for, carrying the tx the FACILITATOR said it settled.
 // Reconciling these against transfers actually seen on-chain is the only way to
@@ -268,10 +277,14 @@ export function firstRecordedTs() {
  * by-slug/by-payer aggregations (recent list is always the latest rows).
  */
 // The on-chain ledger (agent402-revenue.db) records settlements scanned from
-// each chain, and an MPP settlement is byte-identical on-chain to an x402 one —
-// the wire is an HTTP-layer fact only this table knows. The tx hash is the join
-// key between the two databases, so the revenue chart can offer a wire filter.
-// EVM hashes are hex (case-insensitive, normalized to lowercase); Solana/Stellar
+// each RAILS-listed chain. A "mpp" (evm-translated) settlement is byte-
+// identical on-chain to an x402 one, so its tx hash can join against that
+// scan — the wire is an HTTP-layer fact only this table knows. A
+// "mpp-tempo" settlement's tx would never join here even in principle:
+// Tempo is deliberately excluded from RAILS (not x402-settleable), so the
+// on-chain ledger never scans it. The tx hash is the join key between the
+// two databases, so the revenue chart can offer a wire filter. EVM hashes
+// are hex (case-insensitive, normalized to lowercase); Solana/Stellar
 // signatures are base58/base32 and case-SENSITIVE, so those are kept verbatim
 // and both forms are carried.
 export function mppTxHashes() {
@@ -388,4 +401,38 @@ export function salesSummary({ days = 30, detailed = false } = {}) {
       payer: r.payer, sales: r.sales, revenueUsd: +r.revenue.toFixed(4), lastAt: new Date(r.last_ts).toISOString(),
     })),
   };
+}
+
+// Day-bucketed Tempo settlements (wire = 'mpp-tempo'), UTC, straight from
+// this table — NOT the on-chain wallet scan /api/revenue/daily reads. Tempo
+// is deliberately excluded from RAILS (not x402-settleable), so no scan
+// ever sees it; this is the ONLY place Tempo revenue is visible day-by-day,
+// same "second data source, same chart" pattern as the free-tier (PoW) lane
+// (getDailyCalls() in stats.js, its own table for the same structural
+// reason: free calls settle nowhere either). Real dollars either way, so
+// unlike the free-tier lane this reports usd, not just tx counts.
+const qTempoDaily = db.prepare(`
+  SELECT date(ts / 1000, 'unixepoch') AS day,
+    SUM(CASE WHEN internal = 0 THEN price_usd ELSE 0 END) AS extUsd,
+    SUM(CASE WHEN internal = 0 THEN 1 ELSE 0 END) AS extTx,
+    SUM(CASE WHEN internal = 1 THEN price_usd ELSE 0 END) AS intUsd,
+    SUM(CASE WHEN internal = 1 THEN 1 ELSE 0 END) AS intTx
+  FROM sales WHERE wire = 'mpp-tempo'
+  GROUP BY day ORDER BY day`);
+
+/** [{day, extUsd, extTx, intUsd, intTx}], oldest first. */
+export function tempoDailyRevenue() {
+  return qTempoDaily.all().map((r) => ({
+    day: r.day,
+    extUsd: +r.extUsd.toFixed(6),
+    extTx: r.extTx,
+    intUsd: +r.intUsd.toFixed(6),
+    intTx: r.intTx,
+  }));
+}
+
+/** First day any Tempo settlement was recorded, or null before the first one. */
+export function tempoDailyRecordingSince() {
+  const rows = qTempoDaily.all();
+  return rows.length ? rows[0].day : null;
 }

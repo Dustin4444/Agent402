@@ -1,9 +1,11 @@
   (function(){
     var SLOTS={base:1,algorand:2,solana:3,polygon:4,stellar:5,arbitrum:6,celo:7};
-    var NAMES={1:"Base",2:"Algorand",3:"Solana",4:"Polygon",5:"Stellar",6:"Arbitrum",7:"Celo",8:"Other",free:"Free tier (PoW)",newbuyers:"New buyers",retbuyers:"Returning buyers",cumbuyers:"Distinct buyers to date"};
-    // Draw order. "free" is a lane, not a chain - free calls settle nowhere,
-    // so it never takes a chain colour and never folds into "Other".
-    var CHAIN_ORDER=[1,2,3,4,5,6,7,8,"free"];
+    var NAMES={1:"Base",2:"Algorand",3:"Solana",4:"Polygon",5:"Stellar",6:"Arbitrum",7:"Celo",8:"Other",free:"Free tier (PoW)",tempo:"Tempo",newbuyers:"New buyers",retbuyers:"Returning buyers",cumbuyers:"Distinct buyers to date"};
+    // Draw order. "free" and "tempo" are lanes, not chains - free calls settle
+    // nowhere, and Tempo is never x402-settleable (excluded from RAILS on
+    // purpose), so its revenue lives in a separate table the on-chain scan
+    // never reads. Neither ever takes a chain colour or folds into "Other".
+    var CHAIN_ORDER=[1,2,3,4,5,6,7,8,"free","tempo"];
     // Buyers are people, not chains: a distinct-buyer count cannot be split by
     // rail without double counting anyone who paid on two. So the buyers view
     // swaps the whole lane set rather than adding to it.
@@ -11,7 +13,7 @@
       if(state.metric!=="buyers")return CHAIN_ORDER;
       return state.mode==="cum"?["cumbuyers"]:["newbuyers","retbuyers"];
     }
-    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",settle:"all",rows:[],free:[],freeSince:null,buyers:[],conc:null};
+    var state={mode:"cum",metric:"usd",scope:"ext",wire:"all",traffic:"paid",settle:"all",rows:[],free:[],freeSince:null,tempo:[],tempoSince:null,buyers:[],conc:null};
     var css=function(n){return getComputedStyle(document.getElementById("rvz")).getPropertyValue("--s"+n).trim()};
     function slotOf(chain){return SLOTS[chain]||8}
     function chainName(c){return c==="robinhood"?"Robinhood":c.charAt(0).toUpperCase()+c.slice(1)}
@@ -55,6 +57,17 @@
           // breakdown - the fold is a palette constraint (8 validated hues),
           // not a licence to hide which rails the money arrived on.
           if(s===8){var v8=val(r);if(v8>0){d.oth=d.oth||{};d.oth[r.chain]=(d.oth[r.chain]||0)+v8}}})}
+      // Tempo settlements: real dollars, from a SEPARATE table (never the
+      // on-chain scan - Tempo isn't in RAILS, so that scan never sees it).
+      // Never x402 (drops out under that wire filter) and has no SOR/Direct
+      // concept yet (no self-funding spending wallet for it), so it only
+      // participates in the settle="all" lane.
+      if(state.traffic!=="free"&&state.wire!=="x402"&&state.settle==="all"){
+        state.tempo.forEach(function(r){var d=dayOf(r.day);
+          var usd=state.metric==="usd";
+          var e=usd?r.extUsd:r.extTx, i=usd?r.intUsd:r.intTx;
+          var v=state.scope==="ext"?e:state.scope==="int"?i:e+i;
+          d.slots.tempo=(d.slots.tempo||0)+v})}
       // Free calls are counts, never dollars - a free call earns $0 by
       // definition, so the lane is absent under the Revenue $ metric rather
       // than drawn as a bar pretending call count is revenue. The metric/
@@ -231,16 +244,20 @@
         if(state.metric==="buyers"){state.metric="tx";setSeg("rvzMetric","tx");buyersNote()}
       }
       settleNote()});
-    // The free-tier series is a separate endpoint (free calls never touch the
-    // settlement ledger). A failure there must not blank the revenue chart, so
-    // it degrades to an empty free lane rather than rejecting the pair.
+    // The free-tier and Tempo series are each a separate endpoint (free calls
+    // never touch the settlement ledger; Tempo never touches the on-chain
+    // scan). A failure in either must not blank the revenue chart, so each
+    // degrades to an empty lane rather than rejecting the whole set.
     Promise.all([
       fetch("/api/revenue/daily").then(function(r){return r.json()}),
-      fetch("/api/calls/daily").then(function(r){return r.json()}).catch(function(){return{days:[],recordingSince:null}})
+      fetch("/api/calls/daily").then(function(r){return r.json()}).catch(function(){return{days:[],recordingSince:null}}),
+      fetch("/api/revenue/tempo-daily").then(function(r){return r.json()}).catch(function(){return{days:[],recordingSince:null}})
     ]).then(function(res){
       state.rows=res[0].days||[];
       state.free=res[1].days||[];
       state.freeSince=res[1].recordingSince||null;
+      state.tempo=res[2].days||[];
+      state.tempoSince=res[2].recordingSince||null;
       state.buyers=res[0].buyers||[];
       state.conc=res[0].concentration||null;
       render();

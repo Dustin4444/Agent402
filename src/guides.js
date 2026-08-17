@@ -629,7 +629,7 @@ Browse the live economy the router draws from at
     slug: "x402-and-mpp",
     title: "x402 and MPP on the same paywall: one server, two payment protocols",
     description:
-      "x402 is not the only HTTP payment scheme in flight. Agent402 serves both x402 and the Merchant Payments Protocol (MPP) from the exact same routes - same settlement, same guarantees, whichever header your client sends.",
+      "x402 is not the only HTTP payment scheme in flight. Agent402 serves both x402 and MPP's evm method from the exact same routes with identical settlement - plus a second, native MPP method (tempo) with its own separate settlement path.",
     md: `
 [x402](https://x402.org) reused HTTP 402 for a specific shape of payment: an
 unsigned request, an on-chain settle, a retry with proof attached. It is not
@@ -641,9 +641,18 @@ credential on retry instead of a custom header.
 
 Two clients, two conventions, one seller who doesn't want to run two paywalls.
 So Agent402 speaks both, from the same routes, with the same settlement
-underneath.
+underneath - for MPP's \`evm\` method specifically.
 
-## What actually changes on the wire
+**MPP itself now has a second method, \`tempo\`, that this guide's "shim"
+model does NOT cover.** Tempo (the chain MPP's own reference implementation
+targets) settles natively via TIP-1034/TIP-20 primitives through Tempo's own
+relay - not EIP-3009, no x402 facilitator involved, a genuinely separate
+settlement path from everything below. Every 402 on this server now carries
+BOTH \`evm\` and \`tempo\` MPP challenges (buyer's client picks whichever it
+speaks), but only \`evm\`'s mechanics are what the rest of this guide
+describes.
+
+## What actually changes on the wire (the \`evm\` method)
 
 Nothing about settlement. **\`@x402/express\` keeps sole settlement
 authority** - it still verifies, still settles, still decides pass or fail.

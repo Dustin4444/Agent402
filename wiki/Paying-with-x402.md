@@ -34,9 +34,13 @@ console.log(await res.json());
 ## Paying over MPP instead (dual-stack)
 
 Every paid endpoint also speaks **MPP** (Machine Payments Protocol — the
-IETF-track `Payment` HTTP auth scheme from [tempoxyz/mpp](https://github.com/tempoxyz/mpp)).
-Same URL, same price, same on-chain USDC settlement; the only difference is the
-HTTP dialect, and MPP responses add a signed `Payment-Receipt` header. With the
+IETF-track `Payment` HTTP auth scheme from [tempoxyz/mpp](https://github.com/tempoxyz/mpp)),
+and now offers TWO MPP methods: `evm` (below, same URL, same price, same
+on-chain USDC settlement as x402, just a different HTTP dialect) and `tempo`
+(native settlement via [Tempo](https://tempo.xyz)'s own relay, TIP-1034/
+TIP-20, no x402 facilitator, a genuinely different mechanism; use
+`tempo.charge` from `mppx/client` the same way `evm.charge` is used below).
+MPP responses add a signed `Payment-Receipt` header either way. With the
 reference [`mppx`](https://www.npmjs.com/package/mppx) client:
 
 ```js
@@ -56,7 +60,9 @@ console.log(res.headers.get("payment-receipt"));               // signed MPP rec
 
 The buyer's client picks the dialect: mppx prefers the native MPP challenge and
 pays via `Authorization: Payment`; x402 clients keep using `PAYMENT-SIGNATURE`.
-Both settle the identical EIP-3009 authorization.
+An MPP `evm`-method buyer and an x402 buyer settle the identical EIP-3009
+authorization; an MPP `tempo`-method buyer settles via Tempo's own relay
+instead - different mechanism, same price.
 
 ## Command line: Stripe's `purl`
 

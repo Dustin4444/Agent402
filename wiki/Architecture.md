@@ -44,6 +44,20 @@ paywall sees it. `@x402/express` keeps sole settlement authority, and every
 paywall invariant (replay guard, payer attribution, settlement ordering,
 idempotency) reads the same header it always did.
 
+**Tempo, a second, independent MPP settlement path** (`src/mpp-tempo.js`,
+mounted when `TEMPO_API_KEY` is set), exists because Tempo's `tempo` MPP
+method uses TIP-1034/TIP-20 primitives, not EIP-3009, so it can never become
+a `PAYMENT-SIGNATURE`; no x402 facilitator can settle it, and the shim above
+genuinely doesn't apply. This is NOT a translation layer: a `createTempoGate`
+middleware buffers the route handler's response (mirroring `@x402/express`'s
+own settlement-ordering technique) and only calls Tempo's own hosted relay
+(`api.tempo.xyz`, a non-mutating `validate` then a terminal `broadcast`) after
+a successful handler response, preserving the same "handler runs before
+money moves" guarantee through an entirely separate mechanism. A dedicated
+`createReplayGuard()` instance (never shared with the x402 one) closes the
+concurrent-replay window this path would otherwise leave open, since it
+bypasses the PoW/replay-guard/x402mw dispatcher chain entirely.
+
 ## Key pieces
 
 - **Catalog as data.** Every tool is an entry `{ route, slug, price, description, discovery: { inputSchema, example }, handler }`. The paywall, docs pages, OpenAPI spec, llms.txt, sitemap, MCP servers, and CI tests are all *generated from the same catalog* - one source of truth, so a new tool is automatically priced, documented, discoverable, and tested.

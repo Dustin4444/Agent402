@@ -5,6 +5,7 @@ import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chr
 import { ledgerShell, ledgerFooterCompact, esc as ledgerEsc } from "./ledger-chrome.js";
 import { SKILL_PACKS } from "./skills.js";
 import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
+import { tempoDiscoveryInfo } from "./mpp-tempo.js";
 
 export const CATEGORIES = {
   web: { label: "Web & documents", blurb: "Read the live web: browser rendering, screenshots, article extraction, PDFs, metadata." },
@@ -460,7 +461,7 @@ const FAQ_ITEMS = [
   { q: "What does it cost?", a: 'Flat per-call prices from $0.001. Most tools are $0.001–$0.02; premium AI and media tiers and multi-tool skill packs run higher, up to $1.50. Every price is published in <a href="/api/pricing">/api/pricing</a> and quoted exactly in every HTTP 402 response. No subscriptions, and nothing is token-metered.' },
   { q: "Can I use it without any money or a wallet?", a: "Yes. Most pure-CPU tools accept proof-of-work - a sub-second sha256 puzzle solved by your own CPU - and the hosted MCP connector runs that same set for free (rate-limited)." },
   { q: "What is x402?", a: 'An open HTTP payment standard built on the 402 Payment Required status code, for machine-to-machine pay-per-call payments in stablecoins, with settlement infrastructure from Coinbase. Plain-English explainer: <a href="/what-is-x402">/what-is-x402</a>.' },
-  { q: "What is MPP, and does Agent402 support it?", a: 'Yes - every paid endpoint is dual-stack. MPP (Machine Payments Protocol, the IETF-track Payment HTTP authentication scheme) carries the same pay-per-call handshake through the web&rsquo;s standard auth headers: the 402 carries a <code>WWW-Authenticate: Payment</code> challenge, the client pays via <code>Authorization: Payment</code>, and settled responses return a signed <code>Payment-Receipt</code>. Same URL, same price, same on-chain USDC settlement as x402 - the buyer&rsquo;s client picks the dialect. How the two compare: <a href="/what-is-x402">/what-is-x402</a>; the full MPP explainer: <a href="/what-is-mpp">/what-is-mpp</a>.' },
+  { q: "What is MPP, and does Agent402 support it?", a: 'Yes - every paid endpoint is dual-stack, and now natively via Tempo too. MPP (Machine Payments Protocol, the IETF-track Payment HTTP authentication scheme) carries the pay-per-call handshake through the web&rsquo;s standard auth headers: the 402 carries a <code>WWW-Authenticate: Payment</code> challenge, the client pays via <code>Authorization: Payment</code>, and settled responses return a signed <code>Payment-Receipt</code>. Same URL, same price either way - MPP&rsquo;s evm method settles identically to x402 (same on-chain USDC settlement), while its tempo method settles natively via Tempo&rsquo;s own relay, a genuinely separate mechanism. How the two compare: <a href="/what-is-x402">/what-is-x402</a>; the full MPP explainer: <a href="/what-is-mpp">/what-is-mpp</a>.' },
   { q: "Which blockchain and asset does it use?", a: `${RAILS_PAREN}. The buyer needs only the stablecoin - gas is sponsored by the facilitator on EVM chains.` },
   { q: "Does using this spend my AI tokens?", a: "No LLM in the deterministic tool path - those are pure code (parsers, hashes, math, a real browser). Proof-of-work spends your CPU; x402 spends USDC. The optional /v1 gateway is a separate OpenAI-compatible LLM proxy you opt into - it's the only place a model runs." },
   { q: "Is there an OpenAI-compatible endpoint?", a: 'Yes - <code>/v1</code> is a pay-per-call OpenAI-wire LLM gateway: point any OpenAI SDK at <code>base_url https://agent402.tools/v1</code> for chat (five quality tiers, model-optional auto-routing), embeddings, and image generation. No API key, no signup - settle in USDC over x402, same as every other tool. See <a href="/pricing">/pricing</a> for the tier breakdown.' },
@@ -564,27 +565,48 @@ export function openapiSpec(baseUrl, catalog) {
       //     crawls this) reads the multi-offer `offers` array — amount in
       //     SMALLEST currency units, currency = token contract address. The
       //     runtime 402 stays authoritative; the shim (src/mpp-shim.js) is
-      //     what actually answers MPP's evm/charge wire.
-      "x-payment-info": {
-        // STRUCTURED protocol objects, not bare strings: @agentcash/discovery
-        // (MPPScan's crawler, whose L3 output x402scan consumes) parses
-        // structured x-payment-info with zod — an object `price` next to
-        // string protocols fails the structured schema AND the legacy
-        // fallback, losing both price and protocols. The mpp entry requires
-        // non-empty method/intent/currency.
-        protocols: [
-          { x402: {} },
-          { mpp: { method: "evm", intent: "charge", currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } },
-        ],
-        price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
-        offers: [{
-          intent: "charge",
-          method: "evm",
-          amount: String(Math.round((Number(String(tool.price ?? "").replace(/[^0-9.]/g, "")) || 0) * 1e6)),
-          currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-          description: `${tool.price} in USDC on Base (eip155:8453) - MPP evm charge or x402 exact; more chains in the live 402`,
-        }],
-      },
+      //     what actually answers MPP's evm/charge wire, and src/mpp-tempo.js
+      //     the tempo one.
+      "x-payment-info": (() => {
+        const priceUsd = Number(String(tool.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+        // Tempo is a SECOND, independent MPP method (native TIP-1034/TIP-20
+        // via Tempo's own relay, not x402-settled) — advertised here only
+        // when actually enabled, same "never advertise what we can't settle"
+        // rule mintTempoChallenge() itself enforces.
+        const tempo = tempoDiscoveryInfo();
+        return {
+          // STRUCTURED protocol objects, not bare strings: @agentcash/discovery
+          // (MPPScan's crawler, whose L3 output x402scan consumes) parses
+          // structured x-payment-info with zod — an object `price` next to
+          // string protocols fails the structured schema AND the legacy
+          // fallback, losing both price and protocols. Each mpp entry
+          // requires non-empty method/intent/currency.
+          protocols: [
+            { x402: {} },
+            { mpp: { method: "evm", intent: "charge", currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } },
+            ...(tempo ? [{ mpp: { method: "tempo", intent: "charge", currency: tempo.currency } }] : []),
+          ],
+          price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
+          offers: [
+            {
+              intent: "charge",
+              method: "evm",
+              amount: String(Math.round(priceUsd * 1e6)),
+              currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              description: `${tool.price} in USDC on Base (eip155:8453) - MPP evm charge or x402 exact; more chains in the live 402`,
+            },
+            ...(tempo
+              ? [{
+                  intent: "charge",
+                  method: "tempo",
+                  amount: String(Math.round(priceUsd * 10 ** tempo.decimals)),
+                  currency: tempo.currency,
+                  description: `${tool.price} on Tempo (chain 4217) - MPP tempo/charge, settled via Tempo's own relay (not x402)`,
+                }]
+              : []),
+          ],
+        };
+      })(),
     };
     const props = discovery?.inputSchema?.properties ?? {};
     const required = discovery?.inputSchema?.required ?? [];

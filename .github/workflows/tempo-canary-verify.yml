@@ -1,0 +1,27 @@
+name: Tempo canary — live verification (dispatch-only)
+
+# ONE-OFF live proof that a real mppx client can complete a real Tempo
+# settlement against production — offline tests (test-mpp-tempo-shim.js)
+# only prove our own logic against injected validate/broadcast stubs;
+# Tempo's real relay wire format was explicitly left unverified in PR #812.
+# Not scheduled: this is a manual verification, not (yet) a permanent daily
+# canary leg like the other twelve rails in paid-canary.yml.
+on:
+  workflow_dispatch:
+
+jobs:
+  buy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install (mppx + viem already in package.json)
+        run: npm ci --ignore-scripts
+      - name: Real Tempo settlement (real PathUSD from the canary burner)
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+        run: node scripts/tempo-canary-verify.js
