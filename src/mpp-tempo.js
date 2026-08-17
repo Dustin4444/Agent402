@@ -270,7 +270,15 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
     if (!isTempoCredential(auth)) return next();
 
     validate(auth).then(async (v) => {
-      if (!v.ok) return next(); // invalid credential — fall through to a fresh 402, same as an invalid evm credential today
+      if (!v.ok) {
+        // Loud on ambiguity, same doctrine as facilitator-diagnostics.js —
+        // an unlogged rejection here is exactly what made the 2026-08-17
+        // live-verify failure undiagnosable from Railway logs alone.
+        // v.error is already truncated to 300 chars by validateTempoCredential
+        // and is the relay/mppx SDK's own message, never a secret we hold.
+        console.warn(`[mpp-tempo] credential rejected by validate(): ${v.error || "(no error detail)"}`);
+        return next(); // invalid credential — fall through to a fresh 402, same as an invalid evm credential today
+      }
 
       // Claim the credential's identity BEFORE the handler runs — the whole
       // point is to close the concurrent-replay window, not just the
@@ -366,6 +374,9 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // default and get mislabeled as plain x402.
       req.tempoSettled = true;
       replay();
-    }).catch(() => next()); // validation itself threw — fall through untouched
+    }).catch((err) => {
+      console.warn(`[mpp-tempo] gate threw: ${String(err?.message || err).slice(0, 300)}`);
+      next(); // fall through untouched
+    });
   };
 }
