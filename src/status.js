@@ -64,12 +64,26 @@ const DAILY = 26 * 3600_000; // a day plus slack for a late scheduled run
 // scripts/paid-canary.js). Observations arrive once per canary run (up to
 // 3x/day via its cron), so DAILY is the right staleness bound, same as the
 // existing "settlement" component below.
-export const RAIL_COMPONENTS = RAILS.map((r) => ({
-  key: `rail_${r.name.toLowerCase().replace(/\s+chain$/, "")}`,
-  label: r.name,
-  blurb: `Real ${r.asset} settlement on ${r.name}, proven daily by the paid canary.`,
-  staleAfterMs: DAILY,
-}));
+export const RAIL_COMPONENTS = [
+  ...RAILS.map((r) => ({
+    key: `rail_${r.name.toLowerCase().replace(/\s+chain$/, "")}`,
+    label: r.name,
+    blurb: `Real ${r.asset} settlement on ${r.name}, proven daily by the paid canary.`,
+    staleAfterMs: DAILY,
+  })),
+  // Tempo is NOT in RAILS (it settles over its own native MPP relay, never
+  // @x402/express — see src/mpp-tempo.js), so it can't derive from the map
+  // above. Added by hand, same shape/cadence as every other rail row, keyed
+  // to match the paid canary's "rail_" + noteRail("mpp-tempo", ...) prefix
+  // exactly (scripts/paid-canary.js) so its daily observation actually
+  // lands here instead of being posted and silently going nowhere.
+  {
+    key: "rail_mpp-tempo",
+    label: "Tempo (native MPP)",
+    blurb: "Real PathUSD settlement over Tempo's own MPP relay, proven daily by the paid canary.",
+    staleAfterMs: DAILY,
+  },
+];
 
 export const COMPONENTS = [
   { key: "api", label: "Tool serving", blurb: "The paid API answering requests: /health reachable and the catalog mounted.", staleAfterMs: QUARTER_HOURLY },
