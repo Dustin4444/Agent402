@@ -402,3 +402,37 @@ export function salesSummary({ days = 30, detailed = false } = {}) {
     })),
   };
 }
+
+// Day-bucketed Tempo settlements (wire = 'mpp-tempo'), UTC, straight from
+// this table — NOT the on-chain wallet scan /api/revenue/daily reads. Tempo
+// is deliberately excluded from RAILS (not x402-settleable), so no scan
+// ever sees it; this is the ONLY place Tempo revenue is visible day-by-day,
+// same "second data source, same chart" pattern as the free-tier (PoW) lane
+// (getDailyCalls() in stats.js, its own table for the same structural
+// reason: free calls settle nowhere either). Real dollars either way, so
+// unlike the free-tier lane this reports usd, not just tx counts.
+const qTempoDaily = db.prepare(`
+  SELECT date(ts / 1000, 'unixepoch') AS day,
+    SUM(CASE WHEN internal = 0 THEN price_usd ELSE 0 END) AS extUsd,
+    SUM(CASE WHEN internal = 0 THEN 1 ELSE 0 END) AS extTx,
+    SUM(CASE WHEN internal = 1 THEN price_usd ELSE 0 END) AS intUsd,
+    SUM(CASE WHEN internal = 1 THEN 1 ELSE 0 END) AS intTx
+  FROM sales WHERE wire = 'mpp-tempo'
+  GROUP BY day ORDER BY day`);
+
+/** [{day, extUsd, extTx, intUsd, intTx}], oldest first. */
+export function tempoDailyRevenue() {
+  return qTempoDaily.all().map((r) => ({
+    day: r.day,
+    extUsd: +r.extUsd.toFixed(6),
+    extTx: r.extTx,
+    intUsd: +r.intUsd.toFixed(6),
+    intTx: r.intTx,
+  }));
+}
+
+/** First day any Tempo settlement was recorded, or null before the first one. */
+export function tempoDailyRecordingSince() {
+  const rows = qTempoDaily.all();
+  return rows.length ? rows[0].day : null;
+}

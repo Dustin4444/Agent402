@@ -187,7 +187,7 @@ import { startRevenueLedger, ledgerSummary, ledgerDaily, ledgerBuyersDaily, ledg
 import { x402EconomySnapshot, economySnapshotCached } from "./x402-economy.js";
 import { provenByChain, unattributedMerchants, advertisedPayToEvidence, payToFromLive402, provenPayToMatches, meetsRouterGate } from "./settlement-proof.js";
 import { spend as sharedSpend, refund as sharedRefund, sharedLimitEnabled } from "./shared-limit.js";
-import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse } from "./sales-ledger.js";
+import { recordSale, salesSummary, mppSales, mppTxHashes, txFromPaymentResponse, tempoDailyRevenue, tempoDailyRecordingSince } from "./sales-ledger.js";
 import { reconcileSettlements } from "./settlement-reconcile.js";
 import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
@@ -1399,6 +1399,23 @@ app.get("/api/calls/daily", (_req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: "daily calls failed", detail: String(e?.message || e).slice(0, 120) });
+  }
+});
+// Daily Tempo settlements — the second non-on-chain-scan companion to
+// /api/revenue/daily, same reasoning as /api/calls/daily above: Tempo is
+// deliberately excluded from RAILS (not x402-settleable), so the on-chain
+// wallet scan that endpoint reads never sees a Tempo transaction at all.
+// This reads src/sales-ledger.js's own recorded rows directly instead - real
+// dollars, unlike the free-tier lane, since a Tempo settlement is real money.
+app.get("/api/revenue/tempo-daily", (_req, res) => {
+  try {
+    res.set("Cache-Control", "public, max-age=60").json({
+      asOf: new Date().toISOString(),
+      recordingSince: tempoDailyRecordingSince(),
+      days: tempoDailyRevenue(),
+    });
+  } catch (e) {
+    res.status(500).json({ error: "tempo daily revenue failed", detail: String(e?.message || e).slice(0, 120) });
   }
 });
 // Machine-readable MPP-wire settlements (behind the /revenue "MPP transactions"

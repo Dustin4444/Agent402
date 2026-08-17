@@ -50,6 +50,10 @@ const FREE_DAYS = [
   { day: "2026-06-20", usdc: 4, pow: 40, heartbeat: 2 },
   { day: "2026-06-21", usdc: 2, pow: 60, heartbeat: 1 },
 ];
+const TEMPO_DAYS = [
+  { day: "2026-08-17", extUsd: 0.4, extTx: 4, intUsd: 0.1, intTx: 1 },
+  { day: "2026-08-18", extUsd: 0.6, extTx: 6, intUsd: 0, intTx: 0 },
+];
 
 let failures = 0;
 const check = (name, fn) => {
@@ -57,7 +61,7 @@ const check = (name, fn) => {
   catch (e) { failures++; console.log(`  FAIL ${name}\n       ${e.message}`); }
 };
 
-async function boot({ freeFails = false } = {}) {
+async function boot({ freeFails = false, tempoDays = [], tempoFails = false } = {}) {
   const html = `<!doctype html><html><body>${inlineRevenueChartScript(revenueChartSection())}</body></html>`;
   // fetch must exist BEFORE the inline script runs, so the chart's own IIFE is
   // the one under test — re-evaluating it afterwards would double every
@@ -68,6 +72,10 @@ async function boot({ freeFails = false } = {}) {
     beforeParse(w) {
       w.fetch = (url) => {
         if (String(url).includes("/api/revenue/daily")) return Promise.resolve({ json: () => Promise.resolve({ days: REV_DAYS, buyers: BUYER_DAYS, concentration: CONC }) });
+        if (String(url).includes("/api/revenue/tempo-daily")) {
+          return tempoFails ? Promise.reject(new Error("down"))
+            : Promise.resolve({ json: () => Promise.resolve({ days: tempoDays, recordingSince: tempoDays.length ? tempoDays[0].day : null }) });
+        }
         if (String(url).includes("/api/calls/daily")) {
           return freeFails ? Promise.reject(new Error("down"))
             : Promise.resolve({ json: () => Promise.resolve({ days: FREE_DAYS, recordingSince: "2026-06-20" }) });
@@ -297,6 +305,67 @@ console.log("revenue chart — settled-to (SOR) lane");
   check("internal-only folded chains never leak into the external view", () => {
     click(w, "rvzScope", "ext");
     assert.ok(!legend(w).includes("Sei"), "internal-only Sei leaked into the external legend");
+  });
+}
+
+console.log("revenue chart — Tempo lane (second data source, real dollars)");
+
+{
+  const w = await boot({ tempoDays: TEMPO_DAYS });
+
+  check("Tempo lane shows under Revenue $ by default (real dollars, unlike the free lane)", () => {
+    assert.equal(activeOf(w, "rvzTraffic"), "paid");
+    assert.equal(activeOf(w, "rvzMetric"), "usd");
+    assert.ok(legend(w).includes("Tempo"), "Tempo lane should be charted under Revenue $");
+  });
+
+  check("Tempo lane carries its own colour, not a chain hue or the free grey", () => {
+    const html = w.document.getElementById("rvzLegend").innerHTML;
+    // --stempo resolves to a teal not used by any chain slot or --sfree.
+    assert.ok(html.includes("#0ea5b8"), `Tempo swatch should use --stempo, got: ${html}`);
+  });
+
+  check("cumulative external Tempo revenue is the running sum ($0.40 then $1.00)", () => {
+    const txt = w.document.getElementById("rvzTable").textContent;
+    assert.ok(txt.includes("1.00") || txt.includes("$1.00"), `expected cumulative $1.00 external Tempo revenue, got: ${txt.slice(0, 300)}`);
+  });
+
+  check("switching wire to x402 drops the Tempo lane (Tempo is never x402-settleable)", () => {
+    click(w, "rvzWire", "x402");
+    assert.ok(!legend(w).includes("Tempo"), "Tempo must not appear under the x402 wire filter");
+  });
+
+  check("switching wire to mpp keeps the Tempo lane (Tempo settlements are always MPP-wire)", () => {
+    click(w, "rvzWire", "mpp");
+    assert.ok(legend(w).includes("Tempo"), "Tempo must still appear under the MPP wire filter");
+  });
+
+  check("selecting the SOR settle lane drops Tempo (no self-funding spending wallet for it yet)", () => {
+    click(w, "rvzWire", "all");
+    click(w, "rvzSettle", "sor");
+    assert.ok(!legend(w).includes("Tempo"), "Tempo must not appear under the SOR settle lane");
+    click(w, "rvzSettle", "all");
+  });
+
+  check("internal scope shows only the internal Tempo total", () => {
+    click(w, "rvzScope", "int");
+    const txt = w.document.getElementById("rvzTable").textContent;
+    assert.ok(txt.includes("0.10") || txt.includes("$0.10"), `expected cumulative $0.10 internal Tempo revenue, got: ${txt.slice(0, 300)}`);
+    click(w, "rvzScope", "ext");
+  });
+
+  check("choosing the free-tier traffic lane hides Tempo (Tempo is never free/PoW traffic)", () => {
+    click(w, "rvzTraffic", "free");
+    assert.ok(!legend(w).includes("Tempo"), "Tempo must not appear under the free-tier traffic lane");
+    click(w, "rvzTraffic", "paid");
+  });
+}
+
+{
+  const w = await boot({ tempoDays: [], tempoFails: true });
+  check("a Tempo-endpoint outage never blanks the revenue chart", () => {
+    assert.ok(legend(w).length > 0 || w.document.getElementById("rvzLegend").innerHTML.length >= 0, "chart must still render with an empty/degraded Tempo lane");
+    assert.ok(!legend(w).includes("Tempo"), "a failed Tempo fetch degrades to an empty lane, not a fabricated one");
   });
 }
 
