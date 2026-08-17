@@ -148,6 +148,31 @@ const NOW = Date.UTC(2026, 6, 25, 12, 0, 0); // 2026-07-25T12:00:00Z
   check("ALL stale is 'unknown', not 'degraded' (we don't know, vs we know it's bad)", overallState([c("api", "unknown"), c("settlement", "unknown")]) === "unknown");
   check("never-observed components do not vote", overallState([c("api", "operational"), c("settlement", "outage", 0)]) === "operational");
   check("nothing observed at all is unknown", overallState([c("api", "unknown", 0)]) === "unknown");
+
+  // railComponents (per-chain: rail_monad, rail_stellar, ...) — added
+  // 2026-08-17. Before this, a rail dropping out of the live 402 accepts was
+  // correctly recorded and shown as "Outage" on its own card, but never
+  // moved `overall` off "operational" — the paid canary could name a dead
+  // rail and the headline would still read "All systems operational".
+  const core = [c("api", "operational"), c("catalog", "operational"), c("mcp", "operational"), c("paywall", "operational"), c("paid-call", "operational")];
+  check("a single rail outage rolls the headline up to degraded",
+    overallState(core, [c("rail_monad", "outage")]) === "degraded");
+  check("a rail outage never forces Active outage, even with several core components fresh",
+    overallState(core, [c("rail_monad", "outage"), c("rail_stellar", "unknown")]) === "degraded");
+  check("a core outage still wins over a healthy rail set",
+    overallState([c("api", "outage"), c("catalog", "operational")], [c("rail_monad", "operational")]) === "outage");
+  check("all rails operational plus all core operational is operational",
+    overallState(core, [c("rail_monad", "operational"), c("rail_base", "operational")]) === "operational");
+  check("a never-observed rail does not vote",
+    overallState(core, [c("rail_monad", "outage", 0)]) === "operational");
+  check("core all-unknown but a rail has a real outage is degraded, not unknown",
+    overallState([c("api", "unknown")], [c("rail_monad", "outage")]) === "degraded");
+  check("core all-unknown and rails all-unknown too is unknown",
+    overallState([c("api", "unknown")], [c("rail_monad", "unknown")]) === "unknown");
+  check("no core components at all, one bad rail, is degraded",
+    overallState([], [c("rail_monad", "outage")]) === "degraded");
+  check("omitting railComponents entirely keeps old behavior (backward compatible)",
+    overallState([c("api", "operational")]) === "operational");
 }
 
 _resetForTest();
