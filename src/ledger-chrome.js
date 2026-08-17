@@ -299,30 +299,36 @@ function statusLine() {
 // Nav (sticky, every page)
 // ---------------------------------------------------------------------------
 
-// Three zones, divider after zone1 and after zone2: sell/marketplace/
-// leaderboard | our tools | x402+mpp/docs (Aug 2026 revamp — SEO-focused
-// redesign). "sell" and "marketplace" stay hover-dropdown TRIGGERS (see
-// PANEL_HTML below): the flat 6-item nav in the design spec has no dropdown
-// markup at all, but that structure - by-chain rows, smart order router,
-// playground, tollbooth, contribute - was itself a deliberate UI/UX pass this
-// same month (see chainRowHtml/marketPanelNav/sellPanelHtml below), and
-// dropping it would silently remove those pages' most direct desktop-nav
-// path. Decision: adopt the new visual language and item SET, keep the
-// dropdown mechanism. "our tools" is a new panel (see ourToolsPanelNav)
-// housing catalog/skills/playground/pricing, which have no top-level slot in
-// the new 6-item design. Ops proof pages (revenue, status) still live in the
-// footer + mobile "More" group.
+// Three zones, divider after zone1 and after zone2: sell/x402/mpp/leaderboard
+// | our tools | docs (Aug 2026 revamp — SEO-focused redesign; split into two
+// top-level marketplace words 2026-08-17 so both protocols Agent402 indexes
+// are equally visible, not one word doing double duty). "sell", "x402" and
+// "mpp" stay hover-dropdown TRIGGERS (see PANEL_HTML below): the flat 6-item
+// nav in the design spec has no dropdown markup at all, but that structure -
+// by-chain rows, smart order router, playground, tollbooth, contribute - was
+// itself a deliberate UI/UX pass this same month (see
+// chainRowHtml/marketPanelNav/sellPanelHtml below), and dropping it would
+// silently remove those pages' most direct desktop-nav path. Decision: adopt
+// the new visual language and item SET, keep the dropdown mechanism. "our
+// tools" is a new panel (see ourToolsPanelNav) housing catalog/skills/
+// playground/pricing, which have no top-level slot in the new 6-item design.
+// Ops proof pages (revenue, status) still live in the footer + mobile "More"
+// group. The former combined "x402 + mpp" explainer link is gone from the
+// top level now that both protocols have their own marketplace word - each
+// panel's own footer carries a "what is x402/mpp" row instead (see
+// marketPanelNav/mppPanelNav), keeping the top-level word count unchanged
+// (was 6, stays 6: sell / x402 / mpp / leaderboard / our tools / docs).
 const NAV_ZONES = [
   [
     { href: "/sell", label: "sell", panel: "sell" },
-    { href: "/marketplace", label: "marketplace", panel: "marketplace" },
+    { href: "/marketplace", label: "x402", panel: "marketplace" },
+    { href: "/mpp-marketplace", label: "mpp", panel: "mpp" },
     { href: "/leaderboard", label: "leaderboard" },
   ],
   [
     { href: "/tools", label: "our tools", panel: "tools" },
   ],
   [
-    { href: "/what-is-x402", label: "x402 + mpp" },
     { href: "/docs", label: "docs" },
   ],
 ];
@@ -412,7 +418,26 @@ function marketPanelNav(chainInfo) {
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
                 ${rows}
                 <a href="/marketplace/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">every tool indexed</span><span style="color:var(--faint);">ours + third-party</span></a>
+                <a href="/what-is-x402" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">what is x402?</span><span style="color:var(--faint);">start here</span></a>
                 <a href="/marketplace" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/marketplace</span></a>
+              </span>
+            </span>`;
+}
+
+// MPP marketplace dropdown (new, split out of the combined "marketplace"
+// trigger 2026-08-17 so both protocols get an equally visible top-level nav
+// word). No by-chain breakdown here - MPP sellers aren't chain-scoped the
+// way x402's rails are, and no live per-category provider is wired at nav
+// level yet (kept simple on purpose; see the MPP marketplace plan). Same
+// visual pattern as the other two panels.
+function mppPanelNav() {
+  return `<span class="mlnav-dd">
+              <span style="display:block;width:300px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+                <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE MPP PROTOCOL MARKETPLACE</span>
+                <a href="/mpp-marketplace#sellers" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">browse verified sellers</span><span style="color:var(--faint);">live-probed</span></a>
+                <a href="/mpp-marketplace#list-api" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">list your API</span><span style="color:var(--faint);">free · one call</span></a>
+                <a href="/what-is-mpp" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">what is MPP?</span><span style="color:var(--faint);">start here</span></a>
+                <a href="/mpp-marketplace" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/mpp-marketplace</span></a>
               </span>
             </span>`;
 }
@@ -445,7 +470,7 @@ function sellPanelHtml() {
             </span>`;
 }
 
-const PANEL_HTML = { marketplace: marketPanelNav, sell: sellPanelHtml, tools: () => ourToolsPanelNav() };
+const PANEL_HTML = { marketplace: marketPanelNav, mpp: () => mppPanelNav(), sell: sellPanelHtml, tools: () => ourToolsPanelNav() };
 
 function directLinkHtml(l, activePath) {
   const active = l.href === activePath;
@@ -486,7 +511,8 @@ function mobileMenuHtml(chainInfo, activePath) {
     </div>
     <div class="ml-mm-h">The index</div>
     <div class="ml-mm-group">
-      ${mmLink("/marketplace", "marketplace · every chain", activePath === "/marketplace")}
+      ${mmLink("/marketplace", "x402 marketplace · every chain", activePath === "/marketplace")}
+      ${mmLink("/mpp-marketplace", "mpp marketplace · verified sellers", activePath === "/mpp-marketplace")}
       ${mmLink("/leaderboard", "leaderboard", activePath === "/leaderboard")}
       ${mmLink("/guides/smart-order-router", "smart order router", activePath === "/guides/smart-order-router")}
       ${mmLink("/marketplace/tools", "every tool indexed", activePath === "/marketplace/tools")}
@@ -530,6 +556,7 @@ function nav(activePath) {
     // its own top-level item (not folded into this set) since it's no longer
     // inside the marketplace panel either.
     marketplace: new Set(["/marketplace", ...chainInfo.chains.map((c) => c.href)]),
+    mpp: new Set(["/mpp-marketplace"]),
     sell: new Set(["/sell", "/tollbooth", "/tollbooth/cloud", "/contribute"]),
     tools: new Set(["/tools", "/skills", "/playground", "/pricing"]),
   };

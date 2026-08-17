@@ -95,6 +95,7 @@ const formHtml = `
       <button id="reg-go" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
     <div id="reg-out" role="status" aria-live="polite" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Unreachable sellers drop out of routing (never off the roster) until they recover.</div>
+    <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:10px 0 0;">Speak MPP instead? <a href="/mpp-marketplace" style="color:var(--muted);">List on the MPP marketplace →</a></p>
   </div>
   <script src="/js/reg-form.js"></script>`;
 
