@@ -196,12 +196,11 @@ export const TIERS = {
     price: 0.10,
     maxInputChars: 48_000,
     maxTokens: 4096,
-    maxPrice: { prompt: 6, completion: 20 }, // priciest allowlisted: claude sonnet / grok ~$3/$15
+    maxPrice: { prompt: 6, completion: 20 }, // priciest allowlisted: grok ~$3/$15 (claude sonnet 5 is $2/$10, permanent as of 2026-08-10)
     prefixes: [
       "openai/gpt-4o", "openai/gpt-4.1",
-      // claude-sonnet prefix covers claude-sonnet-5 (live on OpenRouter at
-      // intro $2/$10 through 2026-08-31, standard $3/$15 after — both under
-      // the tier bound; MODEL_COST prices it at standard from day one).
+      // claude-sonnet prefix covers claude-sonnet-5, $2/$10 — see MODEL_COST
+      // below for the pricing-history note.
       "anthropic/claude-sonnet", "anthropic/claude-3.5-sonnet", "anthropic/claude-3.7-sonnet",
       "google/gemini-pro", "google/gemini-2.5-pro",
       "google/gemini-3.1-pro", "google/gemini-3.5-flash", "google/gemini-3.6-flash", // $2/$12, $1.5/$9, $1.5/$7.5
@@ -337,10 +336,13 @@ export const MODEL_COST = [
   // claude-opus covers claude-opus-5 ($5/$25) and -fast ($10/$50) — the $15/$75
   // legacy-opus bound overestimates both, which is the safe direction.
   ["anthropic/claude-opus", { prompt: 15, completion: 75 }],
-  // claude-sonnet covers claude-sonnet-5 — priced at STANDARD $3/$15, never
-  // the $2/$10 intro that expires 2026-08-31 (an intro-rate entry would
-  // silently under-clamp the margin from September on).
-  ["anthropic/claude-sonnet", { prompt: 3, completion: 15 }],
+  // claude-sonnet covers claude-sonnet-5 — was priced at an anticipated
+  // STANDARD $3/$15 to guard against a scheduled 2026-09-01 increase from the
+  // $2/$10 intro rate; Anthropic cancelled that increase on 2026-08-10 and
+  // made $2/$10 the permanent standard price (confirmed against their own
+  // release notes, not just OpenRouter's current listing — the two would
+  // read identically before 09-01 either way). Live on OpenRouter at $2/$10.
+  ["anthropic/claude-sonnet", { prompt: 2, completion: 10 }],
   ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude", { prompt: 1, completion: 5 }], // haiku family
