@@ -5,6 +5,7 @@ import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chr
 import { ledgerShell, ledgerFooterCompact, esc as ledgerEsc } from "./ledger-chrome.js";
 import { SKILL_PACKS } from "./skills.js";
 import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
+import { tempoDiscoveryInfo } from "./mpp-tempo.js";
 
 export const CATEGORIES = {
   web: { label: "Web & documents", blurb: "Read the live web: browser rendering, screenshots, article extraction, PDFs, metadata." },
@@ -564,27 +565,48 @@ export function openapiSpec(baseUrl, catalog) {
       //     crawls this) reads the multi-offer `offers` array — amount in
       //     SMALLEST currency units, currency = token contract address. The
       //     runtime 402 stays authoritative; the shim (src/mpp-shim.js) is
-      //     what actually answers MPP's evm/charge wire.
-      "x-payment-info": {
-        // STRUCTURED protocol objects, not bare strings: @agentcash/discovery
-        // (MPPScan's crawler, whose L3 output x402scan consumes) parses
-        // structured x-payment-info with zod — an object `price` next to
-        // string protocols fails the structured schema AND the legacy
-        // fallback, losing both price and protocols. The mpp entry requires
-        // non-empty method/intent/currency.
-        protocols: [
-          { x402: {} },
-          { mpp: { method: "evm", intent: "charge", currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } },
-        ],
-        price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
-        offers: [{
-          intent: "charge",
-          method: "evm",
-          amount: String(Math.round((Number(String(tool.price ?? "").replace(/[^0-9.]/g, "")) || 0) * 1e6)),
-          currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-          description: `${tool.price} in USDC on Base (eip155:8453) - MPP evm charge or x402 exact; more chains in the live 402`,
-        }],
-      },
+      //     what actually answers MPP's evm/charge wire, and src/mpp-tempo.js
+      //     the tempo one.
+      "x-payment-info": (() => {
+        const priceUsd = Number(String(tool.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+        // Tempo is a SECOND, independent MPP method (native TIP-1034/TIP-20
+        // via Tempo's own relay, not x402-settled) — advertised here only
+        // when actually enabled, same "never advertise what we can't settle"
+        // rule mintTempoChallenge() itself enforces.
+        const tempo = tempoDiscoveryInfo();
+        return {
+          // STRUCTURED protocol objects, not bare strings: @agentcash/discovery
+          // (MPPScan's crawler, whose L3 output x402scan consumes) parses
+          // structured x-payment-info with zod — an object `price` next to
+          // string protocols fails the structured schema AND the legacy
+          // fallback, losing both price and protocols. Each mpp entry
+          // requires non-empty method/intent/currency.
+          protocols: [
+            { x402: {} },
+            { mpp: { method: "evm", intent: "charge", currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } },
+            ...(tempo ? [{ mpp: { method: "tempo", intent: "charge", currency: tempo.currency } }] : []),
+          ],
+          price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
+          offers: [
+            {
+              intent: "charge",
+              method: "evm",
+              amount: String(Math.round(priceUsd * 1e6)),
+              currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+              description: `${tool.price} in USDC on Base (eip155:8453) - MPP evm charge or x402 exact; more chains in the live 402`,
+            },
+            ...(tempo
+              ? [{
+                  intent: "charge",
+                  method: "tempo",
+                  amount: String(Math.round(priceUsd * 10 ** tempo.decimals)),
+                  currency: tempo.currency,
+                  description: `${tool.price} on Tempo (chain 4217) - MPP tempo/charge, settled via Tempo's own relay (not x402)`,
+                }]
+              : []),
+          ],
+        };
+      })(),
     };
     const props = discovery?.inputSchema?.properties ?? {};
     const required = discovery?.inputSchema?.required ?? [];

@@ -22,6 +22,7 @@ import { createServer } from "node:http";
 import express from "express";
 import { Challenge, Credential } from "mppx";
 import { createTempoGate, mintTempoChallenge, tempoEnabled } from "../src/mpp-tempo.js";
+import { createReplayGuard } from "../src/replay-guard.js";
 
 let pass = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error("FAIL:", m); process.exit(1); } };
@@ -245,6 +246,64 @@ async function listen(app) {
   const body = await res.json();
   ok(res.status === 200 && body.untouched === true, "case E: a plain request (no tempo credential) passes through unaffected");
   ok(!validateCalled && !broadcastCalled, "case E: validate/broadcast are never invoked for a non-tempo request");
+  server.close();
+}
+
+// Case F: the SAME credential fired CONCURRENTLY at the same route -> the
+// replay guard rejects the second before its handler ever runs. This is
+// the real vulnerability the guard closes: without it, this gate bypasses
+// the whole PoW/replay-guard/x402mw dispatcher (replay-guard.js only
+// understands EIP-3009 nonces), so one signed credential could trigger N
+// free handler executions before Tempo's relay ever sees the duplicate.
+{
+  const replayGuard = createReplayGuard();
+  let handlerRuns = 0;
+  const app = express();
+  app.use(createTempoGate({
+    validate: async () => ({ ok: true, validation: {} }),
+    broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0xdeadbeef", timestamp: new Date().toISOString() } }),
+    replayGuard,
+  }));
+  app.get("/paid", async (req, res) => {
+    handlerRuns++;
+    await sleep(150); // widen the race window so both requests are genuinely in flight together
+    res.status(200).json({ result: "ok" });
+  });
+  const { server, url } = await listen(app);
+  const cred = buildTempoCredential();
+  const [r1, r2] = await Promise.all([
+    fetch(`${url}/paid`, { headers: { Authorization: cred } }),
+    fetch(`${url}/paid`, { headers: { Authorization: cred } }),
+  ]);
+  const statuses = [r1.status, r2.status].sort();
+  ok(handlerRuns === 1, `case F: the SAME credential fired concurrently -> the handler runs exactly once, not twice (got ${handlerRuns})`);
+  ok(statuses[0] === 200 && statuses[1] === 409, `case F: one request succeeds, the concurrent replay is rejected 409 (got ${statuses.join(",")})`);
+  server.close();
+}
+
+// Case G: release-on-failure -> a credential whose attempt failed (never
+// consumed) can be legitimately retried, same as replay-guard.js's own
+// "release when NOT granted" rule for the x402 side.
+{
+  const replayGuard = createReplayGuard();
+  let handlerRuns = 0;
+  const app = express();
+  app.use(createTempoGate({
+    validate: async () => ({ ok: true, validation: {} }),
+    broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0xdeadbeef", timestamp: new Date().toISOString() } }),
+    replayGuard,
+  }));
+  app.get("/paid", (req, res) => {
+    handlerRuns++;
+    res.status(handlerRuns === 1 ? 500 : 200).json({ result: handlerRuns === 1 ? "boom" : "ok" });
+  });
+  const { server, url } = await listen(app);
+  const cred = buildTempoCredential();
+  const r1 = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
+  ok(r1.status === 500, "case G: first attempt fails (handler error) -> claim released, not consumed");
+  const r2 = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
+  ok(r2.status === 200, "case G: the SAME credential retried after a released failure succeeds (not treated as a replay)");
+  ok(handlerRuns === 2, `case G: handler ran for both the failed attempt and the successful retry (got ${handlerRuns})`);
   server.close();
 }
 

@@ -121,6 +121,22 @@ ok(s.totals.external.sales >= 2, "ledger still readable after garbage rows");
   ok(mppSales({ limit: 10 }).count === 2, "mppSales agrees with the hash set");
 }
 
+// --- MPP wire includes "mpp-tempo" too (regression lock: qMppRecent/qMppTx
+// originally hardcoded wire = 'mpp' only, silently excluding every real
+// Tempo settlement from /api/revenue/mpp — caught in the post-launch Tempo
+// audit, 2026-08-17) -------------------------------------------------------
+{
+  const TEMPO_PAYER = "0x2222222222222222222222222222222222222222";
+  const H_TEMPO = "0xTempo000000000000000000000000000000000000000000000000000000001";
+  const before = mppSales({ limit: 100 }).count;
+  recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "tempo", payer: TEMPO_PAYER, tx: H_TEMPO, synthetic: false, wire: "mpp-tempo" });
+  const hashes = mppTxHashes();
+  ok(hashes.has(H_TEMPO), "a mpp-tempo settlement's tx hash is exposed alongside evm-translated mpp ones");
+  const after = mppSales({ limit: 100 });
+  ok(after.count === before + 1, "mppSales count includes the mpp-tempo settlement");
+  ok(after.byNetwork.tempo === 1, "mppSales byNetwork breaks out the tempo settlement by its own network label");
+}
+
 // --- settle receipt tx parser --------------------------------------------------------
 const rcpt = Buffer.from(JSON.stringify({ transaction: "0xfeed", network: "eip155:8453" })).toString("base64");
 ok(txFromPaymentResponse(rcpt) === "0xfeed", "tx extracted from PAYMENT-RESPONSE receipt");
