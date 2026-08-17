@@ -59,6 +59,8 @@ import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
 import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
+import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
+import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus} from "./payments.js";
@@ -2977,6 +2979,15 @@ app.get("/marketplace", async (req, res) => {
   try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
   htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS }));
 });
+// The MPP marketplace - independent directory, synchronous snapshot (no
+// on-chain join, unlike /marketplace above), same cache window.
+app.get("/mpp-marketplace", (_req, res) => {
+  try {
+    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot()));
+  } catch (e) {
+    res.status(500).type("text/plain").send("temporarily unavailable");
+  }
+});
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure
 // degrades to "temporarily unavailable" text rather than a half-rendered page.
@@ -3054,6 +3065,28 @@ app.post("/api/index/register", async (req, res) => {
   if (regGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
   mine.push(now); regByIp.set(ip, mine); regGlobal.push(now);
   const result = await registerOrigin(v.origin);
+  res.json(result);
+});
+// MPP self-serve listing: same shape/limits as /api/index/register above -
+// validate + rate-limit here, all probing happens inside the crawler behind
+// assertPublicUrl/ssrfDispatcher (src/mpp-index.js).
+const mppRegByIp = new Map();
+let mppRegGlobal = [];
+setInterval(() => {
+  sweepStaleTsMap(mppRegByIp, REG_WINDOW_MS, Date.now());
+}, 60_000);
+app.post("/api/mpp-index/register", async (req, res) => {
+  const now = Date.now();
+  const ip = req.ip || "?";
+  if (mppRegByIp.size > RL_MAP_MAX_KEYS) sweepStaleTsMap(mppRegByIp, REG_WINDOW_MS, now);
+  const mine = (mppRegByIp.get(ip) || []).filter((t) => now - t < REG_WINDOW_MS);
+  if (mine.length >= 5) return res.status(429).json({ error: "rate limit: 5 submissions per hour per IP" });
+  const v = validateMppOriginInput(req.body?.origin, { selfOrigin: BASE_URL });
+  if (v.error) return res.status(400).json({ error: v.error });
+  mppRegGlobal = mppRegGlobal.filter((t) => now - t < REG_WINDOW_MS);
+  if (mppRegGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
+  mine.push(now); mppRegByIp.set(ip, mine); mppRegGlobal.push(now);
+  const result = await registerMppOrigin(v.origin);
   res.json(result);
 });
 const computeRoute = (q, k, include, net) => routeQuery({ query: q, top: k, include, networkFilter: net, ...indexCtx() });
@@ -4798,6 +4831,17 @@ if (String(process.env.X402_INDEX_CRAWL || "").toLowerCase() === "off") {
   console.log("[index] crawler disabled (X402_INDEX_CRAWL=off)");
 } else {
   startCrawler({ selfOrigin: BASE_URL });
+}
+
+// MPP Index crawler: an independent seller directory for the MPP protocol,
+// parallel to the x402 crawler above but a different seller population.
+// Seeds come from the public mpp.dev services registry, live-verified before
+// ever being shown (src/mpp-index.js). Same reasoning for the disable switch
+// as X402_INDEX_CRAWL - outbound load on third-party hosts that no test looks at.
+if (String(process.env.MPP_INDEX_CRAWL || "").toLowerCase() === "off") {
+  console.log("[mpp-index] crawler disabled (MPP_INDEX_CRAWL=off)");
+} else {
+  startMppCrawler();
 }
 
 // Nightly offsite backup of /data (src/backup.js). No-op without the

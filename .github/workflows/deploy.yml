@@ -1463,6 +1463,12 @@ jobs:
       - name: Index self-serve registration tests (offline)
         run: node scripts/test-index-register.js
 
+      - name: MPP index self-serve registration + snapshot honesty tests (offline)
+        run: node scripts/test-mpp-index.js
+
+      - name: MPP marketplace page rendering tests (offline)
+        run: node scripts/test-mpp-market-page.js
+
       - name: Seller registration conversion/churn table (first_seen immutable, last_settled_seen sticky — offline)
         run: node scripts/test-seller-registrations.js
 
