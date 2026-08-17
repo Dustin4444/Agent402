@@ -1,5 +1,6 @@
 import { RAILS, RAILS_AMP, RAILS_OS } from "./rails.js";
 import { mppChallengeRails } from "./mpp-shim.js";
+import { tempoEnabled } from "./mpp-tempo.js";
 // Machine Ledger design system — shared chrome for the Agent402 marketing site.
 // Exports the status line, nav, footers (full + compact), design-token CSS,
 // and a ledgerShell() wrapper that composes a full HTML page.
@@ -434,12 +435,18 @@ function marketPanelNav(chainInfo) {
 function mppPanelNav() {
   const rails = mppChallengeRails();
   const acceptedNote = rails.length
-    ? `<span style="display:block;padding:8px 16px;font-size:11px;color:var(--faint);border-bottom:1px solid var(--hairline);">we accept MPP on ${rails.map((r) => esc(r.name)).join(" & ")}</span>`
+    ? `<span style="display:block;padding:8px 16px;font-size:11px;color:var(--faint);${tempoEnabled() ? "" : "border-bottom:1px solid var(--hairline);"}">we accept MPP on ${rails.map((r) => esc(r.name)).join(" & ")}</span>`
+    : "";
+  // Tempo is a SEPARATE MPP payment method (its own TIP-1034 relay, never
+  // x402-settled) — a distinct row, never merged into acceptedNote above.
+  const tempoNote = tempoEnabled()
+    ? `<span style="display:block;padding:4px 16px 8px;font-size:11px;color:var(--faint);border-bottom:1px solid var(--hairline);">...and natively via Tempo</span>`
     : "";
   return `<span class="mlnav-dd">
               <span style="display:block;width:300px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE MPP PROTOCOL MARKETPLACE</span>
                 ${acceptedNote}
+                ${tempoNote}
                 <a href="/mpp-marketplace#sellers" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">browse verified sellers</span><span style="color:var(--faint);">live-probed</span></a>
                 <a href="/mpp-marketplace#list-api" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">list your API</span><span style="color:var(--faint);">free · one call</span></a>
                 <a href="/what-is-mpp" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">what is MPP?</span><span style="color:var(--faint);">start here</span></a>
