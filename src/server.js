@@ -59,7 +59,8 @@ import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
 import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
-import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput } from "./mpp-index.js";
+import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
+import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus} from "./payments.js";
@@ -2977,6 +2978,15 @@ app.get("/marketplace", async (req, res) => {
   let economySnap = null;
   try { economySnap = await x402EconomySnapshot(); } catch { /* strip omitted */ }
   htmlCache(res, 120, 600).send(marketPage(null, BASE_URL, { snapshot, leaderboardSnap, economySnap, all: req.query.all === "1", wallet: WALLET_ADDRESS }));
+});
+// The MPP marketplace - independent directory, synchronous snapshot (no
+// on-chain join, unlike /marketplace above), same cache window.
+app.get("/mpp-marketplace", (_req, res) => {
+  try {
+    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot()));
+  } catch (e) {
+    res.status(500).type("text/plain").send("temporarily unavailable");
+  }
 });
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure
