@@ -33,6 +33,7 @@
 // codec primitives here — its request-guard/settlement path is deliberately
 // NOT mounted (double-settle risk vs @x402/express).
 import { Challenge, Credential, PaymentRequest, Receipt, x402, evm } from "mppx";
+import { RAILS } from "./rails.js";
 
 /** Replay of the paywall's own header names (see @x402/core http). */
 const PAYMENT_REQUIRED_HEADER = "PAYMENT-REQUIRED";
@@ -71,6 +72,24 @@ export function challengeEnabledForChain(chainId) {
   if (!raw) return DEFAULT_CHALLENGE_CHAIN_IDS.has(chainId);
   if (raw.toLowerCase() === "all") return true;
   return raw.split(",").some((s) => Number(s.trim()) === chainId);
+}
+
+/** Whether the shim itself is actually mounted — MPP_SECRET_KEY presence is
+ *  the rollout switch (see createMppShim below). Call-time read, like every
+ *  other rollout knob here — never cached at module load. */
+export function mppShimEnabled() {
+  return !!process.env.MPP_SECRET_KEY;
+}
+
+/** RAILS entries we currently issue an MPP challenge for on OUR OWN paywall —
+ *  derived live from challengeEnabledForChain() (and gated on the shim
+ *  actually being mounted) so this can never drift from the real gate.
+ *  Distinct from the x402 marketplace's "by chain" seller breakdown: that's
+ *  a directory of what OTHER sellers accept, this is what WE accept. Empty
+ *  when the shim isn't mounted — never a stale/fabricated chain list. */
+export function mppChallengeRails() {
+  if (!mppShimEnabled()) return [];
+  return RAILS.filter((r) => typeof r.chainId === "number" && challengeEnabledForChain(r.chainId));
 }
 
 /**

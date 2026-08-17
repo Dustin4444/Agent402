@@ -6,6 +6,7 @@
 // them), just what the mpp.dev registry advertises plus our own live
 // verification of it (src/mpp-index.js).
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { mppChallengeRails } from "./mpp-shim.js";
 
 // Crawled seller data is third-party input: only http(s) may become an href,
 // same rule market-page.js uses for the exact same reason.
@@ -71,6 +72,18 @@ export function mppMarketPage(baseUrl, snapshot) {
   const verifiedCount = snapshot?.verifiedSellers || 0;
   const discoveredTotal = snapshot?.discoveredTotal || 0;
   const totalEndpoints = sellers.reduce((sum, s) => sum + (Array.isArray(s.endpoints) ? s.endpoints.length : 0), 0);
+  // Which chains WE accept MPP payment on — not a seller directory row, this
+  // is Agent402's own settlement support. Derived live from mpp-shim.js so it
+  // can never drift from the actual gate (empty when the shim isn't mounted).
+  const challengeRails = mppChallengeRails();
+  const chainsNote = challengeRails.length
+    ? (() => {
+        const names = challengeRails.map((r) => esc(r.name));
+        const namesJoined = names.length > 1 ? `${names.slice(0, -1).join(", ")} & ${names.at(-1)}` : names[0];
+        const assetsJoined = [...new Set(challengeRails.map((r) => r.asset))].join(" / ");
+        return `<p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:10px 0 0;max-width:640px;">Agent402 itself accepts MPP payment on ${namesJoined} (${esc(assetsJoined)}) - <a href="/what-is-mpp" style="color:inherit;">how MPP works here</a>.</p>`;
+      })()
+    : "";
   const categories = [...new Set(sellers.flatMap((s) => s.categories || []))];
 
   const rows = sellers
@@ -106,6 +119,7 @@ export function mppMarketPage(baseUrl, snapshot) {
   <div>
     <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The MPP marketplace.</h1>
     <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">A live-verified index of sellers on the MPP payment protocol - ${verifiedCount.toLocaleString("en-US")} confirmed by a real, unpaid probe of their actual endpoint, not just claimed by a registry.</p>
+    ${chainsNote}
     <div style="margin:18px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--paper);max-width:640px;">
       <div id="list-api">
         <div style="font-weight:800;font-size:15px;margin-bottom:8px;color:var(--ink);">Register in one call</div>
