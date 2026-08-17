@@ -220,7 +220,7 @@ const trialToolLimiter = createRateLimiter("trial-tool", { perMin: TRIAL_PER_TOO
 const trialIpLimiter = createRateLimiter("trial-ip", { perMin: TRIAL_IP_MIN, perHour: TRIAL_IP_HOUR });
 const TRIAL_LIMITS_LABEL = `${TRIAL_PER_TOOL_HOUR} per tool per hour, ${TRIAL_IP_HOUR} per hour per client`;
 import { recordRefundOwed, receiptProvesCharge, listRefunds, markRefundPaid, markRefundVoid, claimRefundForSend, refundTotals } from "./refund-ledger.js";
-import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls } from "./stats.js";
+import { recordServedCall, recordChargedFailure, networkFromPaymentResponse, decodeSettleReceipt, getStats, getOperatorBreakdown, dbHealthy, statsPersistent, getDailyCalls, dailyCallsRecordingSince, getDailyUpstreamCalls, getSellerRegistrations } from "./stats.js";
 import { timingSafeEqual, createHash, randomUUID, randomBytes } from "node:crypto";
 
 const PORT = process.env.PORT || 3000;
@@ -1148,17 +1148,28 @@ app.use((_req, res, next) => {
   res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
   res.setHeader(
     "Content-Security-Policy",
-    // script-src carries one narrow exception: unpkg.com, for the homepage's
-    // pinned, SRI-verified d3 + topojson-client tags (the dot-map, Aug 2026
-    // revamp - the site's first-ever third-party script, an explicit,
-    // knowing tradeoff against the "everything self-hosted" posture used
-    // everywhere else, incl. fonts). A specific host, never a wildcard or
-    // 'unsafe-eval' — SRI on the tags themselves is a second, independent
-    // layer (a compromised unpkg response with a mismatched hash is refused
-    // by the browser before it ever executes). connect-src's existing
-    // 'https:' already covers the map's runtime fetch of the world-atlas
-    // geometry from jsdelivr, so no change needed there.
-    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+    // script-src drops 'unsafe-inline' (2026-08-16): every page-behavior
+    // script site-wide now lives in a real file under /js/:file (strict
+    // filename allowlist, no path traversal - see server.js's /js/:file
+    // route) or a dedicated route with its own scoped CSP (the SDK
+    // playground's eval sandbox at /sdk-playground/sandbox). This is
+    // defense-in-depth, not a fix for a live exploit — the site already
+    // manually-escapes all third-party/user content (crawled seller names,
+    // wish-board text, etc.) rather than relying on a templating engine's
+    // automatic escaping, across hundreds of call sites; removing
+    // 'unsafe-inline' means a future missed esc() call can no longer be
+    // turned into a working <script> injection, only inert markup. One
+    // narrow exception remains: unpkg.com, for the homepage's pinned,
+    // SRI-verified d3 + topojson-client tags (the dot-map, Aug 2026 revamp -
+    // the site's first-ever third-party script, an explicit, knowing
+    // tradeoff against the "everything self-hosted" posture used everywhere
+    // else, incl. fonts). A specific host, never a wildcard or 'unsafe-eval'
+    // — SRI on the tags themselves is a second, independent layer (a
+    // compromised unpkg response with a mismatched hash is refused by the
+    // browser before it ever executes). connect-src's existing 'https:'
+    // already covers the map's runtime fetch of the world-atlas geometry
+    // from jsdelivr, so no change needed there.
+    "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; script-src 'self' https://unpkg.com; connect-src 'self' https:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
   );
   next();
 });
@@ -1787,7 +1798,7 @@ app.post("/__operator/logout", (req, res) => {
 });
 app.get("/__operator", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
-  res.type("html").send(operatorPage(BASE_URL, getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS })));
+  res.type("html").send(operatorPage(BASE_URL, getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS, offeredNetworks: enabledNetworks(NETWORK) })));
 });
 app.get("/__operator/stats", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
@@ -1797,7 +1808,7 @@ app.get("/__operator/stats", (req, res) => {
   // PostHog. This is the number to compare against a provider's own dashboard.
   // `daily` is the deploy-proof series (stats DB, UTC day buckets): the number
   // to sum over a billing month; the in-memory fields reset on every redeploy.
-  res.json({ ...getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS }), upstreamCalls: { brave: { ...braveCallMeter(), daily: getDailyUpstreamCalls("brave") } } });
+  res.json({ ...getOperatorBreakdown({ prices: TOOL_PRICES, walletOnlySet: WALLET_ONLY_SLUGS, offeredNetworks: enabledNetworks(NETWORK) }), upstreamCalls: { brave: { ...braveCallMeter(), daily: getDailyUpstreamCalls("brave") } } });
 });
 app.get("/__operator/wishes", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).type("html").send("<p>Not found.</p>");
@@ -1948,6 +1959,26 @@ app.get("/__operator/refunds.json", (req, res) => {
     totals: refundTotals(),
     status,
     refunds: listRefunds({ status, limit: Math.min(500, parseInt(req.query.limit, 10) || 200) }),
+  });
+});
+// Self-serve seller conversion/churn (2026-08-16). first_seen: when the
+// origin first registered via POST /api/index/register. last_routable_seen:
+// last crawl cycle it answered a live probe (advances only while the seller
+// stays up - a stalled value IS the churn signal). last_settled_seen: last
+// cycle its leaderboard row showed a real settled payment (conversion, not
+// just liveness) - null means it has never been observed settling.
+app.get("/__operator/seller-registrations.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  const now = Date.now();
+  const rows = getSellerRegistrations().map((r) => ({
+    ...r,
+    everSettled: r.last_settled_seen != null,
+    daysSinceLastSeen: r.last_routable_seen != null ? Math.floor((now - r.last_routable_seen) / 86400000) : null,
+  }));
+  res.set("Cache-Control", "no-store").json({
+    total: rows.length,
+    everSettledCount: rows.filter((r) => r.everSettled).length,
+    registrations: rows,
   });
 });
 app.post("/__operator/refunds/update", express.json({ limit: "16kb" }), (req, res) => {
@@ -3143,6 +3174,52 @@ app.get("/fonts/:file", (req, res) => {
   res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
   res.type("font/woff2").send(buf);
 });
+// Self-hosted static JS (assets/js/), replacing what used to be inline
+// <script> content site-wide - the CSP hardening that dropped 'unsafe-inline'
+// from script-src (2026-08-16) means an inline script can no longer execute
+// at all, so every page-behavior script that has zero per-request server
+// data now lives here as a real file under script-src 'self'. Same safety
+// shape as /fonts/:file: a strict filename allowlist (no path traversal
+// possible - the regex admits only a known, closed set of names) and a
+// SHORT cache (5 min, not the fonts' 1-year immutable) because unlike a
+// font's content-addressed filename, these files keep the SAME name across
+// deploys and must not serve stale JS to a browser that cached the
+// pre-deploy version for a year.
+const JS_FILE_RE = /^[a-z][a-z0-9-]{2,60}\.js$/;
+app.get("/js/:file", (req, res) => {
+  const file = String(req.params.file || "");
+  if (!JS_FILE_RE.test(file)) return res.status(404).end();
+  let buf;
+  try { buf = readFileSync(new URL(`../assets/js/${file}`, import.meta.url)); }
+  catch { return res.status(404).end(); }
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.type("application/javascript").send(buf);
+});
+
+// Isolated eval sandbox for the SDK playground's "Run" button (2026-08-16,
+// found while converting /sdk-playground off inline scripts). A code
+// playground genuinely needs new Function()/eval to run what a visitor
+// types, but the site-wide CSP's script-src intentionally carries no
+// 'unsafe-eval' anywhere - so before this fix, every click here threw a CSP
+// violation in production with zero test coverage to catch it. Serving this
+// one document from its OWN route with its OWN response-level CSP (relaxed
+// only on this exact path) scopes the eval need to a sandbox="allow-scripts"
+// iframe (no allow-same-origin, so it gets an opaque origin and can never
+// read our real origin's cookies/localStorage) instead of loosening the
+// whole site. default-src 'none' below also means the sandboxed document
+// can never fetch/XHR anything itself - the actual network calls (PoW
+// challenge + tool call) stay in the trusted parent page, reached only via
+// postMessage RPC. A stricter sandbox than the pre-CSP-hardening inline
+// version ever had, not just a compliance shim.
+app.get("/sdk-playground/sandbox", (req, res) => {
+  let buf;
+  try { buf = readFileSync(new URL("../assets/sdk-sandbox.html", import.meta.url)); }
+  catch { return res.status(404).end(); }
+  res.setHeader("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'");
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.type("text/html").send(buf);
+});
+
 const BRAND_FONT_STYLE = `<style>
 @font-face{font-family:'Space Mono';font-weight:400;src:url(data:font/woff2;base64,${fontB64("spacemono-400.woff2")}) format('woff2')}
 @font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}
@@ -4131,7 +4208,7 @@ if (FREE_MODE) {
     // challenges, discovery crawls) return a null key and are never guarded.
     const replayKey = paymentReplayKey(req);
     if (replayKey) {
-      const verdict = replayGuard.begin(replayKey);
+      const verdict = await replayGuard.begin(replayKey);
       if (verdict !== "ok") {
         res.setHeader("X-Payment-Replay", verdict); // "consumed" | "inflight"
         return res.status(409).json({
@@ -4141,11 +4218,15 @@ if (FREE_MODE) {
         });
       }
       let resolved = false;
+      // Fire-and-forget from an event listener (finish/close aren't awaited by
+      // Express) - settle()/release() already swallow their own Redis errors
+      // internally, so the .catch() here is only a backstop against a
+      // synchronous throw reaching an unhandled rejection.
       const finishGuard = () => {
         if (resolved) return;
         resolved = true;
-        if (res.statusCode === 200) replayGuard.settle(replayKey);
-        else replayGuard.release(replayKey); // not granted (facilitator rejected, handler errored, client aborted)
+        if (res.statusCode === 200) replayGuard.settle(replayKey).catch(() => {});
+        else replayGuard.release(replayKey).catch(() => {}); // not granted (facilitator rejected, handler errored, client aborted)
       };
       res.on("finish", finishGuard);
       res.on("close", finishGuard); // client aborted before the response finished
@@ -4592,6 +4673,35 @@ for (const tool of ALL_KIT) {
     }
   });
 }
+
+// Wrong-method 405 for a known catalog path (audit finding, 2026-08-16):
+// each tool is registered on exactly ONE Express verb (app[lowerMethod](path,
+// ...) above), so a request to a real path with the wrong method never
+// matched any registered route and fell through to Express's bare, generic
+// HTML 404 — indistinguishable to a naive client from "this route doesn't
+// exist at all", when the real answer is "you used the wrong HTTP method".
+// Built from CATALOG (the same route strings /api/pricing and openapi.json
+// already derive from), so it can never drift from what's actually
+// registered. Runs after every real route has had a chance to match, before
+// the final error handler — an unmatched path (never in CATALOG at all)
+// just falls through unchanged to whatever 404 behavior already exists.
+const METHODS_BY_PATH = new Map();
+for (const route of Object.keys(CATALOG)) {
+  const [method, path] = route.split(" ");
+  if (!path) continue;
+  if (!METHODS_BY_PATH.has(path)) METHODS_BY_PATH.set(path, new Set());
+  METHODS_BY_PATH.get(path).add(method.toUpperCase());
+}
+app.use((req, res, next) => {
+  const methods = METHODS_BY_PATH.get(req.path);
+  if (!methods || methods.has(req.method)) return next();
+  const allow = [...methods].sort().join(", ");
+  res.set("Allow", allow);
+  res.status(405).json({
+    error: `Method ${req.method} not allowed on ${req.path}`,
+    allow: [...methods].sort(),
+  });
+});
 
 // Last-resort error handler. Express's default returns an HTML page with the
 // full stack trace, leaking absolute file paths and module structure. For API

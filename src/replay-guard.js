@@ -20,10 +20,39 @@
  * retry of the still-valid authorization can succeed. It never blocks a payer
  * from re-using an authorization the chain hasn't consumed.
  *
- * Pure, offline, no network — unit-testable in isolation.
+ * CROSS-REPLICA (2026-08-16): prod runs multiple replicas (RATE_LIMIT_REPLICAS),
+ * and the guard below was per-process only - a concurrent replay landing on
+ * TWO DIFFERENT replicas within the same request window was invisible to it
+ * (each replica's inFlight Set only sees its own traffic). The chain's own
+ * nonce single-use property still prevented a double-CHARGE, but the HANDLER
+ * ran twice - for a tool that makes a real paid upstream call, that is a real
+ * cost duplication bounded only by how fast an attacker can fire one
+ * authorization at two replicas.
+ *
+ * Now backed by the SAME Redis connection shared-limit.js already maintains
+ * (via getSharedRedisClient - one connection per process, not a second one to
+ * the same server) when REDIS_URL is configured and reachable. FAILS OPEN to
+ * the original per-process Map/Set on any Redis absence or failure - this is
+ * the opposite fail-direction from shared-limit.js's rate limiter, and
+ * deliberately so: that limiter protects a metered FREE-TIER budget, where
+ * failing open means unmetered free access (a direct loss). This guard is
+ * documented defense-in-depth on top of a chain-enforced guarantee that holds
+ * with or without it, so degrading to "exactly today's per-process guarantee"
+ * during a Redis blip is strictly better than refusing every paid call over
+ * an optimization layer going dark.
  */
 import { createHash } from "node:crypto";
 import { paymentHeaderOf } from "./payer.js";
+import { getSharedRedisClient } from "./shared-limit.js";
+
+// Generous vs. any realistic single-request duration (the STT margin cap's
+// 60s upstream timeout is the longest known handler in this catalog) - long
+// enough that a healthy request always clears it via settle()/release()
+// before it matters, short enough that a replica that crashes mid-request
+// without ever releasing its claim self-heals well within a minute rather
+// than leaving that nonce artificially blocked.
+const INFLIGHT_TTL_SECONDS = 120;
+const REDIS_PREFIX = "replay:";
 
 /**
  * Stable replay identity for the x402 payment credential on this request, or
@@ -54,24 +83,34 @@ export function paymentReplayKey(req) {
 }
 
 /**
- * In-memory replay guard. `consumed` maps a settled nonce → the time it settled;
- * `inFlight` is the set of nonces whose gated call is currently mid-settle.
+ * Replay guard. Redis-backed (shared across replicas) when configured and
+ * reachable; otherwise the original per-process fallback below. `consumed`
+ * maps a settled nonce → the time it settled; `inFlight` is the set of nonces
+ * whose gated call is currently mid-settle. All three methods are now async
+ * (a Redis round trip on the common path) - the server.js call site already
+ * runs inside an async middleware.
  *
  * Bounded: entries expire after `ttlMs` (well past any realistic authorization
- * validity window) and total consumed entries are capped at `maxEntries` with
- * FIFO eviction. Eviction is always safe — once a nonce has settled on-chain it
- * is permanently dead there, so forgetting it in memory cannot enable a replay
+ * validity window) and total LOCAL consumed entries are capped at `maxEntries`
+ * with FIFO eviction (Redis expires its own keys via TTL, no separate cap
+ * needed). Eviction is always safe — once a nonce has settled on-chain it
+ * is permanently dead there, so forgetting it cannot enable a replay
  * (the facilitator would reject it anyway); this guard only makes the rejection
  * earlier and cheaper.
  */
 export function createReplayGuard({ ttlMs = 60 * 60 * 1000, maxEntries = 50_000 } = {}) {
+  // Local (per-process) fallback state — used whenever Redis is unset or a
+  // call to it fails, so a single replica or a Redis outage degrades to
+  // exactly the pre-Redis guarantee, never to zero protection.
   const consumed = new Map(); // key -> settledAt (ms)
   const inFlight = new Set();
+  const ttlSeconds = Math.max(1, Math.ceil(ttlMs / 1000));
 
-  // Prune expired consumed entries. Keys are inserted in non-decreasing settle
-  // time (each key is consumed at most once, always with the current clock), so
-  // the oldest sit at the head of the Map and we can stop at the first live one.
-  function prune(now) {
+  // Prune expired local consumed entries. Keys are inserted in non-decreasing
+  // settle time (each key is consumed at most once, always with the current
+  // clock), so the oldest sit at the head of the Map and we can stop at the
+  // first live one.
+  function pruneLocal(now) {
     const cutoff = now - ttlMs;
     for (const [k, at] of consumed) {
       if (at < cutoff) consumed.delete(k);
@@ -86,15 +125,39 @@ export function createReplayGuard({ ttlMs = 60 * 60 * 1000, maxEntries = 50_000 
      *   "inflight" — an identical authorization is mid-settle (concurrent replay)
      *   "consumed" — this authorization already settled (sequential replay)
      */
-    begin(key, now = Date.now()) {
-      prune(now);
+    async begin(key, now = Date.now()) {
+      const c = await getSharedRedisClient();
+      if (c) {
+        try {
+          if (await c.get(REDIS_PREFIX + "c:" + key)) return "consumed";
+          // SET NX is the atomic claim: two replicas racing this same key
+          // cannot both receive a non-null reply, which is exactly the
+          // property inFlight.add() gave for free within one process.
+          const claimed = await c.set(REDIS_PREFIX + "f:" + key, String(now), { NX: true, EX: INFLIGHT_TTL_SECONDS });
+          return claimed ? "ok" : "inflight";
+        } catch (e) {
+          console.error("[replay-guard] redis begin failed, falling back to local state:", e.message);
+          // fall through to the local path below
+        }
+      }
+      pruneLocal(now);
       if (consumed.has(key)) return "consumed";
       if (inFlight.has(key)) return "inflight";
       inFlight.add(key);
       return "ok";
     },
     /** Mark the nonce consumed — call only when the gated call was granted (200). */
-    settle(key, now = Date.now()) {
+    async settle(key, now = Date.now()) {
+      const c = await getSharedRedisClient();
+      if (c) {
+        try {
+          await c.del(REDIS_PREFIX + "f:" + key);
+          await c.set(REDIS_PREFIX + "c:" + key, String(now), { EX: ttlSeconds });
+          return;
+        } catch (e) {
+          console.error("[replay-guard] redis settle failed, falling back to local state:", e.message);
+        }
+      }
       inFlight.delete(key);
       while (consumed.size >= maxEntries) {
         const oldest = consumed.keys().next().value;
@@ -105,10 +168,20 @@ export function createReplayGuard({ ttlMs = 60 * 60 * 1000, maxEntries = 50_000 
     },
     /** Release the nonce — call when the gated call was NOT granted, so a
      *  legitimate retry of the still-valid authorization can proceed. */
-    release(key) {
+    async release(key) {
+      const c = await getSharedRedisClient();
+      if (c) {
+        try {
+          await c.del(REDIS_PREFIX + "f:" + key);
+          return;
+        } catch (e) {
+          console.error("[replay-guard] redis release failed, falling back to local state:", e.message);
+        }
+      }
       inFlight.delete(key);
     },
-    /** Introspection for tests / stats. */
+    /** Introspection for tests / stats — LOCAL fallback state only; Redis
+     *  state is shared and has no single-process notion of "size". */
     _state() {
       return { consumed: consumed.size, inFlight: inFlight.size };
     },

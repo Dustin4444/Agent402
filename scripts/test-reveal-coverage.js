@@ -30,7 +30,10 @@ let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
 
 // --- the shared script's selector must stay broad, not opt-in-only --------
-const chromeSrc = readFileSync(join(ROOT, "src", "ledger-chrome.js"), "utf8");
+// Lives in assets/js/site-chrome.js (external file, CSP hardening,
+// 2026-08-16) - was inline in src/ledger-chrome.js's shared <head> script
+// before that.
+const chromeSrc = readFileSync(join(ROOT, "assets", "js", "site-chrome.js"), "utf8");
 ok(/querySelectorAll\('header,section,\[data-reveal\]'\)/.test(chromeSrc),
   "shared reveal-on-scroll observer selects header/section site-wide, not just [data-reveal] opt-ins");
 
@@ -39,19 +42,28 @@ ok(/querySelectorAll\('header,section,\[data-reveal\]'\)/.test(chromeSrc),
 // a partial regression (one section quietly reverting to a <div>, not the
 // whole page) still fails instead of hiding behind the sections that
 // weren't touched. Bumping a number here is expected and fine when a page
-// legitimately gains/loses a section; a silent drop is what this catches. */
+// legitimately gains/loses a section; a silent drop is what this catches.
+//
+// Script tags are stripped before counting: this reveal-on-scroll script's
+// OWN explanatory comments used to mention the literal substrings
+// "<section>" and "<header " while it was inline on every page (via
+// ledger-chrome.js's shared <head> script), which the naive regex below
+// counted as real elements - inflating every single page's count by
+// exactly 2 and hiding behind it since the floors were calibrated against
+// that inflated number. Externalizing the script (CSP hardening,
+// 2026-08-16) correctly dropped those two per-page phantom matches, and the
+// floors below are recalibrated against the TRUE element count so this
+// test measures the same "real elements" it always claimed to. */
 const MIN_SECTIONS = {
-  "/": 10, "/base": 5, "/marketplace": 8, "/pricing": 7, "/leaderboard": 6, "/skills": 7, "/tools": 5, "/what-is-x402": 11, "/sell": 10,
-  // Extended 2026-08-15: these 18 pages were <div>-only (zero real sections,
-  // zero reveal-on-scroll effect) until this pass gave each one real
-  // <section>/<header> markup for the shared observer to reach.
-  "/docs": 7, "/status": 5, "/faq": 3, "/revenue": 5, "/playground": 3, "/badges": 4, "/compare": 7, "/community": 7,
-  "/changelog": 3, "/blog": 3, "/transparency": 3, "/privacy": 3, "/terms": 3, "/contact": 4, "/analytics": 4,
-  "/workflows": 4, "/quickstart": 4, "/guides": 3,
+  "/": 9, "/base": 4, "/marketplace": 7, "/pricing": 6, "/leaderboard": 5, "/skills": 6, "/tools": 4, "/what-is-x402": 10, "/sell": 9,
+  "/docs": 6, "/status": 4, "/faq": 2, "/revenue": 4, "/playground": 2, "/badges": 3, "/compare": 6, "/community": 6,
+  "/changelog": 2, "/blog": 2, "/transparency": 2, "/privacy": 2, "/terms": 2, "/contact": 3, "/analytics": 3,
+  "/workflows": 3, "/quickstart": 3, "/guides": 2,
 };
 for (const [path, min] of Object.entries(MIN_SECTIONS)) {
   const html = await (await fetch(`${BASE}${path}`)).text();
-  const realSectionCount = (html.match(/<section[ >]/g) || []).length + (html.match(/<header[ >]/g) || []).length;
+  const stripped = html.replace(/<script[\s\S]*?<\/script>/gi, "");
+  const realSectionCount = (stripped.match(/<section[ >]/g) || []).length + (stripped.match(/<header[ >]/g) || []).length;
   ok(realSectionCount >= min, `${path}: has at least ${min} real <section>/<header> elements to reveal (got ${realSectionCount})`);
 }
 

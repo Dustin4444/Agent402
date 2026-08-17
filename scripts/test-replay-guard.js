@@ -54,37 +54,38 @@ function evmCred({ network = "eip155:8453", nonce = "0xabc", from = "0x" + "1".r
   ok(o1 && o1 === o2 && o1.startsWith("c:"), "unparseable credential → stable raw-hash identity");
 }
 
-// ---- A2. Guard state machine -------------------------------------------------
+// ---- A2. Guard state machine (local fallback path — no REDIS_URL in this
+// process, so every call below exercises the per-process Map/Set) -----------
 {
   const g = createReplayGuard();
   const k = "n:test";
-  ok(g.begin(k) === "ok", "first use → ok");
-  ok(g.begin(k) === "inflight", "concurrent duplicate (still in flight) → inflight");
-  g.settle(k);
-  ok(g.begin(k) === "consumed", "after settle, replay → consumed");
+  ok(await g.begin(k) === "ok", "first use → ok");
+  ok(await g.begin(k) === "inflight", "concurrent duplicate (still in flight) → inflight");
+  await g.settle(k);
+  ok(await g.begin(k) === "consumed", "after settle, replay → consumed");
   ok(g._state().consumed === 1 && g._state().inFlight === 0, "state: 1 consumed, 0 in flight");
 }
 {
   const g = createReplayGuard();
   const k = "n:retry";
-  ok(g.begin(k) === "ok", "first attempt → ok");
-  g.release(k); // gated call was NOT granted (e.g. settle failed)
-  ok(g.begin(k) === "ok", "release-on-failure → same authorization may retry");
+  ok(await g.begin(k) === "ok", "first attempt → ok");
+  await g.release(k); // gated call was NOT granted (e.g. settle failed)
+  ok(await g.begin(k) === "ok", "release-on-failure → same authorization may retry");
   ok(g._state().inFlight === 1 && g._state().consumed === 0, "retry is in flight, nothing consumed yet");
 }
 {
   // TTL expiry: a consumed nonce older than ttl is pruned, freeing the key.
   const g = createReplayGuard({ ttlMs: 1000 });
   const k = "n:ttl";
-  g.begin(k, 0);
-  g.settle(k, 0);
-  ok(g.begin(k, 500) === "consumed", "within TTL → still consumed");
-  ok(g.begin(k, 5000) === "ok", "past TTL → pruned, key reusable (safe: on-chain nonce still dead)");
+  await g.begin(k, 0);
+  await g.settle(k, 0);
+  ok(await g.begin(k, 500) === "consumed", "within TTL → still consumed");
+  ok(await g.begin(k, 5000) === "ok", "past TTL → pruned, key reusable (safe: on-chain nonce still dead)");
 }
 {
   // FIFO eviction keeps memory bounded; eviction is always safe.
   const g = createReplayGuard({ maxEntries: 3 });
-  for (let i = 0; i < 5; i++) { g.begin(`k${i}`); g.settle(`k${i}`); }
+  for (let i = 0; i < 5; i++) { await g.begin(`k${i}`); await g.settle(`k${i}`); }
   ok(g._state().consumed <= 3, `consumed capped at maxEntries (got ${g._state().consumed})`);
 }
 
@@ -95,16 +96,16 @@ function buildApp({ grant }) {
   const app = express();
   const guard = createReplayGuard();
   let handlerCalls = 0;
-  app.use((req, res, next) => {
+  app.use(async (req, res, next) => {
     const key = paymentReplayKey(req);
     if (key) {
-      const verdict = guard.begin(key);
+      const verdict = await guard.begin(key);
       if (verdict !== "ok") {
         res.setHeader("X-Payment-Replay", verdict);
         return res.status(409).json({ error: "replay", reason: verdict });
       }
       let resolved = false;
-      const fin = () => { if (resolved) return; resolved = true; if (res.statusCode === 200) guard.settle(key); else guard.release(key); };
+      const fin = () => { if (resolved) return; resolved = true; if (res.statusCode === 200) guard.settle(key).catch(() => {}); else guard.release(key).catch(() => {}); };
       res.on("finish", fin);
       res.on("close", fin);
     }

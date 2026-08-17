@@ -207,7 +207,7 @@ export function docsLayoutHtml(currentSlug, mainHtml) {
   return `<div class="ml-docs-layout">
     <button type="button" class="ml-docs-mobile-toggle" id="ml-docs-mobile-toggle" aria-expanded="false" aria-controls="ml-docs-side">Browse docs &#9776;</button>
     <aside class="ml-docs-side" id="ml-docs-side">${renderSidebar(currentSlug)}</aside>
-    <main class="ml-docs-main">${mainHtml}</main>
+    <div class="ml-docs-main">${mainHtml}</div>
   </div>`;
 }
 
@@ -292,47 +292,11 @@ export const DOCS_LAYOUT_CSS = `
   }
   @media (max-width:640px) { .ml-docs-pn { grid-template-columns:1fr; } }`;
 
-// Mobile sidebar toggle: below 900px the sidebar is display:none by default
-// (CSS), with no other way to reach it - this opens/closes it in place
-// above the main content. Desktop never sees the button (CSS hides it at
-// the same breakpoint the sidebar itself becomes permanently visible), so
-// there's nothing to wire up there.
-const DOCS_MOBILE_TOGGLE_SCRIPT = `(function(){
-  var toggle=document.getElementById('ml-docs-mobile-toggle');
-  var side=document.getElementById('ml-docs-side');
-  if(!toggle||!side)return;
-  toggle.addEventListener('click',function(){
-    var open=side.classList.toggle('ml-docs-side-open');
-    toggle.setAttribute('aria-expanded',open?'true':'false');
-  });
-})();`;
-
-// Sidebar filter: hides non-matching <li> items as you type. No network, no
-// fetch - the sidebar is already fully rendered, this just toggles
-// visibility client-side. Group headers with zero visible items also hide,
-// so a filter doesn't leave an empty "Reference" label floating above
-// nothing.
-export const DOCS_SEARCH_SCRIPT = `<script>${DOCS_MOBILE_TOGGLE_SCRIPT}(function(){
-  var input=document.getElementById('ml-docs-search-input');
-  if(!input)return;
-  var side=input.closest('.ml-docs-side');
-  if(!side)return;
-  input.addEventListener('input',function(){
-    var q=input.value.trim().toLowerCase();
-    var lists=side.querySelectorAll('.ml-docs-side-ul');
-    lists.forEach(function(ul){
-      var anyVisible=false;
-      ul.querySelectorAll('li').forEach(function(li){
-        var match=!q||(li.textContent||'').toLowerCase().indexOf(q)>-1;
-        li.classList.toggle('ml-docs-side-hidden',!match);
-        if(match)anyVisible=true;
-      });
-      var h=ul.previousElementSibling;
-      if(h&&h.classList.contains('ml-docs-side-h'))h.classList.toggle('ml-docs-side-hidden',!anyVisible);
-      ul.classList.toggle('ml-docs-side-hidden',!anyVisible);
-    });
-  });
-})();</script>`;
+// Mobile sidebar toggle (below 900px the sidebar is display:none by default,
+// with no other way to reach it) + sidebar filter (hides non-matching <li>
+// items as you type, group headers with zero visible items also hide) —
+// externalized to assets/js/docs-sidebar.js (CSP hardening, 2026-08-16).
+export const DOCS_SEARCH_SCRIPT = `<script src="/js/docs-sidebar.js"></script>`;
 
 function shell(baseUrl, title, description, path, body, currentSlug) {
   const extraCss = DOCS_LAYOUT_CSS;

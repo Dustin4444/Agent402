@@ -6,6 +6,10 @@
 import { marketSellers, marketSellersAll, marketPage, marketPanelHtml, CHAIN_PAGES, marketFilterBar } from "../src/market-page.js";
 import { sitemapPages, sitemapXml, llmsTxt } from "../src/seo.js";
 import { serviceManifest } from "../src/discovery.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+const filterBarScript = readFileSync(fileURLToPath(new URL("../assets/js/market-filter-bar.js", import.meta.url)), "utf8");
 
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) { pass++; console.log(`ok - ${msg}`); } else { fail++; console.error(`FAIL - ${msg}`); } };
@@ -219,20 +223,22 @@ for (const c of NEW_CHAINS) {
   // Sort options per the spec: most settled (default), volume, buyers, tools,
   // plus health (cheap — rows already carry routability).
   for (const v of ["calls", "usd", "buyers", "tools", "health"]) ok(all.includes(`option value="${v}"`), `filter bar: sort option '${v}' present`);
-  // The wiring script ships with the bar: consumes data-mfb-sort +
-  // data-mfb-search over [data-mfb-row] rows, reorders by moving existing
-  // nodes (appendChild) and toggles style.display — never innerHTML.
-  ok(all.includes("select[data-mfb-sort]") && all.includes("addEventListener('change'"), "filter bar: script wires the data-mfb-sort select");
-  ok(all.includes("input[data-mfb-search]") && all.includes("addEventListener('input'"), "filter bar: script wires the data-mfb-search input");
-  ok(all.includes("data-mfb-row") && all.includes("appendChild") && all.includes("style.display"), "filter bar: script sorts/filters [data-mfb-row] rows via appendChild + style.display");
-  ok(!all.includes("innerHTML"), "filter bar: script never assigns innerHTML");
-  // Execution-order guard — the bar renders ABOVE the roster, so an inline
-  // script that queries [data-mfb-row] at parse time finds ZERO rows and its
-  // early return dead-wires Sort/search on every load (the original bug). The
-  // row lookup must be deferred to DOMContentLoaded: the wrapper must exist
-  // and textually precede the row query it defers.
-  const dclIdx = all.indexOf("addEventListener('DOMContentLoaded'");
-  ok(dclIdx !== -1 && dclIdx < all.indexOf("querySelectorAll('[data-mfb-row]')"), "filter bar: row lookup is deferred to DOMContentLoaded, not run at parse time");
+  // The wiring script ships as an external file (CSP hardening, 2026-08-16):
+  // consumes data-mfb-sort + data-mfb-search over [data-mfb-row] rows,
+  // reorders by moving existing nodes (appendChild) and toggles
+  // style.display — never innerHTML.
+  ok(all.includes('<script src="/js/market-filter-bar.js"></script>'), "filter bar: references the external wiring script");
+  ok(filterBarScript.includes("select[data-mfb-sort]") && filterBarScript.includes("addEventListener('change'"), "filter bar: script wires the data-mfb-sort select");
+  ok(filterBarScript.includes("input[data-mfb-search]") && filterBarScript.includes("addEventListener('input'"), "filter bar: script wires the data-mfb-search input");
+  ok(filterBarScript.includes("data-mfb-row") && filterBarScript.includes("appendChild") && filterBarScript.includes("style.display"), "filter bar: script sorts/filters [data-mfb-row] rows via appendChild + style.display");
+  ok(!filterBarScript.includes("innerHTML"), "filter bar: script never assigns innerHTML");
+  // Execution-order guard — the bar renders ABOVE the roster, so a script
+  // that queries [data-mfb-row] at parse time finds ZERO rows and its early
+  // return dead-wires Sort/search on every load (the original bug). The row
+  // lookup must be deferred to DOMContentLoaded: the wrapper must exist and
+  // textually precede the row query it defers.
+  const dclIdx = filterBarScript.indexOf("addEventListener('DOMContentLoaded'");
+  ok(dclIdx !== -1 && dclIdx < filterBarScript.indexOf("querySelectorAll('[data-mfb-row]')"), "filter bar: row lookup is deferred to DOMContentLoaded, not run at parse time");
 }
 
 // Roster rows carry the numeric data-* payload the filter bar script sorts on
@@ -247,7 +253,7 @@ for (const c of NEW_CHAINS) {
   const many = Array.from({ length: 14 }, (_, i) => ({ origin: `https://e${i}.example`, displayName: `E${i}`, homepage: `https://e${i}.example`, local: false, toolCount: i, routable: true, networks: ["eip155:8453"], payToByNetwork: {} }));
   const chainHtml = marketPage("base", "https://agent402.tools", { snapshot: { sellers: [LOCAL, ...many] }, rail: null, activity: null, wallet: "0x1" });
   ok(/<a [^>]*data-mfb-row data-local="0" data-health="1"[^>]*data-tools="13"/.test(chainHtml), "chain view: compact roster rows carry the same data-* payload");
-  ok(chainHtml.includes("select[data-mfb-sort]"), "chain view: filter-bar wiring script is emitted on per-chain pages too");
+  ok(chainHtml.includes('<script src="/js/market-filter-bar.js"></script>'), "chain view: filter-bar wiring script is emitted on per-chain pages too");
 }
 
 // Roster row cap (speed P0) — the all-chains roster renders at most

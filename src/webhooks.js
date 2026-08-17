@@ -31,7 +31,7 @@ export function webhooksPage(baseUrl) {
     </aside>
 
     <!-- CONTENT -->
-    <main>
+    <div>
       <p style="font-size:.85rem;color:var(--faint);margin:0 0 20px;"><a href="/" style="color:var(--faint);text-decoration:none;">Home</a> &rsaquo; <a href="/docs" style="color:var(--faint);text-decoration:none;">Docs</a> &rsaquo; Webhooks &amp; Callbacks</p>
       <h1 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:1;letter-spacing:-.02em;margin:0 0 14px;">Webhooks &amp; Callbacks</h1>
       <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:620px;margin:0 0 36px;">How to handle async workflows, retries, and long-running tool chains with Agent402.</p>
@@ -106,7 +106,7 @@ await a.call("memory-write", {
         <a href="/quickstart" style="color:var(--accent);text-decoration:none;">Quickstart</a> - get your first call working in 60 seconds<br>
         <a href="/docs" style="color:var(--accent);text-decoration:none;">Documentation</a> - full API reference
       </p>
-    </main>
+    </div>
   </div>
   ${ledgerFooterCompact()}`;
 

@@ -6,6 +6,7 @@ import { BLOG_POSTS } from "./blog.js";
 import { ADAPTERS } from "./adapter-docs.js";
 import { RAILS, RAILS_OR } from "./rails.js";
 import { CHAIN_PAGES } from "./market-page.js";
+import { EXEC_TIERS } from "./tools/route-execute.js";
 
 // Computed ONCE when this module loads (i.e. once per deploy, since Railway
 // restarts the process), not per-request. Every sitemap lastmod below reuses
@@ -213,9 +214,30 @@ export function sitemapSkills(baseUrl) {
   return subSitemap([{ loc: `${baseUrl}/skills`, priority: "0.8" }, ...skillSlugs().map((s) => ({ loc: `${baseUrl}/skills/${s}`, priority: "0.8" }))], lastmod);
 }
 
+// Trims a tier dollar amount to the shortest exact representation (2 decimals
+// when that's exact, else 3) so $0.01/$0.005/$3.30/$3.00 all read naturally.
+const fmtExecTierUsd = (n) => {
+  const s3 = n.toFixed(3);
+  return s3.endsWith("0") ? n.toFixed(2) : s3;
+};
+
 export function llmsTxt(baseUrl, catalog) {
   const tools = toolList(catalog);
   const powCount = tools.filter(isComputePayable).length;
+  // Derived from EXEC_TIERS, not hand-typed - a hardcoded list here is exactly
+  // how the $3.30 route-execute-pro tier (added 2026-08-04) went missing from
+  // this summary for weeks: a new tier landed in route-execute.js and nobody
+  // remembered to touch this unrelated prose file too. Deriving it means a
+  // future 5th tier can't repeat the same silent omission.
+  const execTierSentence = EXEC_TIERS.map((t, i) => {
+    // Real route path, same derivation as buildRouteExecuteTool() itself
+    // (route-execute.js): "route-execute-plus" -> suffix "-plus" ->
+    // /api/route/execute-plus, never /api/route/route-execute-plus.
+    const routeSuffix = t.slug.replace("route-execute", "");
+    return i === 0
+      ? `$${fmtExecTierUsd(t.execPriceUsd)} covers tools <= $${fmtExecTierUsd(t.underlyingMaxUsd)}`
+      : `\`/api/route/execute${routeSuffix}\` at $${fmtExecTierUsd(t.execPriceUsd)} covers <= $${fmtExecTierUsd(t.underlyingMaxUsd)}`;
+  }).join(", ");
 
   // The llms.txt spec (llmstxt.org) wants: an H1, one summary blockquote, then
   // free-form "info" prose (NO headings), then H2 sections whose bodies are
@@ -291,13 +313,15 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
 
 **MPP clients are first-class (dual-stack).** Every paid endpoint also speaks MPP (Machine Payments Protocol, the IETF-track \`Payment\` HTTP auth scheme): the same 402 carries a \`WWW-Authenticate: Payment\` challenge (evm charge, EIP-3009 USDC), \`Authorization: Payment\` credentials settle on-chain identically to x402, and settled responses return a signed \`Payment-Receipt\` header. An \`mppx\` client (\`Fetch.from\` with \`evm.charge\`) works out of the box - same URL, same price, same settlement as x402, whichever dialect your client speaks.
 
+**How to read our 402 if you only speak one dialect.** The same response carries BOTH headers, always - \`WWW-Authenticate: Payment\` is additive, never a replacement for the real x402 \`PAYMENT-REQUIRED\` header (full \`accepts\` array, \`exact\` scheme, EIP-3009). A client that hard-fails on an unrecognized \`WWW-Authenticate\` scheme instead of also checking for \`PAYMENT-REQUIRED\` will bail with something like "no supported rail" on a 402 it could have paid - this has happened at least once (see issue #794). If your parser only understands one of the two dialects, check for the header it understands FIRST rather than trusting whichever header happens to be read first; do not treat an unrecognized \`WWW-Authenticate\` scheme as "this server has no payment option for me."
+
 ## Key machine surfaces
 - [/api/search](${baseUrl}/api/search): **front door** - live web search (title, URL, snippet). Start here to discover pages; follow with extract or answer
 - [/api/answer](${baseUrl}/api/answer): **front door** - cited answer grounded in live web search results
 - [/api/search-news](${baseUrl}/api/search-news): live news search for current events / headlines
 - [/api/find](${baseUrl}/api/find): resolve a plain-language task to the best-matching tools with route, price, input schema, and a ready example (GET \`?q={task}\` or POST \`{"task":"..."}\`) - long-tail discovery behind the flagships
 - [/api/route](${baseUrl}/api/route): Smart Order Router - rank tools across every x402 seller crawled from public registries; \`include:"external"\` excludes Agent402 for neutral cross-seller discovery
-- [/api/route/execute](${baseUrl}/api/route/execute): the SOR that also PAYS. Send a task, and Agent402 resolves the best-matching tool, pays the seller over x402 on your behalf (any proven seller in the open index, not just ours), and relays the result with a receipt - one payment, one request, one wallet. You never hold a wallet on their chain or sign up with them. \`{"task":"...","include":"external"}\`. Proportional tiers: $0.01 covers tools <= $0.005, \`/api/route/execute-plus\` at $0.05 covers <= $0.04, \`/api/route/execute-max\` at $0.55 covers <= $0.50 - an over-cap task gets a self-correcting 409 naming the tier that fits
+- [/api/route/execute](${baseUrl}/api/route/execute): the SOR that also PAYS. Send a task, and Agent402 resolves the best-matching tool, pays the seller over x402 on your behalf (any proven seller in the open index, not just ours), and relays the result with a receipt - one payment, one request, one wallet. You never hold a wallet on their chain or sign up with them. \`{"task":"...","include":"external"}\`. Proportional tiers: ${execTierSentence} - an over-cap task gets a self-correcting 409 naming the tier that fits
 - [/api/index](${baseUrl}/api/index): JSON snapshot of every seller indexed (health, routable flag, crawl history)
 - [/api/leaderboard](${baseUrl}/api/leaderboard): public on-chain ranking of x402 sellers by Base USDC settled volume (pipeline: Bazaar discovery → \`eth_getLogs\` on Base USDC → per-call ceiling filter → aggregate by payTo; params \`?sort=usd|calls\`, \`?top=N\`, \`?include=external|all\`) - same data as the MCP tool \`sellers.list\` and the \`agent402-client\` SDK method \`topSellers()\`
 - [/.well-known/x402](${baseUrl}/.well-known/x402): one-fetch service manifest (identity, payment options, capability map, MCP, trust signals)

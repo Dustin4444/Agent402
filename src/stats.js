@@ -48,6 +48,19 @@ db.exec(`
   -- deploy-proof series that can. One row per (day, upstream, caller) -
   -- a handful of upstreams x a handful of callers x 365 days - never pruned.
   CREATE TABLE IF NOT EXISTS daily_upstream_calls (day TEXT NOT NULL, upstream TEXT NOT NULL, caller TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (day, upstream, caller));
+  -- Self-serve seller conversion/churn (2026-08-16). Every previous seller
+  -- signal lives in x402-index.js's in-memory crawl cache (submittedSeeds is a
+  -- bare Set<origin> persisted with no timestamps at all), so there was no way
+  -- to answer "of everyone who registered via /sell, how many are still live,
+  -- and how many ever actually settled a payment" without hand-diffing JSON
+  -- snapshots. first_seen is stamped once, at registration. last_routable_seen
+  -- updates every crawl cycle the origin's x402 surface answers (churn signal —
+  -- stops advancing the moment a seller goes dark). last_settled_seen updates
+  -- only when that cycle's leaderboard snapshot shows the origin with
+  -- callsSettled > 0 (conversion signal — did they ever get paid, not just
+  -- stay reachable). Both nullable: a fresh registration has neither yet beyond
+  -- the initial routable stamp, and most registrations never settle at all.
+  CREATE TABLE IF NOT EXISTS seller_registrations (origin TEXT PRIMARY KEY, first_seen INTEGER NOT NULL, last_routable_seen INTEGER, last_settled_seen INTEGER);
 `);
 
 const RECENT_KEEP = 200; // rows retained
@@ -87,6 +100,40 @@ const dailyUpstream = db.prepare("SELECT day, caller, n FROM daily_upstream_call
 const insertChargedFailure = db.prepare("INSERT INTO charged_failures (slug, status, ts) VALUES (?, ?, ?)");
 const pruneChargedFailures = db.prepare("DELETE FROM charged_failures WHERE id <= (SELECT MAX(id) FROM charged_failures) - ?");
 const getChargedFailures = db.prepare("SELECT slug, status, ts FROM charged_failures ORDER BY id DESC LIMIT ?");
+const upsertSellerRegistration = db.prepare(`
+  INSERT INTO seller_registrations (origin, first_seen, last_routable_seen, last_settled_seen)
+  VALUES (?, ?, ?, ?)
+  ON CONFLICT(origin) DO UPDATE SET
+    last_routable_seen = excluded.last_routable_seen,
+    last_settled_seen = COALESCE(excluded.last_settled_seen, last_settled_seen)
+`);
+const allSellerRegistrations = db.prepare("SELECT origin, first_seen, last_routable_seen, last_settled_seen FROM seller_registrations ORDER BY first_seen DESC");
+
+/**
+ * Record that a self-serve-registered origin (from POST /api/index/register)
+ * answered a live probe this cycle — called once at registration and again on
+ * every periodic crawl tick the origin stays routable. first_seen is set only
+ * on the row's first insert (immutable); last_routable_seen always advances to
+ * now; last_settled_seen advances only when `settled` is true this call and is
+ * never erased by a later call that didn't observe a settlement.
+ */
+export function recordSellerRegistrationSeen(origin, { settled = false } = {}) {
+  const now = Date.now();
+  try {
+    upsertSellerRegistration.run(origin, now, now, settled ? now : null);
+  } catch {
+    /* best-effort — never break the crawl/registration path over telemetry */
+  }
+}
+
+/** Every self-serve registration with its conversion/churn timestamps, newest first. */
+export function getSellerRegistrations() {
+  try {
+    return allSellerRegistrations.all();
+  } catch {
+    return [];
+  }
+}
 
 setMetaIfAbsent.run("firstServed", String(Date.now()));
 const bootedAt = Date.now();
@@ -343,7 +390,13 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       at: new Date(r.ts).toISOString(),
     })),
     servingSince: new Date(firstServed).toISOString(),
-    uptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000),
+    // NOT service-availability uptime - resets to 0 on every deploy. Named
+    // processUptimeSeconds (not uptimeSeconds) specifically so it can't be
+    // misread as a reliability claim: /api/reliability sits this right next
+    // to servingSince (a real ~2-month figure), and an agent parsing field
+    // names alone would otherwise derive ~0.02% uptime from a service that's
+    // actually 99.8-100% up (found in an internal audit, 2026-08-16).
+    processUptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000),
     runTheDemo: `${baseUrl}/llms.txt`,
   };
 }
@@ -401,7 +454,7 @@ export function dailyCallsRecordingSince() {
  * site so this module stays decoupled from CATALOG. Operator-only — gated by
  * AGENT402_OPERATOR_TOKEN at the route layer.
  */
-export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEEP } = {}) {
+export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEEP, offeredNetworks = [] } = {}) {
   const priceOf = (slug) => (prices && Number(prices[slug])) || 0;
   const isWalletOnly = (slug) => !!(walletOnlySet && walletOnlySet.has && walletOnlySet.has(slug));
   const paidBySlug = new Map(allPaid.all().map((r) => [r.slug, r.n]));
@@ -422,11 +475,23 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
       walletOnly: isWalletOnly(r.slug),
     };
   });
+  const viaUSDCByNetwork = mergeNetworkCounters(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n]));
+  // Offered rails vs settled rails: viaUSDCByNetwork only ever carries a key
+  // for a rail that has settled at least once — a rail with zero settlements
+  // has no key at all, so it's invisible by omission rather than flagged.
+  // offeredNetworks (the caller's enabledNetworks(NETWORK) list) turns that
+  // silence into an explicit zero-settled-revenue row an operator can act on
+  // — keep maintaining the rail's facilitator config/canary legs, or drop it.
+  const railKey = (n) => (n === "robinhood" ? "robinhood (USDG)" : n);
+  const railBreakdown = offeredNetworks.map((n) => ({
+    network: n,
+    settledCalls: viaUSDCByNetwork[railKey(n)] || 0,
+  }));
   return {
     totals: {
       total: getCounter.get("total")?.n ?? 0,
       viaUSDC: getCounter.get("viaUSDC")?.n ?? 0,
-      viaUSDCByNetwork: mergeNetworkCounters(usdcNetCounters.all().map((r) => [r.k.slice("usdcNet:".length), r.n])),
+      viaUSDCByNetwork,
       viaProofOfWork: getCounter.get("viaProofOfWork")?.n ?? 0,
       viaTrial: getCounter.get("viaTrial")?.n ?? 0,
       viaHeartbeat: getCounter.get("viaHeartbeat")?.n ?? 0,
@@ -434,6 +499,7 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
       toolsServed: tools.length,
       chargedButFailed: getCounter.get("chargedButFailedTotal")?.n ?? 0,
     },
+    railBreakdown,
     tools,
     recentCalls: getRecentAll.all(limit).map((r) => ({
       slug: r.slug,
@@ -446,6 +512,6 @@ export function getOperatorBreakdown({ prices, walletOnlySet, limit = RECENT_KEE
       at: new Date(r.ts).toISOString(),
     })),
     bootedAt: new Date(bootedAt).toISOString(),
-    uptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000),
+    processUptimeSeconds: Math.floor((Date.now() - bootedAt) / 1000), // see the public getStats() comment above - same rename, same reason
   };
 }

@@ -74,7 +74,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
   </section>
 
   <!-- TWO PLANS -->
-  <section style="max-width:1180px;margin:0 auto;padding:0 30px;">
+  <section data-reveal-eager style="max-width:1180px;margin:0 auto;padding:0 30px;">
     <div class="ml-pricing-plans" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
       <!-- FREE -->
       <div style="padding:30px;border-right:1.5px solid var(--ink);background:var(--card);">

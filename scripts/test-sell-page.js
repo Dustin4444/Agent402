@@ -3,6 +3,7 @@
 // new design surfaces no free aggregate numbers on this page at all, only
 // static "what it costs you" copy and a lane-level teaser for the paid
 // /api/bestsellers + /api/demand-radar reads).
+import { readFileSync } from "node:fs";
 import { sellPage } from "../src/sell.js";
 
 let pass = 0, fail = 0;
@@ -31,8 +32,12 @@ ok(!/\b\d{1,3}(,\d{3})*\s*(purchases|sales|buyers)\b/i.test(html.replace(/\/tool
 
 // --- register form: same id/posture as market-page.js ---------------------
 ok(html.includes('id="list-api"') && html.includes('id="reg-origin"') && html.includes('id="reg-go"') && html.includes('id="reg-out"'), "register form present with market-page.js's ids");
-ok(html.includes("/api/index/register"), "register form posts to /api/index/register");
-ok(html.includes("out.textContent") && !html.includes("innerHTML"), "register-result rendering is textContent-only, never innerHTML");
+ok(html.includes('<script src="/js/reg-form.js">'), "register form's behavior is externalized (CSP hardening) — the page references the shared script, not an inline one");
+// CSP hardening (2026-08-16) moved this handler to assets/js/reg-form.js -
+// the textContent-only invariant now lives there, not in the page HTML.
+const regFormJs = readFileSync(new URL("../assets/js/reg-form.js", import.meta.url), "utf8");
+ok(regFormJs.includes("/api/index/register"), "the shared script posts to /api/index/register");
+ok(regFormJs.includes("out.textContent") && !regFormJs.includes("innerHTML"), "register-result rendering is textContent-only, never innerHTML");
 
 // --- how-we-earn / commitments --------------------------------------------
 ok(html.includes("HOW WE MAKE MONEY") && html.includes("THE COMMITMENTS") || html.includes("The commitments"), "how-we-earn and commitments sections render");

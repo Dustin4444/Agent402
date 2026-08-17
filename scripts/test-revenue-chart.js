@@ -14,8 +14,23 @@
 //
 // Runs the real page script in jsdom against stubbed endpoints.
 import { strict as assert } from "node:assert";
+import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { revenueChartSection } from "../src/revenue-live.js";
+
+// CSP hardening (2026-08-16) moved the chart's IIFE out of an inline <script>
+// into assets/js/revenue-chart.js, referenced via <script src>. jsdom does
+// not fetch external script resources in this offline test (no server, no
+// resourceLoader configured) - so the real file's content is inlined back in
+// before parsing, exactly simulating what a browser does when it loads that
+// src. This keeps testing the REAL file (no drift risk from a copy) while
+// still running fully offline.
+const REVENUE_CHART_JS = readFileSync(new URL("../assets/js/revenue-chart.js", import.meta.url), "utf8");
+function inlineRevenueChartScript(html) {
+  const tag = '<script src="/js/revenue-chart.js"></script>';
+  if (!html.includes(tag)) throw new Error("revenueChartSection() no longer references /js/revenue-chart.js - did the src path change?");
+  return html.replace(tag, `<script>${REVENUE_CHART_JS}</script>`);
+}
 
 const REV_DAYS = [
   // Base day carries a SOR (spending-wallet-settled) subset: $0.50 of the $1.50.
@@ -43,7 +58,7 @@ const check = (name, fn) => {
 };
 
 async function boot({ freeFails = false } = {}) {
-  const html = `<!doctype html><html><body>${revenueChartSection()}</body></html>`;
+  const html = `<!doctype html><html><body>${inlineRevenueChartScript(revenueChartSection())}</body></html>`;
   // fetch must exist BEFORE the inline script runs, so the chart's own IIFE is
   // the one under test — re-evaluating it afterwards would double every
   // listener and make the segmented controls toggle twice per click.

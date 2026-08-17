@@ -21,7 +21,8 @@ export function comparePage(baseUrl) {
 .cmp-section{margin-bottom:48px}
 .cmp-section h2{font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink)}
 .cmp-section p.cmp-desc{color:var(--muted);font-size:15px;line-height:1.55;margin:0 0 20px;max-width:760px}
-.cmp-table{width:100%;border-collapse:collapse;background:var(--card);border:1.5px solid var(--ink);overflow:hidden;font-size:14px}
+.cmp-scroll{overflow-x:auto}
+.cmp-table{width:100%;min-width:520px;border-collapse:collapse;background:var(--card);border:1.5px solid var(--ink);overflow:hidden;font-size:14px}
 .cmp-table th,.cmp-table td{padding:14px 18px;text-align:left;border-bottom:1px solid var(--hairline)}
 .cmp-table thead th{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
 .cmp-table thead th:first-child{color:var(--dk-muted2);font-weight:500;text-transform:none;letter-spacing:normal}
@@ -53,7 +54,7 @@ export function comparePage(baseUrl) {
 <div class="cmp-section">
 <h2>Agent402 vs. building your own tool server</h2>
 <p class="cmp-desc">Standing up a custom tool server means writing handlers, managing uptime, handling payments, and keeping up with upstream API changes. Agent402 ships all of that out of the box.</p>
-<table class="cmp-table">
+<div class="cmp-scroll"><table class="cmp-table">
 <thead><tr><th>Dimension</th><th class="col-a402">Agent402</th><th>Build your own</th></tr></thead>
 <tbody>
 <tr><td>Setup time</td><td class="cmp-win"><span class="check">&#10003;</span> One npm install or HTTP call</td><td class="cmp-lose">Weeks of engineering</td></tr>
@@ -63,7 +64,7 @@ export function comparePage(baseUrl) {
 <tr><td>MCP support</td><td class="cmp-win"><span class="check">&#10003;</span> Native MCP endpoint</td><td class="cmp-lose">Implement yourself</td></tr>
 <tr><td>Cost</td><td class="cmp-win"><span class="check">&#10003;</span> Pay per call, free tier via PoW</td><td class="cmp-lose">Server + engineer time</td></tr>
 </tbody>
-</table>
+</table></div>
 </div>
 </section>
 
@@ -71,7 +72,7 @@ export function comparePage(baseUrl) {
 <div class="cmp-section">
 <h2>Agent402 vs. raw API calls</h2>
 <p class="cmp-desc">Wiring an agent directly to upstream APIs means juggling API keys, reading per-provider docs, and building error handling for each service individually.</p>
-<table class="cmp-table">
+<div class="cmp-scroll"><table class="cmp-table">
 <thead><tr><th>Dimension</th><th class="col-a402">Agent402</th><th>Raw API calls</th></tr></thead>
 <tbody>
 <tr><td>Authentication</td><td class="cmp-win"><span class="check">&#10003;</span> x402 protocol - one wallet, all tools</td><td class="cmp-lose">Separate API key per service</td></tr>
@@ -80,7 +81,7 @@ export function comparePage(baseUrl) {
 <tr><td>Payment</td><td class="cmp-win"><span class="check">&#10003;</span> Per-call, pay only for what you use</td><td class="cmp-lose">Monthly subscriptions per provider</td></tr>
 <tr><td>Retries</td><td class="cmp-win"><span class="check">&#10003;</span> Idempotency built in</td><td class="cmp-lose">Build retry logic yourself</td></tr>
 </tbody>
-</table>
+</table></div>
 </div>
 </section>
 
@@ -88,7 +89,7 @@ export function comparePage(baseUrl) {
 <div class="cmp-section">
 <h2>Agent402 vs. hosted AI tool platforms</h2>
 <p class="cmp-desc">Hosted platforms can get you started fast, but they typically lock you in with proprietary APIs, monthly fees, and opaque LLM-dependent tool logic.</p>
-<table class="cmp-table">
+<div class="cmp-scroll"><table class="cmp-table">
 <thead><tr><th>Dimension</th><th class="col-a402">Agent402</th><th>Hosted platforms</th></tr></thead>
 <tbody>
 <tr><td>Open source</td><td class="cmp-win"><span class="check">&#10003;</span> Fully open source</td><td class="cmp-lose"><span class="cross">&#10007;</span> Proprietary</td></tr>
@@ -97,7 +98,7 @@ export function comparePage(baseUrl) {
 <tr><td>Lock-in</td><td class="cmp-win"><span class="check">&#10003;</span> None - standard protocols</td><td class="cmp-lose">Vendor lock-in</td></tr>
 <tr><td>Deterministic</td><td class="cmp-win"><span class="check">&#10003;</span> Every tool is deterministic</td><td class="cmp-lose">LLM-dependent, non-reproducible</td></tr>
 </tbody>
-</table>
+</table></div>
 </div>
 </section>
 
@@ -105,7 +106,7 @@ export function comparePage(baseUrl) {
 <div class="cmp-section">
 <h2>agent402-tollbooth vs. platform monetization gateways</h2>
 <p class="cmp-desc">The other side of the protocol: charging AI crawlers and agents for <em>your</em> content. Cloudflare's announced Monetization Gateway (waitlist at the time of writing) brings x402 charging to sites behind Cloudflare - strong validation that pay-per-request is the business model of the agentic web. <a href="/tollbooth">agent402-tollbooth</a> is the open-source take on the same idea: self-hostable, in front of any origin.</p>
-<table class="cmp-table">
+<div class="cmp-scroll"><table class="cmp-table">
 <thead><tr><th>Dimension</th><th class="col-a402">agent402-tollbooth</th><th>Platform gateways (e.g. Cloudflare)</th></tr></thead>
 <tbody>
 <tr><td>Availability</td><td class="cmp-win"><span class="check">&#10003;</span> Live today - <code>npm i agent402-tollbooth</code></td><td class="cmp-lose">Waitlist / beta</td></tr>
@@ -116,7 +117,7 @@ export function comparePage(baseUrl) {
 <tr><td>Charge rules</td><td class="cmp-win"><span class="check">&#10003;</span> Your code - modes (bots/all/strict), adaptive PoW, per-path pricing</td><td class="cmp-lose">Platform rules API</td></tr>
 <tr><td>Analytics</td><td class="cmp-win"><span class="check">&#10003;</span> Built-in dashboard + stats endpoint, self-hosted</td><td class="cmp-lose">Platform dashboard</td></tr>
 </tbody>
-</table>
+</table></div>
 </div>
 </section>
 

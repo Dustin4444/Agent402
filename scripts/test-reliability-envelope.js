@@ -8,11 +8,11 @@
 // This test boots FREE_MODE and locks:
 //
 //   1. GET /api/reliability → 200 application/json.
-//   2. Envelope: { service, status, asOf, servingSince, uptimeSeconds,
+//   2. Envelope: { service, status, asOf, servingSince, processUptimeSeconds,
 //      toolCallsServed, onchain{}, guarantees[], endpoints{}, incidents }.
 //   3. service === 'Agent402.Tools', status === 'operational' (a 200 by definition
 //      means the node is serving — the field documents that contract).
-//   4. asOf parses as ISO; uptimeSeconds and toolCallsServed are numbers.
+//   4. asOf parses as ISO; processUptimeSeconds and toolCallsServed are numbers.
 //   5. onchain has revenueProof URL (or null in FREE_MODE) + a note.
 //   6. guarantees[] is non-empty AND every entry has `claim` + `verify` —
 //      the verify URL is the trustless half of every claim.
@@ -48,7 +48,7 @@ try {
   const body = await res.json();
 
   // Envelope shape.
-  for (const k of ["service", "status", "asOf", "servingSince", "uptimeSeconds", "toolCallsServed", "onchain", "guarantees", "endpoints", "incidents"]) {
+  for (const k of ["service", "status", "asOf", "servingSince", "processUptimeSeconds", "toolCallsServed", "onchain", "guarantees", "endpoints", "incidents"]) {
     ok(k in body, `envelope key '${k}' present (got: ${Object.keys(body).join(",")})`);
   }
   ok(body.service === "Agent402.Tools", `service='Agent402.Tools' (got ${body.service})`);
@@ -57,7 +57,11 @@ try {
   ok(body.status === "operational", `status='operational' (got ${body.status}) — a 200 here documents node liveness`);
   ok(typeof body.asOf === "string" && !isNaN(Date.parse(body.asOf)), `asOf is parseable ISO (got ${body.asOf})`);
   ok(typeof body.servingSince === "string", `servingSince is string (got ${typeof body.servingSince})`);
-  ok(typeof body.uptimeSeconds === "number" && body.uptimeSeconds >= 0, `uptimeSeconds is non-negative number (got ${body.uptimeSeconds})`);
+  ok(typeof body.processUptimeSeconds === "number" && body.processUptimeSeconds >= 0, `processUptimeSeconds is non-negative number (got ${body.processUptimeSeconds})`);
+  // Locks the 2026-08-16 rename: the old key name read as a reliability
+  // claim sitting right next to servingSince (a real ~2-month figure), when
+  // it actually resets to 0 on every deploy - never let it silently return.
+  ok(!("uptimeSeconds" in body), "the old 'uptimeSeconds' key name is gone (misreadable as service-availability uptime)");
   // toolCallsServed is the structured tally: total + breakdown by payment
   // path. The breakdown is what's interesting — viaUSDC vs viaProofOfWork
   // tells a portal which tier dominates traffic.

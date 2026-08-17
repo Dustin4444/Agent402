@@ -9,6 +9,25 @@ import { RAILS, RAILS_AMP, RAILS_OS } from "./rails.js";
 export const esc = (s) =>
   String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+// Safely embeds a JSON-serializable value into a page for a same-origin
+// external script to read (the CSP-hardening replacement for baking
+// per-request server data directly into inline JS text - see the 2026-08-16
+// migration). MUST escape every "<" in the JSON output: JSON.stringify never
+// escapes it, so a string field containing the literal text "</script>"
+// (however that got in there - a crawled seller's tool description is
+// exactly this kind of untrusted field) would prematurely close the tag and
+// let whatever follows execute as HTML/script, a well-known JSON-in-HTML
+// pitfall. < is valid inside a JSON string and round-trips through
+// JSON.parse to the same "<" character, so this is lossless, not just safe.
+// id must be a simple token (enforced) - it becomes a literal attribute
+// value, never interpolated from anything that could carry a quote.
+const SAFE_ISLAND_ID = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
+export function jsonScriptTag(id, value) {
+  if (!SAFE_ISLAND_ID.test(id)) throw new Error(`jsonScriptTag: unsafe id "${id}"`);
+  const json = JSON.stringify(value).replace(/</g, "\\u003c");
+  return `<script type="application/json" id="${id}">${json}</script>`;
+}
+
 // Official GitHub mark (the "Octocat" silhouette) - fill:currentColor so it
 // tracks the surrounding text color (var(--muted), hover states) exactly
 // like the plain-text "github" link it replaces used to, with no separate
@@ -73,7 +92,14 @@ html { overflow-x: clip; }
   --ink: #ECECEA;
   --ink-panel: #171719;
   --muted: #9E9E98;
-  --faint: #6C6C68;
+  /* Was #6C6C68 (3.15-3.66:1 against paper/card/card-zebra/footer-bg -
+     fails WCAG AA's 4.5:1 for normal text) - --faint is used at 10-13px in
+     shared nav/footer chrome that reaches every page. Raised to clear
+     4.5:1 with margin (4.86-5.64:1) against every dark surface it actually
+     appears on, keeping the original warm tint (R=G, B slightly lower) and
+     staying visually distinct from --muted (found in an internal audit,
+     2026-08-16). */
+  --faint: #8B8B87;
   --hairline: #2A2A30;
   --dash: #35353B;
   --dark-border: #262626;
@@ -530,7 +556,7 @@ function nav(activePath) {
       <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" aria-label="GitHub" title="GitHub" style="display:flex;align-items:center;color:var(--muted);text-decoration:none;">${GITHUB_ICON_SVG}</a>
 
       ${activePath === "" || activePath === "/sell" ? "" : `<a class="ml-nav-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;white-space:nowrap;">LIST YOUR API →</a>`}
-      <button type="button" onclick="a402ToggleMenu()" class="ml-burger" aria-label="Open menu" aria-expanded="false">
+      <button type="button" class="ml-burger" aria-label="Open menu" aria-expanded="false">
         <svg class="ml-burger-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
         <svg class="ml-burger-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
@@ -666,7 +692,7 @@ export function setOgImageVersion(v) { ogImageVersion = String(v || ""); }
 function posthogSnippet(baseUrl) {
   const key = process.env.POSTHOG_API_KEY || "";
   if (!key) return "";
-  const cfg = JSON.stringify({
+  const cfg = {
     api_host: `${baseUrl}/e`,
     ui_host: "https://us.posthog.com",
     persistence: "sessionStorage",
@@ -676,8 +702,12 @@ function posthogSnippet(baseUrl) {
     capture_performance: { web_vitals: true, network_timing: false },
     disable_session_recording: true,
     disable_surveys: true,
-  });
-  return `<script>!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty createPersonProfile opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId captureTraceFeedback captureTraceMetric".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);posthog.init(${JSON.stringify(key)},${cfg});</script>`;
+  };
+  // The vendor loader itself is 100% static (assets/js/posthog-loader.js);
+  // only the API key and per-deployment config vary, so they ride as a JSON
+  // island the loader reads at runtime instead of being templated into JS
+  // text (CSP hardening, 2026-08-16).
+  return jsonScriptTag("posthog-config", { key, cfg }) + '<script src="/js/posthog-loader.js"></script>';
 }
 export function ledgerShell({ title, description, canonical, baseUrl, activePath = "", ogImage, jsonLd, extraCss = "", body }) {
   const og = ogImage || (baseUrl + "/card.png" + (ogImageVersion ? `?v=${ogImageVersion}` : ""));
@@ -702,49 +732,7 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<script>function a402ToggleMenu(){try{var o=document.documentElement.classList.toggle('ml-menu-open');var b=document.querySelector('.ml-burger');if(b)b.setAttribute('aria-expanded',o?'true':'false');}catch(e){}}
-/* a402: reveal-on-scroll for every top-level header/section, site-wide. Was
-   opt-in per-page via [data-reveal] (only the homepage set it, so every
-   other page never got the effect at all); now applied here in the ONE
-   shared script every page already loads, so it needs zero duplication -
-   no per-page script block, no per-page attribute to remember to set.
-   Anonymous function expression on purpose, not a declaration - avoids a
-   leading-"function" source line, the exact shape test-theme.js's
-   markup-safety assertions guard against. Class added here (JS), never
-   baked into static CSS as a default-hidden state, so a throw/no-run leaves
-   every section fully visible instead of stuck at opacity:0. The observer's
-   own first callback decides visibility, not a separate getBoundingClientRect
-   measurement taken before the map canvas/webfonts settle layout (that
-   early-measurement bug made most sections read as already-above-the-fold
-   and never animate). ONE-SHOT: once a section reveals, it is unobserved and
-   never re-hidden. An earlier version toggled ml-reveal-in on every
-   intersection change (added AND removed), meant to let a reload deep in the
-   page still animate sections into view - but a reload doesn't need the
-   removal half, only the addition: a section already in view on the
-   observer's first callback reveals immediately either way. The removal
-   half had a real, reported bug: a tall section scrolling past the top edge
-   drops under the 8% threshold *while still partially on screen*, so it
-   visibly faded out and shifted down 18px in front of the user mid-scroll -
-   "content going off screen" on a normal scroll, not a rendering glitch.
-   Revealed content now stays revealed, matching how every other
-   scroll-reveal effect on the web works. querySelectorAll('header,section')
-   only reaches pages whose top-level blocks are actually <section>
-   elements - roughly half this site's page templates are, the rest use
-   plain <div> wrappers and get no reveal effect from this alone; converting
-   those is separate, per-template work, not something a shared script can
-   retrofit onto markup that was never semantic to begin with.
-   FIRST MATCH IS EXEMPT (2026-08-15): every page's first header/section is
-   its hero - the block already sitting in the viewport on page load, on
-   every template checked (marketplace/tools/sell/leaderboard/skills/docs/
-   status/home). Hiding it behind opacity:0 first, same as every other
-   section, meant it always had to wait on the observer's first callback -
-   measured live at 100-300ms of near-zero opacity even though the content
-   was already fully in view, a real flash-of-blank-hero on every load, not
-   a scroll-triggered effect at all. The fix is DOM-order, not a
-   getBoundingClientRect check - that's the deliberate difference from the
-   early-measurement bug described above: no layout read before webfonts/map
-   settle, so it can't misjudge a below-fold section as already visible. */
-document.addEventListener('DOMContentLoaded',function(){try{if(window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches)return;var els=document.querySelectorAll('header,section,[data-reveal]');if(els.length<2||!window.IntersectionObserver)return;var rest=Array.prototype.slice.call(els,1);rest.forEach(function(el){el.classList.add('ml-reveal');});var io=new IntersectionObserver(function(entries){entries.forEach(function(e){if(e.isIntersecting){e.target.classList.add('ml-reveal-in');io.unobserve(e.target);}});},{threshold:.08});rest.forEach(function(el){io.observe(el);});}catch(e){}});</script>
+<script src="/js/site-chrome.js"></script>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">

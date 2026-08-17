@@ -761,6 +761,9 @@ jobs:
       - name: Discovery & trust surfaces (/.well-known/x402, /api/reliability)
         run: node scripts/test-discovery.js
 
+      - name: Manifest resources[] dedup (a tool registered under 2 HTTP methods lists its URL once, not twice)
+        run: node scripts/test-manifest-resources-dedup.js
+
       - name: Revenue detector classification (real x402 buys vs funding/tests)
         run: node scripts/test-revenue-scan.js
 
@@ -881,6 +884,9 @@ jobs:
       - name: /openapi.json coverage (every CATALOG tool has a path + operationId + x-price)
         run: node scripts/test-openapi-coverage.js
 
+      - name: /openapi.json header parameters (Idempotency-Key on every op, X-Pow-Solution only where PoW-eligible)
+        run: node scripts/test-openapi-header-params.js
+
       - name: /.well-known/x402 manifest contract (envelope + payment + capabilities + discovery)
         run: node scripts/test-x402-manifest.js
 
@@ -892,6 +898,12 @@ jobs:
 
       - name: /llms.txt content lock (tool count + discovery URLs + PoW/MCP/wallet signals)
         run: node scripts/test-llms-txt.js
+
+      - name: /llms.txt MPP/x402 dual-header reading note (issue #794 guidance, offline)
+        run: node scripts/test-llms-mpp-header-note.js
+
+      - name: /llms.txt route-execute tier pricing derived from EXEC_TIERS (a future 5th tier can't go silently missing — offline)
+        run: node scripts/test-llms-route-execute-tiers.js
 
       - name: Rails-copy lock (rails.js ↔ payments.js + every key page renders every rail)
         run: TARGET_URL=http://localhost:3000 node scripts/test-rails.js
@@ -984,6 +996,33 @@ jobs:
       - name: Reveal-on-scroll no hero flash (the hero must never hide behind opacity:0 waiting on the observer)
         run: node scripts/test-reveal-no-hero-flash.js
 
+      - name: CSP violations sitewide (real browser, every distinct page template + real interactions on click-gated pages - script-src has no 'unsafe-inline' since 2026-08-16)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-csp-violations.js
+
+      - name: CSS tokens resolve (every :root custom property must actually resolve in a real browser, not just exist as text)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-css-tokens-resolve.js
+
+      - name: Focus-visible on search/demo inputs (real browser check - inline style can silently defeat a stylesheet :focus rule)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-focus-visible.js
+
+      - name: Single <main> landmark per page (no page-level renderer may nest a second <main> inside ledgerShell's own)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-single-main-landmark.js
+
+      - name: /compare tables scroll independently on narrow viewports (real browser check - scrollWidth>clientWidth alone can't prove overflow-x is enabled)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-compare-scroll.js
+
+      - name: Wrong-method 405 with Allow header (a known catalog path hit with the wrong verb no longer looks like a dead route)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-wrong-method-405.js
+
+      - name: Reveal-on-scroll data-reveal-eager opt-in (a second above-fold section can be exempted explicitly, never leaks to unmarked pages)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-eager.js
+
+      - name: Reveal-on-scroll skip-over safety net (a single fast scroll jump must never leave a section permanently invisible — real browser, found live on /marketplace 2026-08-16)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-reveal-scroll-skip.js
+
+      - name: Hamburger menu aria-label toggles with aria-expanded (real browser click, not a static string check)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-burger-aria-label.js
+
       - name: Self-listing exclusion (crawled agent402.tools origin never appears as an "external" seller — offline)
         run: node scripts/test-self-listing-exclusion.js
 
@@ -1004,6 +1043,9 @@ jobs:
 
       - name: Revenue buyers series (distinct-count semantics; seeded ledger — offline)
         run: node scripts/test-revenue-buyers.js
+
+      - name: Revenue buyers trend (rolling 14d recent-vs-prior comparison — offline)
+        run: node scripts/test-buyers-trend.js
 
       - name: Settle-fallback chain (PayAI -> Solvador; double-settle gate between fallbacks — offline)
         run: node scripts/test-settle-fallback.js
@@ -1071,8 +1113,14 @@ jobs:
       - name: MPP dual-stack shim (real mppx client buys over WWW-Authenticate/Authorization wire; single settle; x402 pass-through; HMAC tamper — offline)
         run: node scripts/test-mpp-shim.js
 
+      - name: MPP_CHALLENGE_NETWORKS default verified against installed mppx registry (drift guard — offline)
+        run: node scripts/test-mpp-shim-mppx-registry.js
+
       - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
         run: node scripts/test-head-paywall.js
+
+      - name: Wildcard route bypass closed (@x402/core 2.21.0 dotAll fix — percent-encoded line terminators can't skip payment on /api/convert/* — offline)
+        run: node scripts/test-wildcard-route-bypass.js
 
       - name: Boot /supported guard (a dead facilitator costs ONE rail, not every paid route — the 2026-08-01 Celo outage; probe-driven drop, fail-open on total blindness, escape hatch — offline)
         run: node scripts/test-supported-guard.js
@@ -1093,6 +1141,11 @@ jobs:
         env:
           REDIS_URL: redis://127.0.0.1:6379
         run: node scripts/test-redis-integration.js
+
+      - name: "Replay guard, cross-replica (REAL redis — two guard instances prove shared claim/settle/release; fails open to local state on a redis outage — 2026-08-16)"
+        env:
+          REDIS_URL: redis://127.0.0.1:6379
+        run: node scripts/test-replay-guard-redis.js
 
       - name: Well-known store (operator-published domain-verification docs; traversal impossible, reserved names refused, no shadowing of /.well-known/x402 — offline)
         run: node scripts/test-well-known-store.js
@@ -1173,6 +1226,9 @@ jobs:
 
       - name: MCP outer transport limits (R-11 — per-IP cap + concurrency ceiling bound floods before server/transport allocation — spawns child)
         run: node scripts/test-mcp-limits.js
+
+      - name: MCP Registry find-latest-version helper (used by the publish job to auto-deprecate a superseded version — offline)
+        run: node scripts/test-mcp-find-latest-version.js
 
       - name: PostHog analytics proxy abuse controls (R-17 — method allowlist + per-IP cap before the upstream call — spawns child)
         run: node scripts/test-posthog-proxy.js
@@ -1401,8 +1457,14 @@ jobs:
       - name: Operator auth (A402-07 no ?token= query; session cookie + header; hardened cookie flags — spawns child)
         run: node scripts/test-operator-auth.js
 
+      - name: Operator revenue visibility (zero-revenue rail flagging + top-by-revenue vs top-by-calls, offline)
+        run: node scripts/test-operator-revenue-visibility.js
+
       - name: Index self-serve registration tests (offline)
         run: node scripts/test-index-register.js
+
+      - name: Seller registration conversion/churn table (first_seen immutable, last_settled_seen sticky — offline)
+        run: node scripts/test-seller-registrations.js
 
       - name: Index openapi-fallback crawl tests (payment-signal gate, Bazaar merge, ranking — offline)
         run: node scripts/test-openapi-fallback.js
@@ -1490,6 +1552,7 @@ jobs:
           node scripts/test-encoding-kit.js
           node scripts/test-math-kit.js
           node scripts/test-theme.js
+          node scripts/test-faint-contrast.js
           node scripts/test-reveal-on-scroll.js
           node scripts/test-validation-kit.js
           node scripts/test-text-analysis-kit.js
@@ -2307,9 +2370,17 @@ jobs:
           # "mcpName" to the server.json name and confirming the npm package is
           # published — so this runs after the npm publish above.
           VER=$(node -p "require('./mcp/package.json').version")
-          if curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402" | grep -q "\"version\":\"$VER\""; then
+          SEARCH_RESULT=$(curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.MikeyPetrillo/agent402&limit=100")
+          if echo "$SEARCH_RESULT" | grep -q "\"version\":\"$VER\""; then
             echo "io.github.mikeypetrillo/agent402@$VER already in the MCP Registry — nothing to do"; exit 0
           fi
+          # Capture whichever version is isLatest RIGHT NOW - it's about to
+          # become stale the moment the new publish below lands. Deprecation
+          # tooling gap found 2026-08-16: nothing ever marked a superseded
+          # version deprecated, so 24 of 25 published versions were still
+          # "active" in the registry. Best-effort: a lookup failure here
+          # leaves PREV_LATEST empty and the deprecate step below just skips.
+          PREV_LATEST=$(echo "$SEARCH_RESULT" | node scripts/mcp-find-latest-version.js || true)
           asset="mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz"
           if [ -n "${MCP_PUBLISHER_VERSION:-}" ]; then base="https://github.com/modelcontextprotocol/registry/releases/download/$MCP_PUBLISHER_VERSION"; else base="https://github.com/modelcontextprotocol/registry/releases/latest/download"; fi
           # Download to disk and fail fast (no curl|tar of unverified bytes).
@@ -2352,6 +2423,16 @@ jobs:
           ../mcp-publisher login github-oidc
           ../mcp-publisher publish
           echo "published io.github.mikeypetrillo/agent402@$VER → https://registry.modelcontextprotocol.io"
+          # Deprecate the version this publish just superseded. Only ever
+          # touches the ONE immediately-previous version - never a bulk
+          # rewrite of history - and never fails the job: a registry hiccup
+          # here is a missed housekeeping step, not a publish failure.
+          if [ -n "$PREV_LATEST" ] && [ "$PREV_LATEST" != "$VER" ]; then
+            ../mcp-publisher status --status deprecated --message "Superseded by $VER" \
+              io.github.MikeyPetrillo/agent402 "$PREV_LATEST" \
+              && echo "deprecated superseded version $PREV_LATEST" \
+              || echo "::warning::failed to deprecate superseded version $PREV_LATEST (non-fatal)"
+          fi
 
   probe:
     needs: markers

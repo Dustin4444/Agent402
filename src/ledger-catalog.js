@@ -62,6 +62,8 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
 .cat-scroll table{min-width:780px}
 table{border-collapse:collapse;width:100%}
 @media (max-width:900px){.cat-2col{grid-template-columns:minmax(0,1fr)!important}}
+.cat-search-wrap{border:1.5px solid var(--ink)}
+.cat-search-wrap:focus-within{border-color:var(--accent)}
 `;
 
   const tabsHtml = TABS.map(([label, href]) =>
@@ -87,7 +89,7 @@ table{border-collapse:collapse;width:100%}
     <h1 style="font-weight:800;font-size:46px;line-height:1;letter-spacing:-.03em;margin:0 0 12px;color:var(--ink);">Our tools</h1>
     <p style="font-size:16.5px;line-height:1.55;color:var(--muted);margin:0;max-width:640px;">${fmtNum(count)} deterministic tools an agent can call and pay for per request. Around ${fmtNum(freeCount)} of them run free on proof-of-work. This is <em style="color:var(--on-dark2);">our own</em> catalog - for every tool in the index, ours and other sellers', see <a href="/marketplace/tools" style="color:var(--ink);border-bottom:1px solid var(--accent);text-decoration:none;">all indexed tools</a>.</p>
 
-    <div style="display:flex;gap:0;border:1.5px solid var(--ink);background:var(--card);max-width:760px;margin:22px 0 0;">
+    <div class="cat-search-wrap" style="display:flex;gap:0;background:var(--card);max-width:760px;margin:22px 0 0;">
       <label for="cat-search" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">Search tools</label>
       <span style="font-family:var(--font-mono);color:var(--accent);padding:0 12px;display:flex;align-items:center;font-weight:700;">⌕</span>
       <input id="cat-search" type="text" placeholder="Describe a task: decode a JWT, OCR an image, verify a settlement…" style="flex:1;min-width:0;background:transparent;border:none;outline:none;color:var(--ink);font-family:var(--font-mono);font-size:14px;padding:15px 0;">
@@ -166,33 +168,7 @@ table{border-collapse:collapse;width:100%}
 </section>
 ${ledgerFooterCompact()}
 
-<script>
-(function() {
-  var search = document.getElementById('cat-search');
-  var rows = document.querySelectorAll('.cat-row');
-  var empty = document.getElementById('cat-empty');
-  var emptyQ = document.getElementById('cat-empty-q');
-  function applyFilter() {
-    var q = (search.value || '').toLowerCase().trim();
-    var visible = 0;
-    rows.forEach(function(row) {
-      var label = row.querySelector('th a').textContent.toLowerCase();
-      var blurb = row.querySelector('.cat-blurb').textContent.toLowerCase();
-      var match = !q || label.indexOf(q) !== -1 || blurb.indexOf(q) !== -1;
-      row.style.display = match ? '' : 'none';
-      if (match) visible++;
-    });
-    empty.style.display = visible === 0 ? 'block' : 'none';
-    if (visible === 0) emptyQ.textContent = search.value;
-  }
-  search.addEventListener('input', applyFilter);
-  try {
-    var params = new URLSearchParams(window.location.search);
-    var q0 = params.get('q');
-    if (q0) { search.value = q0; applyFilter(); }
-  } catch (e) {}
-})();
-</script>`;
+<script src="/js/catalog-search.js"></script>`;
 
   return ledgerShell({ title, description, canonical, baseUrl, activePath: "/tools", jsonLd: [orgLd, breadcrumbLd, pageLd, listLd, appLd], extraCss, body });
 }

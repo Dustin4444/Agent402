@@ -385,10 +385,10 @@ ${renderHeader("/tools")}
   <div class="crumb"><a href="/">Agent402</a> / tools</div>
   <h1>${tools.length} tools, one base URL, zero API keys</h1>
   <p class="sub">Call any endpoint, get an <code>HTTP 402</code> quote, and either pay a fraction of a cent in ${RAILS_PAREN} via <a href="https://x402.org" rel="noopener">x402</a> - or, on the <span class="free">FREE</span> tools, skip the wallet entirely. The catalog is capped - every tool here earns its place and answers its own example on every deploy. Machine-readable: <a href="/api/pricing">/api/pricing</a> · <a href="/openapi.json">/openapi.json</a> · <a href="/llms.txt">/llms.txt</a>.</p>
-  <div style="margin:18px 0"><input id="tool-search" type="text" placeholder="Search ${tools.length} tools\u2026" style="width:100%;max-width:480px;padding:10px 16px;background:#0d1220;border:1px solid #1e2638;border-radius:10px;color:#e6e9f0;font-size:.95rem;outline:none;" onfocus="this.style.borderColor='#4ade80'" onblur="this.style.borderColor='#1e2638'"><span id="tool-search-count" style="margin-left:12px;color:#8b93a7;font-size:.85rem"></span></div>
+  <div style="margin:18px 0"><input id="tool-search" type="text" placeholder="Search ${tools.length} tools\u2026" style="width:100%;max-width:480px;padding:10px 16px;background:#0d1220;border:1px solid #1e2638;border-radius:10px;color:#e6e9f0;font-size:.95rem;outline:none;"><span id="tool-search-count" style="margin-left:12px;color:#8b93a7;font-size:.85rem"></span></div>
   <div class="callout"><b>${freeCount} of ${tools.length} tools are free</b> - no wallet needed. Pay with a few seconds of <a href="/api/pow">proof-of-work</a> (CPU) instead of USDC. The other ${tools.length - freeCount} (browser, network, memory) settle in USDC because they cost real infrastructure to run. Look for the <span class="free">FREE</span> badge below.</div>
   ${sections}
-  <script>(function(){var input=document.getElementById('tool-search'),count=document.getElementById('tool-search-count');if(!input)return;input.addEventListener('input',function(){var q=this.value.toLowerCase().trim();var cards=document.querySelectorAll('.card');var sections=document.querySelectorAll('h2');var shown=0;cards.forEach(function(c){var text=(c.textContent||'').toLowerCase();var match=!q||text.indexOf(q)!==-1;c.style.display=match?'':'none';if(match)shown++;});sections.forEach(function(s){if(!q){s.style.display='';return;}var next=s.nextElementSibling;while(next&&!next.matches('h2')){if(next.classList&&next.classList.contains('grid')){var vis=next.querySelectorAll('.card:not([style*="display: none"])');s.style.display=vis.length?'':'none';break;}if(next.classList&&next.classList.contains('cat-blurb')){next.style.display=s.style.display;next=next.nextElementSibling;continue;}next=next.nextElementSibling;}});count.textContent=q?shown+' match'+(shown===1?'':'es'):'';});})();</script>
+  <script src="/js/pages-tool-search.js"></script>
 </div>
 ${renderFooter()}
 </body>
@@ -588,15 +588,38 @@ export function openapiSpec(baseUrl, catalog) {
     };
     const props = discovery?.inputSchema?.properties ?? {};
     const required = discovery?.inputSchema?.required ?? [];
+    // Every route accepts Idempotency-Key; only PoW-eligible (non-wallet-only)
+    // routes accept X-Pow-Solution as an alternative to x402 payment. Neither
+    // was declared as a parameter before - a caller had to already know these
+    // headers exist from prose docs, not from the machine-readable spec.
+    const headerParams = [
+      {
+        name: "Idempotency-Key",
+        in: "header",
+        required: false,
+        description: "Optional client-supplied key. Replaying the same key with the same payment/PoW credential and request body returns the original result instead of charging again.",
+        schema: { type: "string" },
+      },
+      ...(isComputePayable(tool) ? [{
+        name: "X-Pow-Solution",
+        in: "header",
+        required: false,
+        description: `Free-tier alternative to x402 payment: "<token>:<nonce>" from a solved proof-of-work challenge (GET /api/pow/challenge). Omit when paying via x402.`,
+        schema: { type: "string" },
+      }] : []),
+    ];
     if (method === "GET") {
-      op.parameters = Object.entries(props).map(([name, schema]) => ({
-        name,
-        in: "query",
-        required: required.includes(name),
-        description: schema.description,
-        schema: { type: schema.type === "number" ? "number" : "string" },
-        ...(discovery?.input?.[name] !== undefined ? { example: discovery.input[name] } : {}),
-      }));
+      op.parameters = [
+        ...Object.entries(props).map(([name, schema]) => ({
+          name,
+          in: "query",
+          required: required.includes(name),
+          description: schema.description,
+          schema: { type: schema.type === "number" ? "number" : "string" },
+          ...(discovery?.input?.[name] !== undefined ? { example: discovery.input[name] } : {}),
+        })),
+        ...headerParams,
+      ];
     } else {
       op.requestBody = {
         required: true,
@@ -607,6 +630,7 @@ export function openapiSpec(baseUrl, catalog) {
           },
         },
       };
+      op.parameters = headerParams;
     }
     paths[path] = paths[path] ?? {};
     paths[path][method.toLowerCase()] = op;

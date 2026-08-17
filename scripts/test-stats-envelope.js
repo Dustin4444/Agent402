@@ -17,15 +17,15 @@
 //   2. Envelope keys: service, summary, tools, payment, walletName,
 //      onchainRevenueProof, onchainNote, toolCallsServed, chargedButFailed,
 //      topTools, estimatedRevenueUsd, recentCalls, servingSince,
-//      uptimeSeconds.
+//      processUptimeSeconds.
 //   3. toolCallsServed has total + viaUSDC + viaProofOfWork + viaHeartbeat,
 //      all non-negative integers (`total === viaUSDC + viaProofOfWork +
 //      viaHeartbeat` would be tempting but the chargedButFailed path drops
 //      the failure out of total without crediting a rail — so we lock the
 //      four keys exist + are numbers, not the sum identity).
 //   4. tools is a positive integer (the catalog size — must stay >= 400).
-//   5. estimatedRevenueUsd is a number, uptimeSeconds is a non-negative
-//      number, servingSince is a parseable ISO string.
+//   5. estimatedRevenueUsd is a number, processUptimeSeconds is a
+//      non-negative number, servingSince is a parseable ISO string.
 //   6. topTools / recentCalls are arrays.
 //   7. topPaidTools is ABSENT (found live 2026-08-14: a purchase-count
 //      bestsellers ranking was public here, and since /api/pricing is also
@@ -61,7 +61,7 @@ try {
   ok((res.headers.get("content-type") || "").includes("application/json"), `content-type is application/json`);
   const body = await res.json();
 
-  for (const k of ["service", "summary", "tools", "payment", "walletName", "onchainRevenueProof", "onchainNote", "toolCallsServed", "chargedButFailed", "topTools", "estimatedRevenueUsd", "recentCalls", "servingSince", "uptimeSeconds"]) {
+  for (const k of ["service", "summary", "tools", "payment", "walletName", "onchainRevenueProof", "onchainNote", "toolCallsServed", "chargedButFailed", "topTools", "estimatedRevenueUsd", "recentCalls", "servingSince", "processUptimeSeconds"]) {
     ok(k in body, `envelope key '${k}' present (got: ${Object.keys(body).join(",")})`);
   }
   ok(!("topPaidTools" in body), `topPaidTools is NOT in the public envelope (purchase-count bestsellers ranking - reconstructs exact revenue via public /api/pricing, stays operator-only)`);
@@ -98,7 +98,8 @@ try {
 
   // Liveness.
   ok(typeof body.servingSince === "string" && !isNaN(Date.parse(body.servingSince)), `servingSince is parseable ISO (got ${body.servingSince})`);
-  ok(typeof body.uptimeSeconds === "number" && body.uptimeSeconds >= 0, `uptimeSeconds is non-negative number (got ${body.uptimeSeconds})`);
+  ok(typeof body.processUptimeSeconds === "number" && body.processUptimeSeconds >= 0, `processUptimeSeconds is non-negative number (got ${body.processUptimeSeconds})`);
+  ok(!("uptimeSeconds" in body), "the old 'uptimeSeconds' key name is gone (misreadable as service-availability uptime, see /api/reliability's sibling fix)");
 
   // payment + walletName — the wallet info block. In FREE_MODE walletName
   // may be null; lock that the key exists with one of the legal types.

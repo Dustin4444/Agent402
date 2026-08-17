@@ -3,7 +3,7 @@
 // AGENT402_OPERATOR_TOKEN via a Secure/HttpOnly/SameSite session cookie set at
 // POST /__operator/login (never a ?token= URL — security audit A402-07).
 // Nothing here is shown publicly; /api/stats remains the safe public surface.
-import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { ledgerShell, ledgerFooterCompact, esc, jsonScriptTag } from "./ledger-chrome.js";
 
 // Minimal, unauthenticated login form. The operator pastes the token; it is
 // POSTed as JSON to /__operator/login (body, not URL) which validates it and
@@ -29,17 +29,7 @@ export function operatorLoginPage(baseUrl) {
     <div class="opl-err" id="e"></div>
   </form>
 </div>
-<script>
-(function(){
-  var f=document.getElementById('f'), t=document.getElementById('t'), e=document.getElementById('e');
-  f.addEventListener('submit', function(ev){
-    ev.preventDefault(); e.textContent='';
-    fetch('/__operator/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:t.value})})
-      .then(function(r){ if(r.ok){ location.href='/__operator'; } else { e.textContent='Invalid token.'; } })
-      .catch(function(){ e.textContent='Sign-in failed.'; });
-  });
-})();
-</script>
+<script src="/js/operator-login.js"></script>
 ${ledgerFooterCompact()}`;
   return ledgerShell({
     title: "Operator sign-in - Agent402",
@@ -56,6 +46,13 @@ export function operatorPage(baseUrl, data) {
   const t = data?.totals || {};
   const tools = Array.isArray(data?.tools) ? data.tools : [];
   const recent = Array.isArray(data?.recentCalls) ? data.recentCalls : [];
+  // Call-volume and revenue are different leaderboards - the per-tool table
+  // below defaults to sorting by calls, which silently doubles as a revenue
+  // proxy unless someone thinks to click the Revenue header. Surfacing both
+  // top-5s side by side makes the divergence visible at a glance.
+  const topByRevenue = [...tools].sort((a, b) => b.revenueUsd - a.revenueUsd).slice(0, 5);
+  const topByCalls = [...tools].sort((a, b) => b.calls - a.calls).slice(0, 5);
+  const railBreakdown = Array.isArray(data?.railBreakdown) ? data.railBreakdown : [];
   const badge = (r) => r.walletOnly
     ? `<span class="op-badge op-badge-wallet" title="USDC only - no proof-of-work path">USDC-ONLY</span>`
     : `<span class="op-badge op-badge-pow" title="Also payable with proof-of-work (free tier)">FREE-W/POW</span>`;
@@ -130,9 +127,9 @@ td a:hover{color:var(--accent)}
   <div class="op-stat"><div class="op-k">USDC settled</div><div class="op-v" id="t-usdc">${esc(t.viaUSDC ?? 0)}</div><div class="op-s">on-chain proof at wallet</div></div>
   <div class="op-stat"><div class="op-k">PoW (external)</div><div class="op-v" id="t-pow">${esc(t.viaProofOfWork ?? 0)}</div><div class="op-s">real free-tier adoption</div></div>
   <div class="op-stat"><div class="op-k">Heartbeat probes</div><div class="op-v" id="t-hb">${esc(t.viaHeartbeat ?? 0)}</div><div class="op-s">internal /api/hash probe</div></div>
-  <div class="op-stat"><div class="op-k">Estimated revenue</div><div class="op-v" id="t-rev">$${esc((t.estimatedRevenueUsd ?? 0).toFixed ? t.estimatedRevenueUsd.toFixed(4) : t.estimatedRevenueUsd)}</div><div class="op-s">counter; chain is truth</div></div>
+  <div class="op-stat"><div class="op-k">Estimated revenue</div><div class="op-v" id="t-rev">$${esc((t.estimatedRevenueUsd ?? 0).toFixed(4))}</div><div class="op-s">counter; chain is truth</div></div>
   <div class="op-stat"><div class="op-k">Tools served</div><div class="op-v" id="t-tools">${esc(t.toolsServed ?? 0)}</div><div class="op-s">distinct slugs</div></div>
-  <div class="op-stat"><div class="op-k">Uptime</div><div class="op-v" id="t-up">${esc(Math.floor((data?.uptimeSeconds ?? 0) / 3600))}h</div><div class="op-s">since process boot</div></div>
+  <div class="op-stat"><div class="op-k">Uptime</div><div class="op-v" id="t-up">${esc(Math.floor((data?.processUptimeSeconds ?? 0) / 3600))}h</div><div class="op-s">since process boot</div></div>
 </div>
 
 <div class="op-layout">
@@ -150,71 +147,35 @@ td a:hover{color:var(--accent)}
   </div>
 </div>
 
-<script>
-(function(){
-  // The session cookie authenticates same-origin requests automatically; nav is
-  // plain links and the refresh below needs no token handling.
-  function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g,function(c){return({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];}); }
-  var tbody=document.getElementById('tbody');
-  var feed=document.getElementById('feed');
-  var sortK='calls', sortDir=-1, rowsCache=${JSON.stringify(tools)};
+<div class="op-layout" style="margin-top:18px">
+  <div class="op-panel">
+    <div class="op-ph"><h2>Top by revenue vs top by calls</h2></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+      <div style="border-right:1px solid var(--dark-border)">
+        <div style="padding:8px 14px;color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--dark-border)">By revenue</div>
+        <ol style="list-style:none;margin:0;padding:0">${topByRevenue.length ? topByRevenue.map((r) => `<li style="padding:8px 14px;border-bottom:1px solid var(--dark-border);font-family:var(--font-mono);font-size:13px;display:flex;justify-content:space-between;gap:8px"><a href="/tools/${esc(r.slug)}" style="color:var(--on-dark);text-decoration:none">${esc(r.slug)}</a><span class="op-rev">$${esc(r.revenueUsd.toFixed(4))}</span></li>`).join("") : `<li style="padding:16px;text-align:center;color:var(--dk-muted)">No data yet.</li>`}</ol>
+      </div>
+      <div>
+        <div style="padding:8px 14px;color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--dark-border)">By calls</div>
+        <ol style="list-style:none;margin:0;padding:0">${topByCalls.length ? topByCalls.map((r) => `<li style="padding:8px 14px;border-bottom:1px solid var(--dark-border);font-family:var(--font-mono);font-size:13px;display:flex;justify-content:space-between;gap:8px"><a href="/tools/${esc(r.slug)}" style="color:var(--on-dark);text-decoration:none">${esc(r.slug)}</a><span class="op-muted">${esc(r.calls)}</span></li>`).join("") : `<li style="padding:16px;text-align:center;color:var(--dk-muted)">No data yet.</li>`}</ol>
+      </div>
+    </div>
+  </div>
 
-  function renderRows(){
-    var q=(document.getElementById('filter').value||'').toLowerCase();
-    var rs=rowsCache.filter(function(r){ return !q || r.slug.toLowerCase().indexOf(q)>=0; });
-    rs.sort(function(a,b){
-      var k=sortK==='price'?'pricePerCall':(sortK==='rev'?'revenueUsd':sortK);
-      var av=a[k], bv=b[k];
-      if(typeof av==='string') return sortDir*av.localeCompare(bv);
-      return sortDir*((av||0)-(bv||0));
-    });
-    var html = rs.length ? rs.map(function(r){
-      var b = r.walletOnly
-        ? '<span class="op-badge op-badge-wallet" title="USDC only">USDC-ONLY</span>'
-        : '<span class="op-badge op-badge-pow" title="Also payable with proof-of-work">FREE-W/POW</span>';
-      return '<tr><td><a href="/tools/'+esc(r.slug)+'">'+esc(r.slug)+'</a> '+b+'</td>'+
-        '<td class="num">'+esc(r.calls)+'</td>'+
-        '<td class="num op-paid">'+esc(r.paid)+'</td>'+
-        '<td class="num op-pow">'+esc(r.pow)+'</td>'+
-        '<td class="num op-hb">'+esc(r.heartbeat||0)+'</td>'+
-        '<td class="num op-rev">$'+esc(r.revenueUsd.toFixed(4))+'</td>'+
-        '<td class="num op-muted">$'+esc(r.pricePerCall.toFixed(4))+'</td></tr>';
-    }).join('') : '<tr><td colspan="7" class="op-muted" style="padding:24px;text-align:center;">No matches.</td></tr>';
-    tbody.innerHTML = html; /* eslint-disable-line -- pre-existing AJAX table refresh; all values esc()-d */
-  }
-  document.getElementById('filter').addEventListener('input', renderRows);
-  document.querySelectorAll('th[data-k]').forEach(function(th){
-    th.addEventListener('click', function(){
-      var k=th.getAttribute('data-k');
-      if(sortK===k) sortDir=-sortDir; else { sortK=k; sortDir=-1; }
-      renderRows();
-    });
-  });
+  <div class="op-panel">
+    <div class="op-ph"><h2>Rails offered vs settled</h2></div>
+    <div style="max-height:280px;overflow:auto">
+      <table>
+        <thead><tr><th>Rail</th><th class="num">Settled calls</th></tr></thead>
+        <tbody>${railBreakdown.length ? railBreakdown.map((r) => `<tr><td>${esc(r.network)}${r.settledCalls === 0 ? ` <span class="op-badge" style="background:rgba(184,132,46,.14);color:#b8842e;border:1px solid rgba(184,132,46,.35)">ZERO REVENUE</span>` : ""}</td><td class="num${r.settledCalls === 0 ? " op-muted" : " op-paid"}">${esc(r.settledCalls)}</td></tr>`).join("") : `<tr><td colspan="2" class="op-muted" style="padding:16px;text-align:center">No configured rails.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <p style="padding:10px 14px;margin:0;color:var(--dk-muted);font-size:12px;border-top:1px solid var(--dark-border)">Rails currently in PAYMENT_NETWORKS with zero lifetime settled calls still carry facilitator config, canary legs, and test maintenance for zero return.</p>
+  </div>
+</div>
 
-  async function tick(){
-    try {
-      var r=await fetch('/__operator/stats',{cache:'no-store'});
-      if(!r.ok) return;
-      var d=await r.json();
-      var tt=d.totals||{};
-      document.getElementById('t-total').textContent=tt.total||0;
-      document.getElementById('t-usdc').textContent=tt.viaUSDC||0;
-      document.getElementById('t-pow').textContent=tt.viaProofOfWork||0;
-      document.getElementById('t-hb').textContent=tt.viaHeartbeat||0;
-      document.getElementById('t-rev').textContent='$'+((tt.estimatedRevenueUsd||0).toFixed(4));
-      document.getElementById('t-tools').textContent=tt.toolsServed||0;
-      document.getElementById('t-up').textContent=Math.floor((d.uptimeSeconds||0)/3600)+'h';
-      rowsCache=d.tools||[]; renderRows();
-      var feedHtml=(d.recentCalls||[]).map(function(x){
-        var m=x.paidWith==='proof-of-work'?'PoW':x.paidWith==='heartbeat'?'HB':'$ USDC';
-        return '<li><span class="op-rs">'+esc(x.slug)+'</span><span class="op-rm">'+m+'</span><span class="op-ra">'+esc(x.at)+'</span></li>';
-      }).join('') || '<li style="text-align:center;color:var(--dk-muted);padding:16px;">No recent activity.</li>';
-      feed.innerHTML = feedHtml; /* eslint-disable-line -- pre-existing AJAX feed refresh; all values esc()-d */
-    } catch(e) { /* ignore */ }
-  }
-  setInterval(tick, 10000);
-})();
-</script>
+${jsonScriptTag("op-rows-data", tools)}
+<script src="/js/operator-dashboard.js"></script>
 
 </div>
 ${ledgerFooterCompact()}`;

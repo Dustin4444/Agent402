@@ -67,12 +67,12 @@ JSON.parse(JSON.stringify(m));
 // ---- reliabilityReport ----
 const stats = {
   servingSince: "2026-01-01T00:00:00.000Z",
-  uptimeSeconds: 12345,
+  processUptimeSeconds: 12345,
   toolCallsServed: { total: 100, viaUSDC: 60, viaProofOfWork: 40 },
 };
 const r = reliabilityReport({ baseUrl: BASE, network: "base", wallet: WALLET, stats });
 ok(r.service === "Agent402.Tools" && r.status === "operational", "reliability identity/status");
-ok(r.uptimeSeconds === 12345 && r.toolCallsServed.total === 100, "reliability pulls live stats");
+ok(r.processUptimeSeconds === 12345 && r.toolCallsServed.total === 100, "reliability pulls live stats");
 ok(r.onchain.revenueProof.includes(WALLET), "reliability onchain proof");
 ok(Array.isArray(r.guarantees) && r.guarantees.length >= 5, "guarantees listed");
 ok(r.guarantees.every((g) => typeof g.claim === "string" && (g.verify || g.evidence)), "every guarantee has a claim + a verify/evidence link");
