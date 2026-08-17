@@ -330,11 +330,14 @@ const res = await payFetch("https://agent402.tools/api/extract", {
 **MPP dual-stack.** The paywall also speaks MPP (Machine Payments Protocol -
 the IETF-track `Payment` HTTP auth scheme from [tempoxyz/mpp](https://github.com/tempoxyz/mpp)):
 the same 402 carries a `WWW-Authenticate: Payment` challenge, `Authorization:
-Payment` credentials settle identically (EIP-3009 USDC, same facilitator, same
-price), and settled responses return a `Payment-Receipt`. An
-[`mppx`](https://www.npmjs.com/package/mppx) client works out of the box; set
-`MPP_SECRET_KEY` to enable it on your own instance. Same URL either way - the
-buyer's client picks the dialect.
+Payment` credentials settle, and settled responses return a `Payment-Receipt`.
+MPP has two methods here: `evm` settles identically to x402 (EIP-3009 USDC,
+same facilitator, same price); `tempo` settles natively via
+[Tempo](https://tempo.xyz)'s own relay (TIP-1034/TIP-20, no x402 facilitator
+involved) - a genuinely separate settlement path, set `TEMPO_API_KEY` to
+enable it. An [`mppx`](https://www.npmjs.com/package/mppx) client works out
+of the box for either method; set `MPP_SECRET_KEY` to enable the shim on your
+own instance. Same URL either way - the buyer's client picks the dialect.
 
 Agents without a wallet still use every pure-CPU tool by solving a single-use
 sha256 proof-of-work (sub-second; the MCP servers do it automatically). Details:

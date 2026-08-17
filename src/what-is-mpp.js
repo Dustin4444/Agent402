@@ -21,7 +21,7 @@ const COMPARE = [
   ["Payment rides in", "X-PAYMENT header", "Authorization: Payment header"],
   ["Proof of settlement", "PAYMENT-RESPONSE header", "Signed Payment-Receipt header"],
   ["Origin", "Coinbase (x402.org)", "Tempo (paymentauth.org, IETF-track)"],
-  ["Settlement", "EIP-3009 stablecoin authorization, verified by a facilitator", "Identical: EIP-3009, same facilitator, same price"],
+  ["Settlement", "EIP-3009 stablecoin authorization, verified by a facilitator", "Depends on the method: MPP's evm method settles identically (EIP-3009, same facilitator); its tempo method settles natively via Tempo's own relay - a different mechanism entirely, same price"],
 ];
 
 const FAQS = [
@@ -130,7 +130,7 @@ Payment-Receipt: 0x8f2a&hellip;c41d
 <section id="compare" style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">02 / COMPARISON</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--ink);">MPP vs x402, side by side.</h2>
-  <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 30px;">Two dialects of the same idea: pay-per-request over HTTP 402, settled in stablecoins, no accounts. They differ in which headers carry the handshake, not in economics. A server can speak both from the same URL at the same price - that is how Agent402 runs today, one paywall, two wire formats, one settlement path.</p>
+  <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 30px;">Two dialects of the same idea: pay-per-request over HTTP 402, settled in stablecoins, no accounts. They differ in which headers carry the handshake, not in economics. A server can speak both from the same URL at the same price - that is how Agent402 runs today, one paywall, two wire formats. Settlement itself now branches: MPP's evm method still shares x402's exact settlement path, but Agent402 also speaks MPP's own tempo method natively - a genuinely separate settlement mechanism (Tempo's own relay), not a translation of the other two.</p>
   <div class="wm-scroll">
     <table style="font-size:14.5px;border:1.5px solid var(--ink);background:var(--card);">
       <thead><tr style="border-bottom:1.5px solid var(--ink);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">&nbsp;</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--accent);">x402</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--accent);">MPP</th></tr></thead>
