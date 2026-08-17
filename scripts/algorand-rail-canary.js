@@ -62,7 +62,17 @@ const OUT = arg("--out");
 const MAX_USD = Number(arg("--max-usd", process.env.CANARY_MAX_USD || "15"));
 const TOOL_MAX_USD = Number(process.env.CANARY_TOOL_MAX_USD || "0.25");
 const LIMIT = Number(arg("--limit", process.env.CANARY_LIMIT || "0")) || Infinity;
-const DELAY_MS = Number(process.env.CANARY_DELAY_MS || "250");
+// 250ms was too aggressive for the Algorand facilitator specifically: run
+// 32006536872 (2026-08-17) settled 415 real Algorand purchases cleanly, then
+// every subsequent call failed instantly (55-85ms, far too fast to have ever
+// reached the chain - genuine settlements in the same run took 5s+) until the
+// run ended, with one lone success mixed back in. That shape - fast local
+// rejection after a volume threshold, not a structural defect (identical
+// accept payloads either side of the cutoff) - is the facilitator throttling
+// this wallet, not the rail breaking. Slower default pacing to stay further
+// under whatever threshold it enforces; see isFastReject below for the
+// classification half of this fix.
+const DELAY_MS = Number(process.env.CANARY_DELAY_MS || "1000");
 // A sweep that buys ~500 tools at 250ms is not representative load: it hits
 // every OpenAI-backed tool back to back, and the upstream throttles. The
 // 2026-08-03 run booked 7 of those as "tool failures" - tts, tts-hd,
@@ -76,6 +86,15 @@ const DELAY_MS = Number(process.env.CANARY_DELAY_MS || "250");
 const THROTTLE_BACKOFF_MS = Number(process.env.CANARY_THROTTLE_BACKOFF_MS || "8000");
 const isThrottle = (status, body) =>
   status === 429 || (status === 503 && /rate.?limit|throttl|too many|overload/i.test(String(body || "")));
+// A genuine settlement rejection means the facilitator actually attempted (and
+// failed) an on-chain broadcast - real Algorand round trips through this
+// script measured 5s+. A 402 that comes back in under this window never
+// reached the chain, which is the AVM-specific shape of the same throttle
+// class isThrottle() catches for 429/503 (see DELAY_MS above for the incident
+// this was found from). Threshold sits well above the ~85ms observed fast
+// rejections and well below genuine ~5s settlements, so it can't misclassify
+// a real slow rejection as a throttle.
+const FAST_REJECT_MS = Number(process.env.CANARY_FAST_REJECT_MS || "1500");
 const ONLY = String(arg("--slugs", process.env.CANARY_SLUGS || "")).split(",").map((s) => s.trim()).filter(Boolean);
 const DRY = process.env.CANARY_DRY === "1" || args.includes("--dry");
 
@@ -144,14 +163,18 @@ console.log(`Algorand rail canary · target ${TARGET} · payer ${payerAddress}`)
 console.log(`catalog: ${tools.length} routes · dry=${DRY} · total cap $${MAX_USD} · per-tool cap $${TOOL_MAX_USD}\n`);
 
 // ── Sweep ─────────────────────────────────────────────────────────────────────
-// ok        settled on Algorand and returned a non-empty payload
-// railFail  we paid and still got a 402 — settlement was rejected (RAIL DEFECT)
-// toolFail  settled but the handler errored, or returned an empty body
-// noAvm     the live 402 offers no algorand:* accept for this tool
-// skipped   over the per-tool price cap, or the total cap was reached
+// ok          settled on Algorand and returned a non-empty payload
+// railFail    we paid and still got a 402 AFTER a genuine (slow) settlement
+//             attempt — settlement was actually refused (RAIL DEFECT)
+// rateLimited a 402 that came back too fast to have reached the chain, and
+//             survived one backoff-and-retry — the facilitator throttling
+//             this wallet, not a rail defect (see FAST_REJECT_MS above)
+// toolFail    settled but the handler errored, or returned an empty body
+// noAvm       the live 402 offers no algorand:* accept for this tool
+// skipped     over the per-tool price cap, or the total cap was reached
 const report = {
   target: TARGET, payer: payerAddress, dry: DRY,
-  ok: [], railFail: [], toolFail: [], throttled: [], noAvm: [], skipped: [],
+  ok: [], railFail: [], rateLimited: [], toolFail: [], throttled: [], noAvm: [], skipped: [],
   spentUsd: 0, startedAt: new Date().toISOString(),
 };
 let processed = 0;
@@ -225,16 +248,47 @@ for (const t of tools) {
   };
 
   try {
+    const startedMs = Date.now();
     const paid = await payOnce();
+    const elapsedMs = Date.now() - startedMs;
     const receiptHdr = paid.headers.get("payment-response") || paid.headers.get("x-payment-response");
     let tx = null;
     if (receiptHdr) { try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8")).transaction; } catch { /* best-effort */ } }
     const body = await paid.text().catch(() => "");
 
-    if (paid.status === 402) {
-      // We signed a valid AVM payment and the paywall still refused: the rail
-      // itself (facilitator, accept, validity window, opt-in) is broken.
-      report.railFail.push({ key, slug: t.slug, usd, reason: `settlement rejected: ${body.slice(0, 160)}` });
+    if (paid.status === 402 && elapsedMs < FAST_REJECT_MS) {
+      // Too fast to have reached the chain (see FAST_REJECT_MS) - the same
+      // "our own burst, not a defect" shape as isThrottle() below, just
+      // surfacing as a plain 402 instead of 429/503 for this facilitator.
+      // One retry after a real pause; a rejection that SURVIVES the pause AND
+      // is still fast is the rate limit, not a coincidence.
+      console.log(`WAIT ${key.padEnd(46)} HTTP 402 in ${elapsedMs}ms (too fast to be a real settlement attempt) - retrying in ${THROTTLE_BACKOFF_MS}ms`);
+      await sleep(THROTTLE_BACKOFF_MS);
+      const retryStartedMs = Date.now();
+      let retried = null, retryBody = "", retryElapsedMs = 0;
+      try {
+        retried = await payOnce();
+        retryElapsedMs = Date.now() - retryStartedMs;
+        retryBody = await retried.text();
+      } catch (e) { retryBody = String(e?.message || e); }
+      if (retried && retried.status === 200 && retryBody.trim()) {
+        report.ok.push({ key, slug: t.slug, usd, tx: tx || null, bytes: retryBody.length, throttledFirst: true });
+        report.spentUsd += usd;
+        console.log(`OK   ${key.padEnd(46)} $${usd} · recovered after rate-limit backoff  [${report.ok.length}]`);
+      } else if (retried && retried.status === 402 && retryElapsedMs < FAST_REJECT_MS) {
+        report.rateLimited.push({ key, slug: t.slug, reason: `HTTP 402 in ${retryElapsedMs}ms, still too fast after ${THROTTLE_BACKOFF_MS}ms backoff` });
+        console.log(`RATE-LIMITED ${key.padEnd(36)} still fast-rejected after backoff`);
+      } else {
+        // The retry took real time (or a different status), so this is not
+        // the fast-reject throttle shape after all - treat as a genuine
+        // rail defect rather than silently swallowing it.
+        report.railFail.push({ key, slug: t.slug, usd, reason: `settlement rejected: HTTP ${retried?.status ?? paid.status} after ${THROTTLE_BACKOFF_MS}ms backoff (${retryElapsedMs}ms): ${String(retryBody).slice(0, 140)}` });
+      }
+    } else if (paid.status === 402) {
+      // Took real time (>= FAST_REJECT_MS), so the facilitator actually
+      // attempted and failed a genuine settlement - the rail itself
+      // (facilitator, accept, validity window, opt-in) is broken.
+      report.railFail.push({ key, slug: t.slug, usd, reason: `settlement rejected after ${elapsedMs}ms: ${body.slice(0, 160)}` });
     } else if (isThrottle(paid.status, body)) {
       // Upstream said "slow down", almost certainly at us: this sweep buys
       // every tool back to back and hits one vendor repeatedly. Pause properly
@@ -282,13 +336,19 @@ const unexpectedNoAvm = report.noAvm.filter((n) => !n.expected);
 
 console.log(`\n=== Algorand rail canary ===`);
 const recovered = report.ok.filter((o) => o.throttledFirst).length;
-console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · tool failures: ${report.toolFail.length} · upstream throttles: ${report.throttled.length}${recovered ? ` (${recovered} recovered on retry)` : ""}`);
+console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · rate-limited: ${report.rateLimited.length} · tool failures: ${report.toolFail.length} · upstream throttles: ${report.throttled.length}${recovered ? ` (${recovered} recovered on retry)` : ""}`);
 console.log(`no AVM accept: ${report.noAvm.length} (${report.noAvm.length - unexpectedNoAvm.length} expected identity-bound, ${unexpectedNoAvm.length} unexpected) · skipped: ${report.skipped.length}`);
 console.log(`spent (recycles to our own payTo): $${report.spentUsd.toFixed(4)}${capped ? "  [TOTAL CAP REACHED]" : ""}`);
 
 if (report.railFail.length) {
-  console.log(`\nRAIL FAILURES (Algorand settlement refused):`);
+  console.log(`\nRAIL FAILURES (Algorand settlement refused after a genuine, slow attempt):`);
   for (const f of report.railFail) console.log(`  ${f.key} — ${f.reason}`);
+}
+if (report.rateLimited.length) {
+  console.log(`\nRATE-LIMITED (fast 402s that survived a backoff - likely the facilitator throttling this wallet's volume, not a rail defect):`);
+  for (const f of report.rateLimited) console.log(`  ${f.key} — ${f.reason}`);
+  console.log(`  NOTE: this sweep buys ~500 tools back to back, which no real buyer does.`);
+  console.log(`  Raise CANARY_DELAY_MS or CANARY_THROTTLE_BACKOFF_MS if this recurs.`);
 }
 if (report.toolFail.length) {
   console.log(`\nTOOL FAILURES (settled path fine, handler did not deliver):`);
