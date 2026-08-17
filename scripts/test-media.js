@@ -1,7 +1,7 @@
 // Media-kit tests: generate a real 2s sine-wave WAV with ffmpeg (present on CI
 // runners and in the production image), then exercise the pure transforms on
 // buffers. Skips cleanly where ffmpeg is unavailable (e.g. local sandboxes).
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,32 +41,44 @@ async function measureLufs(buffer) {
   const dir = mkdtempSync(join(tmpdir(), "a402-lufs-"));
   const p = join(dir, "m");
   writeFileSync(p, buffer);
-  let stderr = "";
-  try {
-    execFileSync("ffmpeg", ["-i", p, "-af", "ebur128=framelog=verbose", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] });
-  } catch (e) {
-    stderr = (e.stderr || "").toString();
-  }
+  // execFileSync only exposes stderr via the thrown Error's .stderr field,
+  // which only happens on a non-zero exit — but `-f null -` with the
+  // ebur128 filter exits 0 on success (verified: consistently 0 on both
+  // macOS/CI ffmpeg builds), so the old try/catch here silently discarded
+  // the captured stderr on every successful run and this always returned
+  // null. spawnSync returns {stdout, stderr, status} regardless of exit
+  // code, so it actually captures the LUFS summary ffmpeg prints to stderr.
+  const res = spawnSync("ffmpeg", ["-i", p, "-af", "ebur128=framelog=verbose", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] });
+  const stderr = (res.stderr || "").toString();
   rmSync(dir, { recursive: true, force: true });
   // ffmpeg prints a summary block ending with "I:  -23.0 LUFS"
   const matches = [...stderr.matchAll(/I:\s*(-?\d+(?:\.\d+)?)\s*LUFS/g)];
   return matches.length ? Number(matches[matches.length - 1][1]) : null;
 }
 
-// A 440Hz sine at default amplitude measures around -3 LUFS (very loud).
+// ffmpeg's lavfi sine source has no amplitude knob (verified: -h filter=sine
+// lists no such option) and its default output level is not a portable
+// constant to assume a sign on - measured -21.8 LUFS on this build, which is
+// QUIETER than the -16 target below, not louder. Assert the real, direction-
+// independent claim instead: normalization moves loudness TOWARD the target,
+// not "always gets quieter" (that assumption silently went untested for as
+// long as measureLufs() itself was broken - see the fix note above).
+const TARGET_LUFS = -16;
 const beforeLufs = await measureLufs(wav);
-const norm = await normalizeAudio(wav, { targetLufs: -16 });
-if (!norm.mp3Base64 || norm.targetLufs !== -16) fail(`normalize wrong: ${JSON.stringify({ ...norm, mp3Base64: "…" })}`);
+if (beforeLufs === null) fail("could not measure input loudness");
+const norm = await normalizeAudio(wav, { targetLufs: TARGET_LUFS });
+if (!norm.mp3Base64 || norm.targetLufs !== TARGET_LUFS) fail(`normalize wrong: ${JSON.stringify({ ...norm, mp3Base64: "…" })}`);
 const normBuf = Buffer.from(norm.mp3Base64, "base64");
 const ninfo = await probeMedia(normBuf);
 if (!ninfo.durationSec || ninfo.durationSec < 1.5) fail("normalized audio lost its duration");
 const afterLufs = await measureLufs(normBuf);
 if (afterLufs === null) fail("could not measure output loudness");
-// The output must actually sit near the -16 target (loudnorm one-pass tolerance
-// is generous, so allow ±3 LU) AND be quieter than the loud input.
-if (Math.abs(afterLufs - -16) > 3) fail(`audio-normalize did NOT hit target: asked -16 LUFS, output measured ${afterLufs} LUFS (input was ${beforeLufs})`);
-if (beforeLufs !== null && afterLufs >= beforeLufs) fail(`loudness did not change: ${beforeLufs} -> ${afterLufs}`);
-console.log(`audio-normalize ✓ REALLY normalized: input ${beforeLufs} LUFS → output ${afterLufs} LUFS (target -16)`);
+// The output must actually sit near the target (loudnorm one-pass tolerance
+// is generous, so allow ±3 LU) AND be closer to it than the input was -
+// proves normalization actually moved the level, not just re-encoded it.
+if (Math.abs(afterLufs - TARGET_LUFS) > 3) fail(`audio-normalize did NOT hit target: asked ${TARGET_LUFS} LUFS, output measured ${afterLufs} LUFS (input was ${beforeLufs})`);
+if (Math.abs(afterLufs - TARGET_LUFS) >= Math.abs(beforeLufs - TARGET_LUFS)) fail(`normalization did not move loudness toward the target: input ${beforeLufs} LUFS (${Math.abs(beforeLufs - TARGET_LUFS).toFixed(1)} LU from target) -> output ${afterLufs} LUFS (${Math.abs(afterLufs - TARGET_LUFS).toFixed(1)} LU from target)`);
+console.log(`audio-normalize ✓ REALLY normalized: input ${beforeLufs} LUFS → output ${afterLufs} LUFS (target ${TARGET_LUFS})`);
 
 // audio-convert must preserve the actual audio (duration within 0.1s), not
 // just emit bytes.
