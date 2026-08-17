@@ -102,6 +102,23 @@ try {
   proc.kill("SIGKILL");
 }
 
+const PATH_USD_ADDRESS = "0x20c0000000000000000000000000000000000000";
+proc = spawn("node", ["src/server.js"], {
+  env: { ...bootBaseEnv, TEMPO_API_KEY: "test-tempo-key", TEMPO_RECIPIENT_ADDRESS: TREASURY, TEMPO_CURRENCY: "" },
+  stdio: "ignore",
+});
+try {
+  await waitHealthy();
+  const r402 = await fetch(`${B}/api/uuid`);
+  const wwwAuth = r402.headers.get("www-authenticate");
+  const challenges = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": wwwAuth }));
+  const tempoCh = challenges.find((c) => c.method === "tempo");
+  ok(!!tempoCh, "tempo challenge still minted with TEMPO_CURRENCY unset (currency now has a default)");
+  ok(tempoCh?.request?.currency === PATH_USD_ADDRESS, `defaults to PathUSD's verified address when TEMPO_CURRENCY is unset (got ${tempoCh?.request?.currency})`);
+} finally {
+  proc.kill("SIGKILL");
+}
+
 // ---------------------------------------------------------------------------
 // Group 2: settlement-ordering invariant, in-process, injected validate/broadcast.
 // ---------------------------------------------------------------------------

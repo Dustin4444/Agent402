@@ -23,13 +23,22 @@
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import { tempo } from "mppx/server";
 
-const DEFAULT_DECIMALS = 6; // matches every other stablecoin rail this repo settles
+const DEFAULT_DECIMALS = 6; // matches every other stablecoin rail this repo settles (unconfirmed specifically for pathUSD — decimals() unread, this is the USDC-family convention, not a live lookup)
+
+// PathUSD — Tempo's predeployed-at-genesis, neutral quote-token stablecoin.
+// VERIFIED (2026-08-17) against Tempo's own server-integration example at
+// tempo.xyz/developers/docs/guide/machine-payments/server, which documents
+// this exact address as "PathUSD on Tempo" — not an mppx README placeholder
+// (an earlier version of this file treated it as unconfirmed and required
+// TEMPO_CURRENCY to be set explicitly with no default; that caution turned
+// out to be unnecessary once the primary source was actually read).
+const PATH_USD_ADDRESS = "0x20c0000000000000000000000000000000000000";
 
 function envRecipient() {
   return process.env.TEMPO_RECIPIENT_ADDRESS || process.env.WALLET_ADDRESS || "";
 }
 function envCurrency() {
-  return process.env.TEMPO_CURRENCY || "";
+  return process.env.TEMPO_CURRENCY || PATH_USD_ADDRESS;
 }
 function envDecimals() {
   const n = Number(process.env.TEMPO_DECIMALS);
@@ -37,9 +46,11 @@ function envDecimals() {
 }
 
 /** Rollout switch — mirrors MPP_SECRET_KEY's own env-gated-no-op posture.
- *  Call-time read, never cached, like every other rollout knob in this repo. */
+ *  Call-time read, never cached, like every other rollout knob in this repo.
+ *  Currency now has a verified default (PathUSD) so only the key and a
+ *  receiving address are required. */
 export function tempoEnabled() {
-  return !!(process.env.TEMPO_API_KEY && envRecipient() && envCurrency());
+  return !!(process.env.TEMPO_API_KEY && envRecipient());
 }
 
 // The configured Method.Server is cheap to hold but not free to rebuild per
