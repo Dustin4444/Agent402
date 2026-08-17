@@ -1116,6 +1116,9 @@ jobs:
       - name: MPP_CHALLENGE_NETWORKS default verified against installed mppx registry (drift guard — offline)
         run: node scripts/test-mpp-shim-mppx-registry.js
 
+      - name: Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
+        run: node scripts/test-mpp-tempo-shim.js
+
       - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
         run: node scripts/test-head-paywall.js
 

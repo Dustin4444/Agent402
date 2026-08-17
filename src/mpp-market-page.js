@@ -7,6 +7,7 @@
 // verification of it (src/mpp-index.js).
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 import { mppChallengeRails } from "./mpp-shim.js";
+import { tempoEnabled } from "./mpp-tempo.js";
 
 // Crawled seller data is third-party input: only http(s) may become an href,
 // same rule market-page.js uses for the exact same reason.
@@ -84,6 +85,12 @@ export function mppMarketPage(baseUrl, snapshot) {
         return `<p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:10px 0 0;max-width:640px;">Agent402 itself accepts MPP payment on ${namesJoined} (${esc(assetsJoined)}) - <a href="/what-is-mpp" style="color:inherit;">how MPP works here</a>.</p>`;
       })()
     : "";
+  // Tempo is a SEPARATE MPP payment method, not an x402-settled chain (it
+  // rides Tempo's own TIP-1034 relay, never @x402/express) — deliberately
+  // never folded into chainsNote above, which describes x402-derived rails.
+  const tempoNote = tempoEnabled()
+    ? `<p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin:6px 0 0;max-width:640px;">...and natively via Tempo (its own MPP payment method, not an x402-settled chain).</p>`
+    : "";
   const categories = [...new Set(sellers.flatMap((s) => s.categories || []))];
 
   const rows = sellers
@@ -120,6 +127,7 @@ export function mppMarketPage(baseUrl, snapshot) {
     <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The MPP marketplace.</h1>
     <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">A live-verified index of sellers on the MPP payment protocol - ${verifiedCount.toLocaleString("en-US")} confirmed by a real, unpaid probe of their actual endpoint, not just claimed by a registry.</p>
     ${chainsNote}
+    ${tempoNote}
     <div style="margin:18px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--paper);max-width:640px;">
       <div id="list-api">
         <div style="font-weight:800;font-size:15px;margin-bottom:8px;color:var(--ink);">Register in one call</div>

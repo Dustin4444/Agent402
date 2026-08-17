@@ -65,6 +65,7 @@ import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus} from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
+import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
 import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
@@ -3767,6 +3768,36 @@ app.get("/api/cache-stats", (_req, res) => res.json(cacheCounters()));
 // stays solely with the paywall. Env-gated: no MPP_SECRET_KEY (or FREE_MODE)
 // → not mounted, server stays pure-x402.
 if (!FREE_MODE) {
+  // Tempo support for MPP (src/mpp-tempo.js) — a SECOND, independent
+  // settlement path alongside the evm shim below: Tempo's TIP-1034/TIP-20
+  // primitives aren't EIP-3009, so this never becomes an x402
+  // PAYMENT-SIGNATURE — it settles via Tempo's own hosted relay instead.
+  // Env-gated on TEMPO_API_KEY (+ recipient + currency); a no-op otherwise.
+  //
+  // MOUNT ORDER MATTERS: the challenge appender below must be registered
+  // BEFORE mppShim. Express's res.writeHead wrapping composes LIFO — the
+  // LAST-registered middleware's wrapper runs FIRST when writeHead is
+  // finally called, then delegates inward. mppShim's own 402 hook only sets
+  // WWW-Authenticate when nothing has set it yet; registering the appender
+  // first means mppShim (registered second) runs its evm-challenge logic
+  // FIRST and the appender then APPENDS the tempo challenge to what's
+  // already there, instead of the appender writing first and mppShim's
+  // guard seeing the header already "taken" and skipping evm entirely
+  // (caught live via scripts/test-mpp-tempo-shim.js — the evm challenge was
+  // silently dropped with the mount order reversed).
+  const tempoAppender = createTempoChallengeAppender({
+    realm: new URL(BASE_URL).host,
+    secretKey: process.env.MPP_SECRET_KEY || "",
+    priceFor: (method, path) => {
+      const def = CATALOG[`${method} ${path}`];
+      if (!def) return null;
+      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      if (!priceUsd) return null;
+      return { priceUsd, description: def.name };
+    },
+  });
+  if (tempoAppender) app.use(tempoAppender);
+
   const mppShim = createMppShim({
     secretKey: process.env.MPP_SECRET_KEY || "",
     realm: new URL(BASE_URL).host,
@@ -3774,6 +3805,12 @@ if (!FREE_MODE) {
   if (mppShim) {
     app.use(mppShim);
     console.log("MPP dual-stack shim enabled (WWW-Authenticate/Authorization Payment ↔ x402 headers)");
+  }
+
+  const tempoGate = createTempoGate();
+  if (tempoGate) {
+    app.use(tempoGate);
+    console.log("Tempo MPP settlement enabled (native tempo/charge via Tempo's relay)");
   }
 }
 
@@ -4116,6 +4153,12 @@ if (FREE_MODE) {
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
   // on /mcp could keep hammering /api/* with fresh PoW solutions for free.
   app.use(async (req, res, next) => {
+    // A Tempo-credentialed request never carries an x402 payment header —
+    // none of PoW/trial/replay-guard/x402mw below applies to it, and running
+    // x402mw here would just 402 it as unauthenticated. mpp-tempo.js's own
+    // gate (mounted earlier, before this) already validated the credential
+    // and owns settlement for this request end to end.
+    if (req.tempoSettling) return next();
     // Retired converters aren't catalog routes, so POW_ROUTES can't know them —
     // which briefly made them the only paid paths on the site with NO free
     // tier, while unit-convert (the identical work, same engine, same table)
@@ -4314,30 +4357,42 @@ app.use((req, res, next) => {
         // "usdc" is the ELSE branch, so any free path that forgets to name
         // itself here is booked as a sale. A trial moves no money.
         const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : trialAccepted ? "trial" : "usdc";
+        // Tempo settlements (src/mpp-tempo.js) never carry a PAYMENT-RESPONSE
+        // header — @x402/express never runs on that path — so without this
+        // flag they'd fall through networkFromPaymentResponse(null) and get
+        // mislabeled wire:"x402" below. req.tempoSettled is set by the gate
+        // itself, only after a real broadcast succeeded.
+        const networkFor = () => (req.tempoSettled ? "tempo" : networkFromPaymentResponse(settleReceipt));
+        const wireFor = () => (req.tempoSettled ? "mpp-tempo" : req.mppCredential ? "mpp" : "x402");
         // For USDC, also attribute the settlement chain from the settle receipt
         // (multi-chain x402: Base vs Solana vs Polygon…) so /api/stats can
         // answer "did anyone pay on <chain>" without per-chain explorer scans.
         recordServedCall(
           def.slug,
           method,
-          method === "usdc" ? networkFromPaymentResponse(settleReceipt) : null,
-          // Wire attribution: req.mppCredential is set by src/mpp-shim.js when
-          // the credential arrived as MPP Authorization: Payment.
-          method === "usdc" && req.mppCredential ? "mpp" : null
+          method === "usdc" ? networkFor() : null,
+          // "mpp-tempo" still counts toward the broad MPP-adoption counter —
+          // it IS MPP's own native method, just a distinct wire from the
+          // evm-translated one.
+          method === "usdc" && (req.tempoSettled || req.mppCredential) ? "mpp" : null
         );
         // Funnel stage 3 — the gate accepted payment and the tool answered.
         // Mirrors the stats attribution above. Skipped in FREE_MODE — nothing
         // was paid, so a "settlement" event would be a lie.
         if (!FREE_MODE) {
           const rail = method;
-          const network = method === "usdc" ? networkFromPaymentResponse(settleReceipt) : null;
+          const network = method === "usdc" ? networkFor() : null;
           const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
           const synthetic = method === "heartbeat" || isSyntheticRequest(req);
           // Request-payload attribution covers EVM (EIP-3009 authorization.from);
           // SVM/Stellar payloads carry no such field, so fall back to the
           // facilitator-verified payer in the settle receipt — otherwise every
           // Solana/Stellar buyer records as null in PostHog and the sales ledger.
-          const payer = payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+          // Tempo carries neither shape today (no PAYMENT-SIGNATURE, no x402
+          // settle receipt) — payer is honestly null rather than guessed;
+          // filling this in needs the exact field Tempo's relay receipt uses,
+          // unverified without real relay access (see the approved plan).
+          const payer = req.tempoSettled ? null : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           // Client attribution: the User-Agent PRODUCT TOKEN only (first
           // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
           // "node") so payment_settled can answer "which SDK/client do paying
@@ -4345,7 +4400,7 @@ app.use((req, res, next) => {
           const clientUa = String(req.headers["user-agent"] || "").trim().split(/\s+/)[0].slice(0, 40) || null;
           capturePostHogSettlement({
             slug: def.slug, rail, network, priceUsd, synthetic, payer, clientUa,
-            wire: rail === "usdc" ? (req.mppCredential ? "mpp" : "x402") : null,
+            wire: rail === "usdc" ? wireFor() : null,
           });
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
@@ -4353,9 +4408,9 @@ app.use((req, res, next) => {
           recordSale({
             slug: def.slug, priceUsd, rail, network,
             payer,
-            tx: txFromPaymentResponse(settleReceipt),
+            tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : txFromPaymentResponse(settleReceipt),
             synthetic,
-            wire: rail === "usdc" ? (req.mppCredential ? "mpp" : "x402") : null,
+            wire: rail === "usdc" ? wireFor() : null,
           });
         }
       } else if (settleReceipt) {
