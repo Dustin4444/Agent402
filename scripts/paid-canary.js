@@ -989,6 +989,79 @@ async function main() {
   })();
   }
 
+  // Tempo — MPP's OWN native method (src/mpp-tempo.js), architecturally
+  // distinct from the mpp/mpp-celo legs above: those settle via
+  // @x402/express (translated PAYMENT-SIGNATURE, EIP-3009). Tempo settles
+  // via Tempo's own hosted relay instead — no x402 facilitator involved at
+  // all, so this leg is the only proof this repo has that the real relay
+  // wire format actually works (the offline test suite only proves our own
+  // validate/broadcast logic against injected stubs, by design — see PR
+  // #812). Own try/catch (not shared with mpp/mpp-celo above): a Tempo
+  // failure must never be misattributed to the "mpp" rail key.
+  //
+  // Same burner as every other leg (BURNER_KEY / `account` — Tempo is the
+  // same secp256k1 address space as any EVM chain), funded separately with
+  // real PathUSD on Tempo mainnet — no new secret needed. Skips cleanly
+  // (no railFail) when the server doesn't offer a tempo challenge at all,
+  // which is the honest signal for "TEMPO_API_KEY unset on prod" rather
+  // than a rail regression.
+  await (async () => {
+    try {
+      const [{ Mppx: MppClientNS, tempo: mppTempo }, { Challenge: MppChallenge, Receipt: MppReceipt }] = await Promise.all([
+        import("mppx/client"), import("mppx"),
+      ]);
+      const heartbeatHeaders = () => {
+        if (!secret) return {};
+        const minute = Math.floor(Date.now() / 60_000);
+        return { "X-Heartbeat-Token": createHmac("sha256", secret).update(`heartbeat:${minute}`).digest("base64url").slice(0, 32) };
+      };
+      const url = `${TARGET}/api/uuid`;
+      const bare = await fetch(url, { headers: heartbeatHeaders() });
+      if (bare.status !== 402) {
+        railFail("mpp-tempo", `expected a 402 challenge from /api/uuid, got HTTP ${bare.status} — the leg proved nothing`);
+        return;
+      }
+      const wwwAuth = bare.headers.get("www-authenticate");
+      const tempoCh = wwwAuth
+        ? MppChallenge.fromHeadersList(new Headers({ "WWW-Authenticate": wwwAuth })).find((c) => c.method === "tempo" && c.intent === "charge")
+        : null;
+      if (!tempoCh) {
+        console.log("\nSKIP  mpp-tempo — no tempo/charge challenge on the live 402 (TEMPO_API_KEY unset on prod; not a rail regression)");
+        return;
+      }
+      const tempoClient = MppClientNS.create({ methods: [mppTempo.charge({ account })], polyfill: false });
+      const credential = await tempoClient.createCredential(
+        new Response(null, { status: 402, headers: { "WWW-Authenticate": MppChallenge.serialize(tempoCh) } })
+      );
+      if (!/^Payment /.test(credential)) {
+        railFail("mpp-tempo", `client produced a non-tempo credential (${credential.slice(0, 24)}…) — native path not taken`);
+        return;
+      }
+      const paid = await fetch(url, { headers: { ...heartbeatHeaders(), Authorization: credential } });
+      const body = await paid.json().catch(() => ({}));
+      if (paid.status === 200 && Array.isArray(body.uuids)) {
+        const receiptHdr = paid.headers.get("payment-receipt");
+        let ref = null;
+        if (receiptHdr) {
+          try { ref = MppReceipt.deserialize(receiptHdr)?.reference || null; } catch { /* best-effort */ }
+        }
+        if (!receiptHdr) {
+          railFail("mpp-tempo", "settled 200 over Authorization: Payment but carried no Payment-Receipt header — Tempo receipt mirroring is broken");
+        } else {
+          console.log(`\nOK    mpp-tempo   /api/uuid  → settled over Tempo's native relay (Authorization: Payment, payer ${account.address})${ref ? `\n      Payment-Receipt tx: https://explore.tempo.xyz/tx/${ref}` : ""}`);
+          noteRail("mpp-tempo", true);
+        }
+      } else if (paid.status === 402) {
+        const reason = settleRejectReason(paid.headers);
+        railFail("mpp-tempo", `did NOT settle (HTTP 402, payer ${account.address}) — reason: ${JSON.stringify(reason)} (unfunded PathUSD burner on Tempo, relay outage, or a wire-format drift from the last verified relay contract)`);
+      } else {
+        railFail("mpp-tempo", `HTTP ${paid.status} ${JSON.stringify(body).slice(0, 120)}`);
+      }
+    } catch (e) {
+      railFail("mpp-tempo", `errored: ${(e?.message || String(e)).slice(0, 160)}`);
+    }
+  })();
+
   // Pinned EVM legs — Polygon, Arbitrum, Monad, Celo: same negotiation as the Robinhood
   // leg above (filter the live 402's accepts down to ONE CAIP-2 chain and pay
   // that, so settlement cannot silently fall back to Base). Same burner

@@ -7,8 +7,11 @@
 // This exists because scripts/test-mpp-tempo-shim.js only proves OUR OWN
 // logic (challenge minting + settlement ordering) against injected
 // validate/broadcast stubs — Tempo's real relay wire format was explicitly
-// left unverified in that PR. This is that verification, run once via
-// workflow_dispatch, not (yet) folded into the daily 32-leg paid-canary.js.
+// left unverified in that PR. This script was the first live proof it
+// worked; a permanent "mpp-tempo" leg now also runs daily inside
+// paid-canary.js (same burner, same relay). This standalone script stays
+// for fast, isolated on-demand verification (workflow_dispatch) without
+// waiting for or spending on the other ~33 legs.
 //
 // Marked synthetic via the same X-Heartbeat-Token mechanism paid-canary.js
 // uses (HMAC(POW_SECRET, UTC minute)), so this doesn't pollute the sales
