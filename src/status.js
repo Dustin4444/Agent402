@@ -95,17 +95,28 @@ const WINDOWS = [
 export const CORE_STATUS_KEYS = Object.freeze(["api", "catalog", "mcp", "paywall", "paid-call"]);
 
 /** Worst state wins among what we have measured, with core-scoped outage.
- *  Components we have never measured cannot vote. */
-export function overallState(components) {
+ *  Components we have never measured cannot vote. `railComponents` (per-chain,
+ *  e.g. rail_monad) can only ever pull the result down to "degraded" — same as
+ *  a non-core component — never to "outage"; only CORE_STATUS_KEYS can force
+ *  that. Before 2026-08-17 railComponents were computed but never passed
+ *  here, so a chain dropping out of the live 402 accepts (caught correctly by
+ *  the paid canary and shown as "Outage" on its own card) never moved the
+ *  headline off "All systems operational" - the exact gap this closes. */
+export function overallState(components, railComponents = []) {
   const voting = components.filter((c) => c.observed > 0);
-  if (!voting.length) return "unknown";
+  const railVoting = railComponents.filter((c) => c.observed > 0);
+  if (!voting.length && !railVoting.length) return "unknown";
   const core = new Set(CORE_STATUS_KEYS);
   if (voting.some((c) => core.has(c.key) && c.current?.state === "outage")) return "outage";
   // Everything stale is not "degraded" — degraded asserts we know something is
   // wrong (or that measurement is incomplete). If no component has a fresh
   // observation we simply do not know, and saying so is the honest answer.
-  if (voting.every((c) => c.current?.state === "unknown")) return "unknown";
-  if (voting.some((c) => ["outage", "degraded", "unknown"].includes(c.current?.state))) return "degraded";
+  const allUnknown =
+    (!voting.length || voting.every((c) => c.current?.state === "unknown")) &&
+    (!railVoting.length || railVoting.every((c) => c.current?.state === "unknown"));
+  if (allUnknown) return "unknown";
+  const bad = (c) => ["outage", "degraded", "unknown"].includes(c.current?.state);
+  if (voting.some(bad) || railVoting.some(bad)) return "degraded";
   return "operational";
 }
 
@@ -134,8 +145,8 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
   const components = COMPONENTS.map(toComponent);
   // Rails are informational, not core - a single failed chain never flips
   // overall to "outage" (same doctrine as the existing aggregate "rails"
-  // component and CORE_STATUS_KEYS below), so this is computed separately
-  // and never fed into overallState().
+  // component and CORE_STATUS_KEYS below). They DO still feed overallState()
+  // so a real per-chain outage is visible as "degraded", not silently absorbed.
   const railComponents = RAIL_COMPONENTS.map(toComponent);
 
   // Incidents come from the availability component: the one with full history.
@@ -145,7 +156,7 @@ export function statusSnapshot({ baseUrl = "", nowMs = Date.now(), historyDays =
   return {
     service: "Agent402.Tools",
     generatedAt: new Date(nowMs).toISOString(),
-    overall: overallState(components),
+    overall: overallState(components, railComponents),
     measurement: {
       observer: "Two independent observers outside production: a Cloudflare cron probe and the GitHub Actions heartbeat",
       cadence: "every 5 minutes (Cloudflare), plus the GitHub heartbeat for the paid-call path",
@@ -372,9 +383,19 @@ export function statusPage(baseUrl, stats, snap) {
             : "Not yet measured";
 
   const settlementDetail = settlement?.current?.detail;
+  // Prefer naming the specific bad rail(s) directly (always accurate, sourced
+  // from the same railComponents overallState() now reads) over relying on
+  // settlement's own detail text happening to mention it.
+  const badRails = snap.railComponents.filter(
+    (c) => c.observed > 0 && ["outage", "degraded", "unknown"].includes(c.current?.state)
+  );
   const heroExtra =
-    snap.overall === "degraded" && settlementDetail
-      ? `<p class="hm">${esc(settlementDetail)}</p>`
+    snap.overall === "degraded"
+      ? `<p class="hm">${esc(
+          badRails.length
+            ? `Rail${plural(badRails.length)} affected: ${badRails.map((c) => `${c.label} (${WORD[c.current.state]})`).join(", ")}.`
+            : settlementDetail || "See components below for detail."
+        )}</p>`
       : "";
 
   const windowList =
