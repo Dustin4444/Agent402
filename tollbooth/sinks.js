@@ -16,7 +16,7 @@
 // Want strong consistency on Cloudflare? Back it with a Durable Object that
 // implements the same { incr, snapshot } interface and pass it as `statsSink`.
 
-const KNOWN_FIELDS = ["requests", "freeAllowed", "wouldCharge", "charged", "powSolved", "x402Paid"];
+const KNOWN_FIELDS = ["requests", "freeAllowed", "wouldCharge", "charged", "powSolved", "x402Paid", "mppPaid"];
 const ZERO = () => Object.fromEntries(KNOWN_FIELDS.map((k) => [k, 0]));
 
 // Filter an untrusted JSON blob (KV value or HTTP collector response) to only

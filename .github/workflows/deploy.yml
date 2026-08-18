@@ -1155,6 +1155,9 @@ jobs:
       - name: Leaderboard RPC failures never carry the Alchemy key (host-only naming + redaction on the public lastError path — offline)
         run: node scripts/test-leaderboard-redaction.js
 
+      - name: Tollbooth x402 middleware mode + MPP (real @x402/express settles after the handler; real mppx client buys over Authorization: Payment; stub facilitator — offline)
+        run: node scripts/test-tollbooth-mpp.js
+
       - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
         run: node scripts/test-head-paywall.js
 

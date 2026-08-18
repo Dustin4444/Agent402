@@ -159,7 +159,7 @@ ok(httpsAccepted, "httpStatsSink accepts bearer token over https://");
 // --- dashboard renders and points at the stats endpoint ---
 const html = dashboardHtml();
 ok(html.startsWith("<!doctype html>") && html.includes("/__tollbooth/stats"), "dashboard is HTML that reads /__tollbooth/stats");
-ok(["requests", "freeAllowed", "wouldCharge", "charged", "powSolved", "x402Paid", "difficultyNow"].every((k) => html.includes(k)), "dashboard references every stat field");
+ok(["requests", "freeAllowed", "wouldCharge", "charged", "powSolved", "x402Paid", "mppPaid", "difficultyNow"].every((k) => html.includes(k)), "dashboard references every stat field");
 // Derived operator ratios — answer "is the gate converting?" and "are they
 // paying USDC or just grinding PoW?" without forcing operators to do
 // the arithmetic mentally.

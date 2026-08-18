@@ -14,14 +14,17 @@
 // x402 server middleware / your facilitator — see README).
 import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
+import { randomBytes } from "node:crypto";
 import { createPow } from "./pow.js";
 import { makeBotMatcher, AI_BOTS } from "./bots.js";
 import { memorySink } from "./sinks.js";
+import { challengesFromPaymentRequired, translateCredential, receiptFromPaymentResponse, isMppCredential, DEFAULT_MPP_CHAIN_IDS } from "./mpp.js";
 
 export { AI_BOTS, makeBotMatcher } from "./bots.js";
 export { createPow, leadingZeroBits } from "./pow.js";
 export { memorySink, kvStatsSink, httpStatsSink } from "./sinks.js";
 export { sqliteReplayStore, redisReplayStore } from "./replay.js";
+export { challengesFromPaymentRequired, translateCredential, receiptFromPaymentResponse, DEFAULT_MPP_CHAIN_IDS } from "./mpp.js";
 
 const VERIFY_TIMEOUT_MS = Number(process.env.TOLLBOOTH_VERIFY_TIMEOUT_MS) || 10_000;
 
@@ -34,14 +37,30 @@ const VERIFY_TIMEOUT_MS = Number(process.env.TOLLBOOTH_VERIFY_TIMEOUT_MS) || 10_
 // the gate hanging or produce a charged-then-denied result after the gate has
 // returned 402. Grants on next(); denies when the middleware writes a 402.
 //
+// DEPRECATED (0.7.0) - use `createTollbooth({ x402: paymentMiddleware })` instead.
+// @x402/express v2's default `authorization` flow verifies BEFORE the handler
+// but SETTLES AFTER the handler ends the response (it wraps res.end and awaits
+// it). This wrapper hands the middleware a stub response that the real handler
+// never ends, so with a v2 middleware it grants on verify and the settlement
+// never runs: the buyer is served and never charged. It only ever settled with
+// v1 middlewares that settled before calling next(). Kept for those callers;
+// warns once at construction. The `x402` option delegates to the middleware
+// with the REAL response, so verify, handler and settle happen in the
+// middleware's own order, exactly once.
+//
 // LIMITATION (documented): @x402/express settles by BROADCASTING and exposes no
 // cancel hook, so this wrapper cannot abort an on-chain settle already in flight.
 // Keep TOLLBOOTH_VERIFY_TIMEOUT_MS comfortably above your settle latency so the
 // abort is a backstop, not the normal path; or front it with a facilitator that
 // supports cancellation.
+let warnedVerifierFromExpress = false;
 export function x402VerifierFromExpress(paymentMiddleware, { timeoutMs } = {}) {
   if (typeof paymentMiddleware !== "function") {
     throw new TypeError("x402VerifierFromExpress: paymentMiddleware must be a function");
+  }
+  if (!warnedVerifierFromExpress) {
+    warnedVerifierFromExpress = true;
+    console.warn("[agent402-tollbooth] x402VerifierFromExpress is deprecated: with @x402/express v2 (settle-after-handler) it grants on verify and never settles. Pass the middleware as createTollbooth({ x402: paymentMiddleware }) instead.");
   }
   return (req, opts = {}) => new Promise((resolve, reject) => {
     const signal = opts?.signal;
@@ -93,7 +112,16 @@ const STRIP_INBOUND = new Set([
  * @param {string[]} [config.botUserAgents]    user-agents to charge (default: AI_BOTS)
  * @param {(req)=>boolean} [config.charge]     custom "should this client pay?" predicate
  * @param {(req)=>boolean} [config.free]       custom force-allow predicate (wins over charge)
- * @param {(req, requirements)=>boolean|Promise<boolean>} [config.verifyX402]  USDC settlement check
+ * @param {(req, requirements)=>boolean|Promise<boolean>} [config.verifyX402]  legacy verify-only USDC check (deprecated for settle-after-handler middlewares; see `x402`)
+ * @param {Function} [config.x402]              an @x402/express `paymentMiddleware(...)` (or compatible (req,res,next)) that owns
+ *                                             verify + settle. The gate delegates paid requests to it with the REAL response, so
+ *                                             settlement runs in the middleware's own order (v2: after the handler), and it lifts
+ *                                             the middleware's PAYMENT-REQUIRED onto the gate's 402 so stock x402 v2 clients can pay.
+ * @param {boolean} [config.mpp]               accept MPP (Machine Payments Protocol) clients too - default true when `x402` is set.
+ *                                             Adds WWW-Authenticate: Payment challenges to the 402 and settles Authorization: Payment
+ *                                             credentials through the same `x402` middleware (evm/charge on the chains it advertises).
+ * @param {string} [config.mppSecret]          HMAC secret binding MPP challenge ids (default: powSecret / TOLLBOOTH_SECRET, else per-process random)
+ * @param {number[]|"all"} [config.mppNetworks] EVM chain ids to offer as MPP challenges (default Base + Celo, what a stock mppx client can sign)
  * @param {string} [config.resourceBaseUrl]    absolute base for the x402 `resource`/PoW binding
  * @param {string} [config.message]            human-readable note included in the 402
  * @param {boolean} [config.observe]           observe-only: classify, count, never 402 (deploy a week before enforcing)
@@ -128,6 +156,12 @@ export function createTollbooth(config = {}) {
     charge,
     free,
     verifyX402,
+    x402 = null,
+    mpp = config.mpp ?? (process.env.TOLLBOOTH_MPP ? process.env.TOLLBOOTH_MPP !== "false" : !!x402),
+    mppSecret,
+    mppNetworks = process.env.TOLLBOOTH_MPP_NETWORKS
+      ? (process.env.TOLLBOOTH_MPP_NETWORKS.trim().toLowerCase() === "all" ? "all" : process.env.TOLLBOOTH_MPP_NETWORKS.split(",").map((s) => Number(s.trim())).filter(Number.isInteger))
+      : DEFAULT_MPP_CHAIN_IDS,
     resourceBaseUrl = process.env.TOLLBOOTH_RESOURCE_BASE || "",
     // Adaptive proof-of-work: raise difficulty as charged-request load climbs, so
     // high-volume abuse pays escalating CPU regardless of how it disguises itself.
@@ -147,6 +181,18 @@ export function createTollbooth(config = {}) {
 
   const isBot = makeBotMatcher(botUserAgents);
   const powEngine = pow ? createPow({ difficulty: powDifficulty, secret: powSecret, replayStore }) : null;
+  if (x402 && typeof x402 !== "function") throw new TypeError("createTollbooth: `x402` must be an Express middleware function");
+  // MPP rides the x402 middleware (settlement authority) - without one there
+  // is nothing to settle an MPP credential with, so it stays off.
+  const mppOn = !!(mpp && x402);
+  // Challenge ids are HMAC-bound; a stable secret is needed across workers.
+  // Same caveat as PoW: per-process random works for one process only.
+  const mppKey = mppOn
+    ? String(mppSecret || powSecret || process.env.TOLLBOOTH_MPP_SECRET || process.env.TOLLBOOTH_SECRET || randomBytes(32).toString("hex"))
+    : null;
+  if (mppOn && !(mppSecret || powSecret || process.env.TOLLBOOTH_MPP_SECRET || process.env.TOLLBOOTH_SECRET)) {
+    console.warn("[agent402-tollbooth] MPP enabled with a per-process random secret - set TOLLBOOTH_SECRET (or mppSecret) for multi-worker deploys.");
+  }
 
   // Passive analytics — never affects request handling, just counts what happens.
   // `mem` is an always-on in-process mirror so `.stats()` stays synchronous for
@@ -218,7 +264,10 @@ export function createTollbooth(config = {}) {
     // stays a plain URL (below) for wire compatibility.
     const powResource = `${(req.method || "GET").toUpperCase()} ${resource}`;
 
-    const send402 = (extra = {}) => {
+    // `headers` = extra response headers to carry on the 402 (the x402
+    // middleware's own PAYMENT-REQUIRED and, when MPP is on, the derived
+    // WWW-Authenticate: Payment challenges).
+    const send402 = (extra = {}, headers = {}) => {
       incr("charged");
       if (adaptive) chargedWindow.push(Date.now());
       const body = {
@@ -230,7 +279,123 @@ export function createTollbooth(config = {}) {
         ...extra,
       };
       if (powEngine) body.proofOfWork = powEngine.challenge(powResource, difficultyNow());
+      for (const [k, v] of Object.entries(headers)) { if (v != null && v !== "") res.setHeader(k, v); }
       res.status(402).json(body);
+    };
+
+    // Paid rail, middleware mode: delegate to the operator's x402 middleware
+    // with the REAL response so verify -> handler -> settle run in ITS order,
+    // exactly once. Its 402 (no/invalid payment) is intercepted and replaced by
+    // the gate's 402 - same body contract as ever (accepts + proofOfWork +
+    // message) plus the middleware's PAYMENT-REQUIRED header lifted verbatim,
+    // so a stock x402 v2 client can pay a tollbooth-gated site, and - when MPP
+    // is on - WWW-Authenticate: Payment challenges derived from that same
+    // header, so a stock mppx client can too. Anything the middleware writes
+    // that is NOT a 402 (facilitator 5xx, its own paywall HTML) passes through
+    // untouched: it is the operator's stack answering, not ours to rewrite.
+    const middlewareRail = () => {
+      // ---- MPP inbound: Authorization: Payment -> PAYMENT-SIGNATURE ----
+      // Only when the request is not already speaking x402 (pass-through is
+      // the no-regression rule), and only a credential whose challenge id
+      // HMAC-verifies as OURS. Anything else is ignored: the middleware
+      // answers 402 and the interceptor below mints fresh challenges.
+      let viaMpp = false;
+      if (mppOn && !req.headers["payment-signature"] && !req.headers["x-payment"] && isMppCredential(req.headers.authorization)) {
+        const sig = translateCredential(req.headers.authorization, { secretKey: mppKey });
+        if (sig) {
+          req.headers["payment-signature"] = sig;
+          delete req.headers.authorization; // consumed - never let it be double-read downstream
+          viaMpp = true;
+        }
+      }
+      // ---- MPP outbound receipt: mirror PAYMENT-RESPONSE as Payment-Receipt ----
+      // The middleware sets PAYMENT-RESPONSE after settlement and then replays
+      // the handler's buffered writeHead, so hooking writeHead HERE (before the
+      // middleware wraps it) sees the settled header at replay time.
+      if (viaMpp) {
+        const origWriteHead = res.writeHead;
+        res.writeHead = function tollboothMppWriteHead(...args) {
+          try {
+            if (res.statusCode === 200 && !res.getHeader("Payment-Receipt")) {
+              const settle = res.getHeader("PAYMENT-RESPONSE") || res.getHeader("payment-response");
+              const receipt = settle ? receiptFromPaymentResponse(String(settle)) : null;
+              if (receipt) res.setHeader("Payment-Receipt", receipt);
+            }
+          } catch { /* receipts are additive - never break the response */ }
+          return origWriteHead.apply(this, args);
+        };
+      }
+      // ---- 402 interceptor around the real response ----
+      // The middleware answers "no/invalid payment" with res.status(402) +
+      // setHeader(PAYMENT-REQUIRED ...) + json({}) (or send(html) for its
+      // paywall). Swallow THAT write and emit the gate's 402 instead, carrying
+      // the headers it set. Everything else reaches the real response.
+      let intercepting = true;
+      let granted = false;
+      const realStatus = res.status.bind(res);
+      const realJson = res.json.bind(res);
+      const realSend = res.send.bind(res);
+      const realEnd = res.end.bind(res);
+      const restore = () => { intercepting = false; res.status = realStatus; res.json = realJson; res.send = realSend; res.end = realEnd; };
+      const finish402 = () => {
+        // Collect the middleware's 402 headers before restoring; the gate's
+        // own send402 re-applies them on top of its body.
+        const lifted = {};
+        for (const name of ["PAYMENT-REQUIRED", "payment-required", "X-PAYMENT-REQUIRED", "x-payment-required"]) {
+          const v = res.getHeader(name);
+          if (v) lifted[name.toUpperCase() === "PAYMENT-REQUIRED" ? "PAYMENT-REQUIRED" : name] = String(v);
+        }
+        if (mppOn && lifted["PAYMENT-REQUIRED"]) {
+          const www = challengesFromPaymentRequired(lifted["PAYMENT-REQUIRED"], { secretKey: mppKey, realm: mppRealm(req), chainIds: mppNetworks });
+          if (www) lifted["WWW-Authenticate"] = www;
+        }
+        restore();
+        // The middleware may have set a Content-Type for its own body; the
+        // gate answers JSON.
+        try { res.removeHeader("Content-Type"); } catch { /* ignore */ }
+        send402({}, lifted);
+      };
+      // Pass-through never reassigns res.* here: on grant, @x402/express has
+      // already captured these guards as its "original" methods and installed
+      // its own buffering wrappers on top (that is how settle-after-handler
+      // works). Reassigning would clobber those wrappers and the middleware
+      // would wait forever for a res.end it never sees - i.e. serve without
+      // settling. Only the 402 path restores (nothing is wrapped there).
+      const guard = (write) => (...args) => {
+        if (intercepting && !granted && res.statusCode === 402) { finish402(); return res; }
+        return write(...args);
+      };
+      res.status = (code) => { realStatus(code); return res; };
+      res.json = guard(realJson);
+      res.send = guard(realSend);
+      res.end = guard(realEnd);
+      const grant = () => {
+        granted = true;
+        intercepting = false;
+        incr(viaMpp ? "mppPaid" : "x402Paid");
+        res.setHeader("X-Tollbooth-Paid", viaMpp ? "mpp" : "x402");
+        return next();
+      };
+      let out;
+      try {
+        out = x402(req, res, grant);
+      } catch (e) {
+        restore();
+        res.setHeader("X-Tollbooth-Error", "x402-middleware-threw");
+        return send402();
+      }
+      return Promise.resolve(out).catch(() => {
+        if (granted || res.headersSent) return; // the middleware's own settle-failure 402 already went out
+        restore();
+        res.setHeader("X-Tollbooth-Error", "x402-middleware-threw");
+        send402();
+      });
+    };
+    const mppRealm = (r) => {
+      // Protection-space identifier for the challenge: the site's host, or the
+      // configured resource base's host - the same origin the PoW binds.
+      try { if (resourceBaseUrl) return new URL(resourceBaseUrl).host; } catch { /* fall through */ }
+      return String(r.headers?.host || (r.get && r.get("host")) || "tollbooth").toLowerCase();
     };
 
     // Paid rail: x402 (USDC). Settlement verification is operator-supplied so
@@ -238,6 +403,7 @@ export function createTollbooth(config = {}) {
     // either directly or after the free rail declined, so it lives in a function
     // the (possibly async) proof-of-work branch can hand control back to.
     const paidRail = () => {
+      if (x402) return middlewareRail();
       const payHeader = req.headers["x-payment"] || req.headers["payment-signature"];
       if (payTo && typeof verifyX402 === "function" && payHeader) {
         // Bound verification time so a slow/hung verifier can't exhaust resources.
