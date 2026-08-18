@@ -203,6 +203,13 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       // discovery: find a tool, route to a seller, see who's most used.
       leaderboard: `${baseUrl}/api/leaderboard`,
       leaderboardHtml: `${baseUrl}/leaderboard`,
+      // The MPP side of the same primitives: a live-verified index of sellers
+      // speaking WWW-Authenticate: Payment (with the payment offers their real
+      // 402 makes), and an on-chain ranking by inbound USDC.e transfers on Tempo
+      // to each seller's live recipient (`routable` = the router will pay them).
+      mppSellerIndex: `${baseUrl}/api/mpp-index`,
+      mppSellerIndexHtml: `${baseUrl}/mpp-marketplace`,
+      mppLeaderboard: `${baseUrl}/api/mpp-leaderboard`,
       // The leaderboard primitive ships on three equivalent surfaces so an
       // agent can consume it however it already talks to Agent402. The HTTP
       // endpoint is the source of truth; the MCP tool and SDK method are thin
