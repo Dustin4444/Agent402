@@ -48,7 +48,7 @@ export function agenticFinancePage(baseUrl) {
     "Agentic Finance (AIFI) is software agents transacting on their own: discovering services, paying per request from a wallet over open protocols like x402 and MPP, receiving verifiable receipts, and earning per request in return. The definition, the stack, and where Agent402 fits as its applied layer.";
 
   const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", url: baseUrl, logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, sameAs: ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools"], knowsAbout: ["Agentic Finance", "AIFI", "x402", "Machine Payments Protocol", "MPP", "agentic payments", "AI agents"] };
-  const termLd = { "@type": "DefinedTerm", "@id": `${canonical}#term`, name: "Agentic Finance", alternateName: "AIFI", description: FAQS[0].a, url: canonical, inDefinedTermSet: { "@type": "DefinedTermSet", name: "Agent402 glossary", url: `${baseUrl}/what-is-x402` } };
+  const termLd = { "@type": "DefinedTerm", "@id": `${canonical}#term`, name: "Agentic Finance", alternateName: "AIFI", description: FAQS[0].a, url: canonical, inDefinedTermSet: { "@type": "DefinedTermSet", "@id": `${baseUrl}/glossary#set`, name: "Agentic Finance (AIFI) glossary", url: `${baseUrl}/glossary` } };
   const breadcrumbLd = { "@type": "BreadcrumbList", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Agent402", item: `${baseUrl}/` },
     { "@type": "ListItem", position: 2, name: "Agentic Finance (AIFI)", item: canonical },

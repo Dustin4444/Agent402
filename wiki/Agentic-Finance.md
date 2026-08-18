@@ -29,3 +29,5 @@ Full explainer with structured data: https://agent402.tools/agentic-finance
 
 - [[Paying with x402]] · [[Paying with MPP]] · [[Paying with Compute]]
 - https://agent402.tools/what-is-x402 · https://agent402.tools/what-is-mpp
+- Glossary (every term defined once, with anchors): https://agent402.tools/glossary
+- Long form: https://agent402.tools/blog/what-is-agentic-finance-aifi

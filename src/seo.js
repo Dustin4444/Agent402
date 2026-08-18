@@ -106,6 +106,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/what-is-x402`, priority: "0.9" },
     { loc: `${baseUrl}/what-is-mpp`, priority: "0.9" },
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
+    { loc: `${baseUrl}/glossary`, priority: "0.8" },
     { loc: `${baseUrl}/revenue`, priority: "0.6" },
     { loc: `${baseUrl}/blog`, priority: "0.8" },
     { loc: `${baseUrl}/compare`, priority: "0.8" },
@@ -163,6 +164,7 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/what-is-x402`, priority: "0.9" },
     { loc: `${baseUrl}/what-is-mpp`, priority: "0.9" },
     { loc: `${baseUrl}/agentic-finance`, priority: "0.9" },
+    { loc: `${baseUrl}/glossary`, priority: "0.8" },
     { loc: `${baseUrl}/pricing`, priority: "0.8" },
     { loc: `${baseUrl}/integrations`, priority: "0.8" },
     { loc: `${baseUrl}/use-cases`, priority: "0.8" },
@@ -365,6 +367,9 @@ ${toolSections}
 - [agent402-tollbooth](${baseUrl}/tollbooth): open-source, self-hostable x402 pay-per-crawl gate for your own site
 - [Skill packs JSON](${baseUrl}/api/skill-packs.json): machine-readable pack index
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool
+- [Agentic Finance (AIFI)](${baseUrl}/agentic-finance): what the category is and where Agent402 sits in it
+- [Glossary](${baseUrl}/glossary): x402, MPP, HTTP 402, facilitator, EIP-3009, receipts, settlement, rails, dual-stack, PoW tier, SOR, tollbooth - every term defined once, with anchors
+- [What is x402?](${baseUrl}/what-is-x402) / [What is MPP?](${baseUrl}/what-is-mpp): the two payment wires explained
 - [Maintainer](https://github.com/MikeyPetrillo/Agent402): Havok Holdings LLC, mike@agent402.tools
 `;
 }
