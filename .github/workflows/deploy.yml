@@ -689,6 +689,11 @@ jobs:
     # above) and needs none: it is asked to test-and-deploy regardless.
     if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' && (inputs.mode == 'test' || inputs.mode == 'deploy' || inputs.mode == 'publish') || needs.markers.outputs.test == 'true' || needs.markers.outputs.deploy == 'true' || needs.markers.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    # A healthy run takes 22-25 min. Without this the GitHub default is 360
+    # min, and on 2026-08-18 two consecutive runs sat for 28+ min inside the
+    # Playwright system-deps apt step (see below) — the deploy job hard-gates
+    # on this one, so a hung test job silently blocks every deploy behind it.
+    timeout-minutes: 60
     # A REAL redis, because until 2026-08-07 nothing in CI ever connected to
     # one. test-shared-limit.js injects a fake store deliberately (it proves
     # "two callers share one counter", and a fake proves that exactly), but
@@ -731,9 +736,34 @@ jobs:
           FRED_API_KEY: ""
           FRED_API_KEY_V2: ""
           E2B_API_KEY: ""
+        run: npm ci
+      - name: Install Playwright Chromium (+ system deps)
+        # `--with-deps` runs apt-get against the runner's mirror list, whose
+        # first entry (azure.archive.ubuntu.com) was unreachable on 2026-08-18
+        # and apt STALLED rather than failing — no output for 28 min until the
+        # run was cancelled (measured on two consecutive runs; the runs on
+        # either side of them completed this step in ~45s). apt has no useful
+        # stall timeout of its own, so bound each attempt ourselves and retry
+        # on a fresh connection; a mirror that is dead for a full three
+        # attempts fails the step LOUDLY instead of eating the job's timeout.
+        timeout-minutes: 10
+        env:
+          BRAVE_API_KEY: ""
+          FRED_API_KEY: ""
+          FRED_API_KEY_V2: ""
+          E2B_API_KEY: ""
         run: |
-          npm ci
-          npx playwright install --with-deps chromium
+          for i in 1 2 3; do
+            if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying"
+            # A stalled apt-get may outlive the killed npx (sudo can detach it
+            # from the group); clear it so the retry isn't blocked on its lock.
+            # The stall is in apt's fetch phase, so killing it is safe.
+            sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
+            sleep 10
+          done
+          echo "playwright install failed 3x - the runner's apt mirror is likely down"
+          exit 1
       - name: Start server in free mode
         run: |
           # Raise the MCP rate limit so the full-catalog connector test can sweep
