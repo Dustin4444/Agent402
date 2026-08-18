@@ -339,3 +339,63 @@ Next up once submitted: the Anthropic connector directory
 - **CoinGecko "x402 ecosystem" category** - token listings only; N/A (no token).
 - **Robinhood Chain** - still no ecosystem directory (see 7b); 402 Index /
   PipRail are the interim places its rail can be advertised.
+
+## 10. mpp.dev services directory (tempoxyz/mpp - `schemas/services.ts`)
+
+The curated MPP directory that `mppx services list`, `mpp.dev/api/services`
+and the read-only `mpp.dev/mcp/services` all read. Listing = a PR adding an
+entry to `schemas/services.ts` (types must pass `pnpm check:types`, build must
+pass `pnpm build`); the review bar is "live and accepting payments via MPP,
+high quality and novel". A bot comments the checklist on the PR. Recommended
+sibling: MPPScan registration (already done - see the MPP integration notes).
+
+**Submit AFTER prod's Tempo challenge is USDC.e-first** (`TEMPO_CURRENCY=usdc,pathusd`
+on Railway - 138/141 directory sellers quote USDC.e and a stock mppx client
+pays the FIRST tempo challenge it sees, no auto-swap by default; today ours
+quotes PathUSD only). The `payments` array below assumes that flip; if it
+does not happen, replace `TEMPO_PAYMENT` with the PathUSD constant defined
+locally. Every route below is a real, priced, live-verified endpoint; amounts
+are base units (6 decimals) at list price. `integration` is `third-party`
+(self-hosted, our own `serviceUrl`, not proxied through mpp.tempo.xyz - the
+same shape as the self-hosted data sellers already listed).
+
+```ts
+  {
+    id: "agent402",
+    name: "Agent402",
+    url: "https://agent402.tools",
+    serviceUrl: "https://agent402.tools",
+    description:
+      "500+ deterministic pay-per-call tools for AI agents - live web search and cited answers, headless browser rendering, PDFs, OCR, financial, SEC and on-chain data, an OpenAI-compatible LLM gateway - plus a Smart Order Router that finds and pays the best external seller on the agent's behalf. Every paid endpoint accepts MPP (Tempo natively, or evm on Base/Celo) and x402 on the same 402.",
+    icon: "https://agent402.tools/logo.png",
+    categories: ["search", "web", "data", "ai", "blockchain"],
+    integration: "third-party",
+    tags: ["search", "browser", "pdf", "ocr", "sec-filings", "finance", "llm-gateway", "router", "agentic-finance"],
+    status: "active",
+    docs: {
+      homepage: "https://agent402.tools/docs",
+      llmsTxt: "https://agent402.tools/llms.txt",
+      apiReference: "https://agent402.tools/openapi.json",
+    },
+    provider: { name: "Havok Holdings LLC", url: "https://agent402.tools" },
+    realm: "agent402.tools",
+    intent: "charge",
+    payments: [
+      TEMPO_PAYMENT,
+      { method: "evm", currency: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", decimals: 6 },
+    ],
+    endpoints: [
+      { route: "GET /api/search", desc: "Live web search (title, URL, snippet)", amount: "20000", unitType: "request" },
+      { route: "GET /api/answer", desc: "Cited answer grounded in live web search", amount: "80000", unitType: "request" },
+      { route: "POST /api/render", desc: "Headless browser render of a URL (title, text, links)", amount: "20000", unitType: "request" },
+      { route: "POST /api/route/execute", desc: "Smart Order Router: resolve a task to the best seller across the ecosystem, pay them, relay the result", amount: "10000", unitType: "request" },
+      { route: "POST /v1/chat/completions", desc: "OpenAI-compatible chat completions (base tier)", amount: "20000", unitType: "request" },
+      { route: "GET /api/pricing", desc: "Machine-readable catalog of every endpoint and price" },
+    ],
+  },
+```
+
+Verify the amounts against `https://agent402.tools/api/pricing` right before
+opening the PR (prices are the source of truth there, not this file), and
+paste the PR body from the checklist the bot posts. Mike OKs the verbatim
+entry before it is opened (external repo, public).
