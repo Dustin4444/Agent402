@@ -192,7 +192,11 @@ async function friendbotFund(publicKey) {
     // exactly what happened on the third fresh account of CI run 32171902738
     // (2026-08-18). Read the body and only accept the one benign case.
     const body = await res.text().catch(() => "");
-    if (!(res.status === 400 && /createAccountAlreadyExist/i.test(body))) {
+    // Friendbot's wording for an existing account: "createAccountAlreadyExist"
+    // (result code) or "account already funded to starting balance" (its
+    // detail string - what it says for the persistent payer, measured in CI
+    // run 32172397126). Both mean the account exists; nothing else does.
+    if (!(res.status === 400 && /createAccountAlreadyExist|already funded/i.test(body))) {
       throw new Error(`friendbot funding failed for ${publicKey}: HTTP ${res.status} ${body.slice(0, 200)}`);
     }
   }
