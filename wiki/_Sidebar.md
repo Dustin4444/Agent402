@@ -1,8 +1,8 @@
 **[[Home]]**
 
 **Using it (for agents / buyers)**
-- [[Agentic Finance]]
 - [[Getting Started]]
+- [[Agentic Finance]]
 - [[Paying with x402]]
 - [[Paying with MPP]]
 - [[Robinhood Chain (USDG)|Robinhood-Chain]]
