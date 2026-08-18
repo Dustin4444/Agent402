@@ -137,11 +137,13 @@ export const BLOG_POSTS = [
 <p>Any tool that runs purely on the server's CPU without making external network requests is PoW-eligible. Tools that call upstream APIs (web search, rendering, geocoding) require payment because they have a real marginal cost. The tool catalog marks each tool's pricing - <code>$0.000</code> means PoW-eligible.</p>`,
   },
   {
-    slug: "1000-tools-milestone",
+    slug: "catalog-milestone",
     date: "2026-06-20",
-    title: "1,000 tools and counting",
-    excerpt: "Agent402 crossed 1,000 deterministic tools this week. Here's what categories exist, how we got here, and what's coming next.",
-    body: `<p>This week Agent402 crossed 1,000 tools in the catalog. Every one of them is deterministic, tested in CI, and callable with a single HTTP request. Here's a look at what's in the box.</p>
+    title: "500+ tools and counting",
+    excerpt: "The Agent402 catalog passed the 500-tool mark - every one deterministic, tested in CI, callable with one HTTP request. What categories exist, how we got here, and what's coming next.",
+    body: `<p>The Agent402 catalog passed the 500-tool mark. Every one of those tools is deterministic, tested in CI, and callable with a single HTTP request. Here's a look at what's in the box.</p>
+
+<p><em>Note (updated 2026-08-18): this post originally counted every catalog entry, including hundreds of near-duplicate pairwise converters that were later collapsed into a handful of parameterized tools. The catalog is quoted as an evergreen "500+ tools" everywhere now; the exact live number is always at <a href="/api/pricing">/api/pricing</a> and <a href="/health">/health</a>.</em></p>
 
 <h2>What categories exist</h2>
 

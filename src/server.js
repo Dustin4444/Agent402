@@ -1542,6 +1542,9 @@ app.get("/playground", (_req, res) => htmlCache(res, 300, 900).send(playgroundPa
 app.get("/sdk-playground", (_req, res) => htmlCache(res, 300, 900).send(sdkPlaygroundPage(BASE_URL)));
 app.get("/docs/api/explorer", (_req, res) => htmlCache(res, 300, 900).send(apiExplorerPage(BASE_URL)));
 app.get("/blog", (_req, res) => htmlCache(res, 300, 900).send(blogIndex(BASE_URL)));
+// The catalog-milestone post was renamed 2026-08-18 (its old slug carried an
+// exact tool count the evergreen rule forbids on served pages); keep the URL.
+app.get("/blog/1000-tools-milestone", (_req, res) => res.redirect(301, "/blog/catalog-milestone"));
 app.get("/blog/:slug", (req, res) => { const html = blogPost(BASE_URL, req.params.slug); if (!html) return res.status(404).type("html").send('<p>Post not found. <a href="/blog">All posts</a></p>'); htmlCache(res, 300, 900).send(html); });
 app.get("/compare", (_req, res) => htmlCache(res, 300, 900).send(comparePage(BASE_URL)));
 app.get("/community", (_req, res) => htmlCache(res, 300, 900).send(communityPage(BASE_URL)));
