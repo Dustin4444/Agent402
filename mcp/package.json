@@ -1,6 +1,6 @@
 {
   "name": "agent402-mcp",
-  "version": "0.12.6",
+  "version": "0.12.7",
   "mcpName": "io.github.MikeyPetrillo/agent402",
   "author": "Havok Holdings LLC <mike@agent402.tools> (https://agent402.tools)",
   "homepage": "https://agent402.tools",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/MikeyPetrillo/Agent402.git"
   },
-  "description": "Open-source MCP server exposing Agent402.Tools' catalog - 500+ strong: 400+ self-hostable tools + 100+ multi-tool skill packs (security-audit, trend-analysis, structured-scrape, decode-blob, forecasting-bake-off) for AI agents - browser, web search & answers, PDFs, OCR, images, LLM inference, image generation, code execution, STT, embeddings, live financial/crypto/macro data, SEC EDGAR filings, deterministic stats & forecasting, compression, payments. Free via proof-of-work, or pay per call in USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand - plus USDG on Robinhood Chain (12 chains total) - via the x402 protocol. The hosted API also accepts MPP (Machine Payments Protocol) clients on the same 402: USDC on Base/Celo or PathUSD natively on Tempo.",
+  "description": "Agentic Finance (AIFI) MCP server: open-source MCP server exposing Agent402.Tools' catalog - 500+ strong: 400+ self-hostable tools + 100+ multi-tool skill packs (security-audit, trend-analysis, structured-scrape, decode-blob, forecasting-bake-off) for AI agents - browser, web search & answers, PDFs, OCR, images, LLM inference, image generation, code execution, STT, embeddings, live financial/crypto/macro data, SEC EDGAR filings, deterministic stats & forecasting, compression, payments. Free via proof-of-work, or pay per call in USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand - plus USDG on Robinhood Chain (12 chains total) - via the x402 protocol. The hosted API also accepts MPP (Machine Payments Protocol) clients on the same 402: USDC on Base/Celo or PathUSD natively on Tempo.",
   "type": "module",
   "bin": {
     "agent402-mcp": "index.js"
@@ -59,7 +59,12 @@
     "optimism",
     "stellar",
     "algorand",
-    "robinhood-chain"
+    "robinhood-chain",
+    "agentic-finance",
+    "aifi",
+    "agentic-payments",
+    "mpp",
+    "machine-payments-protocol"
   ],
   "license": "MIT",
   "dependencies": {

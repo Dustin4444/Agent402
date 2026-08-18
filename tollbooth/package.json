@@ -1,7 +1,7 @@
 {
   "name": "agent402-tollbooth",
-  "version": "0.7.0",
-  "description": "Open-source, self-hostable pay-per-crawl tollbooth for x402 AND MPP: charge AI bots per request (USDC via x402, or MPP - the Machine Payments Protocol - through the same settlement, or USDG on Robinhood Chain, or free proof-of-work) while humans browse free. Drop-in Express middleware or reverse proxy - no Cloudflare, no Stripe, no signup.",
+  "version": "0.7.1",
+  "description": "Agentic Finance (AIFI) sell side: open-source, self-hostable pay-per-crawl tollbooth for x402 AND MPP: charge AI bots per request (USDC via x402, or MPP - the Machine Payments Protocol - through the same settlement, or USDG on Robinhood Chain, or free proof-of-work) while humans browse free. Drop-in Express middleware or reverse proxy - no Cloudflare, no Stripe, no signup.",
   "type": "module",
   "main": "index.js",
   "bin": {
@@ -71,7 +71,10 @@
     "usdg",
     "mpp",
     "machine-payments-protocol",
-    "payment-auth"
+    "payment-auth",
+    "agentic-finance",
+    "aifi",
+    "agentic-payments"
   ],
   "author": "Havok Holdings LLC <mike@agent402.tools> (https://agent402.tools)",
   "license": "MIT",

@@ -51,6 +51,7 @@ import { contactPage } from "./contact.js";
 import { quickstartPage } from "./quickstart.js";
 import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
+import { agenticFinancePage } from "./agentic-finance.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
@@ -1355,6 +1356,10 @@ app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402
   leaderboardSnapshot: getLeaderboardSnapshot(),
 })));
 app.get("/what-is-mpp", (_req, res) => htmlCache(res, 300, 900).send(whatIsMppPage(BASE_URL)));
+// The category page: Agentic Finance (AIFI) - the moniker the whole surface
+// positions under; DefinedTerm + Article + FAQPage structured data.
+app.get("/agentic-finance", (_req, res) => htmlCache(res, 300, 900).send(agenticFinancePage(BASE_URL)));
+app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
 app.get("/faq", (_req, res) => htmlCache(res, 300, 900).send(faqPage(BASE_URL)));
 app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerIntegrationsPage(BASE_URL)));
 app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPage(BASE_URL, CATALOG)));

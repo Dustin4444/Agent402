@@ -1,6 +1,7 @@
 **[[Home]]**
 
 **Using it (for agents / buyers)**
+- [[Agentic Finance]]
 - [[Getting Started]]
 - [[Paying with x402]]
 - [[Paying with MPP]]
