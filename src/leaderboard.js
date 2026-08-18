@@ -27,6 +27,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { fetchAllBazaarItems as walkBazaar } from "./bazaar-pager.js";
 import { EVM } from "./revenue-live.js";
+import { redactSecrets } from "./tools/redact.js";
 import { NETWORKS } from "./payments.js";
 import { CHROME_HEAD_LINKS, CHROME_CSS, renderHeader, renderFooter } from "./chrome.js";
 
@@ -402,7 +403,9 @@ async function fetchAllBazaarItems(baseUrl, opts) {
   return walkBazaar(baseUrl, { pageSize: opts.bazaarPageSize, maxPages: opts.bazaarMaxPages }, fetchJson);
 }
 
-async function rpcCall(rpcs, method, params, { passes = 2 } = {}) {
+// Exported for scripts/test-leaderboard-redaction.js (the messages this
+// throws reach the public /api/leaderboard as cache.lastError).
+export async function rpcCall(rpcs, method, params, { passes = 2 } = {}) {
   let lastErr;
   for (let attempt = 0; attempt < passes; attempt++) {
     for (const url of rpcs) {
@@ -416,16 +419,28 @@ async function rpcCall(rpcs, method, params, { passes = 2 } = {}) {
         const text = await r.text();
         let j;
         try { j = JSON.parse(text); }
-        catch { lastErr = new Error(`${url}: non-JSON (${r.status})`); continue; }
+        // Name the RPC by HOST only, never the URL: the Alchemy entry above
+        // carries ALCHEMY_API_KEY in its path, and this message flows into
+        // cached.lastError -> getLeaderboardSnapshot() -> the PUBLIC
+        // /api/leaderboard body (and stderr via onProgress). Same rule
+        // revenue-live.js's laneName() and b20-kit/x402-kit's redactSecrets()
+        // already apply — this file was the instance the fix never reached
+        // (leak audit 2026-08-18).
+        catch { lastErr = new Error(`${rpcHost(url)}: non-JSON (${r.status})`); continue; }
         if (j.result !== undefined) return j.result;
-        lastErr = new Error(`${url}: ${JSON.stringify(j.error ?? j).slice(0, 160)}`);
+        lastErr = new Error(`${rpcHost(url)}: ${redactSecrets(JSON.stringify(j.error ?? j)).slice(0, 160)}`);
       } catch (e) {
         lastErr = e;
       }
     }
     if (attempt < passes - 1) await sleep(1500 * (attempt + 1));
   }
-  throw new Error(`All RPCs failed for ${method}: ${lastErr?.message}`);
+  // Belt and braces: a thrown fetch error (DNS, TLS, abort) can carry the
+  // URL in its own message — scrub configured secret values regardless.
+  throw new Error(`All RPCs failed for ${method}: ${redactSecrets(String(lastErr?.message || lastErr))}`);
+}
+function rpcHost(url) {
+  try { return new URL(url).host; } catch { return "rpc"; }
 }
 
 // --- pipeline ---------------------------------------------------------------
@@ -568,7 +583,7 @@ export async function runLeaderboard(overrides = {}) {
         }
       } catch (e) {
         failedChunks += 1;
-        onProgress(`      chunk failed (blocks ${from}-${to}): ${e.message}`);
+        onProgress(`      chunk failed (blocks ${from}-${to}): ${redactSecrets(String(e?.message || e))}`);
       }
     }
   }
@@ -722,7 +737,7 @@ async function refreshOnce(opts) {
     // data before its own scan lands (closes the post-deploy cold window).
     persistLeaderboardSnapshot(snap);
   } catch (e) {
-    cached.lastError = String(e?.message || e);
+    cached.lastError = redactSecrets(String(e?.message || e)).slice(0, 300);
     // Keep the previous snapshot — a transient RPC outage shouldn't wipe a
     // perfectly good 1-hour-old ranking from the public endpoint.
   } finally {
