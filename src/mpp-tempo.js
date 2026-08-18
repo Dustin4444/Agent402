@@ -20,6 +20,7 @@
 // Scope: the one-shot `tempo.charge()` method only. Tempo also has a
 // stateful session/channel protocol (TIP-1034, for pay-per-token streaming)
 // — deliberately out of scope here; see the approved plan.
+import { AsyncLocalStorage } from "node:async_hooks";
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import { tempo } from "mppx/server";
 
@@ -33,6 +34,12 @@ const DEFAULT_DECIMALS = 6; // matches every other stablecoin rail this repo set
 // TEMPO_CURRENCY to be set explicitly with no default; that caution turned
 // out to be unnecessary once the primary source was actually read).
 const PATH_USD_ADDRESS = "0x20c0000000000000000000000000000000000000";
+
+// Tempo mainnet (EVM chain id 4217) — mppx `defaults.chainId.mainnet`. Rides
+// every challenge as `methodDetails.chainId` so a client with an
+// `expectedChainId` pin can refuse a mismatch, and so the relay is never left
+// to guess which network a credential targets.
+const TEMPO_MAINNET_CHAIN_ID = 4217;
 
 function envRecipient() {
   return process.env.TEMPO_RECIPIENT_ADDRESS || process.env.WALLET_ADDRESS || "";
@@ -63,6 +70,87 @@ export function tempoDiscoveryInfo() {
   return { currency: envCurrency(), decimals: envDecimals() };
 }
 
+// Relay error visibility. mppx's Relay.js (node_modules/mppx/dist/tempo/
+// server/Relay.js) throws a bare, argument-less failure() whenever
+// /v1/mpp/validate or /v1/mpp/broadcast answers non-2xx — the response body
+// is discarded before we ever see it, and Tempo's relay puts its actual
+// verdict THERE on non-2xx (`{"error":{"code":"api_key_invalid",...}}`,
+// 401/403 for key/scope problems, 400 for a malformed credential; measured
+// against the live relay 2026-08-18). `.details.code` only ever populates on
+// a 2xx-with-success:false, so three straight live rejections logged
+// "details=(none)" and nothing distinguished "our key lacks mpp:write" from
+// "the credential is bad". Relay.configure accepts its own `fetch`, so we
+// hand it one that records any non-2xx relay response — and any 2xx that
+// carries success:false, whose `message` mppx also drops — into the CURRENT
+// request's trace (AsyncLocalStorage — concurrent buyers never see each
+// other's errors) and otherwise passes the response through untouched. It
+// reads a CLONE, so the SDK's own body read is unaffected, and it never
+// changes the accept/reject decision, which stays with Method.validate/
+// broadcastCredential. This replaces an earlier temporary double-request
+// probe (same information, one relay round trip instead of two).
+const relayTrace = new AsyncLocalStorage();
+async function relayFetch(input, init) {
+  const store = relayTrace.getStore();
+  const started = Date.now();
+  let res;
+  try {
+    res = await globalThis.fetch(input, init);
+  } catch (e) {
+    // The fetch itself failed — no HTTP verdict at all (socket closed by the
+    // relay, reset, DNS, abort). mppx reports this as the same bare "Payment
+    // verification failed" as a business rejection; the elapsed time is the
+    // tell (a relay-side deadline closes the socket after a fixed wait).
+    // Measured live 2026-08-18: broadcast=21816ms then this path.
+    if (store) {
+      let path = "";
+      try { path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url).pathname; } catch { /* unlabelled */ }
+      store.relayError = `relay ${path || "?"} NETWORK ERROR after ${Date.now() - started}ms: ${String(e?.cause?.code || e?.cause?.message || e?.message || e).slice(0, 160)}`;
+    }
+    throw e;
+  }
+  if (!store) return res;
+  let body = "";
+  try { body = (await res.clone().text()).replace(/\s+/g, " ").slice(0, 400); } catch { body = "(unreadable body)"; }
+  // Non-2xx is always a verdict worth keeping. A 2xx is ALSO one when it says
+  // success:false — mppx keeps only a fixed allowlist of `error.code` values
+  // as `.details` and drops the message; a code outside it (the live relay
+  // answers `code:"unknown"` with the real reason ONLY in `message`, e.g.
+  // "Invalid transaction: no matching payment call found - amount: ...",
+  // measured 2026-08-18) reaches us as a bare "Payment verification failed".
+  let rejected2xx = false;
+  if (res.ok) {
+    try { const j = JSON.parse(body); rejected2xx = j && typeof j === "object" && (j.success === false || j.error != null); } catch { /* non-JSON 2xx: leave it */ }
+  }
+  if (!res.ok || rejected2xx) {
+    let path = "";
+    try { path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url).pathname; } catch { /* unlabelled */ }
+    store.relayError = `relay ${path || "?"} HTTP ${res.status} ${body}`;
+  }
+  return res;
+}
+/** Runs `fn` with a fresh relay trace and returns `[result, trace]` — the
+ *  trace carries `.relayError` when the relay answered non-2xx inside `fn`. */
+async function withRelayTrace(fn) {
+  const trace = {};
+  try {
+    return [await relayTrace.run(trace, fn), trace];
+  } catch (e) {
+    if (e && typeof e === "object") e.__relayTrace = trace;
+    throw e;
+  }
+}
+function describeRelayFailure(e) {
+  // A 2xx-with-success:false rejection rides `.details` (the relay's own
+  // error code, e.g. insufficient_funds/invalid_payment/policy_denied); a
+  // non-2xx answer rides the trace captured by relayFetch. Show whichever
+  // exists; both missing means the failure happened before any relay call
+  // (HMAC/expiry/shape) or the relay was unreachable.
+  const detail = e?.details && typeof e.details === "object" && Object.keys(e.details).length ? JSON.stringify(e.details).slice(0, 200) : null;
+  const raw = e?.__relayTrace?.relayError || null;
+  const message = String(e?.message || e).slice(0, 200);
+  return `${message}${detail ? ` details=${detail}` : ""}${raw ? ` ${raw}` : ""}${!detail && !raw ? " (no relay verdict — failed before/without a relay round trip)" : ""}`;
+}
+
 // The configured Method.Server is cheap to hold but not free to rebuild per
 // request; memoize it, keyed on the config values that actually shape it so
 // an env change (redeploy-time only, never mid-process) rebuilds cleanly.
@@ -78,6 +166,7 @@ function tempoMethod() {
     recipient: envRecipient(),
     relay: {
       apiKey: process.env.TEMPO_API_KEY,
+      fetch: relayFetch,
       ...(process.env.TEMPO_API_BASE_URL ? { apiBaseUrl: process.env.TEMPO_API_BASE_URL } : {}),
     },
   });
@@ -94,24 +183,30 @@ export function mintTempoChallenge({ priceUsd, description, realm, secretKey, ti
   if (!tempoEnabled()) return null;
   const amount = Number(priceUsd);
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  const challenge = Challenge.from({
+  const decimals = envDecimals();
+  // Built through mppx's OWN challenge builder for this method
+  // (Challenge.fromMethod -> the tempo/charge request schema), not a
+  // hand-assembled `request` object, so the wire shape is byte-for-byte what
+  // an mppx-native server emits: the schema takes a DECIMAL amount and emits
+  // the base-units integer string ("0.001" -> "1000" at 6 decimals — the
+  // format a real client needs; a decimal string on the wire made the client
+  // throw "Cannot convert 0.001000 to a BigInt", caught live 2026-08-17),
+  // DROPS `decimals` (a server-side parsing input, not a wire field), and
+  // moves `chainId` under `methodDetails`. The first version of this
+  // function assembled the request by hand and shipped `decimals` on the
+  // wire with no `methodDetails.chainId` at all — a shape the SDK's own
+  // builder never produces. Only the fields the SDK's request() hook would
+  // add are supplied here: chainId (fixed — Tempo mainnet 4217, mppx's
+  // `defaults.chainId.mainnet`); there is no local feePayer, so none is set
+  // and the buyer pays their own fee, exactly as the hook would resolve it.
+  const challenge = Challenge.fromMethod(tempoMethod(), {
     realm,
-    method: "tempo",
-    intent: "charge",
     expires: new Date(Date.now() + timeoutSeconds * 1000),
     request: {
-      // Raw integer string in the token's smallest unit (e.g. "1000" for
-      // $0.001 at 6 decimals) — NOT a decimal string. Verified live against
-      // a real mppx client 2026-08-17: a decimal-formatted amount (the
-      // original version of this line, `amount.toFixed(decimals)` ->
-      // "0.001000") made the client throw "Cannot convert 0.001000 to a
-      // BigInt" before it ever reached signing — this is the same
-      // base-units convention the evm challenge's x402 accepts entry
-      // already uses (see challengeHeaderFromPaymentRequired in
-      // mpp-shim.js, which just forwards x402's own "1000"-style amount).
-      amount: String(Math.round(amount * 10 ** envDecimals())),
+      amount: amount.toFixed(decimals),
+      chainId: TEMPO_MAINNET_CHAIN_ID,
       currency: envCurrency(),
-      decimals: envDecimals(),
+      decimals,
       recipient: envRecipient(),
       ...(description ? { description: String(description).slice(0, 200) } : {}),
     },
@@ -152,24 +247,13 @@ export function isTempoCredential(authorizationHeader) {
  *  pre-validation). Never broadcasts, never moves money. */
 export async function validateTempoCredential(authorizationHeader) {
   try {
-    const validation = await Method.validateCredential([tempoMethod()], authorizationHeader);
+    const [validation] = await withRelayTrace(() => Method.validateCredential([tempoMethod()], authorizationHeader));
     return { ok: true, validation };
   } catch (e) {
     // mppx's VerificationFailedError.message is ALWAYS the bare "Payment
-    // verification failed." (its `reason` param is never set by the relay
-    // adapter — see node_modules/mppx/dist/tempo/server/Relay.js `failure()`)
-    // — the actual relay error code ("insufficient_funds", "invalid_payment",
-    // "unsupported", "already_used", "policy_denied", "screen_rejected",
-    // "simulation_failed", "temporarily_unavailable") lives on `.details.code`
-    // instead, a separate property `.message` never includes. Verified live
-    // 2026-08-17: a rejected real credential logged only the generic message
-    // until this was added. A relay HTTP error (non-2xx) still carries no
-    // code at all (mppx's Relay.js discards the body on !response.ok) — an
-    // empty details object after this fix means the failure is at the
-    // HTTP/auth layer, not a business rejection the relay explained.
-    const detail = e?.details && typeof e.details === "object" ? JSON.stringify(e.details).slice(0, 200) : null;
-    const message = String(e?.message || e).slice(0, 200);
-    return { ok: false, error: `${message}${detail ? ` details=${detail}` : " details=(none — likely a relay HTTP/auth error, not a business rejection)"}` };
+    // verification failed." — the relay's verdict is elsewhere; see
+    // describeRelayFailure for where.
+    return { ok: false, error: describeRelayFailure(e) };
   }
 }
 
@@ -178,10 +262,10 @@ export async function validateTempoCredential(authorizationHeader) {
  *  in server.js for the buffer-then-decide discipline this depends on. */
 export async function broadcastTempoCredential(authorizationHeader) {
   try {
-    const receipt = await Method.broadcastCredential([tempoMethod()], authorizationHeader);
+    const [receipt] = await withRelayTrace(() => Method.broadcastCredential([tempoMethod()], authorizationHeader));
     return { ok: true, receipt };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e).slice(0, 300) };
+    return { ok: false, error: describeRelayFailure(e) };
   }
 }
 
@@ -283,7 +367,9 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
     const auth = req.headers.authorization;
     if (!isTempoCredential(auth)) return next();
 
+    const t0 = Date.now();
     validate(auth).then(async (v) => {
+      const tValidated = Date.now();
       if (!v.ok) {
         // Loud on ambiguity, same doctrine as facilitator-diagnostics.js —
         // an unlogged rejection here is exactly what made the 2026-08-17
@@ -366,17 +452,31 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         releaseReplay();
         return;
       }
+      const tHandled = Date.now();
       const b = await broadcast(auth);
+      const tBroadcast = Date.now();
+      const timing = `validate=${tValidated - t0}ms handler=${tHandled - tValidated}ms broadcast=${tBroadcast - tHandled}ms`;
       if (!b.ok) {
         // Broadcast failed AFTER a successful handler — discard the
         // buffered body and answer 402, mirroring @x402/express's own
         // "settlement of a <400 response fails → discard, return 402".
+        // LOUD, with per-phase timing: this path was silent through the
+        // first live settlement on 2026-08-18, where the buyer's first
+        // credential spent 23s here and got a bare 402 with nothing in our
+        // logs (only the HTTP access log showed a 23,341ms 402), and the
+        // client's retry then settled. Timing matters on this rail: mppx
+        // clients sign pull credentials with validBefore = now + 25s, so a
+        // slow relay broadcast races the credential's own expiry — a
+        // "settlement failed" here is as likely to be OUR latency as the
+        // relay's verdict, and only the numbers tell them apart.
+        console.warn(`[mpp-tempo] broadcast failed AFTER a successful handler (${req.method} ${req.path}) — buyer answered 402, not charged by us: ${b.error} [${timing}]`);
         bufferedCalls = [];
         restore();
         res.status(402).json({ error: "Tempo settlement failed", reason: b.error });
         releaseReplay();
         return;
       }
+      console.log(`[mpp-tempo] settled ${req.method} ${req.path} tx=${b.receipt?.reference || "?"} [${timing}]`);
       const receiptHeader = tempoReceiptHeader(b.receipt);
       restore();
       if (receiptHeader) res.setHeader("Payment-Receipt", receiptHeader);

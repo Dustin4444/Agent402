@@ -37,9 +37,10 @@ const mppxClient = Mppx.create({ methods: [tempo.charge({ account })] });
 
 let sawChallenge = false;
 let sawCredential = false;
+let credentialRounds = 0;
 let paymentFailure = null;
 mppxClient.onChallengeReceived(() => { sawChallenge = true; console.log("challenge received"); });
-mppxClient.onCredentialCreated(() => { sawCredential = true; console.log("credential created (signed by the burner)"); });
+mppxClient.onCredentialCreated(() => { sawCredential = true; credentialRounds++; console.log("credential created (signed by the burner)"); });
 mppxClient.onPaymentFailed((e) => {
   paymentFailure = e;
   console.error("PAYMENT FAILED event:", JSON.stringify(e, (_, v) => (typeof v === "bigint" ? v.toString() : v)).slice(0, 800));
@@ -94,4 +95,12 @@ if (!Array.isArray(parsed?.uuids) || parsed.uuids.length === 0) {
   process.exit(1);
 }
 
+// A settle that needed more than one signed credential is still a PASS (the
+// buyer got their answer, one debit on-chain), but it is not a clean one:
+// both first live settlements (2026-08-18) took two rounds, the first
+// attempt dying in a ~22s relay broadcast against the credential's 25s
+// validBefore. Say so, so a "green" run can't hide a rail that only works
+// on retry — check prod's `[mpp-tempo] settled ... [validate= broadcast=]`
+// timing line for the same buy.
+if (credentialRounds > 1) console.warn(`WARN  settled only on credential round ${credentialRounds} — the first attempt(s) were rejected or timed out; read prod's [mpp-tempo] timing lines`);
 console.log("\nPASS — real Tempo settlement round trip confirmed live against production.");

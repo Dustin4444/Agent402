@@ -91,6 +91,12 @@ try {
   // evm challenge's x402 accepts entry already uses.
   ok(/^\d+$/.test(tempoCh?.request?.amount || ""), `tempo challenge amount is a raw integer string, not decimal (got ${tempoCh?.request?.amount})`);
   ok(tempoCh?.request?.amount === "1000", `tempo challenge amount matches the uuid tool's $0.001 price in base units (got ${tempoCh?.request?.amount})`);
+  // Wire shape must be what mppx's OWN builder emits (Challenge.fromMethod
+  // through the tempo/charge schema): chainId under methodDetails, and NO
+  // `decimals` key on the wire (a parsing input the schema strips). The
+  // first hand-assembled version shipped `decimals` and no methodDetails.
+  ok(tempoCh?.request?.methodDetails?.chainId === 4217, `tempo challenge carries methodDetails.chainId 4217 (Tempo mainnet) (got ${JSON.stringify(tempoCh?.request?.methodDetails)})`);
+  ok(!("decimals" in (tempoCh?.request || {})), "tempo challenge request does not carry `decimals` on the wire (schema-canonical shape)");
   ok(Challenge.verify(tempoCh, { secretKey: SECRET }), "tempo challenge id HMAC-verifies");
   ok(Date.parse(tempoCh.expires) > Date.now(), "tempo challenge carries a future expires");
   const evmCh = challenges.find((c) => c.method === "evm" && c.intent === "charge");
@@ -207,11 +213,23 @@ async function listen(app) {
   }));
   app.get("/paid", (req, res) => res.status(200).json({ result: "should never reach the buyer" }));
   const { server, url } = await listen(app);
-  const res = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
-  const body = await res.json();
+  // This path was SILENT through the first live settlement (2026-08-18): a
+  // 23s broadcast failure answered 402 with nothing in our logs. Capture
+  // console.warn and require the failure to be logged with per-phase timing.
+  const warned = [];
+  const origWarn = console.warn;
+  console.warn = (...a) => { warned.push(a.join(" ")); };
+  let res, body;
+  try {
+    res = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
+    body = await res.json();
+  } finally { console.warn = origWarn; }
   ok(res.status === 402, "case C: broadcast failure after a successful handler -> 402, not 200");
   ok(body.result === undefined, "case C: the handler's original body is discarded, never leaked to the buyer");
   ok(typeof body.reason === "string" && body.reason.includes("unavailable"), "case C: the failure reason is surfaced");
+  const line = warned.find((w) => w.includes("[mpp-tempo] broadcast failed"));
+  ok(!!line && line.includes("unavailable"), "case C: the broadcast failure is LOGGED with the relay's reason (was a silent 402 before 2026-08-18)");
+  ok(!!line && /validate=\d+ms handler=\d+ms broadcast=\d+ms/.test(line), "case C: the log line carries per-phase timing (validBefore is 25s on this rail; latency vs verdict must be distinguishable)");
   server.close();
 }
 
