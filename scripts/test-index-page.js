@@ -157,7 +157,7 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   ok(/a neutral index has to be checkable/.test(html), "homepage: neutral-index positioning survives as prose");
   // 2026-08-18: positioned under the Agentic Finance (AIFI) moniker - the
   // hero names the category and links its explainer; x402 + MPP are the wires.
-  ok(/The applied layer of <span[^>]*>Agentic Finance<\/span>/.test(html) && /Agentic Finance \(AIFI\) applied layer/.test(html) && /href="\/agentic-finance"/.test(html), "homepage: title/hero lead with the Agentic Finance (AIFI) positioning (x402 + MPP as the wires), linking /agentic-finance");
+  ok(/The applied layer<br>for <span[^>]*>x402<\/span> and <span[^>]*>MPP<\/span>/.test(html) && /<title>Agent402\.Tools - /.test(html) && !/<title>[^<]*AIFI/.test(html) && /href="\/agentic-finance"/.test(html), "homepage: brand-first title (no AIFI acronym), hero leads with x402 + MPP, agentic finance linked from the body (2026-08-18: Mike wants Agent402 prominent, AIFI not)");
   ok(/href="\/status"/.test(html), "homepage: trust strip links to live /status");
   // The old "flagship jobs" section (a standalone search+answer callout ahead
   // of a skill-packs teaser) doesn't exist in the new structure - the design
@@ -167,7 +167,7 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   // The old 7-question FAQ (incl. "How do I connect my agent?") is now a
   // deliberately trimmed set matching the FAQPage JSON-LD 1:1: the AIFI
   // definition (2026-08-18) plus the three product questions.
-  ok(/What is Agentic Finance \(AIFI\)\?/.test(html), "homepage: visible FAQ leads with the Agentic Finance (AIFI) definition");
+  ok(/What is agentic finance\?/.test(html), "homepage: visible FAQ leads with the agentic finance definition");
   ok(/How do I sell my API for USDC per call\?/.test(html), "homepage: visible FAQ includes the sell-side question");
   ok(/Do I need a wallet to try it\?/.test(html), "homepage: visible FAQ includes the no-wallet question");
   ok(/Is it open source, and can I run my own\?/.test(html), "homepage: visible FAQ includes the open-source question");

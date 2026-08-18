@@ -1,6 +1,6 @@
 # API Reference
 
-> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
 All endpoints live at `https://agent402.tools` (hosted instance) or your self-hosted root. Discovery endpoints are free and unpaywalled. Tool endpoints require payment (x402 or proof-of-work) unless `FREE_MODE=true`.
 

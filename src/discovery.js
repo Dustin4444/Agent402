@@ -73,7 +73,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     about: `${REPO}#agent402-in-the-x402-ecosystem`,
     name: "Agent402.Tools",
     summary:
-      `Agent402.Tools - open-source, self-hostable, x402 + MPP (+ MCP server): 500+ pay-per-call tools for AI agents in one integration (the applied layer of Agentic Finance, AIFI) - browser, search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts, wallet-keyed memory, and an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003/call, embeddings $0.002 - no API key, the wallet is the account). Free via proof-of-work, or pay per call in USDC via x402 or over MPP (Base/Celo USDC, native Tempo).`,
+      `Agent402.Tools - open-source, self-hostable, x402 + MPP (+ MCP server): 500+ pay-per-call tools for AI agents in one integration (the applied layer of Agentic Finance) - browser, search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts, wallet-keyed memory, and an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003/call, embeddings $0.002 - no API key, the wallet is the account). Free via proof-of-work, or pay per call in USDC via x402 or over MPP (Base/Celo USDC, native Tempo).`,
     homepage: baseUrl,
     repository: REPO,
     openSource: true,

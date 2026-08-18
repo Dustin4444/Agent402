@@ -1,7 +1,7 @@
 # agent402-client
 
 A tiny buyer-side client for [Agent402](https://agent402.tools) (and any Agent402
-instance) - the buy side of [Agentic Finance (AIFI)](https://agent402.tools/agentic-finance),
+instance) - the buy side of [Agentic Finance](https://agent402.tools/agentic-finance),
 agents paying per request over x402 or MPP. **Resolve a task to a tool, then call it — with payment handled for
 you.** Free pure-CPU tools settle with a built-in proof-of-work (no wallet, zero
 dependencies); wallet-only tools settle via an x402-wrapped fetch you provide.

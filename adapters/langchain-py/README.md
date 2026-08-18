@@ -4,7 +4,7 @@ Turn [Agent402](https://agent402.tools)'s catalog - 500+ strong: 400+ x402
 pay-per-call tools + 100+ skill packs - into **LangChain** and **CrewAI** tools
 for Python agents.
 
-> **Agent402 is the applied layer of [Agentic Finance (AIFI)](https://agent402.tools/agentic-finance)** - agents that pay and get paid on their own over the two open wires, [x402](https://agent402.tools/what-is-x402) and [MPP](https://agent402.tools/what-is-mpp) (Machine Payments Protocol). Every paid endpoint answers both on the same 402; wallet-only tools take any payment-wrapped fetch (`@x402/fetch`, or a stock `mppx` fetch).
+> **Agent402 is the applied layer of [Agentic Finance](https://agent402.tools/agentic-finance)** - agents that pay and get paid on their own over the two open wires, [x402](https://agent402.tools/what-is-x402) and [MPP](https://agent402.tools/what-is-mpp) (Machine Payments Protocol). Every paid endpoint answers both on the same 402; wallet-only tools take any payment-wrapped fetch (`@x402/fetch`, or a stock `mppx` fetch).
 
 Pure-CPU tools (hashing, encoding, QR, markdown, JSON, readability…) are **free**
 via built-in proof-of-work - no wallet, no API keys. Live-data tools (market

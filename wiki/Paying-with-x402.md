@@ -1,6 +1,6 @@
 # Paying with x402 (USDC)
 
-[x402](https://x402.org) is an open HTTP payment standard (the `402 Payment Required` status, finally used). Settlement infrastructure exists from **Coinbase** (CDP facilitator — what this service uses) and **Stripe**. x402 is one of the two wires underneath [[Agentic Finance]] (AIFI) - the other is [[Paying with MPP|MPP]], answered on the same 402.
+[x402](https://x402.org) is an open HTTP payment standard (the `402 Payment Required` status, finally used). Settlement infrastructure exists from **Coinbase** (CDP facilitator — what this service uses) and **Stripe**. x402 is one of the two wires underneath [[Agentic Finance]] - the other is [[Paying with MPP|MPP]], answered on the same 402.
 
 ## The flow
 

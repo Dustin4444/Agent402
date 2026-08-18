@@ -2,7 +2,7 @@
 
 Drop-in **OpenAI function-calling tools** for [Agent402](https://agent402.tools) — the open-source, self-hostable x402 + MCP server with 500+ pay-per-call web tools (browser, web search, PDF, images, live data, payment helpers, wallet-keyed memory).
 
-> **Agent402 is the applied layer of [Agentic Finance (AIFI)](https://agent402.tools/agentic-finance)** - agents that pay and get paid on their own over the two open wires, [x402](https://agent402.tools/what-is-x402) and [MPP](https://agent402.tools/what-is-mpp) (Machine Payments Protocol). Every paid endpoint answers both on the same 402; wallet-only tools take any payment-wrapped fetch (`@x402/fetch`, or a stock `mppx` fetch).
+> **Agent402 is the applied layer of [Agentic Finance](https://agent402.tools/agentic-finance)** - agents that pay and get paid on their own over the two open wires, [x402](https://agent402.tools/what-is-x402) and [MPP](https://agent402.tools/what-is-mpp) (Machine Payments Protocol). Every paid endpoint answers both on the same 402; wallet-only tools take any payment-wrapped fetch (`@x402/fetch`, or a stock `mppx` fetch).
 
 - **Zero new infra.** Get back a ready-to-pass `tools` array for `chat.completions`, Assistants v2, or the Responses API.
 - **Free tier by default.** No wallet needed — the compute-payable tools settle with a built-in proof-of-work (sub-second sha256 puzzle).
