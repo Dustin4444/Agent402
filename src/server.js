@@ -3706,6 +3706,8 @@ mountMcp(app, CATALOG, {
   // agents see the same numbers no matter which surface they hit. Hourly-
   // refreshed in-process; safe to call freely from /mcp.
   getLeaderboard: getLeaderboardSnapshot,
+  // The MPP counterpart (src/mpp-leaderboard.js) behind sellers.list wire=mpp.
+  getMppLeaderboard: mppLeaderboardSnapshot,
   // MCP-served calls land on the same accounting + analytics rails as
   // direct-HTTP ones. PoW is the gate (no x402 settlement on /mcp's free
   // tier), so the served-call counter records under "pow". Analytics gets

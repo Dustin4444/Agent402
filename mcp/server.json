@@ -3,7 +3,7 @@
   "name": "io.github.MikeyPetrillo/agent402",
   "title": "Agent402.Tools \u2014 pay-per-call web tools",
   "description": "Agentic Finance (AIFI): 500+ pay-per-call tools for AI agents over x402 + MPP, or free via PoW.",
-  "version": "0.12.7",
+  "version": "0.12.8",
   "repository": {
     "url": "https://github.com/MikeyPetrillo/Agent402",
     "source": "github"
@@ -20,7 +20,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "agent402-mcp",
-      "version": "0.12.7",
+      "version": "0.12.8",
       "transport": {
         "type": "stdio"
       },

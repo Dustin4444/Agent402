@@ -247,7 +247,9 @@ export const META_OUTPUT_SCHEMAS = {
   "sellers.list": {
     type: "object",
     properties: {
-      window: { type: "string" },
+      wire: { type: "string", enum: ["x402", "mpp"] },
+      measure: { type: "string" },
+      window: { type: ["string", "null"] },
       asOf: { description: "Snapshot timestamp" },
       sort: { type: "string", enum: ["usd", "calls"] },
       include: { type: "string", enum: ["external", "all"] },
