@@ -319,7 +319,7 @@ function statusLine() {
 // top level now that both protocols have their own marketplace word - each
 // panel's own footer carries a "what is x402/mpp" row instead (see
 // marketPanelNav/mppPanelNav), keeping the top-level word count unchanged
-// (was 6, stays 6: sell / x402 / mpp / leaderboard / our tools / docs).
+// (was 6, now 7: sell / x402 / mpp / leaderboard / our tools / 101 / docs).
 const NAV_ZONES = [
   [
     { href: "/sell", label: "sell", panel: "sell" },
@@ -331,6 +331,10 @@ const NAV_ZONES = [
     { href: "/tools", label: "our tools", panel: "tools" },
   ],
   [
+    // 2026-08-18: the ten-minute walkthrough gets a top-level word (Mike:
+    // "add the 101 to the homepage nav") - it is the page to send someone who
+    // is new to the space, so it should not live only under More.
+    { href: "/101", label: "101" },
     { href: "/docs", label: "docs" },
   ],
 ];

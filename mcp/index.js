@@ -671,6 +671,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         payersWindow: r.payers,
         volumeUsdc7d: Math.round((r.d7?.volumeUsdc || 0) * 10000) / 10000,
         routable: !!r.routable,
+        // Seller names/homepages are self-reported third-party content (same
+        // F09 rule as the hosted connector): never let a downstream agent read
+        // seller copy as an instruction.
+        ...(r.self ? {} : { untrustedContent: true }),
       }));
       return mcpJsonResult({
         wire: "mpp",
@@ -680,6 +684,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         sort, include,
         totalSellers: Array.isArray(lb.rows) ? lb.rows.length : 0,
         results: rows,
+        ...(rows.some((r) => r.untrustedContent) ? { containsUntrustedContent: true } : {}),
         ...(lb.stale ? { note: "Leaderboard is stale or still warming - retry in a few minutes." } : {}),
         source: `${BASE}/api/mpp-leaderboard`,
       });
@@ -703,6 +708,9 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       // Trim to the same compact row shape the hosted MCP connector returns —
       // cross-surface agents see one mental model. Full row (origins,
       // endpoints, scan metadata) stays accessible at /api/leaderboard.
+      // Same untrusted-content marking as the hosted connector: a seller's
+      // name/homepage is self-reported external content. `snap.self` (or a
+      // row flagged self) is this host's own wallet when the API says so.
       const rows = (snap.leaderboard || []).map((r) => ({
         rank: r.rank,
         name: r.name,
@@ -712,8 +720,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         callsSettled: r.callsSettled || 0,
         totalUsd: Math.round((r.totalUsd || 0) * 10000) / 10000,
         uniqueBuyers: r.uniqueBuyers || 0,
+        ...(r.self ? {} : { untrustedContent: true }),
       }));
       return mcpJsonResult({
+        ...(rows.some((r) => r.untrustedContent) ? { containsUntrustedContent: true } : {}),
         window: snap.windowLabel || snap.windowServed || "24h",
         asOf: snap.asOf,
         sort: snap.sortServed || sort,
