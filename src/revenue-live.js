@@ -1264,7 +1264,7 @@ function mppSection(mpp) {
          <div>external (non-canary): <strong>${Number(mpp?.externalCount || 0)}</strong></div>
          ${txLinks ? `<div style="color:var(--muted);">verify on-chain: ${txLinks}</div>` : ""}
        </div>`
-    : `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin-top:12px;">No MPP-wire settlements recorded yet - they appear here as MPP clients pay (the daily canary settles Base + Celo native-wire legs).</p>`;
+    : `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin-top:12px;">No MPP-wire settlements recorded yet - they appear here as MPP clients pay (the daily canary settles Base + Celo native-wire legs, plus a native Tempo leg via its own relay).</p>`;
   return `
     <details style="margin-top:20px;">
       <summary style="display:inline-block;cursor:pointer;list-style:none;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font-weight:700;font-size:14px;padding:10px 18px;user-select:none;">MPP transactions${count ? ` (${count})` : ""} &rsaquo;</summary>

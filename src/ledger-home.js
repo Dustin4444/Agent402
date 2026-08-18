@@ -10,6 +10,7 @@ import { RAILS } from "./rails.js";
 import { CAIP2_NAMES } from "./stats.js";
 import { chainMark, CHAIN_ORDER } from "./chain-logos.js";
 import { railKey } from "./rails.js";
+import { tempoEnabled } from "./mpp-tempo.js";
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("en-US");
 
@@ -111,6 +112,16 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const railLinksHtml = CHAIN_ORDER.map(([slug, name]) =>
     `<a href="/${slug}" title="${esc(name)} x402 marketplace" style="display:inline-flex;align-items:center;gap:7px;color:var(--muted);text-decoration:none;">${chainMark(slug, 19)}<span style="font-family:var(--font-mono);font-size:12px;white-space:nowrap;">${esc(name)}</span></a>`
   ).join("");
+  // Tempo is NOT an x402 rail (no facilitator settles it - it rides its own
+  // MPP relay, see src/mpp-tempo.js), so it never joins railLinksHtml above
+  // or that strip's "x402 settlement rails" claim. Text-styled on purpose,
+  // not a borrowed vector mark - we don't have verified rights to trace
+  // Tempo's actual logo asset (their brand kit's primary asset is a
+  // wordmark, not a simple geometric symbol like the other twelve), so a
+  // styled monospace wordmark avoids representing their brand incorrectly.
+  const tempoChipHtml = tempoEnabled()
+    ? `<a href="/what-is-mpp" title="Tempo native MPP settlement" style="display:inline-flex;align-items:center;gap:7px;color:var(--muted);text-decoration:none;border:1.5px solid var(--hairline);padding:3px 9px 3px 7px;"><span style="font-family:var(--font-mono);font-weight:800;font-size:12px;letter-spacing:.02em;color:var(--ink);">Tempo</span><span style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);white-space:nowrap;">native MPP</span></a>`
+    : "";
 
   const marqueeSpan = (aria) => `<span style="display:flex;gap:34px;padding-right:34px;white-space:nowrap;"${aria ? ' aria-hidden="true"' : ""}>${MARQUEE_SLUGS.map((s) => `<span>${esc(s)}</span><span style="color:var(--accent);">·</span>`).join("")}</span>`;
 
@@ -155,7 +166,8 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         <div style="margin-top:22px;padding-top:20px;border-top:1px dashed var(--dash);">
           <div style="font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:13px;">x402 settlement rails - USDC on eleven chains plus USDG on Robinhood</div>
           <div style="display:flex;flex-wrap:wrap;align-items:center;gap:11px 20px;">${railLinksHtml}</div>
-          <p style="font-size:13.5px;line-height:1.6;color:var(--faint);margin:18px 0 0;max-width:520px;">New to this? <strong style="color:var(--muted);font-weight:400;">x402</strong> fills in the <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);">402 Payment Required</span> status code the web reserved in 1997 and never used, and <strong style="color:var(--muted);font-weight:400;">MPP</strong> is the IETF-track version of the same handshake. <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">Read the explainer →</a></p>
+          ${tempoChipHtml ? `<div style="margin-top:14px;">${tempoChipHtml}</div>` : ""}
+          <p style="font-size:13.5px;line-height:1.6;color:var(--faint);margin:18px 0 0;max-width:520px;">New to this? <strong style="color:var(--muted);font-weight:400;">x402</strong> fills in the <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);">402 Payment Required</span> status code the web reserved in 1997 and never used, and <strong style="color:var(--muted);font-weight:400;">MPP</strong> is the IETF-track version of the same handshake${tempoChipHtml ? ` - which now includes a native Tempo settlement method too` : ""}. <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">Read the explainer →</a></p>
         </div>
       </div>
 
