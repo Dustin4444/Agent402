@@ -32,6 +32,10 @@ const pkgDirs = ["mcp", "client", "tollbooth", ...readdirSync(join(ROOT, "adapte
 for (const d of pkgDirs) {
   const pkg = JSON.parse(read(`${d}/package.json`));
   ok(all3(pkg.description || ""), `${d}/package.json description names Agentic Finance + MPP + x402`);
+  // npm's registry (and npmjs.com, and `npm view`) TRUNCATE description at 255
+  // characters - measured 2026-08-18: agent402-mcp's MPP mention sat at char
+  // 700+ and was invisible everywhere npm shows it. All three must land early.
+  ok(all3((pkg.description || "").slice(0, 255)), `${d}/package.json description names all three within npm's 255-char cut`);
   const kw = (pkg.keywords || []).map((k) => String(k).toLowerCase());
   ok(kw.includes("aifi") && kw.includes("agentic-finance") && kw.includes("mpp") && kw.includes("x402"), `${d}/package.json keywords carry aifi, agentic-finance, mpp, x402`);
   const readme = read(`${d}/README.md`);
