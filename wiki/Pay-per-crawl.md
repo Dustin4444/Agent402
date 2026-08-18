@@ -35,6 +35,9 @@ app.listen(3000);
 
 ```bash
 TOLLBOOTH_UPSTREAM=https://your-site.com node tollbooth/index.js
+# ...and to take money over x402 AND MPP from env alone (0.8.0):
+TOLLBOOTH_UPSTREAM=https://your-site.com TOLLBOOTH_PAYTO=0xYourWallet \
+TOLLBOOTH_FACILITATOR_URL=https://x402.org/facilitator npx agent402-tollbooth
 ```
 
 ```bash
@@ -52,9 +55,12 @@ curl -A "ClaudeBot/1.0" localhost:4021/article   # bot   -> 402 Payment Required
   solves a single-use, resource-bound sha256 puzzle and retries with
   `X-Pow-Solution: <token>:<nonce>` — the same hardened scheme the main server
   uses (see [[Paying with Compute]]).
-- **Paid rail (x402 USDC):** set `payTo` and supply a `verifyX402` hook wired to
-  the standard x402 stack — settlement is reused, not reinvented (see
-  [[Paying with x402]]).
+- **Paid rail (x402 + MPP, USDC):** in code, hand the gate your `@x402/express`
+  middleware as `x402:` (settlement is reused, not reinvented; the same 402
+  gains MPP challenges and `Authorization: Payment` credentials settle through
+  it - see [[Paying with x402]] and [[Paying with MPP]]). As a reverse proxy,
+  `TOLLBOOTH_PAYTO` + `TOLLBOOTH_FACILITATOR_URL` build that middleware for you
+  from env; `TOLLBOOTH_PAYTO` alone only advertises a quote.
 
 ## Beyond UA detection (the cat-and-mouse answer)
 

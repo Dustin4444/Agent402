@@ -1719,6 +1719,9 @@ jobs:
       - name: Tollbooth dashboard runtime smoke (boots CLI, hits /__tollbooth + /__tollbooth/stats over HTTP)
         run: node scripts/test-tollbooth-runtime.js
 
+      - name: Tollbooth CLI settles x402 + MPP from env (real CLI process vs stub facilitator; mppx + @x402/fetch buys settle once each; misconfig fails closed)
+        run: node scripts/test-tollbooth-cli.js
+
       - name: Conversion tools (~970 endpoints, exact + round-trip)
         run: node scripts/test-convert.js
 

@@ -1,0 +1,143 @@
+// agent402-tollbooth CLI mode (`npx agent402-tollbooth`) settles x402 AND MPP
+// from env alone: TOLLBOOTH_PAYTO + TOLLBOOTH_FACILITATOR_URL build a real
+// @x402/express v2 middleware inside the CLI (tollbooth/index.js
+// buildCliX402Middleware) and hand it to createTollbooth({ x402 }).
+//
+// Why this test exists: before 0.8.0 the CLI with TOLLBOOTH_PAYTO ADVERTISED
+// a quote and refused every payment (no verifier in that mode) - a price
+// nobody could pay, silently. This drives the REAL CLI process (spawned, env
+// only, no upstream so the bare gate answers) against a stub facilitator and
+// proves, with a stock mppx client and a stock @x402/fetch client:
+//   - the 402 carries the middleware's PAYMENT-REQUIRED and an MPP challenge;
+//   - each buy is served AND settled exactly once (settle-after-handler);
+//   - PoW is still checked first and never touches the facilitator;
+//   - misconfiguration fails CLOSED and loudly (non-USDC asset, unknown
+//     network, PAYTO without a facilitator = quote-only with a warning).
+import { createServer } from "node:http";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { Receipt } from "mppx";
+import { Fetch as MppFetch, evm } from "mppx/client";
+import { x402Client } from "@x402/core/client";
+import { registerExactEvmScheme } from "@x402/evm/exact/client";
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { buildCliX402Middleware, CLI_NETWORKS } from "../tollbooth/index.js";
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+let pass = 0;
+let facilitator = null; let child = null;
+const fail = (m) => { console.error("FAIL:", m); try { facilitator?.close(); child?.kill("SIGKILL"); } catch {} process.exit(1); };
+const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else fail(m); };
+
+const PAYTO = "0x000000000000000000000000000000000000dEaD";
+const TX = `0x${"cd".repeat(32)}`;
+const SECRET = "tollbooth-cli-test-secret";
+
+// ---- stub facilitator: exact USDC on Base + Polygon ----
+const facCalls = { verify: [], settle: [], supported: 0, headers: [] };
+facilitator = createServer((req, res) => {
+  let body = ""; req.on("data", (c) => { body += c; });
+  req.on("end", () => {
+    const reply = (obj) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    facCalls.headers.push(req.headers["x-test-key"] || null);
+    if (req.url === "/supported") { facCalls.supported++; return reply({ kinds: [{ x402Version: 2, scheme: "exact", network: "eip155:8453" }, { x402Version: 2, scheme: "exact", network: "eip155:137" }], extensions: [], signers: {} }); }
+    const parsed = body ? JSON.parse(body) : {};
+    if (req.url === "/verify") { facCalls.verify.push(parsed); return reply({ isValid: true, payer: parsed.paymentPayload?.payload?.authorization?.from }); }
+    if (req.url === "/settle") { facCalls.settle.push(parsed); return reply({ success: true, transaction: TX, network: parsed.paymentRequirements?.network, payer: parsed.paymentPayload?.payload?.authorization?.from }); }
+    res.writeHead(404); res.end();
+  });
+});
+await new Promise((r) => facilitator.listen(0, r));
+const FAC = `http://127.0.0.1:${facilitator.address().port}`;
+
+// ---- 1. the builder alone: quote-only, misconfig, network mapping ----
+ok((await buildCliX402Middleware({})) === null, "no TOLLBOOTH_PAYTO -> no middleware (proof-of-work only, as before)");
+ok((await buildCliX402Middleware({ TOLLBOOTH_PAYTO: PAYTO })) === null, "PAYTO without a facilitator -> null (quote-only) with a loud warning, never a silent settling claim");
+ok(CLI_NETWORKS.base === "eip155:8453" && CLI_NETWORKS.polygon === "eip155:137" && CLI_NETWORKS.celo === "eip155:42220", "CLI network names map to CAIP-2");
+{
+  const mw = await buildCliX402Middleware({ TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_FACILITATOR_URL: FAC, TOLLBOOTH_NETWORK: "polygon", TOLLBOOTH_PRICE: "$0.005", TOLLBOOTH_FACILITATOR_HEADERS: JSON.stringify({ "X-Test-Key": "k1" }) });
+  ok(typeof mw === "function", "PAYTO + facilitator -> a middleware function");
+  // Drive it in-process to read the quote it would advertise.
+  const { default: express } = await import("express");
+  const e = express(); e.use(mw); e.get("/x", (_q, r) => r.json({ ok: 1 }));
+  const srv = e.listen(0); await new Promise((r) => srv.once("listening", r));
+  const r = await fetch(`http://127.0.0.1:${srv.address().port}/x`);
+  const req = JSON.parse(Buffer.from(r.headers.get("payment-required") || "", "base64").toString("utf8"));
+  ok(r.status === 402 && req.accepts?.[0]?.network === "eip155:137" && req.accepts[0].payTo === PAYTO && req.accepts[0].amount === "5000", `TOLLBOOTH_NETWORK=polygon, PRICE=$0.005 -> accepts eip155:137, 5000 base units, our payTo (got ${r.status} ${req.accepts?.[0]?.network} ${req.accepts?.[0]?.amount})`);
+  ok(facCalls.headers.includes("k1"), "TOLLBOOTH_FACILITATOR_HEADERS ride the facilitator calls (/supported saw X-Test-Key)");
+  srv.close();
+}
+// Misconfiguration fails closed: run the builder in a child so process.exit is observable.
+{
+  const runBuilder = (env) => new Promise((resolve) => {
+    const c = spawn(process.execPath, ["-e", `import("${join(ROOT, "tollbooth/index.js").replace(/\\\\/g, "/")}").then(m => m.buildCliX402Middleware(process.env)).then(x => { console.log(x ? "MW" : "NULL"); process.exit(0); })`], { env: { ...env, PATH: process.env.PATH }, cwd: ROOT });
+    let out = ""; c.stdout.on("data", (d) => { out += d; }); c.stderr.on("data", (d) => { out += d; });
+    c.on("exit", (code) => resolve({ code, out }));
+  });
+  const a = await runBuilder({ TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_FACILITATOR_URL: FAC, TOLLBOOTH_ASSET: "USDG" });
+  ok(a.code === 1 && /TOLLBOOTH_ASSET=USDG/.test(a.out) && /Refusing to start/.test(a.out), "non-USDC asset with a facilitator: refuses to start (would advertise a quote it cannot settle)");
+  const b = await runBuilder({ TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_FACILITATOR_URL: FAC, TOLLBOOTH_NETWORK: "solana" });
+  ok(b.code === 1 && /TOLLBOOTH_NETWORK=solana/.test(b.out), "unknown network: refuses to start, names the known ones");
+  const c = await runBuilder({ TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_FACILITATOR_URL: FAC, TOLLBOOTH_FACILITATOR_HEADERS: "not json" });
+  ok(c.code === 1 && /TOLLBOOTH_FACILITATOR_HEADERS/.test(c.out), "malformed facilitator headers: refuses to start");
+}
+
+// ---- 2. the REAL CLI process, env only, no upstream ----
+const PORT = 40000 + Math.floor(Math.random() * 20000);
+child = spawn(process.execPath, [join(ROOT, "tollbooth/index.js")], {
+  cwd: ROOT,
+  env: { PATH: process.env.PATH, PORT: String(PORT), TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_FACILITATOR_URL: FAC, TOLLBOOTH_SECRET: SECRET, TOLLBOOTH_MODE: "all", TOLLBOOTH_PRICE: "$0.001", TOLLBOOTH_ADMIN_TOKEN: "t" },
+  stdio: ["ignore", "pipe", "pipe"],
+});
+let cliLog = "";
+child.stdout.on("data", (d) => { cliLog += d; }); child.stderr.on("data", (d) => { cliLog += d; });
+const B = `http://127.0.0.1:${PORT}`;
+for (let i = 0; i < 100; i++) { try { await fetch(`${B}/__tollbooth/stats`); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+ok(/x402 \+ MPP \(USDC, settling via/.test(cliLog), `boot banner says it settles both wires (log: ${cliLog.trim().split("\n").pop()})`);
+
+const r402 = await fetch(`${B}/page`);
+ok(r402.status === 402, "unpaid GET -> 402");
+const pr = r402.headers.get("payment-required");
+ok(!!pr && JSON.parse(Buffer.from(pr, "base64").toString("utf8")).accepts?.[0]?.payTo === PAYTO, "402 carries the middleware's PAYMENT-REQUIRED (stock x402 v2 clients can pay)");
+ok(/^Payment /i.test(r402.headers.get("www-authenticate") || ""), "402 carries WWW-Authenticate: Payment (MPP on by default with x402)");
+ok(facCalls.settle.length === 0, "issuing a 402 settled nothing");
+
+// mppx native buy
+const account = privateKeyToAccount(generatePrivateKey());
+const mppFetch = MppFetch.from({ methods: [evm.charge({ account, currencies: [evm.assets.base.USDC], maxAmount: "1.00" })] });
+const paid = await mppFetch(`${B}/page`);
+ok(paid.status === 200, `stock mppx client buys through the CLI -> 200 (got ${paid.status})`);
+const paidBody = await paid.json();
+ok(paidBody?.ok === true && /Bare tollbooth gate/.test(paidBody.note || ""), "the bare gate's real response reached the buyer (no upstream configured)");
+ok(paid.headers.get("x-tollbooth-paid") === "mpp", "X-Tollbooth-Paid: mpp");
+const rc = paid.headers.get("payment-receipt");
+ok(!!rc && Receipt.deserialize(rc).reference === TX, "Payment-Receipt carries the settle tx");
+ok(facCalls.verify.length === 1 && facCalls.settle.length === 1, `MPP buy: one verify + ONE settle (got ${facCalls.verify.length}/${facCalls.settle.length})`);
+
+// x402 v2 buy
+const x402c = new x402Client(); registerExactEvmScheme(x402c, { signer: privateKeyToAccount(generatePrivateKey()) });
+const payFetch = wrapFetchWithPayment(fetch, x402c);
+const paidX = await payFetch(`${B}/page`);
+ok(paidX.status === 200 && paidX.headers.get("x-tollbooth-paid") === "x402", `stock @x402/fetch client buys through the CLI -> 200, X-Tollbooth-Paid: x402 (got ${paidX.status})`);
+ok(facCalls.settle.length === 2, `x402 buy settled too (settles=${facCalls.settle.length})`);
+
+// PoW first, facilitator untouched
+const lz = (buf) => { let n = 0; for (const b of buf) { if (b === 0) { n += 8; continue; } let x = b; while ((x & 0x80) === 0) { n++; x <<= 1; } break; } return n; };
+const solve = (chal, diff) => { let n = 0; while (lz(createHash("sha256").update(`${chal}:${n}`).digest()) < diff) n++; return n; };
+const q = await (await fetch(`${B}/page`)).json();
+const sol = `${q.proofOfWork.token}:${solve(q.proofOfWork.challenge, q.proofOfWork.difficulty)}`;
+const before = { v: facCalls.verify.length, s: facCalls.settle.length };
+const rp = await fetch(`${B}/page`, { headers: { "X-Pow-Solution": sol } });
+ok(rp.status === 200 && rp.headers.get("x-tollbooth-paid") === "pow", "proof-of-work still passes free");
+ok(facCalls.verify.length === before.v && facCalls.settle.length === before.s, "PoW never touches the facilitator");
+
+// stats via the gated endpoint
+const st = await (await fetch(`${B}/__tollbooth/stats`, { headers: { Authorization: "Bearer t" } })).json();
+ok(st.mppPaid === 1 && st.x402Paid === 1 && st.powSolved === 1, `CLI stats attribute the wires: mppPaid=${st.mppPaid} x402Paid=${st.x402Paid} powSolved=${st.powSolved}`);
+
+child.kill("SIGTERM"); facilitator.close();
+console.log(`\n${pass} passed`);
+process.exit(0);

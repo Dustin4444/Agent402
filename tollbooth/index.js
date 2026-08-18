@@ -516,6 +516,81 @@ function readBody(req, cap = 10 * 1024 * 1024) {
   });
 }
 
+// Chain names the CLI accepts for TOLLBOOTH_NETWORK, to CAIP-2. A raw
+// `eip155:<id>` passes through. USDC-settling EVM chains only: the middleware
+// built below registers @x402/evm's exact scheme, whose default money parser
+// knows USDC on these networks; anything else (USDG on Robinhood Chain,
+// Solana, Stellar, Algorand) needs the library API with the matching scheme.
+export const CLI_NETWORKS = {
+  base: "eip155:8453", "base-sepolia": "eip155:84532", polygon: "eip155:137", arbitrum: "eip155:42161",
+  optimism: "eip155:10", avalanche: "eip155:43114", celo: "eip155:42220", sei: "eip155:1329", monad: "eip155:143",
+};
+
+/** Build a real @x402/express v2 middleware from env for the CLI, or null.
+ *
+ *  Before 0.8.0, TOLLBOOTH_PAYTO in CLI mode only ADVERTISED a quote: the gate
+ *  had no verifier there, so every request that carried a payment was refused
+ *  with a fresh 402 - a price nobody could pay, and the operator saw no error.
+ *  With TOLLBOOTH_FACILITATOR_URL set as well, the CLI now constructs the
+ *  standard @x402/express stack (verify -> proxy the request -> settle only on
+ *  a <400 response, in the middleware's own order, exactly once) and hands it
+ *  to createTollbooth({ x402 }), which also mints MPP challenges and accepts
+ *  Authorization: Payment credentials by default - so `npx agent402-tollbooth`
+ *  takes money over BOTH wires from env alone. @x402/* are optional peers
+ *  (this package stays dependency-free otherwise); asking for settlement
+ *  without them installed FAILS the start (fail closed: the operator believes
+ *  they are charging).
+ *
+ *  Exported (with an injectable `env`) so the test can drive the same code the
+ *  CLI runs, not a copy of it. */
+export async function buildCliX402Middleware(env = process.env) {
+  const payTo = env.TOLLBOOTH_PAYTO || "";
+  const facilitatorUrl = env.TOLLBOOTH_FACILITATOR_URL || "";
+  if (!payTo) return null;
+  if (!facilitatorUrl) {
+    console.warn("⚠ TOLLBOOTH_PAYTO is set without TOLLBOOTH_FACILITATOR_URL: the 402 advertises a USDC quote but nothing here can verify or settle a payment, so every paid request is refused. Set TOLLBOOTH_FACILITATOR_URL (a public x402 facilitator that settles your network - keyless free tiers exist; https://x402.org/facilitator for base-sepolia) to actually charge, over x402 and MPP.");
+    return null;
+  }
+  const asset = (env.TOLLBOOTH_ASSET || "USDC").toUpperCase();
+  if (asset !== "USDC") {
+    console.error(`✖ TOLLBOOTH_FACILITATOR_URL is set but TOLLBOOTH_ASSET=${asset}: the CLI's built-in settlement registers @x402/evm's exact USDC scheme only. For ${asset} use the library API - createTollbooth({ x402: paymentMiddleware(...) }) with the scheme your facilitator settles - or set TOLLBOOTH_ASSET=USDC. Refusing to start rather than advertise a quote it cannot settle.`);
+    process.exit(1);
+  }
+  const rawNet = String(env.TOLLBOOTH_NETWORK || "base").trim().toLowerCase();
+  const network = /^eip155:\d+$/.test(rawNet) ? rawNet : CLI_NETWORKS[rawNet];
+  if (!network) {
+    console.error(`✖ TOLLBOOTH_NETWORK=${rawNet} is not a chain the CLI can settle USDC on. Known: ${Object.keys(CLI_NETWORKS).join(", ")}, or a raw eip155:<chainId>. Refusing to start.`);
+    process.exit(1);
+  }
+  let paymentMiddleware, HTTPFacilitatorClient, x402ResourceServer, ExactEvmScheme;
+  try {
+    ({ paymentMiddleware } = await import("@x402/express"));
+    ({ HTTPFacilitatorClient, x402ResourceServer } = await import("@x402/core/server"));
+    ({ ExactEvmScheme } = await import("@x402/evm/exact/server"));
+  } catch (e) {
+    console.error(`✖ TOLLBOOTH_FACILITATOR_URL is set, so this gate must settle x402 payments, but the x402 packages are not installed (${String(e?.message || e).slice(0, 120)}). Install them next to agent402-tollbooth: npm i @x402/express @x402/core @x402/evm . Refusing to start rather than advertise a quote it cannot settle.`);
+    process.exit(1);
+  }
+  // Optional facilitator auth headers, sent on /verify, /settle and /supported
+  // alike (facilitators disagree on the header name, so the operator names it).
+  let authHeaders = null;
+  if (env.TOLLBOOTH_FACILITATOR_HEADERS) {
+    try { authHeaders = JSON.parse(env.TOLLBOOTH_FACILITATOR_HEADERS); } catch { console.error("✖ TOLLBOOTH_FACILITATOR_HEADERS must be a JSON object of header name -> value. Refusing to start."); process.exit(1); }
+  }
+  const client = new HTTPFacilitatorClient({
+    url: facilitatorUrl,
+    ...(authHeaders ? { createAuthHeaders: async () => ({ verify: authHeaders, settle: authHeaders, supported: authHeaders }) } : {}),
+  });
+  const resourceServer = new x402ResourceServer(client).register(network, new ExactEvmScheme());
+  const price = env.TOLLBOOTH_PRICE || "$0.001";
+  const routes = {
+    // Every method, every path (the proxy forwards them all); no verb prefix
+    // means "*" in @x402/core's matcher. Never a bazaar extension on a wildcard.
+    "/*": { accepts: [{ scheme: "exact", network, price, payTo }], description: "agent402-tollbooth: paid access for automated clients", mimeType: "application/json" },
+  };
+  return paymentMiddleware(routes, resourceServer);
+}
+
 async function startCli() {
   const upstream = process.env.TOLLBOOTH_UPSTREAM;
   const port = Number(process.env.PORT) || 4021;
@@ -584,7 +659,8 @@ async function startCli() {
   }
   const { default: express } = await import("express");
   const app = express();
-  const gate = createTollbooth({ resourceBaseUrl: process.env.TOLLBOOTH_RESOURCE_BASE || upstream || "", replayStore });
+  const x402mw = await buildCliX402Middleware();
+  const gate = createTollbooth({ resourceBaseUrl: process.env.TOLLBOOTH_RESOURCE_BASE || upstream || "", replayStore, ...(x402mw ? { x402: x402mw } : {}) });
   // Operator analytics — aggregate counts only (no per-request data), mounted
   // before the gate so they're always reachable and never themselves charged.
   // Two opt-in admin tokens (legacy `TOLLBOOTH_STATS_TOKEN` covers /stats only;
@@ -641,7 +717,8 @@ async function startCli() {
     app.use((_req, res) => res.json({ ok: true, note: "Bare tollbooth gate (no TOLLBOOTH_UPSTREAM set). Clients that reach here paid or solved a proof-of-work." }));
   }
   app.listen(port, () => {
-    const rails = `${gate.pow ? "proof-of-work" : ""}${process.env.TOLLBOOTH_PAYTO ? (gate.pow ? ` + x402(${process.env.TOLLBOOTH_ASSET || "USDC"})` : `x402(${process.env.TOLLBOOTH_ASSET || "USDC"})`) : ""}`;
+    const paidLabel = x402mw ? `x402 + MPP (${process.env.TOLLBOOTH_ASSET || "USDC"}, settling via ${process.env.TOLLBOOTH_FACILITATOR_URL})` : (process.env.TOLLBOOTH_PAYTO ? `x402 quote only (${process.env.TOLLBOOTH_ASSET || "USDC"}, NOT settling - set TOLLBOOTH_FACILITATOR_URL)` : "");
+    const rails = [gate.pow ? "proof-of-work" : "", paidLabel].filter(Boolean).join(" + ");
     console.log(`agent402-tollbooth listening on :${port} — charging AI bots via ${rails || "proof-of-work"}`);
     if (upstream) console.log(`  proxying → ${upstream}`);
   });
