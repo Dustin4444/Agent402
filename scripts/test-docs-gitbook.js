@@ -72,19 +72,30 @@ ok(slugs.includes("Getting-Started"), "a known real doc slug (Getting-Started) i
 }
 
 // --- prev/next: real, computed from sidebar order, never hand-maintained ------
+// The expected "first real doc" is read from wiki/_Sidebar.md HERE, with a
+// parser independent of src/docs.js - so the assertion holds by construction
+// when the sidebar is reordered (2026-08-18: putting a new page first broke a
+// hardcoded "Getting-Started" while the comment above claimed nothing was
+// hand-maintained), yet still fails if docs.js's own parser drifts.
 {
-  const { prev, next } = docNeighbors("Getting-Started");
-  ok(prev && prev.slug === "Home", "Getting-Started's prev neighbor is Home (first item in the real sidebar)");
-  ok(next && typeof next.slug === "string" && next.slug.length > 0, "Getting-Started has a real next neighbor");
+  const sidebarRaw = readFileSync(fileURLToPath(new URL("../wiki/_Sidebar.md", import.meta.url)), "utf8");
+  const firstItem = sidebarRaw.split("\n").map((l) => l.match(/^\s*-\s*\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/)).find(Boolean);
+  const FIRST = firstItem ? (firstItem[2] || firstItem[1]).trim().replace(/\s+/g, "-") : null;
+  ok(FIRST && FIRST !== "Home", `sidebar's first real doc is readable from the raw file (${FIRST})`);
+  ok(FIRST === "Getting-Started", "Getting Started stays the sidebar's first doc (a reader's entry point precedes the category explainer)");
+
+  const { prev, next } = docNeighbors(FIRST);
+  ok(prev && prev.slug === "Home", `${FIRST}'s prev neighbor is Home (first item in the real sidebar)`);
+  ok(next && typeof next.slug === "string" && next.slug.length > 0, `${FIRST} has a real next neighbor`);
   const homeNeighbors = docNeighbors("Home");
   ok(homeNeighbors.prev === null, "Home (the first page) has no prev neighbor");
-  ok(homeNeighbors.next && homeNeighbors.next.slug === "Getting-Started", "Home's next neighbor is the sidebar's first real doc");
+  ok(homeNeighbors.next && homeNeighbors.next.slug === FIRST, "Home's next neighbor is the sidebar's first real doc");
 
   const home = ledgerDocsPage(BASE_URL, catalog);
   ok(home.includes('class="ml-docs-pn"'), "/docs renders the prev/next footer nav");
   ok(!home.includes(">Previous<"), "/docs (the first page) shows no Previous link");
 
-  const sub = docsPage(BASE_URL, "Getting-Started");
+  const sub = docsPage(BASE_URL, FIRST);
   ok(sub.includes(">Previous<") && sub.includes("&larr; Home"), "a middle doc page's Previous link points back to Home");
 }
 

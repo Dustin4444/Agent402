@@ -2,6 +2,7 @@
 
 **Using it (for agents / buyers)**
 - [[Getting Started]]
+- [[Agentic Finance]]
 - [[Paying with x402]]
 - [[Paying with MPP]]
 - [[Robinhood Chain (USDG)|Robinhood-Chain]]

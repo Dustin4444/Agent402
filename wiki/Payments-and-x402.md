@@ -1,5 +1,7 @@
 # Payments and x402
 
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+
 Agent402's payments toolkit is **non-custodial**: it helps an agent move its
 *own* USDC with its *own* key. Agent402 never holds, receives, signs, or sends
 funds — it decodes quotes, reads public chain state, and builds the

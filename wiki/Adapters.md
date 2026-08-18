@@ -1,5 +1,7 @@
 # Adapters
 
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+
 If your agent isn't an MCP client, there's a zero-dependency npm package that turns the Agent402 catalog into native tool objects for your framework — with payment handled underneath (proof-of-work for free tools, USDC via x402 for wallet-only).
 
 | Stack | npm package | Returns |

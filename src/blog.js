@@ -2,6 +2,70 @@ import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
 
 export const BLOG_POSTS = [
   {
+    slug: "what-is-agentic-finance-aifi",
+    date: "2026-08-18",
+    title: "Agentic Finance (AIFI): the economy that forms once agents can pay",
+    excerpt: "Agentic payments are the wire. Agentic Finance is what forms on top of it: agents discovering services, paying per request from their own wallets over x402 or MPP, receiving receipts, and earning per request in return. What the term means, what one purchase looks like, and where Agent402 sits.",
+    body: `<p><strong>Agentic Finance (AIFI)</strong> is software agents transacting on their own: discovering a service, reading a machine-readable price, paying per request from a non-custodial wallet over an open protocol, receiving a verifiable receipt, and, on the other side, earning per request for what they serve. No accounts, no API keys, no invoices. The payment is the identity and every settlement is on a public ledger.</p>
+
+<p>We use the term deliberately, and this post is the long form of the <a href="/agentic-finance">category page</a>: what it means, why it is different from the two phrases it gets confused with, what a single purchase actually looks like on the wire, and where Agent402 sits in it.</p>
+
+<h2>Three phrases that are not the same thing</h2>
+
+<ul>
+  <li><strong>Agentic payments</strong> is the plumbing: a wire format that lets one program pay another per request. HTTP 402 names a price, the client answers with a signed stablecoin payment, the server verifies, settles and delivers. <a href="/what-is-x402">x402</a> and <a href="/what-is-mpp">MPP</a> are the two open, HTTP-native standards for it.</li>
+  <li><strong>Agentic commerce</strong> usually means agents buying goods for humans through checkout flows: a shopping assistant completing a purchase a person asked for, with a card on file and a human ultimately approving.</li>
+  <li><strong>Agentic finance</strong> is the machine-to-machine economy that forms on top of the plumbing once thousands of agents and sellers transact: price discovery, routing between competing sellers, reliability signals, spend controls, receipts, and transparent revenue - operated by and for autonomous software.</li>
+</ul>
+
+<p>The practical test, borrowed from <a href="/what-is-x402#agentic">the x402 explainer</a>: could the software complete the purchase with no human awake? If a human has to approve, register, or paste a key, it is not agentic. Agentic finance is the same test applied to a whole market rather than to one payment.</p>
+
+<h2>What one purchase looks like</h2>
+
+<p>An agent working a real task needs something it cannot answer from memory: a live page, a filing, a conversion, an address on a chain. It sends a plain HTTP request. The server answers <code>402 Payment Required</code> and, in the response headers, quotes a price: which asset, which chain, which recipient, how much, valid until when. On x402 that quote is a <code>PAYMENT-REQUIRED</code> header; on MPP it is a <code>WWW-Authenticate: Payment</code> challenge. A dual-stack server carries both on the same 402 at the same price.</p>
+
+<p>The agent's wallet signs an authorization for exactly that amount - on the EVM rails an <a href="/glossary#eip-3009">EIP-3009</a> authorization, so it pays no gas and its key never leaves the client - and repeats the identical request with the credential attached. The server verifies it, runs the tool, settles the payment on chain through a <a href="/glossary#facilitator">facilitator</a> (or, for MPP's native Tempo method, through Tempo's relay), and returns the answer with a <a href="/glossary#payment-receipt">receipt</a> that ties this payment to this response.</p>
+
+<p>Two round trips, a couple of seconds, a fraction of a cent. Nothing to sign up for means nothing to leak, and one receipt per call means an agent's spend is legible line by line.</p>
+
+<h2>The four layers</h2>
+
+<ol>
+  <li><strong>Agents.</strong> Autonomous software with a wallet: MCP-connected assistants, crawlers, research and trading agents, other services' agents. The buyers and, increasingly, the sellers.</li>
+  <li><strong>The applied layer.</strong> Discovery, routing, pricing, reliability, receipts, transparency. Where an agent finds the right service and pays it once, safely.</li>
+  <li><strong>Payment protocols.</strong> x402 and MPP. Open, HTTP-native, wallet as identity.</li>
+  <li><strong>Rails and money.</strong> Stablecoins settled on public chains: USDC across the EVM chains plus Solana, Stellar and Algorand; USDG on Robinhood Chain; native Tempo.</li>
+</ol>
+
+<p>The interesting problems live in the second layer. A wire format tells you how to pay one seller you already trust. It says nothing about which of a dozen sellers to pay, whether that seller has ever actually delivered, what happens when a paid call fails, or how anyone can check the numbers a marketplace publishes about itself. Those are finance questions, and they only appear once the payments layer works.</p>
+
+<h2>Where Agent402 sits</h2>
+
+<p>Agent402 is built as the applied layer, and every piece of it is live on both wires:</p>
+
+<ul>
+  <li><strong>Buy:</strong> a catalog of 500+ deterministic pay-per-call tools - search, browser rendering, PDFs, OCR, financial and chain data, an OpenAI-compatible LLM gateway - each priced, tested against its own example in CI, and settled on chain over x402 or MPP. <a href="/tools">Browse the catalog</a>.</li>
+  <li><strong>Route:</strong> an open <a href="/marketplace">cross-seller index</a> and a <a href="/guides/smart-order-router">Smart Order Router</a> that resolves a task to the best seller across the ecosystem - ours or anyone's - pays them on the agent's behalf on the same chain the agent paid on, and relays the result with a receipt. Only sellers with proven on-chain settlement are routable.</li>
+  <li><strong>Sell:</strong> the open-source <a href="/sell">tollbooth</a> that lets any site or API charge agents per request over both wires while humans browse free. Non-custodial, no signup.</li>
+  <li><strong>Prove:</strong> <a href="/revenue">live revenue</a> by rail and by wire with every figure linked to its on-chain receipt, an on-chain seller leaderboard, uptime measured from outside, and a ledger for the rare charged-but-failed call so it is refunded rather than forgotten.</li>
+</ul>
+
+<p>Settlement ordering is the detail we care most about, because it is where a marketplace can quietly cheat its buyers: Agent402 runs the tool first and settles only on a successful response, so a failed call is never charged. A daily canary buys real tools over both x402 and MPP so the claim is re-proven on mainnet rather than asserted once.</p>
+
+<h2>Do agents need crypto to take part?</h2>
+
+<p>To pay, an agent needs a wallet holding a stablecoin on a supported chain; gas is sponsored on the EVM rails, so no native token is required. Agent402 also keeps a <a href="/blog/proof-of-work-free-tier">free tier</a>: pure-CPU tools are payable with a short proof-of-work solve instead of money, so an agent without a wallet still has a path through. To sell, you need an endpoint and a wallet address to receive into. That is the whole onboarding.</p>
+
+<h2>Where to go next</h2>
+
+<ul>
+  <li>The <a href="/agentic-finance">Agentic Finance (AIFI)</a> category page, with the definition, the stack and the FAQ.</li>
+  <li>The <a href="/glossary">glossary</a>: every term above - 402, facilitator, EIP-3009, receipt, settlement, rails, dual-stack, PoW tier, SOR, tollbooth - defined once, each with its own anchor.</li>
+  <li><a href="/what-is-x402">What is x402?</a> and <a href="/what-is-mpp">What is MPP?</a> for the two wires in depth.</li>
+  <li><a href="/docs#add">Add Agent402 to your agent</a>, or <a href="/sell">put a price on your own API</a>. Both are free to start.</li>
+</ul>`,
+  },
+  {
     slug: "why-we-built-agent402",
     date: "2026-06-15",
     title: "Why we built Agent402",
@@ -73,11 +137,13 @@ export const BLOG_POSTS = [
 <p>Any tool that runs purely on the server's CPU without making external network requests is PoW-eligible. Tools that call upstream APIs (web search, rendering, geocoding) require payment because they have a real marginal cost. The tool catalog marks each tool's pricing - <code>$0.000</code> means PoW-eligible.</p>`,
   },
   {
-    slug: "1000-tools-milestone",
+    slug: "catalog-milestone",
     date: "2026-06-20",
-    title: "1,000 tools and counting",
-    excerpt: "Agent402 crossed 1,000 deterministic tools this week. Here's what categories exist, how we got here, and what's coming next.",
-    body: `<p>This week Agent402 crossed 1,000 tools in the catalog. Every one of them is deterministic, tested in CI, and callable with a single HTTP request. Here's a look at what's in the box.</p>
+    title: "500+ tools and counting",
+    excerpt: "The Agent402 catalog passed the 500-tool mark - every one deterministic, tested in CI, callable with one HTTP request. What categories exist, how we got here, and what's coming next.",
+    body: `<p>The Agent402 catalog passed the 500-tool mark. Every one of those tools is deterministic, tested in CI, and callable with a single HTTP request. Here's a look at what's in the box.</p>
+
+<p><em>Note (updated 2026-08-18): this post originally counted every catalog entry, including hundreds of near-duplicate pairwise converters that were later collapsed into a handful of parameterized tools. The catalog is quoted as an evergreen "500+ tools" everywhere now; the exact live number is always at <a href="/api/pricing">/api/pricing</a> and <a href="/health">/health</a>.</em></p>
 
 <h2>What categories exist</h2>
 

@@ -72,6 +72,16 @@ export async function tempoInboundCount(recipient, { rpcFn = rpc, now = Date.now
   return count;
 }
 export function __testResetProofCache() { proofCache.clear(); }
+/** Seed the proven-seller cache from an external read (the MPP leaderboard's
+ *  batched scan, src/mpp-leaderboard.js) so a routed buy to a ranked seller
+ *  does not re-scan the chain. Same TTL as a direct read. */
+export function primeTempoInboundCount(recipient, count, now = Date.now()) {
+  if (!/^0x[0-9a-fA-F]{40}$/.test(String(recipient)) || !Number.isFinite(count)) return;
+  proofCache.set(String(recipient).toLowerCase(), { at: now, count: Math.max(0, count | 0) });
+}
+/** The JSON-RPC client the gate uses (exported so the leaderboard shares the
+ *  endpoint + timeout, and tests inject a stub in one place). */
+export const tempoRpc = (method, params, opts) => rpc(method, params, opts);
 
 // ---- spending wallet status (for /api/gateway-status + the heartbeat) ------
 let accountCache = null;

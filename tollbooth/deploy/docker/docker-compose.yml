@@ -12,9 +12,12 @@ services:
       # zero-difficulty proof-of-work token and bypass the gate for free.
       # Generate one with: openssl rand -hex 32
       TOLLBOOTH_SECRET: ${TOLLBOOTH_SECRET:?set TOLLBOOTH_SECRET - generate with: openssl rand -hex 32}
-      # Optional — advertise a USDC x402 quote:
+      # Optional — charge USDC over x402 AND MPP (both settle once TOLLBOOTH_FACILITATOR_URL is set;
+      # PAYTO alone only advertises a quote nobody can pay):
       TOLLBOOTH_PAYTO: "0xYourWallet"
       TOLLBOOTH_PRICE: "$0.001"
+      # TOLLBOOTH_FACILITATOR_URL: "https://x402.org/facilitator"   # base-sepolia dry run; pick a facilitator that settles TOLLBOOTH_NETWORK for mainnet
+      # TOLLBOOTH_NETWORK: "base"
       # Optional — stop relying on UA detection (see the tollbooth README):
       # TOLLBOOTH_MODE: "strict"
       # TOLLBOOTH_ADAPTIVE: "true"

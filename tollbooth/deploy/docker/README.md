@@ -9,7 +9,8 @@ free — in front of any site, no code changes to your origin.
 # 1. Grab these two files (Dockerfile + docker-compose.yml) from the repo:
 #    tollbooth/deploy/docker/
 # 2. Edit docker-compose.yml — set TOLLBOOTH_UPSTREAM (your origin) and a long
-#    random TOLLBOOTH_SECRET (and optionally TOLLBOOTH_PAYTO for a USDC quote).
+#    random TOLLBOOTH_SECRET (and optionally TOLLBOOTH_PAYTO + TOLLBOOTH_FACILITATOR_URL
+#    to charge USDC over x402 and MPP; PAYTO alone only advertises a quote).
 # 3. Run it:
 docker compose up -d
 ```

@@ -11,7 +11,7 @@ import { createServer } from "node:http";
 let pass = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error("FAIL:", m); process.exit(1); } };
 
-const FAKE_KEY = "alch_TESTKEY_0123456789abcdef";
+const FAKE_KEY = "alch_LEAKCANARY_0123456789abcdef";
 process.env.ALCHEMY_API_KEY = FAKE_KEY;
 const { rpcCall } = await import("../src/leaderboard.js");
 

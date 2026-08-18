@@ -51,6 +51,9 @@ import { contactPage } from "./contact.js";
 import { quickstartPage } from "./quickstart.js";
 import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
+import { agenticFinancePage } from "./agentic-finance.js";
+import { glossaryPage } from "./glossary.js";
+import { aifiCardSvg } from "./aifi-card.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
@@ -60,6 +63,8 @@ import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
 import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
+import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
+import { tempoSelfRecipient } from "./mpp-tempo.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
@@ -788,11 +793,19 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
     // known from the live 402.
     const { tempoCatalog, rankTempoResources } = await import("./tempo-sellers.js");
     const ourOrigin = (() => { try { return new URL(BASE_URL).origin.toLowerCase(); } catch { return ""; } })();
-    candidates = rankTempoResources(tempoCatalog(), task, { capUsd: cap, excludeOrigin: ourOrigin })
+    // Up-front gate from the MPP leaderboard when it is fresh: only recipients
+    // the chain shows being paid at or above the floor (and offering
+    // tempo/charge) are candidates, ranked lexically then by settled. A stale
+    // or empty board gates nothing here - the pay-time gate still decides.
+    const lb = mppLeaderboardSnapshot();
+    const provenByRecipient = !lb.stale && lb.rows.length
+      ? new Map(lb.rows.map((row) => [row.recipient, { transfers: row.transfers, routable: !!row.routable }]))
+      : null;
+    candidates = rankTempoResources(tempoCatalog(), task, { capUsd: cap, excludeOrigin: ourOrigin, provenByRecipient })
       .slice(0, 5)
       .map((r) => ({
         seller: r.origin, slug: r.path.replace(/^\//, ""), url: r.url, method: r.method,
-        price: `$${r.priceUsd}`, priceUsd: r.priceUsd, networks: r.networks, wire: "mpp",
+        price: `$${r.priceUsd}`, priceUsd: r.priceUsd, networks: r.networks, wire: "mpp", settled: r.settled,
       }));
   } else if (chain === "algorand") {
     // Algorand sellers live in the GoPlausible facilitator catalog, not our
@@ -1355,6 +1368,22 @@ app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402
   leaderboardSnapshot: getLeaderboardSnapshot(),
 })));
 app.get("/what-is-mpp", (_req, res) => htmlCache(res, 300, 900).send(whatIsMppPage(BASE_URL)));
+// The category page: Agentic Finance (AIFI) - the moniker the whole surface
+// positions under; DefinedTerm + Article + FAQPage structured data.
+app.get("/agentic-finance", (_req, res) => htmlCache(res, 300, 900).send(agenticFinancePage(BASE_URL)));
+app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
+app.get("/glossary", (_req, res) => htmlCache(res, 300, 900).send(glossaryPage(BASE_URL)));
+// The Agentic Finance card - og:image of /agentic-finance + /glossary and the
+// announcement image (src/aifi-card.js); rasterized once per process like /card.png.
+let aifiCardPngCache = null;
+app.get("/og/agentic-finance.png", async (_req, res) => {
+  try {
+    aifiCardPngCache ??= await rasterizeSvg(aifiCardSvg(), { width: 1200, height: 630 });
+    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(aifiCardPngCache);
+  } catch {
+    res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(aifiCardSvg());
+  }
+});
 app.get("/faq", (_req, res) => htmlCache(res, 300, 900).send(faqPage(BASE_URL)));
 app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerIntegrationsPage(BASE_URL)));
 app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPage(BASE_URL, CATALOG)));
@@ -1525,6 +1554,9 @@ app.get("/playground", (_req, res) => htmlCache(res, 300, 900).send(playgroundPa
 app.get("/sdk-playground", (_req, res) => htmlCache(res, 300, 900).send(sdkPlaygroundPage(BASE_URL)));
 app.get("/docs/api/explorer", (_req, res) => htmlCache(res, 300, 900).send(apiExplorerPage(BASE_URL)));
 app.get("/blog", (_req, res) => htmlCache(res, 300, 900).send(blogIndex(BASE_URL)));
+// The catalog-milestone post was renamed 2026-08-18 (its old slug carried an
+// exact tool count the evergreen rule forbids on served pages); keep the URL.
+app.get("/blog/1000-tools-milestone", (_req, res) => res.redirect(301, "/blog/catalog-milestone"));
 app.get("/blog/:slug", (req, res) => { const html = blogPost(BASE_URL, req.params.slug); if (!html) return res.status(404).type("html").send('<p>Post not found. <a href="/blog">All posts</a></p>'); htmlCache(res, 300, 900).send(html); });
 app.get("/compare", (_req, res) => htmlCache(res, 300, 900).send(comparePage(BASE_URL)));
 app.get("/community", (_req, res) => htmlCache(res, 300, 900).send(communityPage(BASE_URL)));
@@ -3022,10 +3054,33 @@ app.get("/marketplace", async (req, res) => {
 // on-chain join, unlike /marketplace above), same cache window.
 app.get("/mpp-marketplace", (_req, res) => {
   try {
-    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot()));
+    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot(), mppLeaderboardSnapshot()));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
+});
+// Machine-readable MPP index + leaderboard (the JSON behind /mpp-marketplace;
+// free, unpaywalled, same cache window). The index carries each verified
+// seller's LIVE payment offers (method/recipient/currency/chain) as probed.
+app.get("/api/mpp-index", (_req, res) => {
+  const snap = mppIndexSnapshot();
+  res.set("Cache-Control", "public, max-age=120");
+  res.json({ ...snap, generatedAt: new Date(snap.generatedAt).toISOString() });
+});
+app.get("/api/mpp-leaderboard", (_req, res) => {
+  const lb = mppLeaderboardSnapshot();
+  const { history, ...rest } = lb;
+  res.set("Cache-Control", "public, max-age=120");
+  res.json({
+    ...rest,
+    generatedAt: lb.generatedAt ? new Date(lb.generatedAt).toISOString() : null,
+    // Rolling history summary only (the per-day buckets are the internal
+    // ledger the d7/d30 columns are summed from): how many UTC days it covers,
+    // since when, and how many refresh gaps lost blocks - so a 30d figure is
+    // read as "30 days of what we observed", not lifetime.
+    history: history ? { daysCovered: history.daysCovered ?? Object.keys(history.days || {}).length, since: history.since ?? null, gaps: history.gaps || 0, cursor: history.cursor ?? null } : null,
+    explorer: "https://explore.tempo.xyz/address/",
+  });
 });
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure
@@ -3125,7 +3180,9 @@ app.post("/api/mpp-index/register", async (req, res) => {
   mppRegGlobal = mppRegGlobal.filter((t) => now - t < REG_WINDOW_MS);
   if (mppRegGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
   mine.push(now); mppRegByIp.set(ip, mine); mppRegGlobal.push(now);
-  const result = await registerMppOrigin(v.origin);
+  // Optional probe hint: the priced path (and GET/POST) the seller's 402 lives
+  // on, for sellers not yet in the registry (validated in registerMppOrigin).
+  const result = await registerMppOrigin(v.origin, { path: req.body?.path, method: req.body?.method });
   res.json(result);
 });
 const computeRoute = (q, k, include, net) => routeQuery({ query: q, top: k, include, networkFilter: net, ...indexCtx() });
@@ -3664,6 +3721,8 @@ mountMcp(app, CATALOG, {
   // agents see the same numbers no matter which surface they hit. Hourly-
   // refreshed in-process; safe to call freely from /mcp.
   getLeaderboard: getLeaderboardSnapshot,
+  // The MPP counterpart (src/mpp-leaderboard.js) behind sellers.list wire=mpp.
+  getMppLeaderboard: mppLeaderboardSnapshot,
   // MCP-served calls land on the same accounting + analytics rails as
   // direct-HTTP ones. PoW is the gate (no x402 settlement on /mcp's free
   // tier), so the served-call counter records under "pow". Analytics gets
@@ -3706,7 +3765,7 @@ app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
     name: "Agent402.Tools",
-    description: `Pay-per-call tools for AI agents via the x402 payment protocol - ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    description: `Agentic Finance (AIFI) applied layer - pay-per-call tools for AI agents over x402 or MPP (Machine Payments Protocol), both on the same 402 - ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
     // The LLM gateway is the highest-frequency product agents buy — surface its
     // tiers at the top level instead of burying them among ${endpointCount}
     // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows
@@ -3853,7 +3912,21 @@ if (!FREE_MODE) {
   // x402mw dispatcher, so replay-guard.js (EIP-3009-nonce-specific) never
   // sees a Tempo credential at all.
   const tempoReplayGuard = createReplayGuard();
-  const tempoGate = createTempoGate({ replayGuard: tempoReplayGuard });
+  // Binding inputs (2026-08-18): the SAME secret + realm + priceFor the
+  // appender mints with, so the gate can prove "we minted this challenge for
+  // at least this route's price" before a single relay call. Without them
+  // createTempoGate refuses to mount (fail closed).
+  const tempoGate = createTempoGate({
+    replayGuard: tempoReplayGuard,
+    secretKey: process.env.MPP_SECRET_KEY || "",
+    realm: new URL(BASE_URL).host,
+    priceFor: (method, path) => {
+      const def = CATALOG[`${method} ${path}`];
+      if (!def) return null;
+      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      return priceUsd ? { priceUsd } : null;
+    },
+  });
   if (tempoGate) {
     app.use(tempoGate);
     console.log("Tempo MPP settlement enabled (native tempo/charge via Tempo's relay)");
@@ -4953,6 +5026,15 @@ if (String(process.env.MPP_INDEX_CRAWL || "").toLowerCase() === "off") {
   console.log("[mpp-index] crawler disabled (MPP_INDEX_CRAWL=off)");
 } else {
   startMppCrawler();
+  // MPP leaderboard: on-chain ranking of the verified sellers above by inbound
+  // USDC.e transfers on Tempo (src/mpp-leaderboard.js). Rides the crawler's
+  // switch (nothing to rank without it) plus its own escape hatch; the
+  // rebuild is one batched eth_getLogs per 33k-block chunk every 30 min.
+  if (String(process.env.MPP_LEADERBOARD || "").toLowerCase() === "off") {
+    console.log("[mpp-leaderboard] disabled (MPP_LEADERBOARD=off)");
+  } else {
+    startMppLeaderboard({ self: tempoSelfRecipient() });
+  }
 }
 
 // Nightly offsite backup of /data (src/backup.js). No-op without the

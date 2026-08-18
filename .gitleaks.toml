@@ -61,6 +61,11 @@ regexes = [
   '''0x[0-9a-fA-F]{40}\b''',
   # The leak-guard test's own canary tokens (e.g. fredv2-LEAKCANARY0000).
   '''LEAKCANARY''',
+  # test-leaderboard-redaction.js's fake Alchemy key as first committed
+  # (2026-08-18, commit b68a6ac8) before it was renamed to the LEAKCANARY
+  # convention; a fake with no live counterpart, kept only so the full-history
+  # scan stays clean.
+  '''alch_TESTKEY_0123456789abcdef''',
   # Placeholder KDF-output example in the crypto-hash tool docs.
   '''a1b2c3d4e5f6''',
   # erc721-owner's discovery example tokenId (chain-kit.js): the keccak-256

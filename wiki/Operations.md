@@ -1,5 +1,7 @@
 # Operations
 
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+
 Everything is automated through two GitHub Actions workflows; production is a single Railway service with a persistent volume.
 
 ## Deploy pipeline (`.github/workflows/deploy.yml`)

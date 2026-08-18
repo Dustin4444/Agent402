@@ -738,14 +738,24 @@ jobs:
           E2B_API_KEY: ""
         run: npm ci
       - name: Install Playwright Chromium (+ system deps)
-        # `--with-deps` runs apt-get against the runner's mirror list, whose
-        # first entry (azure.archive.ubuntu.com) was unreachable on 2026-08-18
-        # and apt STALLED rather than failing — no output for 28 min until the
-        # run was cancelled (measured on two consecutive runs; the runs on
-        # either side of them completed this step in ~45s). apt has no useful
-        # stall timeout of its own, so bound each attempt ourselves and retry
-        # on a fresh connection; a mirror that is dead for a full three
+        # `--with-deps` runs apt-get against the runner's mirror list
+        # (/etc/apt/apt-mirrors.txt), whose first entry is
+        # azure.archive.ubuntu.com. On 2026-08-18 that mirror was bad on SOME
+        # runners and fine on others: two runs stalled with no output for 28 min
+        # until cancelled; later the same commit's push run finished this step
+        # in ~45s while its pull_request twin, started the same second on
+        # another runner, answered InRelease after 30s and crawled at ~295 kB/s
+        # (attempt 3 spent 128s on 21 MB of fonts and never finished) — 3 of 3
+        # attempts lost, because every retry walked the same mirror list. So:
+        # (1) prefer the canonical archive and keep azure as a fallback, (2) an
+        # apt inactivity timeout, so a stalled transfer fails over to the next
+        # mirror instead of eating the attempt (apt's default is 120s, longer
+        # than our per-attempt bound), (3) after a lost attempt drop azure from
+        # the list entirely, and (4) a mirror set that is dead for a full three
         # attempts fails the step LOUDLY instead of eating the job's timeout.
+        # The only apt payload here is fonts (Chromium's shared libraries are
+        # already on the ubuntu-24.04 image), so a mirror swap changes nothing
+        # about what gets installed.
         timeout-minutes: 10
         env:
           BRAVE_API_KEY: ""
@@ -753,13 +763,25 @@ jobs:
           FRED_API_KEY_V2: ""
           E2B_API_KEY: ""
         run: |
+          printf 'Acquire::http::Timeout "20";\nAcquire::https::Timeout "20";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-mirror-timeouts >/dev/null
+          set_mirrors() {  # $1 = "with-azure" | "no-azure"
+            [ -f /etc/apt/apt-mirrors.txt ] || return 0
+            {
+              printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\n'
+              [ "$1" = "with-azure" ] && printf 'http://azure.archive.ubuntu.com/ubuntu/\tpriority:2\n'
+              printf 'https://security.ubuntu.com/ubuntu/\tpriority:3\n'
+            } | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          }
+          set_mirrors with-azure
           for i in 1 2 3; do
             if timeout 170 npx playwright install --with-deps chromium; then exit 0; fi
-            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying"
+            echo "playwright install attempt $i failed or stalled (apt mirror?) - retrying without the azure mirror"
             # A stalled apt-get may outlive the killed npx (sudo can detach it
             # from the group); clear it so the retry isn't blocked on its lock.
             # The stall is in apt's fetch phase, so killing it is safe.
             sudo pkill -TERM -f 'apt-get' 2>/dev/null || true
+            set_mirrors no-azure
             sleep 10
           done
           echo "playwright install failed 3x - the runner's apt mirror is likely down"
@@ -1260,6 +1282,15 @@ jobs:
       - name: /index page tests (row cap + show-all link, sortable leaderboard-joined USDC/calls columns)
         run: node scripts/test-index-page.js
 
+      - name: Agentic Finance glossary (one DefinedTermSet, anchors unique, category term aliased, explainer bodies link it, post + sitemap + llms - offline)
+        run: node scripts/test-glossary.js
+
+      - name: Surface copy gate (every package, README, wiki page, connector string and machine surface names Agentic Finance + both wires - offline)
+        run: node scripts/test-surface-copy.js
+
+      - name: MPP leaderboard (live-offer recipients via mppx codec, one batched Tempo getLogs per chunk, grouping/ranking/priming, split-on-error + stale-keeps-previous, page badges - offline)
+        run: node scripts/test-mpp-leaderboard.js
+
       - name: /api/stats envelope (M2M economy counters — rail breakdown, revenue proof, tools floor)
         run: node scripts/test-stats-envelope.js
 
@@ -1514,6 +1545,9 @@ jobs:
       - name: MPP index self-serve registration + snapshot honesty tests (offline)
         run: node scripts/test-mpp-index.js
 
+      - name: "MPP self-registration probe hint (optional path/method: validated, probed, kept only on success, persisted with the seed - offline)"
+        run: node scripts/test-mpp-index-hint.js
+
       - name: MPP marketplace page rendering tests (offline)
         run: node scripts/test-mpp-market-page.js
 
@@ -1690,6 +1724,9 @@ jobs:
 
       - name: Tollbooth dashboard runtime smoke (boots CLI, hits /__tollbooth + /__tollbooth/stats over HTTP)
         run: node scripts/test-tollbooth-runtime.js
+
+      - name: Tollbooth CLI settles x402 + MPP from env (real CLI process vs stub facilitator; mppx + @x402/fetch buys settle once each; misconfig fails closed)
+        run: node scripts/test-tollbooth-cli.js
 
       - name: Conversion tools (~970 endpoints, exact + round-trip)
         run: node scripts/test-convert.js

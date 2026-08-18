@@ -21,7 +21,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import express from "express";
 import { Challenge, Credential } from "mppx";
-import { createTempoGate, mintTempoChallenge, tempoEnabled } from "../src/mpp-tempo.js";
+import { createTempoGate, mintTempoChallenge, tempoEnabled, checkTempoCredentialBinding } from "../src/mpp-tempo.js";
 import { createReplayGuard } from "../src/replay-guard.js";
 
 let pass = 0;
@@ -165,18 +165,30 @@ process.env.TEMPO_RECIPIENT_ADDRESS = TREASURY;
 process.env.TEMPO_CURRENCY = TEMPO_CURRENCY;
 ok(tempoEnabled(), "tempoEnabled() true once env is set (test setup sanity check)");
 
-function buildTempoCredential() {
+// The gate's binding inputs - the SAME shape server.js passes: our secret,
+// our realm, and a route price lookup. /paid costs $0.05 (50000 base units).
+const GATE_SECRET = "gate-secret-for-group-2";
+const REALM = "test.local";
+const priceFor = (_method, path) => (path === "/paid" ? { priceUsd: 0.05 } : path === "/pricier" ? { priceUsd: 0.5 } : null);
+const GATE = { secretKey: GATE_SECRET, realm: REALM, priceFor };
+// Prod's dispatcher: a request the tempo gate did not mark as settling hits
+// the PoW/x402 paywall and gets a 402. The stub is that paywall, so a
+// credential the gate REJECTS must never reach a handler here either.
+const paywallStub = (req, res, next) => (req.tempoSettling ? next() : res.status(402).json({ error: "Payment Required" }));
+
+/** Valid by default (HMAC with the gate's secret, our realm/recipient/
+ *  currency, Tempo mainnet chain, the /paid price); overrides build the
+ *  forgeries the binding check must refuse. Raw integer base-units amount
+ *  string (50000 = $0.05 at 6 decimals) - a real mppx client throws on a
+ *  decimal string (caught live 2026-08-17). */
+function buildTempoCredential(o = {}) {
   const challenge = Challenge.from({
-    realm: "test.local",
+    realm: o.realm ?? REALM,
     method: "tempo",
     intent: "charge",
-    expires: new Date(Date.now() + 60_000),
-    // Raw integer string in base units (50000 = $0.05 at 6 decimals) — NOT a
-    // decimal string. Matches mintTempoChallenge()'s real format; a real
-    // mppx client throws "Cannot convert 0.05 to a BigInt" on a decimal
-    // string (caught live 2026-08-17 against a real client, see mpp-tempo.js).
-    request: { amount: "50000", currency: TEMPO_CURRENCY, decimals: 6, recipient: TREASURY },
-    secretKey: "irrelevant-to-this-group — validate() is stubbed, HMAC binding is proven in group 1",
+    expires: o.expires ?? new Date(Date.now() + 60_000),
+    request: { amount: o.amount ?? "50000", currency: o.currency ?? TEMPO_CURRENCY, decimals: 6, recipient: o.recipient ?? TREASURY, methodDetails: { chainId: o.chainId ?? 4217 } },
+    secretKey: o.secretKey ?? GATE_SECRET,
   });
   return Credential.serialize({ challenge, payload: { hash: `0x${"ab".repeat(32)}`, type: "hash" } });
 }
@@ -192,9 +204,11 @@ async function listen(app) {
   const callOrder = [];
   const app = express();
   app.use(createTempoGate({
+    ...GATE,
     validate: async () => { callOrder.push("validate"); return { ok: true, validation: {} }; },
     broadcast: async () => { callOrder.push("broadcast"); return { ok: true, receipt: { method: "tempo", status: "success", reference: "0xdeadbeef", timestamp: new Date().toISOString() } }; },
   }));
+  app.use(paywallStub);
   app.get("/paid", (req, res) => { callOrder.push("handler"); res.status(200).json({ result: "ok" }); });
   const { server, url } = await listen(app);
   const res = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
@@ -212,9 +226,11 @@ async function listen(app) {
   let broadcastCalled = false;
   const app = express();
   app.use(createTempoGate({
+    ...GATE,
     validate: async () => { callOrder.push("validate"); return { ok: true, validation: {} }; },
     broadcast: async () => { broadcastCalled = true; return { ok: true, receipt: {} }; },
   }));
+  app.use(paywallStub);
   app.get("/paid", (req, res) => { callOrder.push("handler"); res.status(500).json({ error: "upstream broke" }); });
   const { server, url } = await listen(app);
   const res = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
@@ -229,9 +245,11 @@ async function listen(app) {
 {
   const app = express();
   app.use(createTempoGate({
+    ...GATE,
     validate: async () => ({ ok: true, validation: {} }),
     broadcast: async () => ({ ok: false, error: "relay temporarily unavailable" }),
   }));
+  app.use(paywallStub);
   app.get("/paid", (req, res) => res.status(200).json({ result: "should never reach the buyer" }));
   const { server, url } = await listen(app);
   // This path was SILENT through the first live settlement (2026-08-18): a
@@ -258,6 +276,7 @@ async function listen(app) {
 {
   const app = express();
   app.use(createTempoGate({
+    ...GATE,
     validate: async () => ({ ok: false, error: "expired" }),
     broadcast: async () => ({ ok: true, receipt: {} }),
   }));
@@ -276,6 +295,7 @@ async function listen(app) {
   let validateCalled = false, broadcastCalled = false;
   const app = express();
   app.use(createTempoGate({
+    ...GATE,
     validate: async () => { validateCalled = true; return { ok: true, validation: {} }; },
     broadcast: async () => { broadcastCalled = true; return { ok: true, receipt: {} }; },
   }));
@@ -299,10 +319,12 @@ async function listen(app) {
   let handlerRuns = 0;
   const app = express();
   app.use(createTempoGate({
+    ...GATE,
     validate: async () => ({ ok: true, validation: {} }),
     broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0xdeadbeef", timestamp: new Date().toISOString() } }),
     replayGuard,
   }));
+  app.use(paywallStub);
   app.get("/paid", async (req, res) => {
     handlerRuns++;
     await sleep(150); // widen the race window so both requests are genuinely in flight together
@@ -328,10 +350,12 @@ async function listen(app) {
   let handlerRuns = 0;
   const app = express();
   app.use(createTempoGate({
+    ...GATE,
     validate: async () => ({ ok: true, validation: {} }),
     broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0xdeadbeef", timestamp: new Date().toISOString() } }),
     replayGuard,
   }));
+  app.use(paywallStub);
   app.get("/paid", (req, res) => {
     handlerRuns++;
     res.status(handlerRuns === 1 ? 500 : 200).json({ result: handlerRuns === 1 ? "boom" : "ok" });
@@ -343,6 +367,90 @@ async function listen(app) {
   const r2 = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
   ok(r2.status === 200, "case G: the SAME credential retried after a released failure succeeds (not treated as a replay)");
   ok(handlerRuns === 2, `case G: handler ran for both the failed attempt and the successful retry (got ${handlerRuns})`);
+  server.close();
+}
+
+// Case H (2026-08-18 security review): the binding check. Before it, the gate
+// handed the CLIENT-ECHOED challenge to validate()/broadcast() with no HMAC
+// check and no route-price check, so a forged 1-base-unit challenge to any
+// recipient bought any paid route. Each forgery below must be refused BEFORE
+// validate() (no relay round trip), never reach the handler, and land on the
+// paywall's 402; the honest credential must still work.
+{
+  const cases = [
+    ["wrong secret (not minted by us)", buildTempoCredential({ secretKey: "attacker" })],
+    ["amount below the route price ($0.001 challenge on a $0.05 route)", buildTempoCredential({ amount: "1000" })],
+    ["recipient is not our payTo", buildTempoCredential({ recipient: "0x1111111111111111111111111111111111111111" })],
+    ["currency we do not offer", buildTempoCredential({ currency: "0x3000000000000000000000000000000000000000" })],
+    ["wrong chain", buildTempoCredential({ chainId: 8453 })],
+    ["expired", buildTempoCredential({ expires: new Date(Date.now() - 1000) })],
+    ["foreign realm", buildTempoCredential({ realm: "evil.example" })],
+  ];
+  for (const [label, cred] of cases) {
+    let validateCalls = 0, handlerRuns = 0;
+    const app = express();
+    app.use(createTempoGate({ ...GATE, validate: async () => { validateCalls++; return { ok: true, validation: {} }; }, broadcast: async () => ({ ok: true, receipt: {} }) }));
+    app.use(paywallStub);
+    app.get("/paid", (_req, res) => { handlerRuns++; res.json({ result: "served" }); });
+    const { server, url } = await listen(app);
+    const r = await fetch(`${url}/paid`, { headers: { Authorization: cred } });
+    ok(r.status === 402 && validateCalls === 0 && handlerRuns === 0, `case H: ${label} -> 402 before validate() (validate=${validateCalls}, handler=${handlerRuns}, status=${r.status})`);
+    server.close();
+  }
+  // a valid $0.05 challenge presented to a $0.50 route: minted by us, but not for that price
+  {
+    let handlerRuns = 0;
+    const app = express();
+    app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => ({ ok: true, receipt: {} }) }));
+    app.use(paywallStub);
+    app.get("/pricier", (_req, res) => { handlerRuns++; res.json({ result: "served" }); });
+    const { server, url } = await listen(app);
+    const r = await fetch(`${url}/pricier`, { headers: { Authorization: buildTempoCredential() } });
+    ok(r.status === 402 && handlerRuns === 0, "case H: a genuinely minted cheap-route challenge does not buy a pricier route");
+    // and a route with no price at all
+    const r2 = await fetch(`${url}/free`, { headers: { Authorization: buildTempoCredential() } });
+    ok(r2.status !== 200 || handlerRuns === 0, "case H: a tempo credential on an unpriced route never marks the request as settling");
+    server.close();
+  }
+  // the pure function agrees, with reasons
+  const okB = checkTempoCredentialBinding(buildTempoCredential(), { secretKey: GATE_SECRET, realm: REALM, priceFor, method: "GET", path: "/paid" });
+  ok(okB.ok === true && okB.amountAtomic === 50000n && okB.expectedAtomic === 50000n, "checkTempoCredentialBinding: honest credential passes with amount + expected");
+  ok(/HMAC/.test(checkTempoCredentialBinding(buildTempoCredential({ secretKey: "x" }), { secretKey: GATE_SECRET, realm: REALM, priceFor, method: "GET", path: "/paid" }).reason || ""), "checkTempoCredentialBinding: names the HMAC failure");
+  ok(/no MPP_SECRET_KEY/.test(checkTempoCredentialBinding(buildTempoCredential(), { secretKey: "", realm: REALM, priceFor, method: "GET", path: "/paid" }).reason || ""), "checkTempoCredentialBinding: refuses when the server has no secret");
+  ok(createTempoGate({ validate: async () => ({ ok: true }), broadcast: async () => ({ ok: true }) }) === null, "createTempoGate without secretKey/priceFor refuses to mount (fail closed)");
+  ok(mintTempoChallenge({ priceUsd: 0.001, realm: REALM, secretKey: "" }) === null, "mintTempoChallenge without a secret mints nothing (an unkeyed HMAC is forgeable)");
+}
+
+// Case I (2026-08-18 security review): a STREAMING handler (the LLM gateway's
+// SSE writer does writeHead + flushHeaders + write + end) under a successful
+// settlement must reach the buyer as a 200 with its body. Node's
+// flushHeaders() calls writeHead() internally; unbuffered, the replay of the
+// buffered writeHead threw ERR_HTTP_HEADERS_SENT after broadcast - the buyer
+// was charged and the response hung. And under a FAILED broadcast nothing
+// may leak: a clean 402, no streamed bytes.
+{
+  const app = express();
+  let broadcasts = 0;
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcasts++; return { ok: true, receipt: { method: "tempo", status: "success", reference: "0xfeed", timestamp: new Date().toISOString() } }; } }));
+  app.use(paywallStub);
+  app.get("/paid", (_req, res) => { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.flushHeaders?.(); res.write("data: one\n\n"); res.write("data: [DONE]\n\n"); res.end(); });
+  const { server, url } = await listen(app);
+  const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 4000);
+  let status = 0, body = "", receipt = null, hung = false;
+  try { const r = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() }, signal: ac.signal }); status = r.status; receipt = r.headers.get("payment-receipt"); body = await r.text(); } catch { hung = true; }
+  clearTimeout(timer);
+  ok(!hung && status === 200 && /data: \[DONE\]/.test(body) && !!receipt && broadcasts === 1, `case I: streaming handler (flushHeaders) settles once and the buyer receives the 200 stream (hung=${hung} status=${status} broadcasts=${broadcasts})`);
+  server.close();
+}
+{
+  const app = express();
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => ({ ok: false, error: "relay down" }) }));
+  app.use(paywallStub);
+  app.get("/paid", (_req, res) => { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.flushHeaders?.(); res.write("data: secret\n\n"); res.end(); });
+  const { server, url } = await listen(app);
+  const r = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
+  const body = await r.text();
+  ok(r.status === 402 && !/secret/.test(body), `case I: streaming handler + failed broadcast -> 402, nothing streamed (status=${r.status})`);
   server.close();
 }
 

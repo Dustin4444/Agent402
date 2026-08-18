@@ -186,4 +186,19 @@ const searchToolDef = (list.result?.tools ?? []).find((t) => t.name === "catalog
 assert(searchToolDef?.outputSchema?.properties?.results, "catalog.search lists outputSchema.properties.results");
 assert(search.result?.structuredContent?.results, "catalog.search call returns structuredContent.results");
 
+// sellers.list wire=mpp: the MPP leaderboard behind the same tool (2026-08-18).
+// The board may still be warming in CI (first on-chain read is +120s after
+// boot), so the shape is asserted, never a non-empty ranking.
+{
+  const def = (list.result?.tools ?? []).find((t) => t.name === "sellers.list");
+  assert(def?.inputSchema?.properties?.wire?.enum?.includes("mpp"), "sellers.list advertises the wire parameter with mpp");
+  const mpp = await rpc("tools/call", { name: "sellers.list", arguments: { wire: "mpp", limit: 5 } });
+  const sc = mpp.result?.structuredContent;
+  assert(!mpp.result?.isError && sc, "sellers.list wire=mpp succeeds with structuredContent");
+  assert(sc.wire === "mpp" && Array.isArray(sc.results) && /mpp-leaderboard/.test(sc.source || "") && /Tempo/.test(sc.measure || ""), "wire=mpp result: wire, results[], source=/api/mpp-leaderboard, measure names Tempo");
+  assert(sc.results.every((r) => typeof r.wallet === "string" && r.network === "eip155:4217" && typeof r.routable === "boolean"), "wire=mpp rows carry recipient wallet, Tempo network, routable flag");
+  const x402 = await rpc("tools/call", { name: "sellers.list", arguments: { limit: 3 } });
+  assert(!x402.result?.isError && Array.isArray(x402.result?.structuredContent?.results) && !x402.result?.structuredContent?.wire, "default wire (x402) is unchanged");
+}
+
 console.log("\nremote MCP connector: all checks passed");

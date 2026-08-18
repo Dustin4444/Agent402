@@ -17,7 +17,7 @@ alphabetical by repo name; legend: 📇 = TypeScript/JavaScript, ☁️ = cloud/
 2. In the Aggregators section, insert alphabetically:
 
 ```markdown
-- [MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402) 📇 ☁️ 🏠 - The headless browser, live web search, OCR, and durable wallet-keyed memory an agent's sandbox doesn't have - a catalog of 500+: 400+ pay-per-call tools + 100+ curated skill packs, every one tested, priced, and settled on-chain - rented per call via x402 (USDC on Base + 10 more chains (Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand), or USDG on Robinhood Chain - 12 chains) or free with proof-of-work on the 200+ pure-CPU tools; every paid endpoint also accepts MPP (Machine Payments Protocol) clients, settling on Base/Celo or natively on Tempo. Also an x402 Index + Smart Order Router that finds the cheapest healthy tool across the whole ecosystem, and an MPP marketplace of live-verified MPP sellers. Hosted remote connector at agent402.tools/mcp.
+- [MikeyPetrillo/Agent402](https://github.com/MikeyPetrillo/Agent402) 📇 ☁️ 🏠 - The applied layer of Agentic Finance (AIFI): the headless browser, live web search, OCR, and durable wallet-keyed memory an agent's sandbox doesn't have - a catalog of 500+: 400+ pay-per-call tools + 100+ curated skill packs, every one tested, priced, and settled on-chain - rented per call via x402 (USDC on Base + 10 more chains (Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, Algorand), or USDG on Robinhood Chain - 12 chains) or free with proof-of-work on the 200+ pure-CPU tools; every paid endpoint also accepts MPP (Machine Payments Protocol) clients, settling on Base/Celo or natively on Tempo. Also an x402 Index + Smart Order Router that finds the cheapest healthy tool across the whole ecosystem, and an MPP marketplace of live-verified MPP sellers. Hosted remote connector at agent402.tools/mcp.
 ```
 
 3. PR title: `Add Agent402 (aggregator: 400+ x402 pay-per-call tools + 100+ skill packs)`
@@ -39,7 +39,7 @@ Coinbase reviews within ~5 business days. Category: **Services/Endpoints**.
 ```json
 {
   "name": "Agent402",
-  "description": "500+ pay-per-call endpoints for AI agents over x402 - 400+ tools + 100+ skill packs, every one tested, priced, and settled on-chain - headless browser, live web search, OCR, PDFs, financial/SEC/macro data, durable wallet-keyed memory, and an OpenAI-compatible LLM gateway (/v1: chat, embeddings, auto-routing) - USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand, USDG on Robinhood Chain (12 chains), or free via proof-of-work; dual-stack with MPP (Machine Payments Protocol) on the same 402, settling on Base/Celo or natively on Tempo. Also an x402 Index + Smart Order Router that ranks the cheapest healthy tool across the ecosystem (auto-discovered from the CDP Bazaar), and an MPP marketplace. Open source, self-hostable, MCP server included.",
+  "description": "Agentic Finance (AIFI) applied layer: 500+ pay-per-call endpoints for AI agents over x402 - 400+ tools + 100+ skill packs, every one tested, priced, and settled on-chain - headless browser, live web search, OCR, PDFs, financial/SEC/macro data, durable wallet-keyed memory, and an OpenAI-compatible LLM gateway (/v1: chat, embeddings, auto-routing) - USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand, USDG on Robinhood Chain (12 chains), or free via proof-of-work; dual-stack with MPP (Machine Payments Protocol) on the same 402, settling on Base/Celo or natively on Tempo. Also an x402 Index + Smart Order Router that ranks the cheapest healthy tool across the ecosystem (auto-discovered from the CDP Bazaar), and an MPP marketplace. Open source, self-hostable, MCP server included.",
   "logoUrl": "/logos/agent402.png",
   "websiteUrl": "https://agent402.tools",
   "category": "Services/Endpoints"
@@ -339,3 +339,68 @@ Next up once submitted: the Anthropic connector directory
 - **CoinGecko "x402 ecosystem" category** - token listings only; N/A (no token).
 - **Robinhood Chain** - still no ecosystem directory (see 7b); 402 Index /
   PipRail are the interim places its rail can be advertised.
+
+## 10. mpp.dev services directory (tempoxyz/mpp - `schemas/services.ts`)
+
+The curated MPP directory that `mppx services list`, `mpp.dev/api/services`
+and the read-only `mpp.dev/mcp/services` all read. Listing = a PR adding an
+entry to `schemas/services.ts` (types must pass `pnpm check:types`, build must
+pass `pnpm build`); the review bar is "live and accepting payments via MPP,
+high quality and novel". A bot comments the checklist on the PR. Recommended
+sibling: MPPScan registration (already done - see the MPP integration notes).
+
+Prod's Tempo challenge is USDC.e-first since 2026-08-18 (`TEMPO_CURRENCY=usdc,pathusd`
+on Railway; proven by the tempo canary the same day), so `TEMPO_PAYMENT` below is
+exactly what the live 402 offers. 138/141 directory sellers quote USDC.e and a
+stock mppx client pays the FIRST tempo challenge it sees, which is why the order matters. Every route below is a real, priced, live-verified endpoint; amounts
+are base units (6 decimals) at list price. `integration` is `third-party`
+(self-hosted, our own `serviceUrl`, not proxied through mpp.tempo.xyz - the
+same shape as the self-hosted data sellers already listed).
+
+```ts
+  {
+    id: "agent402",
+    name: "Agent402",
+    url: "https://agent402.tools",
+    serviceUrl: "https://agent402.tools",
+    description:
+      "500+ deterministic pay-per-call tools for AI agents - live web search and cited answers, headless browser rendering, PDFs, OCR, financial, SEC and on-chain data, an OpenAI-compatible LLM gateway - plus a Smart Order Router that finds and pays the best external seller on the agent's behalf. Every paid endpoint accepts MPP (Tempo natively, or evm on Base/Celo) and x402 on the same 402.",
+    icon: "https://agent402.tools/logo.png",
+    categories: ["search", "web", "data", "ai", "blockchain"],
+    integration: "third-party",
+    tags: ["search", "browser", "pdf", "ocr", "sec-filings", "finance", "llm-gateway", "router", "agentic-finance"],
+    status: "active",
+    docs: {
+      homepage: "https://agent402.tools/docs",
+      llmsTxt: "https://agent402.tools/llms.txt",
+      apiReference: "https://agent402.tools/openapi.json",
+    },
+    provider: { name: "Havok Holdings LLC", url: "https://agent402.tools" },
+    realm: "agent402.tools",
+    intent: "charge",
+    payments: [
+      TEMPO_PAYMENT,
+      { method: "evm", currency: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", decimals: 6 },
+    ],
+    endpoints: [
+      { route: "GET /api/search", desc: "Live web search (title, URL, snippet)", amount: "20000", unitType: "request" },
+      { route: "GET /api/answer", desc: "Cited answer grounded in live web search", amount: "80000", unitType: "request" },
+      { route: "POST /api/render", desc: "Headless browser render of a URL (title, text, links)", amount: "20000", unitType: "request" },
+      { route: "POST /api/route/execute", desc: "Smart Order Router: resolve a task to the best seller across the ecosystem, pay them, relay the result", amount: "10000", unitType: "request" },
+      { route: "POST /v1/chat/completions", desc: "OpenAI-compatible chat completions (base tier)", amount: "20000", unitType: "request" },
+      { route: "GET /api/pricing", desc: "Machine-readable catalog of every endpoint and price" },
+    ],
+  },
+```
+
+**OPENED 2026-08-18: https://github.com/tempoxyz/mpp/pull/900** (fork
+`MikeyPetrillo/mpp`, branch `add-agent402`; their `schemas/services.test.ts`
+passes locally, 9,410 assertions; the changed-services bot recognised
+`agent402`; the Vercel "failure" is only the preview deploy awaiting a team
+member's authorization - same on every external PR). It supersedes #812
+(evm-only, opened 2026-07-24), which their `stale-service-prs` workflow
+auto-closes any `service-directory` PR **14 days after creation** with no
+review - the timer is on `created_at`, so a nudge comment cannot reset it;
+only a maintainer review inside 14 days lands it. If #900 times out, the
+next attempt should follow a direct line to a maintainer, not a third PR.
+Verify amounts against `/api/pricing` before any future re-submission.

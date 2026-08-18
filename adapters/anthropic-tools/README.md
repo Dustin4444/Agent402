@@ -2,6 +2,8 @@
 
 Drop-in **Anthropic tool-use tools** for [Agent402](https://agent402.tools) — the open-source, self-hostable x402 + MCP server with 500+ pay-per-call web tools (browser, web search, PDF, images, live data, payment helpers, wallet-keyed memory).
 
+> **Agent402 is the applied layer of [Agentic Finance (AIFI)](https://agent402.tools/agentic-finance)** - agents that pay and get paid on their own over the two open wires, [x402](https://agent402.tools/what-is-x402) and [MPP](https://agent402.tools/what-is-mpp) (Machine Payments Protocol). Every paid endpoint answers both on the same 402; wallet-only tools take any payment-wrapped fetch (`@x402/fetch`, or a stock `mppx` fetch).
+
 > Already using Claude with **MCP**? `agent402-mcp` is the better path — paste `https://agent402.tools/mcp` into your client. This package is for direct **Messages API** integrations (server-side agents, custom tool loops) where MCP isn't available.
 
 - **Zero new infra.** Get back a ready-to-pass `tools` array for the Messages API.

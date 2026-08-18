@@ -25,6 +25,14 @@ const CSS = `
 .mpr-dot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block}
 .mkt-search-wrap{border:1.5px solid var(--ink)}
 .mkt-search-wrap:focus-within{border-color:var(--accent)}
+.mpr-proven{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--ink);border:1px solid var(--ink);padding:2px 7px;margin-left:8px;white-space:nowrap}
+.mlb-scroll{overflow-x:auto}
+.mlb-scroll table{border-collapse:collapse;width:100%;min-width:860px;font-size:13.5px}
+.mlb-scroll th{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;text-align:left;padding:10px 12px;border-bottom:1.5px solid var(--ink)}
+.mlb-scroll td{padding:10px 12px;border-bottom:1px solid var(--hairline);vertical-align:top}
+.mlb-scroll td.num{font-family:var(--font-mono);text-align:right;white-space:nowrap}
+.mlb-scroll th.num{text-align:right}
+.mlb-addr{font-family:var(--font-mono);font-size:11.5px;color:var(--faint);text-decoration:none}
 @media (max-width: 900px){.mpr-row{grid-template-columns:1fr}}
 `;
 
@@ -37,8 +45,61 @@ function agoLabel(ms) {
   return `${(s / 86400) | 0}d ago`;
 }
 
-function sellerRowHtml(s) {
+const shortAddr = (a) => (a ? `${String(a).slice(0, 6)}…${String(a).slice(-4)}` : "");
+const fmtUsd = (n) => (Number(n) >= 100 ? `$${Math.round(Number(n)).toLocaleString("en-US")}` : `$${Number(n || 0).toFixed(2)}`);
+
+/** Leaderboard section: verified MPP sellers ranked by inbound USDC.e transfers
+ *  on Tempo to the recipient their LIVE challenge names (src/mpp-leaderboard.js).
+ *  A window, not lifetime, and a proxy (any inbound transfer), both said in the
+ *  copy. Rows with zero transfers are counted, never listed. */
+function leaderboardHtml(lb) {
+  const rows = Array.isArray(lb?.rows) ? lb.rows : [];
+  const active = rows.filter((r) => r.transfers > 0 || (r.d30?.transfers || 0) > 0);
+  const hours = lb?.window?.approxHours;
+  const hist = lb?.history;
+  const histNote = hist?.since ? ` Rolling 7d/30d columns sum what we observed since ${esc(hist.since)} (${hist.daysCovered || Object.keys(hist.days || {}).length} UTC day${(hist.daysCovered || 1) === 1 ? "" : "s"}${hist.gaps ? `, ${hist.gaps} refresh gap${hist.gaps === 1 ? "" : "s"} lost blocks` : ""}) - a running total from that date, not lifetime.` : "";
+  const windowLabel = hours ? `last ~${hours}h` : "recent window";
+  const staleNote = lb?.stale
+    ? `<span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);margin-left:10px;">stale &middot; last good read ${lb.generatedAt ? esc(agoLabel(lb.generatedAt)) : "never"}${lb.lastError ? ` &middot; ${esc(lb.lastError)}` : ""}</span>`
+    : (lb?.generatedAt ? `<span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);margin-left:10px;">read on chain ${esc(agoLabel(lb.generatedAt))}</span>` : "");
+  const explorer = "https://explore.tempo.xyz/address/";
+  const MAX_NAMES = 4;
+  const trs = active.map((r) => {
+    const all = r.sellers || [];
+    const shown = all.slice(0, MAX_NAMES).map((x) => `<a href="${safeHref(x.url || x.origin)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;">${esc(x.name)}</a>`).join(", ");
+    const more = all.length > MAX_NAMES ? ` <span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);" title="${esc(all.slice(MAX_NAMES).map((x) => x.name).join(", "))}">+${all.length - MAX_NAMES} more on this recipient</span>` : "";
+    const names = shown + more;
+    const who = r.self ? `<span style="font-weight:700;">Agent402</span> <span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);">(this server)</span>${names ? `, ${names}` : ""}` : (names || `<span style="color:var(--faint);">unnamed recipient</span>`);
+    return `<tr>
+      <td class="num">${r.rank}</td>
+      <td>${who}<div><a class="mlb-addr" href="${explorer}${esc(r.recipient)}" rel="noopener">${esc(shortAddr(r.recipient))}</a></div></td>
+      <td class="num">${r.transfers.toLocaleString("en-US")}</td>
+      <td class="num">${(r.d7?.transfers ?? 0).toLocaleString("en-US")}</td>
+      <td class="num">${(r.d30?.transfers ?? 0).toLocaleString("en-US")}</td>
+      <td class="num">${r.payers.toLocaleString("en-US")}</td>
+      <td class="num">${esc(fmtUsd(r.d7?.volumeUsdc ?? r.volumeUsdc))}</td>
+      <td>${r.routable ? `<span class="mpr-proven">routable</span>` : r.proven ? `<span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);" title="On-chain floor met, but the live challenge offers no tempo/charge - the router pays charge only">session only</span>` : `<span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);">below floor (${lb.provenFloor})</span>`}</td>
+    </tr>`;
+  }).join("");
+  const table = active.length
+    ? `<div class="mlb-scroll"><table>
+      <thead><tr><th class="num">#</th><th>Seller &middot; Tempo recipient</th><th class="num" title="inbound USDC.e transfers in the read window">${esc(windowLabel)}</th><th class="num" title="rolling 7 days of observed transfers">7d</th><th class="num" title="rolling 30 days of observed transfers">30d</th><th class="num" title="distinct payer addresses in the read window">Payers</th><th class="num" title="7-day observed volume">Volume 7d</th><th>Router</th></tr></thead>
+      <tbody>${trs}</tbody></table></div>`
+    : `<p style="color:var(--muted);font-size:13.5px;margin:0;">${lb?.generatedAt ? "No verified seller's recipient received a USDC.e transfer on Tempo in the window." : "First on-chain read pending - the leaderboard rebuilds every 30 minutes from the verified index above."}</p>`;
+  const zero = rows.length - active.length;
+  // (rows here are lb.rows; a row is active with a window OR a 30d count)
+  return `
+  <h2 id="leaderboard" style="font-size:21px;font-weight:800;margin:40px 0 6px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">MPP leaderboard &middot; settled on Tempo${staleNote}</h2>
+  <p style="font-size:13px;color:var(--faint);margin:0 0 12px;max-width:820px;">Verified sellers ranked by inbound USDC.e transfers on Tempo (chain 4217) to the recipient address their <em>live</em> MPP challenge names, read from the chain by us over the ${esc(windowLabel)} (${lb?.window ? `${lb.window.blocks.toLocaleString("en-US")} blocks` : "rpc window"}). A window, not lifetime; an inbound transfer is the same proxy the <a href="/guides/smart-order-router" style="color:var(--muted);">router</a> requires before it spends (floor ${lb?.provenFloor ?? "-"} in the window = <span class="mpr-proven" style="margin:0;">routable</span>).${histNote} Ranked by 7d, then window. Machine-readable: <a href="/api/mpp-leaderboard" style="color:var(--muted);">/api/mpp-leaderboard</a>.</p>
+  ${table}
+  ${zero > 0 ? `<p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:10px;">${zero.toLocaleString("en-US")} more verified recipient${zero === 1 ? "" : "s"} with no inbound transfer observed (listed below, not ranked).</p>` : ""}`;
+}
+
+function sellerRowHtml(s, lbByRecipient) {
   const endpoint = Array.isArray(s.endpoints) ? s.endpoints[0] : null;
+  const rec = (s.offers || []).find((o) => o?.method === "tempo" && o.recipient && lbByRecipient?.has(o.recipient));
+  const lbRow = rec ? lbByRecipient.get(rec.recipient) : null;
+  const provenHtml = lbRow?.routable ? `<span class="mpr-proven" title="${esc(String(lbRow.transfers))} inbound USDC.e transfers on Tempo in the window">routable &middot; #${lbRow.rank}</span>` : "";
   const endpointHtml = endpoint
     ? `<span class="mpr-endpoint">${esc(String(endpoint.method || "GET").toUpperCase())} ${esc(endpoint.path || "")}${endpoint.payment?.amount ? ` &middot; $${(Number(endpoint.payment.amount) / Math.pow(10, Number(endpoint.payment.decimals ?? 6))).toFixed(4).replace(/0+$/, "").replace(/\.$/, "")}` : ""}</span>`
     : "";
@@ -62,14 +123,15 @@ function sellerRowHtml(s) {
       ${tagsHtml}
       ${docsLinks ? `<div style="font-family:var(--font-mono);font-size:11px;margin-top:8px;">${docsLinks}</div>` : ""}
     </div>
-    <span class="mpr-verified"><span class="mpr-dot"></span>verified &middot; probed ${esc(agoLabel(s.lastProbeAt))}</span>
+    <span class="mpr-verified"><span class="mpr-dot"></span>verified &middot; probed ${esc(agoLabel(s.lastProbeAt))}${provenHtml}</span>
   </div>`;
 }
 
 /** @param baseUrl canonical origin
  *  @param snapshot mppIndexSnapshot() result */
-export function mppMarketPage(baseUrl, snapshot) {
+export function mppMarketPage(baseUrl, snapshot, leaderboard = null) {
   const sellers = Array.isArray(snapshot?.sellers) ? snapshot.sellers : [];
+  const lbByRecipient = new Map((leaderboard?.rows || []).map((r) => [r.recipient, r]));
   const verifiedCount = snapshot?.verifiedSellers || 0;
   const discoveredTotal = snapshot?.discoveredTotal || 0;
   const totalEndpoints = sellers.reduce((sum, s) => sum + (Array.isArray(s.endpoints) ? s.endpoints.length : 0), 0);
@@ -96,7 +158,7 @@ export function mppMarketPage(baseUrl, snapshot) {
   const rows = sellers
     .slice()
     .sort((a, b) => (b.verifiedAt || 0) - (a.verifiedAt || 0))
-    .map(sellerRowHtml)
+    .map((s) => sellerRowHtml(s, lbByRecipient))
     .join("");
 
   const honesty = sellers.length === 0
@@ -132,8 +194,9 @@ export function mppMarketPage(baseUrl, snapshot) {
       <div id="list-api">
         <div style="font-weight:800;font-size:15px;margin-bottom:8px;color:var(--ink);">Register in one call</div>
         <label for="reg-origin" style="display:block;font-family:var(--font-mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Your API's origin</label>
-        <div style="display:flex;gap:10px;">
-          <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:2 1 220px;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
+          <input id="reg-path" type="text" placeholder="/v1/priced-endpoint (optional)" aria-label="Priced path to probe (optional)" style="flex:1 1 160px;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
           <button id="reg-go" data-endpoint="/api/mpp-index/register" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
         </div>
         <div id="reg-out" role="status" aria-live="polite" data-listed-note="Appears on /mpp-marketplace." style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin for a genuine MPP challenge and list you if it answers. A seller not yet in the mpp.dev registry needs its paywall reachable at the bare origin root to verify today.</div>
@@ -153,13 +216,14 @@ export function mppMarketPage(baseUrl, snapshot) {
       "A listing counts as verified only when that request genuinely comes back with a WWW-Authenticate: Payment challenge.",
       "A crawl cycle re-probes every known origin every 5 minutes; a seller that stops answering drops out of the verified count on its own.",
     ].map((body_, i) => `<div style="display:grid;grid-template-columns:26px 1fr;gap:12px;padding:11px 0;border-bottom:1px solid var(--hairline);"><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${String(i + 1).padStart(2, "0")}</span><span style="font-size:13.5px;line-height:1.55;color:var(--muted);">${esc(body_)}</span></div>`).join("")}</div>
-    <p style="font-size:13px;line-height:1.6;color:var(--faint);margin:14px 0 0;">Two known scope limits, disclosed rather than hidden: sellers hosted as per-tenant paths on one shared gateway domain aren't discoverable yet, and self-serve registration for a seller not already in the mpp.dev registry can only verify at the bare origin root (MPP has no standard discovery path the way x402's /.well-known/x402 is).</p>
+    <p style="font-size:13px;line-height:1.6;color:var(--faint);margin:14px 0 0;">Two known scope limits, disclosed rather than hidden: sellers hosted as per-tenant paths on one shared gateway domain aren't discoverable yet, and self-serve registration for a seller not already in the mpp.dev registry probes the bare origin root unless the submitter names the priced path (the optional path field, or a path property in the POST body) - MPP has no standard discovery path the way x402's /.well-known/x402 is.</p>
   </div>`;
 
   const MPP_FAQS = [
     { q: "What is the MPP marketplace?", a: "A directory of services that accept payments over MPP (the IETF-track \"Payment\" HTTP auth scheme). Every listing here has been independently, live-verified - a real unpaid request confirming the seller's endpoint genuinely answers with a WWW-Authenticate: Payment challenge - not just copied from a registry's claim." },
     { q: "How is this different from Agent402's x402 marketplace?", a: "Different protocol, different seller population, and a separate crawler entirely. An MPP seller isn't necessarily an x402 seller and vice versa; Agent402 itself supports both, as a buyer-facing wire translation on its own tools and as a neutral index for each ecosystem." },
     { q: "How does a seller get listed?", a: "By appearing in the public mpp.dev registry, which this index crawls, or by registering directly at POST /api/mpp-index/register. Listing is free and there is no review queue - verification is automatic and live." },
+    { q: "How is the MPP leaderboard ranked?", a: "By what the chain shows, not by what anyone claims: for every verified seller we take the recipient address its live MPP challenge names, then count inbound USDC.e transfers to that address on Tempo over the most recent read window (about fifteen hours of blocks, the RPC's per-query cap), plus distinct payers and volume. It is a window, not lifetime, and an inbound transfer is a proxy for a settlement rather than proof of one - the same proxy Agent402's own router requires before it spends money with a seller, which is why rows at or above the floor are marked routable." },
     { q: "Why do discovered and verified counts differ?", a: "Discovery finds candidate origins from the registry; verification is our own real probe of each one. A gap between the two is normal - a fresh discovery awaiting its first probe, or a listing that no longer answers - and is always shown, never hidden." },
   ];
   const faqHtml = MPP_FAQS.map((f) => `<article style="padding:22px 0;border-bottom:1px solid var(--hairline);"><h3 style="font-weight:800;font-size:17.5px;margin:0 0 10px;color:var(--ink);">${esc(f.q)}</h3><p style="font-size:15px;line-height:1.65;color:var(--muted);margin:0;">${esc(f.a)}</p></article>`).join("");
@@ -197,6 +261,8 @@ export function mppMarketPage(baseUrl, snapshot) {
       variableMeasured: [
         { "@type": "PropertyValue", name: "verified", description: "Whether a real probe confirmed a genuine WWW-Authenticate: Payment challenge" },
         { "@type": "PropertyValue", name: "categories", description: "Registry-declared service categories" },
+        { "@type": "PropertyValue", name: "offers", description: "Payment methods the seller's live challenge offers (method, recipient, currency, chain)" },
+        { "@type": "PropertyValue", name: "leaderboard.transfers", description: "Inbound USDC.e transfers on Tempo to the seller's live recipient over the read window" },
       ],
     },
     {
@@ -210,11 +276,12 @@ export function mppMarketPage(baseUrl, snapshot) {
   const body = `
 <div style="max-width:1080px;margin:0 auto;padding:36px 24px;">
   <section>${headerHtml}</section>
+  <section>${leaderboardHtml(leaderboard)}</section>
   <section>${rosterHtml}</section>
   <section>${methodSection}</section>
   <section>${faqSection}</section>
   <section>
-    <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="https://mpp.dev/api/services">mpp.dev/api/services</a></p>
+    <p style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:28px;">machine-readable: <a href="/api/mpp-index">/api/mpp-index</a> &middot; <a href="/api/mpp-leaderboard">/api/mpp-leaderboard</a> &middot; upstream registry <a href="https://mpp.dev/api/services">mpp.dev/api/services</a></p>
   </section>
 </div>
 ${ledgerFooterCompact()}`;

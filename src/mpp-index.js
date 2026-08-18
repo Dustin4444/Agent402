@@ -47,7 +47,31 @@ const discoveredSeeds = new Set();
 // --- self-serve listing (POST /api/mpp-index/register) ---------------------
 export const MPP_SUBMITTED_SEEDS_FILE = process.env.MPP_SUBMITTED_SEEDS_FILE || "/data/mpp-submitted-seeds.json";
 const submittedSeeds = new Set();
+// Optional probe hint per self-submitted origin: { path, method }. MPP has no
+// well-known discovery path (see pickProbeTarget), so a seller not yet in the
+// registry can name the priced endpoint its 402 lives on instead of being
+// probed at "/" only - the follow-up pickProbeTarget's comment asked for.
+// Persisted with the seed; a hint is only ever recorded once it verified.
+const submittedHints = new Map();
 const DEFAULT_MAX_SUBMITTED_SEEDS = 500; // same ceiling/reasoning as the x402 side
+
+/** Validate a submitter-supplied probe path/method. Pure; exported for tests. */
+export function validateProbeHint({ path, method } = {}) {
+  const out = {};
+  if (path !== undefined && path !== null && path !== "") {
+    const p = String(path).trim();
+    if (p.length > 200) return { error: "path too long (max 200 chars)" };
+    if (!p.startsWith("/")) return { error: "path must start with /" };
+    if (/[?#\s]/.test(p) || p.includes("..") || /[^A-Za-z0-9._~!$&'()*+,;=:@%\/-]/.test(p)) return { error: "path may only contain URL path characters (no query, fragment, whitespace or ..)" };
+    out.path = p;
+  }
+  if (method !== undefined && method !== null && method !== "") {
+    const m = String(method).trim().toUpperCase();
+    if (m !== "GET" && m !== "POST") return { error: "method must be GET or POST" };
+    out.method = m;
+  }
+  return out;
+}
 let submittedSeedsCap = DEFAULT_MAX_SUBMITTED_SEEDS;
 
 /** Test hook: set (or, with no arg, reset) the submission cap. */
@@ -60,19 +84,27 @@ export function loadSubmittedSeeds() {
     const arr = JSON.parse(readFileSync(MPP_SUBMITTED_SEEDS_FILE, "utf8"));
     for (const o of Array.isArray(arr) ? arr : []) {
       if (submittedSeeds.size >= submittedSeedsCap) break;
-      if (typeof o === "string") { submittedSeeds.add(o); discoveredSeeds.add(o); }
+      // Two on-disk shapes: the original bare origin string, and (since the
+      // probe hint landed) { origin, path?, method? }. Both load.
+      if (typeof o === "string") { submittedSeeds.add(o); discoveredSeeds.add(o); continue; }
+      if (o && typeof o.origin === "string") {
+        submittedSeeds.add(o.origin); discoveredSeeds.add(o.origin);
+        const h = validateProbeHint(o);
+        if (!h.error && (h.path || h.method)) submittedHints.set(o.origin, h);
+      }
     }
   } catch { /* absent file / no volume - in-memory only */ }
 }
 
 function persistSubmittedSeeds() {
   try {
-    writeFileSync(MPP_SUBMITTED_SEEDS_FILE, JSON.stringify([...submittedSeeds], null, 2));
+    const rows = [...submittedSeeds].map((origin) => (submittedHints.has(origin) ? { origin, ...submittedHints.get(origin) } : origin));
+    writeFileSync(MPP_SUBMITTED_SEEDS_FILE, JSON.stringify(rows, null, 2));
   } catch { /* best-effort - no volume in local/dev */ }
 }
 
 /** Test hook: clear submitted-seed state between test cases. */
-export function __testResetSubmitted() { submittedSeeds.clear(); }
+export function __testResetSubmitted() { submittedSeeds.clear(); submittedHints.clear(); }
 
 // ---------------------------------------------------------------------------
 // Registry discovery
@@ -170,12 +202,15 @@ function noteProbeOutcome(origin, ok, now = Date.now()) {
  *  provides for discovered sellers. Not built here - out of Stage 1's scope,
  *  and not a silent gap: it fails HONESTLY (unverified, real reason given),
  *  never a false positive. */
-function pickProbeTarget(origin, svc) {
+export function pickProbeTarget(origin, svc, hint = submittedHints.get(origin)) {
   const endpoints = Array.isArray(svc?.endpoints) ? svc.endpoints : [];
   const priced = endpoints.filter((e) => e && typeof e.path === "string" && e.path.startsWith("/"));
   const pick = priced.find((e) => String(e.method || "GET").toUpperCase() === "GET") || priced[0];
-  if (!pick) return { method: "GET", url: origin };
-  return { method: String(pick.method || "GET").toUpperCase(), url: `${origin}${pick.path}` };
+  if (pick) return { method: String(pick.method || "GET").toUpperCase(), url: `${origin}${pick.path}` };
+  // No registry endpoints: the submitter's own hint (validated at submission),
+  // else the bare origin root - the honest limitation described above.
+  if (hint && (hint.path || hint.method)) return { method: hint.method || "GET", url: `${origin}${hint.path || ""}` };
+  return { method: "GET", url: origin };
 }
 
 /** Make one unpaid request to `target` and confirm a genuine MPP challenge.
@@ -198,10 +233,39 @@ async function probeMppChallenge({ method, url }) {
     // A genuine MPP challenge rides a 401 or 402 - either is a live, healthy
     // "payment required" answer; anything else (200, 404, 5xx) is not.
     const statusOk = res.status === 401 || res.status === 402;
-    return { ok: mpp && statusOk, status: res.status, url, at: Date.now(), error: mpp ? null : "no WWW-Authenticate: Payment challenge on the probed endpoint" };
+    const offers = mpp ? await parseOffers(challenge) : [];
+    return { ok: mpp && statusOk, status: res.status, url, at: Date.now(), offers, error: mpp ? null : "no WWW-Authenticate: Payment challenge on the probed endpoint" };
   } catch (e) {
-    return { ok: false, status: 0, url, at: Date.now(), error: String(e?.message || e).slice(0, 160) };
+    return { ok: false, status: 0, url, at: Date.now(), offers: [], error: String(e?.message || e).slice(0, 160) };
   }
+}
+
+/** The payment methods a live challenge actually offers - method/intent,
+ *  recipient, currency, chain, quoted amount - parsed with mppx's own codec
+ *  (never a hand-rolled header parser; the wire shape is mppx's, see
+ *  src/mpp-tempo.js). This is what turns "verified" into rankable: the
+ *  tempo/charge recipient is the address the seller is PAID at, and inbound
+ *  transfers to it on Tempo are the on-chain settlement signal
+ *  (src/mpp-leaderboard.js). Never throws; an unparseable header yields []
+ *  and the seller stays verified on the raw-prefix check above - a leaderboard
+ *  gap must not demote a listing. Exported for tests. */
+export async function parseOffers(wwwAuth) {
+  try {
+    const { Challenge } = await import("mppx");
+    const list = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": String(wwwAuth) }));
+    return list.map((c) => {
+      const r = c?.request || {};
+      const recipient = typeof r.recipient === "string" && /^0x[0-9a-fA-F]{40}$/.test(r.recipient) ? r.recipient.toLowerCase() : null;
+      const chainId = r.methodDetails?.chainId;
+      return {
+        method: String(c?.method || ""), intent: String(c?.intent || ""),
+        recipient,
+        currency: typeof r.currency === "string" ? r.currency.toLowerCase() : null,
+        chainId: Number.isFinite(Number(chainId)) ? Number(chainId) : null,
+        amount: typeof r.amount === "string" || typeof r.amount === "number" ? String(r.amount) : null,
+      };
+    }).slice(0, 8);
+  } catch { return []; }
 }
 
 const HEALTH_WINDOW = 5;
@@ -230,6 +294,10 @@ export async function verifyMppSeller(origin) {
     provider: svc?.provider || null,
     endpoints: Array.isArray(svc?.endpoints) ? svc.endpoints : [],
     probedUrl: target.url,
+    // Live-observed payment offers (see parseOffers). Kept from the last
+    // SUCCESSFUL probe so a transient probe failure does not blank the
+    // recipient the leaderboard ranks on.
+    offers: result.ok ? (result.offers || []) : (prior?.offers || []),
     verified: result.ok,
     verifiedAt: result.ok ? result.at : (prior?.verified ? prior.verifiedAt : null),
     lastProbeAt: result.at,
@@ -249,15 +317,22 @@ export async function verifyMppSeller(origin) {
 
 /** Probe + list a submitted origin. `verify` is injectable for tests; defaults
  *  to the real verifyMppSeller. Successful probes persist the origin as a seed. */
-export async function registerMppOrigin(origin, { verify } = {}) {
+export async function registerMppOrigin(origin, { verify, path, method } = {}) {
   const existing = cache.get(origin);
   if (existing?.verified) return { listed: true, origin, seller: mppSellerSummary(existing) };
   if (!submittedSeeds.has(origin) && submittedSeeds.size >= submittedSeedsCap) {
     return { listed: false, origin, error: "submission list is full - open a GitHub issue to get seeded" };
   }
+  const hint = validateProbeHint({ path, method });
+  if (hint.error) return { listed: false, origin, error: hint.error };
+  // Stage the hint so this verification probes it; keep it only if it verifies
+  // (a wrong hint must not stick to an origin for the crawler to re-probe forever).
+  const priorHint = submittedHints.get(origin);
+  if (hint.path || hint.method) submittedHints.set(origin, hint);
   const doVerify = verify || verifyMppSeller;
   let entry;
   try { entry = await doVerify(origin); } catch (e) { entry = { verified: false, lastProbeError: String(e?.message || e) }; }
+  if (!entry?.verified) { if (priorHint) submittedHints.set(origin, priorHint); else submittedHints.delete(origin); }
   // Own the cache write here rather than relying on doVerify's own side effect
   // (the real verifyMppSeller() already writes it; an injected test verifier
   // does not, and the snapshot/crawl-rotation contract must hold either way -

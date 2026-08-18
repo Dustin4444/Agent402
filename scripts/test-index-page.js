@@ -155,7 +155,9 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   ok((html.match(/\/marketplaces\b/g) || []).length === 0, "homepage: no /marketplaces links remain");
   ok(!/href="\/index"/.test(html), "homepage: no href=\"/index\" links remain");
   ok(/a neutral index has to be checkable/.test(html), "homepage: neutral-index positioning survives as prose");
-  ok(/The applied layer<br>for/.test(html) && /x402 &amp; MPP applied layer/.test(html), "homepage: title/hero lead with the x402 + MPP repositioning, not the old search+answer pitch");
+  // 2026-08-18: positioned under the Agentic Finance (AIFI) moniker - the
+  // hero names the category and links its explainer; x402 + MPP are the wires.
+  ok(/The applied layer of <span[^>]*>Agentic Finance<\/span>/.test(html) && /Agentic Finance \(AIFI\) applied layer/.test(html) && /href="\/agentic-finance"/.test(html), "homepage: title/hero lead with the Agentic Finance (AIFI) positioning (x402 + MPP as the wires), linking /agentic-finance");
   ok(/href="\/status"/.test(html), "homepage: trust strip links to live /status");
   // The old "flagship jobs" section (a standalone search+answer callout ahead
   // of a skill-packs teaser) doesn't exist in the new structure - the design
@@ -163,13 +165,15 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   // instead. Lock that the transcript still demonstrates it, live-callable.
   ok(/agent402_find\(q: "sec 10-K filing text"\)/.test(html) && /agent402_call\(answer,/.test(html), "homepage: agent-pays transcript still demonstrates a real search-then-answer job");
   // The old 7-question FAQ (incl. "How do I connect my agent?") is now a
-  // deliberately trimmed 3-question set matching the FAQPage JSON-LD 1:1.
+  // deliberately trimmed set matching the FAQPage JSON-LD 1:1: the AIFI
+  // definition (2026-08-18) plus the three product questions.
+  ok(/What is Agentic Finance \(AIFI\)\?/.test(html), "homepage: visible FAQ leads with the Agentic Finance (AIFI) definition");
   ok(/How do I sell my API for USDC per call\?/.test(html), "homepage: visible FAQ includes the sell-side question");
   ok(/Do I need a wallet to try it\?/.test(html), "homepage: visible FAQ includes the no-wallet question");
   ok(/Is it open source, and can I run my own\?/.test(html), "homepage: visible FAQ includes the open-source question");
   ok(html.includes('"@type":"FAQPage"'), "homepage: FAQPage JSON-LD present");
   const faqQCount = (html.match(/"@type":"Question"/g) || []).length;
-  ok(faqQCount === 3, `homepage: FAQPage JSON-LD has exactly 3 questions matching the visible 3 (got ${faqQCount})`);
+  ok(faqQCount === 4, `homepage: FAQPage JSON-LD has exactly 4 questions matching the visible 4 (got ${faqQCount})`);
 }
 
 // --- F23: seller homepage href scheme guard (dormant legacy renderer) --------

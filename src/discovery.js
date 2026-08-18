@@ -73,7 +73,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     about: `${REPO}#agent402-in-the-x402-ecosystem`,
     name: "Agent402.Tools",
     summary:
-      `The open-source, self-hostable applied layer for x402 and MPP (+ MCP server): 500+ pay-per-call tools for AI agents in one integration - browser, search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts, wallet-keyed memory, and an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003/call, embeddings $0.002 - no API key, the wallet is the account). Free via proof-of-work, or pay per call in USDC via x402 or over MPP (Base/Celo USDC, native Tempo).`,
+      `Agentic Finance (AIFI) applied layer - open-source, self-hostable, x402 + MPP (+ MCP server): 500+ pay-per-call tools for AI agents in one integration - browser, search, PDFs, images, OCR, live financial/crypto/macro data, SEC EDGAR, ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts, wallet-keyed memory, and an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003/call, embeddings $0.002 - no API key, the wallet is the account). Free via proof-of-work, or pay per call in USDC via x402 or over MPP (Base/Celo USDC, native Tempo).`,
     homepage: baseUrl,
     repository: REPO,
     openSource: true,
@@ -203,6 +203,13 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
       // discovery: find a tool, route to a seller, see who's most used.
       leaderboard: `${baseUrl}/api/leaderboard`,
       leaderboardHtml: `${baseUrl}/leaderboard`,
+      // The MPP side of the same primitives: a live-verified index of sellers
+      // speaking WWW-Authenticate: Payment (with the payment offers their real
+      // 402 makes), and an on-chain ranking by inbound USDC.e transfers on Tempo
+      // to each seller's live recipient (`routable` = the router will pay them).
+      mppSellerIndex: `${baseUrl}/api/mpp-index`,
+      mppSellerIndexHtml: `${baseUrl}/mpp-marketplace`,
+      mppLeaderboard: `${baseUrl}/api/mpp-leaderboard`,
       // The leaderboard primitive ships on three equivalent surfaces so an
       // agent can consume it however it already talks to Agent402. The HTTP
       // endpoint is the source of truth; the MCP tool and SDK method are thin

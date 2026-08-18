@@ -492,13 +492,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       title: "List top x402 sellers",
       annotations: { title: "List top x402 sellers", ...SAFE },
       description:
-        "List the x402 sellers earning the most USDC (or serving the most calls) on Base in the last ~24h, derived from on-chain USDC transfers. Useful for agents discovering the live x402 economy: who's getting paid, which networks, and where to point demand. Free to call (no payment, no proof-of-work). Defaults: top 10, sort by USDC, exclude this service's own wallet.",
+        "List ranked sellers from the on-chain leaderboards. wire=x402 (default): x402 sellers earning the most USDC (or serving the most calls) on Base in the last ~24h, derived from on-chain USDC transfers. wire=mpp: MPP (Machine Payments Protocol) sellers ranked by inbound USDC.e transfers on Tempo to the recipient their live 402 names (window, rolling 7d/30d, distinct payers, volume; routable = the host's router will pay them). Useful for agents discovering the live x402 / MPP economy: who's getting paid, which networks, and where to point demand. Free to call (no payment, no proof-of-work). Defaults: top 10, sort by USDC, exclude this service's own wallet.",
       inputSchema: {
         type: "object",
         properties: {
           limit: { type: "number", description: "Max rows to return (default 10, max 50)" },
-          sort: { type: "string", enum: ["usd", "calls"], description: "Rank by USDC settled (default) or by call count" },
+          sort: { type: "string", enum: ["usd", "calls"], description: "Rank by USDC settled (default) or by call count (mpp: 7-day volume / 7-day transfers, default calls)" },
           include: { type: "string", enum: ["external", "all"], description: "'external' (default) hides this service's own wallet; 'all' includes it" },
+          wire: { type: "string", enum: ["x402", "mpp"], description: "Which leaderboard: x402 (default) or mpp" },
         },
       },
       outputSchema: META_OUTPUT_SCHEMAS["sellers.list"],
@@ -616,8 +617,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           npm: "npx -y agent402-mcp",
           maintainer: "Havok Holdings LLC",
         },
-        positioning: "Deterministic tools layer beside LLM gateways: flagship search/answer first, 500+ long-tail tools via catalog.find / catalog.search / catalog.call.",
-        ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog.",
+        positioning: `Deterministic tools layer beside LLM gateways: flagship search/answer first, 500+ long-tail tools via catalog.find / catalog.search / catalog.call. Agent402 is the applied layer of Agentic Finance (AIFI): agents that pay and get paid per request over x402 or MPP (Machine Payments Protocol), both on the same 402 - ${BASE}/agentic-finance, ${BASE}/glossary.`,
+        ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h, or sellers.list with wire=mpp for MPP sellers ranked by on-chain USDC.e transfers on Tempo - discovers the live economy beyond this catalog.",
       });
     }
     if (name === "server.describe") {
@@ -625,6 +626,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         service: BASE,
         connector: "stdio npm package (agent402-mcp)",
         maintainer: "Havok Holdings LLC",
+        positioning: `Agent402 is the applied layer of Agentic Finance (AIFI): software agents that pay and get paid on their own, per request, over x402 or MPP (Machine Payments Protocol) - both answered on the same 402. ${BASE}/agentic-finance, ${BASE}/glossary.`,
         startHere: {
           firstJob: "Search the web and answer questions. Call web.search or web.answer directly, or catalog.find with your task.",
           mode: HAS_WALLET ? "usdc" : "proof-of-work",
@@ -639,6 +641,47 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         toolsEvergreen: "500+",
         missingATool: "Call demand.request on the hosted connector, or POST /api/wish.",
         docs: `${BASE}/llms.txt`,
+      });
+    }
+    if (name === "sellers.list" && args.wire === "mpp") {
+      // Thin pass-through to /api/mpp-leaderboard (free, unpaywalled), same
+      // compact row shape as the hosted connector's wire=mpp branch.
+      const limit = Math.min(Math.max(parseInt(args.limit, 10) || 10, 1), 50);
+      const sort = args.sort === "usd" ? "usd" : "calls";
+      const include = args.include === "all" ? "all" : "external";
+      const res = await fetch(`${BASE}/api/mpp-leaderboard`);
+      if (!res.ok) {
+        return { content: [{ type: "text", text: `Failed to fetch the MPP leaderboard from ${BASE}: HTTP ${res.status}` }], isError: true };
+      }
+      const lb = await res.json();
+      let board = (Array.isArray(lb.rows) ? lb.rows : []).filter((r) => r.transfers > 0 || (r.d30?.transfers || 0) > 0);
+      if (include === "external") board = board.filter((r) => !r.self);
+      board = board.slice().sort((a, b) => sort === "usd"
+        ? ((b.d7?.volumeUsdc || 0) - (a.d7?.volumeUsdc || 0)) || (b.transfers - a.transfers)
+        : ((b.d7?.transfers || 0) - (a.d7?.transfers || 0)) || (b.transfers - a.transfers)).slice(0, limit);
+      const rows = board.map((r, i) => ({
+        rank: i + 1,
+        name: r.self ? "this host" : (r.sellers || []).map((s) => s.name).join(", ") || "unnamed recipient",
+        network: "eip155:4217",
+        wallet: r.recipient,
+        homepage: r.sellers?.[0]?.url || null,
+        transfersWindow: r.transfers,
+        transfers7d: r.d7?.transfers || 0,
+        transfers30d: r.d30?.transfers || 0,
+        payersWindow: r.payers,
+        volumeUsdc7d: Math.round((r.d7?.volumeUsdc || 0) * 10000) / 10000,
+        routable: !!r.routable,
+      }));
+      return mcpJsonResult({
+        wire: "mpp",
+        measure: "inbound USDC.e transfers on Tempo (chain 4217) to the recipient each seller's live MPP challenge names - a window read plus rolling 7d/30d, a proxy for settlements, not lifetime",
+        window: lb.window ? `~${lb.window.approxHours}h (${lb.window.blocks} blocks)` : null,
+        asOf: lb.generatedAt || null,
+        sort, include,
+        totalSellers: Array.isArray(lb.rows) ? lb.rows.length : 0,
+        results: rows,
+        ...(lb.stale ? { note: "Leaderboard is stale or still warming - retry in a few minutes." } : {}),
+        source: `${BASE}/api/mpp-leaderboard`,
       });
     }
     if (name === "sellers.list") {

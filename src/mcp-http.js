@@ -94,7 +94,7 @@ let mcpInFlight = 0;
  * decides the free set. `opts.onServed(slug, { latencyMs, errored })` feeds
  * both the stats counters and the analytics dashboard with full per-call meta.
  */
-export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null }) {
+export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null }) {
   // Live per-tool prices for the skill-pack a la carte comparison. Built once
   // from the same catalog this connector serves, so the number an agent sees
   // next to a pack is the price it would actually pay for the steps.
@@ -381,13 +381,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           name: META_MCP_NAMES.list_top_sellers,
           title: "List top x402 sellers",
           annotations: { title: "List top x402 sellers", ...SAFE },
-          description: "[free] List ranked x402 sellers from the on-chain settlement leaderboard: settled call counts, USDC totals and distinct buyers per seller. Use it to find other services in the open x402 ecosystem. This host's own wallet is excluded unless include is set to all.",
+          description: "[free] List ranked sellers from the on-chain settlement leaderboards. wire=x402 (default): x402 sellers by settled call counts, USDC totals and distinct buyers. wire=mpp: MPP (Machine Payments Protocol) sellers ranked by inbound USDC.e transfers on Tempo to the recipient their live 402 names (window count, rolling 7d/30d, distinct payers, volume; routable = this host's router will pay them). Use it to find other services in the open x402 / MPP ecosystem. This host's own wallet is excluded unless include is set to all.",
           inputSchema: {
             type: "object",
             properties: {
               limit: { type: "integer", minimum: 1, maximum: 50, description: "How many sellers to return (default 10)." },
-              sort: { type: "string", enum: ["usd", "calls"], description: "Rank by settled USDC (default) or by settled call count." },
+              sort: { type: "string", enum: ["usd", "calls"], description: "x402: rank by settled USDC (default) or by settled call count. mpp: usd = 7-day volume, calls = 7-day transfers (default)." },
               include: { type: "string", enum: ["external", "all"], description: "external (default) hides this host's own wallet; all includes it." },
+              wire: { type: "string", enum: ["x402", "mpp"], description: "Which leaderboard: x402 (default, Base USDC settlements) or mpp (Tempo USDC.e transfers to MPP sellers)." },
             },
             additionalProperties: false,
           },
@@ -504,6 +505,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             service: baseUrl,
             connector: "hosted free tier (authless)",
             maintainer: "Havok Holdings LLC",
+            positioning: `Agent402 is the applied layer of Agentic Finance (AIFI): software agents that pay and get paid on their own, per request, over the two open wires - x402 and MPP (Machine Payments Protocol) - both answered on the same 402. Definition + glossary: ${baseUrl}/agentic-finance, ${baseUrl}/glossary.`,
             // Flagship-first positioning: tools layer beside LLM gateways,
             // search/answer as the default job, evergreen 500+ catalog.
             startHere: {
@@ -535,9 +537,49 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             },
             clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
             paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client - or over MPP (Machine Payments Protocol) with an mppx client, settling USDC on Base/Celo or PathUSD natively on Tempo. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50.`,
-            ...(getLeaderboard ? { ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog." } : {}),
+            ...(getLeaderboard ? { ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h, or sellers.list with wire=mpp for MPP sellers ranked by on-chain USDC.e transfers on Tempo - discovers the live economy beyond this catalog." } : {}),
             missingATool: "Call demand.request (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
             docs: `${baseUrl}/llms.txt`,
+          });
+        }
+        if (name === "sellers.list" && getLeaderboard && args.wire === "mpp") {
+          // The MPP leaderboard (src/mpp-leaderboard.js) - same row discipline
+          // as the x402 branch below: token-cheap rows, self hidden by default,
+          // seller names are self-reported external content and marked so.
+          const lb = (typeof getMppLeaderboard === "function" ? getMppLeaderboard() : null) || { rows: [], stale: true };
+          const limit = Math.min(Math.max(parseInt(args.limit, 10) || 10, 1), 50);
+          const sort = args.sort === "usd" ? "usd" : "calls";
+          const include = args.include === "all" ? "all" : "external";
+          let board = Array.isArray(lb.rows) ? lb.rows.filter((r) => r.transfers > 0 || (r.d30?.transfers || 0) > 0) : [];
+          if (include === "external") board = board.filter((r) => !r.self);
+          board = board.slice().sort((a, b) => sort === "usd"
+            ? ((b.d7?.volumeUsdc || 0) - (a.d7?.volumeUsdc || 0)) || (b.transfers - a.transfers)
+            : ((b.d7?.transfers || 0) - (a.d7?.transfers || 0)) || (b.transfers - a.transfers)).slice(0, limit);
+          const rows = board.map((r, i) => ({
+            rank: i + 1,
+            name: r.self ? "this host" : (r.sellers || []).map((s) => s.name).join(", ") || "unnamed recipient",
+            network: "eip155:4217",
+            wallet: r.recipient,
+            homepage: r.sellers?.[0]?.url || null,
+            transfersWindow: r.transfers,
+            transfers7d: r.d7?.transfers || 0,
+            transfers30d: r.d30?.transfers || 0,
+            payersWindow: r.payers,
+            volumeUsdc7d: Math.round((r.d7?.volumeUsdc || 0) * 10000) / 10000,
+            routable: !!r.routable,
+            ...(r.self ? {} : { untrustedContent: true }),
+          }));
+          return mcpJsonResult({
+            wire: "mpp",
+            measure: "inbound USDC.e transfers on Tempo (chain 4217) to the recipient each seller's live MPP challenge names - a window read plus rolling 7d/30d, a proxy for settlements, not lifetime",
+            window: lb.window ? `~${lb.window.approxHours}h (${lb.window.blocks} blocks)` : null,
+            asOf: lb.generatedAt ? new Date(lb.generatedAt).toISOString() : null,
+            sort, include,
+            totalSellers: Array.isArray(lb.rows) ? lb.rows.length : 0,
+            results: rows,
+            ...(rows.some((r) => r.untrustedContent) ? { containsUntrustedContent: true } : {}),
+            ...(lb.stale ? { note: "Leaderboard is stale or still warming - the first on-chain read runs a couple of minutes after boot and every 30 min after." } : {}),
+            source: `${baseUrl}/api/mpp-leaderboard`,
           });
         }
         if (name === "sellers.list" && getLeaderboard) {

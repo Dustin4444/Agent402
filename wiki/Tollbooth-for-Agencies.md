@@ -1,5 +1,7 @@
 # Tollbooth for SEO agencies
 
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+
 A playbook for agencies (boutique → mid-market) that want to add **"we'll
 help you opt out of AI training, and you're already set up to monetize the
 moment buyer-side x402 lands at OpenAI / Anthropic / Perplexity"** to their

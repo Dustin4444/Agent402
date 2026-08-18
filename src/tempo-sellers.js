@@ -14,8 +14,15 @@
 //   - path templates (`/:network/v2`) - nothing to fill them with;
 //   - anything not tempo/charge in USDC.e - the spending wallet's asset pin.
 // Proven-ness (recent inbound USDC.e transfers to the challenge's recipient)
-// is checked at PAY time in tempo-buyer.js, because the recipient is only
-// known from the live 402, not from the registry.
+// is checked at PAY time in tempo-buyer.js against the LIVE 402's recipient -
+// that stays. Since 2026-08-18 the index also records each seller's live
+// offers (recipient included) and the MPP leaderboard (src/mpp-leaderboard.js)
+// counts inbound transfers per recipient, so the ranker can additionally gate
+// UP FRONT: with a fresh board, only `routable` recipients are candidates
+// (else the first lexical hit could be an unproven seller, payTempo 409s, and
+// the router never tried the proven one ranked second). Same shape as the
+// Base leg's leaderboard gate. Without a board (cold boot, RPC down) the
+// ranker keeps prior behaviour and the pay-time gate alone decides.
 import { mppIndexSnapshot } from "./mpp-index.js";
 import { TEMPO_USDC, TEMPO_CAIP2 } from "./tempo-buyer.js";
 
@@ -40,8 +47,10 @@ export function tempoCatalog(snapshot = mppIndexSnapshot()) {
       if (!/^\d+$/.test(amount) || amount === "0") continue;
       const decimals = Number.isInteger(p.decimals) ? p.decimals : 6;
       const priceUsd = Number(amount) / 10 ** decimals;
+      const recipient = (s.offers || []).find((o) => o?.method === "tempo" && (o.intent || "charge") === "charge" && o.recipient && String(o.currency || "").toLowerCase() === USDC_LC)?.recipient || null;
       out.push({
         origin, seller: s.name || origin.replace(/^https:\/\//, ""),
+        recipient,
         path: e.path, method: String(e.method || "GET").toUpperCase(),
         url: origin + e.path,
         description: [e.description, s.description].filter(Boolean).join(" - "),
@@ -56,14 +65,24 @@ export function tempoCatalog(snapshot = mppIndexSnapshot()) {
 }
 
 /** Rank routable resources against a task - same lexical scoring as the
- *  Algorand leg (task tokens vs description/path/tags), cap-filtered. */
-export function rankTempoResources(resources, task, { capUsd, excludeOrigin = "" } = {}) {
+ *  Algorand leg (task tokens vs description/path/tags), cap-filtered.
+ *  `provenByRecipient` (Map recipientLc -> {transfers, routable}, from the MPP
+ *  leaderboard) is optional: when given, resources whose recipient is unknown
+ *  or not routable are dropped and `settled` rides out; ties then break on
+ *  settled desc. When absent, no gate here (pay-time gate still applies). */
+export function rankTempoResources(resources, task, { capUsd, excludeOrigin = "", provenByRecipient = null } = {}) {
   const want = [...new Set(tokenize(task))];
   if (!want.length) return [];
   const scored = [];
   for (const r of resources) {
     if (!(r.priceUsd > 0 && r.priceUsd <= capUsd)) continue;
     if (excludeOrigin && r.origin === excludeOrigin) continue;
+    let settled = 0;
+    if (provenByRecipient) {
+      const ev = r.recipient ? provenByRecipient.get(String(r.recipient).toLowerCase()) : null;
+      if (!ev?.routable) continue;
+      settled = ev.transfers || 0;
+    }
     const have = new Set([...tokenize(r.description), ...tokenize((r.tags || []).join(" ")), ...tokenize(r.seller)]);
     const pathTokens = tokenize(r.path);
     let score = 0;
@@ -71,7 +90,7 @@ export function rankTempoResources(resources, task, { capUsd, excludeOrigin = ""
       if (have.has(t) || pathTokens.includes(t)) score += 1;
       else if (t.length > 3 && pathTokens.some((p) => p.includes(t))) score += 1;
     }
-    if (score > 0) scored.push({ ...r, score });
+    if (score > 0) scored.push({ ...r, score, settled });
   }
-  return scored.sort((a, b) => b.score - a.score || a.priceUsd - b.priceUsd);
+  return scored.sort((a, b) => b.score - a.score || b.settled - a.settled || a.priceUsd - b.priceUsd);
 }

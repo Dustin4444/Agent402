@@ -6,7 +6,9 @@ in USDC over the [x402 protocol](https://x402.org), over
 [MPP](https://mpp.dev) (the Machine Payments Protocol `Payment` HTTP auth
 scheme, settled through the same stack), or for free by solving a
 proof-of-work. No Cloudflare, no Stripe, no Merchant-of-Record, no signup.
-The first self-hostable pay-per-crawl gate that speaks both wires on one 402.
+The first self-hostable pay-per-crawl gate that speaks both wires on one 402 -
+the sell side of [Agentic Finance (AIFI)](https://agent402.tools/agentic-finance),
+where agents pay and sites get paid, per request, with no account in between.
 
 The big platforms are converging on the same model: Cloudflare's
 [pay-per-crawl](https://stackoverflow.blog/2026/02/26/how-pay-per-crawl-is-reshaping-data-monetization/)
@@ -94,8 +96,23 @@ Point it at your existing site - no code changes there:
 ```bash
 TOLLBOOTH_UPSTREAM=https://your-site.com \
 TOLLBOOTH_PAYTO=0xYourWallet \
+TOLLBOOTH_FACILITATOR_URL=https://x402.org/facilitator \
 npx agent402-tollbooth          # listens on :4021, proxies humans free, charges bots
 ```
+
+With `TOLLBOOTH_PAYTO` **and** `TOLLBOOTH_FACILITATOR_URL` set, the proxy
+settles real money over **both wires** from env alone (0.8.0): it builds the
+standard `@x402/express` v2 stack in-process (verify, proxy the request, settle
+only on a successful response, exactly once) and mints MPP challenges on the
+same 402, so a stock `@x402/fetch` client and a stock `mppx` client both pay.
+Install the x402 packages next to it once (`npm i @x402/express @x402/core
+@x402/evm`; they are optional peers so the package stays dependency-free
+otherwise) and pick a facilitator that settles your network - keyless free
+tiers exist for mainnet chains, and `https://x402.org/facilitator` covers
+base-sepolia for a dry run. USDC on the EVM chains in `TOLLBOOTH_NETWORK`'s
+list (`base` default); other assets and rails use the library API below.
+`TOLLBOOTH_PAYTO` alone still only *advertises* a quote (nothing can verify or
+settle it, every paid request is refused) and now says so loudly at boot.
 
 ## Run on the edge (Cloudflare Workers, Next.js, Deno, Bun)
 
@@ -238,9 +255,11 @@ Read by the bundled proxy / Express entry point (`index.js`):
 | env | default | meaning |
 |---|---|---|
 | `TOLLBOOTH_UPSTREAM` | – | Origin the built-in reverse proxy forwards to |
-| `TOLLBOOTH_PAYTO` | – | Wallet address; set to advertise a USDC x402 quote |
+| `TOLLBOOTH_PAYTO` | – | Wallet address; advertises a USDC x402 quote (and, with `TOLLBOOTH_FACILITATOR_URL`, settles it) |
+| `TOLLBOOTH_FACILITATOR_URL` | – | x402 facilitator that settles your network. With `TOLLBOOTH_PAYTO` the CLI builds a real `@x402/express` middleware and takes payment over x402 **and** MPP (0.8.0). Needs `@x402/express @x402/core @x402/evm` installed; refuses to start without them |
+| `TOLLBOOTH_FACILITATOR_HEADERS` | – | Optional JSON object of auth headers sent on the facilitator's `/verify`, `/settle`, `/supported` (e.g. `{"X-API-Key":"…"}`) |
 | `TOLLBOOTH_PRICE` | `"$0.001"` | Advertised price per request |
-| `TOLLBOOTH_NETWORK` | `"base"` | x402 network |
+| `TOLLBOOTH_NETWORK` | `"base"` | x402 network. CLI settlement mode accepts `base`, `base-sepolia`, `polygon`, `arbitrum`, `optimism`, `avalanche`, `celo`, `sei`, `monad`, or a raw `eip155:<id>` |
 | `TOLLBOOTH_MPP` | on when `x402` set | `false` to switch MPP off |
 | `TOLLBOOTH_MPP_SECRET` | `TOLLBOOTH_SECRET` | HMAC secret for MPP challenge ids |
 | `TOLLBOOTH_MPP_NETWORKS` | `8453,42220` | CSV of EVM chain ids to offer as MPP challenges, or `all` |
@@ -500,10 +519,12 @@ instead of USDC:
 TOLLBOOTH_PAYTO=0xYourWallet \
 TOLLBOOTH_NETWORK=eip155:4663 \
 TOLLBOOTH_ASSET=USDG \
-npx agent402-tollbooth
+npx agent402-tollbooth          # advertises the USDG quote; settle it via the library API below
 ```
 
-or in code: `createTollbooth({ payTo, network: "eip155:4663", asset: "USDG", x402 })`,
+(The CLI's built-in settlement mode - `TOLLBOOTH_FACILITATOR_URL` - registers
+the exact **USDC** scheme only and refuses to start with another asset rather
+than advertise a quote it cannot settle.) In code: `createTollbooth({ payTo, network: "eip155:4663", asset: "USDG", x402 })`,
 where `x402` is a `@x402/express` middleware whose facilitator settles chain
 4663 (advertise `eip155:4663` in its `accepts`). Defaults are unchanged (USDC
 on Base). MPP challenges are only minted for chains in `mppNetworks` (Base +

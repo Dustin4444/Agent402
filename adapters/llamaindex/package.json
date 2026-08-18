@@ -1,7 +1,7 @@
 {
   "name": "agent402-llamaindex",
-  "version": "0.1.5",
-  "description": "Drop-in LlamaIndex TS tools for Agent402.Tools: turn its catalog - 500+ strong: 400+ x402 pay-per-call tools + 100+ skill packs (browser, web search, OCR, PDFs, finance, memory) - into FunctionTool instances via four meta-tools (find/route/call/about), plus the cross-seller x402 Smart Order Router. Free via proof-of-work or pay per call in USDC on Base + 11 more chains, or USDG on Robinhood Chain (12 chains total).",
+  "version": "0.1.6",
+  "description": "Agentic Finance (AIFI): Drop-in LlamaIndex TS tools for Agent402.Tools: turn its catalog - 500+ strong: 400+ pay-per-call tools (x402 or MPP) + 100+ skill packs (browser, web search, OCR, PDFs, finance, memory) - into FunctionTool instances via four meta-tools (find/route/call/about), plus the cross-seller x402 + MPP Smart Order Router. Free via proof-of-work or pay per call in USDC on Base + 11 more chains, or USDG on Robinhood Chain (12 chains total).",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -36,7 +36,12 @@
     "agent402",
     "tool-discovery",
     "smart-order-router",
-    "mcp"
+    "mcp",
+    "agentic-finance",
+    "aifi",
+    "mpp",
+    "machine-payments-protocol",
+    "agentic-payments"
   ],
   "author": "Havok Holdings LLC <mike@agent402.tools> (https://github.com/MikeyPetrillo/Agent402)",
   "license": "MIT",

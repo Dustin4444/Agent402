@@ -187,9 +187,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   "Tempo upstream buyer wallet LOW (MPP)". `scripts/test-tempo-router.js` (32
   assertions, offline, in CI). Seller-side counterpart: `TEMPO_CURRENCY` is a CSV (one
   tempo challenge per currency, first = preferred; a stock mppx client pays the FIRST
-  tempo challenge and does not auto-swap by default), code default still PathUSD until
-  the operator flips it to USDC.e-first; both canaries pay with `autoSwap: true` so a
-  USDC.e-first prod can be proven from the PathUSD-funded burner.
+  tempo challenge and does not auto-swap by default), code default still PathUSD; **PROD
+  FLIPPED 2026-08-18: Railway `TEMPO_CURRENCY=usdc,pathusd`** (live 402 offers USDC.e then
+  PathUSD) and PROVEN the same day: tempo-canary run 32167901691 paid from the PathUSD-funded
+  burner via `autoSwap: true` - on-chain tx 0x28db1d76… swapped 1001 PathUSD → 1000 USDC.e
+  and delivered 1000 USDC.e to our payTo, 200 + Payment-Receipt. Both canaries keep
+  `autoSwap: true`.
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.
@@ -308,6 +311,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   client throw before signing (2026-08-17), and `decimals` ON the wire made the
   relay re-parse the request and expect 1,000,000,000 base units for a 1000-unit
   transfer — every live buy rejected "no matching payment call found" (2026-08-18).
+  **INBOUND BINDING (2026-08-18 security review, HIGH, fixed):** the gate handed the
+  CLIENT-ECHOED challenge straight to mppx validate/broadcast, and with the relay configured
+  those forward `{challenge, payload}` verbatim - the relay checks the signed tx against the
+  challenge's OWN amount/recipient, never that WE minted it. A forged 1-base-unit challenge to
+  any recipient bought any paid route (and a genuine $0.001 challenge bought a $0.50 route:
+  challenges are not path-bound). Now `checkTempoCredentialBinding` runs BEFORE any relay call:
+  `Challenge.verify` against MPP_SECRET_KEY, realm, expiry, currency ∈ TEMPO_CURRENCY,
+  recipient = our payTo, chainId 4217, and `amount >= this route's price`; `createTempoGate`
+  refuses to mount without `secretKey`+`priceFor`, `mintTempoChallenge` mints nothing without
+  a secret. Same day: the gate now buffers `flushHeaders` (a streaming /v1 handler settled and
+  then hung on the buffered-writeHead replay). While the fix rode CI, prod's Tempo gate was
+  disabled by parking `TEMPO_API_KEY` (rollout switch) and restored after the fixed build.
+  `scripts/test-mpp-tempo-shim.js` cases H + I.
   **The relay's verdict is invisible through mppx** (Relay.js drops non-2xx bodies
   AND the `message` of a 2xx `success:false` when the code is outside its allowlist —
   the live shape was `code:"unknown"`); `relayFetch` (injected `fetch`, per-request
@@ -317,6 +333,31 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   PathUSD on Tempo mainnet — checked on-chain 2026-08-18, never trust the comment) plus a
   daily `mpp-tempo` leg in paid-canary. `scripts/test-mpp-tempo-shim.js` (offline, in
   CI) proves challenge wiring + settlement ordering with injected stubs.
+- **MPP index + leaderboard (`src/mpp-index.js`, `src/mpp-leaderboard.js`, 2026-08-18):** the
+  MPP counterpart of the x402 index/leaderboard. The index probe now parses each verified
+  seller's LIVE challenge with mppx's codec (`parseOffers`: method/intent, recipient,
+  currency, chainId, amount - kept from the last successful probe) - the recipient is where
+  the seller is actually PAID, read from a real 402, never the registry. The leaderboard
+  ranks verified sellers by inbound USDC.e transfers on Tempo to that recipient over the last
+  99k blocks (rpc.tempo.xyz caps eth_getLogs at 100k; ~15h; a WINDOW, said on the page):
+  ONE batched `eth_getLogs` per 33k-block chunk with every recipient in `topics[2]` (not one
+  call per seller), chunks split on RPC error down to 2k blocks, a failure that survives
+  keeps the previous board up marked stale + lastError; warm-start from
+  `/data/mpp-leaderboard-cache.json`; rebuild 30 min (first at +120s, again at +10 min).
+  Rows are keyed by recipient (a shared gateway recipient sits behind 15 registry names -
+  page shows 4 + "N more"), `tempo/session` sellers rank too, `proven` = transfers ≥
+  `SOR_TEMPO_MIN_SETTLED_TX`, `routable` = proven AND a tempo/charge offer (the router pays
+  charge only); our own Tempo payTo is a self-flagged row. Counts prime tempo-buyer's
+  proven-seller cache (`primeTempoInboundCount`) so a routed buy does not re-scan. Surfaces:
+  `/mpp-marketplace` (leaderboard section + `routable · #rank` roster badges),
+  `/api/mpp-index`, `/api/mpp-leaderboard`. Escape hatch `MPP_LEADERBOARD=off` (rides
+  `MPP_INDEX_CRAWL=off` too). Measured live 2026-08-18: 16 recipients, 8 active, 9,392
+  transfers / $62 in the window, whole build 2.5s. `scripts/test-mpp-leaderboard.js` (41
+  assertions, offline, in CI). **Router Tempo leg gates UP FRONT on the board** when it is
+  fresh (`rankTempoResources(..., { provenByRecipient })`: only `routable` recipients are
+  candidates, ties break on settled - before this the first lexical hit could be an unproven
+  seller, payTempo 409'd, and the proven one ranked second was never tried); a stale/empty
+  board gates nothing there and the pay-time gate alone decides (`test-tempo-router.js`).
 - **Boot /supported guard (`src/payments.js`, 2026-08-01 Celo facilitator outage):** a
   facilitator that is CONFIGURED but FAILING /supported never delivers its kinds to
   @x402's initialize() (which only warns), and route validation then 500s EVERY paid

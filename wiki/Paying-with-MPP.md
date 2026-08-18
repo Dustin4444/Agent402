@@ -2,7 +2,7 @@
 
 **MPP** (Machine Payments Protocol) is the open, IETF-track HTTP payment scheme co-authored by Tempo and Stripe: the server answers `402` with `WWW-Authenticate: Payment`, the client replies with `Authorization: Payment`, and a settled response carries a signed `Payment-Receipt`. Spec and tooling: [tempoxyz/mpp](https://github.com/tempoxyz/mpp) · [mpp.dev](https://mpp.dev) · client/server library [`mppx`](https://www.npmjs.com/package/mppx).
 
-Every paid endpoint on Agent402.Tools is **dual-stack**: the same 402 carries an x402 offer *and* an MPP challenge. Same URL, same price - the buyer's client picks the wire.
+Every paid endpoint on Agent402.Tools is **dual-stack**: the same 402 carries an x402 offer *and* an MPP challenge. Same URL, same price - the buyer's client picks the wire. MPP is one of the two wires underneath [[Agentic Finance]] (AIFI), agents that pay and get paid on their own; Agent402 is its applied layer.
 
 ## What settles, where
 
@@ -11,7 +11,7 @@ Every paid endpoint on Agent402.Tools is **dual-stack**: the same 402 carries an
 | `evm` charge | USDC | Base, Celo | Same EIP-3009 on-chain settlement as x402, translated by the shim; verifiable on Basescan/Celoscan |
 | `tempo` charge | PathUSD | Tempo (chain 4217) | Native TIP-20 settlement through Tempo's hosted MPP relay, no x402 facilitator involved |
 
-The [MPP marketplace](https://agent402.tools/mpp-marketplace) lists other MPP sellers we can verify live, and the [revenue page](https://agent402.tools/revenue) shows every MPP-wire settlement per rail with explorer links.
+The [MPP marketplace](https://agent402.tools/mpp-marketplace) lists other MPP sellers we can verify live and ranks them on the **MPP leaderboard**: inbound USDC.e transfers on Tempo to the recipient each seller's live challenge names, read from the chain by us over the most recent window (transfers, distinct payers, volume; rows at or above the router's floor are marked routable). Machine-readable at [`/api/mpp-index`](https://agent402.tools/api/mpp-index) and [`/api/mpp-leaderboard`](https://agent402.tools/api/mpp-leaderboard). The [revenue page](https://agent402.tools/revenue) shows every MPP-wire settlement per rail with explorer links.
 
 ## JavaScript (mppx)
 
