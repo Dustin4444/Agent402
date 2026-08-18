@@ -712,7 +712,7 @@ export function openapiSpec(baseUrl, catalog) {
       // The title/description here are what x402scan, MPPScan and every
       // OpenAPI-reading directory display as OUR NAME - keep them aligned with
       // the homepage: both wires (x402 + MPP), not "x402 server".
-      title: "Agent402 - Agentic Finance (AIFI) applied layer: 500+ pay-per-call tools for AI agents over x402 + MPP",
+      title: "Agent402.Tools - 500+ pay-per-call tools for AI agents over x402 + MPP",
       version: "2.0.0",
       description:
         // Template literal, not a plain string: this is the spec description

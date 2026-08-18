@@ -80,7 +80,7 @@ ok((read("mcp/index.js").match(/positioning: `[^`]*Agentic Finance \(AIFI\)[^`]*
 // --- machine surfaces ---------------------------------------------------------------
 const llms = llmsTxt("https://example.test", {});
 ok(all3(llms.slice(0, 4000)), "llms.txt lead names Agentic Finance + MPP + x402");
-ok(/description: `Agentic Finance \(AIFI\) applied layer[^`]*MPP/.test(read("src/server.js")), "/api/pricing description names AIFI + MPP");
+ok(/description: `Agent402\.Tools - pay-per-call tools[^`]*MPP[^`]*Agentic Finance \(AIFI\)/.test(read("src/server.js")), "/api/pricing description leads with Agent402 and names MPP + AIFI");
 ok(all3(read("src/discovery.js")), "/.well-known/x402 manifest source names Agentic Finance + MPP + x402");
 ok(hasAifi(read("src/agentic-finance.js")) && hasAifi(read("src/glossary.js")), "category + glossary pages exist");
 

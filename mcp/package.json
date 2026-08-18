@@ -1,6 +1,6 @@
 {
   "name": "agent402-mcp",
-  "version": "0.12.10",
+  "version": "0.12.11",
   "mcpName": "io.github.MikeyPetrillo/agent402",
   "author": "Havok Holdings LLC <mike@agent402.tools> (https://agent402.tools)",
   "homepage": "https://agent402.tools",
@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/MikeyPetrillo/Agent402.git"
   },
-  "description": "Agentic Finance (AIFI) MCP server for Agent402.Tools: 500+ pay-per-call tools + 100+ skill packs for AI agents, paid per call over x402 (USDC on 12 chains) or free via proof-of-work; the hosted API also answers MPP (Machine Payments Protocol) on the same 402. Catalog: browser, web search + cited answers, PDFs, OCR, images, LLM inference, image generation, code execution, STT, embeddings, live financial/crypto/macro data, SEC EDGAR filings, deterministic stats & forecasting, compression, payments (security-audit, trend-analysis, structured-scrape, decode-blob, forecasting-bake-off packs). Open source, self-hostable.",
+  "description": "Agent402 MCP server: 500+ pay-per-call tools + skill packs for AI agents over x402 (USDC on 12 chains) or MPP on the same 402, or free via proof-of-work - the applied layer of Agentic Finance (AIFI). Catalog: browser, web search + cited answers, PDFs, OCR, images, LLM inference, image generation, code execution, STT, embeddings, live financial/crypto/macro data, SEC EDGAR filings, deterministic stats & forecasting, compression, payments. Open source, self-hostable.",
   "type": "module",
   "bin": {
     "agent402-mcp": "index.js"
