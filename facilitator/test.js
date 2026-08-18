@@ -185,8 +185,27 @@ const horizon = getHorizonClient(NETWORK);
 
 async function friendbotFund(publicKey) {
   const res = await fetch(`https://friendbot.stellar.org/?addr=${encodeURIComponent(publicKey)}`);
-  if (!res.ok && res.status !== 400) throw new Error(`friendbot funding failed for ${publicKey}: HTTP ${res.status}`);
-  // 400 with "createAccountAlreadyExist" is fine - the account just already exists.
+  if (!res.ok) {
+    // 400 with "createAccountAlreadyExist" is fine - the account just already
+    // exists. Any OTHER 400 (friendbot's own failure) used to be swallowed here
+    // and the very next loadAccount() then threw Horizon NotFound - which is
+    // exactly what happened on the third fresh account of CI run 32171902738
+    // (2026-08-18). Read the body and only accept the one benign case.
+    const body = await res.text().catch(() => "");
+    if (!(res.status === 400 && /createAccountAlreadyExist/i.test(body))) {
+      throw new Error(`friendbot funding failed for ${publicKey}: HTTP ${res.status} ${body.slice(0, 200)}`);
+    }
+  }
+  // Friendbot answers when its transaction is SUBMITTED; Horizon serves the
+  // account only once that transaction is ingested. Wait for it, bounded, so
+  // the caller's loadAccount() cannot race the ledger.
+  for (let i = 0; i < 30; i++) {
+    try { await horizon.loadAccount(publicKey); return; } catch (e) {
+      if (e?.response?.status !== 404 && !/Not Found/i.test(String(e?.message || e))) throw e;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  throw new Error(`friendbot funded ${publicKey} but Horizon still does not serve the account after 30s`);
 }
 
 async function ensureTrustline(keypair) {
