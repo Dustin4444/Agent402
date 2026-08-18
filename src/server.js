@@ -3054,8 +3054,18 @@ app.get("/api/mpp-index", (_req, res) => {
 });
 app.get("/api/mpp-leaderboard", (_req, res) => {
   const lb = mppLeaderboardSnapshot();
+  const { history, ...rest } = lb;
   res.set("Cache-Control", "public, max-age=120");
-  res.json({ ...lb, generatedAt: lb.generatedAt ? new Date(lb.generatedAt).toISOString() : null, explorer: "https://explore.tempo.xyz/address/" });
+  res.json({
+    ...rest,
+    generatedAt: lb.generatedAt ? new Date(lb.generatedAt).toISOString() : null,
+    // Rolling history summary only (the per-day buckets are the internal
+    // ledger the d7/d30 columns are summed from): how many UTC days it covers,
+    // since when, and how many refresh gaps lost blocks - so a 30d figure is
+    // read as "30 days of what we observed", not lifetime.
+    history: history ? { daysCovered: history.daysCovered ?? Object.keys(history.days || {}).length, since: history.since ?? null, gaps: history.gaps || 0, cursor: history.cursor ?? null } : null,
+    explorer: "https://explore.tempo.xyz/address/",
+  });
 });
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure

@@ -27,7 +27,7 @@ const CSS = `
 .mkt-search-wrap:focus-within{border-color:var(--accent)}
 .mpr-proven{display:inline-flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:11px;color:var(--ink);border:1px solid var(--ink);padding:2px 7px;margin-left:8px;white-space:nowrap}
 .mlb-scroll{overflow-x:auto}
-.mlb-scroll table{border-collapse:collapse;width:100%;min-width:720px;font-size:13.5px}
+.mlb-scroll table{border-collapse:collapse;width:100%;min-width:860px;font-size:13.5px}
 .mlb-scroll th{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;text-align:left;padding:10px 12px;border-bottom:1.5px solid var(--ink)}
 .mlb-scroll td{padding:10px 12px;border-bottom:1px solid var(--hairline);vertical-align:top}
 .mlb-scroll td.num{font-family:var(--font-mono);text-align:right;white-space:nowrap}
@@ -54,8 +54,10 @@ const fmtUsd = (n) => (Number(n) >= 100 ? `$${Math.round(Number(n)).toLocaleStri
  *  copy. Rows with zero transfers are counted, never listed. */
 function leaderboardHtml(lb) {
   const rows = Array.isArray(lb?.rows) ? lb.rows : [];
-  const active = rows.filter((r) => r.transfers > 0);
+  const active = rows.filter((r) => r.transfers > 0 || (r.d30?.transfers || 0) > 0);
   const hours = lb?.window?.approxHours;
+  const hist = lb?.history;
+  const histNote = hist?.since ? ` Rolling 7d/30d columns sum what we observed since ${esc(hist.since)} (${hist.daysCovered || Object.keys(hist.days || {}).length} UTC day${(hist.daysCovered || 1) === 1 ? "" : "s"}${hist.gaps ? `, ${hist.gaps} refresh gap${hist.gaps === 1 ? "" : "s"} lost blocks` : ""}) - a running total from that date, not lifetime.` : "";
   const windowLabel = hours ? `last ~${hours}h` : "recent window";
   const staleNote = lb?.stale
     ? `<span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);margin-left:10px;">stale &middot; last good read ${lb.generatedAt ? esc(agoLabel(lb.generatedAt)) : "never"}${lb.lastError ? ` &middot; ${esc(lb.lastError)}` : ""}</span>`
@@ -72,22 +74,25 @@ function leaderboardHtml(lb) {
       <td class="num">${r.rank}</td>
       <td>${who}<div><a class="mlb-addr" href="${explorer}${esc(r.recipient)}" rel="noopener">${esc(shortAddr(r.recipient))}</a></div></td>
       <td class="num">${r.transfers.toLocaleString("en-US")}</td>
+      <td class="num">${(r.d7?.transfers ?? 0).toLocaleString("en-US")}</td>
+      <td class="num">${(r.d30?.transfers ?? 0).toLocaleString("en-US")}</td>
       <td class="num">${r.payers.toLocaleString("en-US")}</td>
-      <td class="num">${esc(fmtUsd(r.volumeUsdc))}</td>
+      <td class="num">${esc(fmtUsd(r.d7?.volumeUsdc ?? r.volumeUsdc))}</td>
       <td>${r.routable ? `<span class="mpr-proven">routable</span>` : r.proven ? `<span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);" title="On-chain floor met, but the live challenge offers no tempo/charge - the router pays charge only">session only</span>` : `<span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);">below floor (${lb.provenFloor})</span>`}</td>
     </tr>`;
   }).join("");
   const table = active.length
     ? `<div class="mlb-scroll"><table>
-      <thead><tr><th class="num">#</th><th>Seller &middot; Tempo recipient</th><th class="num">Transfers in</th><th class="num">Distinct payers</th><th class="num">Volume USDC.e</th><th>Router</th></tr></thead>
+      <thead><tr><th class="num">#</th><th>Seller &middot; Tempo recipient</th><th class="num" title="inbound USDC.e transfers in the read window">${esc(windowLabel)}</th><th class="num" title="rolling 7 days of observed transfers">7d</th><th class="num" title="rolling 30 days of observed transfers">30d</th><th class="num" title="distinct payer addresses in the read window">Payers</th><th class="num" title="7-day observed volume">Volume 7d</th><th>Router</th></tr></thead>
       <tbody>${trs}</tbody></table></div>`
     : `<p style="color:var(--muted);font-size:13.5px;margin:0;">${lb?.generatedAt ? "No verified seller's recipient received a USDC.e transfer on Tempo in the window." : "First on-chain read pending - the leaderboard rebuilds every 30 minutes from the verified index above."}</p>`;
   const zero = rows.length - active.length;
+  // (rows here are lb.rows; a row is active with a window OR a 30d count)
   return `
   <h2 id="leaderboard" style="font-size:21px;font-weight:800;margin:40px 0 6px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">MPP leaderboard &middot; settled on Tempo${staleNote}</h2>
-  <p style="font-size:13px;color:var(--faint);margin:0 0 12px;max-width:820px;">Verified sellers ranked by inbound USDC.e transfers on Tempo (chain 4217) to the recipient address their <em>live</em> MPP challenge names, read from the chain by us over the ${esc(windowLabel)} (${lb?.window ? `${lb.window.blocks.toLocaleString("en-US")} blocks` : "rpc window"}). A window, not lifetime; an inbound transfer is the same proxy the <a href="/guides/smart-order-router" style="color:var(--muted);">router</a> requires before it spends (floor ${lb?.provenFloor ?? "-"} in the window = <span class="mpr-proven" style="margin:0;">routable</span>). Machine-readable: <a href="/api/mpp-leaderboard" style="color:var(--muted);">/api/mpp-leaderboard</a>.</p>
+  <p style="font-size:13px;color:var(--faint);margin:0 0 12px;max-width:820px;">Verified sellers ranked by inbound USDC.e transfers on Tempo (chain 4217) to the recipient address their <em>live</em> MPP challenge names, read from the chain by us over the ${esc(windowLabel)} (${lb?.window ? `${lb.window.blocks.toLocaleString("en-US")} blocks` : "rpc window"}). A window, not lifetime; an inbound transfer is the same proxy the <a href="/guides/smart-order-router" style="color:var(--muted);">router</a> requires before it spends (floor ${lb?.provenFloor ?? "-"} in the window = <span class="mpr-proven" style="margin:0;">routable</span>).${histNote} Ranked by 7d, then window. Machine-readable: <a href="/api/mpp-leaderboard" style="color:var(--muted);">/api/mpp-leaderboard</a>.</p>
   ${table}
-  ${zero > 0 ? `<p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:10px;">${zero.toLocaleString("en-US")} more verified recipient${zero === 1 ? "" : "s"} with no inbound transfer in the window (listed below, not ranked).</p>` : ""}`;
+  ${zero > 0 ? `<p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:10px;">${zero.toLocaleString("en-US")} more verified recipient${zero === 1 ? "" : "s"} with no inbound transfer observed (listed below, not ranked).</p>` : ""}`;
 }
 
 function sellerRowHtml(s, lbByRecipient) {

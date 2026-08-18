@@ -88,14 +88,73 @@ async function fetchLogsSplitting(rpcFn, topics, from, to) {
   }
 }
 
+// ---- rolling history ---------------------------------------------------------
+// The RPC window is ~15h, so a leaderboard read from it alone forgets
+// everything older than the last read. History accumulates ACROSS refreshes:
+// every refresh attributes only the logs above the last scanned block
+// (`cursor`) to today's UTC bucket, so overlapping windows never double
+// count, and 7d/30d sums roll from the buckets. The first refresh seeds the
+// buckets with the whole window (~15h). A refresh gap longer than the window
+// (RPC down > 15h) loses the uncovered blocks - counted in `gaps`, said on
+// the API, never silently smoothed. Buckets carry transfers + volume only
+// (distinct payers do not sum across days without storing every payer).
+export const MPP_LB_HISTORY_DAYS = 30;
+export function emptyHistory() { return { cursor: null, gaps: 0, days: {} }; }
+const dayKey = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+/** Fold this refresh's logs (with blockNumber) into `history` (mutated copy
+ *  returned). Pure apart from `now`. Exported for tests. */
+export function foldHistory(history, logsByRecipient, { latest, from, now }) {
+  const h = { cursor: history?.cursor ?? null, gaps: history?.gaps || 0, days: { ...(history?.days || {}) } };
+  // Blocks strictly above the cursor are new; on a cold cursor the whole window is.
+  let minNew = h.cursor === null ? from : h.cursor + 1;
+  if (h.cursor !== null && h.cursor + 1 < from) { h.gaps += 1; minNew = from; } // window moved past the cursor: blocks (cursor, from) were never scanned
+  const today = dayKey(now);
+  const bucket = { ...(h.days[today] || {}) };
+  for (const [recipient, logs] of logsByRecipient) {
+    let t = 0, v = 0n;
+    for (const log of logs) {
+      const bn = parseInt(log?.blockNumber, 16);
+      if (!Number.isFinite(bn) || bn < minNew) continue;
+      t += 1;
+      try { v += BigInt(log?.data || "0x0"); } catch { /* count, skip amount */ }
+    }
+    if (!t) continue;
+    const prev = bucket[recipient] || { t: 0, v: "0" };
+    bucket[recipient] = { t: prev.t + t, v: (BigInt(prev.v) + v).toString() };
+  }
+  h.days[today] = bucket;
+  h.cursor = latest;
+  // prune beyond the horizon
+  const cutoff = dayKey(now - MPP_LB_HISTORY_DAYS * 86400e3);
+  for (const d of Object.keys(h.days)) if (d < cutoff) delete h.days[d];
+  return h;
+}
+
+/** Sum a recipient's buckets over the last N days (inclusive of today). */
+export function historySum(history, recipient, days, now) {
+  const cutoff = dayKey(now - (days - 1) * 86400e3);
+  let t = 0, v = 0n;
+  for (const [d, bucket] of Object.entries(history?.days || {})) {
+    if (d < cutoff) continue;
+    const e = bucket[recipient]; if (!e) continue;
+    t += e.t; try { v += BigInt(e.v); } catch { /* skip */ }
+  }
+  return { transfers: t, volumeUsdc: Number(v) / 1e6 };
+}
+
 /** Build a leaderboard from a snapshot + chain reads. Injectable rpc + clock
- *  for tests. Throws on RPC failure (the scheduler keeps the last good one). */
-export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpcFn = tempoRpc, now = Date.now(), self = null } = {}) {
+ *  for tests. Throws on RPC failure (the scheduler keeps the last good one).
+ *  `history` (previous rolling history) is folded and returned as
+ *  `.history`; ranking is by 7-day transfers (>= window transfers once
+ *  seeded), then window transfers - proven/routable stay on the WINDOW count,
+ *  the floor the router spends against. */
+export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpcFn = tempoRpc, now = Date.now(), self = null, history = null } = {}) {
   const rows = rankableRecipients(snapshot, { self });
   const latest = parseInt(await rpcFn("eth_blockNumber", []), 16);
   if (!Number.isFinite(latest)) throw new Error("tempo rpc: bad eth_blockNumber");
   const from = Math.max(0, latest - MPP_LB_WINDOW_BLOCKS + 1); // exactly WINDOW blocks, inclusive
-  const stats = new Map(rows.map((r) => [r.recipient, { transfers: 0, payers: new Set(), volumeAtomic: 0n }]));
+  const stats = new Map(rows.map((r) => [r.recipient, { transfers: 0, payers: new Set(), volumeAtomic: 0n, logs: [] }]));
   if (rows.length) {
     const topics = rows.map((r) => addrTopic(r.recipient));
     for (let a = from; a <= latest; a += CHUNK_BLOCKS) {
@@ -107,10 +166,12 @@ export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpc
         if (!st) continue;
         st.transfers += 1;
         st.payers.add(topicAddr(log?.topics?.[1]));
+        st.logs.push(log);
         try { st.volumeAtomic += BigInt(log?.data || "0x0"); } catch { /* malformed data: count the transfer, skip the amount */ }
       }
     }
   }
+  const nextHistory = foldHistory(history || emptyHistory(), new Map([...stats].map(([k, st]) => [k, st.logs])), { latest, from, now });
   const floor = tempoMinSettled();
   const ranked = rows.map((r) => {
     const st = stats.get(r.recipient);
@@ -118,13 +179,16 @@ export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpc
       recipient: r.recipient, sellers: r.sellers, intents: r.intents, self: !!r.self,
       transfers: st.transfers, payers: st.payers.size,
       volumeUsdc: Number(st.volumeAtomic) / 1e6,
+      d7: historySum(nextHistory, r.recipient, 7, now),
+      d30: historySum(nextHistory, r.recipient, 30, now),
       proven: st.transfers >= floor,                                   // on-chain floor met
       routable: st.transfers >= floor && r.intents.includes("charge"), // ...and the router can actually pay it
     };
-  }).sort((a, b) => b.transfers - a.transfers || b.volumeUsdc - a.volumeUsdc || a.recipient.localeCompare(b.recipient))
+  }).sort((a, b) => b.d7.transfers - a.d7.transfers || b.transfers - a.transfers || b.volumeUsdc - a.volumeUsdc || a.recipient.localeCompare(b.recipient))
     .map((r, i) => ({ rank: i + 1, ...r }));
   for (const r of ranked) primeTempoInboundCount(r.recipient, r.transfers, now);
-  const active = ranked.filter((r) => r.transfers > 0);
+  const active = ranked.filter((r) => r.transfers > 0 || r.d30.transfers > 0);
+  const histDays = Object.keys(nextHistory.days).length;
   return {
     generatedAt: now,
     window: { fromBlock: from, toBlock: latest, blocks: latest - from + 1, approxHours: Math.round(((latest - from + 1) * 0.56) / 3600 * 10) / 10 },
@@ -135,7 +199,10 @@ export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpc
     totals: {
       transfers: active.reduce((n, r) => n + r.transfers, 0),
       volumeUsdc: Math.round(active.reduce((n, r) => n + r.volumeUsdc, 0) * 1e6) / 1e6,
+      d7Transfers: active.reduce((n, r) => n + r.d7.transfers, 0),
+      d30Transfers: active.reduce((n, r) => n + r.d30.transfers, 0),
     },
+    history: { ...nextHistory, daysCovered: histDays, since: Object.keys(nextHistory.days).sort()[0] || null },
     rows: ranked,
     stale: false,
     lastError: null,
@@ -167,7 +234,7 @@ export function refreshMppLeaderboard(opts = {}) {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     try {
-      current = await computeMppLeaderboard(opts);
+      current = await computeMppLeaderboard({ ...opts, history: opts.history ?? current?.history ?? null });
       persistMppLeaderboard();
     } catch (e) {
       const msg = String(e?.message || e).slice(0, 200);

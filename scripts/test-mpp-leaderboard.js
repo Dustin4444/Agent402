@@ -150,11 +150,58 @@ const snap = {
   ok(mppLeaderboardSnapshot().rows.length === 0 && mppLeaderboardSnapshot().stale === true, "cold snapshot is empty + stale, never fabricated");
 }
 
+// --- 4b. rolling history: only NEW blocks fold per refresh; 7d/30d sum buckets ---
+{
+  const { foldHistory, historySum, emptyHistory } = await import("../src/mpp-leaderboard.js");
+  const DAY = 86400e3;
+  const t0 = Date.UTC(2026, 7, 18, 12); // 2026-08-18T12:00Z
+  const lg = (bn, atomic = 1000) => ({ topics: [T, topic(P1), topic(A)], data: "0x" + BigInt(atomic).toString(16), blockNumber: "0x" + bn.toString(16) });
+  const a = A.toLowerCase();
+  // refresh 1: cold cursor, window [1000, 1099]: 3 transfers seed today
+  let h = foldHistory(emptyHistory(), new Map([[a, [lg(1000), lg(1050), lg(1099)]]]), { latest: 1099, from: 1000, now: t0 });
+  ok(h.cursor === 1099 && h.days["2026-08-18"][a].t === 3 && h.days["2026-08-18"][a].v === "3000", "first refresh seeds today's bucket with the whole window and sets the cursor to latest");
+  // refresh 2 (30 min later): window [1010, 1109] overlaps; only blocks > 1099 are new
+  h = foldHistory(h, new Map([[a, [lg(1050), lg(1099), lg(1100), lg(1109)]]]), { latest: 1109, from: 1010, now: t0 + 1800e3 });
+  ok(h.days["2026-08-18"][a].t === 5 && h.cursor === 1109 && h.gaps === 0, "overlapping window: only blocks above the cursor are added (3 + 2 new = 5), no double count");
+  // refresh 3: next UTC day
+  h = foldHistory(h, new Map([[a, [lg(1200), lg(1201)]]]), { latest: 1300, from: 1110, now: t0 + DAY });
+  ok(h.days["2026-08-19"][a].t === 2 && h.days["2026-08-18"][a].t === 5, "a new UTC day opens a new bucket; earlier buckets are untouched");
+  ok(historySum(h, a, 7, t0 + DAY).transfers === 7 && historySum(h, a, 1, t0 + DAY).transfers === 2 && Math.abs(historySum(h, a, 7, t0 + DAY).volumeUsdc - 0.007) < 1e-12, "historySum rolls the last N days inclusive of today (7d = 7 transfers / $0.007, 1d = 2)");
+  // refresh 4: window moved past the cursor (RPC was down longer than the window): gap counted, blocks between never invented
+  h = foldHistory(h, new Map([[a, [lg(5000)]]]), { latest: 5099, from: 5000, now: t0 + DAY + 3600e3 });
+  ok(h.gaps === 1 && h.days["2026-08-19"][a].t === 3, "a refresh whose window starts above the cursor counts a gap and folds only what it saw");
+  // pruning: buckets older than 30 days drop
+  h.days["2026-07-01"] = { [a]: { t: 999, v: "1" } };
+  h = foldHistory(h, new Map(), { latest: 5100, from: 5001, now: t0 + DAY + 7200e3 });
+  ok(!h.days["2026-07-01"] && historySum(h, a, 30, t0 + DAY + 7200e3).transfers === 8, "buckets beyond 30 days are pruned; 30d sum covers what remains");
+  // through computeMppLeaderboard: history rides in and out, ranking prefers 7d
+  const LATEST = 300_000;
+  const bnA = (i) => LATEST - MPP_LB_WINDOW_BLOCKS + 1 + i;
+  const rpcFn = async (m, p) => m === "eth_blockNumber" ? "0x" + LATEST.toString(16)
+    : (parseInt(p[0].fromBlock, 16) === LATEST - MPP_LB_WINDOW_BLOCKS + 1 ? [
+        { topics: [T, topic(P1), topic(B)], data: "0x3e8", blockNumber: "0x" + bnA(1).toString(16) },
+        { topics: [T, topic(P1), topic(B)], data: "0x3e8", blockNumber: "0x" + bnA(2).toString(16) },
+        { topics: [T, topic(P2), topic(A)], data: "0x3e8", blockNumber: "0x" + bnA(3).toString(16) },
+      ] : []);
+  const seeded = { cursor: LATEST - MPP_LB_WINDOW_BLOCKS, gaps: 0, days: { [new Date(t0 - 2 * DAY).toISOString().slice(0, 10)]: { [a]: { t: 500, v: "500000" } } } };
+  const lb = await computeMppLeaderboard({ snapshot: snap, rpcFn, now: t0, self: null, history: seeded });
+  const rA = lb.rows.find((r) => r.recipient === a), rB = lb.rows.find((r) => r.recipient === B.toLowerCase());
+  ok(rA.transfers === 1 && rA.d7.transfers === 501 && rB.transfers === 2 && rB.d7.transfers === 2, "d7 = prior buckets + this refresh's new blocks; window counts stay the window");
+  ok(rA.rank === 1 && rB.rank === 2, "ranking is by 7d transfers first (A: 501 beats B: 2 despite B leading the window)");
+  ok(lb.history.cursor === LATEST && lb.history.daysCovered === 2 && lb.history.since === new Date(t0 - 2 * DAY).toISOString().slice(0, 10) && lb.totals.d7Transfers === 503, "history rides out with cursor/daysCovered/since; totals carry d7");
+  // scheduler carries history across refreshes without the caller passing it
+  __testReset();
+  const first = await refreshMppLeaderboard({ snapshot: snap, rpcFn, now: t0, self: null });
+  const second = await refreshMppLeaderboard({ snapshot: snap, rpcFn, now: t0 + 1800e3, self: null });
+  ok(first.rows.find((r) => r.recipient === a).d7.transfers === 1 && second.rows.find((r) => r.recipient === a).d7.transfers === 1 && second.history.cursor === LATEST, "refresh threads the previous history through: a re-read of the same blocks adds nothing");
+  __testReset();
+}
+
 // --- 5. page --------------------------------------------------------------------
 {
   const lb = { generatedAt: Date.now(), window: { fromBlock: 1, toBlock: 99_000, blocks: 99_000, approxHours: 15.4 }, provenFloor: 20, stale: false, lastError: null,
     rows: [
-      { rank: 1, recipient: A.toLowerCase(), sellers: [{ name: "Alpha", origin: "https://alpha.example", url: "https://alpha.example" }, { name: "Alpha Pro", origin: "https://pro.alpha.example", url: "https://pro.alpha.example" }], intents: ["charge"], self: false, transfers: 4184, payers: 40, volumeUsdc: 41.84, proven: true, routable: true },
+      { rank: 1, recipient: A.toLowerCase(), sellers: [{ name: "Alpha", origin: "https://alpha.example", url: "https://alpha.example" }, { name: "Alpha Pro", origin: "https://pro.alpha.example", url: "https://pro.alpha.example" }], intents: ["charge"], self: false, transfers: 4184, payers: 40, volumeUsdc: 41.84, d7: { transfers: 20000, volumeUsdc: 200 }, d30: { transfers: 20000, volumeUsdc: 200 }, proven: true, routable: true },
       { rank: 2, recipient: SELF.toLowerCase(), sellers: [], intents: ["charge"], self: true, transfers: 3, payers: 1, volumeUsdc: 0.003, proven: false, routable: false },
       { rank: 3, recipient: C.toLowerCase(), sellers: Array.from({ length: 7 }, (_, i) => ({ name: `Gw${i}`, origin: `https://gw${i}.example`, url: `https://gw${i}.example` })), intents: ["session"], self: false, transfers: 50, payers: 5, volumeUsdc: 1, proven: true, routable: false },
       { rank: 4, recipient: B.toLowerCase(), sellers: [{ name: "Beta", origin: "https://beta.example", url: "https://beta.example" }], intents: ["charge"], self: false, transfers: 0, payers: 0, volumeUsdc: 0, proven: false, routable: false },
@@ -169,6 +216,9 @@ const snap = {
   ok(/session only/.test(html) && (html.match(/class="mpr-proven"/g) || []).length >= 1, "an over-floor session-only recipient is marked session only, never routable");
   ok(/href="\/api\/mpp-leaderboard"/.test(html) && /href="\/api\/mpp-index"/.test(html), "machine-readable links point at our own JSON, not only the upstream registry");
   ok(/explore\.tempo\.xyz\/address\/0x1111/.test(html), "recipient links to the Tempo explorer");
+  ok(/<td class="num">20,000<\/td>/.test(html) && /Volume 7d/.test(html), "7d/30d columns render from the rolling history; volume column is 7d");
+  const withHist = mppMarketPage("https://x.test", snap, { ...lb, history: { since: "2026-08-18", daysCovered: 3, gaps: 1, cursor: 1 } });
+  ok(/since 2026-08-18 \(3 UTC days, 1 refresh gap lost blocks\)/.test(withHist), "history note states the coverage start, day count and any gaps - never reads as lifetime");
   const stale = mppMarketPage("https://x.test", snap, { ...lb, stale: true, lastError: "rpc down" });
   ok(/stale/.test(stale) && /rpc down/.test(stale), "a stale board says so, with the error");
   const none = mppMarketPage("https://x.test", snap, null);
