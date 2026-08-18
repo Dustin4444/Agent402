@@ -1214,6 +1214,7 @@ const SALE_TX_URL = {
   solana: (h) => `https://solscan.io/tx/${h}`,
   stellar: (h) => `https://stellar.expert/explorer/public/tx/${h}`,
   algorand: (h) => `https://allo.info/tx/${h}`,
+  tempo: (h) => `https://explore.tempo.xyz/tx/${h}`,
 };
 // Some ledger rows store the network as a CAIP-2 id (a chain missing from the
 // name map when it settled) rather than the short name — resolve both forms so
@@ -1221,7 +1222,7 @@ const SALE_TX_URL = {
 const NET_ALIAS = {
   "eip155:8453": "base", "eip155:42220": "celo", "eip155:137": "polygon",
   "eip155:42161": "arbitrum", "eip155:43114": "avalanche", "eip155:143": "monad",
-  "eip155:4663": "robinhood (USDG)",
+  "eip155:4663": "robinhood (USDG)", "eip155:4217": "tempo",
   "stellar:pubnet": "stellar", "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "algorand",
 };
 function txHref(network, tx) {
@@ -1232,47 +1233,117 @@ function txHref(network, tx) {
 // Friendly network label for display: rows recorded before a chain was in the
 // name map store the raw CAIP-2 id (e.g. eip155:42220) — show "celo" instead.
 const netName = (n) => NET_ALIAS[n] || n;
-// MPP-wire settlements, revealed by a button (a styled <details> toggle, no JS).
-// Same on-chain USDC settlements as x402 — this just filters to the MPP wire so
-// MPP adoption is visible and independently verifiable on-chain.
-function mppSection(mpp) {
+// ---------------------------------------------------------------------------
+// Two wires, one page. x402 (PAYMENT-SIGNATURE) and MPP (Authorization:
+// Payment) are the two protocols this server settles; until 2026-08-18 the
+// page was a 12-card x402-by-chain grid with MPP folded into one collapsed
+// button at the very bottom. Both wires now get the same structure — an
+// overview card each up top, then a by-rail section each with the SAME card
+// language — while the numbers stay honest about scale (MPP is younger and
+// mostly canary-proven so far; the page must not imply parity of volume).
+// ---------------------------------------------------------------------------
+const MPP_RAIL_META = {
+  base: { label: "Base", asset: "USDC", how: "evm/charge via the shim → x402 settle", explorer: "https://basescan.org/address/" },
+  celo: { label: "Celo", asset: "USDC", how: "evm/charge via the shim → x402 settle", explorer: "https://celoscan.io/address/" },
+  tempo: { label: "Tempo", asset: "PathUSD", how: "native tempo/charge via Tempo's relay", explorer: "https://explore.tempo.xyz/address/" },
+};
+const mppRailLabel = (n) => MPP_RAIL_META[n]?.label || netName(n) || n;
+
+// Wire overview: two equal cards. Numbers come from two different ledgers on
+// purpose — x402's from the on-chain settlement ledger (allTime), MPP's from
+// the sales ledger's wire attribution (mppSales) — and each card says which.
+function wireOverview(snap) {
+  const at = snap.allTime;
+  const mpp = snap.mpp || {};
+  const mppRails = Object.entries(mpp.rails || mpp.byNetwork || {}).map(([n, v]) => [n, typeof v === "number" ? v : v.count]).sort((a, b) => b[1] - a[1]);
+  const mppCount = Number(mpp.count || 0);
+  const mppExternal = Number(mpp.externalCount || 0);
+  const railCount = Array.isArray(snap.rails) ? snap.rails.length : 0;
+  const card = ({ name, wire, headline, sub, rows, links, accent }) => `
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0;">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;border-bottom:1px dashed var(--dash);padding-bottom:10px;">
+        <span style="font-weight:800;font-size:19px;">${name} <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);font-weight:400;">· <code>${wire}</code></span></span>
+        <span style="font-family:var(--font-mono);font-size:11px;color:${accent ? "var(--accent)" : "var(--muted)"};white-space:nowrap;">${accent ? "primary wire" : "second wire"}</span>
+      </div>
+      <div style="font-family:var(--font-mono);"><span style="font-size:24px;font-weight:700;color:var(--accent);">${headline}</span><span style="display:block;font-size:11.5px;color:var(--muted);margin-top:2px;">${sub}</span></div>
+      <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:5px;">${rows.map((r) => `<div>${r}</div>`).join("")}</div>
+      <div style="font-family:var(--font-mono);font-size:12px;margin-top:auto;">${links.join(" · ")}</div>
+    </div>`;
+  const x402 = card({
+    name: "x402", wire: "PAYMENT-SIGNATURE", accent: true,
+    headline: at ? `${at.allTimeExternalCount.toLocaleString()} payments` : "—",
+    sub: at ? `external, all-time · $${at.allTimeExternalUsd.toFixed(4)} settled on-chain${at.syncing ? " · ledger backfilling" : ""}` : "settlement ledger unavailable",
+    rows: [
+      `<strong>${railCount}</strong> rails live · USDC (USDG on Robinhood) · settled by facilitator, verified per rail below`,
+      `recent window: <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong> external`,
+    ],
+    links: [`<a href="/x402">what is x402</a>`, `<a href="/api/revenue">/api/revenue</a>`, `<a href="/api/revenue/daily">/api/revenue/daily</a>`],
+  });
+  const mppCard = card({
+    name: "MPP", wire: "Authorization: Payment", accent: false,
+    headline: `${mppCount.toLocaleString()} settlement${mppCount === 1 ? "" : "s"}`,
+    sub: mppCount
+      ? `over the MPP wire · <strong>${mppExternal}</strong> external, ${mppCount - mppExternal} canary-proven${mpp.firstAt ? ` · since ${esc(String(mpp.firstAt).slice(0, 10))}` : ""}`
+      : "none recorded yet - the wire is live and canary-verified daily",
+    rows: [
+      mppRails.length
+        ? `rails: ${mppRails.map(([n, c]) => `<strong>${esc(mppRailLabel(n))}</strong> ${c}`).join(" · ")}`
+        : `rails offered: <strong>Base</strong> · <strong>Celo</strong> (evm/charge) · <strong>Tempo</strong> (native)`,
+      `Base + Celo settle the same USDC as x402 through the shim; Tempo settles PathUSD natively via its relay`,
+    ],
+    links: [`<a href="/mpp">what is MPP</a>`, `<a href="/api/revenue/mpp">/api/revenue/mpp</a>`],
+  });
+  return `<div class="ml-2col rv-wires" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:24px;">${x402}${mppCard}</div>`;
+}
+
+// MPP by rail — the same card language as the x402 rail cards below, one per
+// rail that has settled over the wire (plus the offered-but-quiet rails, so a
+// rail with zero settlements is shown as live-and-waiting, not omitted).
+function mppRailsSection(mpp) {
   // The page is PUBLIC, so it renders the same aggregate /api/revenue/mpp
   // serves unauthenticated callers - a per-settlement list pairing tool with
   // price is a purchase feed, which is what the rest of this page was already
-  // reduced to stop publishing.
-  //
-  // Count 0 and "we withhold the rows" are different statements, and the
-  // section must never make the first one when it means the second: with rows
-  // present but withheld, the old empty-state read "No MPP-wire settlements
-  // recorded yet", which would have been simply untrue.
+  // reduced to stop publishing. Count 0 and "rows withheld" are different
+  // statements; this section only ever makes the first when it is true.
   const count = Number(mpp?.count || 0);
-  const txs = (mpp && mpp.txs) || [];
-  const byNetwork = (mpp && mpp.byNetwork) || {};
-  const rails = Object.entries(byNetwork).sort((a, b) => b[1] - a[1]);
-  const window = mpp?.firstAt && mpp?.lastAt
-    ? `${esc(String(mpp.firstAt).slice(0, 10))} to ${esc(String(mpp.lastAt).slice(0, 10))}`
-    : null;
-  const txLinks = txs.slice(0, 12).map((tx, i) => {
-    const net = rails.length === 1 ? rails[0][0] : null;
-    const href = net ? txHref(net, tx) : null;
-    return href ? `<a href="${esc(href)}" rel="noopener">tx${i + 1}</a>` : `<span>${esc(String(tx).slice(0, 10))}…</span>`;
-  }).join(" · ");
-  const body = count
-    ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;margin-top:12px;">
-         <div><strong>${count}</strong> settlement${count === 1 ? "" : "s"} over the MPP wire${window ? ` · ${window}` : ""}</div>
-         ${rails.length ? `<div>rails: ${rails.map(([n, c]) => `${esc(netName(n) || n)} (${c})`).join(" · ")}</div>` : ""}
-         <div>external (non-canary): <strong>${Number(mpp?.externalCount || 0)}</strong></div>
-         ${txLinks ? `<div style="color:var(--muted);">verify on-chain: ${txLinks}</div>` : ""}
-       </div>`
-    : `<p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin-top:12px;">No MPP-wire settlements recorded yet - they appear here as MPP clients pay (the daily canary settles Base + Celo native-wire legs, plus a native Tempo leg via its own relay).</p>`;
-  return `
-    <details style="margin-top:20px;">
-      <summary style="display:inline-block;cursor:pointer;list-style:none;border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font-weight:700;font-size:14px;padding:10px 18px;user-select:none;">MPP transactions${count ? ` (${count})` : ""} &rsaquo;</summary>
-      <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin-top:10px;">
-        <p style="font-size:13.5px;color:var(--muted);margin:0;">Settlements whose credential arrived over the <strong>MPP</strong> wire (<code>Authorization: Payment</code>) rather than x402's <code>PAYMENT-SIGNATURE</code>. Same on-chain USDC settlement either way - this just filters to the MPP dialect. Machine-readable: <a href="/api/revenue/mpp">/api/revenue/mpp</a>.</p>
-        ${body}
+  const rails = { ...(mpp?.rails || {}) };
+  // Legacy shape (byNetwork counts only, no per-rail hashes) still renders.
+  if (!Object.keys(rails).length && mpp?.byNetwork) {
+    for (const [n, c] of Object.entries(mpp.byNetwork)) rails[n] = { count: c, external: null, lastAt: null, txs: [] };
+  }
+  for (const n of Object.keys(MPP_RAIL_META)) if (!rails[n]) rails[n] = { count: 0, external: 0, lastAt: null, txs: [] };
+  const entries = Object.entries(rails).sort((a, b) => (b[1].count - a[1].count) || a[0].localeCompare(b[0]));
+  const cards = entries.map(([n, r]) => {
+    const meta = MPP_RAIL_META[n] || { label: mppRailLabel(n), asset: "USDC", how: "" };
+    const live = true; // offered rails are live by construction; a rail only appears here because it is offered or has settled
+    const dot = `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:var(--green);"><span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;"></span>${live ? "live" : ""}</span>`;
+    const txLinks = (r.txs || []).slice(0, 8).map((tx, i) => {
+      const href = txHref(n, tx);
+      return href ? `<a href="${esc(href)}" rel="noopener">tx${i + 1}</a>` : `<span>${esc(String(tx).slice(0, 10))}…</span>`;
+    }).join(" · ");
+    return `
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;min-width:0;">
+      <div style="border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
+          <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(meta.label)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(meta.asset)}</span></span>
+          ${dot}
+        </div>
+        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${r.count}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">MPP settlement${r.count === 1 ? "" : "s"}${r.external != null ? ` · ${r.external} external` : ""}</span></div>
       </div>
-    </details>`;
+      <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
+        ${meta.how ? `<div style="color:var(--muted);">${esc(meta.how)}</div>` : ""}
+        ${r.lastAt ? `<div>last settled <span style="color:var(--muted);">${esc(String(r.lastAt).slice(0, 16))}Z</span></div>` : `<div style="color:var(--muted);">offered on every 402 - no MPP-wire settlement on this rail yet</div>`}
+        ${txLinks ? `<div style="color:var(--muted);">verify on-chain: ${txLinks}</div>` : ""}
+      </div>
+    </div>`;
+  }).join("\n");
+  return `
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:44px 0 6px;">
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:26px;letter-spacing:-.01em;margin:0;">MPP wire <span style="color:var(--muted);font-weight:400;">· by rail</span></h2>
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${count}</strong> settlement${count === 1 ? "" : "s"} over <code>Authorization: Payment</code> · <a href="/api/revenue/mpp">/api/revenue/mpp</a></span>
+    </div>
+    <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;max-width:760px;">Settlements whose credential arrived over the <strong>MPP</strong> wire rather than x402's <code>PAYMENT-SIGNATURE</code>. On Base and Celo that is the same on-chain USDC settlement as x402 (the shim translates the credential); on Tempo it is native PathUSD through Tempo's relay. Counts here are recorded from the sales ledger, which began attributing the wire on 2026-07-24.</p>
+    <div class="ml-2col rv-mpp" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">${cards}</div>`;
 }
 
 
@@ -1335,9 +1406,9 @@ export function revenueChartSection() {
 
 export function revenuePage(baseUrl, snap) {
   const canonical = baseUrl + "/revenue";
-  const title = "Live revenue - every x402 rail on-chain | Agent402";
+  const title = "Live revenue - x402 and MPP, every rail on-chain | Agent402";
   const description =
-    `Consolidated live view of the Agent402 revenue wallets across every payment rail - ${RAILS_AMP}. One page instead of three explorer tabs; every figure links to its on-chain proof.`;
+    `Consolidated live view of the Agent402 revenue wallets across both payment wires (x402 and MPP) and every rail - ${RAILS_AMP}, plus Tempo. One page instead of a dozen explorer tabs; every figure links to its on-chain proof.`;
   const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar", Algorand: "algorand" };
   const railCard = (r) => {
     const at = snap.allTime?.perChain?.[chainKeyByLabel[r.rail]];
@@ -1357,32 +1428,38 @@ export function revenuePage(baseUrl, snap) {
     const dotLabel = !hasBalance ? "unreachable" : stale ? "live · cached" : "live";
     const statusDot = `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:${dotColor};"><span style="width:7px;height:7px;border-radius:50%;background:${dotColor};display:inline-block;"></span>${dotLabel}</span>`;
     return `
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
-        <span style="font-weight:800;font-size:17px;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">· ${esc(r.asset)}</span> ${statusDot}</span>
-        <span style="font-family:var(--font-mono);text-align:right;"><span style="font-size:20px;font-weight:700;color:var(--accent);">${at ? "$" + at.externalUsd + (at.caughtUp ? "" : "↺") : "-"}</span><span style="display:block;font-size:11px;color:var(--muted);">all-time external revenue${Number.isFinite(r.externalUsd) ? ` · window $${r.externalUsd}` : ""}</span></span>
+    <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;min-width:0;">
+      <div style="border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
+          <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(r.asset)}</span></span>
+          ${statusDot}
+        </div>
+        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${at ? "$" + at.externalUsd + (at.caughtUp ? "" : "↺") : "-"}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">all-time external revenue${Number.isFinite(r.externalUsd) ? ` · window $${r.externalUsd}` : ""}</span></div>
       </div>
       ${!hasBalance
         ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable - public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
-        : r.recent.length
-          ? `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">${r.recent
-              // Cards cap at the 5 newest transfers so the grid stays even;
-              // the cut is announced below, never silent, and /api/revenue
-              // carries the full window.
-              .slice(0, 5)
-              .map((t) => {
-                const tag = t.usd === undefined ? ""
-                  : t.external ? ` · <strong style="color:var(--accent);">external</strong>`
-                  : t.internal ? ` · <span style="color:var(--muted);">internal canary/test</span>`
-                  : ` · <span style="color:var(--muted);">not a per-call buy</span>`;
-                const dim = t.usd !== undefined && !t.external ? "opacity:.62;" : "";
-                const when = t.when ? ` · <span style="color:var(--muted);">${esc(t.when.slice(0, 16))}Z</span>` : "";
-                return t.usd !== undefined
-                  ? `<div style="${dim}">+$${t.usd ?? "?"} from <code>${esc(short(t.from))}</code> · <a href="${esc(t.tx)}" rel="noopener">tx</a>${tag}${when}</div>`
-                  : `<div><a href="${esc(t.tx)}" rel="noopener">tx</a>${when}${t.err ? " · failed" : ""}</div>`;
-              })
-              .join("")}${r.recent.length > 5 ? `<div style="color:var(--muted);">+ ${r.recent.length - 5} more in the window · <a href="/api/revenue">full list</a></div>` : ""}</div>`
-          : `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">chain live, balance settling - no per-call activity in the recent scan window</div>`}
+        : (() => {
+            // Cards show EXTERNAL transfers first (that is what the page is
+            // about; the header says so), capped at 4 so the grid stays even.
+            // Internal canary/test rows used to be listed inline and dimmed,
+            // which made every card ~350px tall and mostly our own money -
+            // twelve of them pushed the MPP wire off the bottom of the page.
+            // They still count, in one line, and /api/revenue keeps the rows.
+            const ext = r.recent.filter((t) => t.usd !== undefined && t.external);
+            const internal = r.recent.filter((t) => t.usd !== undefined && !t.external);
+            const other = r.recent.filter((t) => t.usd === undefined);
+            const rows = ext.slice(0, 4).map((t) => {
+              const when = t.when ? ` · <span style="color:var(--muted);">${esc(t.when.slice(0, 16))}Z</span>` : "";
+              return `<div>+$${t.usd ?? "?"} from <code>${esc(short(t.from))}</code> · <a href="${esc(t.tx)}" rel="noopener">tx</a>${when}</div>`;
+            });
+            const notes = [];
+            if (ext.length > 4) notes.push(`+ ${ext.length - 4} more external in the window`);
+            if (internal.length) notes.push(`${internal.length} internal canary/test transfer${internal.length === 1 ? "" : "s"} in the window (excluded from revenue)`);
+            if (other.length) notes.push(`${other.length} non-per-call transfer${other.length === 1 ? "" : "s"}`);
+            if (!ext.length && !internal.length && !other.length) notes.push("chain live, balance settling - no per-call activity in the recent scan window");
+            if (!ext.length && (internal.length || other.length)) notes.unshift("no external buys in the recent window");
+            return `<div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">${rows.join("")}${notes.map((n) => `<div style="color:var(--muted);">${n}</div>`).join("")}${(ext.length || internal.length) ? `<div style="color:var(--muted);"><a href="/api/revenue">full window</a></div>` : ""}</div>`;
+          })()}
       ${r.scanNote ? `<div style="margin-top:8px;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">${esc(r.scanNote)}</div>` : ""}
       ${r.explorer ? `<div style="margin-top:12px;font-family:var(--font-mono);font-size:12px;"><a href="${esc(r.explorer)}" rel="noopener">open in explorer →</a></div>` : ""}
     </div>`;
@@ -1393,30 +1470,43 @@ export function revenuePage(baseUrl, snap) {
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/revenue</div>
     <h1 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink);">Live revenue.</h1>
     <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:640px;margin:0 0 8px;">
-      Every rail's wallet, one page - refreshed from public RPCs (60s cache), every figure verifiable at its explorer link.
-      Machine-readable: <a href="/api/revenue">/api/revenue</a>.
+      Both wires we settle - <strong>x402</strong> and <strong>MPP</strong> - every rail's wallet, one page. Refreshed from public RPCs (60s cache), every figure verifiable at its explorer link.
+      Machine-readable: <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a>.
     </p>
     ${snap.allTime ? `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:22px;">${snap.allTime.allTimeExternalCount.toLocaleString()}</strong> verifiable external payment${snap.allTime.allTimeExternalCount === 1 ? "" : "s"} all-time <span style="color:var(--muted);">- $${snap.allTime.allTimeExternalUsd.toFixed(4)} settled on-chain, each linked to its explorer proof${snap.allTime.syncing ? " · ledger backfilling - total still rising" : ""}</span></p>` : ""}
     <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>every figure is <strong style="color:var(--accent);">external</strong> revenue only - our own canary/test/funding money never counts (wallet balances are float, not earnings, and are not shown)</p>
     </section>
     <section>
+    ${wireOverview(snap)}
+    </section>
+    <section>
     ${revenueChartSection()}
     </section>
     <section>
-    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
-      ${snap.rails.map(railCard).join("\n")}
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:44px 0 6px;">
+      <h2 style="font-family:var(--font-body);font-weight:800;font-size:26px;letter-spacing:-.01em;margin:0;">x402 rails <span style="color:var(--muted);font-weight:400;">· by chain</span></h2>
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${snap.rails.length}</strong> chains, ranked by all-time external revenue · <a href="/api/revenue">/api/revenue</a></span>
+    </div>
+    <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;max-width:760px;">One card per chain we accept x402 on. The headline is all-time external revenue from the settlement ledger; the rows are the newest external buys in the recent scan window, each linked to its explorer proof. Our own canary and test transfers are counted, not listed.</p>
+    <div class="ml-2col rv-rails" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">
+      ${[...snap.rails].sort((a, b) => (Number(snap.allTime?.perChain?.[chainKeyByLabel[b.rail]]?.externalUsd) || 0) - (Number(snap.allTime?.perChain?.[chainKeyByLabel[a.rail]]?.externalUsd) || 0)).map(railCard).join("\n")}
     </div>
     </section>
     <section>
-    <p style="font-size:13.5px;color:var(--muted);margin-top:26px;">Recent-window transfers are the last few hours of inbound stablecoin on each rail, classified with the same rule as the daily revenue digest: a payment is <strong>external</strong> only if it comes from a wallet that isn't ours (canary/test burners are excluded) and is per-call-sized (≤ $${MAX_CALL_USD}); bigger inbound is funding or tests, not a buy. Rails read best-effort: a flaky public RPC marks that rail unavailable without hiding the others.</p>
+    ${mppRailsSection(snap.mpp)}
+    </section>
+    <section>
+    <p style="font-size:13.5px;color:var(--muted);margin-top:34px;">Recent-window transfers are the last few hours of inbound stablecoin on each rail, classified with the same rule as the daily revenue digest: a payment is <strong>external</strong> only if it comes from a wallet that isn't ours (canary/test burners are excluded) and is per-call-sized (≤ $${MAX_CALL_USD}); bigger inbound is funding or tests, not a buy. Rails read best-effort: a flaky public RPC marks that rail unavailable without hiding the others.</p>
     <p style="font-size:13.5px;color:var(--muted);margin-top:10px;">Don't take our word for it: <a href="https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d" rel="noopener">x402scan indexes our on-chain settlements independently →</a> Their totals count <em>all</em> traffic to our wallets - including our own canary and test buys - so they read higher than the external-only figures above. Their seller row also groups our upstream <strong>spending</strong> wallet in with the treasury, and that wallet receives the revenue from the tools that fund external purchases, so part of what appears there as demand is our own self-funding loop rather than a third party paying us. Both figures are correct; they measure different things, and the external-only series above is the one that answers "did someone else pay for this".</p>
-    ${mppSection(snap.mpp)}
     </section>
   </div>
   ${ledgerFooterCompact(baseUrl)}`;
   return ledgerShell({
     title, description, canonical, baseUrl, activePath: "/revenue",
     jsonLd: { "@context": "https://schema.org", "@type": "WebPage", name: title, url: canonical, description },
+    // Rail grids: 3-up on wide screens, 2-up on medium, 1-up on phones (the
+    // shared .ml-2col rule below 900px collapses everything to one column).
+    extraCss: `@media (max-width:1100px){ .rv-rails, .rv-mpp { grid-template-columns: repeat(2, minmax(0,1fr)) !important; } }`,
     body,
   });
 }

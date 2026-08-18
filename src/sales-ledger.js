@@ -321,6 +321,20 @@ export function mppSales({ limit = 30, detailed = false } = {}) {
       byNetwork: rows.reduce((a, r) => { a[r.network || "unknown"] = (a[r.network || "unknown"] || 0) + 1; return a; }, {}),
       externalCount: rows.filter((r) => !r.internal).length,
       txs: rows.map((r) => r.tx).filter(Boolean),
+      // Per-rail slice of the same evidence (count, external count, newest
+      // settlement, hashes) so /revenue can give each MPP rail its own card
+      // and link every hash to the RIGHT explorer — the flat `txs` list above
+      // cannot be resolved per chain once more than one rail has settled.
+      // Still aggregate: no tool, no price, no payer, no per-tx timestamp.
+      rails: rows.reduce((a, r) => {
+        const n = r.network || "unknown";
+        const e = a[n] || (a[n] = { count: 0, external: 0, lastAt: null, txs: [] });
+        e.count += 1;
+        if (!r.internal) e.external += 1;
+        if (!e.lastAt) e.lastAt = new Date(r.ts).toISOString(); // rows are newest-first
+        if (r.tx && e.txs.length < 12) e.txs.push(r.tx);
+        return a;
+      }, {}),
       note: "Aggregate view. Per-settlement tool/price rows are operator-only; the tx hashes above resolve on-chain for independent verification.",
     };
   }

@@ -453,6 +453,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
+- **/revenue layout = two wires, same structure (2026-08-18):** `revenuePage` renders a
+  wire overview (one card each for x402 and MPP, equal size, honest numbers from their own
+  ledgers), the chart, then `x402 rails · by chain` (12 cards, 3-up, ranked by all-time
+  external revenue, EXTERNAL rows only — internal canary transfers are counted in one line,
+  never listed) and `MPP wire · by rail` (`mppRailsSection`: Base/Celo/Tempo cards with the
+  same card language, per-rail hashes from `mppSales().rails`). MPP used to be one collapsed
+  `<details>` under twelve ~350px x402 cards. Keep both sections structurally parallel; the
+  numbers, not the layout, carry the scale difference.
 - **Buyer counts on /revenue (`ledgerBuyersDaily` + `ledgerBuyerConcentration`):** a
   **Buyers** metric answering "more buyers, or the same handful paying more?", which
   tx counts cannot (200 calls is one whale or fifty customers; the revenue line is
