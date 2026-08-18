@@ -1,4 +1,4 @@
-# Agent402.Tools - search + answer front door, 500+ tools, open x402 index
+# Agent402.Tools - search + answer front door, 500+ tools, open x402 + MPP index
 
 > **What makes it different:** Agent402 is **open-source and self-hostable** - and a
 > single integration gives a buyer **three free primitives over the whole x402
@@ -13,6 +13,16 @@
 > prompts) - all runnable yourself, plus
 > [`agent402-tollbooth`](tollbooth) - an open pay-per-crawl gate for the other
 > side of x402.
+>
+> **Two payment wires, one URL.** Every paid endpoint accepts **x402**
+> (`PAYMENT-SIGNATURE`, USDC on 12 chains) **and MPP** (Machine Payments
+> Protocol, the IETF-track `Payment` HTTP auth scheme co-authored by Tempo and
+> Stripe): the same 402 carries both, an [`mppx`](https://www.npmjs.com/package/mppx)
+> client pays out of the box, and MPP settles on Base and Celo (USDC) or
+> natively on [Tempo](https://tempo.xyz) (PathUSD via Tempo's relay). The
+> [MPP marketplace](https://agent402.tools/mpp-marketplace) lists every MPP
+> seller we can verify live. Details: [What is MPP](https://agent402.tools/what-is-mpp)
+> · [live MPP settlements](https://agent402.tools/revenue).
 
 [![Live](https://img.shields.io/website?url=https%3A%2F%2Fagent402.tools%2Fhealth&label=agent402.tools&up_message=live)](https://agent402.tools)
 [![npm](https://img.shields.io/npm/v/agent402-mcp?label=agent402-mcp)](https://www.npmjs.com/package/agent402-mcp)
@@ -342,6 +352,7 @@ own instance. Same URL either way - the buyer's client picks the dialect.
 Agents without a wallet still use every pure-CPU tool by solving a single-use
 sha256 proof-of-work (sub-second; the MCP servers do it automatically). Details:
 [wiki: Paying with x402](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-x402)
+· [Paying with MPP](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-MPP)
 · [Paying with Compute](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-Compute).
 
 ## Why it's solid

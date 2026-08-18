@@ -29,6 +29,8 @@ const out = await a.call("hash", { text: "hello world", algo: "sha256" });
 console.log(out.hex);
 ```
 
+> The hosted catalog is dual-stack: every paid route also accepts MPP (Machine Payments Protocol) credentials from an [`mppx`](https://www.npmjs.com/package/mppx) client, settling USDC on Base/Celo or PathUSD natively on Tempo. This SDK's own payment path is x402 (plus proof-of-work for free tools); see [Paying with MPP](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-MPP) to pay over MPP directly.
+
 ## Paid tools (USDC via x402)
 
 Wallet-only tools (live search, headless browser, PDFs, durable memory) settle

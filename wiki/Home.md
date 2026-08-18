@@ -1,6 +1,6 @@
 # Agent402.Tools Wiki
 
-**Agent402.Tools** is an **open-source, self-hostable MCP server + HTTP API with 500+ ready-to-use tools and 100+ multi-tool skill packs for AI agents** - browser rendering, web search, PDFs, OCR, images, live data, crypto/payments helpers, 200+ pure-CPU utilities, plus curated workflows ([[Skill Packs|Skill-Packs]]) for jobs no single tool covers. Clone it and run everything free in 30 seconds (no wallet, no signup), or use the hosted instance. Optionally, the same server can charge per call over the [x402 protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand - plus USDG on Robinhood Chain) - that part is opt-in; by default everything runs free.
+**Agent402.Tools** is an **open-source, self-hostable MCP server + HTTP API with 500+ ready-to-use tools and 100+ multi-tool skill packs for AI agents** - browser rendering, web search, PDFs, OCR, images, live data, crypto/payments helpers, 200+ pure-CPU utilities, plus curated workflows ([[Skill Packs|Skill-Packs]]) for jobs no single tool covers. Clone it and run everything free in 30 seconds (no wallet, no signup), or use the hosted instance. Optionally, the same server can charge per call over the [x402 protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand - plus USDG on Robinhood Chain) **and over MPP** (the Machine Payments Protocol `Payment` HTTP auth scheme: USDC on Base and Celo, or PathUSD natively on Tempo) - both wires on the same 402, both opt-in; by default everything runs free. See [[Paying with MPP]].
 
 > **Every entry earns its place** - tested against its own example on every CI run, priced to market, live-verified. CI holds a 400-entry catalog floor and verifies the “500+” claim against the running server (`scripts/sync-count.js --check`).
 
@@ -22,6 +22,7 @@ It's also **the open x402 index**: a single integration gives a buyer three prim
 |---|---|
 | [[Getting Started]] | Your first call in 60 seconds - free, no wallet |
 | [[Paying with x402]] | USDC payments: the 402 flow, code, spend controls, Stripe's `purl` |
+| [[Paying with MPP]] | The Machine Payments Protocol wire: `WWW-Authenticate: Payment`, mppx clients, Base/Celo and native Tempo settlement |
 | [[Paying with Compute]] | The proof-of-work tier: spec + reference solver |
 | [[MCP Connector]] | Hosted connector + the `agent402-mcp` npm server |
 | [[Adapters]] | Drop-in tools for OpenAI / Anthropic / AI SDK / LangChain / LlamaIndex |
