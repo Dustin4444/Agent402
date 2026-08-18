@@ -187,9 +187,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   "Tempo upstream buyer wallet LOW (MPP)". `scripts/test-tempo-router.js` (32
   assertions, offline, in CI). Seller-side counterpart: `TEMPO_CURRENCY` is a CSV (one
   tempo challenge per currency, first = preferred; a stock mppx client pays the FIRST
-  tempo challenge and does not auto-swap by default), code default still PathUSD until
-  the operator flips it to USDC.e-first; both canaries pay with `autoSwap: true` so a
-  USDC.e-first prod can be proven from the PathUSD-funded burner.
+  tempo challenge and does not auto-swap by default), code default still PathUSD; **PROD
+  FLIPPED 2026-08-18: Railway `TEMPO_CURRENCY=usdc,pathusd`** (live 402 offers USDC.e then
+  PathUSD) and PROVEN the same day: tempo-canary run 32167901691 paid from the PathUSD-funded
+  burner via `autoSwap: true` - on-chain tx 0x28db1d76… swapped 1001 PathUSD → 1000 USDC.e
+  and delivered 1000 USDC.e to our payTo, 200 + Payment-Receipt. Both canaries keep
+  `autoSwap: true`.
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

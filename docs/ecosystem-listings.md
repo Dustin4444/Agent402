@@ -349,12 +349,10 @@ pass `pnpm build`); the review bar is "live and accepting payments via MPP,
 high quality and novel". A bot comments the checklist on the PR. Recommended
 sibling: MPPScan registration (already done - see the MPP integration notes).
 
-**Submit AFTER prod's Tempo challenge is USDC.e-first** (`TEMPO_CURRENCY=usdc,pathusd`
-on Railway - 138/141 directory sellers quote USDC.e and a stock mppx client
-pays the FIRST tempo challenge it sees, no auto-swap by default; today ours
-quotes PathUSD only). The `payments` array below assumes that flip; if it
-does not happen, replace `TEMPO_PAYMENT` with the PathUSD constant defined
-locally. Every route below is a real, priced, live-verified endpoint; amounts
+Prod's Tempo challenge is USDC.e-first since 2026-08-18 (`TEMPO_CURRENCY=usdc,pathusd`
+on Railway; proven by the tempo canary the same day), so `TEMPO_PAYMENT` below is
+exactly what the live 402 offers. 138/141 directory sellers quote USDC.e and a
+stock mppx client pays the FIRST tempo challenge it sees, which is why the order matters. Every route below is a real, priced, live-verified endpoint; amounts
 are base units (6 decimals) at list price. `integration` is `third-party`
 (self-hosted, our own `serviceUrl`, not proxied through mpp.tempo.xyz - the
 same shape as the self-hosted data sellers already listed).
