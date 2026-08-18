@@ -1,4 +1,4 @@
-# Agent402.Tools - the applied layer of Agentic Finance (AIFI): 500+ pay-per-call tools, open x402 + MPP index and router for AI agents
+# Agent402.Tools - the applied layer of Agentic Finance (AIFI): 500+ tools, open x402 + MPP index and router for AI agents
 
 > **Agentic Finance (AIFI)** is software agents paying and getting paid on their
 > own: discovering a service, paying per request from a wallet over open protocols
