@@ -1149,6 +1149,9 @@ jobs:
       - name: Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
         run: node scripts/test-mpp-tempo-shim.js
 
+      - name: Tempo relay verdicts are visible (non-2xx relay status + body reach the rejection log, per-request — offline)
+        run: node scripts/test-mpp-tempo-relay-errors.js
+
       - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
         run: node scripts/test-head-paywall.js
 

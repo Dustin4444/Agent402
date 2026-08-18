@@ -91,6 +91,12 @@ try {
   // evm challenge's x402 accepts entry already uses.
   ok(/^\d+$/.test(tempoCh?.request?.amount || ""), `tempo challenge amount is a raw integer string, not decimal (got ${tempoCh?.request?.amount})`);
   ok(tempoCh?.request?.amount === "1000", `tempo challenge amount matches the uuid tool's $0.001 price in base units (got ${tempoCh?.request?.amount})`);
+  // Wire shape must be what mppx's OWN builder emits (Challenge.fromMethod
+  // through the tempo/charge schema): chainId under methodDetails, and NO
+  // `decimals` key on the wire (a parsing input the schema strips). The
+  // first hand-assembled version shipped `decimals` and no methodDetails.
+  ok(tempoCh?.request?.methodDetails?.chainId === 4217, `tempo challenge carries methodDetails.chainId 4217 (Tempo mainnet) (got ${JSON.stringify(tempoCh?.request?.methodDetails)})`);
+  ok(!("decimals" in (tempoCh?.request || {})), "tempo challenge request does not carry `decimals` on the wire (schema-canonical shape)");
   ok(Challenge.verify(tempoCh, { secretKey: SECRET }), "tempo challenge id HMAC-verifies");
   ok(Date.parse(tempoCh.expires) > Date.now(), "tempo challenge carries a future expires");
   const evmCh = challenges.find((c) => c.method === "evm" && c.intent === "charge");
