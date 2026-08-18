@@ -29,13 +29,30 @@ const out = await a.call("hash", { text: "hello world", algo: "sha256" });
 console.log(out.hex);
 ```
 
-> The hosted catalog is dual-stack: every paid route also accepts MPP (Machine Payments Protocol) credentials from an [`mppx`](https://www.npmjs.com/package/mppx) client, settling USDC on Base/Celo or PathUSD natively on Tempo. This SDK's own payment path is x402 (plus proof-of-work for free tools); see [Paying with MPP](https://github.com/MikeyPetrillo/Agent402/wiki/Paying-with-MPP) to pay over MPP directly.
+## Paid tools: x402 or MPP, your choice of wire
 
-## Paid tools (USDC via x402)
+Wallet-only tools settle in USDC. The SDK never touches your key: pass a
+payment-aware `fetch` and it pays 402s for you. Two wires work out of the box,
+because every paid route on Agent402 carries both offers on the same 402:
 
-Wallet-only tools (live search, headless browser, PDFs, durable memory) settle
-in USDC. Pass an [`@x402/fetch`](https://www.npmjs.com/package/@x402/fetch)-wrapped
-fetch — your wallet signs, the client never touches your key:
+**Over MPP** (Machine Payments Protocol) with the [`mppx`](https://www.npmjs.com/package/mppx) client - USDC on Base/Celo (`evm`), or natively on Tempo (`tempo`):
+
+```js
+import { Fetch, evm, tempo } from "mppx/client";
+import { privateKeyToAccount } from "viem/accounts";
+
+const account = privateKeyToAccount(process.env.AGENT_KEY);
+const mppFetch = Fetch.from({ methods: [tempo.charge({ account }), evm.charge({ account })] });
+
+const a = new Agent402({ fetch: mppFetch, maxPerCallUsd: 0.05 });
+const verdict = await a.call("sql-guard", { sql: "UPDATE users SET plan = 'pro' WHERE id = 42" });
+```
+
+The SDK's spending caps, reservations and caching apply identically on the MPP
+path (pinned by `scripts/test-client-mpp.js` in the parent repo, which buys
+through the SDK with a real mppx client).
+
+**Over x402** with [`@x402/fetch`](https://www.npmjs.com/package/@x402/fetch) - USDC on any of the 12 x402 chains:
 
 ```js
 import { wrapFetchWithPayment } from "@x402/fetch";

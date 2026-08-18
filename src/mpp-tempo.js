@@ -44,8 +44,24 @@ const TEMPO_MAINNET_CHAIN_ID = 4217;
 function envRecipient() {
   return process.env.TEMPO_RECIPIENT_ADDRESS || process.env.WALLET_ADDRESS || "";
 }
+// TEMPO_CURRENCY is a CSV of TIP-20 token addresses; ONE tempo/charge
+// challenge is minted per entry, in order, and a stock mppx client pays the
+// FIRST tempo challenge it can (it does not check balances across challenges,
+// and auto-swap is off by default), so put the currency your buyers hold
+// first. Measured 2026-08-18: 138 of 141 mpp.dev registry sellers quote
+// USDC.e (0x20C0…8b50, mppx's own mainnet default) and PathUSD is mppx's
+// TESTNET default - so the ecosystem's wallets hold USDC.e. The code default
+// stays PathUSD (the currency the daily canary is funded in) until the
+// operator flips the env; the canaries pay with autoSwap so a USDC.e-first
+// config can be proven before the flip.
+export const TEMPO_USDC_E_ADDRESS = "0x20C000000000000000000000b9537d11c60E8b50";
+function envCurrencies() {
+  const raw = (process.env.TEMPO_CURRENCY || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const list = raw.length ? raw : [PATH_USD_ADDRESS];
+  return [...new Set(list.map((c) => (c.toLowerCase() === "usdc" ? TEMPO_USDC_E_ADDRESS : c.toLowerCase() === "pathusd" ? PATH_USD_ADDRESS : c)))];
+}
 function envCurrency() {
-  return process.env.TEMPO_CURRENCY || PATH_USD_ADDRESS;
+  return envCurrencies()[0];
 }
 function envDecimals() {
   const n = Number(process.env.TEMPO_DECIMALS);
@@ -67,7 +83,7 @@ export function tempoEnabled() {
  *  never advertise a method nobody can settle. */
 export function tempoDiscoveryInfo() {
   if (!tempoEnabled()) return null;
-  return { currency: envCurrency(), decimals: envDecimals() };
+  return { currency: envCurrency(), currencies: envCurrencies(), decimals: envDecimals() };
 }
 
 // Relay error visibility. mppx's Relay.js (node_modules/mppx/dist/tempo/
@@ -158,7 +174,7 @@ let cachedMethod = null;
 let cachedKey = "";
 
 function tempoMethod() {
-  const key = `${process.env.TEMPO_API_KEY || ""}|${envRecipient()}|${envCurrency()}|${envDecimals()}|${process.env.TEMPO_API_BASE_URL || ""}`;
+  const key = `${process.env.TEMPO_API_KEY || ""}|${envRecipient()}|${envCurrencies().join(",")}|${envDecimals()}|${process.env.TEMPO_API_BASE_URL || ""}`;
   if (cachedMethod && cachedKey === key) return cachedMethod;
   cachedMethod = tempo.charge({
     currency: envCurrency(),
@@ -199,20 +215,21 @@ export function mintTempoChallenge({ priceUsd, description, realm, secretKey, ti
   // add are supplied here: chainId (fixed — Tempo mainnet 4217, mppx's
   // `defaults.chainId.mainnet`); there is no local feePayer, so none is set
   // and the buyer pays their own fee, exactly as the hook would resolve it.
-  const challenge = Challenge.fromMethod(tempoMethod(), {
+  const method = tempoMethod();
+  const challenges = envCurrencies().map((currency) => Challenge.fromMethod(method, {
     realm,
     expires: new Date(Date.now() + timeoutSeconds * 1000),
     request: {
       amount: amount.toFixed(decimals),
       chainId: TEMPO_MAINNET_CHAIN_ID,
-      currency: envCurrency(),
+      currency,
       decimals,
       recipient: envRecipient(),
       ...(description ? { description: String(description).slice(0, 200) } : {}),
     },
     secretKey,
-  });
-  return Challenge.serialize(challenge);
+  }));
+  return challenges.map((c) => Challenge.serialize(c)).join(", ");
 }
 
 /** Stable replay identity for a tempo credential — the challenge id it's
@@ -384,6 +401,11 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // point is to close the concurrent-replay window, not just the
       // sequential one. Release-on-failure (handler fails, broadcast fails)
       // so a legitimate retry of the still-valid credential still works.
+      // Mark the request as paid over MPP/tempo BEFORE the handler runs, so
+      // handlers that route by the buyer's payment rail (route-execute's
+      // chain-matched external leg) can see it - a tempo credential carries
+      // no x402 payment header for buyerPaymentNetwork() to read.
+      req.mppTempoCredential = true;
       const replayKey = replayGuard ? tempoReplayKey(auth) : null;
       if (replayGuard && replayKey) {
         const verdict = await replayGuard.begin(replayKey);

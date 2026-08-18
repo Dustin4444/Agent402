@@ -1,0 +1,126 @@
+// SOR external leg for MPP sellers on Tempo (src/tempo-sellers.js +
+// src/tempo-buyer.js + route-execute chain mapping), offline.
+//
+//   catalog   the verified MPP index -> routable resources: tempo/charge in
+//             USDC.e only, static integer prices only, no path templates,
+//             unverified sellers dropped, cap-filtered lexical ranking
+//   buyer     payTempo against a STUB MPP seller: reads the live 402, pins the
+//             asset (USDC.e) and chain, re-checks the cap against the LIVE
+//             quote (registry price is a hint), enforces the proven-seller
+//             gate (fail closed on RPC error), signs via an injected credential
+//             factory, retries with Authorization: Payment, relays the body and
+//             the Payment-Receipt reference; refuses before signing on every
+//             guard, so no credential is ever minted for a refused seller
+//   router    buyerPaymentNetwork reads the tempo gate's marker; the chain map
+//             puts MPP/tempo buyers on the Tempo wallet, keeps Base buyers on
+//             Base unless SOR_TEMPO_FROM_BASE opts them into Tempo fallthrough
+import { createServer } from "node:http";
+import { tempoCatalog, rankTempoResources } from "../src/tempo-sellers.js";
+import { payTempo, __testResetProofCache, tempoInboundCount, TEMPO_USDC, TEMPO_CAIP2 } from "../src/tempo-buyer.js";
+import { buyerPaymentNetwork, externalChainsFor, EXTERNAL_CHAIN_BY_NETWORK } from "../src/tools/route-execute.js";
+import { Challenge } from "mppx";
+
+let pass = 0;
+const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { console.error("FAIL:", m); process.exit(1); } };
+const PATH_USD = "0x20c0000000000000000000000000000000000000";
+
+// ---- catalog + ranking ----
+const snap = { sellers: [
+  { verified: true, serviceUrl: "https://firecrawl.example", name: "Firecrawl", description: "web scraping and crawling", tags: ["scrape"], categories: ["web"],
+    endpoints: [
+      { method: "POST", path: "/v1/scrape", description: "Scrape a URL", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "2000" } },
+      { method: "POST", path: "/v1/crawl", description: "Crawl a site", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "50000" } },
+      { method: "POST", path: "/v1/dynamic", description: "Dynamic priced scrape", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, dynamic: true, amountHint: "$0.01" } },
+    ] },
+  { verified: true, serviceUrl: "https://rpc.example", name: "RPCCo", description: "json-rpc", endpoints: [
+      { method: "POST", path: "/:network/v2", description: "JSON-RPC call", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "100" } } ] },
+  { verified: true, serviceUrl: "https://path.example", name: "PathCo", description: "scrape pages", endpoints: [
+      { method: "GET", path: "/scrape", description: "scrape", payment: { intent: "charge", method: "tempo", currency: PATH_USD, decimals: 6, amount: "1000" } } ] },
+  { verified: true, serviceUrl: "https://stripe.example", name: "StripeCo", description: "scrape pages", endpoints: [
+      { method: "GET", path: "/scrape", description: "scrape", payment: { intent: "charge", method: "stripe", currency: "usd", amount: "1000" } } ] },
+  { verified: false, serviceUrl: "https://unverified.example", name: "Ghost", description: "scrape pages", endpoints: [
+      { method: "GET", path: "/scrape", description: "scrape", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "1000" } } ] },
+  { verified: true, serviceUrl: "http://insecure.example", name: "Plain", description: "scrape pages", endpoints: [
+      { method: "GET", path: "/scrape", description: "scrape", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "1000" } } ] },
+] };
+const cat = tempoCatalog(snap);
+ok(cat.length === 2, `catalog keeps only routable endpoints (got ${cat.length}: ${cat.map((r) => r.url).join(", ")})`);
+ok(cat.every((r) => r.origin === "https://firecrawl.example"), "dropped: dynamic price, path template, non-USDC.e currency, stripe method, unverified seller, non-https origin");
+ok(cat[0].priceUsd === 0.002 && cat[0].networks[0] === TEMPO_CAIP2 && cat[0].wire === "mpp", "resource carries priceUsd from base units, the Tempo CAIP-2, and wire=mpp");
+const ranked = rankTempoResources(cat, "scrape a web page", { capUsd: 0.005 });
+ok(ranked.length === 1 && ranked[0].path === "/v1/scrape", "ranking matches the task and cap-filters (crawl at $0.05 is out at a $0.005 cap)");
+ok(rankTempoResources(cat, "scrape", { capUsd: 0.005, excludeOrigin: "https://firecrawl.example" }).length === 0, "excludeOrigin (never route to ourselves) honoured");
+ok(rankTempoResources(cat, "", { capUsd: 1 }).length === 0, "empty task ranks nothing");
+
+// ---- stub MPP seller ----
+const RECIPIENT = "0x1111111111111111111111111111111111111111";
+let sellerMode = "ok"; let paidHits = 0; let lastAuth = null;
+const challengeHeader = ({ currency = TEMPO_USDC, amount = "2000", chainId = 4217 } = {}) => Challenge.serialize(Challenge.from({
+  realm: "seller.test", method: "tempo", intent: "charge", expires: new Date(Date.now() + 60_000),
+  request: { amount, currency, recipient: RECIPIENT, methodDetails: { chainId, feePayer: true } }, secretKey: "seller-secret",
+}));
+const seller = createServer((req, res) => {
+  let body = ""; req.on("data", (c) => (body += c)); req.on("end", () => {
+    const auth = req.headers.authorization;
+    if (auth && /^Payment /.test(auth)) {
+      paidHits++; lastAuth = auth;
+      if (sellerMode === "reject-paid") { res.writeHead(402, { "www-authenticate": challengeHeader() }); return res.end("{}"); }
+      res.writeHead(200, { "content-type": "application/json", "payment-receipt": Buffer.from(JSON.stringify({ method: "tempo", status: "success", reference: "0xfeed", timestamp: new Date().toISOString() })).toString("base64url") });
+      return res.end(JSON.stringify({ scraped: true, echo: body ? JSON.parse(body) : null }));
+    }
+    const opts = sellerMode === "pathusd" ? { currency: PATH_USD } : sellerMode === "expensive" ? { amount: "900000" } : sellerMode === "wrong-chain" ? { chainId: 42431 } : {};
+    res.writeHead(402, { "www-authenticate": challengeHeader(opts) });
+    res.end("{}");
+  });
+});
+await new Promise((r) => seller.listen(0, r));
+const URL_ = `http://127.0.0.1:${seller.address().port}/v1/scrape`;
+let minted = 0;
+const mint = async (res402) => { minted++; const www = res402.headers.get("WWW-Authenticate"); ok(/method="tempo"/.test(www), "credential factory receives the seller's tempo challenge"); return "Payment ZmFrZQ"; };
+const proofOk = async () => 4000;
+const proofLow = async () => 3;
+const proofDown = async () => { throw new Error("rpc down"); };
+const cap = BigInt(5000); // $0.005
+
+// happy path
+const r1 = await payTempo(URL_, { method: "POST", body: { url: "https://x" }, maxAtomic: cap, trusted: true, createCredential: mint, proof: proofOk });
+ok(r1.result?.scraped === true && r1.result.echo?.url === "https://x", "paid retry relayed the seller's JSON body (request body forwarded)");
+ok(r1.quote.usd === 0.002 && r1.quote.network === TEMPO_CAIP2, "quote reflects the LIVE 402 amount in USD on Tempo");
+ok(r1.receipt.transaction === "0xfeed" && r1.receipt.wire === "mpp", "receipt carries the Payment-Receipt reference and wire=mpp");
+ok(lastAuth === "Payment ZmFrZQ" && paidHits === 1 && minted === 1, "exactly one credential minted and sent as Authorization: Payment");
+
+// guards - each must refuse BEFORE minting
+const refuse = async (mode, opts, re, label) => {
+  sellerMode = mode; const before = minted; let err = null;
+  try { await payTempo(URL_, { method: "POST", body: {}, maxAtomic: cap, trusted: true, createCredential: mint, ...opts }); } catch (e) { err = e; }
+  ok(err && re.test(err.message), `${label} -> refused (${err?.statusCode}: ${String(err?.message).slice(0, 70)})`);
+  ok(minted === before, `${label} -> no credential minted`);
+};
+await refuse("pathusd", { proof: proofOk }, /pays only USDC\.e/, "seller quotes PathUSD (asset pin)");
+await refuse("expensive", { proof: proofOk }, /exceeds this call's ceiling/, "live quote above the cap (registry price was a hint)");
+await refuse("wrong-chain", { proof: proofOk }, /not Tempo mainnet/, "challenge targets another chain");
+await refuse("ok", { proof: proofLow }, /not routable yet/, "seller below the proven-settlement floor");
+await refuse("ok", { proof: proofDown }, /refusing to spend/, "proof RPC down (fail closed)");
+sellerMode = "reject-paid";
+let rej = null; try { await payTempo(URL_, { method: "POST", body: {}, maxAtomic: cap, trusted: true, createCredential: mint, proof: proofOk }); } catch (e) { rej = e; }
+ok(rej && /rejected the paid retry/.test(rej.message) && rej.statusCode === 502, "seller 402 after payment -> 502 (buyer's settlement cancels; our exposure is bounded by cap)");
+seller.close();
+
+// ---- proof cache + count parsing (injected rpc) ----
+__testResetProofCache();
+let rpcCalls = 0;
+const fakeRpc = async (m) => { rpcCalls++; if (m === "eth_blockNumber") return "0x" + (200000).toString(16); return new Array(57).fill({}); };
+ok(await tempoInboundCount(RECIPIENT, { rpcFn: fakeRpc }) === 57 && await tempoInboundCount(RECIPIENT, { rpcFn: fakeRpc }) === 57 && rpcCalls === 2, "inbound count reads eth_getLogs once and caches per recipient");
+
+// ---- router chain mapping ----
+ok(EXTERNAL_CHAIN_BY_NETWORK["eip155:4217"] === "tempo", "eip155:4217 maps to the tempo spending wallet");
+ok(buyerPaymentNetwork({ mppTempoCredential: true, headers: {} }) === "eip155:4217", "a request the tempo gate marked reads as paid on Tempo");
+ok(buyerPaymentNetwork({ headers: {} }) === null, "no payment -> null (unchanged)");
+const supported = ["base", "algorand", "tempo"];
+ok(JSON.stringify(externalChainsFor("eip155:4217", supported)) === '["tempo"]', "tempo buyer -> tempo sellers only (chain-matched)");
+ok(JSON.stringify(externalChainsFor("eip155:8453", supported, { tempoFromBase: false })) === '["base"]', "base buyer -> base only by default");
+ok(JSON.stringify(externalChainsFor("eip155:8453", supported, { tempoFromBase: true })) === '["base","tempo"]', "SOR_TEMPO_FROM_BASE=true -> base first, then MPP/tempo fallthrough");
+ok(JSON.stringify(externalChainsFor("eip155:4217", ["base"])) === "[]", "tempo buyer with no Tempo wallet configured -> no chain (409 upstream)");
+ok(JSON.stringify(externalChainsFor("eip155:137", supported)) === "[]", "unsupported inbound chain -> none");
+
+console.log(`\nAll ${pass} assertions passed`);

@@ -1029,7 +1029,8 @@ async function main() {
         console.log("\nSKIP  mpp-tempo — no tempo/charge challenge on the live 402 (TEMPO_API_KEY unset on prod; not a rail regression)");
         return;
       }
-      const tempoClient = MppClientNS.create({ methods: [mppTempo.charge({ account })], polyfill: false });
+      // autoSwap: pay a USDC.e-first challenge from the PathUSD-funded burner via Tempo's DEX (no-op when currencies match).
+      const tempoClient = MppClientNS.create({ methods: [mppTempo.charge({ account, autoSwap: true })], polyfill: false });
       // Credential creation talks to Tempo's public RPC (nonce, fee fields,
       // simulation) BEFORE any money moves. One visible retry: the 2026-08-18
       // 07:27 run threw "Cannot convert undefined to a BigInt" here (viem's

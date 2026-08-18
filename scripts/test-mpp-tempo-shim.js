@@ -136,6 +136,27 @@ try {
   proc.kill("SIGKILL");
 }
 
+// TEMPO_CURRENCY is a CSV: one tempo/charge challenge per currency, in order.
+// A stock mppx client pays the FIRST tempo challenge (no cross-challenge
+// balance check, auto-swap off by default), so ORDER is the operator's
+// "which currency do my buyers hold" decision - the ecosystem's is USDC.e.
+const USDC_E = "0x20C000000000000000000000b9537d11c60E8b50";
+proc = spawn("node", ["src/server.js"], {
+  env: { ...bootBaseEnv, TEMPO_API_KEY: "test-tempo-key", TEMPO_RECIPIENT_ADDRESS: TREASURY, TEMPO_CURRENCY: `usdc, ${PATH_USD_ADDRESS}` },
+  stdio: "ignore",
+});
+try {
+  await waitHealthy();
+  const r402 = await fetch(`${B}/api/uuid`);
+  const challenges = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": r402.headers.get("www-authenticate") }));
+  const tempoChs = challenges.filter((c) => c.method === "tempo");
+  ok(tempoChs.length === 2, `TEMPO_CURRENCY CSV mints one tempo challenge per currency (got ${tempoChs.length})`);
+  ok(tempoChs[0]?.request?.currency === USDC_E && tempoChs[1]?.request?.currency === PATH_USD_ADDRESS, "challenges keep the CSV order (first = preferred), and the 'usdc' alias resolves to USDC.e");
+  ok(tempoChs.every((c) => c.request.amount === "1000" && Challenge.verify(c, { secretKey: SECRET })), "both carry the same base-units amount and HMAC-verify");
+} finally {
+  proc.kill("SIGKILL");
+}
+
 // ---------------------------------------------------------------------------
 // Group 2: settlement-ordering invariant, in-process, injected validate/broadcast.
 // ---------------------------------------------------------------------------
