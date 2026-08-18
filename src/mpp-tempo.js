@@ -513,6 +513,13 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       const originalWriteHead = res.writeHead.bind(res);
       const originalWrite = res.write.bind(res);
       const originalEnd = res.end.bind(res);
+      // flushHeaders MUST be buffered too (as @x402/express does): Node's
+      // flushHeaders() calls writeHead() internally, so an unwrapped
+      // flushHeaders on a streaming handler (the LLM gateway's SSE writer)
+      // committed the headers early and the later replay of the buffered
+      // writeHead threw ERR_HTTP_HEADERS_SENT AFTER broadcast - buyer charged,
+      // response never finished (found by the 2026-08-18 security review).
+      const originalFlushHeaders = typeof res.flushHeaders === "function" ? res.flushHeaders.bind(res) : null;
       let bufferedCalls = [];
       let settled = false;
       let endCalled;
@@ -522,14 +529,17 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         res.writeHead = originalWriteHead;
         res.write = originalWrite;
         res.end = originalEnd;
+        if (originalFlushHeaders) res.flushHeaders = originalFlushHeaders;
       };
       res.writeHead = (...a) => { if (!settled) { bufferedCalls.push(["writeHead", a]); return res; } return originalWriteHead(...a); };
       res.write = (...a) => { if (!settled) { bufferedCalls.push(["write", a]); return true; } return originalWrite(...a); };
       res.end = (...a) => { if (!settled) { bufferedCalls.push(["end", a]); endCalled(); return res; } return originalEnd(...a); };
+      if (originalFlushHeaders) res.flushHeaders = () => { if (!settled) { bufferedCalls.push(["flushHeaders", []]); return; } return originalFlushHeaders(); };
       const replay = () => {
         for (const [fn, a] of bufferedCalls) {
           if (fn === "writeHead") originalWriteHead(...a);
           else if (fn === "write") originalWrite(...a);
+          else if (fn === "flushHeaders") { if (originalFlushHeaders) originalFlushHeaders(); }
           else originalEnd(...a);
         }
         bufferedCalls = [];
@@ -588,10 +598,22 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // involvement), so without this it would fall through that code's
       // default and get mislabeled as plain x402.
       req.tempoSettled = true;
-      replay();
+      try {
+        replay();
+      } catch (err) {
+        // A throw HERE is after the buyer was charged. Re-entering the chain
+        // with next() would be wrong (headers may be committed) and would
+        // leave the response hanging with the sale unrecorded; end it loudly
+        // instead so the charged-failure detection can see a finished response.
+        console.error(`[mpp-tempo] CHARGED-BUT-NOT-SERVED: replay of the buffered response threw after settlement (${req.method} ${req.path} tx=${b.receipt?.reference || "?"}): ${String(err?.message || err).slice(0, 300)}`);
+        try { if (!res.writableEnded) { if (!res.headersSent) res.status(500); res.end(); } } catch { /* nothing left to do */ }
+      }
     }).catch((err) => {
       console.warn(`[mpp-tempo] gate threw: ${String(err?.message || err).slice(0, 300)}`);
-      next(); // fall through untouched
+      // Only fall through when nothing has been committed or settled; after
+      // settlement the response must be ended, never re-dispatched.
+      if (req.tempoSettled || res.headersSent) { try { if (!res.writableEnded) res.end(); } catch { /* ignore */ } return; }
+      next();
     });
   };
 }

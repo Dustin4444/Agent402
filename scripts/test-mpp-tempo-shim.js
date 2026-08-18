@@ -421,6 +421,39 @@ async function listen(app) {
   ok(mintTempoChallenge({ priceUsd: 0.001, realm: REALM, secretKey: "" }) === null, "mintTempoChallenge without a secret mints nothing (an unkeyed HMAC is forgeable)");
 }
 
+// Case I (2026-08-18 security review): a STREAMING handler (the LLM gateway's
+// SSE writer does writeHead + flushHeaders + write + end) under a successful
+// settlement must reach the buyer as a 200 with its body. Node's
+// flushHeaders() calls writeHead() internally; unbuffered, the replay of the
+// buffered writeHead threw ERR_HTTP_HEADERS_SENT after broadcast - the buyer
+// was charged and the response hung. And under a FAILED broadcast nothing
+// may leak: a clean 402, no streamed bytes.
+{
+  const app = express();
+  let broadcasts = 0;
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => { broadcasts++; return { ok: true, receipt: { method: "tempo", status: "success", reference: "0xfeed", timestamp: new Date().toISOString() } }; } }));
+  app.use(paywallStub);
+  app.get("/paid", (_req, res) => { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.flushHeaders?.(); res.write("data: one\n\n"); res.write("data: [DONE]\n\n"); res.end(); });
+  const { server, url } = await listen(app);
+  const ac = new AbortController(); const timer = setTimeout(() => ac.abort(), 4000);
+  let status = 0, body = "", receipt = null, hung = false;
+  try { const r = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() }, signal: ac.signal }); status = r.status; receipt = r.headers.get("payment-receipt"); body = await r.text(); } catch { hung = true; }
+  clearTimeout(timer);
+  ok(!hung && status === 200 && /data: \[DONE\]/.test(body) && !!receipt && broadcasts === 1, `case I: streaming handler (flushHeaders) settles once and the buyer receives the 200 stream (hung=${hung} status=${status} broadcasts=${broadcasts})`);
+  server.close();
+}
+{
+  const app = express();
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => ({ ok: false, error: "relay down" }) }));
+  app.use(paywallStub);
+  app.get("/paid", (_req, res) => { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.flushHeaders?.(); res.write("data: secret\n\n"); res.end(); });
+  const { server, url } = await listen(app);
+  const r = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
+  const body = await r.text();
+  ok(r.status === 402 && !/secret/.test(body), `case I: streaming handler + failed broadcast -> 402, nothing streamed (status=${r.status})`);
+  server.close();
+}
+
 function isDeepOrderOk(actual, expected) {
   return actual.length === expected.length && actual.every((v, i) => v === expected[i]);
 }
