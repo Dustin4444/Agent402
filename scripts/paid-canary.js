@@ -1030,9 +1030,25 @@ async function main() {
         return;
       }
       const tempoClient = MppClientNS.create({ methods: [mppTempo.charge({ account })], polyfill: false });
-      const credential = await tempoClient.createCredential(
+      // Credential creation talks to Tempo's public RPC (nonce, fee fields,
+      // simulation) BEFORE any money moves. One visible retry: the 2026-08-18
+      // 07:27 run threw "Cannot convert undefined to a BigInt" here (viem's
+      // hexToBigInt on a null RPC fee-field reply) with the identical
+      // challenge minting fine minutes before and after — a real signing bug
+      // reproduces on the second try and still fails the leg; a single null
+      // reply from a public RPC no longer pages as a rail regression. The
+      // first error is always printed, so a pattern stays visible.
+      const mintCredential = async () => tempoClient.createCredential(
         new Response(null, { status: 402, headers: { "WWW-Authenticate": MppChallenge.serialize(tempoCh) } })
       );
+      let credential;
+      try {
+        credential = await mintCredential();
+      } catch (e1) {
+        console.warn(`WARN  mpp-tempo credential creation threw once (${(e1?.message || String(e1)).slice(0, 120)}) - retrying in 3s`);
+        await new Promise((r) => setTimeout(r, 3000));
+        credential = await mintCredential();
+      }
       if (!/^Payment /.test(credential)) {
         railFail("mpp-tempo", `client produced a non-tempo credential (${credential.slice(0, 24)}…) — native path not taken`);
         return;
