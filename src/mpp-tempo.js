@@ -155,7 +155,21 @@ export async function validateTempoCredential(authorizationHeader) {
     const validation = await Method.validateCredential([tempoMethod()], authorizationHeader);
     return { ok: true, validation };
   } catch (e) {
-    return { ok: false, error: String(e?.message || e).slice(0, 300) };
+    // mppx's VerificationFailedError.message is ALWAYS the bare "Payment
+    // verification failed." (its `reason` param is never set by the relay
+    // adapter — see node_modules/mppx/dist/tempo/server/Relay.js `failure()`)
+    // — the actual relay error code ("insufficient_funds", "invalid_payment",
+    // "unsupported", "already_used", "policy_denied", "screen_rejected",
+    // "simulation_failed", "temporarily_unavailable") lives on `.details.code`
+    // instead, a separate property `.message` never includes. Verified live
+    // 2026-08-17: a rejected real credential logged only the generic message
+    // until this was added. A relay HTTP error (non-2xx) still carries no
+    // code at all (mppx's Relay.js discards the body on !response.ok) — an
+    // empty details object after this fix means the failure is at the
+    // HTTP/auth layer, not a business rejection the relay explained.
+    const detail = e?.details && typeof e.details === "object" ? JSON.stringify(e.details).slice(0, 200) : null;
+    const message = String(e?.message || e).slice(0, 200);
+    return { ok: false, error: `${message}${detail ? ` details=${detail}` : " details=(none — likely a relay HTTP/auth error, not a business rejection)"}` };
   }
 }
 
