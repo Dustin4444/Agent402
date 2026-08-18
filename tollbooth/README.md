@@ -1,9 +1,12 @@
 # agent402-tollbooth
 
-**Open-source, self-hostable x402 "pay-per-crawl". Put it in front of any site or
-API: humans browse free, AI crawlers and agents pay per request** - either in
-USDC over the [x402 protocol](https://x402.org), or for free by solving a
+**Open-source, self-hostable pay-per-crawl for x402 and MPP. Put it in front of
+any site or API: humans browse free, AI crawlers and agents pay per request** -
+in USDC over the [x402 protocol](https://x402.org), over
+[MPP](https://mpp.dev) (the Machine Payments Protocol `Payment` HTTP auth
+scheme, settled through the same stack), or for free by solving a
 proof-of-work. No Cloudflare, no Stripe, no Merchant-of-Record, no signup.
+The first self-hostable pay-per-crawl gate that speaks both wires on one 402.
 
 The big platforms are converging on the same model: Cloudflare's
 [pay-per-crawl](https://stackoverflow.blog/2026/02/26/how-pay-per-crawl-is-reshaping-data-monetization/)
@@ -142,37 +145,65 @@ export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)
 > On the edge, pass a stable `secret` (PoW tokens are HMAC-signed). For
 > single-use replay protection across stateless invocations, supply a `store`
 > (e.g. a Cloudflare KV wrapper - the Worker entry wires this for you).
+> The `x402:` middleware mode and MPP are Node/Express features today; the
+> edge gate offers proof-of-work plus the `verifyX402` callback.
 
-## Accepting USDC (x402)
+## Accepting USDC: x402 and MPP on the same 402
 
-The proof-of-work rail works with **zero config**. To also settle real USDC,
-set `payTo` and supply `verifyX402` - wire it to the standard, audited x402
-server stack (`@x402/express` / your facilitator) rather than reinventing
-settlement:
+The proof-of-work rail works with **zero config**. To also settle real money,
+hand the gate your standard, audited x402 middleware (`@x402/express` v2) as
+`x402:` - the gate never reinvents settlement, it delegates to it:
 
 ```js
-import { createTollbooth, x402VerifierFromExpress } from "agent402-tollbooth";
-import { paymentMiddleware } from "x402-express"; // or @x402/express
-const x402 = paymentMiddleware(/* your wallet + facilitator config */);
+import { createTollbooth } from "agent402-tollbooth";
+import { paymentMiddleware } from "@x402/express";
+import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
+import { ExactEvmScheme } from "@x402/evm/exact/server";
 
-app.use(createTollbooth({
-  payTo: "0xYourWallet",
-  network: "base",
-  // First-party verifier that OWNS timeout + cancellation: it honors the
-  // AbortSignal the gate passes on the SECOND argument (opts.signal), so a slow
-  // middleware can't hang the gate or settle after the gate already returned 402.
-  verifyX402: x402VerifierFromExpress(x402, { timeoutMs: 9000 }),
-}));
+const server = new x402ResourceServer(new HTTPFacilitatorClient({ url: "https://x402.org/facilitator" }))
+  .register("eip155:8453", new ExactEvmScheme());
+const x402 = paymentMiddleware(
+  { "GET /*": { accepts: [{ scheme: "exact", network: "eip155:8453", price: "$0.001", payTo: "0xYourWallet" }] } },
+  server,
+);
+
+app.use(createTollbooth({ payTo: "0xYourWallet", x402 }));
 ```
 
-The gate calls `verifyX402(req, opts)` and puts an `AbortSignal` on `opts.signal`
-(aborted when its `TOLLBOOTH_VERIFY_TIMEOUT_MS` fires). `x402VerifierFromExpress`
-honors it and stops treating a late result as valid. Note @x402/express settles
-by broadcasting and has no cancel hook, so keep the timeout above your settle
-latency (the abort is a backstop); a verifier that ignores the signal entirely
-can still charge a buyer who already received a 402. If you write your own
-verifier instead of using the helper, destructure `opts.signal` and reject/stop
-on abort. (PoW is checked first, so an agent without a wallet always has a free path.)
+What you get on every charged request:
+
+- **x402 v2 clients pay.** The gate lifts the middleware's `PAYMENT-REQUIRED`
+  header onto its own 402, so a stock `@x402/fetch` client negotiates and pays
+  as if the middleware were mounted bare. Verify, your handler, and settlement
+  run in the middleware's own order (v2 settles after the handler ends the
+  response) - exactly once.
+- **MPP clients pay** (default on when `x402` is set; `mpp: false` to turn off).
+  The same 402 gains `WWW-Authenticate: Payment` challenges (`evm`/`charge`,
+  one per EVM chain the middleware advertises among `mppNetworks`, default
+  Base + Celo). An inbound `Authorization: Payment` credential whose challenge
+  id HMAC-verifies is re-encoded as `PAYMENT-SIGNATURE` and settled by the
+  same middleware; the settled response carries a `Payment-Receipt`. A stock
+  [`mppx`](https://www.npmjs.com/package/mppx) client works unmodified. The
+  codec is dependency-free (no mppx on the server side) and byte-compatible
+  with the reference client - proven in the parent repo's CI by a real mppx
+  purchase through this package.
+- **Proof-of-work first**, unchanged: a walletless agent always has a free path.
+
+Set a stable `TOLLBOOTH_SECRET` (or `mppSecret`) so MPP challenge ids verify
+across workers - the same caveat as proof-of-work tokens.
+
+### `verifyX402` (legacy, deprecated in 0.7.0)
+
+Older versions took a verify-only callback (`verifyX402(req, opts) => boolean`)
+and shipped `x402VerifierFromExpress()` to build one from a payment middleware.
+**With `@x402/express` v2 that helper grants on verify and never settles**: v2
+settles after the handler ends the response, and the helper handed it a stub
+response the real handler never ended, so buyers were served and never charged
+(measured in the parent repo's test suite). It only ever settled with v1
+middlewares that settled before calling `next()`. It still works for those and
+for custom verifiers you wrote yourself, and now warns once at construction;
+everyone else should pass the middleware as `x402:` above. `verifyX402` still
+receives `opts.signal` (aborted on `TOLLBOOTH_VERIFY_TIMEOUT_MS`).
 
 ## Configuration
 
@@ -190,7 +221,11 @@ on abort. (PoW is checked first, so an agent without a wallet always has a free 
 | `botUserAgents` | `AI_BOTS` | User-agents to charge in `"bots"` mode |
 | `charge(req)` | mode | Custom "should this client pay?" predicate (wins over `mode`) |
 | `free(req)` | – | Custom force-allow predicate (wins over everything) |
-| `verifyX402(req, reqs)` | – | Async USDC settlement check (return `true` to allow) |
+| `x402` | – | Your `@x402/express` `paymentMiddleware(...)`: owns verify + settle; enables x402 v2 clients and (by default) MPP |
+| `mpp` | `true` when `x402` set | Accept MPP (`WWW-Authenticate: Payment` / `Authorization: Payment`) through the `x402` middleware |
+| `mppSecret` | `powSecret` / `TOLLBOOTH_SECRET` | HMAC secret binding MPP challenge ids (stable across workers) |
+| `mppNetworks` | `[8453, 42220]` | EVM chain ids to offer as MPP challenges (`"all"` = every EVM chain the middleware advertises) |
+| `verifyX402(req, opts)` | – | Legacy verify-only USDC check (deprecated for settle-after-handler middlewares; see above) |
 | `resourceBaseUrl` | `""` | Absolute base used for the `resource` field / PoW binding |
 | `observe` | `false` | Observe-only: classify and count, but never 402. For pre-launch traffic measurement. |
 | `statsSink` | in-memory | Durable stats backend. Built-ins: `memorySink`, `kvStatsSink(kv)`, `httpStatsSink(url)`. |
@@ -206,6 +241,9 @@ Read by the bundled proxy / Express entry point (`index.js`):
 | `TOLLBOOTH_PAYTO` | – | Wallet address; set to advertise a USDC x402 quote |
 | `TOLLBOOTH_PRICE` | `"$0.001"` | Advertised price per request |
 | `TOLLBOOTH_NETWORK` | `"base"` | x402 network |
+| `TOLLBOOTH_MPP` | on when `x402` set | `false` to switch MPP off |
+| `TOLLBOOTH_MPP_SECRET` | `TOLLBOOTH_SECRET` | HMAC secret for MPP challenge ids |
+| `TOLLBOOTH_MPP_NETWORKS` | `8453,42220` | CSV of EVM chain ids to offer as MPP challenges, or `all` |
 | `TOLLBOOTH_ASSET` | `"USDC"` | Asset symbol in the quote (`USDG` charges in USDG on Robinhood Chain) |
 | `TOLLBOOTH_POW_BITS` | `18` | Proof-of-work difficulty in leading zero bits |
 | `TOLLBOOTH_MODE` | `"bots"` | Who pays: `bots` · `all` · `strict` |
@@ -273,7 +311,7 @@ changes. Bots see a `X-Tollbooth-Observed: would-charge` header in observe mode
 ## Analytics
 
 The middleware keeps aggregate counters (no per-request data):
-- `gate.stats()` → sync, in-process mirror: `{ requests, freeAllowed, wouldCharge, charged, powSolved, x402Paid, difficultyNow, observe }`.
+- `gate.stats()` → sync, in-process mirror: `{ requests, freeAllowed, wouldCharge, charged, powSolved, x402Paid, mppPaid, difficultyNow, observe }`.
 - `gate.snapshot()` → async, reads from the configured durable sink (defaults to memory).
 - `gate.flush()` → flush any buffered deltas to the durable sink (call inside `ctx.waitUntil` on edge runtimes).
 
@@ -465,9 +503,12 @@ TOLLBOOTH_ASSET=USDG \
 npx agent402-tollbooth
 ```
 
-or in code: `createTollbooth({ payTo, network: "eip155:4663", asset: "USDG", verifyX402 })`.
-Wire `verifyX402` to an x402 facilitator that settles chain 4663. Defaults
-are unchanged (USDC on Base).
+or in code: `createTollbooth({ payTo, network: "eip155:4663", asset: "USDG", x402 })`,
+where `x402` is a `@x402/express` middleware whose facilitator settles chain
+4663 (advertise `eip155:4663` in its `accepts`). Defaults are unchanged (USDC
+on Base). MPP challenges are only minted for chains in `mppNetworks` (Base +
+Celo by default - what a stock mppx client can sign); add `4663` there or pass
+`"all"` if your buyers' MPP clients can sign USDG on Robinhood Chain.
 
 ## Legal
 

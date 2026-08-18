@@ -101,7 +101,7 @@ export function dashboardHtml() {
     </div>
     <div class="probe">
       <div class="label"><span>KPI grep — single-line dashboard for a shell</span><button class="copy" data-target="p5">copy</button></div>
-      <pre id="p5">curl -s &lt;origin&gt;/__tollbooth/stats | jq '{requests, charged, powSolved, x402Paid}'</pre>
+      <pre id="p5">curl -s &lt;origin&gt;/__tollbooth/stats | jq '{requests, charged, powSolved, x402Paid, mppPaid}'</pre>
     </div>
   </div>
   <footer>Aggregate counts only (no per-request data). Raw JSON: <a href="/__tollbooth/stats">/__tollbooth/stats</a>.</footer>
@@ -113,7 +113,8 @@ const cards=[
   ["wouldCharge","Would charge (observe)","accent"],
   ["charged","Charged (402)","accent"],
   ["powSolved","Proof-of-work paid","accent"],
-  ["x402Paid","USDC paid (x402)","accent"],
+  ["x402Paid","Paid via x402","accent"],
+  ["mppPaid","Paid via MPP","accent"],
   ["difficultyNow","PoW difficulty",false]
 ];
 // Rolling poll-delta series for the sparkline. We retain up to MAX_POINTS
@@ -211,7 +212,7 @@ async function tick(){
     document.getElementById("botpct").textContent=pct+"%";
     // Paid conversion: of all requests, what share actually settled (either
     // PoW or USDC). Answers "is the gate converting traffic into payment?"
-    var pow=Number(s.powSolved)||0, usd=Number(s.x402Paid)||0, paid=pow+usd;
+    var pow=Number(s.powSolved)||0, usd=(Number(s.x402Paid)||0)+(Number(s.mppPaid)||0), paid=pow+usd;
     var paidPct=reqs?Math.round((paid/reqs)*100):0;
     document.getElementById("paidpct").textContent=paidPct+"%";
     // Paid-in-USDC share: of *paid* requests, how many settled in USDC vs PoW.
@@ -224,7 +225,7 @@ async function tick(){
     // per-poll arrival rate. First tick seeds lastRequests/lastPaid with no
     // plot — we need a baseline to subtract on tick #2.
     var now=Number(s.requests); if(!Number.isFinite(now)) now=0;
-    var nowPaid=(Number(s.powSolved)||0)+(Number(s.x402Paid)||0);
+    var nowPaid=(Number(s.powSolved)||0)+(Number(s.x402Paid)||0)+(Number(s.mppPaid)||0);
     if(lastRequests!==null){
       var delta=Math.max(0,now-lastRequests);
       var pDelta=Math.max(0,nowPaid-lastPaid);

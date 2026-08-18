@@ -1,7 +1,7 @@
 {
   "name": "agent402-tollbooth",
-  "version": "0.6.2",
-  "description": "Open-source, self-hostable x402 pay-per-crawl tollbooth: charge AI bots per request (USDC via x402 — or USDG on Robinhood Chain — or free proof-of-work) while humans browse free. Drop-in Express middleware or reverse proxy — no Cloudflare, no Stripe, no signup.",
+  "version": "0.7.0",
+  "description": "Open-source, self-hostable pay-per-crawl tollbooth for x402 AND MPP: charge AI bots per request (USDC via x402, or MPP - the Machine Payments Protocol - through the same settlement, or USDG on Robinhood Chain, or free proof-of-work) while humans browse free. Drop-in Express middleware or reverse proxy - no Cloudflare, no Stripe, no signup.",
   "type": "module",
   "main": "index.js",
   "bin": {
@@ -16,7 +16,9 @@
     "./dashboard.js": "./dashboard.js",
     "./sinks.js": "./sinks.js",
     "./replay": "./replay.js",
-    "./replay.js": "./replay.js"
+    "./replay.js": "./replay.js",
+    "./mpp": "./mpp.js",
+    "./mpp.js": "./mpp.js"
   },
   "files": [
     "index.js",
@@ -24,6 +26,7 @@
     "worker.js",
     "bots.js",
     "pow.js",
+    "mpp.js",
     "dashboard.js",
     "sinks.js",
     "replay.js",
@@ -65,7 +68,10 @@
     "tollbooth",
     "base",
     "robinhood-chain",
-    "usdg"
+    "usdg",
+    "mpp",
+    "machine-payments-protocol",
+    "payment-auth"
   ],
   "author": "Havok Holdings LLC <mike@agent402.tools> (https://agent402.tools)",
   "license": "MIT",
