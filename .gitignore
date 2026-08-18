@@ -39,3 +39,21 @@ build/
 .algorand-burner.env
 # Brainstorming visual-companion mockups (superpowers) — machine-local scratch
 .superpowers/
+
+# Secret-shaped files, by pattern (leak audit 2026-08-18): the list above names
+# every sensitive path individually, which only holds until the next one is
+# created under a new name. Catch-alls for the usual shapes; a false positive
+# is a `git add -f` away, a false negative is a rotated credential.
+*.pem
+*.key
+*.p12
+*.pfx
+*.secret
+*.token
+*.mnemonic
+*secret*.json
+*token*.json
+*mnemonic*.txt
+.env.*
+!.env.example
+service-account*.json

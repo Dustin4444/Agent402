@@ -1451,7 +1451,10 @@ app.get("/api/sales", (_req, res) => {
   try {
     res.set("Cache-Control", "public, max-age=60").json(salesSummary());
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    // Public route: a SQLite failure message names the ledger's absolute
+    // path — log it, answer generically (leak audit 2026-08-18).
+    console.error(`[sales] summary failed: ${String(err?.message || err).slice(0, 300)}`);
+    res.status(500).json({ error: "sales summary unavailable" });
   }
 });
 // Token-gated ITEMIZED sales feed — per-call rows with payer + tx, the per-tool
@@ -4759,10 +4762,20 @@ for (const tool of ALL_KIT) {
       // Probe detection: a 4xx with zero meaningful input keys is a scanning/
       // discovery call (agent probing endpoints without arguments), not a real
       // schema mismatch. Tag it so the dashboard can exclude it from error rates.
+      // Extended 2026-08-18: a 4xx whose keys include NONE the tool declares is
+      // the same thing with a body attached — a scanner walking the catalog
+      // with generic LLM-shaped bodies ({prompt}/{messages}/{text}/{query})
+      // against every tool put 188 tool_error events on 2026-08-17 alone,
+      // 32 tools, all "Missing or invalid <declared key>", and read on the
+      // PostHog dashboard as an error surge with nothing broken. A 4xx that
+      // could not have succeeded with any values is a probe, not a tool error;
+      // a caller who sent at least one declared key keeps its real 4xx.
       const shape = status < 500 ? requestShape(req) : null;
       if (status >= 400 && status < 500) {
         const meaningfulKeys = (shape || []).filter((k) => !["b:params", "b:input", "b:args", "b:slug"].includes(k));
-        probe = meaningfulKeys.length === 0;
+        const declared = Object.keys(tool.discovery?.inputSchema?.properties || {});
+        const hitsDeclared = meaningfulKeys.some((k) => declared.includes(k.replace(/^[bq]:/, "")));
+        probe = meaningfulKeys.length === 0 || (declared.length > 0 && !hitsDeclared);
       }
       logToolError(tool.slug, status, err.message, shape, synthetic, probe);
       // Self-correction envelope: echo the tool's input schema + a working
