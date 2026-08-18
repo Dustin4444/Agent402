@@ -47,6 +47,7 @@ const PAGES = [
   { path: "/optimism",    titleSubstr: "Optimism" },
   { path: "/revenue",     titleSubstr: "revenue" },
   { path: "/what-is-mpp", titleSubstr: "MPP" },
+  { path: "/agentic-finance", titleSubstr: "Agentic Finance" },
   { path: "/",            titleSubstr: "Agent402" },
 ];
 
