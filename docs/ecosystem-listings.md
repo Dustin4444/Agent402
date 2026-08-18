@@ -393,7 +393,14 @@ same shape as the self-hosted data sellers already listed).
   },
 ```
 
-Verify the amounts against `https://agent402.tools/api/pricing` right before
-opening the PR (prices are the source of truth there, not this file), and
-paste the PR body from the checklist the bot posts. Mike OKs the verbatim
-entry before it is opened (external repo, public).
+**OPENED 2026-08-18: https://github.com/tempoxyz/mpp/pull/900** (fork
+`MikeyPetrillo/mpp`, branch `add-agent402`; their `schemas/services.test.ts`
+passes locally, 9,410 assertions; the changed-services bot recognised
+`agent402`; the Vercel "failure" is only the preview deploy awaiting a team
+member's authorization - same on every external PR). It supersedes #812
+(evm-only, opened 2026-07-24), which their `stale-service-prs` workflow
+auto-closes any `service-directory` PR **14 days after creation** with no
+review - the timer is on `created_at`, so a nudge comment cannot reset it;
+only a maintainer review inside 14 days lands it. If #900 times out, the
+next attempt should follow a direct line to a maintainer, not a third PR.
+Verify amounts against `/api/pricing` before any future re-submission.
