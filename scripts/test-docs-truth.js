@@ -76,6 +76,7 @@ const KNOWN_NON_CATALOG = new Set([
   "/api/index/register", "/api/x402-economy", "/api/gateway-status", "/api/selfcheck",
   "/api/tollbooth/waitlist", "/api/wish", "/api/route/execute", "/api/skill-packs",
   "/api/health", "/api/route/external-debug", "/api/market",
+  "/api/mpp-index", "/api/mpp-leaderboard", "/api/mpp-index/register",
 ]);
 
 let deadRoutes = 0, priceMismatches = 0, badSlugLinks = 0, exactCounts = 0;
