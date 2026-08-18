@@ -1,0 +1,207 @@
+// MPP leaderboard - the on-chain ranking of MPP sellers, the role the x402
+// leaderboard (src/leaderboard.js) plays for x402: who is actually being PAID,
+// measured on chain by us, never self-reported.
+//
+// Signal: 138 of 141 sellers in the mpp.dev registry settle tempo/charge in
+// USDC.e on Tempo (measured 2026-08-18), so the leaderboard ranks verified MPP
+// sellers by inbound USDC.e transfers on Tempo to the recipient their LIVE
+// challenge names (src/mpp-index.js parseOffers - the address the seller is
+// paid at, read from a real 402, not from the registry). Per recipient we
+// report transfers, distinct payers and volume over the window.
+//
+// Window: rpc.tempo.xyz caps eth_getLogs at 100k blocks (~15h at ~0.56s/
+// block; the same bound src/tempo-buyer.js's proven-seller gate lives under),
+// so a rebuild reads the last 99k blocks. That is a WINDOW, not lifetime - the
+// page says so next to every number. ONE batched query per chunk (topics[2] =
+// every recipient) instead of one query per seller: ~140 sellers would
+// otherwise be ~140 RPC calls per refresh. Chunks split themselves in half on
+// an RPC error down to a floor, then the whole rebuild fails and the previous
+// snapshot stays up, marked stale (a leaderboard that goes blank on one bad
+// RPC minute reads as "nobody is selling").
+//
+// Honesty: an inbound transfer to a seller's recipient is any inbound USDC.e
+// transfer, not provably an MPP settlement - it is the same proxy the router
+// spends real money on, disclosed as such. Counts feed the router's
+// proven-seller cache (tempo-buyer.js primeTempoInboundCount) so a routed
+// buy to a ranked seller does not re-scan the chain.
+import { readFileSync, writeFileSync } from "node:fs";
+import { mppIndexSnapshot } from "./mpp-index.js";
+import { TEMPO_USDC, tempoMinSettled, tempoRpc, primeTempoInboundCount } from "./tempo-buyer.js";
+
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+const USDC_LC = TEMPO_USDC.toLowerCase();
+export const MPP_LB_WINDOW_BLOCKS = 99_000; // rpc.tempo.xyz eth_getLogs cap is 100k
+const CHUNK_BLOCKS = 33_000;
+const MIN_CHUNK_BLOCKS = 2_000;
+export const MPP_LB_REFRESH_MS = 30 * 60 * 1000;
+export const MPP_LB_STALE_MS = 3 * MPP_LB_REFRESH_MS; // 90 min without a good rebuild = stale
+export const MPP_LB_CACHE_FILE = process.env.MPP_LB_CACHE_FILE || "/data/mpp-leaderboard-cache.json";
+
+const addrTopic = (addr) => "0x" + String(addr).toLowerCase().slice(2).padStart(64, "0");
+const topicAddr = (topic) => "0x" + String(topic || "").slice(-40).toLowerCase();
+
+/** The rankable recipients in a snapshot: verified sellers whose live
+ *  challenge offers a tempo method (charge OR session - both are paid to the
+ *  recipient on chain) in USDC.e with a valid recipient. Several sellers may
+ *  share one recipient (one operator, several products; measured live: a
+ *  shared gateway recipient behind 15 names); rows are keyed by recipient and
+ *  list every seller name behind it, plus the intents offered - the router
+ *  pays tempo/charge ONLY, so `routable` needs a charge offer. Pure. */
+export function rankableRecipients(snapshot, { self = null } = {}) {
+  const byRecipient = new Map();
+  for (const s of snapshot?.sellers || []) {
+    if (!s?.verified) continue;
+    for (const o of s.offers || []) {
+      if (o?.method !== "tempo") continue;
+      const intent = o.intent || "charge";
+      if (intent !== "charge" && intent !== "session") continue;
+      if (!o.recipient || String(o.currency || "").toLowerCase() !== USDC_LC) continue;
+      if (o.chainId !== null && o.chainId !== undefined && Number(o.chainId) !== 4217) continue;
+      const key = o.recipient.toLowerCase();
+      const row = byRecipient.get(key) || { recipient: key, sellers: [], intents: [], self: false };
+      const origin = String(s.serviceUrl || s.origin || "");
+      if (!row.sellers.some((x) => x.origin === origin)) row.sellers.push({ name: s.name || origin.replace(/^https?:\/\//, ""), origin, url: s.url || origin });
+      if (!row.intents.includes(intent)) row.intents.push(intent);
+      byRecipient.set(key, row);
+    }
+  }
+  if (self && /^0x[0-9a-fA-F]{40}$/.test(self)) {
+    const key = self.toLowerCase();
+    const row = byRecipient.get(key) || { recipient: key, sellers: [], intents: ["charge"], self: true };
+    row.self = true;
+    byRecipient.set(key, row);
+  }
+  return [...byRecipient.values()];
+}
+
+/** Fetch Transfer logs to ANY of `topics` over [from, to], splitting the range
+ *  on RPC error down to MIN_CHUNK_BLOCKS. Throws if a minimal chunk still
+ *  fails (caller keeps the previous snapshot). */
+async function fetchLogsSplitting(rpcFn, topics, from, to) {
+  try {
+    const logs = await rpcFn("eth_getLogs", [{ fromBlock: "0x" + from.toString(16), toBlock: "0x" + to.toString(16), address: TEMPO_USDC, topics: [TRANSFER_TOPIC, null, topics] }]);
+    return Array.isArray(logs) ? logs : [];
+  } catch (e) {
+    if (to - from + 1 <= MIN_CHUNK_BLOCKS) throw e;
+    const mid = from + Math.floor((to - from) / 2);
+    return [...(await fetchLogsSplitting(rpcFn, topics, from, mid)), ...(await fetchLogsSplitting(rpcFn, topics, mid + 1, to))];
+  }
+}
+
+/** Build a leaderboard from a snapshot + chain reads. Injectable rpc + clock
+ *  for tests. Throws on RPC failure (the scheduler keeps the last good one). */
+export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpcFn = tempoRpc, now = Date.now(), self = null } = {}) {
+  const rows = rankableRecipients(snapshot, { self });
+  const latest = parseInt(await rpcFn("eth_blockNumber", []), 16);
+  if (!Number.isFinite(latest)) throw new Error("tempo rpc: bad eth_blockNumber");
+  const from = Math.max(0, latest - MPP_LB_WINDOW_BLOCKS + 1); // exactly WINDOW blocks, inclusive
+  const stats = new Map(rows.map((r) => [r.recipient, { transfers: 0, payers: new Set(), volumeAtomic: 0n }]));
+  if (rows.length) {
+    const topics = rows.map((r) => addrTopic(r.recipient));
+    for (let a = from; a <= latest; a += CHUNK_BLOCKS) {
+      const b = Math.min(latest, a + CHUNK_BLOCKS - 1);
+      const logs = await fetchLogsSplitting(rpcFn, topics, a, b);
+      for (const log of logs) {
+        const to = topicAddr(log?.topics?.[2]);
+        const st = stats.get(to);
+        if (!st) continue;
+        st.transfers += 1;
+        st.payers.add(topicAddr(log?.topics?.[1]));
+        try { st.volumeAtomic += BigInt(log?.data || "0x0"); } catch { /* malformed data: count the transfer, skip the amount */ }
+      }
+    }
+  }
+  const floor = tempoMinSettled();
+  const ranked = rows.map((r) => {
+    const st = stats.get(r.recipient);
+    return {
+      recipient: r.recipient, sellers: r.sellers, intents: r.intents, self: !!r.self,
+      transfers: st.transfers, payers: st.payers.size,
+      volumeUsdc: Number(st.volumeAtomic) / 1e6,
+      proven: st.transfers >= floor,                                   // on-chain floor met
+      routable: st.transfers >= floor && r.intents.includes("charge"), // ...and the router can actually pay it
+    };
+  }).sort((a, b) => b.transfers - a.transfers || b.volumeUsdc - a.volumeUsdc || a.recipient.localeCompare(b.recipient))
+    .map((r, i) => ({ rank: i + 1, ...r }));
+  for (const r of ranked) primeTempoInboundCount(r.recipient, r.transfers, now);
+  const active = ranked.filter((r) => r.transfers > 0);
+  return {
+    generatedAt: now,
+    window: { fromBlock: from, toBlock: latest, blocks: latest - from + 1, approxHours: Math.round(((latest - from + 1) * 0.56) / 3600 * 10) / 10 },
+    chain: "tempo", chainId: 4217, asset: "USDC.e", assetAddress: TEMPO_USDC,
+    provenFloor: floor,
+    recipients: ranked.length,
+    activeRecipients: active.length,
+    totals: {
+      transfers: active.reduce((n, r) => n + r.transfers, 0),
+      volumeUsdc: Math.round(active.reduce((n, r) => n + r.volumeUsdc, 0) * 1e6) / 1e6,
+    },
+    rows: ranked,
+    stale: false,
+    lastError: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Scheduler + snapshot (stale-while-revalidate; warm start from /data)
+// ---------------------------------------------------------------------------
+let current = null;
+let timer = null;
+let inFlight = null;
+
+export function persistMppLeaderboard(file = MPP_LB_CACHE_FILE) {
+  if (!current) return false;
+  try { writeFileSync(file, JSON.stringify(current)); return true; } catch { return false; }
+}
+export function loadPersistedMppLeaderboard(file = MPP_LB_CACHE_FILE) {
+  try {
+    const j = JSON.parse(readFileSync(file, "utf8"));
+    if (j && Array.isArray(j.rows) && Number.isFinite(j.generatedAt)) { current = j; return true; }
+  } catch { /* cold start */ }
+  return false;
+}
+
+/** One rebuild, deduped (a burst of requests never fans out to N chain
+ *  reads). On failure the previous snapshot stays, marked stale + lastError. */
+export function refreshMppLeaderboard(opts = {}) {
+  if (inFlight) return inFlight;
+  inFlight = (async () => {
+    try {
+      current = await computeMppLeaderboard(opts);
+      persistMppLeaderboard();
+    } catch (e) {
+      const msg = String(e?.message || e).slice(0, 200);
+      if (current) current = { ...current, lastError: msg };
+      else current = { generatedAt: 0, window: null, chain: "tempo", chainId: 4217, asset: "USDC.e", assetAddress: TEMPO_USDC, provenFloor: tempoMinSettled(), recipients: 0, activeRecipients: 0, totals: { transfers: 0, volumeUsdc: 0 }, rows: [], stale: true, lastError: msg };
+      console.warn(`[mpp-leaderboard] rebuild failed, serving previous snapshot: ${msg}`);
+    } finally { inFlight = null; }
+    return current;
+  })();
+  return inFlight;
+}
+
+/** Synchronous read for pages/APIs. `stale` is computed at read time so a
+ *  scheduler that stopped firing shows as stale, not as fresh forever. */
+export function mppLeaderboardSnapshot(now = Date.now()) {
+  if (!current) return { generatedAt: 0, window: null, chain: "tempo", chainId: 4217, asset: "USDC.e", assetAddress: TEMPO_USDC, provenFloor: tempoMinSettled(), recipients: 0, activeRecipients: 0, totals: { transfers: 0, volumeUsdc: 0 }, rows: [], stale: true, lastError: null };
+  return { ...current, stale: !current.generatedAt || now - current.generatedAt > MPP_LB_STALE_MS };
+}
+
+export function startMppLeaderboard({ self = null, delayMs = 120_000 } = {}) {
+  if (timer) return;
+  const warmed = loadPersistedMppLeaderboard();
+  if (warmed) console.log(`[mpp-leaderboard] warm-started ${current.rows.length} recipients from ${MPP_LB_CACHE_FILE}`);
+  // First build after the MPP crawler's boot pass has verified sellers and
+  // captured their live offers (99 seeds at concurrency 10 with an 8s probe
+  // timeout is ~10s typical, ~80s worst) - an empty snapshot would rank
+  // nobody and then sit for 30 min. A second early pass at +10 min catches
+  // sellers whose first probe was slow; then the steady 30-min cadence.
+  const kick = setTimeout(() => { refreshMppLeaderboard({ self }); }, delayMs);
+  kick.unref?.();
+  const kick2 = setTimeout(() => { refreshMppLeaderboard({ self }); }, delayMs + 8 * 60 * 1000);
+  kick2.unref?.();
+  timer = setInterval(() => { refreshMppLeaderboard({ self }); }, MPP_LB_REFRESH_MS);
+  timer.unref?.();
+}
+export function stopMppLeaderboard() { if (timer) clearInterval(timer); timer = null; }
+export function __testReset() { current = null; inFlight = null; stopMppLeaderboard(); }

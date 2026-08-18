@@ -62,6 +62,8 @@ import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
 import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
+import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
+import { tempoSelfRecipient } from "./mpp-tempo.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
@@ -790,11 +792,19 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
     // known from the live 402.
     const { tempoCatalog, rankTempoResources } = await import("./tempo-sellers.js");
     const ourOrigin = (() => { try { return new URL(BASE_URL).origin.toLowerCase(); } catch { return ""; } })();
-    candidates = rankTempoResources(tempoCatalog(), task, { capUsd: cap, excludeOrigin: ourOrigin })
+    // Up-front gate from the MPP leaderboard when it is fresh: only recipients
+    // the chain shows being paid at or above the floor (and offering
+    // tempo/charge) are candidates, ranked lexically then by settled. A stale
+    // or empty board gates nothing here - the pay-time gate still decides.
+    const lb = mppLeaderboardSnapshot();
+    const provenByRecipient = !lb.stale && lb.rows.length
+      ? new Map(lb.rows.map((row) => [row.recipient, { transfers: row.transfers, routable: !!row.routable }]))
+      : null;
+    candidates = rankTempoResources(tempoCatalog(), task, { capUsd: cap, excludeOrigin: ourOrigin, provenByRecipient })
       .slice(0, 5)
       .map((r) => ({
         seller: r.origin, slug: r.path.replace(/^\//, ""), url: r.url, method: r.method,
-        price: `$${r.priceUsd}`, priceUsd: r.priceUsd, networks: r.networks, wire: "mpp",
+        price: `$${r.priceUsd}`, priceUsd: r.priceUsd, networks: r.networks, wire: "mpp", settled: r.settled,
       }));
   } else if (chain === "algorand") {
     // Algorand sellers live in the GoPlausible facilitator catalog, not our
@@ -3029,10 +3039,23 @@ app.get("/marketplace", async (req, res) => {
 // on-chain join, unlike /marketplace above), same cache window.
 app.get("/mpp-marketplace", (_req, res) => {
   try {
-    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot()));
+    htmlCache(res, 120, 600).send(mppMarketPage(BASE_URL, mppIndexSnapshot(), mppLeaderboardSnapshot()));
   } catch (e) {
     res.status(500).type("text/plain").send("temporarily unavailable");
   }
+});
+// Machine-readable MPP index + leaderboard (the JSON behind /mpp-marketplace;
+// free, unpaywalled, same cache window). The index carries each verified
+// seller's LIVE payment offers (method/recipient/currency/chain) as probed.
+app.get("/api/mpp-index", (_req, res) => {
+  const snap = mppIndexSnapshot();
+  res.set("Cache-Control", "public, max-age=120");
+  res.json({ ...snap, generatedAt: new Date(snap.generatedAt).toISOString() });
+});
+app.get("/api/mpp-leaderboard", (_req, res) => {
+  const lb = mppLeaderboardSnapshot();
+  res.set("Cache-Control", "public, max-age=120");
+  res.json({ ...lb, generatedAt: lb.generatedAt ? new Date(lb.generatedAt).toISOString() : null, explorer: "https://explore.tempo.xyz/address/" });
 });
 // The seller front door — list an API on the index or tollbooth a site.
 // Whole-body try/catch like /stellar and /algorand: any snapshot failure
@@ -4960,6 +4983,15 @@ if (String(process.env.MPP_INDEX_CRAWL || "").toLowerCase() === "off") {
   console.log("[mpp-index] crawler disabled (MPP_INDEX_CRAWL=off)");
 } else {
   startMppCrawler();
+  // MPP leaderboard: on-chain ranking of the verified sellers above by inbound
+  // USDC.e transfers on Tempo (src/mpp-leaderboard.js). Rides the crawler's
+  // switch (nothing to rank without it) plus its own escape hatch; the
+  // rebuild is one batched eth_getLogs per 33k-block chunk every 30 min.
+  if (String(process.env.MPP_LEADERBOARD || "").toLowerCase() === "off") {
+    console.log("[mpp-leaderboard] disabled (MPP_LEADERBOARD=off)");
+  } else {
+    startMppLeaderboard({ self: tempoSelfRecipient() });
+  }
 }
 
 // Nightly offsite backup of /data (src/backup.js). No-op without the

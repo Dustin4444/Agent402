@@ -317,6 +317,31 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   PathUSD on Tempo mainnet — checked on-chain 2026-08-18, never trust the comment) plus a
   daily `mpp-tempo` leg in paid-canary. `scripts/test-mpp-tempo-shim.js` (offline, in
   CI) proves challenge wiring + settlement ordering with injected stubs.
+- **MPP index + leaderboard (`src/mpp-index.js`, `src/mpp-leaderboard.js`, 2026-08-18):** the
+  MPP counterpart of the x402 index/leaderboard. The index probe now parses each verified
+  seller's LIVE challenge with mppx's codec (`parseOffers`: method/intent, recipient,
+  currency, chainId, amount - kept from the last successful probe) - the recipient is where
+  the seller is actually PAID, read from a real 402, never the registry. The leaderboard
+  ranks verified sellers by inbound USDC.e transfers on Tempo to that recipient over the last
+  99k blocks (rpc.tempo.xyz caps eth_getLogs at 100k; ~15h; a WINDOW, said on the page):
+  ONE batched `eth_getLogs` per 33k-block chunk with every recipient in `topics[2]` (not one
+  call per seller), chunks split on RPC error down to 2k blocks, a failure that survives
+  keeps the previous board up marked stale + lastError; warm-start from
+  `/data/mpp-leaderboard-cache.json`; rebuild 30 min (first at +120s, again at +10 min).
+  Rows are keyed by recipient (a shared gateway recipient sits behind 15 registry names -
+  page shows 4 + "N more"), `tempo/session` sellers rank too, `proven` = transfers ≥
+  `SOR_TEMPO_MIN_SETTLED_TX`, `routable` = proven AND a tempo/charge offer (the router pays
+  charge only); our own Tempo payTo is a self-flagged row. Counts prime tempo-buyer's
+  proven-seller cache (`primeTempoInboundCount`) so a routed buy does not re-scan. Surfaces:
+  `/mpp-marketplace` (leaderboard section + `routable · #rank` roster badges),
+  `/api/mpp-index`, `/api/mpp-leaderboard`. Escape hatch `MPP_LEADERBOARD=off` (rides
+  `MPP_INDEX_CRAWL=off` too). Measured live 2026-08-18: 16 recipients, 8 active, 9,392
+  transfers / $62 in the window, whole build 2.5s. `scripts/test-mpp-leaderboard.js` (41
+  assertions, offline, in CI). **Router Tempo leg gates UP FRONT on the board** when it is
+  fresh (`rankTempoResources(..., { provenByRecipient })`: only `routable` recipients are
+  candidates, ties break on settled - before this the first lexical hit could be an unproven
+  seller, payTempo 409'd, and the proven one ranked second was never tried); a stale/empty
+  board gates nothing there and the pay-time gate alone decides (`test-tempo-router.js`).
 - **Boot /supported guard (`src/payments.js`, 2026-08-01 Celo facilitator outage):** a
   facilitator that is CONFIGURED but FAILING /supported never delivers its kinds to
   @x402's initialize() (which only warns), and route validation then 500s EVERY paid

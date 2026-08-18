@@ -52,6 +52,31 @@ ok(ranked.length === 1 && ranked[0].path === "/v1/scrape", "ranking matches the 
 ok(rankTempoResources(cat, "scrape", { capUsd: 0.005, excludeOrigin: "https://firecrawl.example" }).length === 0, "excludeOrigin (never route to ourselves) honoured");
 ok(rankTempoResources(cat, "", { capUsd: 1 }).length === 0, "empty task ranks nothing");
 
+// ---- up-front leaderboard gate (2026-08-18): with a fresh MPP leaderboard,
+// only recipients the chain shows routable are candidates; without one, the
+// ranker gates nothing and the pay-time gate alone decides. ----
+{
+  const R1 = "0x1111111111111111111111111111111111111111", R2 = "0x2222222222222222222222222222222222222222";
+  const snap2 = { sellers: [
+    { verified: true, serviceUrl: "https://a.example", name: "A", description: "scrape pages", offers: [{ method: "tempo", intent: "charge", recipient: R1, currency: TEMPO_USDC.toLowerCase(), chainId: 4217 }],
+      endpoints: [{ method: "GET", path: "/scrape", description: "scrape", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "1000" } }] },
+    { verified: true, serviceUrl: "https://b.example", name: "B", description: "scrape pages", offers: [{ method: "tempo", intent: "charge", recipient: R2, currency: TEMPO_USDC.toLowerCase(), chainId: 4217 }],
+      endpoints: [{ method: "GET", path: "/scrape", description: "scrape", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "1000" } }] },
+    { verified: true, serviceUrl: "https://c.example", name: "C", description: "scrape pages", offers: [],
+      endpoints: [{ method: "GET", path: "/scrape", description: "scrape", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "1000" } }] },
+  ] };
+  const cat2 = tempoCatalog(snap2);
+  ok(cat2.length === 3 && cat2.find((r) => r.origin === "https://a.example").recipient === R1 && cat2.find((r) => r.origin === "https://c.example").recipient === null, "catalog carries each resource's live tempo/charge recipient (null when the probe captured no offer)");
+  const noBoard = rankTempoResources(cat2, "scrape", { capUsd: 0.01 });
+  ok(noBoard.length === 3 && noBoard.every((r) => r.settled === 0), "no leaderboard: nothing gated up front (pay-time gate still applies), settled 0");
+  const board = new Map([[R1, { transfers: 5, routable: false }], [R2, { transfers: 4000, routable: true }]]);
+  const gated = rankTempoResources(cat2, "scrape", { capUsd: 0.01, provenByRecipient: board });
+  ok(gated.length === 1 && gated[0].origin === "https://b.example" && gated[0].settled === 4000, "fresh leaderboard: only routable recipients survive (A below floor dropped, C unknown-recipient dropped), settled attached");
+  const board2 = new Map([[R1, { transfers: 100, routable: true }], [R2, { transfers: 4000, routable: true }]]);
+  const tie = rankTempoResources(cat2, "scrape", { capUsd: 0.01, provenByRecipient: board2 });
+  ok(tie.length === 2 && tie[0].origin === "https://b.example", "equal lexical score breaks on settled desc (the more-paid seller first)");
+}
+
 // ---- stub MPP seller ----
 const RECIPIENT = "0x1111111111111111111111111111111111111111";
 let sellerMode = "ok"; let paidHits = 0; let lastAuth = null;

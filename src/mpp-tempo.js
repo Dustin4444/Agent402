@@ -75,6 +75,12 @@ function envDecimals() {
 export function tempoEnabled() {
   return !!(process.env.TEMPO_API_KEY && envRecipient());
 }
+/** Our own Tempo payTo, or null when the tempo method is not enabled - the
+ *  MPP leaderboard ranks it as "this server" (self-flagged) so we are held
+ *  to the same on-chain measure as everyone else. */
+export function tempoSelfRecipient() {
+  return tempoEnabled() && /^0x[0-9a-fA-F]{40}$/.test(envRecipient()) ? envRecipient() : null;
+}
 
 /** Discovery-surface accessor: the currency/decimals a Tempo challenge would
  *  actually use, for machine-readable metadata (x-payment-info, etc.) that

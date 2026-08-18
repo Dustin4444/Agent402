@@ -198,10 +198,39 @@ async function probeMppChallenge({ method, url }) {
     // A genuine MPP challenge rides a 401 or 402 - either is a live, healthy
     // "payment required" answer; anything else (200, 404, 5xx) is not.
     const statusOk = res.status === 401 || res.status === 402;
-    return { ok: mpp && statusOk, status: res.status, url, at: Date.now(), error: mpp ? null : "no WWW-Authenticate: Payment challenge on the probed endpoint" };
+    const offers = mpp ? await parseOffers(challenge) : [];
+    return { ok: mpp && statusOk, status: res.status, url, at: Date.now(), offers, error: mpp ? null : "no WWW-Authenticate: Payment challenge on the probed endpoint" };
   } catch (e) {
-    return { ok: false, status: 0, url, at: Date.now(), error: String(e?.message || e).slice(0, 160) };
+    return { ok: false, status: 0, url, at: Date.now(), offers: [], error: String(e?.message || e).slice(0, 160) };
   }
+}
+
+/** The payment methods a live challenge actually offers - method/intent,
+ *  recipient, currency, chain, quoted amount - parsed with mppx's own codec
+ *  (never a hand-rolled header parser; the wire shape is mppx's, see
+ *  src/mpp-tempo.js). This is what turns "verified" into rankable: the
+ *  tempo/charge recipient is the address the seller is PAID at, and inbound
+ *  transfers to it on Tempo are the on-chain settlement signal
+ *  (src/mpp-leaderboard.js). Never throws; an unparseable header yields []
+ *  and the seller stays verified on the raw-prefix check above - a leaderboard
+ *  gap must not demote a listing. Exported for tests. */
+export async function parseOffers(wwwAuth) {
+  try {
+    const { Challenge } = await import("mppx");
+    const list = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": String(wwwAuth) }));
+    return list.map((c) => {
+      const r = c?.request || {};
+      const recipient = typeof r.recipient === "string" && /^0x[0-9a-fA-F]{40}$/.test(r.recipient) ? r.recipient.toLowerCase() : null;
+      const chainId = r.methodDetails?.chainId;
+      return {
+        method: String(c?.method || ""), intent: String(c?.intent || ""),
+        recipient,
+        currency: typeof r.currency === "string" ? r.currency.toLowerCase() : null,
+        chainId: Number.isFinite(Number(chainId)) ? Number(chainId) : null,
+        amount: typeof r.amount === "string" || typeof r.amount === "number" ? String(r.amount) : null,
+      };
+    }).slice(0, 8);
+  } catch { return []; }
 }
 
 const HEALTH_WINDOW = 5;
@@ -230,6 +259,10 @@ export async function verifyMppSeller(origin) {
     provider: svc?.provider || null,
     endpoints: Array.isArray(svc?.endpoints) ? svc.endpoints : [],
     probedUrl: target.url,
+    // Live-observed payment offers (see parseOffers). Kept from the last
+    // SUCCESSFUL probe so a transient probe failure does not blank the
+    // recipient the leaderboard ranks on.
+    offers: result.ok ? (result.offers || []) : (prior?.offers || []),
     verified: result.ok,
     verifiedAt: result.ok ? result.at : (prior?.verified ? prior.verifiedAt : null),
     lastProbeAt: result.at,
