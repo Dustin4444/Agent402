@@ -3912,7 +3912,21 @@ if (!FREE_MODE) {
   // x402mw dispatcher, so replay-guard.js (EIP-3009-nonce-specific) never
   // sees a Tempo credential at all.
   const tempoReplayGuard = createReplayGuard();
-  const tempoGate = createTempoGate({ replayGuard: tempoReplayGuard });
+  // Binding inputs (2026-08-18): the SAME secret + realm + priceFor the
+  // appender mints with, so the gate can prove "we minted this challenge for
+  // at least this route's price" before a single relay call. Without them
+  // createTempoGate refuses to mount (fail closed).
+  const tempoGate = createTempoGate({
+    replayGuard: tempoReplayGuard,
+    secretKey: process.env.MPP_SECRET_KEY || "",
+    realm: new URL(BASE_URL).host,
+    priceFor: (method, path) => {
+      const def = CATALOG[`${method} ${path}`];
+      if (!def) return null;
+      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      return priceUsd ? { priceUsd } : null;
+    },
+  });
   if (tempoGate) {
     app.use(tempoGate);
     console.log("Tempo MPP settlement enabled (native tempo/charge via Tempo's relay)");

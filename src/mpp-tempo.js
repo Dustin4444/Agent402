@@ -203,6 +203,10 @@ function tempoMethod() {
  *  already uses (one HMAC secret, not a second one to provision). */
 export function mintTempoChallenge({ priceUsd, description, realm, secretKey, timeoutSeconds = 300 }) {
   if (!tempoEnabled()) return null;
+  // No secret, no challenge: an HMAC over an empty key is a challenge anyone
+  // can mint, and the inbound gate (checkTempoCredentialBinding) would then
+  // have nothing to verify against. Same rollout switch as the evm shim.
+  if (!secretKey) return null;
   const amount = Number(priceUsd);
   if (!Number.isFinite(amount) || amount <= 0) return null;
   const decimals = envDecimals();
@@ -266,8 +270,60 @@ export function isTempoCredential(authorizationHeader) {
   }
 }
 
-/** Non-mutating check (HMAC binding, expiry, credential shape, relay
- *  pre-validation). Never broadcasts, never moves money. */
+/** INBOUND BINDING - the check mppx's own docs say the host must perform
+ *  ("validateCredential does not prove that the challenge was issued by a
+ *  particular server; hosts that issue challenges must verify that binding
+ *  separately") and that mppx's reference server performs before anything
+ *  else. Before 2026-08-18 the Tempo gate did NOT: it handed the CLIENT-ECHOED
+ *  challenge straight to Method.validateCredential / broadcastCredential, and
+ *  with the relay configured those forward {challenge, payload} verbatim - the
+ *  relay can only check that the signed transaction matches the challenge's
+ *  OWN amount/recipient, never that WE minted it. So a buyer could forge a
+ *  challenge for 1 base unit to any recipient (including themselves), sign a
+ *  matching Tempo transaction, and be served any paid route for ~$0
+ *  (found by the 2026-08-18 security review). Every one of these must hold:
+ *    - Challenge.verify against MPP_SECRET_KEY (we minted this id),
+ *    - realm is ours, expires is in the future,
+ *    - request.currency is one we offer, request.recipient is our payTo,
+ *      methodDetails.chainId is Tempo mainnet,
+ *    - request.amount (base units) >= this ROUTE's price - a legitimately
+ *      minted $0.001 challenge must not buy a $0.50 route (challenges are not
+ *      path-bound on the wire, so the price is the binding),
+ *    - the route HAS a price (a tempo credential buys nothing on a free route).
+ *  Pure, synchronous, never throws. Exported for tests. */
+export function checkTempoCredentialBinding(authorizationHeader, { secretKey, realm, priceFor, method, path, now = Date.now() } = {}) {
+  const bad = (reason) => ({ ok: false, reason });
+  let credential;
+  try { credential = Credential.deserialize(authorizationHeader); } catch { return bad("credential does not deserialize"); }
+  const ch = credential?.challenge;
+  if (!ch || ch.method !== "tempo" || (ch.intent || "charge") !== "charge") return bad("not a tempo/charge challenge");
+  if (!secretKey) return bad("server has no MPP_SECRET_KEY - cannot verify the challenge binding");
+  let verified = false;
+  try { verified = Challenge.verify(ch, { secretKey }); } catch { verified = false; }
+  if (!verified) return bad("challenge id does not HMAC-verify - not minted by this server");
+  if (realm && ch.realm !== realm) return bad(`challenge realm ${JSON.stringify(ch.realm)} is not ours`);
+  const exp = Date.parse(ch.expires);
+  if (!Number.isFinite(exp) || exp <= now) return bad("challenge expired");
+  const r = ch.request || {};
+  const currencies = envCurrencies().map((c) => c.toLowerCase());
+  if (!currencies.includes(String(r.currency || "").toLowerCase())) return bad("challenge currency is not one this server offers");
+  if (String(r.recipient || "").toLowerCase() !== String(envRecipient()).toLowerCase()) return bad("challenge recipient is not this server's payTo");
+  const chainId = Number(r.methodDetails?.chainId ?? r.chainId);
+  if (chainId !== TEMPO_MAINNET_CHAIN_ID) return bad(`challenge chainId ${chainId} is not Tempo mainnet`);
+  const item = typeof priceFor === "function" ? priceFor(method, path) : null;
+  const priceUsd = Number(item?.priceUsd);
+  if (!(priceUsd > 0)) return bad("route has no price - a tempo credential buys nothing here");
+  const expected = BigInt(Math.round(priceUsd * 10 ** envDecimals()));
+  let amount;
+  try { amount = BigInt(String(r.amount)); } catch { return bad("challenge amount is not an integer base-units string"); }
+  if (amount < expected) return bad(`challenge amount ${amount} is below this route's price ${expected}`);
+  return { ok: true, challenge: ch, amountAtomic: amount, expectedAtomic: expected };
+}
+
+/** Non-mutating check (credential shape, relay pre-validation). The HMAC /
+ *  route binding is checkTempoCredentialBinding above - this only asks the
+ *  relay whether the signed transaction is valid FOR THE CHALLENGE IT CARRIES,
+ *  which is necessary but never sufficient. Never broadcasts, never moves money. */
 export async function validateTempoCredential(authorizationHeader) {
   try {
     const [validation] = await withRelayTrace(() => Method.validateCredential([tempoMethod()], authorizationHeader));
@@ -384,11 +440,28 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
  *  free handler executions before Tempo's relay rejects the (N-1) duplicate
  *  broadcasts at settlement time — the same "Five Attacks on x402" Attack II
  *  class replay-guard.js documents, just unguarded on this second path. */
-export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, replayGuard } = {}) {
+export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, replayGuard, secretKey, realm, priceFor } = {}) {
   if (!tempoEnabled()) return null;
+  // Fail CLOSED on the binding inputs: a gate that cannot verify "we minted
+  // this challenge for this price" must not exist, because its existence is
+  // what lets a tempo credential bypass the whole x402/PoW dispatcher.
+  if (!secretKey || typeof priceFor !== "function") {
+    console.error("[mpp-tempo] REFUSING to mount the Tempo gate: secretKey (MPP_SECRET_KEY) and priceFor are required to bind credentials to minted challenges and route prices");
+    return null;
+  }
   return function tempoGate(req, res, next) {
     const auth = req.headers.authorization;
     if (!isTempoCredential(auth)) return next();
+
+    // Binding FIRST, before any relay round trip: is this a challenge we
+    // minted, unexpired, for our payTo, in a currency we offer, on Tempo
+    // mainnet, for at least this route's price? Anything else falls through
+    // to a fresh 402 exactly like an invalid evm credential.
+    const binding = checkTempoCredentialBinding(auth, { secretKey, realm, priceFor, method: req.method, path: req.path });
+    if (!binding.ok) {
+      console.warn(`[mpp-tempo] credential rejected before validate(): ${binding.reason}`);
+      return next();
+    }
 
     const t0 = Date.now();
     validate(auth).then(async (v) => {
