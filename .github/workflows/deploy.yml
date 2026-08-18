@@ -1285,6 +1285,9 @@ jobs:
       - name: Agentic Finance glossary (one DefinedTermSet, anchors unique, category term aliased, explainer bodies link it, post + sitemap + llms - offline)
         run: node scripts/test-glossary.js
 
+      - name: Surface copy gate (every package, README, wiki page, connector string and machine surface names Agentic Finance + both wires - offline)
+        run: node scripts/test-surface-copy.js
+
       - name: MPP leaderboard (live-offer recipients via mppx codec, one batched Tempo getLogs per chunk, grouping/ranking/priming, split-on-error + stale-keeps-previous, page badges - offline)
         run: node scripts/test-mpp-leaderboard.js
 

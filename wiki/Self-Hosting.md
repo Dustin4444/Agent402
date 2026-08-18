@@ -1,5 +1,7 @@
 # Self-Hosting
 
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+
 Run Agent402 on your own infrastructure for full control over pricing, data, rate limits, and uptime.
 
 ## Why self-host

@@ -6,7 +6,9 @@ in USDC over the [x402 protocol](https://x402.org), over
 [MPP](https://mpp.dev) (the Machine Payments Protocol `Payment` HTTP auth
 scheme, settled through the same stack), or for free by solving a
 proof-of-work. No Cloudflare, no Stripe, no Merchant-of-Record, no signup.
-The first self-hostable pay-per-crawl gate that speaks both wires on one 402.
+The first self-hostable pay-per-crawl gate that speaks both wires on one 402 -
+the sell side of [Agentic Finance (AIFI)](https://agent402.tools/agentic-finance),
+where agents pay and sites get paid, per request, with no account in between.
 
 The big platforms are converging on the same model: Cloudflare's
 [pay-per-crawl](https://stackoverflow.blog/2026/02/26/how-pay-per-crawl-is-reshaping-data-monetization/)

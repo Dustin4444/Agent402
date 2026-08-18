@@ -1,5 +1,7 @@
 # FAQ
 
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+
 **Do I need an account or API key?**
 No. Nothing here has a signup. Payment (USDC or proof-of-work) is the only credential, per call.
 

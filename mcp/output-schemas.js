@@ -99,7 +99,7 @@ export const FLAGSHIP_WRITERS = new Set(["memory-write"]);
 
 /** initialize.serverInfo description (MCP Implementation.description). */
 export const MCP_SERVER_DESCRIPTION =
-  "Deterministic pay-per-call tools for AI agents: live web search and cited answers, news, browser render, market data, speech-to-text, wallet-keyed memory, plus 500+ long-tail tools via catalog.find. Settle in USDC via x402 or free via proof-of-work. Maintained by Havok Holdings LLC.";
+  "Agentic Finance (AIFI) applied layer - deterministic pay-per-call tools for AI agents: live web search and cited answers, news, browser render, market data, speech-to-text, wallet-keyed memory, plus 500+ long-tail tools via catalog.find. Settle in USDC via x402 or MPP (Machine Payments Protocol) on the same 402, or free via proof-of-work. Maintained by Havok Holdings LLC.";
 
 /** initialize.serverInfo.websiteUrl */
 export const MCP_SERVER_WEBSITE = "https://agent402.tools";
@@ -507,7 +507,7 @@ export function mcpInitializeInstructions(baseUrl) {
   const install = mcpInstallHints(baseUrl);
   const hosted = install.hostedUrl;
   return [
-    "Agent402 is a deterministic tools layer for AI agents (Havok Holdings LLC).",
+    "Agent402 is a deterministic tools layer for AI agents (Havok Holdings LLC) - the applied layer of Agentic Finance (AIFI): agents that pay and get paid per request over x402 or MPP, or free via proof-of-work.",
     "Front door: call web.search or web.answer for live web search and cited answers.",
     "Also listed: web.news, browser.render, market.quote, audio.transcribe, memory.read, memory.write.",
     "Long catalog (500+ tools): call catalog.find with your task, or catalog.search then catalog.call.",

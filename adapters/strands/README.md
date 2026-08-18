@@ -6,6 +6,8 @@ Strands `tool({...})` instances your agent can invoke. Payment is handled
 underneath: proof-of-work for the free tier (no wallet), x402 + USDC on Base,
 Solana, Polygon, or Arbitrum for wallet-only tools.
 
+> **Agent402 is the applied layer of [Agentic Finance (AIFI)](https://agent402.tools/agentic-finance)** - agents that pay and get paid on their own over the two open wires, [x402](https://agent402.tools/what-is-x402) and [MPP](https://agent402.tools/what-is-mpp) (Machine Payments Protocol). Every paid endpoint answers both on the same 402; wallet-only tools take any payment-wrapped fetch (`@x402/fetch`, or a stock `mppx` fetch).
+
 Built for **AWS Bedrock AgentCore Payments**. AgentCore orchestrates payments
 over the [x402 protocol](https://x402.org); Agent402 is an x402-native server.
 This adapter is the glue that drops the Agent402 catalog into a Strands agent

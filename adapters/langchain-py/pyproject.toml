@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "agent402-langchain"
-version = "0.1.1"
-description = "Turn Agent402's catalog - 500+ strong: 400+ x402 pay-per-call tools + 100+ skill packs - into LangChain and CrewAI tools for Python agents. Free tier via proof-of-work - no wallet, no API keys."
+version = "0.1.2"
+description = "Agentic Finance (AIFI): turn Agent402's catalog - 500+ strong: 400+ pay-per-call tools (x402 or MPP) + 100+ skill packs - into LangChain and CrewAI tools for Python agents. Free tier via proof-of-work - no wallet, no API keys."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 authors = [{ name = "Havok Holdings LLC", email = "mike@agent402.tools" }]
-keywords = ["langchain", "crewai", "x402", "agent", "tools", "mcp", "agent402", "ai-agents"]
+keywords = ["langchain", "crewai", "x402", "mpp", "agentic-finance", "aifi", "agent", "tools", "mcp", "agent402", "ai-agents"]
 dependencies = ["requests>=2.25"]
 
 [project.optional-dependencies]
