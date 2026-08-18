@@ -75,6 +75,9 @@ export function routeExecuteHint(underlyingUsd) {
 // Used to CHAIN-MATCH external routing (pay the seller on the chain the buyer paid us on). Never throws.
 export function buyerPaymentNetwork(req) {
   try {
+    // An MPP/tempo credential is validated by the tempo gate (src/mpp-tempo.js)
+    // and carries no x402 header at all; the gate marks the request instead.
+    if (req?.mppTempoCredential) return "eip155:4217";
     const header = paymentHeaderOf(req);   // the header settlement reads — see src/payer.js
     if (!header) return null;
     const p = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
@@ -143,7 +146,22 @@ function dispatchable(def) {
 export const EXTERNAL_CHAIN_BY_NETWORK = {
   "eip155:8453": "base",
   "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=": "algorand",
+  // MPP/tempo buyers (Authorization: Payment, tempo/charge) fund the Tempo
+  // spending wallet, which pays MPP sellers on Tempo (src/tempo-buyer.js).
+  "eip155:4217": "tempo",
 };
+// Which external chains a buyer on `payNet` may be routed to, in order. The
+// buyer's own chain first (self-funding). Base buyers may ALSO fall through
+// to Tempo/MPP sellers when the operator opts in (SOR_TEMPO_FROM_BASE=true):
+// that spends the Tempo wallet against Base revenue, so it is a treasury
+// float decision, not a default.
+export function externalChainsFor(payNet, supported, { tempoFromBase = process.env.SOR_TEMPO_FROM_BASE === "true" } = {}) {
+  const own = EXTERNAL_CHAIN_BY_NETWORK[payNet];
+  const chains = [];
+  if (own && supported.includes(own)) chains.push(own);
+  if (own === "base" && tempoFromBase && supported.includes("tempo")) chains.push("tempo");
+  return chains;
+}
 const EXTERNAL_CHAIN_CAIP2 = Object.fromEntries(Object.entries(EXTERNAL_CHAIN_BY_NETWORK).map(([k, v]) => [v, k]));
 
 export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TIERS[0], resolveExternal = null, payExternal = null, externalEnabled = () => false, externalChains = () => ["base"] }) {
@@ -157,7 +175,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
     category: "agent",
     price: `$${EXEC_PRICE_USD}`,
     description:
-      `Describe a task (or name a slug) and the Smart Order Router resolves the best-matching tool and RUNS it in the same call - flat $${EXEC_PRICE_USD} covering any tool listed at $${UNDERLYING_MAX_USD} or less, from THIS host's catalog or any external x402 seller in the open index (paid over x402 on your behalf, result relayed). One payment, one request, result + receipt. /api/route quotes which tier a task needs; pricier tools return a self-correcting 409 with their direct route.`,
+      `Describe a task (or name a slug) and the Smart Order Router resolves the best-matching tool and RUNS it in the same call - flat $${EXEC_PRICE_USD} covering any tool listed at $${UNDERLYING_MAX_USD} or less, from THIS host's catalog or any external seller in the open index - x402 sellers, or MPP sellers on Tempo (paid on your behalf over x402 or MPP, result relayed). One payment, one request, result + receipt. /api/route quotes which tier a task needs; pricier tools return a self-correcting 409 with their direct route.`,
     // Tags are the discoverability surface: a tag hit scores +3 in the ranker
     // (vs +1 for a description substring), and an audit on 2026-07-28 found
     // the natural phrasings agents actually use - "buy a tool from another
@@ -237,21 +255,28 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           // external can't run there without a wallet anyway.
           const supported = externalChains();
           const payNet = buyerPaymentNetwork(req);
-          const hasPayment = !!paymentHeaderOf(req);
-          const chain = hasPayment ? EXTERNAL_CHAIN_BY_NETWORK[payNet] : "base";
-          if (!chain || !supported.includes(chain)) {
+          const hasPayment = !!paymentHeaderOf(req) || !!req?.mppTempoCredential;
+          const chains = hasPayment ? externalChainsFor(payNet, supported) : (supported.includes("base") ? ["base"] : []);
+          if (!chains.length) {
             const offer = supported.map((c) => `${c} (${EXTERNAL_CHAIN_CAIP2[c]})`).join(" or ");
             throw bad(`External routing settles on ${offer} - this request paid on ${payNet || "an unreadable network"}. Pay on a supported chain for include:"external", or use internal routing (works on every chain).`, 409);
           }
+          // First chain that resolves a candidate wins: the buyer's own chain,
+          // then (opt-in) Tempo/MPP sellers for Base buyers.
+          let ext = null; let chain = chains[0];
+          for (const c of chains) {
+            const found = await resolveExternal(input.task, { cap, baseUrl, chain: c });
+            if (found) { ext = found; chain = c; break; }
+          }
           const chainCaip2 = EXTERNAL_CHAIN_CAIP2[chain];
-          const ext = await resolveExternal(input.task, { cap, baseUrl, chain });
-          if (!ext) throw bad(`No external x402 seller matched that task${chain !== "base" ? ` on ${chain}` : ""}. Explore /api/route?q=<task>&include=external.`, 404);
+          if (!ext) throw bad(`No external ${chains.includes("tempo") && chains.length > 1 ? "x402 or MPP" : chains[0] === "tempo" ? "MPP" : "x402"} seller matched that task${chains[0] !== "base" || chains.length > 1 ? ` on ${chains.join("/")}` : ""}. Explore /api/route?q=<task>&include=external.`, 404);
           const extUsd = toUsd(ext.price);
           if (!(extUsd > 0 && extUsd <= cap)) {
             const up = routeExecuteHint(extUsd);
             throw bad(`Best external match "${ext.slug}" is ${ext.price} - over this tier's $${cap} cap.${up && up.tool !== tier.slug ? ` Use ${up.tool} (${up.price}).` : " No tier covers that price - call the seller directly."}`, 409);
           }
           if (!(ext.url && Array.isArray(ext.networks) && ext.networks.includes(chainCaip2))) throw bad(`External seller "${ext.seller}" does not offer ${chain} settlement - cannot pay it from the ${chain} spending wallet.`, 409);
+          const extWire = ext.wire || "x402";
           // GET sellers take their input as query params — an HTTP GET cannot
           // carry a body (undici refuses it outright). Only primitives can ride
           // a query string; a nested param against a GET seller is the caller's
@@ -318,6 +343,7 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
               external: true,
               settleTx: paid.receipt?.transaction || null,
               settleNetwork: chainCaip2,
+              wire: extWire,
               resolvedBy: "task-external",
               ts,
               ...(callRefFrom(req, ext.slug, ts) ? { callRef: callRefFrom(req, ext.slug, ts) } : {}),

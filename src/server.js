@@ -198,6 +198,7 @@ import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
 import { payX402, avmBuyerConfigured, avmBuyerStatus } from "./x402-buyer.js";
+import { payTempo, tempoBuyerConfigured, tempoBuyerStatus } from "./tempo-buyer.js";
 import { issueChallenge, verifySolution, isComputePayable, powInfo, POW_DIFFICULTY, WALLET_ONLY_SLUGS, verifyHeartbeatToken } from "./pow.js";
 import { createLimiter as createRateLimiter, LIMITS_LABEL as POW_LIMITS_LABEL } from "./rate-limit.js";
 import { sweepStaleTsMap, makeWindowCounter } from "./rate-sweep.js";
@@ -779,7 +780,21 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
   const ourHost = (() => { try { return new URL(BASE_URL).host.toLowerCase(); } catch { return ""; } })();
   const hostOf = (u) => { try { return new URL(u).host.toLowerCase(); } catch { return ""; } };
   let candidates;
-  if (chain === "algorand") {
+  if (chain === "tempo") {
+    // MPP sellers on Tempo come from OUR OWN live-verified MPP index (the
+    // mpp.dev registry, independently probed) - src/tempo-sellers.js. Proven-
+    // ness (recent inbound USDC.e on-chain to the challenge's recipient) is
+    // enforced at pay time by tempo-buyer.js, since the recipient is only
+    // known from the live 402.
+    const { tempoCatalog, rankTempoResources } = await import("./tempo-sellers.js");
+    const ourOrigin = (() => { try { return new URL(BASE_URL).origin.toLowerCase(); } catch { return ""; } })();
+    candidates = rankTempoResources(tempoCatalog(), task, { capUsd: cap, excludeOrigin: ourOrigin })
+      .slice(0, 5)
+      .map((r) => ({
+        seller: r.origin, slug: r.path.replace(/^\//, ""), url: r.url, method: r.method,
+        price: `$${r.priceUsd}`, priceUsd: r.priceUsd, networks: r.networks, wire: "mpp",
+      }));
+  } else if (chain === "algorand") {
     // Algorand sellers live in the GoPlausible facilitator catalog, not our
     // Base-centric index — discovery AND proven-ness both come from there
     // (src/algorand-sellers.js). Same shape out: url/method/price/networks.
@@ -899,11 +914,12 @@ for (const tier of EXEC_TIERS) {
   const tool = buildRouteExecuteTool({
     getCatalog: () => CATALOG, baseUrl: BASE_URL, tier,
     resolveExternal: resolveExternalSeller,
-    payExternal: (url, opts) => payX402(url, opts),
+    payExternal: (url, opts) => (opts?.chain === "tempo" ? payTempo(url, opts) : payX402(url, opts)),
     externalEnabled: () => SOR_EXTERNAL_ENABLED,
     // Chains external routing can SETTLE on: Base always (the proven path);
-    // Algorand only once the dedicated AVM spending wallet is configured.
-    externalChains: () => (avmBuyerConfigured() ? ["base", "algorand"] : ["base"]),
+    // Algorand only once the dedicated AVM spending wallet is configured;
+    // Tempo (MPP sellers) only once the dedicated Tempo spending wallet is.
+    externalChains: () => ["base", ...(avmBuyerConfigured() ? ["algorand"] : []), ...(tempoBuyerConfigured() ? ["tempo"] : [])],
   });
   if (CATALOG[tool.route]) throw new Error(`Duplicate route: ${tool.route}`);
   CATALOG[tool.route] = tool;
@@ -1298,8 +1314,8 @@ app.get("/api/gateway-status", async (_req, res) => {
   // Top-level fields stay the OpenRouter gateway status (heartbeat reads
   // .status); upstreamBuyer adds the x402 spending wallet's bucketed status
   // (blockscout-kit) — same alarm pattern, same numbers-never-leave rule.
-  const [gateway, upstreamBuyer, upstreamBuyerAvm] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus()]);
-  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm });
+  const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo] = await Promise.all([gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus()]);
+  res.set("Cache-Control", "public, max-age=60").json({ ...gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo });
 });
 // Static SAMPLE A2A Agent Card — the self-answering example target for the
 // a2a-card-fetch tool. Explicitly a sample (fictional weather agent), NOT an
@@ -1539,10 +1555,10 @@ app.get("/sitemap-skills.xml", (_req, res) => { res.setHeader("Cache-Control", "
 // indexed read over one small local table.
 async function statusLive() {
   try {
-    const [gateway, upstreamBuyer, upstreamBuyerAvm] = await Promise.all([
-      gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(),
+    const [gateway, upstreamBuyer, upstreamBuyerAvm, upstreamBuyerTempo] = await Promise.all([
+      gatewayCreditsStatus(), upstreamBuyerStatus(), avmBuyerStatus(), tempoBuyerStatus(),
     ]);
-    return { gateway: gateway?.status || null, upstreamBuyer: upstreamBuyer?.status || null, upstreamBuyerAvm: upstreamBuyerAvm?.status || null };
+    return { gateway: gateway?.status || null, upstreamBuyer: upstreamBuyer?.status || null, upstreamBuyerAvm: upstreamBuyerAvm?.status || null, upstreamBuyerTempo: upstreamBuyerTempo?.status || null };
   } catch { return {}; }
 }
 app.get("/status", async (_req, res) => {

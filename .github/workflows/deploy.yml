@@ -1158,6 +1158,12 @@ jobs:
       - name: "Tollbooth x402 middleware mode + MPP (real @x402/express settles after the handler; real mppx client buys over the MPP wire; stub facilitator — offline)"
         run: node scripts/test-tollbooth-mpp.js
 
+      - name: "SOR external leg for MPP sellers on Tempo (catalog from the verified MPP index, asset pin, live-quote cap, proven-seller gate fail-closed, chain mapping — offline)"
+        run: node scripts/test-tempo-router.js
+
+      - name: "agent402-client pays over MPP (real mppx fetch as the SDK's fetch; real server + stub facilitator — offline)"
+        run: node scripts/test-client-mpp.js
+
       - name: HEAD paywall bypass closed (HEAD on paid GET routes 402s with challenges + empty body; free surfaces untouched — offline)
         run: node scripts/test-head-paywall.js
 

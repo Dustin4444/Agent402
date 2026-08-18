@@ -33,7 +33,11 @@ console.log(`buyer: ${account.address}`);
 const secret = (process.env.POW_SECRET || "").trim();
 if (!secret) console.warn("WARN  POW_SECRET not set — this buy will record as EXTERNAL demand in the sales ledger");
 
-const mppxClient = Mppx.create({ methods: [tempo.charge({ account })] });
+// autoSwap: the burner is funded in PathUSD; if prod's first tempo challenge
+// quotes USDC.e (the ecosystem's currency - see TEMPO_CURRENCY in mpp-tempo.js),
+// mppx swaps on Tempo's stablecoin DEX in the same signed transaction. A no-op
+// while the challenge currency matches the balance.
+const mppxClient = Mppx.create({ methods: [tempo.charge({ account, autoSwap: true })] });
 
 let sawChallenge = false;
 let sawCredential = false;
