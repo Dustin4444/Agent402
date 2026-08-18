@@ -87,5 +87,20 @@ ok(!d.ok, "200-rejected: still rejected (mppx sees success:false)");
 ok(/relay \/v1\/mpp\/validate HTTP 200 /.test(d.error), `200-rejected: a 2xx success:false body is captured too (got: ${d.error.slice(0, 100)})`);
 ok(/no matching payment call found \(realm delta\.test\)/.test(d.error), "200-rejected: the relay's human-readable reason (message) survives — the field mppx drops");
 
+// Scenario 3: the relay never answers — it accepts the connection and then
+// destroys the socket (what a relay-side deadline looks like from here).
+// mppx throws the same bare failure(); the log must say NETWORK ERROR with
+// elapsed time, not "no relay verdict" as if nothing was ever attempted.
+// Measured live 2026-08-18: a 21,816ms broadcast that ended this way.
+const dead = createServer((req) => { req.on("data", () => {}); req.on("end", () => setTimeout(() => req.socket.destroy(), 30)); });
+await new Promise((r) => dead.listen(0, r));
+process.env.TEMPO_API_BASE_URL = `http://127.0.0.1:${dead.address().port}`;
+const { __testResetMethodCache } = await import("../src/mpp-tempo.js");
+__testResetMethodCache();
+const e = await validateTempoCredential(credentialFor("epsilon.test"));
+dead.close();
+ok(!e.ok, "socket-destroyed: rejected");
+ok(/relay \/v1\/mpp\/validate NETWORK ERROR after \d+ms/.test(e.error), `socket-destroyed: the failure is labelled a NETWORK ERROR with elapsed ms, not a missing verdict (got: ${e.error.slice(0, 120)})`);
+
 console.log(`\nAll ${pass} assertions passed`);
 process.exit(0);

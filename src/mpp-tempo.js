@@ -90,8 +90,24 @@ export function tempoDiscoveryInfo() {
 // probe (same information, one relay round trip instead of two).
 const relayTrace = new AsyncLocalStorage();
 async function relayFetch(input, init) {
-  const res = await globalThis.fetch(input, init);
   const store = relayTrace.getStore();
+  const started = Date.now();
+  let res;
+  try {
+    res = await globalThis.fetch(input, init);
+  } catch (e) {
+    // The fetch itself failed — no HTTP verdict at all (socket closed by the
+    // relay, reset, DNS, abort). mppx reports this as the same bare "Payment
+    // verification failed" as a business rejection; the elapsed time is the
+    // tell (a relay-side deadline closes the socket after a fixed wait).
+    // Measured live 2026-08-18: broadcast=21816ms then this path.
+    if (store) {
+      let path = "";
+      try { path = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url).pathname; } catch { /* unlabelled */ }
+      store.relayError = `relay ${path || "?"} NETWORK ERROR after ${Date.now() - started}ms: ${String(e?.cause?.code || e?.cause?.message || e?.message || e).slice(0, 160)}`;
+    }
+    throw e;
+  }
   if (!store) return res;
   let body = "";
   try { body = (await res.clone().text()).replace(/\s+/g, " ").slice(0, 400); } catch { body = "(unreadable body)"; }
