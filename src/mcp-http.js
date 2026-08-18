@@ -505,7 +505,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             service: baseUrl,
             connector: "hosted free tier (authless)",
             maintainer: "Havok Holdings LLC",
-            positioning: `Agent402 is the applied layer of Agentic Finance (AIFI): software agents that pay and get paid on their own, per request, over the two open wires - x402 and MPP (Machine Payments Protocol) - both answered on the same 402. Definition + glossary: ${baseUrl}/agentic-finance, ${baseUrl}/glossary.`,
+            positioning: `Agent402 is the applied layer of Agentic Finance: software agents that pay and get paid on their own, per request, over the two open wires - x402 and MPP (Machine Payments Protocol) - both answered on the same 402. Definition + glossary: ${baseUrl}/agentic-finance, ${baseUrl}/glossary.`,
             // Flagship-first positioning: tools layer beside LLM gateways,
             // search/answer as the default job, evergreen 500+ catalog.
             startHere: {

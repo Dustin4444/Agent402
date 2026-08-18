@@ -1,6 +1,6 @@
 # Memory and Coordination
 
-> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
 The retention product. Agent sessions are ephemeral - the container is gone an hour later. `/api/memory` is durable state where **the paying wallet is the identity**: no API key to store, leak, or rotate. Write from one machine today, read from another next week, with nothing but the same private key.
 

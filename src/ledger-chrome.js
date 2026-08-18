@@ -420,7 +420,7 @@ function marketPanelNav(chainInfo) {
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">BY CHAIN</span>
                 ${rows}
                 <a href="/marketplace/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">every tool indexed</span><span style="color:var(--faint);">ours + third-party</span></a>
-                <a href="/agentic-finance" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">agentic finance (AIFI)</span><span style="color:var(--faint);">the big picture</span></a>
+                <a href="/agentic-finance" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">agentic finance</span><span style="color:var(--faint);">the big picture</span></a>
                 <a href="/what-is-x402" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--hairline);"><span style="font-weight:700;">what is x402?</span><span style="color:var(--faint);">start here</span></a>
                 <a href="/marketplace" style="display:flex;justify-content:space-between;gap:12px;padding:11px 16px;text-decoration:none;background:var(--surface);color:var(--on-dark);"><span style="font-weight:700;">the full directory →</span><span style="color:var(--dk-muted);">/marketplace</span></a>
               </span>
@@ -541,7 +541,7 @@ function mobileMenuHtml(chainInfo, activePath) {
     </div>
     <div class="ml-mm-h">More</div>
     <div class="ml-mm-group">
-      ${mmLink("/agentic-finance", "agentic finance (AIFI)", activePath === "/agentic-finance")}
+      ${mmLink("/agentic-finance", "agentic finance", activePath === "/agentic-finance")}
       ${mmLink("/glossary", "glossary", activePath === "/glossary")}
       ${mmLink("/what-is-x402", "what is x402 / MPP", activePath === "/what-is-x402")}
       ${mmLink("/docs", "docs", activePath === "/docs")}

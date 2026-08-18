@@ -513,7 +513,7 @@ export function faqPage(baseUrl) {
   <section>
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:10px;">FAQ</div>
   <h1 style="font-family:var(--font-body);font-weight:800;font-size:42px;line-height:.96;letter-spacing:-.03em;margin-bottom:14px;">Frequently asked questions</h1>
-  <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:32px;">Agent402 is the open-source, self-hostable applied layer of Agentic Finance (AIFI) for x402 and MPP (+ MCP server): an open cross-seller Index, Smart Order Router, on-chain leaderboard and MPP marketplace, built on pay-per-call web tools for AI agents - free via proof-of-work, or paid in ${RAILS_AMP} over x402, or over MPP (Base/Celo USDC, native Tempo).</p>
+  <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;margin-bottom:32px;">Agent402 is the open-source, self-hostable applied layer of Agentic Finance for x402 and MPP (+ MCP server): an open cross-seller Index, Smart Order Router, on-chain leaderboard and MPP marketplace, built on pay-per-call web tools for AI agents - free via proof-of-work, or paid in ${RAILS_AMP} over x402, or over MPP (Base/Celo USDC, native Tempo).</p>
   </section>
   <section>
   ${items}
@@ -712,13 +712,13 @@ export function openapiSpec(baseUrl, catalog) {
       // The title/description here are what x402scan, MPPScan and every
       // OpenAPI-reading directory display as OUR NAME - keep them aligned with
       // the homepage: both wires (x402 + MPP), not "x402 server".
-      title: "Agent402 - Agentic Finance (AIFI) applied layer: 500+ pay-per-call tools for AI agents over x402 + MPP",
+      title: "Agent402.Tools - 500+ pay-per-call tools for AI agents over x402 + MPP",
       version: "2.0.0",
       description:
         // Template literal, not a plain string: this is the spec description
         // every crawler and directory reads, and as a quoted string it shipped
         // a literal ${RAILS_OR} to production.
-        `The open-source, self-hostable applied layer of Agentic Finance (AIFI) - agents paying and getting paid over x402 and MPP: 500+ machine-payable web tools for AI agents in one place (browser, search, PDFs, images, live data, payment helpers) - the whole catalog is open and runnable yourself. Every endpoint is paid per call in ${RAILS_OR} over x402, or over MPP (Machine Payments Protocol: USDC on Base/Celo, or PathUSD natively on Tempo) - no signup, no API keys - the first request returns HTTP 402 carrying both offers, an x402 or mppx client pays and retries - or free with proof-of-work. Also the open x402 index, Smart Order Router and MPP marketplace. Free discovery: GET /api/pricing, GET /llms.txt. Multi-tool workflows: GET /api/skill-packs.json.`,
+        `The open-source, self-hostable applied layer of Agentic Finance - agents paying and getting paid over x402 and MPP: 500+ machine-payable web tools for AI agents in one place (browser, search, PDFs, images, live data, payment helpers) - the whole catalog is open and runnable yourself. Every endpoint is paid per call in ${RAILS_OR} over x402, or over MPP (Machine Payments Protocol: USDC on Base/Celo, or PathUSD natively on Tempo) - no signup, no API keys - the first request returns HTTP 402 carrying both offers, an x402 or mppx client pays and retries - or free with proof-of-work. Also the open x402 index, Smart Order Router and MPP marketplace. Free discovery: GET /api/pricing, GET /llms.txt. Multi-tool workflows: GET /api/skill-packs.json.`,
       // Email doubles as x402scan's ownership-verification signal; it is the
       // same public maintainer contact the /.well-known/x402 manifest names.
       contact: { name: "Havok Holdings LLC", email: "mike@agent402.tools", url: baseUrl },

@@ -74,13 +74,27 @@ ok(all3(HOSTED_DESC), "MCP serverInfo.description names Agentic Finance + MPP + 
 const hi = hostedInstructions("https://example.test"), si = stdioInstructions("https://example.test");
 ok(all3(hi) && all3(si), "MCP initialize instructions (hosted + stdio) name Agentic Finance + MPP + x402");
 ok(hi === si, "hosted and stdio initialize instructions are byte-identical");
-ok(/positioning: `Agent402 is the applied layer of Agentic Finance \(AIFI\)/.test(read("src/mcp-http.js")), "hosted describe_server carries a positioning field naming AIFI");
-ok((read("mcp/index.js").match(/positioning: `[^`]*Agentic Finance \(AIFI\)[^`]*MPP/g) || []).length >= 2, "stdio describe payloads (both aliases) carry AIFI + MPP positioning");
+ok(/positioning: `Agent402 is the applied layer of Agentic Finance/.test(read("src/mcp-http.js")), "hosted describe_server carries a positioning field naming Agentic Finance");
+ok((read("mcp/index.js").match(/positioning: `[^`]*Agentic Finance[^`]*MPP/g) || []).length >= 2, "stdio describe payloads (both aliases) carry Agentic Finance + MPP positioning");
+
+// --- prominence (2026-08-18, Mike): the BRAND leads; the AIFI acronym lives only on the
+// definitional pages (/agentic-finance, /glossary, the post, the card), never in a
+// <title>, OpenAPI title, serverInfo/package/manifest description or the homepage hero.
+{
+  const home = read("src/ledger-home.js");
+  ok(/const title = `Agent402\.Tools - /.test(home) && !/const title = `[^`]*AIFI/.test(home), "homepage <title> leads with Agent402.Tools and carries no AIFI acronym");
+  ok(!/<h1[^>]*>[^<]*Agentic Finance/.test(home), "homepage hero H1 is not the category name");
+  ok(/title: "Agent402\.Tools - /.test(read("src/pages.js")), "openapi.json title leads with Agent402.Tools");
+  ok(!/AIFI/.test(HOSTED_DESC) && HOSTED_DESC.startsWith("Agent402"), "MCP serverInfo.description leads with Agent402, no acronym");
+  for (const d of pkgDirs) ok(!/AIFI/.test(JSON.parse(read(`${d}/package.json`)).description), `${d} description carries no AIFI acronym`);
+  ok(!/AIFI/.test(serverJson.description), "mcp/server.json description carries no AIFI acronym");
+  ok(!/AIFI/.test(read("README.md").split("\n")[0]), "README H1 carries no AIFI acronym");
+}
 
 // --- machine surfaces ---------------------------------------------------------------
 const llms = llmsTxt("https://example.test", {});
 ok(all3(llms.slice(0, 4000)), "llms.txt lead names Agentic Finance + MPP + x402");
-ok(/description: `Agentic Finance \(AIFI\) applied layer[^`]*MPP/.test(read("src/server.js")), "/api/pricing description names AIFI + MPP");
+ok(/description: `Agent402\.Tools - pay-per-call tools[^`]*MPP[^`]*Agentic Finance/.test(read("src/server.js")), "/api/pricing description leads with Agent402 and names MPP + Agentic Finance");
 ok(all3(read("src/discovery.js")), "/.well-known/x402 manifest source names Agentic Finance + MPP + x402");
 ok(hasAifi(read("src/agentic-finance.js")) && hasAifi(read("src/glossary.js")), "category + glossary pages exist");
 

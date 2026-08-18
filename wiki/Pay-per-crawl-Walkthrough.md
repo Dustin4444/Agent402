@@ -1,6 +1,6 @@
 # Pay-per-crawl walkthrough - observe → bots → enforce in 30 minutes
 
-> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]] (AIFI): agents that pay and get paid on their own.
+> **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
 A copy/paste recipe for taking a real site from **"I have no idea who's crawling me"** to **"AI agents pay me per request"** in three deploys. Total elapsed time: ~30 minutes; total written code: ~5 lines.
 

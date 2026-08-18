@@ -1368,7 +1368,7 @@ app.get("/what-is-x402", (_req, res) => htmlCache(res, 300, 900).send(whatIsX402
   leaderboardSnapshot: getLeaderboardSnapshot(),
 })));
 app.get("/what-is-mpp", (_req, res) => htmlCache(res, 300, 900).send(whatIsMppPage(BASE_URL)));
-// The category page: Agentic Finance (AIFI) - the moniker the whole surface
+// The category page: Agentic Finance - the moniker the whole surface
 // positions under; DefinedTerm + Article + FAQPage structured data.
 app.get("/agentic-finance", (_req, res) => htmlCache(res, 300, 900).send(agenticFinancePage(BASE_URL)));
 app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
@@ -3765,7 +3765,7 @@ app.get("/api/pricing", (_req, res) => {
   const endpointCount = Object.keys(CATALOG).length;
   return res.json({
     name: "Agent402.Tools",
-    description: `Agentic Finance (AIFI) applied layer - pay-per-call tools for AI agents over x402 or MPP (Machine Payments Protocol), both on the same 402 - ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
+    description: `Agent402.Tools - pay-per-call tools for AI agents over x402 or MPP (Machine Payments Protocol), both on the same 402; the applied layer of Agentic Finance - ${endpointCount} deterministic tools (browser, search, PDFs, OCR, finance, EDGAR, crypto, macro, memory), an OpenAI-compatible LLM gateway at /v1 (flat-priced chat from $0.003, embeddings $0.002, images - no API key, the wallet is the account), plus ${SKILL_PACKS.length} curated multi-tool skill packs callable as MCP prompts. Free via in-process proof-of-work or pay per call in ${RAILS_OR}. Open-source and self-hostable. MCP connector: ${BASE_URL}/mcp.`,
     // The LLM gateway is the highest-frequency product agents buy — surface its
     // tiers at the top level instead of burying them among ${endpointCount}
     // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows

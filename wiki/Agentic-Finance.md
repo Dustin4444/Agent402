@@ -1,6 +1,6 @@
-# Agentic Finance (AIFI)
+# Agentic Finance
 
-**Agentic Finance (AIFI)** is software agents transacting on their own: discovering a service, reading a machine-readable price, paying per request from a non-custodial wallet over open protocols (x402, MPP), receiving a verifiable receipt, and, on the other side, earning per request for what they serve. No accounts, no API keys, no invoices. The payment is the identity and every settlement is on a public ledger.
+**Agentic Finance** is software agents transacting on their own: discovering a service, reading a machine-readable price, paying per request from a non-custodial wallet over open protocols (x402, MPP), receiving a verifiable receipt, and, on the other side, earning per request for what they serve. No accounts, no API keys, no invoices. The payment is the identity and every settlement is on a public ledger.
 
 Full explainer with structured data: https://agent402.tools/agentic-finance
 
