@@ -148,6 +148,36 @@ export function isTempoCredential(authorizationHeader) {
   }
 }
 
+// TEMPORARY diagnostic-only probe: mppx's Relay.js (node_modules/mppx/dist/
+// tempo/server/Relay.js) discards the ENTIRE response body whenever
+// /v1/mpp/validate answers with a non-2xx status — `if (!response.ok) throw
+// failure();` passes no argument, so a structured 4xx error body (a very
+// common REST convention for "validation failed") is thrown away before we
+// ever see it, same as a bare network failure. .details.code (added above)
+// can only ever be populated on a 2xx-with-success:false response, so it
+// stayed empty through three straight live rejections on 2026-08-17/18. This
+// makes the exact same request the SDK does, but reads the raw status/body
+// ourselves purely for logging — it NEVER affects the actual accept/reject
+// decision, which stays with Method.validateCredential above. Remove once a
+// live rejection has actually been diagnosed and fixed.
+async function probeRelayValidateRaw(authorizationHeader) {
+  try {
+    const credential = Credential.deserialize(authorizationHeader);
+    const input = { challenge: credential.challenge, payload: credential.payload, ...(credential.source ? { source: credential.source } : {}) };
+    const base = process.env.TEMPO_API_BASE_URL || "https://api.tempo.xyz";
+    const url = `${base.replace(/\/$/, "")}/v1/mpp/validate`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { Accept: "application/json", "content-type": "application/json", "tempo-api-key": process.env.TEMPO_API_KEY || "" },
+      body: JSON.stringify(input),
+    });
+    const text = await res.text().catch(() => "(unreadable body)");
+    return `HTTP ${res.status} ${text.slice(0, 400)}`;
+  } catch (e) {
+    return `probe itself failed: ${String(e?.message || e).slice(0, 150)}`;
+  }
+}
+
 /** Non-mutating check (HMAC binding, expiry, credential shape, relay
  *  pre-validation). Never broadcasts, never moves money. */
 export async function validateTempoCredential(authorizationHeader) {
@@ -169,7 +199,12 @@ export async function validateTempoCredential(authorizationHeader) {
     // HTTP/auth layer, not a business rejection the relay explained.
     const detail = e?.details && typeof e.details === "object" ? JSON.stringify(e.details).slice(0, 200) : null;
     const message = String(e?.message || e).slice(0, 200);
-    return { ok: false, error: `${message}${detail ? ` details=${detail}` : " details=(none — likely a relay HTTP/auth error, not a business rejection)"}` };
+    let raw = "";
+    if (!detail) {
+      const probed = await probeRelayValidateRaw(authorizationHeader);
+      raw = ` raw=[${probed}]`;
+    }
+    return { ok: false, error: `${message}${detail ? ` details=${detail}` : " details=(none — likely a relay HTTP/auth error, not a business rejection)"}${raw}` };
   }
 }
 
