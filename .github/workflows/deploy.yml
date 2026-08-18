@@ -1542,6 +1542,9 @@ jobs:
       - name: MPP index self-serve registration + snapshot honesty tests (offline)
         run: node scripts/test-mpp-index.js
 
+      - name: "MPP self-registration probe hint (optional path/method: validated, probed, kept only on success, persisted with the seed - offline)"
+        run: node scripts/test-mpp-index-hint.js
+
       - name: MPP marketplace page rendering tests (offline)
         run: node scripts/test-mpp-market-page.js
 

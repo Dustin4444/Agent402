@@ -3165,7 +3165,9 @@ app.post("/api/mpp-index/register", async (req, res) => {
   mppRegGlobal = mppRegGlobal.filter((t) => now - t < REG_WINDOW_MS);
   if (mppRegGlobal.length >= 30) return res.status(429).json({ error: "rate limit: registration is busy, try again later" });
   mine.push(now); mppRegByIp.set(ip, mine); mppRegGlobal.push(now);
-  const result = await registerMppOrigin(v.origin);
+  // Optional probe hint: the priced path (and GET/POST) the seller's 402 lives
+  // on, for sellers not yet in the registry (validated in registerMppOrigin).
+  const result = await registerMppOrigin(v.origin, { path: req.body?.path, method: req.body?.method });
   res.json(result);
 });
 const computeRoute = (q, k, include, net) => routeQuery({ query: q, top: k, include, networkFilter: net, ...indexCtx() });

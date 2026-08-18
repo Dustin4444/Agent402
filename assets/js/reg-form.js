@@ -25,7 +25,12 @@
     out.textContent = "probing…";
     var note = out.getAttribute("data-listed-note") || "Appears on /marketplace and any chain page it advertises.";
     try {
-      var r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ origin: document.getElementById("reg-origin").value }) });
+      // Optional probe hint (MPP page only): the priced path the seller's 402
+      // lives on. Sent only when the input exists and is non-empty.
+      var payload = { origin: document.getElementById("reg-origin").value };
+      var pathEl = document.getElementById("reg-path");
+      if (pathEl && pathEl.value.trim()) payload.path = pathEl.value.trim();
+      var r = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       var j = await r.json();
       var s = j.seller || {};
       var name = s.displayName || s.name || j.origin;

@@ -194,8 +194,9 @@ export function mppMarketPage(baseUrl, snapshot, leaderboard = null) {
       <div id="list-api">
         <div style="font-weight:800;font-size:15px;margin-bottom:8px;color:var(--ink);">Register in one call</div>
         <label for="reg-origin" style="display:block;font-family:var(--font-mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Your API's origin</label>
-        <div style="display:flex;gap:10px;">
-          <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:2 1 220px;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
+          <input id="reg-path" type="text" placeholder="/v1/priced-endpoint (optional)" aria-label="Priced path to probe (optional)" style="flex:1 1 160px;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
           <button id="reg-go" data-endpoint="/api/mpp-index/register" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
         </div>
         <div id="reg-out" role="status" aria-live="polite" data-listed-note="Appears on /mpp-marketplace." style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin for a genuine MPP challenge and list you if it answers. A seller not yet in the mpp.dev registry needs its paywall reachable at the bare origin root to verify today.</div>
@@ -215,7 +216,7 @@ export function mppMarketPage(baseUrl, snapshot, leaderboard = null) {
       "A listing counts as verified only when that request genuinely comes back with a WWW-Authenticate: Payment challenge.",
       "A crawl cycle re-probes every known origin every 5 minutes; a seller that stops answering drops out of the verified count on its own.",
     ].map((body_, i) => `<div style="display:grid;grid-template-columns:26px 1fr;gap:12px;padding:11px 0;border-bottom:1px solid var(--hairline);"><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${String(i + 1).padStart(2, "0")}</span><span style="font-size:13.5px;line-height:1.55;color:var(--muted);">${esc(body_)}</span></div>`).join("")}</div>
-    <p style="font-size:13px;line-height:1.6;color:var(--faint);margin:14px 0 0;">Two known scope limits, disclosed rather than hidden: sellers hosted as per-tenant paths on one shared gateway domain aren't discoverable yet, and self-serve registration for a seller not already in the mpp.dev registry can only verify at the bare origin root (MPP has no standard discovery path the way x402's /.well-known/x402 is).</p>
+    <p style="font-size:13px;line-height:1.6;color:var(--faint);margin:14px 0 0;">Two known scope limits, disclosed rather than hidden: sellers hosted as per-tenant paths on one shared gateway domain aren't discoverable yet, and self-serve registration for a seller not already in the mpp.dev registry probes the bare origin root unless the submitter names the priced path (the optional path field, or `path` in the POST body) - MPP has no standard discovery path the way x402's /.well-known/x402 is.</p>
   </div>`;
 
   const MPP_FAQS = [
