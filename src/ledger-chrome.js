@@ -543,6 +543,7 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-group">
       ${mmLink("/agentic-finance", "agentic finance", activePath === "/agentic-finance")}
       ${mmLink("/glossary", "glossary", activePath === "/glossary")}
+      ${mmLink("/101", "x402 & MPP 101 · walkthrough", activePath === "/101")}
       ${mmLink("/what-is-x402", "what is x402 / MPP", activePath === "/what-is-x402")}
       ${mmLink("/docs", "docs", activePath === "/docs")}
       ${mmLink("/revenue", "revenue · on-chain", activePath === "/revenue")}

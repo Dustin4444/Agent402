@@ -53,6 +53,7 @@ import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
 import { agenticFinancePage } from "./agentic-finance.js";
 import { glossaryPage } from "./glossary.js";
+import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
@@ -1373,6 +1374,9 @@ app.get("/what-is-mpp", (_req, res) => htmlCache(res, 300, 900).send(whatIsMppPa
 app.get("/agentic-finance", (_req, res) => htmlCache(res, 300, 900).send(agenticFinancePage(BASE_URL)));
 app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
 app.get("/glossary", (_req, res) => htmlCache(res, 300, 900).send(glossaryPage(BASE_URL)));
+// x402 & MPP 101 - the presenter-mode walkthrough with the live demo (src/x402-101.js).
+app.get("/101", (_req, res) => htmlCache(res, 300, 900).send(x402101Page(BASE_URL)));
+for (const alias of ["/x402-101", "/how-it-works", "/walkthrough"]) app.get(alias, (_req, res) => res.redirect(301, "/101"));
 // The Agentic Finance card - og:image of /agentic-finance + /glossary and the
 // announcement image (src/aifi-card.js); rasterized once per process like /card.png.
 let aifiCardPngCache = null;
