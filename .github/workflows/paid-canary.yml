@@ -132,8 +132,20 @@ jobs:
         # is byte-identical to 2.17; facilitator settle path is not — keep the
         # buyer on current). viem / @solana/kit / @stellar/stellar-sdk are
         # pinned to the repo lock's resolved versions (no floating installs in
-        # a paid job).
-        run: npm ci --ignore-scripts && npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 @x402/svm@2.16.0 @x402/stellar@2.21.0 @stellar/stellar-sdk@16.0.1 @solana/kit@5.5.1 viem@2.52.2
+        # a paid job) - READ FROM THE LOCK at run time, never hand-typed: the
+        # hand-typed viem@2.52.2 here was the lock's version on 2026-07-18 and
+        # silently stayed after the lock moved to 2.55.8 for mppx's Tempo
+        # client, so this step downgraded viem under mppx and the mpp-tempo leg
+        # died deterministically with "Cannot convert undefined to a BigInt"
+        # (2026-08-18: two runs, both attempts) while the standalone Tempo
+        # canary - plain `npm ci` - settled the identical challenge fine.
+        run: |
+          npm ci --ignore-scripts
+          LOCKV() { node -p "require('./package-lock.json').packages['node_modules/$1'].version"; }
+          VIEM=$(LOCKV viem); STELLAR=$(LOCKV @stellar/stellar-sdk); SOLKIT=$(LOCKV @solana/kit)
+          echo "lock-pinned: viem@$VIEM @stellar/stellar-sdk@$STELLAR @solana/kit@$SOLKIT"
+          npm install --no-save --ignore-scripts @x402/fetch@2.16.0 @x402/core@2.16.0 @x402/evm@2.16.0 @x402/svm@2.16.0 @x402/stellar@2.21.0 "@stellar/stellar-sdk@$STELLAR" "@solana/kit@$SOLKIT" "viem@$VIEM"
+          echo "installed viem: $(node -p "require('viem/package.json').version") mppx: $(node -p "require('mppx/package.json').version")"
       - name: Buy one tool from production (real USDC)
         id: canary
         # Wallet/pow secrets scoped to THIS step only (audit R-07).
