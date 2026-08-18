@@ -351,7 +351,9 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
     const auth = req.headers.authorization;
     if (!isTempoCredential(auth)) return next();
 
+    const t0 = Date.now();
     validate(auth).then(async (v) => {
+      const tValidated = Date.now();
       if (!v.ok) {
         // Loud on ambiguity, same doctrine as facilitator-diagnostics.js —
         // an unlogged rejection here is exactly what made the 2026-08-17
@@ -434,17 +436,31 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         releaseReplay();
         return;
       }
+      const tHandled = Date.now();
       const b = await broadcast(auth);
+      const tBroadcast = Date.now();
+      const timing = `validate=${tValidated - t0}ms handler=${tHandled - tValidated}ms broadcast=${tBroadcast - tHandled}ms`;
       if (!b.ok) {
         // Broadcast failed AFTER a successful handler — discard the
         // buffered body and answer 402, mirroring @x402/express's own
         // "settlement of a <400 response fails → discard, return 402".
+        // LOUD, with per-phase timing: this path was silent through the
+        // first live settlement on 2026-08-18, where the buyer's first
+        // credential spent 23s here and got a bare 402 with nothing in our
+        // logs (only the HTTP access log showed a 23,341ms 402), and the
+        // client's retry then settled. Timing matters on this rail: mppx
+        // clients sign pull credentials with validBefore = now + 25s, so a
+        // slow relay broadcast races the credential's own expiry — a
+        // "settlement failed" here is as likely to be OUR latency as the
+        // relay's verdict, and only the numbers tell them apart.
+        console.warn(`[mpp-tempo] broadcast failed AFTER a successful handler (${req.method} ${req.path}) — buyer answered 402, not charged by us: ${b.error} [${timing}]`);
         bufferedCalls = [];
         restore();
         res.status(402).json({ error: "Tempo settlement failed", reason: b.error });
         releaseReplay();
         return;
       }
+      console.log(`[mpp-tempo] settled ${req.method} ${req.path} tx=${b.receipt?.reference || "?"} [${timing}]`);
       const receiptHeader = tempoReceiptHeader(b.receipt);
       restore();
       if (receiptHeader) res.setHeader("Payment-Receipt", receiptHeader);
