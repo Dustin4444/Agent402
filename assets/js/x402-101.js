@@ -79,7 +79,7 @@
         var amount = a.amount != null ? Number(a.amount) / 1e6 : null;
         var price = a.price || (amount != null ? "$" + amount.toFixed(3) : "?");
         var nets = q.accepts.map(function (x) { return chainName(x.network); }).filter(function (v, i, arr) { return arr.indexOf(v) === i; });
-        line(askOut, "in plain words:", "“This costs " + price + ". Pay in " + (a.extra && a.extra.name ? a.extra.name : "USDC") + " to " + short(a.payTo) + " on any of " + nets.length + " chains (" + nets.slice(0, 5).join(", ") + (nets.length > 5 ? ", …" : "") + "). This quote is good for " + (a.maxTimeoutSeconds ? Math.round(a.maxTimeoutSeconds / 60) + " minutes" : "a few minutes") + ".”");
+        line(askOut, "in plain words:", "“This costs " + price + ". Pay in USDC to " + short(a.payTo) + " on any of " + nets.length + " chains (" + nets.slice(0, 5).join(", ") + (nets.length > 5 ? ", …" : "") + "). This quote is good for " + (a.maxTimeoutSeconds ? Math.round(a.maxTimeoutSeconds / 60) + " minutes" : "a few minutes") + ".”");
         line(askOut, "dialect 1:", "x402 · the quote rides in the PAYMENT-REQUIRED header (" + q.accepts.length + " ways to pay)");
       } else {
         line(askOut, "dialect 1:", pr ? "x402 quote present (could not decode here)" : "no x402 quote on this response");
