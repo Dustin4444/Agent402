@@ -311,6 +311,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   client throw before signing (2026-08-17), and `decimals` ON the wire made the
   relay re-parse the request and expect 1,000,000,000 base units for a 1000-unit
   transfer — every live buy rejected "no matching payment call found" (2026-08-18).
+  **INBOUND BINDING (2026-08-18 security review, HIGH, fixed):** the gate handed the
+  CLIENT-ECHOED challenge straight to mppx validate/broadcast, and with the relay configured
+  those forward `{challenge, payload}` verbatim - the relay checks the signed tx against the
+  challenge's OWN amount/recipient, never that WE minted it. A forged 1-base-unit challenge to
+  any recipient bought any paid route (and a genuine $0.001 challenge bought a $0.50 route:
+  challenges are not path-bound). Now `checkTempoCredentialBinding` runs BEFORE any relay call:
+  `Challenge.verify` against MPP_SECRET_KEY, realm, expiry, currency ∈ TEMPO_CURRENCY,
+  recipient = our payTo, chainId 4217, and `amount >= this route's price`; `createTempoGate`
+  refuses to mount without `secretKey`+`priceFor`, `mintTempoChallenge` mints nothing without
+  a secret. Same day: the gate now buffers `flushHeaders` (a streaming /v1 handler settled and
+  then hung on the buffered-writeHead replay). While the fix rode CI, prod's Tempo gate was
+  disabled by parking `TEMPO_API_KEY` (rollout switch) and restored after the fixed build.
+  `scripts/test-mpp-tempo-shim.js` cases H + I.
   **The relay's verdict is invisible through mppx** (Relay.js drops non-2xx bodies
   AND the `message` of a 2xx `success:false` when the code is outside its allowlist —
   the live shape was `code:"unknown"`); `relayFetch` (injected `fetch`, per-request
