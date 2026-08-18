@@ -1277,7 +1277,7 @@ function wireOverview(snap) {
       `<strong>${railCount}</strong> rails live · USDC (USDG on Robinhood) · settled by facilitator, verified per rail below`,
       `recent window: <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong> external`,
     ],
-    links: [`<a href="/x402">what is x402</a>`, `<a href="/api/revenue">/api/revenue</a>`, `<a href="/api/revenue/daily">/api/revenue/daily</a>`],
+    links: [`<a href="/what-is-x402">what is x402</a>`, `<a href="/api/revenue">/api/revenue</a>`, `<a href="/api/revenue/daily">/api/revenue/daily</a>`],
   });
   const mppCard = card({
     name: "MPP", wire: "Authorization: Payment", accent: false,
@@ -1291,7 +1291,7 @@ function wireOverview(snap) {
         : `rails offered: <strong>Base</strong> · <strong>Celo</strong> (evm/charge) · <strong>Tempo</strong> (native)`,
       `Base + Celo settle the same USDC as x402 through the shim; Tempo settles PathUSD natively via its relay`,
     ],
-    links: [`<a href="/mpp">what is MPP</a>`, `<a href="/api/revenue/mpp">/api/revenue/mpp</a>`],
+    links: [`<a href="/what-is-mpp">what is MPP</a>`, `<a href="/api/revenue/mpp">/api/revenue/mpp</a>`],
   });
   return `<div class="ml-2col rv-wires" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:24px;">${x402}${mppCard}</div>`;
 }
