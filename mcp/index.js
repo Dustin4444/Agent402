@@ -618,7 +618,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
           maintainer: "Havok Holdings LLC",
         },
         positioning: "Deterministic tools layer beside LLM gateways: flagship search/answer first, 500+ long-tail tools via catalog.find / catalog.search / catalog.call.",
-        ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h - discovers the live economy beyond this catalog.",
+        ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h, or sellers.list with wire=mpp for MPP sellers ranked by on-chain USDC.e transfers on Tempo - discovers the live economy beyond this catalog.",
       });
     }
     if (name === "server.describe") {
