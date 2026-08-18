@@ -53,6 +53,7 @@ import { whatIsX402Page } from "./what-is-x402.js";
 import { whatIsMppPage } from "./what-is-mpp.js";
 import { agenticFinancePage } from "./agentic-finance.js";
 import { glossaryPage } from "./glossary.js";
+import { aifiCardSvg } from "./aifi-card.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
@@ -1372,6 +1373,17 @@ app.get("/what-is-mpp", (_req, res) => htmlCache(res, 300, 900).send(whatIsMppPa
 app.get("/agentic-finance", (_req, res) => htmlCache(res, 300, 900).send(agenticFinancePage(BASE_URL)));
 app.get("/aifi", (_req, res) => res.redirect(301, "/agentic-finance"));
 app.get("/glossary", (_req, res) => htmlCache(res, 300, 900).send(glossaryPage(BASE_URL)));
+// The Agentic Finance card - og:image of /agentic-finance + /glossary and the
+// announcement image (src/aifi-card.js); rasterized once per process like /card.png.
+let aifiCardPngCache = null;
+app.get("/og/agentic-finance.png", async (_req, res) => {
+  try {
+    aifiCardPngCache ??= await rasterizeSvg(aifiCardSvg(), { width: 1200, height: 630 });
+    res.type("image/png").set("Cache-Control", "public, max-age=86400").send(aifiCardPngCache);
+  } catch {
+    res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(aifiCardSvg());
+  }
+});
 app.get("/faq", (_req, res) => htmlCache(res, 300, 900).send(faqPage(BASE_URL)));
 app.get("/integrations", (_req, res) => htmlCache(res, 300, 900).send(ledgerIntegrationsPage(BASE_URL)));
 app.get("/pricing", (_req, res) => htmlCache(res, 300, 900).send(ledgerPricingPage(BASE_URL, CATALOG)));

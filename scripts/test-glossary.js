@@ -96,6 +96,16 @@ const postAnchors = [...(post?.body || "").matchAll(/href="\/glossary#([a-z0-9-]
 ok(postAnchors.length > 0 && postAnchors.every((a) => ids.includes(a)), `every /glossary#anchor in the post exists (${postAnchors.join(", ")})`);
 ok(!/\b1,?000 tools\b/.test(post?.body || "") && /500\+/.test(post?.body || ""), "post keeps counts evergreen");
 
+// --- social card: both pages point og:image/twitter:image at the AIFI card -------
+{
+  const { aifiCardSvg } = await import("../src/aifi-card.js");
+  const svg = aifiCardSvg();
+  ok(/Agentic Finance/.test(svg) && /x402 · MPP/.test(svg) && /agent402\.tools\/glossary/.test(svg) && !/\b\d{3,4} tools\b/.test(svg), "AIFI card names the category, both wires and the glossary; counts evergreen");
+  for (const [name, page] of [["/agentic-finance", aifi], ["/glossary", html]]) {
+    ok(page.includes(`<meta property="og:image" content="${BASE}/og/agentic-finance.png">`) && page.includes(`<meta name="twitter:image" content="${BASE}/og/agentic-finance.png">`), `${name} og:image + twitter:image point at /og/agentic-finance.png`);
+  }
+}
+
 // --- discovery surfaces --------------------------------------------------------
 const sm = sitemapPages(BASE, {});
 ok(sm.includes(`${BASE}/glossary`), "sitemap-pages lists /glossary");

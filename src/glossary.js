@@ -171,6 +171,7 @@ ${ledgerFooterCompact()}`;
 
   return ledgerShell({
     title, description, canonical, baseUrl, activePath: "/agentic-finance", extraCss,
+    ogImage: `${baseUrl}/og/agentic-finance.png`,
     jsonLd: [orgLd, breadcrumbLd, setLd, pageLd],
     body,
   });

@@ -138,6 +138,7 @@ ${ledgerFooterCompact()}`;
 
   return ledgerShell({
     title, description, canonical, baseUrl, activePath: "/what-is-x402", extraCss,
+    ogImage: `${baseUrl}/og/agentic-finance.png`,
     jsonLd: [orgLd, termLd, breadcrumbLd, articleLd, faqLd],
     body,
   });
