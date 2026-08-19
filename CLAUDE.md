@@ -347,6 +347,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   without creds. Restore = download object, gunzip, replace file, restart.
   `scripts/test-backup.js` (28 assertions, stub S3 + real sqlite, in CI);
   signer proven live against the real bucket 2026-08-05 before first deploy.
+- **Facilitator support report (`GET /__operator/facilitators.json`, 2026-08-19, fix #9):** operator-
+  authed dump of what each configured facilitator client ADVERTISES (`getSupported` kinds → exact
+  networks, extensions) plus `firstTriedFor` (the first client advertising each network = the one
+  @x402 tries first). Built because CDP's facilitator table grew (Polygon, Arbitrum, Solana, World)
+  and CDP is first in `facilitatorClients`, so it may settle chains the boot-log LABELS attribute to
+  PayAI; `/supported` needs a JWT so only the live clients can answer. Read it on prod after a
+  deploy before deciding fee (CDP $0.001/tx after 1k/mo vs PayAI 10k free) vs Bazaar signal.
 - **Well-known store (`src/well-known-store.js`, 2026-08-05):** operator-published
   domain-verification documents served at `/.well-known/<path>` without a redeploy
   (built for Talkshi's 15-minute domain challenge; covers any serve-a-file-to-prove-

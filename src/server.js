@@ -71,7 +71,7 @@ import { tempoSelfRecipient } from "./mpp-tempo.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus} from "./payments.js";
+import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { KIT } from "./tools/kit.js";
@@ -2010,6 +2010,21 @@ app.get("/__operator/egress.json", (req, res) => {
 // Offsite-backup status + inventory: what /data holds, what the last run
 // did, held files, stored bytes. Read is local (fs stat only) - no heavy
 // limiter; auth bound is operatorAuthed's own attempt limiter.
+// Operator diagnostic: what each configured facilitator client ADVERTISES
+// (getSupported kinds -> exact networks). Settles the "is CDP now settling
+// Polygon/Arbitrum/Solana for us?" question without guessing from labels.
+app.get("/__operator/facilitators.json", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" }); // same shape as the other operator routes (no oracle)
+  try {
+    const facilitators = await facilitatorSupportReport();
+    // First client advertising a network is the one @x402 tries first for it.
+    const firstFor = {};
+    for (const f of facilitators) for (const n of (f.networks || [])) if (!firstFor[n]) firstFor[n] = f.label;
+    res.json({ generatedAt: new Date().toISOString(), facilitators, firstTriedFor: firstFor });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e).slice(0, 200) });
+  }
+});
 app.get("/__operator/backup.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store").json({ status: backupStatus(), plan: backupPlan() });
