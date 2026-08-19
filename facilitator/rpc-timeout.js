@@ -29,12 +29,40 @@ import { rpc } from "@stellar/stellar-sdk";
 
 let installed = false;
 
+export class RpcRequestTimeoutError extends Error {
+  constructor(ms) {
+    super(`Soroban RPC request aborted at the ${ms}ms request timeout (response arrived without a body)`);
+    this.code = "RPC_REQUEST_TIMEOUT";
+    this.timeoutMs = ms;
+  }
+}
+
+const MARK = Symbol.for("agent402.facilitator.rpcTimeout");
+
 /** Ensure `client.defaults.timeout` is set (only when not already positive -
- *  an explicitly configured instance is respected). Exported for tests. */
+ *  an explicitly configured instance is respected) and that a body-less
+ *  "200" is rejected with a self-explaining error. Exported for tests.
+ *
+ *  Measured (axios 1.18 under the SDK's fetch-client): when the bound fires
+ *  AFTER headers arrive but before the body does, the adapter RESOLVES with
+ *  {status:200, headers:{}, data:undefined} instead of rejecting, and the
+ *  SDK's jsonrpc layer then throws "TypeError: Cannot convert undefined or
+ *  null to object" - a timeout wearing a disguise. A real 200 always has a
+ *  body (JSON-RPC), so a body-less response is converted into a clear
+ *  rejection here; a pre-header stall already rejects as a clean
+ *  ECONNABORTED "timeout of Nms exceeded". */
 export function ensureRpcTimeout(client, ms) {
   if (!client || typeof client !== "object" || !client.defaults || typeof client.defaults !== "object") return false;
-  if (client.defaults.timeout > 0) return false;
-  client.defaults.timeout = ms;
+  if (client[MARK]) return false;
+  client[MARK] = true;
+  const bound = client.defaults.timeout > 0 ? client.defaults.timeout : ms; // an explicit instance timeout is respected
+  client.defaults.timeout = bound;
+  if (client.interceptors?.response && typeof client.interceptors.response.use === "function") {
+    client.interceptors.response.use((res) => {
+      if (res && (res.data === undefined || res.data === null)) throw new RpcRequestTimeoutError(bound);
+      return res;
+    });
+  }
   return true;
 }
 

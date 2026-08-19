@@ -62,7 +62,7 @@ import {
 import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "./shape.js";
 import { withTimeout, TimeoutError } from "./timeout.js";
 import { decodeErrorResultXdr } from "./rpc-diagnostics.js";
-import { ensureRpcTimeout, installRpcRequestTimeout } from "./rpc-timeout.js";
+import { ensureRpcTimeout, installRpcRequestTimeout, RpcRequestTimeoutError } from "./rpc-timeout.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const NETWORK = "stellar:testnet";
@@ -185,30 +185,65 @@ const horizon = getHorizonClient(NETWORK);
   console.log("rpc-diagnostics.js unit tests ✓");
 }
 
-// 0d) Offline tests for rpc-timeout.js - the per-request RPC bound. A local
-// server that never answers stands in for a stalled provider (2026-08-14 and
-// 2026-08-19 both: /verify fine, /settle stalled inside one RPC round-trip).
+// 0d) Offline tests for rpc-timeout.js - the per-request RPC bound. Local
+// servers stand in for a stalled provider (2026-08-14 and 2026-08-19 both:
+// /verify fine, /settle stalled inside one RPC round-trip). NB the prototype
+// patch is PROCESS-WIDE and this test process later signs real testnet
+// payments through the same SDK, so the installed default is the production
+// value (10s) and the tight bounds below are set per INSTANCE - the first
+// version installed 300ms here and broke every later RPC call in this file.
 {
   ok(ensureRpcTimeout({ defaults: {} }, 500) === true, "ensureRpcTimeout: sets a missing default");
   const pre = { defaults: { timeout: 30_000 } };
-  ok(ensureRpcTimeout(pre, 500) === false && pre.defaults.timeout === 30_000, "ensureRpcTimeout: an explicitly configured positive timeout is respected");
+  ok(ensureRpcTimeout(pre, 500) === true && pre.defaults.timeout === 30_000, "ensureRpcTimeout: an explicitly configured positive timeout is respected");
+  ok(ensureRpcTimeout(pre, 500) === false, "ensureRpcTimeout: idempotent per client");
   ok(ensureRpcTimeout(null, 500) === false && ensureRpcTimeout({}, 500) === false, "ensureRpcTimeout: tolerates a missing client");
+  // The body-less "200" the adapter resolves with when the bound cuts a
+  // response mid-body (measured live against testnet RPC) must become a
+  // self-explaining timeout rejection, never the SDK's TypeError.
+  {
+    let handler = null;
+    const fake = { defaults: {}, interceptors: { response: { use: (ok) => { handler = ok; } } } };
+    ensureRpcTimeout(fake, 700);
+    let thrown = null;
+    try { handler({ status: 200, headers: {}, data: undefined }); } catch (e) { thrown = e; }
+    ok(thrown instanceof RpcRequestTimeoutError && thrown.code === "RPC_REQUEST_TIMEOUT" && /700ms/.test(thrown.message), `ensureRpcTimeout: a body-less response rejects as RpcRequestTimeoutError (${thrown?.message})`);
+    ok(handler({ status: 200, data: { result: 1 } }).data.result === 1, "ensureRpcTimeout: a real response passes through untouched");
+  }
 
   const { createServer } = await import("node:http");
   const { rpc } = await import("@stellar/stellar-sdk");
+  installRpcRequestTimeout(10_000); // production default, process-wide (see note above)
+
+  // (a) pre-header stall: the provider accepts the connection and never answers.
   const blackhole = createServer(() => { /* never respond */ });
   await new Promise((r) => blackhole.listen(0, "127.0.0.1", r));
-  const url = `http://127.0.0.1:${blackhole.address().port}`;
-  installRpcRequestTimeout(300);
-  // Constructed the way @x402/stellar does it (fresh instance, no timeout
-  // option) - the patch must reach an instance it never saw being built.
-  const server = new rpc.Server(url, { allowHttp: true });
-  const t0 = Date.now();
-  let err = null;
-  try { await server.getLatestLedger(); } catch (e) { err = e; }
-  const took = Date.now() - t0;
-  ok(err && /timeout of 300 ?ms/i.test(String(err.message || err)) && took < 5_000, `rpc-timeout: a stalled RPC request rejects at the bound (${took}ms: ${String(err?.message || err).slice(0, 60)})`);
-  blackhole.close();
+  const stalled = new rpc.Server(`http://127.0.0.1:${blackhole.address().port}`, { allowHttp: true });
+  stalled.httpClient.defaults.timeout = 300; // tighter per-instance bound, respected by the patch
+  let t0 = Date.now(), err = null;
+  try { await stalled.getLatestLedger(); } catch (e) { err = e; }
+  let took = Date.now() - t0;
+  ok(err && /timeout of 300 ?ms/i.test(String(err.message || err)) && took < 5_000, `rpc-timeout: a pre-header stall rejects at the bound (${took}ms: ${String(err?.message || err).slice(0, 60)})`);
+  blackhole.closeAllConnections(); blackhole.close();
+
+  // (b) mid-body stall: headers arrive, the body never does. The adapter
+  // RESOLVES with no data here (measured), which the SDK turned into an
+  // opaque TypeError - must surface as the self-explaining timeout instead.
+  const headersOnly = createServer((req, res) => { res.writeHead(200, { "content-type": "application/json", "content-length": "1000" }); /* never write the body */ });
+  await new Promise((r) => headersOnly.listen(0, "127.0.0.1", r));
+  const cut = new rpc.Server(`http://127.0.0.1:${headersOnly.address().port}`, { allowHttp: true });
+  cut.httpClient.defaults.timeout = 300;
+  t0 = Date.now(); err = null;
+  try { await cut.getLatestLedger(); } catch (e) { err = e; }
+  took = Date.now() - t0;
+  ok(err && !(err instanceof TypeError) && /timeout/i.test(String(err.message || err)) && took < 5_000, `rpc-timeout: a mid-body stall rejects with a timeout error, never the SDK's TypeError (${took}ms: ${String(err?.message || err).slice(0, 80)})`);
+  headersOnly.closeAllConnections(); headersOnly.close();
+
+  // (c) the patch reaches an instance it never saw being built (the way
+  // @x402/stellar constructs one internally) and applies the installed default.
+  const fresh = new rpc.Server("http://127.0.0.1:9", { allowHttp: true });
+  fresh.getLatestLedger().catch(() => {}); // connection refused; we only care that the default was applied on the way out
+  ok(fresh.httpClient.defaults.timeout === 10_000, `rpc-timeout: a fresh rpc.Server gets the installed default on first use (${fresh.httpClient.defaults.timeout})`);
   console.log("rpc-timeout.js unit tests ✓");
 }
 
