@@ -167,6 +167,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   low under `OPENROUTER_LOW_KEY_LIMIT_FRACTION` 0.25); either low → "low"; "ok" needs the balance
   leg readable; otherwise "unknown" with `unknownForMinutes`, and heartbeat opens "Gateway balance
   UNREADABLE (OpenRouter)" after 180 min of unknown (a balance we cannot read is its own alarm).
+  **Flex-first (2026-08-19, `FLEX_MODELS` + `flexAttempts`):** every chain link in the live-verified
+  flex table (gemini-2.5/3.x families, gpt-5-nano, gpt-5.6-*; `/v1/images/generations` too) is
+  tried with `service_tier:"flex"` (OpenRouter's 50% tier, higher latency, never falls back on
+  its own) and then the SAME model on the default tier before the chain advances; an empty
+  refusal on flex skips the default retry (it would refuse too). Measured: the image model's
+  flex endpoints are exactly half price on every unit, and images were ~99% of the upstream
+  bill (68 of 528 calls, $2.63 of $2.67, 07-19..08-18; ~44% of that was the daily canary's
+  own image leg, which now rides flex automatically). `gateway_usage.serviceTier` records which
+  tier served. `OPENROUTER_FLEX=off` disables. The live guard fails CI if a FLEX_MODELS entry
+  loses its `*/flex` endpoint (flex on a model without one 404s = a wasted attempt per call).
   **zdr knob:** `zdr:true` (or
   `provider.zdr`) is the ONLY buyer-settable provider field — folds into the server-owned
   provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),

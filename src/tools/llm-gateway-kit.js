@@ -593,6 +593,43 @@ export function validateRequest(input, tierSlug) {
   return body;
 }
 
+// ---------------------------------------------------------------------------
+// Flex service tier - OpenRouter's `service_tier: "flex"` is a 50% discount on
+// OpenAI and Google endpoints in exchange for higher latency and lower
+// availability, and it NEVER falls back to the default tier on its own (a flex
+// capacity error surfaces). So every flex-eligible link is tried twice: flex
+// first, then the same model on the default tier, before the chain moves on.
+// Eligibility is a live-verified table, not a provider guess: on 2026-08-19
+// the gemini-2.5/3.x families and gpt-5-nano / gpt-5.6-* carried a "*/flex"
+// endpoint tag; gpt-4o(-mini)/4.1/o3 did not (flex on those would 404 and
+// cost a round-trip). scripts/test-gateway-model-ids.js checks every entry
+// against /models/{id}/endpoints, so a model that loses flex fails CI instead
+// of burning a failed attempt per call. Measured on the live catalog: the
+// image model's flex endpoints are exactly half price on every unit incl.
+// image_output ($0.000015 vs $0.00003 per token), and images are ~99% of
+// this gateway's upstream bill. OPENROUTER_FLEX=off is the escape hatch.
+export const FLEX_MODELS = [
+  "google/gemini-2.5-flash-image", "google/gemini-2.5-flash-lite", "google/gemini-2.5-flash", "google/gemini-2.5-pro",
+  "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", "google/gemini-3.5-flash", "google/gemini-3.6-flash",
+  "openai/gpt-5-nano", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra",
+];
+const FLEX_ENABLED = () => String(process.env.OPENROUTER_FLEX || "on").toLowerCase() !== "off";
+export function flexEligible(model) {
+  if (!FLEX_ENABLED()) return false;
+  const m = String(model || "");
+  return FLEX_MODELS.some((p) => m === p || m.startsWith(p + "-"));
+}
+/** Expand a model chain into attempts: [flex, default] for eligible links,
+ *  [default] otherwise. Exported for the gateway test. */
+export function flexAttempts(chain) {
+  const out = [];
+  for (const model of chain) {
+    if (flexEligible(model)) out.push({ model, flex: true });
+    out.push({ model, flex: false });
+  }
+  return out;
+}
+
 /** Per-buyer identity for OpenRouter's `user` field. OpenRouter scopes provider
  *  abuse/policy blocks to this id; without it every request rides the
  *  ACCOUNT identity, so one abusive buyer could get the whole gateway
@@ -1070,8 +1107,9 @@ export function validateImagesRequest(input) {
   return body;
 }
 
-async function imagesHandler(input) {
+async function imagesHandler(input, req) {
   const { prompt, zdr } = validateImagesRequest(input);
+  const user = upstreamUserId(req);
   const upstreamBody = {
     model: IMAGES_MODEL,
     messages: [{ role: "user", content: prompt }],
@@ -1079,17 +1117,30 @@ async function imagesHandler(input) {
     max_tokens: IMAGES_MAX_TOKENS,
     provider: { max_price: IMAGES_MAX_PRICE, ...(zdr ? { zdr: true } : {}) },
     usage: { include: true },
+    ...(user ? { user } : {}),
   };
-  const res = await fetchOpenRouter(upstreamBody, { timeoutMs: 120_000 });
-  if (!res.ok) await throwUpstreamError(res);
-  const text = await res.text();
-  let data;
-  try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
-
-  const images = data?.choices?.[0]?.message?.images;
-  if (!Array.isArray(images) || images.length === 0) {
-    throw bad("Upstream returned no image - retry, or rephrase the prompt", 502);
+  // Flex first (half price on this model's endpoints, live-verified), default
+  // second: flex never falls back on its own, and an imageless or failed flex
+  // answer must not become the buyer's 502 while the default tier would serve.
+  let data = null, servedTier = "default", lastErr = null;
+  for (const flex of flexEligible(IMAGES_MODEL) ? [true, false] : [false]) {
+    try {
+      const res = await fetchOpenRouter({ ...upstreamBody, ...(flex ? { service_tier: "flex" } : {}) }, { timeoutMs: 120_000 });
+      if (!res.ok) await throwUpstreamError(res);
+      const text = await res.text();
+      let parsed;
+      try { parsed = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+      const imgs = parsed?.choices?.[0]?.message?.images;
+      if (!Array.isArray(imgs) || imgs.length === 0) throw bad("Upstream returned no image - retry, or rephrase the prompt", 502);
+      data = parsed; servedTier = parsed.service_tier || (flex ? "flex" : "default");
+      break;
+    } catch (e) {
+      if (![502, 503, 504].includes(e?.statusCode)) throw e;
+      lastErr = e;
+    }
   }
+  if (!data) throw lastErr;
+  const images = data.choices[0].message.images;
 
   // Exact upstream bill → operator telemetry, stripped before the response.
   const usage = data.usage && typeof data.usage === "object" ? data.usage : null;
@@ -1107,6 +1158,7 @@ async function imagesHandler(input) {
         upstreamUsd,
         promptTokens: usage.prompt_tokens,
         completionTokens: usage.completion_tokens,
+        serviceTier: servedTier,
       });
     } catch { /* telemetry must never fail a served response */ }
   }
@@ -1373,17 +1425,21 @@ function makeHandler(tierSlug) {
     // Per-buyer `user` for OpenRouter's abuse isolation (see upstreamUserId):
     // call-time injection, never in the normalized body or cache keys.
     const user = upstreamUserId(req);
-    const outboundFor = (model) => {
+    const outboundFor = (model, flex = false) => {
       const attempt = { ...body, model };
       clampToMargin(attempt, TIERS[tierSlug], imageCount); // throws 400 → caller skips this candidate
-      return { ...attempt, zdr: undefined, ...(provider ? { provider } : {}), ...(user ? { user } : {}) };
+      return { ...attempt, zdr: undefined, ...(provider ? { provider } : {}), ...(user ? { user } : {}), ...(flex ? { service_tier: "flex" } : {}) };
     };
-    const recordUsage = (usage, upstreamUsd, served) => import("../posthog.js")
+    const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
         tier: tierSlug, model: served, priceUsd: TIERS[tierSlug].price, upstreamUsd,
-        promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens,
+        promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens, serviceTier,
       }))
       .catch(() => { /* telemetry must never fail a served response */ });
+    // Flex-eligible links are tried on the flex tier first, then default (see
+    // FLEX_MODELS): any upstream failure on the flex attempt falls to the same
+    // model's default attempt before the chain moves on.
+    const attempts = flexAttempts(chain);
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
       // streamOpenRouterTo throws only BEFORE headers are written, so the
@@ -1391,13 +1447,13 @@ function makeHandler(tierSlug) {
       return {
         __sse: async (res) => {
           let lastErr;
-          for (const model of chain) {
+          for (const { model, flex } of attempts) {
             let outbound;
-            try { outbound = outboundFor(model); } catch (e) { if (!lastErr) lastErr = e; continue; }
+            try { outbound = outboundFor(model, flex); } catch (e) { if (!lastErr) lastErr = e; continue; }
             try {
               // Streams now carry margin telemetry too: the scrubber hands us
               // the upstream cost it strips from the final usage frame.
-              return await streamOpenRouterTo(outbound, res, { onUsage: (usage, cost, frame) => recordUsage(usage, cost, frame?.model || model) });
+              return await streamOpenRouterTo(outbound, res, { onUsage: (usage, cost, frame) => recordUsage(usage, cost, frame?.model || model, frame?.service_tier || (flex ? "flex" : "default")) });
             } catch (e) {
               if (res.headersSent || ![502, 503, 504].includes(e?.statusCode)) throw e;
               lastErr = e;
@@ -1408,9 +1464,12 @@ function makeHandler(tierSlug) {
       };
     }
     let lastErr;
-    for (const model of chain) {
+    let refusedModel = null;
+    for (const { model, flex } of attempts) {
+      // A model that refused on flex will refuse on default too - don't pay twice.
+      if (model === refusedModel) continue;
       let outbound;
-      try { outbound = outboundFor(model); } catch (e) { if (!lastErr) lastErr = e; continue; }
+      try { outbound = outboundFor(model, flex); } catch (e) { if (!lastErr) lastErr = e; continue; }
       try {
         // usage.include once asked OpenRouter for the exact upstream bill;
         // OpenRouter now returns it on every response regardless (2026-08),
@@ -1425,6 +1484,7 @@ function makeHandler(tierSlug) {
         // the raw SSE passes through and finish_reason discloses.
         if (isEmptyRefusal(data)) {
           lastErr = bad("Upstream declined the request (safety filter) - rephrase the prompt, or pick a different model", 502);
+          refusedModel = model;
           continue;
         }
         // The exact upstream cost is operator telemetry, never a buyer-visible
@@ -1435,7 +1495,7 @@ function makeHandler(tierSlug) {
           delete data.usage.cost;
           delete data.usage.cost_details;
           delete data.usage.is_byok;
-          await recordUsage(data.usage, upstreamUsd, data.model || model);
+          await recordUsage(data.usage, upstreamUsd, data.model || model, data.service_tier || (flex ? "flex" : "default"));
         }
         // Routed requests disclose the decision: additive key, OpenAI wire
         // shape otherwise untouched (the standard `model` field already names

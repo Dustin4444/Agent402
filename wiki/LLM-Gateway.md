@@ -91,3 +91,7 @@ Keys are computed over the *normalized* body (model aliases and field order coll
 ## Verified daily
 
 The paid canary buys from the gateway every day with real USDC: a nano completion (exercising the failover chain), a model-less auto completion (asserting the router disclosure), a live SSE stream, an embeddings vector, and both cache behaviors (paid once → identical repeat served free). If any of it breaks, an alarm issue opens on the repo.
+
+## Upstream service tiers
+
+Where the upstream offers it (Gemini 2.5/3.x families, gpt-5-nano, gpt-5.6-*, and the image model), the gateway asks for OpenRouter's **flex** service tier first (lower price, higher latency, lower availability) and retries the same model on the default tier if flex has no capacity, before moving to the next failover link. Buyers see the same price either way; the response's `service_tier` field says which tier served.

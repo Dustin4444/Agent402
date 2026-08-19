@@ -436,13 +436,16 @@ export function capturePostHogToolGone({ route, replacement }) {
 // list-price estimate — and it back-checks the MODEL_COST table the margin
 // clamp prices against. upstreamUsd null (provider didn't report) still
 // captures tokens so volume stays queryable.
-export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens }) {
+export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier }) {
   if (!active()) return;
   const price = Number(priceUsd) || 0;
   const upstream = Number(upstreamUsd) || 0;
   capture("gateway_usage", {
     tier: String(tier || "unknown"),
     model: String(model || ""),
+    // Which OpenRouter service tier actually served ("flex" = the 50% tier,
+    // "default" otherwise) - the measurement behind the flex-first policy.
+    serviceTier: String(serviceTier || "default"),
     priceUsd: price,
     upstreamUsd: upstream,
     marginUsd: +(price - upstream).toFixed(6),

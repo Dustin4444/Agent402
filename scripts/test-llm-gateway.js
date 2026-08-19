@@ -230,6 +230,37 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(sc.flush() === "" && sc.push("data: [DONE]") === "" && sc.flush() === "data: [DONE]", "flush forwards a trailing unterminated line");
   const clean = 'data: {"usage":{"prompt_tokens":1,"completion_tokens":1}}';
   ok(createSseUsageScrubber().push(clean + "\n") === clean + "\n", "a usage frame with no billing fields passes through byte-for-byte");
+
+  // Flex-first on eligible links: gemini-2.5-flash-lite (nano allowlist) is
+  // tried on flex, falls to default on a capacity error, and only THEN does
+  // the chain move on; deepseek (not eligible) never sees service_tier.
+  const { flexAttempts, flexEligible, FLEX_MODELS } = await import("../src/tools/llm-gateway-kit.js");
+  ok(flexEligible("google/gemini-2.5-flash-lite") && flexEligible("openai/gpt-5.6-luna") && !flexEligible("openai/gpt-4o-mini") && !flexEligible("deepseek/deepseek-chat"), "flex eligibility follows the live-verified table");
+  ok(JSON.stringify(flexAttempts(["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"])) === JSON.stringify([{ model: "google/gemini-2.5-flash-lite", flex: true }, { model: "google/gemini-2.5-flash-lite", flex: false }, { model: "deepseek/deepseek-chat", flex: false }]), "attempts = [flex, default] for eligible links, [default] otherwise");
+  process.env.OPENROUTER_FLEX = "off";
+  ok(!flexEligible("google/gemini-2.5-flash-lite") && FLEX_MODELS.includes("google/gemini-2.5-flash-lite"), "OPENROUTER_FLEX=off disables flex without touching the table");
+  delete process.env.OPENROUTER_FLEX;
+  const flexTried = [];
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); flexTried.push(`${b.model}:${b.service_tier || "default"}`);
+    if (b.service_tier === "flex") return { ok: false, status: 503, text: async () => "flex capacity" };
+    return { ok: true, status: 200, body: sseBody(["data: [DONE]\n\n"]) };
+  };
+  const resF = fakeRes();
+  await (await nano.handler({ model: "google/gemini-2.5-flash-lite", messages: [{ role: "user", content: "hi" }], stream: true })).__sse(resF);
+  ok(flexTried.join(",") === "google/gemini-2.5-flash-lite:flex,google/gemini-2.5-flash-lite:default" && resF.ended, `stream: flex capacity error → same model on default, chain not advanced (tried ${flexTried.join(",")})`);
+  flexTried.length = 0;
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); flexTried.push(`${b.model}:${b.service_tier || "default"}`);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "g", model: b.model, service_tier: b.service_tier || "default", choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, cost: 0.0000001 } }) };
+  };
+  const outF = await nano.handler({ model: "google/gemini-2.5-flash-lite", messages: [{ role: "user", content: "hi" }] });
+  ok(flexTried.join(",") === "google/gemini-2.5-flash-lite:flex" && outF.service_tier === "flex", "non-stream: a flex success is served first time, one upstream call");
+  {
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.serviceTier === "flex", "chat telemetry records the flex tier");
+  }
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
@@ -693,6 +724,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   };
   const out = await imagesTool.handler({ prompt: "a fox", zdr: true });
   ok(seen.model === "google/gemini-2.5-flash-image" && Array.isArray(seen.modalities) && seen.modalities.includes("image"), "upstream call is chat-shaped with image modality and the locked model");
+  ok(seen.service_tier === "flex", "images try the flex tier first (half price on this model's endpoints)");
   ok(seen.max_tokens === 1600 && seen.provider?.max_price?.completion === 35, "upstream response is token- and price-bounded");
   ok(seen.provider?.zdr === true, "zdr folds into the images provider prefs too");
   ok(seen.usage?.include === true, "images calls request usage accounting");
@@ -701,11 +733,25 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const { _testEventsForTest } = await import("../src/posthog.js");
   const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
   ok(ev?.properties.tier === "v1-images" && ev?.properties.upstreamUsd === 0.039 && ev?.properties.priceUsd === 0.08, "images margin telemetry captured");
+  ok(ev?.properties.serviceTier === "flex", "telemetry records which service tier served");
+
+  // Flex has no capacity (or returns no image) → the SAME model is retried on
+  // the default tier before anyone sees a 502.
+  const tiersTried = [];
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); tiersTried.push(b.service_tier || "default");
+    if (b.service_tier === "flex") return { ok: false, status: 503, text: async () => "flex capacity" };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-i3", model: b.model, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${PNG_B64}` } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304, cost: 0.078 } }) };
+  };
+  const out2 = await imagesTool.handler({ prompt: "a fox" });
+  ok(tiersTried.join(",") === "flex,default" && out2.data.length === 1, `flex capacity error → default-tier retry on the same model (tried ${tiersTried.join(",")})`);
+  const ev2 = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+  ok(ev2?.properties.serviceTier === "default", "telemetry records the default tier when flex was unavailable");
 
   globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-i2", model: "x", choices: [{ index: 0, message: { role: "assistant", content: "no can do" }, finish_reason: "stop" }] }) });
   await imagesTool.handler({ prompt: "a fox" }).then(
     () => ok(false, "an imageless upstream response must not serve"),
-    (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response → 502")
+    (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response (both tiers) → 502")
   );
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;

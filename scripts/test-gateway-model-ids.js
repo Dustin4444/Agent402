@@ -14,7 +14,7 @@
 // It FAILS on network error rather than skipping: a skipped guard is the same
 // silent green that let every one of those ship.
 import {
-  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, costFor, tierFor, tierAllows,
+  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, costFor, tierFor, tierAllows,
 } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
@@ -87,6 +87,31 @@ const soon = Date.now() + 14 * 86_400_000;
 const watched = new Set([...Object.values(AUTO_RANKINGS).flatMap((b) => Object.values(b).flat()), ...Object.values(TIERS).flatMap((t) => t.fallbacks || [])]);
 const expiring = models.filter((m) => watched.has(m.id) && m.expiration_date && Date.parse(m.expiration_date) < soon).map((m) => `${m.id} (${m.expiration_date})`);
 ok(expiring.length === 0, `no ranked/fallback model expires within 14 days${expiring.length ? ` (${expiring.join(", ")})` : ""}`);
+
+// 6. Flex table: every FLEX_MODELS entry must still carry a "*/flex" endpoint
+//    upstream - flex on a model without one 404s and costs a failed attempt
+//    per call (the same wasted-round-trip class as a dead chain link).
+for (const id of FLEX_MODELS) {
+  let tags = null;
+  try {
+    const r = await fetch(`https://openrouter.ai/api/v1/models/${id}/endpoints`, { signal: AbortSignal.timeout(30_000) });
+    if (r.ok) tags = ((await r.json())?.data?.endpoints || []).map((e) => String(e.tag || ""));
+  } catch { /* reported below */ }
+  ok(Array.isArray(tags) && tags.some((t) => /\/flex$/.test(t)), `flex: ${id} still has a flex endpoint upstream${tags ? ` (tags: ${tags.join(", ")})` : " (endpoints unreadable)"}`);
+}
+// Informational, never fails: ranked/fallback models that gained flex since the table was written.
+{
+  const watchedIds = [...new Set([...Object.values(AUTO_RANKINGS).flatMap((b) => Object.values(b).flat()), ...Object.values(TIERS).flatMap((t) => t.fallbacks || [])])]
+    .filter((m) => /^(openai|google)\//.test(m) && !FLEX_MODELS.some((p) => m === p || m.startsWith(p + "-")));
+  const gained = [];
+  for (const id of watchedIds) {
+    try {
+      const r = await fetch(`https://openrouter.ai/api/v1/models/${id}/endpoints`, { signal: AbortSignal.timeout(30_000) });
+      if (r.ok && ((await r.json())?.data?.endpoints || []).some((e) => /\/flex$/.test(String(e.tag || "")))) gained.push(id);
+    } catch { /* informational */ }
+  }
+  if (gained.length) console.log(`note - ranked models with a flex endpoint not yet in FLEX_MODELS: ${gained.join(", ")}`);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
