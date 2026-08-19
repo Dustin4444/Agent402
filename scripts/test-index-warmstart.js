@@ -18,6 +18,7 @@ import {
   persistIndexCache,
   indexSnapshot,
   seedList,
+  mppDualStackOrigins,
 } from "../src/x402-index.js";
 
 const dir = mkdtempSync(join(tmpdir(), "a402-idx-"));
@@ -46,7 +47,10 @@ check("a corrupt file returns 0, never throws", () => {
 // Round trip.
 const entries = [
   ["https://seller-a.example", { manifest: { x402Version: 1 }, tools: [{ route: "/a", price: "$0.001" }, { route: "/b", price: "$0.002" }], fetchedAt: Date.now(), error: null, source: "bazaar", history: [] }],
-  ["https://seller-b.example", { manifest: { x402Version: 1 }, tools: [{ route: "/c", price: "$0.01" }], fetchedAt: Date.now(), error: null, source: "crawl", history: [] }],
+  ["https://seller-b.example", { manifest: { x402Version: 1 }, tools: [{ route: "/c", price: "$0.01" }], fetchedAt: Date.now(), error: null, source: "crawl", history: [],
+    // A probed paywall that also answered WWW-Authenticate: Payment - the live
+    // signal that feeds the MPP index's x402-crawl seed.
+    paywall: { ok: true, status: 402, url: "https://seller-b.example/c", at: Date.now(), mpp: true } }],
 ];
 writeFileSync(file, JSON.stringify({ savedAt: Date.now(), entries }));
 
@@ -77,6 +81,19 @@ check("warm-started origins re-enter the crawl seed list (no orphans)", () => {
 check("persist writes the warm cache back out", () => {
   assert.equal(persistIndexCache(file), true);
   assert.equal(JSON.parse(readFileSync(file, "utf8")).entries.length, 2);
+});
+
+check("the paywall probe (with its MPP flag) survives the round trip", () => {
+  // Before 2026-08-19 persist dropped `paywall`, so every deploy reset the
+  // budgeted probe pass and mppDualStackOrigins() was empty for hours after
+  // each boot - the MPP index's x402-crawl seed reported 0 origins.
+  const written = JSON.parse(readFileSync(file, "utf8")).entries;
+  const b = written.find(([o]) => o === "https://seller-b.example")[1];
+  assert.equal(b.paywall?.mpp, true, "persisted entry lost paywall.mpp");
+  assert.equal(b.paywall?.status, 402);
+  const a = written.find(([o]) => o === "https://seller-a.example")[1];
+  assert.equal(a.paywall, null, "an unprobed origin persists paywall: null, never a fake probe");
+  assert.deepEqual(mppDualStackOrigins(), ["https://seller-b.example"], "warm-started MPP flag must seed the MPP index");
 });
 
 check("failed origins are not re-seeded from disk", () => {
