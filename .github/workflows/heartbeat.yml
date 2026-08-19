@@ -41,6 +41,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
       - name: Probe production (3 attempts before declaring an outage)
         id: probe
         env:
@@ -195,6 +198,36 @@ jobs:
             fi
           elif [ "$LOW" = "false" ] && [ -n "$OPEN" ]; then
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ) ($BALANCE XLM)."
+          fi
+
+      # Bazaar listing validation - Coinbase's keyless, read-only
+      # POST /platform/v2/x402/validate probes our flagship routes the way the
+      # Bazaar crawler does (402 shape, PAYMENT-REQUIRED, accepts, bazaar
+      # extension, simulated accept, index membership). Never called before
+      # 2026-08-19; a broken 402 on one route could silently drop its listing
+      # for weeks. Exit 1 = a route is INVALID (our defect) -> issue; exit 2 =
+      # the validator itself unreadable (CDP-side) -> loud warning, no issue.
+      - name: Bazaar listing validation (flagship routes vs CDP validate)
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          OUT=$(TARGET_URL="$PROD" node scripts/bazaar-validate.js 2>&1); CODE=$?
+          set -e
+          echo "$OUT" | tail -20
+          TITLE="Bazaar listing validation FAILED"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          DETAIL=$(echo "$OUT" | grep -E '^(FAIL|\?\?) ' | head -20 || true)
+          if [ "$CODE" = "1" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$(printf 'Coinbase CDP'"'"'s x402 validate endpoint reports at least one flagship route INVALID - its 402 no longer passes the Bazaar crawler'"'"'s preflight (shape, PAYMENT-REQUIRED header, accepts, bazaar extension) or the index dropped it. Buyers discovering through the Bazaar / AgentCore will not see that route until it validates again.\n\n```\n%s\n```\n\nReproduce: `node scripts/bazaar-validate.js` (read-only, keyless). A green run closes this.' "$DETAIL")"
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "$(printf 'Still failing at %s\n\n```\n%s\n```' "$(date -u +%FT%TZ)" "$DETAIL")"
+            fi
+          elif [ "$CODE" = "2" ]; then
+            echo "::warning::CDP validate endpoint UNREADABLE for every flagship route - not silently skipping; the listing check is blind this run"
+          elif [ "$CODE" = "0" ] && [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: every flagship route validates again at $(date -u +%FT%TZ)."
           fi
 
       # Canary burner balance watch — the 2026-07-27 lesson: the Base burner

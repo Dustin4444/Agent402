@@ -816,6 +816,9 @@ jobs:
       - name: /SKILL.md agent-onboarding sheet (frontmatter, section order, every named route registered, house style - offline)
         run: node scripts/test-skill-md.js
 
+      - name: Bazaar validate client (catalog method travels, required vs advisory, 429 backoff, unreadable never valid - offline)
+        run: node scripts/test-bazaar-validate.js
+
       - name: Manifest resources[] dedup (a tool registered under 2 HTTP methods lists its URL once, not twice)
         run: node scripts/test-manifest-resources-dedup.js
 
