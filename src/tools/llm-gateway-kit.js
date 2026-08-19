@@ -307,7 +307,10 @@ export const TIERS = {
 // Drop-in compatibility: bare OpenAI-style names map to their OpenRouter ids,
 // so `model: "gpt-4o-mini"` from an unmodified OpenAI SDK works unchanged.
 export function canonicalModel(model) {
-  const m = String(model || "").trim();
+  // Whitespace inside the id is never meaningful upstream; collapsing it around
+  // the variant colon keeps "model: online" from slipping past the variant
+  // refusal and the allowlist as a malformed id (review 2026-08-19).
+  const m = String(model || "").trim().replace(/\s*:\s*/g, ":");
   if (!m) return m;
   if (m.includes("/")) return m; // already an OpenRouter id
   if (/^(gpt|o[0-9])/i.test(m)) return `openai/${m}`;
