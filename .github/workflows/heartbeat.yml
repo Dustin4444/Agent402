@@ -137,18 +137,33 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          STATUS=$(curl -s --max-time 15 "$PROD/api/gateway-status" | jq -r '.status // "unknown"' 2>/dev/null || echo unknown)
-          echo "gateway credits: $STATUS"
+          BODY=$(curl -s --max-time 15 "$PROD/api/gateway-status" || echo '{}')
+          STATUS=$(echo "$BODY" | jq -r '.status // "unknown"' 2>/dev/null || echo unknown)
+          UNKNOWN_MIN=$(echo "$BODY" | jq -r '.unknownForMinutes // 0' 2>/dev/null || echo 0)
+          echo "gateway credits: $STATUS (credits leg: $(echo "$BODY" | jq -r '.credits // "-"' 2>/dev/null), key-limit leg: $(echo "$BODY" | jq -r '.keyLimit // "-"' 2>/dev/null), unknown for ${UNKNOWN_MIN}m)"
           TITLE="Gateway credits LOW (OpenRouter)"
           OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
           if [ "$STATUS" = "low" ]; then
             if [ -z "$OPEN" ]; then
-              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The OpenRouter balance behind the /v1 gateway is below the low-water mark (OPENROUTER_LOW_CREDITS_USD, default \$5). Paid gateway calls settle BEFORE the upstream call, so an empty balance charges buyers for 503s. Top up: https://openrouter.ai/settings/credits (USDC accepted; auto-top-up available)."
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "The OpenRouter balance behind the /v1 gateway is below the low-water mark (OPENROUTER_LOW_CREDITS_USD, default \$15) OR the production key's own monthly USD limit has under 25% left (OPENROUTER_LOW_KEY_LIMIT_FRACTION). Either ceiling stops the gateway: upstream refuses, we answer 502, settlement is cancelled, so buyers are NOT charged but every /v1 sale is lost until it is topped up. Top up credits: https://openrouter.ai/settings/credits (manual - the programmatic top-up API is gone). Raise the key limit: https://openrouter.ai/settings/keys (key: Agent402)."
             else
               gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "Still low at $(date -u +%FT%TZ)."
             fi
           elif [ "$STATUS" = "ok" ] && [ -n "$OPEN" ]; then
             gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: balance back above the low-water mark at $(date -u +%FT%TZ)."
+          fi
+          # A balance we cannot READ is its own alarm once it persists: "unknown"
+          # never paged, which is exactly how a dead alarm stays dead. 180 min =
+          # several heartbeat runs, well past any OpenRouter blip (server caches
+          # the read for 5 min and only goes unknown when BOTH legs are unreadable).
+          TITLE2="Gateway balance UNREADABLE (OpenRouter)"
+          OPEN2=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE2\"" --json number --jq '.[0].number // empty')
+          if [ "$STATUS" = "unknown" ] && [ "${UNKNOWN_MIN:-0}" -ge 180 ] 2>/dev/null; then
+            if [ -z "$OPEN2" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE2" --body "/api/gateway-status has reported status=unknown for ${UNKNOWN_MIN} minutes: neither OpenRouter /credits nor /key answered readably with the production key. The low-balance alarm is blind while this lasts. Check the key (https://openrouter.ai/settings/keys), OpenRouter status, and the server log for fetch errors."
+            fi
+          elif [ "$STATUS" != "unknown" ] && [ -n "$OPEN2" ]; then
+            gh issue close "$OPEN2" --repo "$GITHUB_REPOSITORY" --comment "Balance readable again at $(date -u +%FT%TZ)."
           fi
 
       # Stellar facilitator XLM balance watch. This signer pays the network

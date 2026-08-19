@@ -72,6 +72,12 @@ FACILITATOR_STELLAR_SECRET=S... npm start
   `FACILITATOR_SETTLE_TIMEOUT_MS` also means raising
   `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` (or your platform's equivalent) to
   match, so a redeploy's grace period still comfortably exceeds it.
+- `FACILITATOR_RPC_TIMEOUT_MS` — optional, default `10000`. Per-request
+  timeout on every Soroban RPC round-trip the Stellar SDK makes (simulate,
+  send, poll). The endpoint bounds above are the last line; this one makes a
+  stalled RPC provider surface within seconds with a real error body (incl.
+  the best-effort `payer`), inside the typical caller's own 30s settle budget,
+  rather than the caller giving up blind. `0` disables.
 
 The server exposes the three standard x402 facilitator endpoints —
 `GET /supported`, `POST /verify`, `POST /settle` — plus an always-open,

@@ -30,7 +30,7 @@ Because tiers are flat-priced while upstream bills per token, every request is a
 | `POST /v1/premium/chat/completions` | $0.50 | frontier (gpt-5, o3/o4, claude opus) | 64k chars | 8,192 tokens |
 | `POST /v1/embeddings` | $0.002 | text-embedding-3-small (default), 3-large, ada-002 - batch up to 64 inputs | 16k chars | - |
 | `POST /v1/images/generations` | $0.08 | Gemini 2.5 Flash Image (nano banana) - one image per call, inline base64 out | 4k-char prompt | 1 image |
-| `POST /v1/audio/speech` | $0.06 | a six-model failover chain on OpenRouter's audio API; raw mp3/pcm bytes out, the 11 OpenAI voice names plus each model's native voices | 2k-char input | - |
+| `POST /v1/audio/speech` | $0.06 | a five-model failover chain on OpenRouter's audio API; raw mp3/pcm bytes out, the 11 OpenAI voice names plus each model's native voices | 2k-char input | - |
 
 Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a model on the wrong tier returns a self-correcting 400 naming the right endpoint and price. All tiers are **wallet-only** - every call burns real upstream credit, so there is no proof-of-work free tier (see [[Security Model]]).
 
@@ -42,7 +42,7 @@ Bare OpenAI-style names (`gpt-4o-mini`) are accepted and mapped; requesting a mo
 
 `POST /v1/audio/speech` speaks the OpenAI TTS wire, so any OpenAI SDK's `audio.speech.create()` works by changing `base_url`. Send `{"input": "...", "voice": "alloy"}` (up to 2,000 chars) and raw audio bytes come back, `mp3` by default and `pcm` on request, at a flat $0.06 per call. `zdr: true` works here too.
 
-There is no OpenAI TTS model on the upstream, so the tier serves a **six-model failover chain** over OpenRouter's audio API instead, walking to the next link on *any* upstream failure including an empty audio body. The 11 OpenAI voice names (`alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`, `onyx`, `nova`, `sage`, `shimmer`, `verse`) are accepted on every link and mapped to that model's closest native voice; each model's **native** voice ids (e.g. `en_paul_cheerful`) are also accepted directly and are listed per model on `GET /v1/models`. Pinning `model` moves that link to the front of the chain rather than disabling the rest.
+There is no OpenAI TTS model on the upstream, so the tier serves a **five-model failover chain** over OpenRouter's audio API instead, walking to the next link on *any* upstream failure including an empty audio body. The 11 OpenAI voice names (`alloy`, `ash`, `ballad`, `coral`, `echo`, `fable`, `onyx`, `nova`, `sage`, `shimmer`, `verse`) are accepted on every link and mapped to that model's closest native voice; each model's **native** voice ids (e.g. `en_paul_cheerful`) are also accepted directly and are listed per model on `GET /v1/models`. Pinning `model` moves that link to the front of the chain rather than disabling the rest.
 
 Two request fields differ from OpenAI's:
 
@@ -91,3 +91,7 @@ Keys are computed over the *normalized* body (model aliases and field order coll
 ## Verified daily
 
 The paid canary buys from the gateway every day with real USDC: a nano completion (exercising the failover chain), a model-less auto completion (asserting the router disclosure), a live SSE stream, an embeddings vector, and both cache behaviors (paid once → identical repeat served free). If any of it breaks, an alarm issue opens on the repo.
+
+## Upstream service tiers
+
+Where the upstream offers it (Gemini 2.5/3.x families, gpt-5-nano, gpt-5.6-*, and the image model), the gateway asks for OpenRouter's **flex** service tier first (lower price, higher latency, lower availability) and retries the same model on the default tier if flex has no capacity, before moving to the next failover link. Buyers see the same price either way; the response's `service_tier` field says which tier served.

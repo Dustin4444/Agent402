@@ -76,6 +76,12 @@ __testReset();
   const got = parseMppScanOrigins(page);
   ok(got.length === 2 && got.includes("https://alpha.example") && got.includes("https://beta.example"), `parseMppScanOrigins: escaped SSR payload -> validated https origins, deduped, http and path-scoped dropped (got ${JSON.stringify(got)})`);
   ok(parseMppScanOrigins("<html>no data</html>").length === 0 && parseMppScanOrigins("").length === 0, "parseMppScanOrigins: no list -> []");
+  // ReDoS guard: an unterminated list followed by a long whitespace run must
+  // parse in linear time (the page is third-party input). ~1s before the
+  // one-parse-per-item quantifier, 0ms after.
+  const t0 = Date.now();
+  parseMppScanOrigins('"originUrls": ["https://a.example"' + " ".repeat(50_000) + "x");
+  ok(Date.now() - t0 < 200, `parseMppScanOrigins: unterminated list + 50k spaces parses in linear time (${Date.now() - t0}ms)`);
 }
 // --- MPPScan tRPC servers.list (primary source): shape + validation ----------------
 {

@@ -73,6 +73,19 @@ throws(() => validateRequest({ messages: msg1() }, "v1-chat"), "required", "miss
 throws(() => validateRequest({ model: "gpt-4o-mini", messages: msg1("x".repeat(40_000)) }, "v1-chat"), "Input too large", "input char cap enforced");
 throws(() => validateRequest({ model: "gpt-4o-mini", messages: Array.from({ length: 101 }, () => ({ role: "user", content: "x" })) }, "v1-chat"), "Too many messages", "message count cap enforced");
 
+// Billing-changing model variants are refused with a self-explaining 400:
+// ":online" attaches per-request web-search billing outside max_price, and
+// ":batch" is the async batch API. Routing-only variants (":nitro") still pass
+// the allowlist as before.
+{
+  const rej = (m) => { try { validateRequest({ model: m, messages: msg1() }, "v1-chat"); return null; } catch (e) { return e; } };
+  const on = rej("openai/gpt-4o-mini:online");
+  ok(on?.statusCode === 400 && /:online/.test(on.message) && /web search/.test(on.message) && /openai\/gpt-4o-mini"/.test(on.message), `":online" refused with a self-explaining 400 naming the plain id (${on?.message})`);
+  const ba = rej("openai/gpt-4o-mini:batch");
+  ok(ba?.statusCode === 400 && /:batch/.test(ba.message) && /asynchronous/.test(ba.message), `":batch" refused with a self-explaining 400 (${ba?.message})`);
+  ok(rej("openai/gpt-4o-mini:nitro") === null, "routing-only variant :nitro still admitted");
+}
+
 // Env-gated 503 before any network I/O (no OPENROUTER_API_KEY in this test env).
 delete process.env.OPENROUTER_API_KEY;
 const gatewayTool = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat");
@@ -154,18 +167,43 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   };
   const nano = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-nano");
 
-  // Happy path — deepseek streams (it's in the nano allowlist).
+  // Happy path — deepseek streams (it's in the nano allowlist). The upstream
+  // final frame carries OpenRouter's billing fields (it always does now, no
+  // opt-in): they must be stripped in flight, split across chunks or not.
+  const usageFrame = 'data: {"id":"gen-s","model":"deepseek/deepseek-chat","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4,"cost":0.0000049,"is_byok":false,"cost_details":{"upstream_inference_cost":0.000004}}}\n\n';
+  let seenStreamBody = null;
   globalThis.fetch = async (url, init) => {
     const body = JSON.parse(init.body);
+    seenStreamBody = body;
     ok(body.stream === true, "stream flag reaches the upstream body");
-    return { ok: true, status: 200, body: sseBody(['data: {"choices":[{"delta":{"content":"O"}}]}\n\n', "data: [DONE]\n\n"]) };
+    // Split the usage frame mid-JSON across two chunks on purpose.
+    const cut = usageFrame.indexOf('"cost"') + 3;
+    return { ok: true, status: 200, body: sseBody(['data: {"choices":[{"delta":{"content":"O"}}]}\n\n', usageFrame.slice(0, cut), usageFrame.slice(cut), "data: [DONE]\n\n"]) };
   };
-  const streamResult = await nano.handler({ model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "hi" }], stream: true });
+  const fakeReq = { header: (n) => (n.toLowerCase() === "payment-signature" ? Buffer.from(JSON.stringify({ payload: { authorization: { from: "0xAbCdEf0000000000000000000000000000000001" } } })).toString("base64") : undefined) };
+  const streamResult = await nano.handler({ model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "hi" }], stream: true }, fakeReq);
   ok(typeof streamResult.__sse === "function", "stream:true returns the __sse writer sentinel");
   const res1 = fakeRes();
   await streamResult.__sse(res1);
   ok(res1.status === 200 && res1.headers["Content-Type"].startsWith("text/event-stream"), "SSE headers written");
-  ok(res1.chunks.join("").includes("[DONE]") && res1.ended, "chunks pass through verbatim and the stream ends");
+  const streamed = res1.chunks.join("");
+  ok(streamed.includes('data: {"choices":[{"delta":{"content":"O"}}]}') && streamed.includes("[DONE]") && res1.ended, "content frames pass through verbatim and the stream ends");
+  ok(!/"cost"|cost_details|is_byok/.test(streamed), "OpenRouter billing fields are stripped from the streamed usage frame (even split across chunks)");
+  ok(/"usage":\{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4\}/.test(streamed), "standard token counts still reach the streaming buyer");
+  ok(typeof seenStreamBody.user === "string" && /^a402:[0-9a-f]{32}$/.test(seenStreamBody.user), `per-buyer user id rides upstream on streams (${seenStreamBody.user})`);
+  {
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    await new Promise((r) => setTimeout(r, 20));
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.upstreamUsd === 0.0000049 && ev?.properties.tier === "v1-chat-nano" && ev?.properties.completionTokens === 1, "streams now carry margin telemetry (cost captured from the scrubbed frame)");
+  }
+  // No req (non-HTTP caller) → no user field; the same payer → the same id.
+  globalThis.fetch = async (url, init) => { seenStreamBody = JSON.parse(init.body); return { ok: true, status: 200, body: sseBody(["data: [DONE]\n\n"]) }; };
+  await (await nano.handler({ model: "deepseek/deepseek-chat", messages: [{ role: "user", content: "hi" }], stream: true })).__sse(fakeRes());
+  ok(seenStreamBody.user === undefined, "no request context → no user field");
+  const { upstreamUserId } = await import("../src/tools/llm-gateway-kit.js");
+  ok(upstreamUserId(fakeReq) === upstreamUserId(fakeReq) && upstreamUserId(fakeReq) !== upstreamUserId({ header: (n) => (n === "authorization" ? "Payment abc" : undefined) }), "user id is stable per payer and distinct per credential");
+  ok(!upstreamUserId(fakeReq).includes("0xAbCdEf"), "the user id is a hash, never the raw wallet");
 
   // Pre-stream failover: requested model 502s before any bytes → fallback streams.
   const tried = [];
@@ -183,6 +221,46 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   let threw = null;
   try { await nano.handler({ model: "openai/gpt-4o", messages: [{ role: "user", content: "hi" }], stream: true }); } catch (e) { threw = e; }
   ok(threw?.statusCode === 400, "stream requests still validate before any upstream call");
+
+  // The scrubber itself: byte-exact pass-through for non-usage frames, a
+  // buffered partial line, and a usage frame with nothing to strip left alone.
+  const { createSseUsageScrubber } = await import("../src/tools/llm-gateway-kit.js");
+  const sc = createSseUsageScrubber();
+  ok(sc.push("data: {\"a\":1}\n\ndata: {\"b\"") === "data: {\"a\":1}\n\n" && sc.push(":2}\n") === "data: {\"b\":2}\n", "complete lines forwarded as-is, partial line held until complete");
+  ok(sc.flush() === "" && sc.push("data: [DONE]") === "" && sc.flush() === "data: [DONE]", "flush forwards a trailing unterminated line");
+  const clean = 'data: {"usage":{"prompt_tokens":1,"completion_tokens":1}}';
+  ok(createSseUsageScrubber().push(clean + "\n") === clean + "\n", "a usage frame with no billing fields passes through byte-for-byte");
+
+  // Flex-first on eligible links: gemini-2.5-flash-lite (nano allowlist) is
+  // tried on flex, falls to default on a capacity error, and only THEN does
+  // the chain move on; deepseek (not eligible) never sees service_tier.
+  const { flexAttempts, flexEligible, FLEX_MODELS } = await import("../src/tools/llm-gateway-kit.js");
+  ok(flexEligible("google/gemini-2.5-flash-lite") && flexEligible("openai/gpt-5.6-luna") && !flexEligible("openai/gpt-4o-mini") && !flexEligible("deepseek/deepseek-chat"), "flex eligibility follows the live-verified table");
+  ok(JSON.stringify(flexAttempts(["google/gemini-2.5-flash-lite", "deepseek/deepseek-chat"])) === JSON.stringify([{ model: "google/gemini-2.5-flash-lite", flex: true }, { model: "google/gemini-2.5-flash-lite", flex: false }, { model: "deepseek/deepseek-chat", flex: false }]), "attempts = [flex, default] for eligible links, [default] otherwise");
+  process.env.OPENROUTER_FLEX = "off";
+  ok(!flexEligible("google/gemini-2.5-flash-lite") && FLEX_MODELS.includes("google/gemini-2.5-flash-lite"), "OPENROUTER_FLEX=off disables flex without touching the table");
+  delete process.env.OPENROUTER_FLEX;
+  const flexTried = [];
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); flexTried.push(`${b.model}:${b.service_tier || "default"}`);
+    if (b.service_tier === "flex") return { ok: false, status: 503, text: async () => "flex capacity" };
+    return { ok: true, status: 200, body: sseBody(["data: [DONE]\n\n"]) };
+  };
+  const resF = fakeRes();
+  await (await nano.handler({ model: "google/gemini-2.5-flash-lite", messages: [{ role: "user", content: "hi" }], stream: true })).__sse(resF);
+  ok(flexTried.join(",") === "google/gemini-2.5-flash-lite:flex,google/gemini-2.5-flash-lite:default" && resF.ended, `stream: flex capacity error → same model on default, chain not advanced (tried ${flexTried.join(",")})`);
+  flexTried.length = 0;
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); flexTried.push(`${b.model}:${b.service_tier || "default"}`);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "g", model: b.model, service_tier: b.service_tier || "default", choices: [{ index: 0, message: { role: "assistant", content: "hi" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2, cost: 0.0000001 } }) };
+  };
+  const outF = await nano.handler({ model: "google/gemini-2.5-flash-lite", messages: [{ role: "user", content: "hi" }] });
+  ok(flexTried.join(",") === "google/gemini-2.5-flash-lite:flex" && outF.service_tier === "flex", "non-stream: a flex success is served first time, one upstream call");
+  {
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.serviceTier === "flex", "chat telemetry records the flex tier");
+  }
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
@@ -646,6 +724,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   };
   const out = await imagesTool.handler({ prompt: "a fox", zdr: true });
   ok(seen.model === "google/gemini-2.5-flash-image" && Array.isArray(seen.modalities) && seen.modalities.includes("image"), "upstream call is chat-shaped with image modality and the locked model");
+  ok(seen.service_tier === "flex", "images try the flex tier first (half price on this model's endpoints)");
   ok(seen.max_tokens === 1600 && seen.provider?.max_price?.completion === 35, "upstream response is token- and price-bounded");
   ok(seen.provider?.zdr === true, "zdr folds into the images provider prefs too");
   ok(seen.usage?.include === true, "images calls request usage accounting");
@@ -654,11 +733,25 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const { _testEventsForTest } = await import("../src/posthog.js");
   const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
   ok(ev?.properties.tier === "v1-images" && ev?.properties.upstreamUsd === 0.039 && ev?.properties.priceUsd === 0.08, "images margin telemetry captured");
+  ok(ev?.properties.serviceTier === "flex", "telemetry records which service tier served");
+
+  // Flex has no capacity (or returns no image) → the SAME model is retried on
+  // the default tier before anyone sees a 502.
+  const tiersTried = [];
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); tiersTried.push(b.service_tier || "default");
+    if (b.service_tier === "flex") return { ok: false, status: 503, text: async () => "flex capacity" };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-i3", model: b.model, choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${PNG_B64}` } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304, cost: 0.078 } }) };
+  };
+  const out2 = await imagesTool.handler({ prompt: "a fox" });
+  ok(tiersTried.join(",") === "flex,default" && out2.data.length === 1, `flex capacity error → default-tier retry on the same model (tried ${tiersTried.join(",")})`);
+  const ev2 = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+  ok(ev2?.properties.serviceTier === "default", "telemetry records the default tier when flex was unavailable");
 
   globalThis.fetch = async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-i2", model: "x", choices: [{ index: 0, message: { role: "assistant", content: "no can do" }, finish_reason: "stop" }] }) });
   await imagesTool.handler({ prompt: "a fox" }).then(
     () => ok(false, "an imageless upstream response must not serve"),
-    (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response → 502")
+    (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response (both tiers) → 502")
   );
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
@@ -686,7 +779,48 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(!JSON.stringify(low).match(/\d\.\d|20|17/), "no balance numbers in the public payload");
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ data: { total_credits: 100, total_usage: 1 } }) });
   const cached = await gatewayCreditsStatus();
-  ok(cached.status === "low" && fetches === 1, "result is cached — the endpoint can't be used to hammer OpenRouter");
+  ok(cached.status === "low" && fetches === 2, "result is cached — the endpoint can't be used to hammer OpenRouter (one read per leg)");
+  // Second ceiling: the key's own USD limit. Credits fine, limit nearly spent → low.
+  const { _resetCreditsCacheForTest } = await import("../src/tools/llm-gateway-kit.js");
+  _resetCreditsCacheForTest();
+  globalThis.fetch = async (url) => ({ ok: true, status: 200, json: async () => (String(url).endsWith("/key")
+    ? { data: { label: "k", limit: 250, limit_remaining: 40, limit_reset: "monthly" } }
+    : { data: { total_credits: 100, total_usage: 1 } }) });
+  const keyLow = await gatewayCreditsStatus();
+  ok(keyLow.status === "low" && keyLow.credits === "ok" && keyLow.keyLimit === "low", `key limit under 25% remaining → low even with a healthy balance (got ${JSON.stringify(keyLow)})`);
+  ok(!JSON.stringify(keyLow).match(/250|40|100/), "no limit numbers in the public payload");
+  _resetCreditsCacheForTest();
+  globalThis.fetch = async (url) => ({ ok: true, status: 200, json: async () => (String(url).endsWith("/key")
+    ? { data: { label: "k", limit: 250, limit_remaining: 200 } }
+    : { data: { total_credits: 100, total_usage: 1 } }) });
+  const bothOk = await gatewayCreditsStatus();
+  ok(bothOk.status === "ok" && bothOk.unknownForMinutes === undefined, "both legs healthy → ok, no unknown duration");
+  // Balance unreadable but key readable: NOT ok (the key cannot vouch for the
+  // balance) - unknown, with a duration the heartbeat can page on.
+  _resetCreditsCacheForTest();
+  globalThis.fetch = async (url) => (String(url).endsWith("/key")
+    ? { ok: true, status: 200, json: async () => ({ data: { label: "k", limit: 250, limit_remaining: 200 } }) }
+    : { ok: false, status: 401, json: async () => ({}) });
+  const unk = await gatewayCreditsStatus();
+  ok(unk.status === "unknown" && unk.credits === "unknown" && unk.keyLimit === "ok" && unk.unknownForMinutes === 0, `unreadable balance → unknown with unknownForMinutes (got ${JSON.stringify(unk)})`);
+  // Management key: the documented credential for /credits rides that leg
+  // when set; /key is ALWAYS read with the API key (it describes the caller,
+  // and the management key has no limit of its own).
+  _resetCreditsCacheForTest();
+  process.env.OPENROUTER_MANAGEMENT_KEY = "mgmt-key";
+  const bearers = {};
+  globalThis.fetch = async (url, init) => {
+    bearers[String(url).endsWith("/key") ? "key" : "credits"] = init.headers.Authorization;
+    return { ok: true, status: 200, json: async () => (String(url).endsWith("/key")
+      ? { data: { label: "k", limit: 250, limit_remaining: 200 } }
+      : { data: { total_credits: 100, total_usage: 1 } }) };
+  };
+  const viaMgmt = await gatewayCreditsStatus();
+  ok(viaMgmt.status === "ok" && bearers.credits === "Bearer mgmt-key" && bearers.key === "Bearer test-key", `management key reads /credits, API key reads /key (got ${JSON.stringify(bearers)})`);
+  delete process.env.OPENROUTER_MANAGEMENT_KEY;
+  _resetCreditsCacheForTest();
+  await gatewayCreditsStatus();
+  ok(bearers.credits === "Bearer test-key", "without a management key the API key reads /credits (fallback)");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.OPENROUTER_LOW_CREDITS_USD;
@@ -694,21 +828,21 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
 
 // /v1/audio/speech — OpenAI TTS wire over OpenRouter, raw bytes out via the
 // route binder's __binary sentinel. Payment settles before the handler, so
-// the tier serves a six-model failover chain (every link canary-proven);
+// the tier serves a five-model failover chain (every link canary-proven);
 // OpenAI voice names map per-model, native ids pass through.
 {
   const { validateSpeechRequest, SPEECH_PATH, SPEECH_MODELS, LLM_GATEWAY_TOOLS: tools } = await import("../src/tools/llm-gateway-kit.js");
   ok(SPEECH_PATH === "/v1/audio/speech", "speech path constant");
   const speechTool = tools.find((t) => t.slug === "v1-audio-speech");
   ok(speechTool && speechTool.route === "POST /v1/audio/speech" && speechTool.price === "$0.060", "speech tool registered at the OpenAI wire path");
-  ok(SPEECH_MODELS.length === 6 && SPEECH_MODELS[0].id === "mistralai/voxtral-mini-tts-2603", "six-model chain, Voxtral primary");
+  ok(SPEECH_MODELS.length === 5 && SPEECH_MODELS[0].id === "mistralai/voxtral-mini-tts-2603" && !SPEECH_MODELS.some((m) => /zonos/.test(m.id)), "five-model chain, Voxtral primary, Zonos (zero endpoints upstream) gone");
   ok(SPEECH_MODELS.every((e) => e.map.alloy && Object.values(e.map).every((voice) => e.voices.has(voice))), "every chain link maps each OpenAI voice name to one of its own native voices");
 
   const v = validateSpeechRequest({ input: "hello world" });
-  ok(v.bodies.length === 6 && v.bodies[0].model === "mistralai/voxtral-mini-tts-2603" && v.bodies[0].voice === "en_paul_neutral" && v.bodies[0].response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: full chain, alloy maps to the primary's neutral voice, mp3");
+  ok(v.bodies.length === 5 && v.bodies[0].model === "mistralai/voxtral-mini-tts-2603" && v.bodies[0].voice === "en_paul_neutral" && v.bodies[0].response_format === "mp3" && v.contentType === "audio/mpeg", "defaults: full chain, alloy maps to the primary's neutral voice, mp3");
   ok(v.bodies.map((b) => b.model).join() === SPEECH_MODELS.map((e) => e.id).join(), "default chain order = SPEECH_MODELS order");
   const pinned = validateSpeechRequest({ input: "hi", model: "kokoro" });
-  ok(pinned.bodies[0].model === "hexgrad/kokoro-82m" && pinned.bodies.length === 6, "explicit model pins that link first — the rest stay as fallbacks");
+  ok(pinned.bodies[0].model === "hexgrad/kokoro-82m" && pinned.bodies.length === 5, "explicit model pins that link first — the rest stay as fallbacks");
   ok(validateSpeechRequest({ input: "hi", model: "voxtral-mini-tts" }).bodies[0].model === "mistralai/voxtral-mini-tts-2603", "bare family alias accepted");
   const nova = validateSpeechRequest({ input: "hi", voice: "nova" });
   ok(nova.bodies[0].voice === "gb_jane_confident" && nova.bodies[2].voice === "af_nova", "OpenAI voice name maps per-model down the chain");
@@ -761,7 +895,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   };
   await speechTool.handler({ input: "hello" }).then(
     () => ok(false, "all links down must not serve"),
-    (e) => ok(calls.length === 6 && [502, 503].includes(e.statusCode), "all six links tried before the buyer sees an error")
+    (e) => ok(calls.length === 5 && [502, 503].includes(e.statusCode), "all five links tried before the buyer sees an error")
   );
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
