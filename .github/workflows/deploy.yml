@@ -931,6 +931,8 @@ jobs:
 
       - name: New-tool coverage lock (The 500 slugs swept by test-all; canary leg prices honest — offline)
         run: node scripts/test-canary-coverage.js
+      - name: Algorand rail canary classifiers (upstream/edge outage vs real defect — offline)
+        run: node scripts/test-algorand-canary-classify.js
 
       - name: Tool resolver (/api/find ranking, guards)
         run: node scripts/test-find.js
