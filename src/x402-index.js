@@ -2378,6 +2378,18 @@ export function ecosystemMarket({ limit = 12 } = {}) {
  *  host and toolCount only - deliberately NO third-party display text, so a
  *  consumer can attach it to agent-facing responses without inheriting the
  *  listing-injection surface. Cheap: one pass over the in-memory cache. */
+/** Origins whose live 402 (probed by OUR x402 crawl, no extra request)
+ *  carried an MPP `WWW-Authenticate: Payment` challenge - dual-stack sellers
+ *  detected automatically, no registry needed. Feeds the MPP index as a third
+ *  seed source (src/mpp-index.js discoverFromX402Crawl). */
+export function mppDualStackOrigins() {
+  const out = [];
+  for (const [origin, v] of cache.entries()) {
+    if (v?.paywall?.mpp === true) out.push(origin);
+  }
+  return out;
+}
+
 export function routableSellerSummaries() {
   const out = [];
   for (const [origin, v] of cache.entries()) {

@@ -2,7 +2,7 @@
 // x402 side - protocol-agnostic) + the registerMppOrigin flow with an
 // injected fake verifier + the snapshot honesty invariant. No network, no /data.
 import {
-  validateOriginInput, registerMppOrigin, mppIndexSnapshot,
+  validateOriginInput, registerMppOrigin, mppIndexSnapshot, parseMppScanOrigins, parseMppScanList, probeTargetFromDiscovery, seedFromOrigins, discoverFromX402Crawl,
   __testResetSubmitted, __testSetSubmittedCap, __testReset,
 } from "../src/mpp-index.js";
 import { isMppChallenge } from "../src/x402-index.js";
@@ -69,6 +69,50 @@ ok(snap.verifiedSellers === 1, "snapshot counts only the verified seller, never 
 ok(snap.sellers.length === 1 && snap.sellers[0].origin === "https://real-one.example", "snapshot's seller list excludes the unverified origin entirely");
 
 __testReset();
+
+// --- second seed source: MPPScan's server-rendered origin list (2026-08-19) ---
+{
+  const page = `<script>self.__next_f.push([1,"[[\\"servers\\",\\"list\\"],{\\"input\\":{\\"originUrls\\":[\\"https://alpha.example\\",\\"https://beta.example/\\",\\"http://insecure.example\\",\\"https://alpha.example\\",\\"https://gamma.example/v1/tenant\\"]}}]"])</script>`;
+  const got = parseMppScanOrigins(page);
+  ok(got.length === 2 && got.includes("https://alpha.example") && got.includes("https://beta.example"), `parseMppScanOrigins: escaped SSR payload -> validated https origins, deduped, http and path-scoped dropped (got ${JSON.stringify(got)})`);
+  ok(parseMppScanOrigins("<html>no data</html>").length === 0 && parseMppScanOrigins("").length === 0, "parseMppScanOrigins: no list -> []");
+}
+// --- MPPScan tRPC servers.list (primary source): shape + validation ----------------
+{
+  const body = { result: { data: { json: { origins: [
+    { id: "a", name: "Alpha", description: "d".repeat(700), url: "https://alpha.example", logoUrl: "https://alpha.example/logo.svg", resourceCount: 3 },
+    { id: "b", name: "Bad", url: "http://insecure.example" },
+    { id: "c", name: "Path", url: "https://gamma.example/tenant" },
+    { id: "d", name: "NoLogoHttp", url: "https://delta.example", logoUrl: "http://delta.example/x.png" },
+  ], total: 314 } } } };
+  const r = parseMppScanList(JSON.stringify(body));
+  ok(r.total === 314 && r.rows.length === 2 && r.rows[0].origin === "https://alpha.example" && r.rows[0].description.length === 600 && r.rows[0].logoUrl.startsWith("https://") && r.rows[1].logoUrl === null, `parseMppScanList: total + validated https origins, description capped, http logo dropped (got ${r.rows.length} rows)`);
+  ok(parseMppScanList('{"result":{"data":{"json":{"origins":[]}}}}').rows.length === 0 && parseMppScanList('{}').rows.length === 0, "parseMppScanList: empty/junk -> no rows");
+}
+
+// --- MPP discovery document -> probe target -----------------------------------
+{
+  const doc = { openapi: "3.1.0", paths: {
+    "/v1/{id}": { get: { "x-payment-info": { offers: [] } } },
+    "/v1/search": { post: { "x-payment-info": { offers: [] } } },
+    "/v1/models": { get: { summary: "free" } },
+    "/v1/quote": { get: { "x-payment-info": { offers: [] } } },
+  } };
+  const t = probeTargetFromDiscovery(doc);
+  ok(t && t.method === "GET" && t.path === "/v1/quote", `probeTargetFromDiscovery: prefers a plain GET path with x-payment-info (got ${JSON.stringify(t)})`);
+  ok(probeTargetFromDiscovery({ paths: { "/v1/search": { post: { "x-payment-info": {} } } } })?.method === "POST", "probeTargetFromDiscovery: falls back to a priced POST");
+  ok(probeTargetFromDiscovery({ paths: { "/v1/models": { get: {} } } }) === null && probeTargetFromDiscovery(null) === null && probeTargetFromDiscovery({ paths: "x" }) === null, "probeTargetFromDiscovery: nothing priced / junk -> null");
+}
+ok("discoveryMppScan" in mppIndexSnapshot(), "snapshot exposes the MPPScan discovery status alongside the registry's");
+// --- automatic detection from our own x402 crawl (dual-stack sellers) ------------
+{
+  __testReset();
+  const st = discoverFromX402Crawl(["https://dual.example", "http://insecure.example", "https://dual.example", "https://path.example/v1"]);
+  ok(st.origins === 4 && st.added === 1 && mppIndexSnapshot().discoveredTotal === 1, `x402-crawl seed: validated https origins only, deduped (added=${st.added})`);
+  ok(seedFromOrigins(["https://dual.example"]) === 0 && seedFromOrigins(["https://second.example"], "x402-crawl") === 1, "seedFromOrigins: idempotent, counts only new origins");
+  ok("discoveryX402Crawl" in mppIndexSnapshot(), "snapshot exposes the x402-crawl seed status");
+  __testReset();
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
