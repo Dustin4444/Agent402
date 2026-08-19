@@ -179,8 +179,12 @@ function staticRouteExists(ref) {
   };
   if ([...routePaths].some(covers)) return true;
   if ([...mountPrefixes].some((p) => p && p !== "/" && covers(p))) return true;
-  // Catalog tool routes come from the live server, not the source.
-  return catalogRoutes.has(ref);
+  // Catalog tool routes come from the live server, not the source. A proper
+  // PREFIX of one counts too - our own copy legitimately tells SDK users to
+  // point base_url at /v1/nano (or /v1/pro, /v1/premium, /v1/auto) and let
+  // the SDK append /chat/completions, /messages or /responses (2026-08-19:
+  // issue #837 read those base_url prefixes as four missing routes).
+  return catalogRoutes.has(ref) || [...catalogRoutes].some(covers);
 }
 
 // TWO INDEPENDENT ORACLES, and a path is only reported missing when BOTH say
