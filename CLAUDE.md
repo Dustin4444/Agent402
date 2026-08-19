@@ -119,7 +119,11 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `X-Tollbooth-Paid: mpp-tempo`, counts `tempoPaid`; refused credentials get the gate 402 + fresh
   challenges + RFC 9457 `problem`; single-use via the operator's `replayStore` (`tempo:<id>`) or an
   in-process map; works with NO x402 middleware (Tempo-only tollbooths). `tollbooth/tempo.test.js` (31,
-  in CI). NOT yet published to npm (needs `[publish]`).
+  in CI). Published 2026-08-19 via `[publish]`. **Live relay proof is still owed:** the offline suite
+  proves the Tempo rail against a STUB relay (wire copied from mppx's own Relay.js, challenge interop
+  proven by mppx `Challenge.verify`); `tollbooth-tempo-live.yml` (dispatch) boots a tollbooth on the
+  real relay and pays it $0.001 from the canary burner - it needs `TEMPO_API_KEY` added as an Actions
+  SECRET (it is a Railway var only today); run it once and record the tx here.
   **0.7.0 (2026-08-18): `x402:` middleware mode + MPP.** `createTollbooth({ x402: paymentMiddleware })` delegates paid requests to the operator's @x402/express middleware with the REAL response (verify -> handler -> settle in its own order), lifts its PAYMENT-REQUIRED onto the gate's 402 (stock x402 v2 clients can pay), and - default on - mints `WWW-Authenticate: Payment` evm/charge challenges from it and translates `Authorization: Payment` -> PAYMENT-SIGNATURE (`tollbooth/mpp.js`, dependency-free codec, HMAC id binding compatible with mppx's `Challenge.verify`), mirroring `Payment-Receipt` on settle. **`x402VerifierFromExpress` is deprecated: with @x402/express v2 (settle AFTER handler) it granted on verify and never settled - served, never charged - because it handed the middleware a stub response the real handler never ended; measured in `scripts/test-tollbooth-mpp.js` (32 assertions: real @x402/express + stub facilitator, real mppx client buys, real @x402/fetch buys, settle counted once each, tampered credential, PoW-first).** Edge gate: PoW + legacy verify only for now.
 - **Buyer SDK (`agent402-client`):** `find()` + `call()` with auto-payment (PoW free / x402 paid), caching, idempotent retries, non-custodial.
 - **LLM gateway (`src/tools/llm-gateway-kit.js`, OpenAI wire paths):** five tiers —
@@ -328,7 +332,12 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   seller card as "Coinbase Bazaar, last 30 days (their measurement, not ours)". `curated` is NOT
   ingested: it only appears on curated items in the Bazaar SEARCH endpoint (the bundles endpoint
   needs auth), so it cannot be bulk-enumerated keylessly. `scripts/test-bazaar-quality.js`,
-  `test-tempo-router.js` (41).
+  `test-tempo-router.js` (41). **Bazaar listing copy (2026-08-19):** the 402/Bazaar description was a
+  hard 250-char slice (every flagship cut mid-sentence on the live listing); now `bazaarCapDescription`
+  (500-char Bazaar cap, sentence/word boundary, never "...") for all routes, and `BAZAAR_DESCRIPTIONS`
+  (payments.js, by slug) carries purpose-written what+when copy for the 15 flagships - Bazaar/402
+  only, the catalog description (llms.txt/MCP/find) is untouched. `scripts/test-bazaar-descriptions.js`
+  (95, in CI against the booted server).
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

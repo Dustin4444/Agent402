@@ -1773,6 +1773,9 @@ jobs:
       - name: "Self-consistency — every tool and route our own text names must exist"
         run: TARGET_URL=http://localhost:3000 node scripts/test-mcp-self-consistency.js
 
+      - name: Bazaar listing copy (curated flagship descriptions name real slugs, fit the 500-char cap, say when to use them; generic cap never cuts mid-word)
+        run: TARGET_URL=http://localhost:3000 node scripts/test-bazaar-descriptions.js
+
       - name: Exercise tools against live sites
         run: |
           echo "=== extract: BBC News article ==="
