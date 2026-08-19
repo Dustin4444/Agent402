@@ -813,6 +813,9 @@ jobs:
       - name: Discovery & trust surfaces (/.well-known/x402, /api/reliability)
         run: node scripts/test-discovery.js
 
+      - name: /SKILL.md agent-onboarding sheet (frontmatter, section order, every named route registered, house style - offline)
+        run: node scripts/test-skill-md.js
+
       - name: Manifest resources[] dedup (a tool registered under 2 HTTP methods lists its URL once, not twice)
         run: node scripts/test-manifest-resources-dedup.js
 

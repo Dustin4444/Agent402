@@ -56,6 +56,7 @@ import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
+import { skillMd } from "./skill-md.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
 import { installEgressMeter, egressReport } from "./egress-meter.js";
@@ -1124,6 +1125,8 @@ app.use(express.json({ limit: "100kb" }));
 // connector's search_tools/find_tool land here too (wired in mcp-http.js).
 const DISCOVERY_SURFACES = new Map([
   ["/llms.txt", "llms.txt"],
+  ["/SKILL.md", "skill.md"],
+  ["/skill.md", "skill.md"],
   ["/openapi.json", "openapi.json"],
   ["/.well-known/x402", "x402-manifest"],
   ["/api/pricing", "pricing"],
@@ -3279,6 +3282,11 @@ if (process.env.INDEXNOW_KEY) {
 }
 app.get("/sitemap.xml", (_req, res) => res.type("application/xml").set("Cache-Control", "public, max-age=3600").send(sitemapXml(BASE_URL, CATALOG)));
 app.get("/llms.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(llmsTxt(BASE_URL, CATALOG)));
+// /SKILL.md - agent-onboarding sheet ("Read <url>/SKILL.md and set up X" is
+// the prompt agent runtimes use for paid services). Lowercase alias too.
+const serveSkillMd = (_req, res) => res.type("text/markdown; charset=utf-8").set("Cache-Control", "public, max-age=3600").send(skillMd(BASE_URL, CATALOG));
+app.get("/SKILL.md", serveSkillMd);
+app.get("/skill.md", serveSkillMd);
 // The runnable buyer demo, served from the site itself (the repo is private,
 // so "git clone" is not a path a visitor can take).
 app.get("/demo.js", (_req, res) =>
