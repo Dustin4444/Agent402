@@ -208,7 +208,20 @@ for (const t of tools) {
       await new Promise((r) => setTimeout(r, 20_000));
       bare = await bareFetch();
     }
-    if (bare.status !== 402) { report.toolFail.push({ key, slug: t.slug, reason: `bare request HTTP ${bare.status} (expected 402) - twice, 20s apart` }); continue; }
+    if (bare.status !== 402) {
+      // A bare (UNPAID) probe that still is not a 402 after the retry: a 502/
+      // 503/504 here is the edge/infra IN FRONT of the tool (the handler only
+      // ever answers 402 when unpaid), never a handler defect - same
+      // third-party/edge class as a paid upstream outage, so it is reported but
+      // does NOT fail the run (the paid path already does this; the bare path
+      // missed it, which opened #842 on a transient edge 502 for nft-holdings
+      // while it was 402ing fine seconds later). Any OTHER status (400/404/500
+      // with a body) is a real problem and still fails.
+      const bucket = isUpstreamOutage(bare.status, "") ? report.upstreamFail : report.toolFail;
+      bucket.push({ key, slug: t.slug, reason: `bare request HTTP ${bare.status} (expected 402) - twice, 20s apart` });
+      console.log(`${bucket === report.upstreamFail ? "UPSTREAM" : "FAIL"} ${key.padEnd(bucket === report.upstreamFail ? 41 : 46)} bare HTTP ${bare.status} (expected 402)`);
+      continue;
+    }
     const bareBody = await bare.json().catch(() => undefined);
     paymentRequired = http.getPaymentRequiredResponse((n) => bare.headers.get(n), bareBody);
     exampleInput = paymentRequired?.extensions?.bazaar?.info?.input || {};
