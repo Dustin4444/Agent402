@@ -1136,8 +1136,9 @@ async function main() {
           console.log(`\nOK    mpp-tempo   /api/uuid  → settled over Tempo's native relay (Authorization: Payment, payer ${account.address})${ref ? `\n      Payment-Receipt tx: https://explore.tempo.xyz/tx/${ref}` : ""}`);
           noteRail("mpp-tempo", true);
           // VOLUME (2026-08-19): after the rail is proven by the settle above,
-          // buy the same $0.001 route TEMPO_CANARY_TX_COUNT-1 more times (default
-          // 100 total, ~$0.10/day from the PathUSD burner) so our own Tempo
+          // buy the same $0.001 route TEMPO_CANARY_TX_COUNT-1 more times (DEFAULT
+          // 1 = the graded settle only; volume moved to tempo-volume.yml, ~1,000/
+          // day from the USDC.e-funded burner) so our own Tempo
           // activity is real on-chain volume: the MPP leaderboard ranks by
           // inbound transfers in a ~15h window, the router's proven-seller
           // gate needs >= SOR_TEMPO_MIN_SETTLED_TX, and Tempo's transfer feed

@@ -3953,7 +3953,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def) };
     },
   });
   if (tempoAppender) app.use(tempoAppender);
@@ -3987,7 +3987,7 @@ if (!FREE_MODE) {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
-      return priceUsd ? { priceUsd } : null;
+      return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def) } : null;
     },
   });
   if (tempoGate) {
@@ -4566,7 +4566,11 @@ app.use((req, res, next) => {
           // "mpp-tempo" still counts toward the broad MPP-adoption counter —
           // it IS MPP's own native method, just a distinct wire from the
           // evm-translated one.
-          method === "usdc" && (req.tempoSettled || req.mppCredential) ? "mpp" : null
+          method === "usdc" && (req.tempoSettled || req.mppCredential) ? "mpp" : null,
+          // A paid call from our own wallets (signed heartbeat token on a
+          // settled request: daily canary, Tempo volume runner) is booked as
+          // internal, never as external paid demand - see stats.recordCall.
+          { internal: method === "usdc" && isSyntheticRequest(req) }
         );
         // Funnel stage 3 — the gate accepted payment and the tool answered.
         // Mirrors the stats attribution above. Skipped in FREE_MODE — nothing

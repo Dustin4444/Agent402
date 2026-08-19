@@ -114,7 +114,9 @@ const snap = {
     const lb2 = await computeMppLeaderboard({ snapshot: sessionOnly, rpcFn: rpc2, now: 1, self: null });
     ok(lb2.rows[0].proven === true && lb2.rows[0].routable === false, "a session-only recipient over the floor is proven but NOT routable (the router pays tempo/charge only)");
   }
-  ok(lb.recipients === 4 && lb.activeRecipients === 4 && lb.totals.transfers === 37 && Math.abs(lb.totals.volumeUsdc - 1.281) < 1e-9, "totals over active recipients (30+5+1+1 transfers, $0.03+$1.25+$0+$0.001)");
+  // Ecosystem totals exclude our own self row (cost audit 2026-08-19: at
+  // ~1,000 self-buys/day the self row would be most of "the MPP economy").
+  ok(lb.recipients === 4 && lb.activeRecipients === 3 && lb.totals.transfers === 36 && Math.abs(lb.totals.volumeUsdc - 1.28) < 1e-9 && lb.totals.selfTransfers === 1, `totals over active EXTERNAL recipients (30+5+1 transfers, $0.03+$1.25+$0), self row (1 transfer) reported separately (got ${lb.totals.transfers}/${lb.activeRecipients}/self ${lb.totals.selfTransfers})`);
   // priming: the router's gate now answers from cache without an RPC
   const before = calls.length;
   const n = await tempoInboundCount(A, { rpcFn: async () => { throw new Error("must not be called"); }, now: 1_000_000 + 1000 });

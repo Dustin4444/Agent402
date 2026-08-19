@@ -41,4 +41,30 @@ for (const [label, rpcs] of [["json-rpc error echoing the URL", [urls[0]]], ["no
   if (!label.startsWith("json-rpc")) ok(!/\/v2\//.test(msg), `${label}: no URL path in the message (host-only naming)`);
 }
 echo.close(); junk.close();
+
+// ---- MPP board: the Tempo transfer feed's lastError is published on the
+// PUBLIC /api/mpp-leaderboard (window.feed.lastError) and persisted to /data;
+// the board's own lastError renders on /mpp-marketplace. Same class as above
+// (leak audit 2026-08-19): an upstream error body quoting the key must not
+// reach either. The stub API echoes the request's key header in its error.
+{
+  const TEMPO_KEY = "tdk_LEAKCANARY_abcdef0123456789";
+  process.env.TEMPO_DATA_API_KEY = TEMPO_KEY;
+  const { emptyFeedState, syncTempoTransfers } = await import("../src/tempo-transfers.js");
+  const page = (n, data, next) => ({ ok: true, status: 200, json: async () => ({ data, nextCursor: next }) });
+  const good = Array.from({ length: 50 }, (_, i) => ({ id: `t${i}`, recipient: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sender: "0x01", timestamp: new Date(Date.now() - 60e3 * (i + 1)).toISOString(), sourceAmount: { baseUnits: "1000" }, sourceToken: { address: "0x20C000000000000000000000b9537d11c60E8b50" } }));
+  // (a) page 2 answers 401 with a body echoing the key -> state.lastError
+  const st = emptyFeedState(); let n = 0;
+  await syncTempoTransfers(st, { apiKey: TEMPO_KEY, fetchImpl: async (url, init) => { n++; if (n === 1) return page(1, good, "c2"); return { ok: false, status: 401, json: async () => ({ error: { code: "unauthorized", message: `invalid key ${init.headers["tempo-api-key"]}` } }) }; } });
+  ok(typeof st.lastError === "string" && /HTTP 401/.test(st.lastError), `mpp feed: page-2 failure recorded (got: ${st.lastError})`);
+  ok(!st.lastError.includes(TEMPO_KEY), "mpp feed: the API key is NOT in the published lastError (code only, no upstream message)");
+  // (b) fetch throws with the key in its message (an undici error can quote the URL)
+  const st2 = emptyFeedState(); n = 0;
+  await syncTempoTransfers(st2, { apiKey: TEMPO_KEY, fetchImpl: async () => { n++; if (n === 1) return page(1, good, "c2"); throw new Error(`socket hang up fetching https://api.tempo.xyz/v1/transfers?key=${TEMPO_KEY}`); } });
+  ok(st2.lastError && !st2.lastError.includes(TEMPO_KEY), `mpp feed: a thrown fetch error is redacted before it is recorded (got: ${st2.lastError})`);
+  // (c) first page unreadable -> thrown message (the leaderboard stores it as its own lastError)
+  let thrown = "";
+  try { await syncTempoTransfers(emptyFeedState(), { apiKey: TEMPO_KEY, fetchImpl: async () => { throw new Error(`boom ${TEMPO_KEY}`); } }); } catch (e) { thrown = String(e?.message || e); }
+  ok(thrown && !thrown.includes(TEMPO_KEY), `mpp feed: first-page failure message is redacted (got: ${thrown.slice(0, 100)})`);
+}
 console.log(`\nAll ${pass} assertions passed`);

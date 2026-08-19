@@ -138,7 +138,27 @@ export function getSellerRegistrations() {
 setMetaIfAbsent.run("firstServed", String(Date.now()));
 const bootedAt = Date.now();
 
-const recordCall = db.transaction((slug, method, network, wire) => {
+const recordCall = db.transaction((slug, method, network, wire, internal = false) => {
+  // A settled USDC/Tempo call from OUR OWN wallets (the daily canary, the
+  // Tempo volume runner - signed heartbeat token on a paid request) is real
+  // on-chain settlement but NOT external demand: it lands in viaUSDCInternal,
+  // the tool/recent/daily series file it as heartbeat traffic, and it never
+  // bumps viaUSDC / viaMPPWire / the per-chain split / paid-tool ranks. Before
+  // 2026-08-19 the heartbeat class was only recognised on the PoW path, so
+  // ~1,000 self-buys a day would have read as paid external calls on the
+  // homepage counter and the MPP-adoption counter (cost audit 2026-08-19).
+  if (method === "usdc" && internal) {
+    bumpCounter.run("total");
+    bumpCounter.run("viaUSDCInternal");
+    if (wire === "mpp") bumpCounter.run("viaMPPWireInternal");
+    bumpTool.run(slug);
+    bumpHeartbeatTool.run(slug);
+    insertRecent.run(slug, "heartbeat", Date.now());
+    pruneRecent.run(RECENT_KEEP);
+    bumpDaily.run(new Date().toISOString().slice(0, 10), "heartbeat");
+    setMetaIfAbsent.run("firstServed", String(Date.now()));
+    return;
+  }
   bumpCounter.run("total");
   // Three rails: USDC (real revenue), external PoW (real free-tier adoption),
   // heartbeat (our own probe — pays via PoW but we track it separately so the
@@ -192,9 +212,9 @@ const recordCall = db.transaction((slug, method, network, wire) => {
  *  network (usdc only): short chain name from the settle receipt, e.g. "base" | "solana".
  *  wire (usdc only): "mpp" when the credential arrived as MPP Authorization:
  *  Payment (translated by the shim); anything else counts as plain x402. */
-export function recordServedCall(slug, method, network = null, wire = null) {
+export function recordServedCall(slug, method, network = null, wire = null, { internal = false } = {}) {
   try {
-    recordCall(slug, method, network, wire);
+    recordCall(slug, method, network, wire, internal);
   } catch {
     /* counters are best-effort; never break a response */
   }
@@ -344,6 +364,11 @@ export function getStats({ wallet, walletName, network, toolCount, baseUrl, pric
       // (Authorization: Payment, translated by src/mpp-shim.js) instead of
       // x402's PAYMENT-SIGNATURE. The MPP-adoption signal.
       viaMPPWire: num("viaMPPWire"),
+      // Settled calls paid by OUR OWN wallets (daily canary, Tempo volume
+      // runner): on-chain, but not external demand - kept out of viaUSDC,
+      // viaMPPWire and the per-chain split above, shown here for transparency.
+      viaUSDCInternal: num("viaUSDCInternal"),
+      viaMPPWireInternal: num("viaMPPWireInternal"),
       // Subset of viaUSDC that came through the router (route-execute*) -
       // the only paid calls Agent402 earns a margin on. Pages render the
       // "how we earn" disclosure line only when this is present (it wasn't,

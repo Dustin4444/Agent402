@@ -190,13 +190,25 @@ for (const t of tools) {
   // the handler, so no valid input is needed to get it).
   let paymentRequired, exampleInput;
   try {
-    const bare = await fetch(`${TARGET}${t.path}`, {
+    const bareFetch = () => fetch(`${TARGET}${t.path}`, {
       method: t.method,
       headers: { "Content-Type": "application/json", Accept: "application/json", ...heartbeatHeaders() },
       ...(t.method === "POST" ? { body: "{}" } : {}),
       signal: AbortSignal.timeout(30000),
     });
-    if (bare.status !== 402) { report.toolFail.push({ key, slug: t.slug, reason: `bare request HTTP ${bare.status} (expected 402)` }); continue; }
+    let bare = await bareFetch();
+    // Single-retry doctrine (same as the heartbeat prober): a bare request that
+    // lands inside a deploy's container switch answers 502 from the edge for
+    // ~1-2 minutes. Measured 2026-08-19 run 32288638827: 16 "tool failures"
+    // between 19:19:32 and 19:21:28, the deploy job ending at 19:21:19 - every
+    // one a 502 on the bare request, none a tool defect. One re-probe after
+    // 20s: a real outage fails both and records exactly as before.
+    if (bare.status !== 402) {
+      await bare.arrayBuffer().catch(() => {});
+      await new Promise((r) => setTimeout(r, 20_000));
+      bare = await bareFetch();
+    }
+    if (bare.status !== 402) { report.toolFail.push({ key, slug: t.slug, reason: `bare request HTTP ${bare.status} (expected 402) - twice, 20s apart` }); continue; }
     const bareBody = await bare.json().catch(() => undefined);
     paymentRequired = http.getPaymentRequiredResponse((n) => bare.headers.get(n), bareBody);
     exampleInput = paymentRequired?.extensions?.bazaar?.info?.input || {};

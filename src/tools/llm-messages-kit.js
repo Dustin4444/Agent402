@@ -32,6 +32,7 @@ import {
   TIERS, AUTO_RANKINGS, classifyPrompt, canonicalModel, tierAllows, tierFor,
   clampToMargin, flexAttempts, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
+  refuseCostVariants, checkBlockCacheControl,
 } from "./llm-gateway-kit.js";
 
 const OPENROUTER_MESSAGES_URL = "https://openrouter.ai/api/v1/messages";
@@ -64,6 +65,7 @@ function probeContent(content, where, acc) {
   if (!Array.isArray(content)) throw bad(`${where}.content must be a string or an array of content blocks`);
   return content.map((b, i) => {
     if (!b || typeof b !== "object" || typeof b.type !== "string") throw bad(`${where}.content[${i}] must be a content block with a type`);
+    checkBlockCacheControl(b.cache_control, `${where}.content[${i}]`);
     switch (b.type) {
       case "text":
         if (typeof b.text !== "string") throw bad(`${where}.content[${i}].text must be a string`);
@@ -116,6 +118,7 @@ export function validateMessagesRequest(input, tierSlug) {
   const isRouted = tier.router === true && (!canonicalModel(input.model) || canonicalModel(input.model) === "auto");
   let model = canonicalModel(input.model);
   if (!isRouted) {
+    refuseCostVariants(model);
     if (!model) throw bad(`"model" is required (e.g. anthropic/claude-sonnet-5). This tier serves: ${tier.prefixes?.slice(0, 6).join(", ") || "see /v1/models"}`);
     if (!tierAllows(tierSlug, model)) {
       const home = tierFor(model);
@@ -145,6 +148,13 @@ export function validateMessagesRequest(input, tierSlug) {
   const body = { model: isRouted ? undefined : model, max_tokens: maxTokens, messages: input.messages };
   if (system !== undefined) body.system = input.system;
   for (const k of ["temperature", "top_p", "top_k", "metadata", "tool_choice"]) if (input[k] !== undefined) body[k] = input[k];
+  // tool_choice mirrors the tools guard (client tools only): Anthropic wire is
+  // {type:"auto"|"any"|"none"} or {type:"tool", name}; anything else refused.
+  if (body.tool_choice !== undefined) {
+    const tc = body.tool_choice;
+    const okType = tc && typeof tc === "object" && (tc.type === "auto" || tc.type === "any" || tc.type === "none" || (tc.type === "tool" && typeof tc.name === "string"));
+    if (!okType) throw bad('"tool_choice" must be {type:"auto"|"any"|"none"} or {type:"tool", name}');
+  }
   if (input.stop_sequences !== undefined) {
     if (!Array.isArray(input.stop_sequences) || input.stop_sequences.length > MAX_STOP_SEQUENCES || !input.stop_sequences.every((x) => typeof x === "string")) throw bad(`"stop_sequences" must be an array of up to ${MAX_STOP_SEQUENCES} strings`);
     body.stop_sequences = input.stop_sequences;
@@ -159,6 +169,7 @@ export function validateMessagesRequest(input, tierSlug) {
       if (!t || typeof t !== "object" || typeof t.name !== "string") throw bad(`tools[${i}] needs a name`);
       if (t.type !== undefined && t.type !== "custom") throw bad(`tools[${i}]: server/built-in tool type "${t.type}" is not served (client tools with input_schema only)`);
       if (!t.input_schema || typeof t.input_schema !== "object") throw bad(`tools[${i}].input_schema is required`);
+      checkBlockCacheControl(t.cache_control, `tools[${i}]`);
     }
     body.tools = input.tools;
   }

@@ -137,6 +137,23 @@ ok(s.totals.external.sales >= 2, "ledger still readable after garbage rows");
   ok(after.byNetwork.tempo === 1, "mppSales byNetwork breaks out the tempo settlement by its own network label");
 }
 
+// --- Public MPP aggregate is ALL-TIME and external-first, never "the 30 newest
+// rows" (cost audit 2026-08-19: the Tempo volume runner settles ~1,000 internal
+// buys/day, so the 30 newest rows are always ours and the public view read
+// "externalCount 0" with only our hashes on the Tempo card) ------------------
+{
+  const base = mppSales({ limit: 30 });
+  for (let i = 0; i < 40; i++) recordSale({ slug: "uuid", priceUsd: 0.001, rail: "usdc", network: "tempo", payer: null, tx: `0xInternal${String(i).padStart(56, "0")}`, synthetic: true, wire: "mpp-tempo" });
+  const pub = mppSales({ limit: 30 });
+  ok(pub.count === base.count + 40 && pub.internalCount === (base.internalCount || 0) + 40, `count is all-time incl. the 40 internal rows (${pub.count}), internalCount names them (${pub.internalCount})`);
+  ok(pub.externalCount === base.externalCount, `externalCount is unchanged by 40 newer internal rows (${pub.externalCount})`);
+  ok(pub.rails.tempo.external === base.rails.tempo.external && pub.rails.tempo.internal === (base.rails.tempo.internal || 0) + 40, "the tempo rail card keeps its external count and gains an internal count");
+  ok(pub.rails.tempo.txs[0] === "0xTempo000000000000000000000000000000000000000000000000000000001" && pub.rails.tempo.txsInternal === false, "the tempo rail's hashes are the EXTERNAL settlement's, not the 40 newer internal ones");
+  ok(pub.txs.every((t) => !/^0xInternal/.test(t)), "the flat txs list is external-only");
+  const det = mppSales({ limit: 100, detailed: true });
+  ok(det.settlements.filter((r) => r.internal).length >= 40, `operator view still lists the internal rows (${det.settlements.length} rows)`);
+}
+
 // --- settle receipt tx parser --------------------------------------------------------
 const rcpt = Buffer.from(JSON.stringify({ transaction: "0xfeed", network: "eip155:8453" })).toString("base64");
 ok(txFromPaymentResponse(rcpt) === "0xfeed", "tx extracted from PAYMENT-RESPONSE receipt");
@@ -206,7 +223,7 @@ ok(txFromPaymentResponse("not-base64-json") === null && txFromPaymentResponse(""
   ok(!/0x[0-9a-f]{40}(?![0-9a-f])/i.test(blob), "mpp feed contains no EVM-address-shaped value");
 
   // OPERATOR view: the itemized rows survive, still without a payer.
-  const opFeed = mppSales({ limit: 10, detailed: true });
+  const opFeed = mppSales({ limit: 100, detailed: true });
   const opBlob = JSON.stringify(opFeed);
   ok(Array.isArray(opFeed.settlements) && opFeed.settlements.length > 0, "operator mpp feed keeps the per-settlement rows");
   ok(opFeed.settlements.every((r) => !("payer" in r)), "no mpp settlement row has a payer field at all, even for the operator");

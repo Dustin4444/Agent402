@@ -167,10 +167,18 @@ export function checkTempoBinding(credential, { secretKey, realm, price, tempo, 
   return { ok: true, amount };
 }
 
+// Buyer-facing relay failure: status + the relay's error CODE only. The
+// relay's free-text `message` is an upstream body and goes to the operator
+// log (console.warn at the call sites), never into the 402 problem document
+// a buyer reads - a relay that echoes a key or account detail in an error
+// must not hand it to every buyer. (Leak audit 2026-08-19.)
 function relayFailure(res, body) {
   const code = body && typeof body === "object" && body.error && typeof body.error === "object" && typeof body.error.code === "string" ? body.error.code : null;
+  return `relay HTTP ${res?.status ?? "?"}${code ? ` ${code.slice(0, 60)}` : ""}`;
+}
+function relayFailureDetail(res, body) {
   const msg = body && typeof body === "object" && body.error && typeof body.error.message === "string" ? body.error.message : "";
-  return `relay HTTP ${res?.status ?? "?"}${code ? ` ${code}` : ""}${msg ? ` ${msg.slice(0, 160)}` : ""}`;
+  return `${relayFailure(res, body)}${msg ? ` ${msg.slice(0, 160)}` : ""}`;
 }
 
 /** The relay client. Injectable `relay` (tests) takes precedence. */
@@ -190,17 +198,17 @@ export function tempoRelay(tempo) {
     }
     let body = null;
     try { body = await res.json(); } catch { body = null; }
-    if (!res.ok || !body || body.success !== true) return { ok: false, error: relayFailure(res, body), body };
+    if (!res.ok || !body || body.success !== true) return { ok: false, error: relayFailure(res, body), detail: relayFailureDetail(res, body), body };
     return { ok: true, body };
   };
   return {
     async validate(input) {
       const r = await post("validate", input);
-      return r.ok ? { ok: true } : { ok: false, error: r.error };
+      return r.ok ? { ok: true } : { ok: false, error: r.error, detail: r.detail || r.error };
     },
     async broadcast(input, { idempotencyKey }) {
       const r = await post("broadcast", input, { "idempotency-key": idempotencyKey });
-      if (!r.ok) return { ok: false, error: r.error };
+      if (!r.ok) return { ok: false, error: r.error, detail: r.detail || r.error };
       const receipt = r.body.receipt;
       if (!receipt || typeof receipt !== "object" || typeof receipt.reference !== "string" || receipt.method !== "tempo") return { ok: false, error: "relay broadcast answered success without a tempo receipt" };
       return { ok: true, receipt };

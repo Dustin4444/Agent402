@@ -845,6 +845,8 @@ jobs:
 
       - name: USDC settle-receipt network attribution (viaUSDCByNetwork)
         run: node scripts/test-stats-network.js
+      - name: Internal settled calls (canary / Tempo volume) never book as external paid demand
+        run: node scripts/test-stats-internal-paid.js
 
       - name: WALLET_BLOCKLIST payer matcher (blocked wallets refused pre-settle)
         run: node scripts/test-wallet-blocklist.js

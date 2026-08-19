@@ -20,13 +20,16 @@
 // 2 when the preflight (balance / challenge) refuses to start. Balance
 // guard: refuses to run below TEMPO_VOLUME_MIN_BALANCE_USD (default $2) so a
 // draining wallet is never ground to zero by the volume runner itself - the
-// canary's funding sweep pages at $0.50 for the same wallet.
+// canary's funding sweep pages at $5 USDC.e (about five days) for the same wallet.
 import { createHmac } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
 const ROUTE = process.env.TEMPO_VOLUME_ROUTE || "/api/uuid";
-const COUNT = Math.max(1, Math.min(5000, Number(process.env.TEMPO_VOLUME_TX || 84)));
+// Dispatch input is free text: a non-number must refuse, not run 0 buys green.
+const countRaw = Number(process.env.TEMPO_VOLUME_TX || 84);
+if (!Number.isInteger(countRaw) || countRaw < 1) { console.error(`REFUSING to run: TEMPO_VOLUME_TX must be a positive integer (got ${JSON.stringify(process.env.TEMPO_VOLUME_TX)})`); process.exit(2); }
+const COUNT = Math.min(1000, countRaw); // one run's hard cap ($1 at list); the 2-hourly schedule is the volume lever
 const MIN_SUCCESS = Number(process.env.TEMPO_VOLUME_MIN_SUCCESS || 0.8);
 const MIN_BALANCE_USD = Number(process.env.TEMPO_VOLUME_MIN_BALANCE_USD || 2);
 const PACE_MS = Number(process.env.TEMPO_VOLUME_PACE_MS || 250); // small gap between buys; ~1,000/day must never look like a flood to our own gate
@@ -58,10 +61,18 @@ const client = Mppx.create({ methods: [tempo.charge({ account, autoSwap: true })
 const url = `${TARGET}${ROUTE}`;
 
 const usdce = await erc20(USDCE), pathusd = await erc20(PATHUSD);
-console.log(`tempo-volume: ${COUNT} x ${ROUTE} from ${account.address} | balances USDC.e ${usdce ?? "?"} PathUSD ${pathusd ?? "?"}`);
+// Bucketed, not exact: the job log is public (public repo), and the issue
+// step quotes summary lines into a public issue. The funding sweep in the
+// paid canary is where exact balances are judged.
+const bucket = (v) => (v === null ? "unreadable" : v >= 10 ? ">=$10" : v >= MIN_BALANCE_USD ? `>=$${MIN_BALANCE_USD}` : `<$${MIN_BALANCE_USD}`);
+console.log(`tempo-volume: ${COUNT} x ${ROUTE} | burner USDC.e ${bucket(usdce)}, PathUSD ${bucket(pathusd)}`);
 const spendable = (usdce ?? 0) + (pathusd ?? 0);
-if (usdce !== null && spendable < MIN_BALANCE_USD) {
-  console.error(`REFUSING to run: burner holds $${spendable.toFixed(3)} on Tempo, below TEMPO_VOLUME_MIN_BALANCE_USD $${MIN_BALANCE_USD} - top up (USDC.e preferred) before the next run`);
+// An unreadable balance is not a green light: the guard's whole job is to
+// refuse below the floor, and it cannot do that blind (the 10-fail stop still
+// bounds a run that starts).
+if (usdce === null && pathusd === null) { console.error("REFUSING to run: Tempo balance unreadable (RPC) - cannot apply the balance floor"); process.exit(2); }
+if (spendable < MIN_BALANCE_USD) {
+  console.error(`REFUSING to run: burner holds under TEMPO_VOLUME_MIN_BALANCE_USD $${MIN_BALANCE_USD} on Tempo - top up (USDC.e preferred) before the next run`);
   process.exit(2);
 }
 
@@ -101,6 +112,6 @@ const secs = ((Date.now() - t0) / 1000).toFixed(0);
 const rate = ok / COUNT;
 console.log(`\ntempo-volume: ${ok}/${COUNT} settled at $0.001 in ${secs}s (${fail} failed${lastErr ? `, last: ${lastErr}` : ""})${refs.length ? `\n  sample txs: ${refs.map((r) => `https://explore.tempo.xyz/tx/${r}`).join(" ")}` : ""}`);
 const after = await erc20(USDCE);
-if (after !== null) console.log(`  USDC.e after: ${after} (spent ~$${((usdce ?? after) - after).toFixed(3)})`);
+if (after !== null && usdce !== null) console.log(`  USDC.e spent this run ~$${(usdce - after).toFixed(3)}; burner now ${bucket(after)}`);
 if (rate < MIN_SUCCESS) { console.error(`TEMPO VOLUME UNDER ${Math.round(MIN_SUCCESS * 100)}% (${ok}/${COUNT})`); process.exit(1); }
 process.exit(0);

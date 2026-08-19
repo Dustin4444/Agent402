@@ -28,6 +28,7 @@ import {
   clampToMargin, flexAttempts, cacheControlPref, upstreamUserId, PROVIDER_SORT_ENABLED,
   fetchOpenRouter, throwUpstreamError, streamOpenRouterTo, bad, MAX_IMAGES,
   defaultReasoningFor, validateReasoning,
+  refuseCostVariants,
 } from "./llm-gateway-kit.js";
 
 const OPENROUTER_RESPONSES_URL = "https://openrouter.ai/api/v1/responses";
@@ -85,6 +86,7 @@ export function validateResponsesRequest(input, tierSlug) {
   const isRouted = tier.router === true && (!canonicalModel(input.model) || canonicalModel(input.model) === "auto");
   const model = canonicalModel(input.model);
   if (!isRouted) {
+    refuseCostVariants(model);
     if (!model) throw bad(`"model" is required (e.g. openai/gpt-4o-mini). This tier serves: ${tier.prefixes?.slice(0, 6).join(", ") || "see /v1/models"}`);
     if (!tierAllows(tierSlug, model)) {
       const home = tierFor(model);
@@ -109,7 +111,13 @@ export function validateResponsesRequest(input, tierSlug) {
           return it;
         case "function_call_output":
           if (typeof it.call_id !== "string") throw bad(`input[${i}] function_call_output needs call_id`);
-          acc.chars += typeof it.output === "string" ? it.output.length : JSON.stringify(it.output ?? "").length;
+          // `output` may be a string or an array of content parts. The array
+          // form is probed like message content - an input_file or remote
+          // image hidden in a tool result is the same metered input as one in
+          // a message (security review 2026-08-19: it was counted as chars only).
+          if (typeof it.output === "string") acc.chars += it.output.length;
+          else if (Array.isArray(it.output)) probeParts(it.output, `input[${i}].output`, acc);
+          else throw bad(`input[${i}] function_call_output.output must be a string or an array of content parts`);
           return it;
         case "reasoning":
           acc.chars += JSON.stringify(it.summary ?? "").length;
@@ -133,6 +141,15 @@ export function validateResponsesRequest(input, tierSlug) {
   const body = { model: isRouted ? undefined : model, input: input.input, max_output_tokens: maxOut, store: false };
   if (instructions !== undefined) body.instructions = instructions;
   for (const k of ["temperature", "top_p", "metadata", "tool_choice", "parallel_tool_calls", "truncation", "text"]) if (input[k] !== undefined) body[k] = input[k];
+  // tool_choice mirrors the tools guard (function tools only): Responses wire
+  // is "none"|"auto"|"required" or {type:"function", name} - a hosted-tool
+  // choice ({type:"web_search_preview"} etc.) is refused like the tool itself.
+  if (body.tool_choice !== undefined) {
+    const tc = body.tool_choice;
+    const okString = tc === "none" || tc === "auto" || tc === "required";
+    const okObject = tc && typeof tc === "object" && tc.type === "function" && typeof tc.name === "string";
+    if (!okString && !okObject) throw bad('"tool_choice" must be "none", "auto", "required", or {type:"function", name}');
+  }
   if (input.tools !== undefined) {
     if (!Array.isArray(input.tools) || input.tools.length === 0 || input.tools.length > MAX_TOOLS) throw bad(`"tools" must be a non-empty array of up to ${MAX_TOOLS} function tools`);
     for (const [i, t] of input.tools.entries()) {

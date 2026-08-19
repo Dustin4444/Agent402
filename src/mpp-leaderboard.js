@@ -25,9 +25,10 @@
 // proven-seller cache (tempo-buyer.js primeTempoInboundCount) so a routed
 // buy to a ranked seller does not re-scan the chain.
 import { readFileSync, writeFileSync } from "node:fs";
+import { redactSecrets } from "./tools/redact.js";
 import { mppIndexSnapshot } from "./mpp-index.js";
 import { TEMPO_USDC, tempoMinSettled, tempoRpc, primeTempoInboundCount } from "./tempo-buyer.js";
-import { tempoFeedEnabled, emptyFeedState, syncTempoTransfers, feedStats, feedHistoryDays, persistFeedState, loadFeedState, feedCovers } from "./tempo-transfers.js";
+import { tempoFeedEnabled, emptyFeedState, syncTempoTransfers, feedStats, feedHistoryDays, persistFeedStateAsync, loadFeedState, feedCovers } from "./tempo-transfers.js";
 
 // Transfer-feed window when the Tempo data API is the source (a time window,
 // not a block window): 24h. The RPC path keeps its ~15h block window.
@@ -148,6 +149,23 @@ export function historySum(history, recipient, days, now) {
   return { transfers: t, volumeUsdc: Number(v) / 1e6 };
 }
 
+
+/** Ecosystem totals EXCLUDE our own self-flagged row: at ~1,000 self-buys a
+ *  day (tempo-volume.yml) our row would otherwise be most of "the MPP
+ *  economy on Tempo" on our own page. The row itself stays listed and
+ *  flagged `self`; `selfTransfers` says what was left out. */
+function ecosystemTotals(active) {
+  const ext = active.filter((r) => !r.self);
+  const self = active.filter((r) => r.self);
+  return {
+    transfers: ext.reduce((n, r) => n + r.transfers, 0),
+    volumeUsdc: Math.round(ext.reduce((n, r) => n + r.volumeUsdc, 0) * 1e6) / 1e6,
+    d7Transfers: ext.reduce((n, r) => n + r.d7.transfers, 0),
+    d30Transfers: ext.reduce((n, r) => n + r.d30.transfers, 0),
+    selfTransfers: self.reduce((n, r) => n + r.transfers, 0),
+    activeRecipients: ext.length,
+  };
+}
 /** Build a leaderboard from a snapshot + chain reads. Injectable rpc + clock
  *  for tests. Throws on RPC failure (the scheduler keeps the last good one).
  *  `history` (previous rolling history) is folded and returned as
@@ -191,13 +209,8 @@ export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpc
       chain: "tempo", chainId: 4217, asset: "USDC.e", assetAddress: TEMPO_USDC,
       provenFloor: floor,
       recipients: ranked.length,
-      activeRecipients: active.length,
-      totals: {
-        transfers: active.reduce((n, r) => n + r.transfers, 0),
-        volumeUsdc: Math.round(active.reduce((n, r) => n + r.volumeUsdc, 0) * 1e6) / 1e6,
-        d7Transfers: active.reduce((n, r) => n + r.d7.transfers, 0),
-        d30Transfers: active.reduce((n, r) => n + r.d30.transfers, 0),
-      },
+      activeRecipients: ecosystemTotals(active).activeRecipients,
+      totals: ecosystemTotals(active),
       history: { ...nextHistory, daysCovered: Object.keys(nextHistory.days).length, since: Object.keys(nextHistory.days).sort()[0] || null },
       rows: ranked,
       stale: false,
@@ -249,13 +262,8 @@ export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpc
     chain: "tempo", chainId: 4217, asset: "USDC.e", assetAddress: TEMPO_USDC,
     provenFloor: floor,
     recipients: ranked.length,
-    activeRecipients: active.length,
-    totals: {
-      transfers: active.reduce((n, r) => n + r.transfers, 0),
-      volumeUsdc: Math.round(active.reduce((n, r) => n + r.volumeUsdc, 0) * 1e6) / 1e6,
-      d7Transfers: active.reduce((n, r) => n + r.d7.transfers, 0),
-      d30Transfers: active.reduce((n, r) => n + r.d30.transfers, 0),
-    },
+    activeRecipients: ecosystemTotals(active).activeRecipients,
+    totals: ecosystemTotals(active),
     history: { ...nextHistory, daysCovered: histDays, since: Object.keys(nextHistory.days).sort()[0] || null },
     rows: ranked,
     stale: false,
@@ -295,8 +303,12 @@ export function refreshMppLeaderboard(opts = {}) {
       else if (tempoFeedEnabled()) {
         feedState ??= loadFeedState() || emptyFeedState();
         try {
-          const r = await syncTempoTransfers(feedState, { token: TEMPO_USDC, now: opts.now });
-          persistFeedState(feedState);
+          // Tracked recipients (full payer detail, 31 days) = the rankable
+          // recipients in the current index snapshot + our own payTo; every
+          // other address keeps counts only for 48h (bounded state).
+          const track = new Set(rankableRecipients(opts.snapshot ?? mppIndexSnapshot(), { self: opts.self ?? null }).map((r) => r.recipient));
+          const r = await syncTempoTransfers(feedState, { token: TEMPO_USDC, track, now: opts.now });
+          await persistFeedStateAsync(feedState);
           const covers = feedCovers(feedState, { windowMs: MPP_LB_FEED_WINDOW_MS, now: opts.now });
           feed = covers ? feedState : null; // until the cold backfill covers the window, the RPC scan keeps serving (never under-count)
           console.log(`[mpp-leaderboard] tempo feed sync: +${r.added} transfers over ${r.pages} page(s)${r.complete ? "" : " (more pending)"}${covers ? "" : " - feed does not cover the window yet, RPC scan serves this rebuild"}`);
@@ -311,7 +323,9 @@ export function refreshMppLeaderboard(opts = {}) {
       current = await computeMppLeaderboard({ ...opts, feed, history: opts.history ?? current?.history ?? null });
       persistMppLeaderboard();
     } catch (e) {
-      const msg = String(e?.message || e).slice(0, 200);
+      // Public on /api/mpp-leaderboard and rendered on /mpp-marketplace: an RPC
+      // or API error message can quote the request URL (and a key in it).
+      const msg = redactSecrets(String(e?.message || e)).slice(0, 200);
       if (current) current = { ...current, lastError: msg };
       else current = { generatedAt: 0, window: null, chain: "tempo", chainId: 4217, asset: "USDC.e", assetAddress: TEMPO_USDC, provenFloor: tempoMinSettled(), recipients: 0, activeRecipients: 0, totals: { transfers: 0, volumeUsdc: 0 }, rows: [], stale: true, lastError: msg };
       console.warn(`[mpp-leaderboard] rebuild failed, serving previous snapshot: ${msg}`);

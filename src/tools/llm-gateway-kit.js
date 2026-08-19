@@ -297,6 +297,10 @@ export const TIERS = {
     fixedUpstreamUsd: 0.007,
     extraInputTokens: 4_500,
     noCache: true,
+    // Every attempt re-runs the $0.007 search: a chain of 4 links x flex+default
+    // all failing AFTER the search would cost $0.056 against a $0.03 price.
+    // Two attempts bound the fixed part at $0.014 (cost audit 2026-08-19).
+    maxAttempts: 2,
   },
 };
 
@@ -451,6 +455,24 @@ export function cacheControlPref(input) {
 export const MARGIN = 0.7;   // worst-case upstream ≤ 70% of the tier price
 const MIN_OUT_TOKENS = 64;   // a clamp below this is useless - reject with guidance instead
 const IMAGE_TOKENS = 1600;   // conservative flat per-image input estimate (high-detail tiling)
+// Per-model overrides (longest prefix wins). OpenAI bills gpt-4o-mini image
+// input at ~33x the 4o token count (2,833 base + 5,667 per 512px tile, up to
+// 8 tiles at high detail = ~48k tokens, ~$0.0072/image at $0.15/M) so that a
+// "cheap" model costs the same dollars per image as 4o - the flat 1,600 under-
+// priced it ~30x and four images on the $0.02 tier were ~$0.029 of upstream
+// (security review 2026-08-19). gpt-4.1-nano/mini use patch multipliers
+// (2.46x / 1.62x on <=1,536 patches): ~3.8k / ~2.5k worst case.
+const IMAGE_TOKENS_BY_MODEL = [
+  ["openai/gpt-4o-mini", 48_200],
+  ["openai/gpt-4.1-nano", 3_800],
+  ["openai/gpt-4.1-mini", 2_500],
+];
+export function imageTokensFor(model) {
+  const m = String(model || "");
+  let best = null;
+  for (const [prefix, tok] of IMAGE_TOKENS_BY_MODEL) if (m.startsWith(prefix) && (!best || prefix.length > best[0].length)) best = [prefix, tok];
+  return best ? best[1] : IMAGE_TOKENS;
+}
 const TOKEN_SAFETY = 1.15;   // headroom for BPE drift across vendors
 
 function estimateInputTokens(body, imageCount) {
@@ -462,7 +484,7 @@ function estimateInputTokens(body, imageCount) {
   const probe = { ...body };
   delete probe.max_tokens;
   const text = JSON.stringify(probe, (k, v) => (k === "image_url" ? undefined : v));
-  return Math.ceil(countTokens(text) * TOKEN_SAFETY) + imageCount * IMAGE_TOKENS;
+  return Math.ceil(countTokens(text) * TOKEN_SAFETY) + imageCount * imageTokensFor(body.model);
 }
 
 /** Worst-case upstream bill (USD) for an outbound body at this tier:
@@ -513,6 +535,17 @@ export function clampToMargin(body, tier, imageCount) {
   if (body.max_tokens > affordableOut) body.max_tokens = affordableOut;
 }
 
+/** Per-block `cache_control` (Anthropic's explicit cache markers ride inside
+ *  content blocks too): only the 5-minute ephemeral cache is priced - the 1h
+ *  TTL writes at 2x input, over the 1.25x the margin clamp assumes. The
+ *  top-level field is checked in cacheControlPref; this closes the per-block
+ *  path on every wire (security review 2026-08-19). */
+export function checkBlockCacheControl(cc, where) {
+  if (cc === undefined || cc === null) return;
+  if (typeof cc !== "object" || Array.isArray(cc)) throw bad(`${where}.cache_control must be an object like {type:"ephemeral"}`);
+  if (cc.type !== undefined && cc.type !== "ephemeral") throw bad(`${where}.cache_control.type must be "ephemeral"`);
+  if (cc.ttl !== undefined && cc.ttl !== "5m") throw bad(`${where}.cache_control.ttl "${String(cc.ttl).slice(0, 10)}" is not offered - the 1-hour cache writes at 2x input and is outside this tier's price; use the default 5-minute TTL`);
+}
 function contentChars(content) {
   if (typeof content === "string") return { chars: content.length, images: 0 };
   if (!Array.isArray(content)) throw bad('"content" must be a string or an array of content blocks');
@@ -520,6 +553,7 @@ function contentChars(content) {
   let images = 0;
   for (const block of content) {
     if (!block || typeof block !== "object") throw bad("Each content block must be an object with a type field");
+    checkBlockCacheControl(block.cache_control, "content block");
     if (block.type === "text") {
       if (typeof block.text !== "string") throw bad('Text content block must have "text" (string)');
       chars += block.text.length;
@@ -543,6 +577,14 @@ const PASSTHROUGH = [
   "response_format", "tools", "tool_choice", "parallel_tool_calls", "logprobs", "top_logprobs", "n",
 ];
 
+/** Refuse the model variants that change COST rather than routing. Shared by
+ *  every wire (chat, Messages, Responses): the first two wires shipped without
+ *  this and accepted "<model>:online" on nano (security review 2026-08-19). */
+export function refuseCostVariants(model) {
+  const variant = String(model || "").includes(":") ? String(model).slice(String(model).indexOf(":") + 1).toLowerCase() : "";
+  if (variant === "online") throw bad(`Model variant ":online" is not offered - web search is billed per request on top of token pricing and is outside this tier's price. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead (or POST /v1/grounded/chat/completions for grounded answers).`);
+  if (variant === "batch") throw bad(`Model variant ":batch" is not offered - batch ids are asynchronous (24h window) and not served on a synchronous path. Use "${String(model).slice(0, String(model).indexOf(":"))}" instead.`);
+}
 export function validateRequest(input, tierSlug) {
   const tier = TIERS[tierSlug];
   if (input == null || typeof input !== "object") throw bad("Request body must be a JSON object");
@@ -571,9 +613,7 @@ export function validateRequest(input, tierSlug) {
   // $0.005-0.007 PER REQUEST on top of tokens (outside provider.max_price and
   // larger than the nano price by itself); ":batch" is the asynchronous batch
   // API (24h window), not a chat completion this path can serve.
-  const variant = model.includes(":") ? model.slice(model.indexOf(":") + 1).toLowerCase() : "";
-  if (variant === "online") throw bad(`Model variant ":online" is not offered - web search is billed per request on top of token pricing and is outside this tier's price. Use "${model.slice(0, model.indexOf(":"))}" instead.`);
-  if (variant === "batch") throw bad(`Model variant ":batch" is not offered - batch ids are asynchronous (24h window) and not served on the synchronous chat completions path. Use "${model.slice(0, model.indexOf(":"))}" instead.`);
+  refuseCostVariants(model);
   if (!tierAllows(tierSlug, model)) {
     const home = tierFor(model);
     throw bad(
@@ -845,9 +885,13 @@ export function createSseUsageScrubber({ onUsage } = {}) {
   // scrubbed; the first (top-level or nested) usage object feeds telemetry.
   const usageSites = (obj) => [obj?.usage, obj?.response?.usage, obj?.message?.usage].filter((u) => u && typeof u === "object");
   const processLine = (line) => {
-    if (!line.startsWith("data: ") || !line.includes('"usage"')) return line;
+    // SSE allows "data:" with OR without the space (the spec strips one
+    // optional leading space); OpenRouter emits "data: " today, but a format
+    // change must not silently re-open the stream billing leak.
+    const m = /^data:\s?/.exec(line);
+    if (!m || !line.includes('"usage"')) return line;
     let obj;
-    try { obj = JSON.parse(line.slice(6)); } catch { return line; }
+    try { obj = JSON.parse(line.slice(m[0].length)); } catch { return line; }
     const sites = obj && typeof obj === "object" ? usageSites(obj) : [];
     if (!sites.length) return line;
     let had = false, reported = false;
@@ -1273,6 +1317,8 @@ const RERANK_MAX_DOCS = 50;
 const RERANK_MAX_DOC_CHARS = 1_600;
 const RERANK_MAX_QUERY_CHARS = 500;
 const RERANK_MAX_TOTAL_CHARS = 40_000;
+const RERANK_CHUNK_TOKENS = 500;   // Cohere: a document is split into 500-token chunks (query length included)
+const RERANK_MAX_CHUNKS = 100;     // one search unit
 export function validateRerankRequest(input) {
   if (!input || typeof input !== "object") throw bad("Body must be a JSON object: {query, documents[], top_n?}");
   if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served)`);
@@ -1289,6 +1335,17 @@ export function validateRerankRequest(input) {
     total += d.length;
   });
   if (total > RERANK_MAX_TOTAL_CHARS) throw bad(`documents total ${total} chars; max ${RERANK_MAX_TOTAL_CHARS} per call`);
+  // The char caps keep ordinary text at one search unit, but Cohere chunks by
+  // TOKENS (500 per chunk incl. the query; every chunk counts as a document;
+  // one unit = up to 100 chunks), and CJK/code text runs ~1 token per char -
+  // 50 x 1,600 chars of it is ~200 chunks = 2 units = $0.002 = the whole
+  // price (cost audit 2026-08-19). Estimate the chunk count with the o200k
+  // tokenizer (+20% for tokenizer drift) and refuse past one unit - a
+  // self-explaining 400 instead of a call that upstream bills at list.
+  const qTok = Math.ceil(countTokens(query) * 1.2);
+  let chunks = 0;
+  for (const d of documents) chunks += Math.max(1, Math.ceil((Math.ceil(countTokens(d) * 1.2) + qTok) / RERANK_CHUNK_TOKENS));
+  if (chunks > RERANK_MAX_CHUNKS) throw bad(`documents + query tokenize to ~${chunks} rerank chunks (500 tokens each, query included); max ${RERANK_MAX_CHUNKS} per call (one search unit) - shorten the documents or split the set`);
   const body = { model: RERANK_MODEL, query, documents };
   if (input.top_n !== undefined) {
     const n = Number(input.top_n);
@@ -1431,6 +1488,7 @@ async function imagesHandler(input, req) {
     delete usage.cost;
     delete usage.cost_details;
     delete usage.is_byok;
+    delete usage.cache_discount;
     try {
       const { capturePostHogGatewayUsage } = await import("../posthog.js");
       capturePostHogGatewayUsage({
@@ -1754,7 +1812,7 @@ function makeHandler(tierSlug) {
     // Flex-eligible links are tried on the flex tier first, then default (see
     // FLEX_MODELS): any upstream failure on the flex attempt falls to the same
     // model's default attempt before the chain moves on.
-    const attempts = flexAttempts(chain);
+    const attempts = flexAttempts(chain).slice(0, TIERS[tierSlug].maxAttempts || Infinity);
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
       // streamOpenRouterTo throws only BEFORE headers are written, so the
