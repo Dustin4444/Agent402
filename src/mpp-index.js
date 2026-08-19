@@ -185,7 +185,11 @@ export function mppDiscoveryStatus() { return discoveryStatus; }
 export function parseMppScanOrigins(html) {
   const text = String(html || "").replace(/\\"/g, '"');
   const out = new Set();
-  const re = /"originUrls":\s*\[((?:"https?:\/\/[^"]+"\s*,?\s*)+)\]/g;
+  // One parse per list item: `\s*(?:,\s*)?` - never two adjacent `\s*` with an
+  // optional comma between them, which backtracks polynomially on a long
+  // whitespace run with no closing bracket (third-party page = attacker-shaped
+  // input; 30k spaces took ~1s before, 0ms now). Pinned in test-mpp-index.
+  const re = /"originUrls":\s*\[((?:"https?:\/\/[^"]+"\s*(?:,\s*)?)+)\]/g;
   let m;
   while ((m = re.exec(text))) {
     for (const u of m[1].match(/"https?:\/\/[^"]+"/g) || []) {
