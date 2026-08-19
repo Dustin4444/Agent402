@@ -154,6 +154,7 @@ export const TIERS = {
     route: "POST /v1/nano/chat/completions",
     price: 0.003,
     priceSort: true, // cheapest provider under max_price (budget tier: price IS the product)
+    reasoningDefault: "lowest", // see REASONING_MODELS: minimal/low effort unless the buyer asks
     maxInputChars: 12_000,
     maxTokens: 768,
     maxPrice: { prompt: 0.5, completion: 1.5 }, // priciest allowlisted: deepseek-chat ~$0.27/$1.10
@@ -182,6 +183,7 @@ export const TIERS = {
     ],
   },
   "v1-chat": {
+    reasoningDefault: "lowest", // budget tier: lowest non-none effort on default-on reasoning models
     route: "POST /v1/chat/completions",
     price: 0.02,
     maxInputChars: 32_000,
@@ -199,6 +201,7 @@ export const TIERS = {
     ],
   },
   "v1-chat-pro": {
+    reasoningDefault: "low", // real reasoning, but never medium/high by default under a 4k cap
     route: "POST /v1/pro/chat/completions",
     price: 0.10,
     maxInputChars: 48_000,
@@ -215,6 +218,7 @@ export const TIERS = {
     ],
   },
   "v1-chat-premium": {
+    reasoningDefault: "model", // premium buyers bought depth; 8k cap leaves room for the model default
     route: "POST /v1/premium/chat/completions",
     price: 0.50,
     // Raised from 64k -> 200k chars (2026-08-11) for genuine long-context use
@@ -257,6 +261,7 @@ export const TIERS = {
   // (an explicit ranked model is honored here at the auto caps), and listing
   // this tier first would hijack those models' self-correcting 400s.
   "v1-chat-auto": {
+    reasoningDefault: "lowest",
     route: "POST /v1/auto/chat/completions",
     price: 0.01,
     maxInputChars: 16_000,
@@ -564,12 +569,18 @@ export function validateRequest(input, tierSlug) {
   if (totalChars > tier.maxInputChars) throw bad(`Input too large (${totalChars} chars). The ${tierSlug} tier allows up to ${tier.maxInputChars} chars`);
   if (totalImages > MAX_IMAGES) throw bad(`Too many images (${totalImages}). Maximum is ${MAX_IMAGES} per request`);
 
-  let maxTokens = input.max_tokens != null ? parseInt(input.max_tokens, 10) : Math.min(1024, tier.maxTokens);
+  // OpenAI's newer SDKs send max_completion_tokens (reasoning-model wire);
+  // honour it as the alias it is instead of silently defaulting the cap.
+  const requestedMax = input.max_tokens != null ? input.max_tokens : input.max_completion_tokens;
+  let maxTokens = requestedMax != null ? parseInt(requestedMax, 10) : Math.min(1024, tier.maxTokens);
   if (Number.isNaN(maxTokens) || maxTokens < 1) maxTokens = Math.min(1024, tier.maxTokens);
   if (maxTokens > tier.maxTokens) maxTokens = tier.maxTokens; // clamp, don't reject - drop-in friendliness
 
   const body = { model, messages, max_tokens: maxTokens };
   for (const k of PASSTHROUGH) if (input[k] !== undefined) body[k] = input[k];
+  // Buyer reasoning preference (changes the answer -> normalized body).
+  const reasoning = validateReasoning(input, tier);
+  if (reasoning !== undefined) body.reasoning = reasoning;
   // Tools are OpenAI function-calling entries ONLY. OpenRouter also serves
   // SERVER-SIDE tool types (openrouter:subagent fans out to up to 10 worker
   // models billed to us at their rates; openrouter:advisor consults pricier
@@ -659,6 +670,107 @@ export function flexAttempts(chain) {
     out.push({ model, flex: false });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning defaults - the "paid empty answer" guard. Reasoning tokens are
+// OUTPUT tokens that count against max_tokens, and several ranked models
+// reason by default (gpt-5 family: mandatory, default effort medium; gemini
+// 3.x flash: mandatory; claude 5: default on at HIGH). Measured 2026-08-19:
+// gpt-5-nano at max_tokens 64 AND 256 with default or "low" effort returned
+// finish_reason "length" with EMPTY content - every token spent thinking,
+// nothing said, the buyer charged; "minimal" answered. So (a) when the buyer
+// sent no reasoning preference, a default-on/mandatory model gets the tier's
+// default effort (budget tiers: the lowest non-"none" effort it supports;
+// pro: "low"; premium: the model's own default - those buyers bought depth
+// and the 8k cap leaves room), (b) a buyer `reasoning`/`reasoning_effort` is
+// validated and passed through (it changes the answer -> normalized body ->
+// cache key), and (c) an answer that is "length" + empty is treated like an
+// empty refusal: the chain walks on, and a chain exhausted end-to-end is a
+// 502 (settlement cancelled), never a paid empty 200.
+// Table is live-verified by scripts/test-gateway-model-ids.js against
+// /models `reasoning.supported_efforts` + `mandatory`/`default_enabled`.
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+export const REASONING_MODELS = [
+  // `id` rows match the exact id (plus ":variant" suffixes such as :batch);
+  // `prefix` rows match a whole family. Exact by default: a loose prefix
+  // silently pulled in google/gemini-3.1-flash-lite-IMAGE, a different model
+  // with a different effort set (caught by the live guard on first run).
+  { id: "openai/gpt-5-nano", efforts: ["minimal", "low", "medium", "high"] },
+  { prefix: "openai/gpt-5.6-", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+  { id: "google/gemini-3.1-flash-lite", efforts: ["minimal", "low", "medium", "high"] },
+  { id: "google/gemini-3.5-flash-lite", efforts: ["minimal", "low", "medium", "high"] },
+  { id: "google/gemini-3.5-flash", efforts: ["minimal", "low", "medium", "high"] },
+  { id: "google/gemini-3.6-flash", efforts: ["minimal", "low", "medium", "high"] },
+  { id: "anthropic/claude-sonnet-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "anthropic/claude-opus-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+];
+export function reasoningRowMatches(row, id) {
+  const m = String(id || "").toLowerCase();
+  if (row.id) return m === row.id || m.startsWith(row.id + ":");
+  return !!row.prefix && m.startsWith(row.prefix);
+}
+export function reasoningProfile(model) {
+  const id = canonicalModel(model).toLowerCase();
+  let best = null;
+  for (const row of REASONING_MODELS) {
+    if (!reasoningRowMatches(row, id)) continue;
+    const len = (row.id || row.prefix).length;
+    if (!best || len > best.len) best = { ...row, len };
+  }
+  return best;
+}
+/** The reasoning object to inject for a chain link when the buyer set none:
+ *  null = leave the model's default alone. */
+export function defaultReasoningFor(model, tierSlug) {
+  const prof = reasoningProfile(model);
+  if (!prof) return null;
+  const policy = TIERS[tierSlug]?.reasoningDefault || "lowest";
+  if (policy === "model") return null;
+  const nonNone = prof.efforts.filter((e) => e !== "none");
+  if (policy === "low") return { effort: nonNone.includes("low") ? "low" : (nonNone[0] || null) };
+  // "lowest": the cheapest effort the model supports that still reasons
+  const order = ["minimal", "low", "medium", "high", "xhigh", "max"];
+  const lowest = order.find((e) => nonNone.includes(e));
+  return lowest ? { effort: lowest } : null;
+}
+/** Validate a buyer reasoning preference (OpenRouter `reasoning` object or
+ *  OpenAI's `reasoning_effort` string). Returns the normalized object or
+ *  undefined when the buyer sent none. */
+export function validateReasoning(input, tier) {
+  let r = input?.reasoning;
+  if (r === undefined && typeof input?.reasoning_effort === "string") r = { effort: input.reasoning_effort };
+  if (r === undefined) return undefined;
+  if (!r || typeof r !== "object" || Array.isArray(r)) throw bad('"reasoning" must be an object: {effort?: "none"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max", max_tokens?: int, exclude?: bool, enabled?: bool}');
+  const out = {};
+  for (const k of Object.keys(r)) {
+    if (!["effort", "max_tokens", "exclude", "enabled"].includes(k)) throw bad(`"reasoning.${k}" is not supported - allowed: effort, max_tokens, exclude, enabled`);
+  }
+  if (r.effort !== undefined) {
+    if (!REASONING_EFFORTS.includes(r.effort)) throw bad(`"reasoning.effort" must be one of: ${REASONING_EFFORTS.join(", ")}`);
+    out.effort = r.effort;
+  }
+  if (r.max_tokens !== undefined) {
+    const n = Number(r.max_tokens);
+    if (!Number.isInteger(n) || n < 1) throw bad('"reasoning.max_tokens" must be a positive integer');
+    if (n > tier.maxTokens) throw bad(`"reasoning.max_tokens" (${n}) exceeds this tier's output cap (${tier.maxTokens}) - reasoning tokens are output tokens`);
+    out.max_tokens = n;
+  }
+  if (r.exclude !== undefined) { if (typeof r.exclude !== "boolean") throw bad('"reasoning.exclude" must be a boolean'); out.exclude = r.exclude; }
+  if (r.enabled !== undefined) { if (typeof r.enabled !== "boolean") throw bad('"reasoning.enabled" must be a boolean'); out.enabled = r.enabled; }
+  return out;
+}
+/** "length" with nothing said: the output cap was spent before any content
+ *  (reasoning ate it, or the cap was absurdly small). A PAID empty 200 is the
+ *  failure; the chain walks on exactly as for an empty refusal. */
+export function isEmptyLength(data) {
+  const choice = data?.choices?.[0];
+  if (!choice) return false;
+  if (String(choice.finish_reason || "").toLowerCase() !== "length") return false;
+  const m = choice.message || {};
+  const hasText = typeof m.content === "string" && m.content.trim() !== "";
+  const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+  return !hasText && !hasToolCalls;
 }
 
 /** Per-buyer identity for OpenRouter's `user` field. OpenRouter scopes provider
@@ -1477,13 +1589,26 @@ function makeHandler(tierSlug) {
     // Per-buyer `user` for OpenRouter's abuse isolation (see upstreamUserId):
     // call-time injection, never in the normalized body or cache keys.
     const user = upstreamUserId(req);
+    // Structured outputs: route only to providers that honour
+    // response_format (require_parameters) and, off-stream, let OpenRouter's
+    // response-healing plugin repair almost-JSON (live-verified 2026-08-19:
+    // accepted, no cost change). Server-set; buyer `plugins` never pass.
+    const rfType = body.response_format && typeof body.response_format === "object" ? body.response_format.type : null;
+    const structured = rfType === "json_schema" || rfType === "json_object";
+    const providerForLink = structured ? { ...(provider || {}), require_parameters: true } : provider;
     const outboundFor = (model, flex = false) => {
       const attempt = { ...body, model };
       clampToMargin(attempt, TIERS[tierSlug], imageCount); // throws 400 → caller skips this candidate
+      // Reasoning default per link (see REASONING_MODELS): only when the
+      // buyer expressed no preference. Deterministic given the model, so it
+      // needs no place in the cache key.
+      const reasoning = body.reasoning !== undefined ? body.reasoning : defaultReasoningFor(model, tierSlug);
       return {
         ...attempt, zdr: undefined, cache_control: undefined,
-        ...(provider ? { provider } : {}), ...(user ? { user, session_id: user } : {}),
+        ...(reasoning ? { reasoning } : {}),
+        ...(providerForLink ? { provider: providerForLink } : {}), ...(user ? { user, session_id: user } : {}),
         ...(cacheControl ? { cache_control: cacheControl } : {}),
+        ...(structured && body.stream !== true ? { plugins: [{ id: "response-healing" }] } : {}),
         ...(flex ? { service_tier: "flex" } : {}),
       };
     };
@@ -1544,6 +1669,14 @@ function makeHandler(tierSlug) {
           refusedModel = model;
           continue;
         }
+        if (isEmptyLength(data)) {
+          // The output cap was spent before any content (reasoning tokens are
+          // output tokens). Never serve a paid empty 200: try the next link
+          // (flex->default first, then the chain); end-to-end empty is a 502.
+          lastErr = bad("Upstream produced no content within the output cap (reasoning consumed it) - raise max_tokens, lower reasoning.effort, or pick a non-reasoning model", 502);
+          refusedModel = model; // same model + same effort on the default tier would be empty too - don't pay twice
+          continue;
+        }
         // The exact upstream cost is operator telemetry, never a buyer-visible
         // field — capture it, then strip it before the response is cached or
         // returned. Standard token counts stay (OpenAI wire shape).
@@ -1596,6 +1729,8 @@ const INPUT_SCHEMA = {
     max_tokens: { type: "number", description: "Output token cap (clamped to the tier maximum)" },
     zdr: { type: "boolean", description: "Optional - true routes only to zero-data-retention providers (also accepted as provider.zdr). Same price; a model with no ZDR provider errors upstream and walks the failover chain." },
     cache_control: { description: 'Optional - prompt caching preference. Default ON ({type:"ephemeral"}, 5-minute TTL): repeated prefixes across your turns are served from the provider cache (same price to you). Send false to disable. ttl:"1h" is not offered.' },
+    reasoning: { type: "object", description: 'Optional - reasoning control for reasoning models: {effort: "none"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max", max_tokens?: int, exclude?: bool, enabled?: bool}. Reasoning tokens count against max_tokens. When omitted, reasoning-by-default models get a low effort on the budget tiers (so the cap is not spent thinking) and the model default on premium. OpenAI\'s reasoning_effort string is accepted too.' },
+    max_completion_tokens: { type: "integer", description: "Optional - alias of max_tokens (newer OpenAI SDKs send this)." },
   },
   required: ["model", "messages"],
 };

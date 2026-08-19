@@ -508,6 +508,58 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     const line = 'data: {"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0.001,"cache_discount":-0.0002}}\n';
     ok(!sc.push(line).includes("cache_discount"), "stream scrubber strips cache_discount too");
   }
+
+  // Reasoning defaults + wire compat (2026-08-19). Measured live: gpt-5-nano at
+  // max_tokens 64/256 with default or "low" effort -> finish_reason "length",
+  // EMPTY content (a paid empty answer); "minimal" answered.
+  const { validateReasoning, defaultReasoningFor, isEmptyLength, REASONING_MODELS, reasoningProfile } = await import("../src/tools/llm-gateway-kit.js");
+  ok(REASONING_MODELS.length >= 6 && REASONING_MODELS.every((r) => (r.id || r.prefix) && Array.isArray(r.efforts) && r.efforts.length), "reasoning table has entries with efforts");
+  ok(reasoningProfile("google/gemini-3.5-flash-lite").id === "google/gemini-3.5-flash-lite" && reasoningProfile("google/gemini-3.5-flash").id === "google/gemini-3.5-flash" && reasoningProfile("google/gemini-3.1-flash-lite-image") === null && reasoningProfile("openai/gpt-5-nano:batch")?.id === "openai/gpt-5-nano" && reasoningProfile("openai/gpt-5.6-sol-pro")?.prefix === "openai/gpt-5.6-", "exact-id rows never bleed into sibling models (flash-lite-image), :variants match, family prefix rows match the family");
+  ok(JSON.stringify(defaultReasoningFor("openai/gpt-5-nano", "v1-chat-nano")) === '{"effort":"minimal"}' && JSON.stringify(defaultReasoningFor("openai/gpt-5.6-luna", "v1-chat-auto")) === '{"effort":"low"}' && JSON.stringify(defaultReasoningFor("anthropic/claude-sonnet-5", "v1-chat-pro")) === '{"effort":"low"}' && defaultReasoningFor("anthropic/claude-opus-5", "v1-chat-premium") === null && defaultReasoningFor("deepseek/deepseek-chat", "v1-chat-nano") === null, "default effort: budget tiers lowest non-none, pro low, premium model default, non-reasoning models untouched");
+  ok(JSON.stringify(validateReasoning({ reasoning_effort: "low" }, TIERS["v1-chat-nano"])) === '{"effort":"low"}' && validateReasoning({}, TIERS["v1-chat-nano"]) === undefined, "reasoning_effort (OpenAI wire) folds into reasoning.effort; absent -> undefined");
+  for (const badR of [{ reasoning: { effort: "ultra" } }, { reasoning: { budget: 5 } }, { reasoning: { max_tokens: 99999 } }, { reasoning: "low" }]) {
+    let e = null; try { validateReasoning(badR, TIERS["v1-chat-nano"]); } catch (x) { e = x; }
+    ok(e?.statusCode === 400 && /reasoning/.test(e.message), `reasoning ${JSON.stringify(badR.reasoning)} -> self-explaining 400 (${e?.message?.slice(0, 50)})`);
+  }
+  ok(vr({ model: "deepseek/deepseek-chat", messages: msg1(), max_completion_tokens: 77 }, "v1-chat-nano").max_tokens === 77, "max_completion_tokens (newer OpenAI SDKs) is honoured as the output cap");
+  ok(promptCacheKey("v1-chat-nano", { model: "openai/gpt-5-nano", messages: msg1(), reasoning: { effort: "high" } }) !== promptCacheKey("v1-chat-nano", { model: "openai/gpt-5-nano", messages: msg1() }), "a buyer reasoning preference is part of the cache key (it changes the answer)");
+  // outbound: default injected per link, buyer preference wins, non-reasoning link carries none
+  seen = null;
+  const seenAll = [];
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body); seenAll.push(seen);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-r", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }) };
+  };
+  await nano.handler({ model: "openai/gpt-5-nano", messages: msg1(), max_tokens: 64 }, fakeReqC);
+  ok(seen.reasoning?.effort === "minimal", "gpt-5-nano on nano gets reasoning.effort minimal by default");
+  await nano.handler({ model: "openai/gpt-5-nano", messages: msg1(), max_tokens: 64, reasoning: { effort: "high", exclude: true } }, fakeReqC);
+  ok(seen.reasoning?.effort === "high" && seen.reasoning?.exclude === true, "a buyer reasoning object rides through unchanged");
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 64 }, fakeReqC);
+  ok(seen.reasoning === undefined && seen.plugins === undefined && seen.provider?.require_parameters === undefined, "non-reasoning, unstructured call: no reasoning, no plugins, no require_parameters");
+  const rf = { type: "json_schema", json_schema: { name: "a", strict: true, schema: { type: "object", properties: { x: { type: "string" } }, required: ["x"], additionalProperties: false } } };
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 64, response_format: rf }, fakeReqC);
+  ok(seen.provider?.require_parameters === true && JSON.stringify(seen.plugins) === '[{"id":"response-healing"}]' && seen.provider?.max_price, "json_schema: require_parameters + response-healing plugin (cap still rides)");
+  seen = null;
+  await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), response_format: rf, stream: true }, fakeReqC)).__sse({ headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} }).catch(() => {});
+  ok(seen && seen.provider?.require_parameters === true && seen.plugins === undefined, "streamed json_schema: require_parameters yes, response-healing (non-stream only) no");
+  // paid-empty guard: "length" + empty content walks the chain; end-to-end empty -> 502
+  ok(isEmptyLength({ choices: [{ finish_reason: "length", message: { role: "assistant", content: "" } }] }) && !isEmptyLength({ choices: [{ finish_reason: "length", message: { content: "partial" } }] }) && !isEmptyLength({ choices: [{ finish_reason: "stop", message: { content: "" } }] }), "isEmptyLength: only length + nothing said");
+  seenAll.length = 0;
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); seenAll.push(b.model);
+    const empty = b.model === "openai/gpt-5-nano";
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-e", model: b.model, choices: [{ index: 0, message: { role: "assistant", content: empty ? "" : "answer" }, finish_reason: empty ? "length" : "stop" }], usage: { prompt_tokens: 1, completion_tokens: 64, completion_tokens_details: { reasoning_tokens: empty ? 64 : 0 } } }) };
+  };
+  const outE = await nano.handler({ model: "openai/gpt-5-nano", messages: msg1(), max_tokens: 64 }, fakeReqC);
+  ok(outE.choices[0].message.content === "answer" && JSON.stringify(seenAll) === JSON.stringify(["openai/gpt-5-nano", "deepseek/deepseek-chat"]), `a length+empty answer is never served: the chain walked on, and the same model's default-tier retry was skipped (tried ${seenAll.join(" -> ")})`);
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-e2", model: b.model, choices: [{ index: 0, message: { role: "assistant", content: "" }, finish_reason: "length" }], usage: { prompt_tokens: 1, completion_tokens: 64 } }) };
+  };
+  await nano.handler({ model: "openai/gpt-5-nano", messages: msg1(), max_tokens: 64 }, fakeReqC).then(
+    () => ok(false, "an end-to-end empty chain must not serve"),
+    (e) => ok(e.statusCode === 502 && /no content within the output cap/.test(e.message), `chain empty end-to-end -> 502 (settlement cancelled), self-explaining (${e.message.slice(0, 60)})`),
+  );
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }

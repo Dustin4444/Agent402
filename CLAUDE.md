@@ -188,6 +188,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   provider - a buyer-visible quality change pro/premium did not buy, and max_price already bounds them.
   `OPENROUTER_PROVIDER_SORT=off` disables. All four fields live-verified accepted by OpenRouter on
   Gemini/DeepSeek/OpenAI/Anthropic before shipping.
+  **Reasoning defaults + wire compat (2026-08-19, build #5):** `REASONING_MODELS` (prefix ->
+  supported efforts; live-guarded) + `defaultReasoningFor(model, tier)`: when the buyer sent no
+  `reasoning`/`reasoning_effort`, a default-on/mandatory reasoning link gets `reasoning.effort` =
+  lowest non-"none" effort on nano/auto/base (`reasoningDefault:"lowest"`), "low" on pro, the
+  model default on premium. Measured: gpt-5-nano at max_tokens 64 AND 256 with default/low effort
+  returned `finish_reason:length` + EMPTY content (paid empty answer); minimal answered. Buyer
+  `reasoning` objects are validated (effort set, max_tokens <= tier cap, exclude/enabled bools)
+  and live in the normalized body (cache key); `max_completion_tokens` is honoured as the cap
+  alias. `isEmptyLength` (length + nothing said) walks the chain like an empty refusal (same
+  model's default-tier retry skipped), end-to-end empty -> 502. `response_format` json_schema /
+  json_object adds `provider.require_parameters:true` and, off-stream, `plugins:[{id:
+  "response-healing"}]` (live-verified: accepted, no cost change; buyer `plugins` never pass).
   **zdr knob:** `zdr:true` (or
   `provider.zdr`) is the ONLY buyer-settable provider field — folds into the server-owned
   provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),
