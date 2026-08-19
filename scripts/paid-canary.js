@@ -575,6 +575,12 @@ export const CHAIN_FUNDING = [
   { key: "sei", label: "Sei", token: "0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392", rpcs: ["https://evm-rpc.sei-apis.com", "https://sei-evm-rpc.publicnode.com"] },
   { key: "optimism", label: "Optimism", token: "0x0b2c639c533813f4aa9d7837caf62653d097ff85", rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"] },
   { key: "robinhood", label: "Robinhood Chain (USDG)", token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", rpcs: ["https://rpc.mainnet.chain.robinhood.com"] },
+  // Tempo: the mpp-tempo leg buys TEMPO_CANARY_TX_COUNT (100) x $0.001 a day
+  // from this burner (PathUSD, auto-swapped to USDC.e at pay time), so its
+  // runway is ~$0.10/day - low-water $0.50 (5 days), not the $0.05 the
+  // one-buy legs use. Both tokens read; PathUSD is the funded one.
+  { key: "tempo-pathusd", label: "Tempo (PathUSD)", token: "0x20c0000000000000000000000000000000000000", rpcs: ["https://rpc.tempo.xyz"], lowWater: 0.5 },
+  { key: "tempo-usdce", label: "Tempo (USDC.e)", token: "0x20C000000000000000000000b9537d11c60E8b50", rpcs: ["https://rpc.tempo.xyz"], lowWater: 0 },
 ];
 
 /** Pure verdict over the chain-balance sweep, exported for offline tests:
@@ -584,9 +590,10 @@ export const CHAIN_FUNDING = [
 export function chainLowWaterReport(balances, { chainLowWater }) {
   const low = [];
   const unreadable = [];
-  for (const { key, label, usd } of balances) {
+  for (const { key, label, usd, lowWater } of balances) {
+    const threshold = Number.isFinite(lowWater) ? lowWater : chainLowWater; // per-chain override (Tempo's daily volume)
     if (usd == null) unreadable.push(key);
-    else if (usd < chainLowWater) low.push({ key, label, usd });
+    else if (usd < threshold) low.push({ key, label, usd, lowWater: threshold });
   }
   return { low, unreadable };
 }
@@ -1128,6 +1135,41 @@ async function main() {
         } else {
           console.log(`\nOK    mpp-tempo   /api/uuid  → settled over Tempo's native relay (Authorization: Payment, payer ${account.address})${ref ? `\n      Payment-Receipt tx: https://explore.tempo.xyz/tx/${ref}` : ""}`);
           noteRail("mpp-tempo", true);
+          // VOLUME (2026-08-19): after the rail is proven by the settle above,
+          // buy the same $0.001 route TEMPO_CANARY_TX_COUNT-1 more times (default
+          // 100 total, ~$0.10/day from the PathUSD burner) so our own Tempo
+          // activity is real on-chain volume: the MPP leaderboard ranks by
+          // inbound transfers in a ~15h window, the router's proven-seller
+          // gate needs >= SOR_TEMPO_MIN_SETTLED_TX, and Tempo's transfer feed
+          // attributes by recipient. Each buy is a fresh 402 -> challenge ->
+          // credential -> settle (credentials are single-use). Volume failures
+          // never fail the rail verdict (that was the first settle); a low
+          // success rate is printed loudly so a relay/burner problem is seen.
+          const volumeTarget = Math.max(1, Math.min(1000, Number(process.env.TEMPO_CANARY_TX_COUNT || 100)));
+          if (volumeTarget > 1) {
+            let okCount = 1, failCount = 0, lastErr = null;
+            const t0 = Date.now();
+            for (let i = 1; i < volumeTarget; i++) {
+              try {
+                const again402 = await fetch(url, { headers: heartbeatHeaders() });
+                const www2 = again402.headers.get("www-authenticate");
+                const ch2 = www2 ? MppChallenge.fromHeadersList(new Headers({ "WWW-Authenticate": www2 })).find((c) => c.method === "tempo" && c.intent === "charge") : null;
+                if (!ch2) { failCount++; lastErr = `no tempo challenge on 402 #${i}`; continue; }
+                const cred2 = await tempoClient.createCredential(new Response(null, { status: 402, headers: { "WWW-Authenticate": MppChallenge.serialize(ch2) } }));
+                const paid2 = await fetch(url, { headers: { ...heartbeatHeaders(), Authorization: cred2 } });
+                if (paid2.status === 200 && paid2.headers.get("payment-receipt")) okCount++;
+                else { failCount++; lastErr = `HTTP ${paid2.status} ${JSON.stringify(settleRejectReason(paid2.headers) || {}).slice(0, 100)}`; }
+                await paid2.arrayBuffer().catch(() => {});
+              } catch (e) {
+                failCount++; lastErr = (e?.message || String(e)).slice(0, 120);
+              }
+              // Stop early if the rail has clearly gone bad mid-run: 10 straight failures.
+              if (failCount >= 10 && okCount <= 1) { console.warn("WARN  mpp-tempo volume: 10 failures with no further success - stopping the volume loop"); break; }
+            }
+            const secs = ((Date.now() - t0) / 1000).toFixed(0);
+            console.log(`      mpp-tempo volume: ${okCount}/${volumeTarget} settled at $0.001 in ${secs}s${failCount ? ` (${failCount} failed; last: ${lastErr})` : ""}`);
+            if (okCount < volumeTarget * 0.8) console.warn(`WARN  mpp-tempo volume under 80% (${okCount}/${volumeTarget}) - burner runway or relay health, investigate (rail verdict unaffected)`);
+          }
         }
       } else if (paid.status === 402) {
         const reason = settleRejectReason(paid.headers);
@@ -1471,14 +1513,14 @@ async function main() {
   // roughly a month of daily $0.001-0.002 legs of warning.
   const chainLowWater = Number(process.env.CANARY_CHAIN_LOW_WATER_USD || 0.05);
   const chainBalances = await Promise.all(
-    CHAIN_FUNDING.map(async (c) => ({ key: c.key, label: c.label, usd: await erc20BalanceUsd(account.address, c) }))
+    CHAIN_FUNDING.map(async (c) => ({ key: c.key, label: c.label, lowWater: c.lowWater, usd: await erc20BalanceUsd(account.address, c) }))
   );
   const { low, unreadable } = chainLowWaterReport(chainBalances, { chainLowWater });
   if (unreadable.length) console.warn(`WARN  chain balance sweep: unreadable on ${unreadable.join(", ")} (all RPCs failed) — not treated as low`);
   if (baseLow || low.length) {
     const parts = [];
     if (baseLow) parts.push(`Base $${endBalance.toFixed(4)} (low-water $${lowWater.toFixed(2)})`);
-    for (const c of low) parts.push(`${c.label} $${c.usd.toFixed(4)} (low-water $${chainLowWater.toFixed(2)})`);
+    for (const c of low) parts.push(`${c.label} $${c.usd.toFixed(4)} (low-water $${(c.lowWater ?? chainLowWater).toFixed(2)})`);
     console.warn(
       `\nCANARY BURNER LOW — ${parts.join(" · ")}. ` +
         `Top up ${account.address} before the leg(s) starve. Exiting 4 (green, funding warning).`

@@ -482,7 +482,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `scripts/test-mpp-tempo-relay-errors.js`. Live proof = `tempo-canary.yml`
   (dispatch, `scripts/tempo-canary-verify.js`, EVM canary burner funded with 2
   PathUSD on Tempo mainnet — checked on-chain 2026-08-18, never trust the comment) plus a
-  daily `mpp-tempo` leg in paid-canary. `scripts/test-mpp-tempo-shim.js` (offline, in
+  daily `mpp-tempo` leg in paid-canary - which since 2026-08-19 is a VOLUME leg: after the first
+  graded settle it buys the same $0.001 route `TEMPO_CANARY_TX_COUNT` times in total (default 100,
+  ~$0.10/day from the PathUSD burner via autoSwap; Mike's call - real on-chain Tempo volume for the
+  leaderboard window, the proven-seller gate and Tempo's attribution feed). Volume failures never
+  change the rail verdict; <80% success warns loudly; 10 straight failures stop the loop. The
+  per-chain funding sweep gained `tempo-pathusd` (low-water $0.50 ≈ 5 days) + `tempo-usdce` rows
+  (per-entry `lowWater` override in `chainLowWaterReport`). Burner 0x902d…8256 held 1.99 PathUSD on
+  2026-08-19; top up with PathUSD or USDC.e (USDC.e skips the swap) when "CANARY BURNER LOW" names Tempo. `scripts/test-mpp-tempo-shim.js` (offline, in
   CI) proves challenge wiring + settlement ordering with injected stubs.
 - **MPP index seeds (2026-08-19):** two discovery sources - the mpp.dev registry (141 rows, 99
   bare-origin) and **MPPScan's tRPC `servers.list`** (`timeframeDays:0` = all-time, 200/page,
