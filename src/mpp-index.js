@@ -26,7 +26,7 @@
 // manifest paths) - grow this only if a second real MPP registry surfaces.
 import { readFileSync, writeFileSync } from "node:fs";
 import { safeFetch, assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
-import { validateOriginInput, isMppChallenge } from "./x402-index.js";
+import { validateOriginInput, isMppChallenge, mppDualStackOrigins } from "./x402-index.js";
 
 export { validateOriginInput };
 
@@ -225,6 +225,27 @@ export function parseMppScanList(body) {
     });
   }
   return { total: Number.isFinite(Number(r?.total)) ? Number(r.total) : rows.length, rows };
+}
+
+/** Third seed source: origins OUR OWN x402 crawl already saw answering with
+ *  an MPP challenge (dual-stack sellers). Automatic detection - no registry,
+ *  no submission. Pure over the injected list; exported for tests. */
+export function seedFromOrigins(origins, source = "x402-crawl") {
+  let added = 0;
+  for (const raw of origins || []) {
+    const v = validateOriginInput(String(raw || ""));
+    if (v.error) continue;
+    if (!discoveredSeeds.has(v.origin)) { added++; if (!seedSource.has(v.origin)) seedSource.set(v.origin, source); }
+    discoveredSeeds.add(v.origin);
+  }
+  return added;
+}
+let x402CrawlSeedStatus = { fetchedAt: null, origins: 0, added: 0 };
+export function x402CrawlSeedStatus_() { return x402CrawlSeedStatus; }
+export function discoverFromX402Crawl(origins = mppDualStackOrigins()) {
+  const added = seedFromOrigins(origins, "x402-crawl");
+  x402CrawlSeedStatus = { fetchedAt: Date.now(), origins: origins.length, added };
+  return x402CrawlSeedStatus;
 }
 
 function mppScanListUrl(page) {
@@ -467,6 +488,7 @@ export async function verifyMppSeller(origin) {
     fromRegistry: !!svc,
     fromSubmission: submittedSeeds.has(origin),
     fromMppScan: seedSource.get(origin) === "mppscan",
+    fromX402Crawl: seedSource.get(origin) === "x402-crawl",
   };
   cache.set(origin, entry);
   return entry;
@@ -541,6 +563,9 @@ export async function runMppCrawl() {
   if (crawlInFlight) return;
   crawlInFlight = true;
   try {
+    // Every cycle, fold in whatever the x402 crawler has detected as
+    // dual-stack since last time (its cache keeps moving between our runs).
+    discoverFromX402Crawl();
     const seeds = [...discoveredSeeds];
     const due = seeds.filter((o) => probeDue(o));
     await runPool(due, MPP_CRAWL_CONCURRENCY, verifyMppSeller);
@@ -608,6 +633,7 @@ export function __testReset() {
   seedSource.clear();
   discoveryDocCache.clear();
   mppScanByOrigin.clear();
+  x402CrawlSeedStatus = { fetchedAt: null, origins: 0, added: 0 };
   mppScanStatus = { url: MPPSCAN_API_URL, fetchedAt: null, origins: 0, added: 0, error: null };
   submittedSeeds.clear();
   crawlBackoff.clear();
@@ -634,6 +660,7 @@ export function mppIndexSnapshot() {
     sellers: verified,
     discovery: discoveryStatus,
     discoveryMppScan: mppScanStatus,
+    discoveryX402Crawl: x402CrawlSeedStatus,
     generatedAt: Date.now(),
   };
 }

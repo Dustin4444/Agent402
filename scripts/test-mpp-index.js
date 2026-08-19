@@ -2,7 +2,7 @@
 // x402 side - protocol-agnostic) + the registerMppOrigin flow with an
 // injected fake verifier + the snapshot honesty invariant. No network, no /data.
 import {
-  validateOriginInput, registerMppOrigin, mppIndexSnapshot, parseMppScanOrigins, parseMppScanList, probeTargetFromDiscovery,
+  validateOriginInput, registerMppOrigin, mppIndexSnapshot, parseMppScanOrigins, parseMppScanList, probeTargetFromDiscovery, seedFromOrigins, discoverFromX402Crawl,
   __testResetSubmitted, __testSetSubmittedCap, __testReset,
 } from "../src/mpp-index.js";
 import { isMppChallenge } from "../src/x402-index.js";
@@ -104,6 +104,15 @@ __testReset();
   ok(probeTargetFromDiscovery({ paths: { "/v1/models": { get: {} } } }) === null && probeTargetFromDiscovery(null) === null && probeTargetFromDiscovery({ paths: "x" }) === null, "probeTargetFromDiscovery: nothing priced / junk -> null");
 }
 ok("discoveryMppScan" in mppIndexSnapshot(), "snapshot exposes the MPPScan discovery status alongside the registry's");
+// --- automatic detection from our own x402 crawl (dual-stack sellers) ------------
+{
+  __testReset();
+  const st = discoverFromX402Crawl(["https://dual.example", "http://insecure.example", "https://dual.example", "https://path.example/v1"]);
+  ok(st.origins === 4 && st.added === 1 && mppIndexSnapshot().discoveredTotal === 1, `x402-crawl seed: validated https origins only, deduped (added=${st.added})`);
+  ok(seedFromOrigins(["https://dual.example"]) === 0 && seedFromOrigins(["https://second.example"], "x402-crawl") === 1, "seedFromOrigins: idempotent, counts only new origins");
+  ok("discoveryX402Crawl" in mppIndexSnapshot(), "snapshot exposes the x402-crawl seed status");
+  __testReset();
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
