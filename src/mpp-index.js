@@ -38,6 +38,13 @@ const MPP_DISCOVERY_URL = process.env.MPP_DISCOVERY_URL || "https://mpp.dev/api/
 // origin still has to pass OUR live probe before it is listed. Measured at
 // launch: 223 origins there vs 99 usable from the mpp.dev registry.
 const MPPSCAN_DISCOVERY_URL = process.env.MPPSCAN_DISCOVERY_URL || "https://www.mppscan.com/";
+// MPPScan's tRPC list endpoint (found by watching the page's own network
+// calls): `servers.list` with timeframeDays=0 is the all-time set (314 rows at
+// launch vs 222 on the rendered page), 200 per page, each row carrying name /
+// description / url / logoUrl. Primary source; the page scrape is the fallback.
+const MPPSCAN_API_URL = process.env.MPPSCAN_API_URL || "https://www.mppscan.com/api/trpc/servers.list";
+const MPPSCAN_PAGE_SIZE = 200;
+const MPPSCAN_MAX_PAGES = 10;
 // The MPP discovery format (mpp.dev/protocol/discovery): a seller's
 // /openapi.json carries `x-payment-info` on paid operations. For origins the
 // mpp.dev registry does not describe (MPPScan-only seeds, self-serve entries
@@ -189,24 +196,80 @@ export function parseMppScanOrigins(html) {
   return [...out];
 }
 
-let mppScanStatus = { url: MPPSCAN_DISCOVERY_URL, fetchedAt: null, origins: 0, added: 0, error: null };
+let mppScanStatus = { url: MPPSCAN_API_URL, fetchedAt: null, origins: 0, added: 0, error: null };
 export function mppScanDiscoveryStatus() { return mppScanStatus; }
 const seedSource = new Map(); // origin -> "registry" | "mppscan" | "submitted"
+// MPPScan's own metadata per origin (name/description/url/logo) - the display
+// fields for sellers the mpp.dev registry does not describe. Third-party
+// content: rendered only through esc()/safeHref() like registry fields.
+const mppScanByOrigin = new Map();
 
-/** Fetch MPPScan's page and add its origins as seeds. Never throws. */
-export async function discoverMppScan() {
-  try {
-    const { html } = await safeFetch(MPPSCAN_DISCOVERY_URL, { maxBytes: MAX_REGISTRY_BYTES, headers: { Accept: "text/html" } });
-    const origins = parseMppScanOrigins(html);
-    let added = 0;
-    for (const o of origins) {
-      if (!discoveredSeeds.has(o)) { added++; if (!seedSource.has(o)) seedSource.set(o, "mppscan"); }
-      discoveredSeeds.add(o);
-    }
-    mppScanStatus = { url: MPPSCAN_DISCOVERY_URL, fetchedAt: Date.now(), origins: origins.length, added, error: origins.length ? null : "no originUrls found on the page (layout changed?)" };
-  } catch (e) {
-    mppScanStatus = { url: MPPSCAN_DISCOVERY_URL, fetchedAt: Date.now(), origins: 0, added: 0, error: String(e?.message || e).slice(0, 200) };
+/** Parse one MPPScan `servers.list` response into {total, rows[{origin,name,
+ *  description,url,logoUrl}]}. Pure; exported for tests. Rows whose url is
+ *  not a valid bare https origin are dropped (same rule as the registry). */
+export function parseMppScanList(body) {
+  const j = typeof body === "string" ? JSON.parse(body) : body;
+  const r = j?.result?.data?.json ?? (Array.isArray(j) ? j[0]?.result?.data?.json : null);
+  const list = Array.isArray(r?.origins) ? r.origins : [];
+  const rows = [];
+  for (const o of list) {
+    const v = validateOriginInput(String(o?.url || ""));
+    if (v.error) continue;
+    rows.push({
+      origin: v.origin,
+      name: typeof o.name === "string" ? o.name.slice(0, 120) : null,
+      description: typeof o.description === "string" ? o.description.slice(0, 600) : null,
+      url: v.origin,
+      logoUrl: typeof o.logoUrl === "string" && /^https:\/\//.test(o.logoUrl) ? o.logoUrl.slice(0, 300) : null,
+      resourceCount: Number.isFinite(Number(o.resourceCount)) ? Number(o.resourceCount) : null,
+    });
   }
+  return { total: Number.isFinite(Number(r?.total)) ? Number(r.total) : rows.length, rows };
+}
+
+function mppScanListUrl(page) {
+  const input = encodeURIComponent(JSON.stringify({ json: { page, pageSize: MPPSCAN_PAGE_SIZE, sorting: { desc: true, id: "tx_count" }, timeframeDays: 0 } }));
+  return `${MPPSCAN_API_URL}?input=${input}`;
+}
+
+/** Discover seeds from MPPScan: the tRPC list (all pages), falling back to
+ *  the rendered page's origin list if the API fails or changes shape. Never
+ *  throws. */
+export async function discoverMppScan() {
+  const seen = new Set();
+  let added = 0, total = 0, error = null, source = "api";
+  try {
+    for (let page = 0; page < MPPSCAN_MAX_PAGES; page++) {
+      const { html } = await safeFetch(mppScanListUrl(page), { maxBytes: MAX_REGISTRY_BYTES, headers: { Accept: "application/json" } });
+      const { total: t, rows } = parseMppScanList(html);
+      total = t;
+      for (const row of rows) {
+        seen.add(row.origin);
+        mppScanByOrigin.set(row.origin, row);
+        if (!discoveredSeeds.has(row.origin)) { added++; if (!seedSource.has(row.origin)) seedSource.set(row.origin, "mppscan"); }
+        discoveredSeeds.add(row.origin);
+      }
+      if (!rows.length || (page + 1) * MPPSCAN_PAGE_SIZE >= total) break;
+    }
+    if (!seen.size) throw new Error("servers.list returned no usable origins");
+  } catch (e) {
+    // Fallback: the rendered page's originUrls list (no metadata, but seeds).
+    source = "page";
+    error = String(e?.message || e).slice(0, 200);
+    try {
+      const { html } = await safeFetch(MPPSCAN_DISCOVERY_URL, { maxBytes: MAX_REGISTRY_BYTES, headers: { Accept: "text/html" } });
+      for (const o of parseMppScanOrigins(html)) {
+        seen.add(o);
+        if (!discoveredSeeds.has(o)) { added++; if (!seedSource.has(o)) seedSource.set(o, "mppscan"); }
+        discoveredSeeds.add(o);
+      }
+      if (seen.size) error = `api: ${error}; page fallback used`;
+      else error = `api: ${error}; page: no originUrls found`;
+    } catch (e2) {
+      error = `api: ${error}; page: ${String(e2?.message || e2).slice(0, 120)}`;
+    }
+  }
+  mppScanStatus = { url: MPPSCAN_API_URL, source, fetchedAt: Date.now(), origins: seen.size, total, added, error };
   return mppScanStatus;
 }
 
@@ -376,16 +439,17 @@ export async function verifyMppSeller(origin) {
   noteProbeOutcome(origin, result.ok);
   const prior = cache.get(origin);
   const history = [...(prior?.history || []), result.ok ? 1 : 0].slice(-HEALTH_WINDOW);
+  const scan = svc ? null : mppScanByOrigin.get(origin) || null;
   const entry = {
     origin,
-    name: svc?.name || origin.replace(/^https?:\/\//, ""),
-    url: svc?.url || origin,
+    name: svc?.name || scan?.name || origin.replace(/^https?:\/\//, ""),
+    url: svc?.url || scan?.url || origin,
     serviceUrl: origin,
-    description: svc?.description || null,
+    description: svc?.description || scan?.description || null,
     categories: Array.isArray(svc?.categories) ? svc.categories : [],
     tags: Array.isArray(svc?.tags) ? svc.tags : [],
     docs: svc?.docs || null,
-    icon: svc?.icon || null,
+    icon: svc?.icon || scan?.logoUrl || null,
     realm: svc?.realm || null,
     provider: svc?.provider || null,
     endpoints: Array.isArray(svc?.endpoints) ? svc.endpoints : [],
@@ -543,7 +607,8 @@ export function __testReset() {
   registryByOrigin.clear();
   seedSource.clear();
   discoveryDocCache.clear();
-  mppScanStatus = { url: MPPSCAN_DISCOVERY_URL, fetchedAt: null, origins: 0, added: 0, error: null };
+  mppScanByOrigin.clear();
+  mppScanStatus = { url: MPPSCAN_API_URL, fetchedAt: null, origins: 0, added: 0, error: null };
   submittedSeeds.clear();
   crawlBackoff.clear();
   discoveryStatus = { url: MPP_DISCOVERY_URL, fetchedAt: null, services: 0, added: 0, error: null };

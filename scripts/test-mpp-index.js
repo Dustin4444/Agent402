@@ -2,7 +2,7 @@
 // x402 side - protocol-agnostic) + the registerMppOrigin flow with an
 // injected fake verifier + the snapshot honesty invariant. No network, no /data.
 import {
-  validateOriginInput, registerMppOrigin, mppIndexSnapshot, parseMppScanOrigins, probeTargetFromDiscovery,
+  validateOriginInput, registerMppOrigin, mppIndexSnapshot, parseMppScanOrigins, parseMppScanList, probeTargetFromDiscovery,
   __testResetSubmitted, __testSetSubmittedCap, __testReset,
 } from "../src/mpp-index.js";
 import { isMppChallenge } from "../src/x402-index.js";
@@ -77,6 +77,19 @@ __testReset();
   ok(got.length === 2 && got.includes("https://alpha.example") && got.includes("https://beta.example"), `parseMppScanOrigins: escaped SSR payload -> validated https origins, deduped, http and path-scoped dropped (got ${JSON.stringify(got)})`);
   ok(parseMppScanOrigins("<html>no data</html>").length === 0 && parseMppScanOrigins("").length === 0, "parseMppScanOrigins: no list -> []");
 }
+// --- MPPScan tRPC servers.list (primary source): shape + validation ----------------
+{
+  const body = { result: { data: { json: { origins: [
+    { id: "a", name: "Alpha", description: "d".repeat(700), url: "https://alpha.example", logoUrl: "https://alpha.example/logo.svg", resourceCount: 3 },
+    { id: "b", name: "Bad", url: "http://insecure.example" },
+    { id: "c", name: "Path", url: "https://gamma.example/tenant" },
+    { id: "d", name: "NoLogoHttp", url: "https://delta.example", logoUrl: "http://delta.example/x.png" },
+  ], total: 314 } } } };
+  const r = parseMppScanList(JSON.stringify(body));
+  ok(r.total === 314 && r.rows.length === 2 && r.rows[0].origin === "https://alpha.example" && r.rows[0].description.length === 600 && r.rows[0].logoUrl.startsWith("https://") && r.rows[1].logoUrl === null, `parseMppScanList: total + validated https origins, description capped, http logo dropped (got ${r.rows.length} rows)`);
+  ok(parseMppScanList('{"result":{"data":{"json":{"origins":[]}}}}').rows.length === 0 && parseMppScanList('{}').rows.length === 0, "parseMppScanList: empty/junk -> no rows");
+}
+
 // --- MPP discovery document -> probe target -----------------------------------
 {
   const doc = { openapi: "3.1.0", paths: {
