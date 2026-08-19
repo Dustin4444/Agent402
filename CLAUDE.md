@@ -402,8 +402,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   networks, extensions) plus `firstTriedFor` (the first client advertising each network = the one
   @x402 tries first). Built because CDP's facilitator table grew (Polygon, Arbitrum, Solana, World)
   and CDP is first in `facilitatorClients`, so it may settle chains the boot-log LABELS attribute to
-  PayAI; `/supported` needs a JWT so only the live clients can answer. Read it on prod after a
-  deploy before deciding fee (CDP $0.001/tx after 1k/mo vs PayAI 10k free) vs Bazaar signal.
+  PayAI; `/supported` needs a JWT so only the live clients can answer. **Read on prod 2026-08-19:
+  CDP (first in the list) now advertises exact on `eip155:137` (Polygon), `eip155:42161` (Arbitrum),
+  Solana mainnet AND World Chain (`eip155:480`) - so CDP is the FIRST-TRIED facilitator for Polygon,
+  Arbitrum and Solana payments, not PayAI as the boot-log labels imply; PayAI is first only for
+  Avalanche/Sei/XLayer/SKALE, Naven for Robinhood, molandak for Monad, Celo/Solvador/our Stellar/
+  GoPlausible as labelled.** Consequence to decide (Mike): CDP bills $0.001/tx after 1k/month while
+  PayAI is free to 10k/month, but CDP-settled payments count toward Bazaar quality. To put PayAI
+  first for those chains, reorder `facilitatorClients` (or register CDP's client network-filtered
+  like the Solvador primary); today's behaviour is the unintended default. World Chain (480) is
+  offered by CDP but not in our `PAYMENT_NETWORKS` - a 13th rail is one env change away if wanted.
 - **Well-known store (`src/well-known-store.js`, 2026-08-05):** operator-published
   domain-verification documents served at `/.well-known/<path>` without a redeploy
   (built for Talkshi's 15-minute domain challenge; covers any serve-a-file-to-prove-
