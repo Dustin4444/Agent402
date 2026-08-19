@@ -99,3 +99,7 @@ Where the upstream offers it (Gemini 2.5/3.x families, gpt-5-nano, gpt-5.6-*, an
 ## Prompt caching
 
 Every chat call asks the upstream to cache the prompt prefix (OpenRouter's top-level `cache_control: {type:"ephemeral"}`, 5-minute TTL) and pins your turns to one provider (`session_id`), so a multi-turn agent conversation is served from the provider cache on repeated prefixes. Same flat price to you either way. Send `cache_control: false` to opt out. The budget tiers (nano, auto) additionally pick the cheapest provider under their price cap; pro and premium keep OpenRouter's default provider balancing.
+
+## Rerank
+
+`POST /v1/rerank` ($0.002) speaks the Cohere rerank wire: `{query, documents[], top_n}` in, `results[{index, relevance_score, document}]` out, served by `cohere/rerank-v3.5`. Up to 50 documents (1,600 chars each, 40k total) and a 500-char query per call. Deterministic, so a byte-identical repeat within 10 minutes is served free from cache (`cache:false` opts out). Pair it with `/v1/embeddings`: embed, recall your top candidates, rerank them.

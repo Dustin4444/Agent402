@@ -138,7 +138,7 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
+import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
 // response, so a 502 is never charged — but an UNLISTED route returns no 402
@@ -4265,6 +4265,8 @@ if (FREE_MODE) {
       let key = null;
       if (req.path === EMBEDDINGS_PATH) {
         key = embeddingsCacheKey(req.body);
+      } else if (req.path === RERANK_PATH) {
+        key = rerankCacheKey(req.body); // default-ON like embeddings (deterministic ranker)
       } else if (req.body?.cache === true && req.body?.stream !== true) {
         const tierSlug = GATEWAY_TIER_BY_PATH[req.path];
         if (tierSlug) key = promptCacheKey(tierSlug, req.body);

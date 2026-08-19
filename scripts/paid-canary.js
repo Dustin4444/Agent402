@@ -231,6 +231,22 @@ export const TOOLS = [
       `expected an OpenAI embeddings list with a real vector, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Rerank wire (Cohere shape over OpenRouter /rerank, cohere/rerank-v3.5).
+    // A real relevance ordering (the French capital first) proves the wire,
+    // the locked model and settlement. Cache is default-on, so the query
+    // carries the per-run nonce - a cached hit would be served free and fake
+    // a settle (same doctrine as llm-embed).
+    kit: "llm-rerank",
+    path: "/v1/rerank",
+    method: "POST",
+    body: { query: `What is the capital of France? ${EMBED_CANARY_INPUT.slice(-24)}`, documents: ["Berlin is the capital of Germany.", "Paris is the capital of France.", "Madrid is the capital of Spain."], top_n: 2 },
+    priceUsd: 0.002,
+    check: (r) =>
+      (Array.isArray(r.results) && r.results.length === 2 && r.results[0]?.index === 1 && typeof r.results[0]?.relevance_score === "number" &&
+        r.usage?.search_units === 1 && !("cost" in (r.usage || {}))) ||
+      `expected Cohere-wire results ranking the French capital first with usage.search_units 1 and no cost, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Image generation tier — OpenAI images wire over OpenRouter (Gemini
     // flash-image). A real base64 payload of plausible image size proves the
     // modalities translation, the price-capped provider call, and settlement.

@@ -118,6 +118,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   so `tierFor()` ordering is stable), base `$0.02`, pro `$0.10`, premium `$0.50`,
   plus **`/v1/embeddings` `$0.002`** (OpenAI upstream, batch ≤64/16k chars, cache
   DEFAULT-ON — deterministic output; `cache:false` opts out; `embeddingsCacheKey`),
+  plus **`/v1/rerank` `$0.002`** (`v1-rerank`, 2026-08-19 build #12 part 1 — Cohere wire
+  `{query, documents[], top_n}` over OpenRouter `/rerank`, model locked `cohere/rerank-v3.5`;
+  live: 1 search unit = $0.001; caps ≤50 docs × ≤1,600 chars, ≤40k total, query ≤500 chars keep
+  every call at ONE search unit so $0.001 sits under the 70% bound with no token math; strings
+  only (structured {text,image} docs bill differently → 400); cache DEFAULT-ON (`rerankCacheKey`,
+  deterministic ranker); billing fields stripped, `search_units` kept; `gateway_usage` tier
+  `v1-rerank`; paid-canary `llm-rerank` leg. `/v1/messages` (Anthropic wire), `/v1/responses`
+  and the grounded web-search tier from build #12 are NOT built yet),
   plus **`/v1/images/generations` `$0.08`** (`v1-images` — OpenAI images wire translated
   to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
   n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →

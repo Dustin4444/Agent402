@@ -1209,6 +1209,90 @@ async function embeddingsHandler(input, req) {
 }
 
 // ---------------------------------------------------------------------------
+// /v1/rerank - reranking over OpenRouter's /rerank router (Cohere wire:
+// {query, documents[], top_n} -> {results:[{index, relevance_score,
+// document}]}). Deterministic output (a ranker, not a sampler) -> cache
+// default-ON like embeddings. One model, locked: cohere/rerank-v3.5 (live
+// probe 2026-08-19: 1 "search unit" = $0.001 upstream). Cohere's search unit
+// is ONE query against up to 100 documents, with long documents split into
+// extra chunks that each count - so the caps below (<= 50 docs, <= 1,600
+// chars each, query <= 500 chars) keep every request at exactly one unit, and
+// $0.001 sits under the $0.002 price at the 70% margin bound without any
+// token math. Structured {text, image} documents are refused (image reranking
+// bills differently); strings only.
+export const RERANK_PATH = "/v1/rerank";
+export const RERANK_PRICE = 0.002;
+export const RERANK_MODEL = "cohere/rerank-v3.5";
+const RERANK_URL = "https://openrouter.ai/api/v1/rerank";
+const RERANK_MAX_DOCS = 50;
+const RERANK_MAX_DOC_CHARS = 1_600;
+const RERANK_MAX_QUERY_CHARS = 500;
+const RERANK_MAX_TOTAL_CHARS = 40_000;
+export function validateRerankRequest(input) {
+  if (!input || typeof input !== "object") throw bad("Body must be a JSON object: {query, documents[], top_n?}");
+  if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served)`);
+  const query = input.query;
+  if (typeof query !== "string" || !query.trim()) throw bad('"query" (string) is required');
+  if (query.length > RERANK_MAX_QUERY_CHARS) throw bad(`"query" too long (${query.length} chars; max ${RERANK_MAX_QUERY_CHARS})`);
+  const documents = input.documents;
+  if (!Array.isArray(documents) || documents.length === 0) throw bad('"documents" must be a non-empty array of strings');
+  if (documents.length > RERANK_MAX_DOCS) throw bad(`Too many documents (${documents.length}); max ${RERANK_MAX_DOCS} per call - split the set`);
+  let total = 0;
+  documents.forEach((d, i) => {
+    if (typeof d !== "string") throw bad(`documents[${i}] must be a string (structured {text,image} documents are not served)`);
+    if (d.length > RERANK_MAX_DOC_CHARS) throw bad(`documents[${i}] too long (${d.length} chars; max ${RERANK_MAX_DOC_CHARS})`);
+    total += d.length;
+  });
+  if (total > RERANK_MAX_TOTAL_CHARS) throw bad(`documents total ${total} chars; max ${RERANK_MAX_TOTAL_CHARS} per call`);
+  const body = { model: RERANK_MODEL, query, documents };
+  if (input.top_n !== undefined) {
+    const n = Number(input.top_n);
+    if (!Number.isInteger(n) || n < 1) throw bad('"top_n" must be a positive integer');
+    body.top_n = Math.min(n, documents.length);
+  }
+  return body;
+}
+/** Cache key for /v1/rerank - default-ON (deterministic), cache:false opts out. */
+export function rerankCacheKey(input) {
+  if (input?.cache === false) return null;
+  const body = validateRerankRequest(input);
+  return createHash("sha256").update(`v1-rerank\n${stableStringify(body)}`).digest("hex");
+}
+async function rerankHandler(input, req) {
+  const body = validateRerankRequest(input);
+  const key = OPENROUTER_KEY();
+  if (!key) throw bad("Rerank gateway not configured (OPENROUTER_API_KEY unset)", 503);
+  const user = upstreamUserId(req);
+  let res;
+  try {
+    res = await fetch(RERANK_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "HTTP-Referer": "https://agent402.tools", "X-Title": "Agent402.Tools x402 gateway", "X-OpenRouter-Title": "Agent402.Tools x402 gateway", "X-OpenRouter-Categories": "personal-agent,api" },
+      body: JSON.stringify({ ...body, ...(user ? { user } : {}) }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e) {
+    throw bad(`Upstream request failed: ${e.message}`, 504);
+  }
+  if (!res.ok) await throwUpstreamError(res);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+  if (!Array.isArray(data?.results)) throw bad("Upstream returned no results", 502);
+  // Billing fields are operator telemetry, never buyer-visible; search_units stays (a count, not a bill).
+  if (data.usage && typeof data.usage === "object") {
+    const upstreamUsd = typeof data.usage.cost === "number" ? data.usage.cost : null;
+    delete data.usage.cost; delete data.usage.cost_details; delete data.usage.is_byok; delete data.usage.cache_discount;
+    import("../posthog.js").then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({ tier: "v1-rerank", model: RERANK_MODEL, priceUsd: RERANK_PRICE, upstreamUsd, promptTokens: data.usage.search_units, completionTokens: 0 })).catch(() => {});
+  }
+  try {
+    const w = { key: rerankCacheKey(input), body: data };
+    if (w.key) { if (req) (req.__deferredCache ??= []).push(w); else promptCacheStore(w.key, w.body); }
+  } catch { /* never fail a served response over the cache */ }
+  return data;
+}
+
+// ---------------------------------------------------------------------------
 // /v1/images/generations — OpenAI wire-path image generation over OpenRouter.
 // OpenRouter serves image models through chat/completions with
 // modalities: ["image","text"]; this route translates the OpenAI images API
@@ -1834,6 +1918,31 @@ export const LLM_GATEWAY_TOOLS = [
       output: { example: { object: "list", data: [{ object: "embedding", index: 0, embedding: [0.0023, -0.0091, 0.0152] }], model: EMBEDDINGS_DEFAULT_MODEL, usage: { prompt_tokens: 12, total_tokens: 12 } } },
     },
     handler: embeddingsHandler,
+  },
+  {
+    route: "POST /v1/rerank",
+    name: "Rerank (Cohere-compatible)",
+    slug: "v1-rerank",
+    category: "llm",
+    price: "$0.002",
+    description:
+      "Rerank documents against a query over x402 - the Cohere /rerank wire ({query, documents[], top_n} -> results with relevance_score), served by cohere/rerank-v3.5, $0.002 per call in USDC, no API key, no signup. Up to 50 documents (1,600 chars each, 40k total) and a 500-char query per call. Deterministic, so a byte-identical repeat within 10 minutes is served FREE from cache (X-Cache: hit; opt out with cache:false). The retrieval companion to /v1/embeddings: embed + recall, then rerank the top candidates.",
+    tags: ["rerank", "reranking", "retrieval", "rag", "semantic-search", "cohere", ...SHARED_TAGS],
+    discovery: {
+      bodyType: "json",
+      input: { query: "What is the capital of France?", documents: ["Paris is the capital of France.", "Berlin is the capital of Germany.", "Madrid is in Spain."], top_n: 2 },
+      inputSchema: {
+        properties: {
+          query: { type: "string", description: "The search query (max 500 chars)" },
+          documents: { type: "array", items: { type: "string" }, description: "Documents to rank (1-50 strings, 1,600 chars each, 40k total)" },
+          top_n: { type: "integer", description: "Optional - return only the top N results" },
+          cache: { type: "boolean", description: "Optional - false disables the default-on response cache" },
+        },
+        required: ["query", "documents"],
+      },
+      output: { example: { id: "gen-rerank-…", model: "rerank-v3.5", results: [{ index: 0, relevance_score: 0.89, document: { text: "Paris is the capital of France." } }, { index: 1, relevance_score: 0.15, document: { text: "Berlin is the capital of Germany." } }], usage: { search_units: 1 } } },
+    },
+    handler: rerankHandler,
   },
   {
     route: "POST /v1/images/generations",

@@ -250,6 +250,7 @@ const NETWORK = new Set([
   // Embeddings wire path: hits OpenAI upstream. 503 without OPENAI_API_KEY —
   // same tolerance as the LLM proxy.
   "/v1/embeddings",
+  "/v1/rerank",
   // Image generation wire path: hits OpenRouter upstream (Gemini image model).
   // 503 without OPENROUTER_API_KEY — same tolerance as the chat tiers.
   "/v1/images/generations",

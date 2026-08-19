@@ -101,7 +101,7 @@ ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402
 ok(new Set(list.data.map((m) => m.x402.tier)).size === 8, "all five chat tiers + embeddings + images + speech represented");
 
 // Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 8, "eight gateway routes");
+ok(LLM_GATEWAY_TOOLS.length === 9, "nine gateway routes (five chat tiers, embeddings, rerank, images, speech)");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -852,6 +852,55 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     () => ok(false, "an imageless upstream response must not serve"),
     (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response (both tiers) → 502")
   );
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// /v1/rerank (2026-08-19) - Cohere wire over OpenRouter's /rerank, one locked
+// model, caps that keep every call at exactly one Cohere search unit ($0.001
+// upstream vs $0.002 price), default-on cache (deterministic ranker), billing
+// fields stripped, telemetry captured.
+{
+  const { validateRerankRequest, rerankCacheKey, RERANK_MODEL, RERANK_PRICE, RERANK_PATH } = await import("../src/tools/llm-gateway-kit.js");
+  const rerank = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-rerank");
+  ok(rerank && rerank.route === "POST /v1/rerank" && rerank.price === "$0.002" && RERANK_PATH === "/v1/rerank" && RERANK_PRICE === 0.002, "v1-rerank tool registered at POST /v1/rerank, $0.002");
+  const good = validateRerankRequest({ query: "capital of France?", documents: ["Paris", "Berlin", "Madrid"], top_n: 10 });
+  ok(good.model === RERANK_MODEL && good.top_n === 3 && good.documents.length === 3, "valid body: model locked, top_n clamped to the document count");
+  for (const [label, body] of [
+    ["no query", { documents: ["a"] }],
+    ["empty docs", { query: "q", documents: [] }],
+    ["51 docs", { query: "q", documents: Array.from({ length: 51 }, (_, i) => `d${i}`) }],
+    ["1601-char doc", { query: "q", documents: ["x".repeat(1601)] }],
+    ["501-char query", { query: "q".repeat(501), documents: ["a"] }],
+    ["structured doc", { query: "q", documents: [{ text: "a" }] }],
+    ["other model", { query: "q", documents: ["a"], model: "cohere/rerank-english-v3.0" }],
+    ["bad top_n", { query: "q", documents: ["a"], top_n: 0 }],
+    ["too many chars total", { query: "q", documents: Array.from({ length: 30 }, () => "y".repeat(1500)) }],
+  ]) {
+    let e = null; try { validateRerankRequest(body); } catch (x) { e = x; }
+    ok(e?.statusCode === 400, `rerank ${label} -> 400 (${e?.message?.slice(0, 60)})`);
+  }
+  ok(rerankCacheKey({ query: "q", documents: ["b", "a"] }) === rerankCacheKey({ documents: ["b", "a"], query: "q" }) && rerankCacheKey({ query: "q", documents: ["a", "b"] }) !== rerankCacheKey({ query: "q", documents: ["b", "a"] }) && rerankCacheKey({ query: "q", documents: ["a"], cache: false }) === null, "cache key: field order collapses, document order matters, cache:false opts out");
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = { url: String(url), body: JSON.parse(init.body) };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-rerank-1", model: "rerank-v3.5", results: [{ index: 0, relevance_score: 0.9, document: { text: "Paris" } }], usage: { search_units: 1, cost: 0.001 }, provider: "Cohere" }) };
+  };
+  const fakeReqR = { header: (n) => (n === "payment-signature" ? Buffer.from(JSON.stringify({ payload: { authorization: { from: "0xAbCdEf0000000000000000000000000000000002" } } })).toString("base64") : undefined) };
+  const out = await rerank.handler({ query: "capital of France?", documents: ["Paris", "Berlin"], top_n: 1 }, fakeReqR);
+  ok(seen.url.endsWith("/api/v1/rerank") && seen.body.model === RERANK_MODEL && seen.body.top_n === 1 && typeof seen.body.user === "string" && seen.body.user.startsWith("a402:"), "upstream call hits /rerank with the locked model, top_n and the per-buyer user id");
+  ok(Array.isArray(out.results) && out.results[0].relevance_score === 0.9 && out.usage.search_units === 1 && !("cost" in out.usage), "Cohere-wire result passes through; usage.cost stripped, search_units kept");
+  ok(Array.isArray(fakeReqR.__deferredCache) && fakeReqR.__deferredCache.length === 1, "result is queued for the post-settlement cache commit (default-on)");
+  {
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    await new Promise((r) => setTimeout(r, 20));
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.tier === "v1-rerank" && ev?.properties.upstreamUsd === 0.001 && ev?.properties.priceUsd === 0.002, "rerank margin telemetry captured ($0.001 vs $0.002)");
+  }
+  globalThis.fetch = async () => ({ ok: false, status: 503, text: async () => "down" });
+  await rerank.handler({ query: "q", documents: ["a"] }).then(() => ok(false, "upstream 503 must not serve"), (e) => ok(e.statusCode === 502, "upstream 5xx -> 502 (settlement cancelled)"));
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
