@@ -335,7 +335,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `scripts/test-mpp-shim.js` (offline, in CI): real mppx client buys over the
   native wire vs a stub facilitator, single verify+settle, EIP-712 sig checked
   against Base USDC's real domain, x402 pass-through untouched, HMAC
-  tamper/expiry rejected.
+  tamper/expiry rejected. **RFC 9457 failures (2026-08-19, `src/mpp-problem.js`):** a REJECTED MPP
+  credential (evm: malformed / not ours / expired / bad payload; tempo: binding, validate, replay,
+  post-handler settle failure) answers the spec shape - 402 + FRESH challenges + `application/problem+json`
+  `{type: https://paymentauth.org/problems/<kind>, title, status, detail, hint?}` using mppx's own type
+  vocabulary (invalid-challenge, malformed-credential, verification-failed, payment-insufficient,
+  invalid-payload). Fall-through rejections mark the request (`markMppProblem`, patches `res.send` so the
+  paywall's `{}` 402 body becomes the problem doc; non-402 responses untouched); direct ones (tempo replay -
+  was a 409 - and settle failure) use `sendMppProblem`. A bare unpaid 402 stays body-less - only rejections
+  are problems. Pinned on the wire in test-mpp-shim (through the real server) and test-mpp-tempo-shim.
 - **Tempo MPP settlement (`src/mpp-tempo.js`, 2026-08-17):** a SECOND, independent
   MPP path — Tempo (chain 4217, PathUSD `0x20c0…0000`) is MPP's native method, built
   on TIP-20 primitives that are NOT EIP-3009, so it cannot be translated into x402

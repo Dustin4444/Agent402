@@ -21,6 +21,7 @@
 // stateful session/channel protocol (TIP-1034, for pay-per-token streaming)
 // — deliberately out of scope here; see the approved plan.
 import { AsyncLocalStorage } from "node:async_hooks";
+import { mppProblem, markMppProblem, sendMppProblem } from "./mpp-problem.js";
 import { Challenge, Credential, Method, Receipt } from "mppx";
 import { tempo } from "mppx/server";
 
@@ -460,6 +461,15 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
     const binding = checkTempoCredentialBinding(auth, { secretKey, realm, priceFor, method: req.method, path: req.path });
     if (!binding.ok) {
       console.warn(`[mpp-tempo] credential rejected before validate(): ${binding.reason}`);
+      // Not a tempo credential at all -> not our verdict to give (the evm
+      // shim ahead of us already judged it). Everything else is a rejection
+      // of OUR challenge binding: say so in the 402's problem+json body.
+      if (binding.reason !== "not a tempo/charge challenge") {
+        const kind = /does not deserialize/.test(binding.reason) ? "malformed-credential"
+          : /amount .* below/.test(binding.reason) ? "payment-insufficient"
+          : "invalid-challenge";
+        markMppProblem(req, res, mppProblem(kind, kind === "malformed-credential" ? "Credential is malformed: the Authorization: Payment value does not decode." : `Challenge is invalid: ${binding.reason}. Request the resource again for a fresh challenge.`));
+      }
       return next();
     }
 
@@ -473,7 +483,10 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         // v.error is already truncated to 300 chars by validateTempoCredential
         // and is the relay/mppx SDK's own message, never a secret we hold.
         console.warn(`[mpp-tempo] credential rejected by validate(): ${v.error || "(no error detail)"}`);
-        return next(); // invalid credential — fall through to a fresh 402, same as an invalid evm credential today
+        // Fall through to a fresh 402 (same as an invalid evm credential) -
+        // whose body now says verification-failed with the relay's reason.
+        markMppProblem(req, res, mppProblem("verification-failed", `Payment verification failed: ${String(v.error || "the Tempo relay rejected the credential").slice(0, 200)}.`));
+        return next();
       }
 
       // Claim the credential's identity BEFORE the handler runs — the whole
@@ -489,10 +502,10 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       if (replayGuard && replayKey) {
         const verdict = await replayGuard.begin(replayKey);
         if (verdict !== "ok") {
-          return res.status(409).json({
-            error: "Tempo payment credential already used or in flight.",
-            reason: verdict,
-          });
+          // Spec shape for a spent/in-flight credential: 402 + fresh challenge
+          // (the outbound tempo hook appends one at writeHead) + problem+json
+          // invalid-challenge - not a bare 409 an MPP client cannot act on.
+          return sendMppProblem(res, mppProblem("invalid-challenge", `Challenge is invalid: this credential was already used or is in flight (${verdict}). Request the resource again for a fresh challenge.`));
         }
       }
       const releaseReplay = () => { if (replayGuard && replayKey) replayGuard.release(replayKey).catch(() => {}); };
@@ -583,7 +596,7 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         console.warn(`[mpp-tempo] broadcast failed AFTER a successful handler (${req.method} ${req.path}) — buyer answered 402, not charged by us: ${b.error} [${timing}]`);
         bufferedCalls = [];
         restore();
-        res.status(402).json({ error: "Tempo settlement failed", reason: b.error });
+        sendMppProblem(res, mppProblem("verification-failed", `Payment verification failed: Tempo settlement was not accepted (${String(b.error || "no relay detail").slice(0, 200)}).`));
         releaseReplay();
         return;
       }

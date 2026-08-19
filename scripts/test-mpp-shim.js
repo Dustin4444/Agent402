@@ -19,7 +19,7 @@ import { Challenge, Credential, PaymentRequest, Receipt, x402 } from "mppx";
 import { Fetch, Mppx as MppClient, evm } from "mppx/client";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { verifyTypedData } from "viem";
-import { translateCredential, challengeHeaderFromPaymentRequired } from "../src/mpp-shim.js";
+import { translateCredential, translateCredentialDetailed, challengeHeaderFromPaymentRequired } from "../src/mpp-shim.js";
 
 const PORT = 3077;
 const FAC_PORT = 3078;
@@ -243,6 +243,22 @@ try {
     validBefore: String(now + 300), nonce: `0x${"44".repeat(32)}`, signature: xSig, type: "authorization",
   } });
   ok(translateCredential(expiredCred, { secretKey: SECRET }) === null, "expired challenge -> rejected");
+
+  // RFC 9457 on the wire (2026-08-19): a rejected MPP credential still gets the
+  // paywall's 402 with fresh challenges, but the BODY is now problem+json
+  // naming why, with the paymentauth.org type vocabulary mppx servers use.
+  ok(translateCredentialDetailed(tampered, { secretKey: SECRET }).reject?.kind === "invalid-challenge", "detailed translator: tampered -> invalid-challenge");
+  ok(translateCredentialDetailed(expiredCred, { secretKey: SECRET }).reject?.kind === "invalid-challenge" && /expired/.test(translateCredentialDetailed(expiredCred, { secretKey: SECRET }).reject.detail), "detailed translator: expired -> invalid-challenge (detail says expired)");
+  ok(translateCredentialDetailed("Payment !!!not-base64url!!!", { secretKey: SECRET }).reject?.kind === "malformed-credential", "detailed translator: undecodable -> malformed-credential");
+  for (const [label, cred, kind, re] of [["tampered", tampered, "invalid-challenge", /invalid/], ["expired", expiredCred, "invalid-challenge", /expired/], ["garbage", "Payment !!!not-base64url!!!", "malformed-credential", /malformed/]]) {
+    const r = await fetch(`${B}/api/uuid`, { headers: { Authorization: cred } });
+    const ct = r.headers.get("content-type") || "";
+    const body = await r.json().catch(() => ({}));
+    ok(r.status === 402 && /application\/problem\+json/.test(ct) && body.type === `https://paymentauth.org/problems/${kind}` && body.status === 402 && re.test(body.detail || ""), `wire: ${label} credential -> 402 problem+json ${kind} (got ${r.status} ${ct} ${body.type})`);
+    ok(/^Payment /i.test(r.headers.get("www-authenticate") || "") && !!r.headers.get("payment-required"), `wire: ${label} rejection still carries FRESH MPP challenges and the x402 PAYMENT-REQUIRED header`);
+  }
+  const plain = await fetch(`${B}/api/uuid`);
+  ok(plain.status === 402 && !/problem\+json/.test(plain.headers.get("content-type") || ""), "wire: a bare unpaid 402 (no credential) is NOT a problem document - only rejections are");
 
   console.log(`\nPASS - ${pass} checks (MPP dual-stack shim round trip)`);
   proc.kill("SIGKILL");
