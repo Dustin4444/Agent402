@@ -27,6 +27,11 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { mppIndexSnapshot } from "./mpp-index.js";
 import { TEMPO_USDC, tempoMinSettled, tempoRpc, primeTempoInboundCount } from "./tempo-buyer.js";
+import { tempoFeedEnabled, emptyFeedState, syncTempoTransfers, feedStats, feedHistoryDays, persistFeedState, loadFeedState, feedCovers } from "./tempo-transfers.js";
+
+// Transfer-feed window when the Tempo data API is the source (a time window,
+// not a block window): 24h. The RPC path keeps its ~15h block window.
+export const MPP_LB_FEED_WINDOW_MS = 24 * 3600e3;
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const USDC_LC = TEMPO_USDC.toLowerCase();
@@ -149,8 +154,57 @@ export function historySum(history, recipient, days, now) {
  *  `.history`; ranking is by 7-day transfers (>= window transfers once
  *  seeded), then window transfers - proven/routable stay on the WINDOW count,
  *  the floor the router spends against. */
-export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpcFn = tempoRpc, now = Date.now(), self = null, history = null } = {}) {
+export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpcFn = tempoRpc, now = Date.now(), self = null, history = null, feed = null } = {}) {
   const rows = rankableRecipients(snapshot, { self });
+  // ---- Source A (since 2026-08-19): Tempo's transfer feed, when a synced
+  // feed state is supplied. No RPC, a 24h time window, history from the
+  // feed's own hour buckets (feed days win over previously RPC-folded days
+  // for the same date; older RPC-folded days are kept until the feed covers
+  // them - no double counting either way).
+  if (feed && feed.syncs > 0) {
+    const fstats = feedStats(feed, rows.map((r) => r.recipient), { windowMs: MPP_LB_FEED_WINDOW_MS, now });
+    const feedDays = feedHistoryDays(feed);
+    const prevDays = { ...(history?.days || {}) };
+    const mergedDays = { ...prevDays, ...feedDays };
+    const cutoff = dayKey(now - MPP_LB_HISTORY_DAYS * 86400e3);
+    for (const d of Object.keys(mergedDays)) if (d < cutoff) delete mergedDays[d];
+    const nextHistory = { cursor: history?.cursor ?? null, gaps: history?.gaps || 0, days: mergedDays };
+    const floor = tempoMinSettled();
+    const ranked = rows.map((r) => {
+      const st = fstats.get(r.recipient.toLowerCase()) || { transfers: 0, payers: new Set(), volumeAtomic: 0n };
+      return {
+        recipient: r.recipient, sellers: r.sellers, intents: r.intents, self: !!r.self,
+        transfers: st.transfers, payers: st.payers.size,
+        volumeUsdc: Number(st.volumeAtomic) / 1e6,
+        d7: historySum(nextHistory, r.recipient, 7, now),
+        d30: historySum(nextHistory, r.recipient, 30, now),
+        proven: st.transfers >= floor,
+        routable: st.transfers >= floor && r.intents.includes("charge"),
+      };
+    }).sort((a, b) => b.d7.transfers - a.d7.transfers || b.transfers - a.transfers || b.volumeUsdc - a.volumeUsdc || a.recipient.localeCompare(b.recipient))
+      .map((r, i) => ({ rank: i + 1, ...r }));
+    for (const r of ranked) primeTempoInboundCount(r.recipient, r.transfers, now);
+    const active = ranked.filter((r) => r.transfers > 0 || r.d30.transfers > 0);
+    return {
+      generatedAt: now,
+      window: { source: "tempo-api", hours: MPP_LB_FEED_WINDOW_MS / 3600e3, approxHours: MPP_LB_FEED_WINDOW_MS / 3600e3, since: new Date(now - MPP_LB_FEED_WINDOW_MS).toISOString(), feed: { syncs: feed.syncs, lastSyncAt: feed.lastSyncAt, lastPages: feed.lastPages, lastNew: feed.lastNew, lastError: feed.lastError, cursorTs: feed.cursorTs } },
+      chain: "tempo", chainId: 4217, asset: "USDC.e", assetAddress: TEMPO_USDC,
+      provenFloor: floor,
+      recipients: ranked.length,
+      activeRecipients: active.length,
+      totals: {
+        transfers: active.reduce((n, r) => n + r.transfers, 0),
+        volumeUsdc: Math.round(active.reduce((n, r) => n + r.volumeUsdc, 0) * 1e6) / 1e6,
+        d7Transfers: active.reduce((n, r) => n + r.d7.transfers, 0),
+        d30Transfers: active.reduce((n, r) => n + r.d30.transfers, 0),
+      },
+      history: { ...nextHistory, daysCovered: Object.keys(nextHistory.days).length, since: Object.keys(nextHistory.days).sort()[0] || null },
+      rows: ranked,
+      stale: false,
+      lastError: null,
+    };
+  }
+  // ---- Source B: the RPC eth_getLogs scan (original path; fallback).
   const latest = parseInt(await rpcFn("eth_blockNumber", []), 16);
   if (!Number.isFinite(latest)) throw new Error("tempo rpc: bad eth_blockNumber");
   const from = Math.max(0, latest - MPP_LB_WINDOW_BLOCKS + 1); // exactly WINDOW blocks, inclusive
@@ -191,7 +245,7 @@ export async function computeMppLeaderboard({ snapshot = mppIndexSnapshot(), rpc
   const histDays = Object.keys(nextHistory.days).length;
   return {
     generatedAt: now,
-    window: { fromBlock: from, toBlock: latest, blocks: latest - from + 1, approxHours: Math.round(((latest - from + 1) * 0.56) / 3600 * 10) / 10 },
+    window: { source: "rpc", fromBlock: from, toBlock: latest, blocks: latest - from + 1, approxHours: Math.round(((latest - from + 1) * 0.56) / 3600 * 10) / 10 },
     chain: "tempo", chainId: 4217, asset: "USDC.e", assetAddress: TEMPO_USDC,
     provenFloor: floor,
     recipients: ranked.length,
@@ -230,11 +284,31 @@ export function loadPersistedMppLeaderboard(file = MPP_LB_CACHE_FILE) {
 
 /** One rebuild, deduped (a burst of requests never fans out to N chain
  *  reads). On failure the previous snapshot stays, marked stale + lastError. */
+let feedState = null; // Tempo transfer-feed state (null until first load/sync)
+export function __feedStateForTest() { return feedState; }
 export function refreshMppLeaderboard(opts = {}) {
   if (inFlight) return inFlight;
   inFlight = (async () => {
     try {
-      current = await computeMppLeaderboard({ ...opts, history: opts.history ?? current?.history ?? null });
+      let feed = null;
+      if (opts.feed !== undefined) feed = opts.feed; // test injection
+      else if (tempoFeedEnabled()) {
+        feedState ??= loadFeedState() || emptyFeedState();
+        try {
+          const r = await syncTempoTransfers(feedState, { token: TEMPO_USDC, now: opts.now });
+          persistFeedState(feedState);
+          const covers = feedCovers(feedState, { windowMs: MPP_LB_FEED_WINDOW_MS, now: opts.now });
+          feed = covers ? feedState : null; // until the cold backfill covers the window, the RPC scan keeps serving (never under-count)
+          console.log(`[mpp-leaderboard] tempo feed sync: +${r.added} transfers over ${r.pages} page(s)${r.complete ? "" : " (more pending)"}${covers ? "" : " - feed does not cover the window yet, RPC scan serves this rebuild"}`);
+        } catch (e) {
+          // Feed unreadable: keep whatever the feed already holds if it has
+          // synced before (stale-but-present beats a blank), else fall back to
+          // the RPC scan - loudly either way.
+          console.warn(`[mpp-leaderboard] tempo feed sync failed (${String(e?.message || e).slice(0, 160)}) - ${feedState.syncs > 0 ? "using the last synced feed state" : "falling back to the RPC scan"}`);
+          feed = feedCovers(feedState, { windowMs: MPP_LB_FEED_WINDOW_MS, now: opts.now }) ? feedState : null;
+        }
+      }
+      current = await computeMppLeaderboard({ ...opts, feed, history: opts.history ?? current?.history ?? null });
       persistMppLeaderboard();
     } catch (e) {
       const msg = String(e?.message || e).slice(0, 200);
@@ -271,4 +345,4 @@ export function startMppLeaderboard({ self = null, delayMs = 120_000 } = {}) {
   timer.unref?.();
 }
 export function stopMppLeaderboard() { if (timer) clearInterval(timer); timer = null; }
-export function __testReset() { current = null; inFlight = null; stopMppLeaderboard(); }
+export function __testReset() { current = null; inFlight = null; feedState = null; stopMppLeaderboard(); }
