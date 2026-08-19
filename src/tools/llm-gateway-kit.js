@@ -309,8 +309,11 @@ export const TIERS = {
 export function canonicalModel(model) {
   // Whitespace inside the id is never meaningful upstream; collapsing it around
   // the variant colon keeps "model: online" from slipping past the variant
-  // refusal and the allowlist as a malformed id (review 2026-08-19).
-  const m = String(model || "").trim().replace(/\s*:\s*/g, ":");
+  // refusal and the allowlist as a malformed id (review 2026-08-19). Done with
+  // split/trim/join, NOT a `\s*:\s*` regex: `model` is buyer-controlled and
+  // that pattern is polynomial-backtracking on a long run of spaces with no
+  // colon (CodeQL js/polynomial-redos #121). split/join is linear.
+  const m = String(model || "").split(":").map((part) => part.trim()).join(":");
   if (!m) return m;
   if (m.includes("/")) return m; // already an OpenRouter id
   if (/^(gpt|o[0-9])/i.test(m)) return `openai/${m}`;
