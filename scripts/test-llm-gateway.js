@@ -101,7 +101,7 @@ ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402
 ok(new Set(list.data.map((m) => m.x402.tier)).size === 8, "all five chat tiers + embeddings + images + speech represented");
 
 // Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 8, "eight gateway routes");
+ok(LLM_GATEWAY_TOOLS.length === 9, "nine gateway routes (five chat tiers, embeddings, rerank, images, speech)");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -230,6 +230,14 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(sc.flush() === "" && sc.push("data: [DONE]") === "" && sc.flush() === "data: [DONE]", "flush forwards a trailing unterminated line");
   const clean = 'data: {"usage":{"prompt_tokens":1,"completion_tokens":1}}';
   ok(createSseUsageScrubber().push(clean + "\n") === clean + "\n", "a usage frame with no billing fields passes through byte-for-byte");
+  // NESTED usage (Responses API final frame) must be scrubbed too - the
+  // first scrubber only looked at top-level obj.usage, which would have
+  // forwarded response.usage.cost on every streamed /v1/.../responses call.
+  let nestedSeen = null;
+  const scN = createSseUsageScrubber({ onUsage: (u, cost) => { nestedSeen = { u, cost }; } });
+  const nestedOut = scN.push('data: {"type":"response.completed","response":{"id":"r","usage":{"input_tokens":6,"output_tokens":3,"cost":0.0000018,"is_byok":false,"cost_details":{"upstream_inference_cost":0.0000018}}}}\n');
+  ok(!/cost|is_byok/.test(nestedOut) && /"input_tokens":6/.test(nestedOut) && nestedSeen?.cost === 0.0000018 && nestedSeen.u.input_tokens === 6, "scrubber strips response.usage billing fields in a Responses completed frame and reports the cost");
+  ok(!/cost/.test(createSseUsageScrubber().push('data: {"type":"message_start","message":{"usage":{"input_tokens":1,"cost":0.1}}}\n')), "scrubber strips message.usage billing fields (Anthropic message_start) too");
 
   // Flex-first on eligible links: gemini-2.5-flash-lite (nano allowlist) is
   // tried on flex, falls to default on a capacity error, and only THEN does
@@ -461,6 +469,105 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const streamRes = { headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} };
   await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), stream: true, zdr: true })).__sse(streamRes);
   ok(seen.provider?.zdr === true && seen.provider?.max_price, "streamed calls carry zdr AND the price cap");
+
+  // Prompt-cache levers (2026-08-19): top-level cache_control rides by
+  // default, session_id = the per-buyer id (sticky provider routing so
+  // implicit/explicit caches get hit), provider.sort:"price" on the budget
+  // tiers only. All call-time: never in the normalized body / cache key.
+  const { cacheControlPref, cacheWriteFactor, worstCaseUpstreamCost, validateRequest: vr } = await import("../src/tools/llm-gateway-kit.js");
+  ok(JSON.stringify(cacheControlPref({})) === '{"type":"ephemeral"}' && cacheControlPref({ cache_control: false }) === null && cacheControlPref({ cache_control: null }) === null, "cache_control defaults on (ephemeral), false/null turns it off");
+  for (const badCc of [{ type: "ephemeral", ttl: "1h" }, { type: "persistent" }, "yes", 1]) {
+    let e = null; try { cacheControlPref({ cache_control: badCc }); } catch (x) { e = x; }
+    ok(e?.statusCode === 400 && /cache_control/.test(e.message), `cache_control ${JSON.stringify(badCc)} -> self-explaining 400 (${e?.message?.slice(0, 60)})`);
+  }
+  ok(cacheWriteFactor("anthropic/claude-sonnet-5") === 1.25 && cacheWriteFactor("openai/gpt-4o-mini") === 1 && cacheWriteFactor("deepseek/deepseek-chat") === 1, "cache-write factor: 1.25x on Anthropic input, 1x elsewhere");
+  {
+    const b = { model: "anthropic/claude-sonnet-5", messages: msg1(), max_tokens: 64 };
+    const withCache = worstCaseUpstreamCost(b, TIERS["v1-chat-premium"]);
+    const plain = (withCache.inTokens / 1e6) * withCache.cost.prompt;
+    ok(Math.abs(withCache.inUsd - plain * 1.25) < 1e-12, "worst-case input cost prices the Anthropic cache write at 1.25x (the clamp stays an honest bound)");
+  }
+  ok(JSON.stringify(vr({ model: "deepseek/deepseek-chat", messages: msg1(), cache_control: false }, "v1-chat-nano")) === JSON.stringify(vr({ model: "deepseek/deepseek-chat", messages: msg1() }, "v1-chat-nano")), "cache_control never reaches the normalized body (same cache key either way)");
+  seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-c", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.0001, cache_discount: -0.00005 } }) };
+  };
+  const fakeReqC = { header: (n) => (n === "payment-signature" ? Buffer.from(JSON.stringify({ payload: { authorization: { from: "0xAbCdEf0000000000000000000000000000000001" } } })).toString("base64") : undefined) };
+  const outC = await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5 }, fakeReqC);
+  ok(seen.cache_control?.type === "ephemeral" && typeof seen.session_id === "string" && seen.session_id === seen.user && seen.session_id.startsWith("a402:"), `default outbound carries cache_control ephemeral + session_id = the per-buyer id (${seen.session_id?.slice(0, 12)}...)`);
+  ok(seen.provider?.sort === "price", "nano (budget tier) asks for the cheapest provider under the cap");
+  ok(outC.usage && !("cache_discount" in outC.usage) && !("cost" in outC.usage), "cache_discount is stripped with the other billing fields");
+  seen = null;
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, cache_control: false }, fakeReqC);
+  ok(!("cache_control" in seen) || seen.cache_control === undefined, "cache_control:false -> no cache_control upstream");
+  seen = null;
+  const pro = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-pro");
+  await pro.handler({ model: "openai/gpt-4o", messages: msg1(), max_tokens: 5 }, fakeReqC);
+  ok(seen.provider?.sort === undefined && seen.provider?.max_price, "pro tier does NOT sort by price (a quantized provider is a buyer-visible quality change); cap still rides");
+  process.env.OPENROUTER_PROVIDER_SORT = "off";
+  seen = null;
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5 }, fakeReqC);
+  ok(seen.provider?.sort === undefined, "OPENROUTER_PROVIDER_SORT=off disables price sort");
+  delete process.env.OPENROUTER_PROVIDER_SORT;
+  {
+    const { createSseUsageScrubber: mkScrub } = await import("../src/tools/llm-gateway-kit.js");
+    const sc = mkScrub();
+    const line = 'data: {"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0.001,"cache_discount":-0.0002}}\n';
+    ok(!sc.push(line).includes("cache_discount"), "stream scrubber strips cache_discount too");
+  }
+
+  // Reasoning defaults + wire compat (2026-08-19). Measured live: gpt-5-nano at
+  // max_tokens 64/256 with default or "low" effort -> finish_reason "length",
+  // EMPTY content (a paid empty answer); "minimal" answered.
+  const { validateReasoning, defaultReasoningFor, isEmptyLength, REASONING_MODELS, reasoningProfile } = await import("../src/tools/llm-gateway-kit.js");
+  ok(REASONING_MODELS.length >= 6 && REASONING_MODELS.every((r) => (r.id || r.prefix) && Array.isArray(r.efforts) && r.efforts.length), "reasoning table has entries with efforts");
+  ok(reasoningProfile("google/gemini-3.5-flash-lite").id === "google/gemini-3.5-flash-lite" && reasoningProfile("google/gemini-3.5-flash").id === "google/gemini-3.5-flash" && reasoningProfile("google/gemini-3.1-flash-lite-image") === null && reasoningProfile("openai/gpt-5-nano:batch")?.id === "openai/gpt-5-nano" && reasoningProfile("openai/gpt-5.6-sol-pro")?.prefix === "openai/gpt-5.6-", "exact-id rows never bleed into sibling models (flash-lite-image), :variants match, family prefix rows match the family");
+  ok(JSON.stringify(defaultReasoningFor("openai/gpt-5-nano", "v1-chat-nano")) === '{"effort":"minimal"}' && JSON.stringify(defaultReasoningFor("openai/gpt-5.6-luna", "v1-chat-auto")) === '{"effort":"low"}' && JSON.stringify(defaultReasoningFor("anthropic/claude-sonnet-5", "v1-chat-pro")) === '{"effort":"low"}' && defaultReasoningFor("anthropic/claude-opus-5", "v1-chat-premium") === null && defaultReasoningFor("deepseek/deepseek-chat", "v1-chat-nano") === null, "default effort: budget tiers lowest non-none, pro low, premium model default, non-reasoning models untouched");
+  ok(JSON.stringify(validateReasoning({ reasoning_effort: "low" }, TIERS["v1-chat-nano"])) === '{"effort":"low"}' && validateReasoning({}, TIERS["v1-chat-nano"]) === undefined, "reasoning_effort (OpenAI wire) folds into reasoning.effort; absent -> undefined");
+  for (const badR of [{ reasoning: { effort: "ultra" } }, { reasoning: { budget: 5 } }, { reasoning: { max_tokens: 99999 } }, { reasoning: "low" }]) {
+    let e = null; try { validateReasoning(badR, TIERS["v1-chat-nano"]); } catch (x) { e = x; }
+    ok(e?.statusCode === 400 && /reasoning/.test(e.message), `reasoning ${JSON.stringify(badR.reasoning)} -> self-explaining 400 (${e?.message?.slice(0, 50)})`);
+  }
+  ok(vr({ model: "deepseek/deepseek-chat", messages: msg1(), max_completion_tokens: 77 }, "v1-chat-nano").max_tokens === 77, "max_completion_tokens (newer OpenAI SDKs) is honoured as the output cap");
+  ok(promptCacheKey("v1-chat-nano", { model: "openai/gpt-5-nano", messages: msg1(), reasoning: { effort: "high" } }) !== promptCacheKey("v1-chat-nano", { model: "openai/gpt-5-nano", messages: msg1() }), "a buyer reasoning preference is part of the cache key (it changes the answer)");
+  // outbound: default injected per link, buyer preference wins, non-reasoning link carries none
+  seen = null;
+  const seenAll = [];
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body); seenAll.push(seen);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-r", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }) };
+  };
+  await nano.handler({ model: "openai/gpt-5-nano", messages: msg1(), max_tokens: 64 }, fakeReqC);
+  ok(seen.reasoning?.effort === "minimal", "gpt-5-nano on nano gets reasoning.effort minimal by default");
+  await nano.handler({ model: "openai/gpt-5-nano", messages: msg1(), max_tokens: 64, reasoning: { effort: "high", exclude: true } }, fakeReqC);
+  ok(seen.reasoning?.effort === "high" && seen.reasoning?.exclude === true, "a buyer reasoning object rides through unchanged");
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 64 }, fakeReqC);
+  ok(seen.reasoning === undefined && seen.plugins === undefined && seen.provider?.require_parameters === undefined, "non-reasoning, unstructured call: no reasoning, no plugins, no require_parameters");
+  const rf = { type: "json_schema", json_schema: { name: "a", strict: true, schema: { type: "object", properties: { x: { type: "string" } }, required: ["x"], additionalProperties: false } } };
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 64, response_format: rf }, fakeReqC);
+  ok(seen.provider?.require_parameters === true && JSON.stringify(seen.plugins) === '[{"id":"response-healing"}]' && seen.provider?.max_price, "json_schema: require_parameters + response-healing plugin (cap still rides)");
+  seen = null;
+  await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), response_format: rf, stream: true }, fakeReqC)).__sse({ headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} }).catch(() => {});
+  ok(seen && seen.provider?.require_parameters === true && seen.plugins === undefined, "streamed json_schema: require_parameters yes, response-healing (non-stream only) no");
+  // paid-empty guard: "length" + empty content walks the chain; end-to-end empty -> 502
+  ok(isEmptyLength({ choices: [{ finish_reason: "length", message: { role: "assistant", content: "" } }] }) && !isEmptyLength({ choices: [{ finish_reason: "length", message: { content: "partial" } }] }) && !isEmptyLength({ choices: [{ finish_reason: "stop", message: { content: "" } }] }), "isEmptyLength: only length + nothing said");
+  seenAll.length = 0;
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body); seenAll.push(b.model);
+    const empty = b.model === "openai/gpt-5-nano";
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-e", model: b.model, choices: [{ index: 0, message: { role: "assistant", content: empty ? "" : "answer" }, finish_reason: empty ? "length" : "stop" }], usage: { prompt_tokens: 1, completion_tokens: 64, completion_tokens_details: { reasoning_tokens: empty ? 64 : 0 } } }) };
+  };
+  const outE = await nano.handler({ model: "openai/gpt-5-nano", messages: msg1(), max_tokens: 64 }, fakeReqC);
+  ok(outE.choices[0].message.content === "answer" && JSON.stringify(seenAll) === JSON.stringify(["openai/gpt-5-nano", "deepseek/deepseek-chat"]), `a length+empty answer is never served: the chain walked on, and the same model's default-tier retry was skipped (tried ${seenAll.join(" -> ")})`);
+  globalThis.fetch = async (url, init) => {
+    const b = JSON.parse(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-e2", model: b.model, choices: [{ index: 0, message: { role: "assistant", content: "" }, finish_reason: "length" }], usage: { prompt_tokens: 1, completion_tokens: 64 } }) };
+  };
+  await nano.handler({ model: "openai/gpt-5-nano", messages: msg1(), max_tokens: 64 }, fakeReqC).then(
+    () => ok(false, "an end-to-end empty chain must not serve"),
+    (e) => ok(e.statusCode === 502 && /no content within the output cap/.test(e.message), `chain empty end-to-end -> 502 (settlement cancelled), self-explaining (${e.message.slice(0, 60)})`),
+  );
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
@@ -753,6 +860,55 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     () => ok(false, "an imageless upstream response must not serve"),
     (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response (both tiers) → 502")
   );
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// /v1/rerank (2026-08-19) - Cohere wire over OpenRouter's /rerank, one locked
+// model, caps that keep every call at exactly one Cohere search unit ($0.001
+// upstream vs $0.002 price), default-on cache (deterministic ranker), billing
+// fields stripped, telemetry captured.
+{
+  const { validateRerankRequest, rerankCacheKey, RERANK_MODEL, RERANK_PRICE, RERANK_PATH } = await import("../src/tools/llm-gateway-kit.js");
+  const rerank = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-rerank");
+  ok(rerank && rerank.route === "POST /v1/rerank" && rerank.price === "$0.002" && RERANK_PATH === "/v1/rerank" && RERANK_PRICE === 0.002, "v1-rerank tool registered at POST /v1/rerank, $0.002");
+  const good = validateRerankRequest({ query: "capital of France?", documents: ["Paris", "Berlin", "Madrid"], top_n: 10 });
+  ok(good.model === RERANK_MODEL && good.top_n === 3 && good.documents.length === 3, "valid body: model locked, top_n clamped to the document count");
+  for (const [label, body] of [
+    ["no query", { documents: ["a"] }],
+    ["empty docs", { query: "q", documents: [] }],
+    ["51 docs", { query: "q", documents: Array.from({ length: 51 }, (_, i) => `d${i}`) }],
+    ["1601-char doc", { query: "q", documents: ["x".repeat(1601)] }],
+    ["501-char query", { query: "q".repeat(501), documents: ["a"] }],
+    ["structured doc", { query: "q", documents: [{ text: "a" }] }],
+    ["other model", { query: "q", documents: ["a"], model: "cohere/rerank-english-v3.0" }],
+    ["bad top_n", { query: "q", documents: ["a"], top_n: 0 }],
+    ["too many chars total", { query: "q", documents: Array.from({ length: 30 }, () => "y".repeat(1500)) }],
+  ]) {
+    let e = null; try { validateRerankRequest(body); } catch (x) { e = x; }
+    ok(e?.statusCode === 400, `rerank ${label} -> 400 (${e?.message?.slice(0, 60)})`);
+  }
+  ok(rerankCacheKey({ query: "q", documents: ["b", "a"] }) === rerankCacheKey({ documents: ["b", "a"], query: "q" }) && rerankCacheKey({ query: "q", documents: ["a", "b"] }) !== rerankCacheKey({ query: "q", documents: ["b", "a"] }) && rerankCacheKey({ query: "q", documents: ["a"], cache: false }) === null, "cache key: field order collapses, document order matters, cache:false opts out");
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = { url: String(url), body: JSON.parse(init.body) };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-rerank-1", model: "rerank-v3.5", results: [{ index: 0, relevance_score: 0.9, document: { text: "Paris" } }], usage: { search_units: 1, cost: 0.001 }, provider: "Cohere" }) };
+  };
+  const fakeReqR = { header: (n) => (n === "payment-signature" ? Buffer.from(JSON.stringify({ payload: { authorization: { from: "0xAbCdEf0000000000000000000000000000000002" } } })).toString("base64") : undefined) };
+  const out = await rerank.handler({ query: "capital of France?", documents: ["Paris", "Berlin"], top_n: 1 }, fakeReqR);
+  ok(seen.url.endsWith("/api/v1/rerank") && seen.body.model === RERANK_MODEL && seen.body.top_n === 1 && typeof seen.body.user === "string" && seen.body.user.startsWith("a402:"), "upstream call hits /rerank with the locked model, top_n and the per-buyer user id");
+  ok(Array.isArray(out.results) && out.results[0].relevance_score === 0.9 && out.usage.search_units === 1 && !("cost" in out.usage), "Cohere-wire result passes through; usage.cost stripped, search_units kept");
+  ok(Array.isArray(fakeReqR.__deferredCache) && fakeReqR.__deferredCache.length === 1, "result is queued for the post-settlement cache commit (default-on)");
+  {
+    const { _testEventsForTest } = await import("../src/posthog.js");
+    await new Promise((r) => setTimeout(r, 20));
+    const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
+    ok(ev?.properties.tier === "v1-rerank" && ev?.properties.upstreamUsd === 0.001 && ev?.properties.priceUsd === 0.002, "rerank margin telemetry captured ($0.001 vs $0.002)");
+  }
+  globalThis.fetch = async () => ({ ok: false, status: 503, text: async () => "down" });
+  await rerank.handler({ query: "q", documents: ["a"] }).then(() => ok(false, "upstream 503 must not serve"), (e) => ok(e.statusCode === 502, "upstream 5xx -> 502 (settlement cancelled)"));
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }

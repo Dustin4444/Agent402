@@ -23,7 +23,7 @@ import {
   grant, revoke, listGrants, getLog, remember, recall, forget,
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
-import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf } from "./payer.js";
+import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
@@ -56,20 +56,22 @@ import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
+import { skillMd } from "./skill-md.js";
+import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
 import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
-import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
+import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
 import { mppMarketPage } from "./mpp-market-page.js";
 import { indexToolsPage, INDEX_TOOLS_PAGE_SIZE } from "./index-tools-page.js";
 import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankBy } from "./leaderboard.js";
-import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus} from "./payments.js";
+import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
 import { KIT } from "./tools/kit.js";
@@ -136,7 +138,9 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
-import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
+import { LLM_MESSAGES_TOOLS } from "./tools/llm-messages-kit.js";
+import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
+import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
 // response, so a 502 is never charged — but an UNLISTED route returns no 402
@@ -148,9 +152,13 @@ import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCa
 // Railway var to true after this ships, then run the paid canary — its
 // llm-speech leg is the standing proof. If the flag is ever pulled again,
 // also pull the canary leg, or every canary run goes red.
-const GATEWAY_TOOLS_ENABLED = LLM_GATEWAY_TOOLS.filter(
-  (t) => t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true"
-);
+const GATEWAY_TOOLS_ENABLED = [
+  ...LLM_GATEWAY_TOOLS.filter((t) => t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true"),
+  // Anthropic Messages wire on the same five tiers (src/tools/llm-messages-kit.js).
+  ...LLM_MESSAGES_TOOLS,
+  // OpenAI Responses wire on the same five tiers (src/tools/llm-responses-kit.js).
+  ...LLM_RESPONSES_TOOLS,
+];
 import { IMAGE_GEN_TOOLS } from "./tools/image-gen-kit.js";
 import { CODE_RUN_TOOLS } from "./tools/code-run-kit.js";
 import { TTS_TOOLS } from "./tools/tts-kit.js";
@@ -732,6 +740,10 @@ function buildPayersByOrigin() {
       if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n));
     }
   }
+  // Coinbase-measured 30-day distinct payers from the Bazaar feed (x402-index
+  // bazaarQualityEntries): an independent observer of the same settlements,
+  // folded as a MAX - positive evidence only, never lowers ours.
+  for (const [o, q] of bazaarQualityEntries()) if (q?.payers30d > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, q.payers30d));
   try {
     const econ = economySnapshotCached();
     if (econ?.topMerchants?.length) {
@@ -764,6 +776,8 @@ function buildSettledByOrigin() {
       if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, row.callsSettled || 0));
     }
   }
+  // Bazaar 30-day settled calls (Coinbase-measured) - same MAX fold as payers.
+  for (const [o, q] of bazaarQualityEntries()) if (q?.calls30d > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, q.calls30d));
   // Third source, and the only one that does not depend on a registry listing
   // us a seller: join each CRAWLED origin's advertised Base payTo against the
   // merchants we ourselves observed settling on-chain. The two sources above
@@ -806,7 +820,11 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
       .slice(0, 5)
       .map((r) => ({
         seller: r.origin, slug: r.path.replace(/^\//, ""), url: r.url, method: r.method,
-        price: `$${r.priceUsd}`, priceUsd: r.priceUsd, networks: r.networks, wire: "mpp", settled: r.settled,
+        // Dynamic-priced sellers carry no price here: the live-probe loop
+        // below reads it from the real tempo/charge challenge and drops the
+        // candidate when it exceeds the cap.
+        price: r.dynamic ? null : `$${r.priceUsd}`, priceUsd: r.dynamic ? null : r.priceUsd, dynamic: !!r.dynamic,
+        networks: r.networks, wire: "mpp", settled: r.settled,
       }));
   } else if (chain === "algorand") {
     // Algorand sellers live in the GoPlausible facilitator catalog, not our
@@ -856,6 +874,20 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
         signal: AbortSignal.timeout(6000),
       });
       live = probe.status === 402;
+      if (live && r.dynamic) {
+        // Dynamic-priced MPP seller: the price exists only on the live 402.
+        // Read the tempo/charge USDC.e amount from its challenge; over the cap
+        // (or unreadable) = not a candidate for THIS tier - never "choose now,
+        // discover the price at pay time".
+        const { liveTempoPriceUsd } = await import("./tempo-sellers.js");
+        const liveUsd = await liveTempoPriceUsd(probe.headers.get("www-authenticate"));
+        if (!(liveUsd > 0 && liveUsd <= cap)) {
+          console.log(`[sor] skipping dynamic-priced ${r.seller}${r.url.replace(/^https?:\/\/[^/]+/, "")}: live tempo/charge price ${liveUsd ? `$${liveUsd}` : "unreadable"} vs cap $${cap}`);
+          live = false;
+        } else {
+          r.price = `$${liveUsd}`; r.priceUsd = liveUsd;
+        }
+      }
       if (live) {
         // The address that EARNED proven-ness must be the address being paid.
         // Otherwise a seller can build trust on one wallet's settlement history
@@ -1124,6 +1156,8 @@ app.use(express.json({ limit: "100kb" }));
 // connector's search_tools/find_tool land here too (wired in mcp-http.js).
 const DISCOVERY_SURFACES = new Map([
   ["/llms.txt", "llms.txt"],
+  ["/SKILL.md", "skill.md"],
+  ["/skill.md", "skill.md"],
   ["/openapi.json", "openapi.json"],
   ["/.well-known/x402", "x402-manifest"],
   ["/api/pricing", "pricing"],
@@ -1982,6 +2016,21 @@ app.get("/__operator/egress.json", (req, res) => {
 // Offsite-backup status + inventory: what /data holds, what the last run
 // did, held files, stored bytes. Read is local (fs stat only) - no heavy
 // limiter; auth bound is operatorAuthed's own attempt limiter.
+// Operator diagnostic: what each configured facilitator client ADVERTISES
+// (getSupported kinds -> exact networks). Settles the "is CDP now settling
+// Polygon/Arbitrum/Solana for us?" question without guessing from labels.
+app.get("/__operator/facilitators.json", async (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" }); // same shape as the other operator routes (no oracle)
+  try {
+    const facilitators = await facilitatorSupportReport();
+    // First client advertising a network is the one @x402 tries first for it.
+    const firstFor = {};
+    for (const f of facilitators) for (const n of (f.networks || [])) if (!firstFor[n]) firstFor[n] = f.label;
+    res.json({ generatedAt: new Date().toISOString(), facilitators, firstTriedFor: firstFor });
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e).slice(0, 200) });
+  }
+});
 app.get("/__operator/backup.json", (req, res) => {
   if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
   res.set("Cache-Control", "no-store").json({ status: backupStatus(), plan: backupPlan() });
@@ -3279,6 +3328,11 @@ if (process.env.INDEXNOW_KEY) {
 }
 app.get("/sitemap.xml", (_req, res) => res.type("application/xml").set("Cache-Control", "public, max-age=3600").send(sitemapXml(BASE_URL, CATALOG)));
 app.get("/llms.txt", (_req, res) => res.type("text/plain").set("Cache-Control", "public, max-age=3600").send(llmsTxt(BASE_URL, CATALOG)));
+// /SKILL.md - agent-onboarding sheet ("Read <url>/SKILL.md and set up X" is
+// the prompt agent runtimes use for paid services). Lowercase alias too.
+const serveSkillMd = (_req, res) => res.type("text/markdown; charset=utf-8").set("Cache-Control", "public, max-age=3600").send(skillMd(BASE_URL, CATALOG));
+app.get("/SKILL.md", serveSkillMd);
+app.get("/skill.md", serveSkillMd);
 // The runnable buyer demo, served from the site itself (the repo is private,
 // so "git clone" is not a path a visitor can take).
 app.get("/demo.js", (_req, res) =>
@@ -3720,6 +3774,11 @@ app.get("/analytics", async (req, res) => {
 mountMcp(app, CATALOG, {
   baseUrl: BASE_URL,
   isComputePayable,
+  // Native MPP on /mcp (2026-08-19): paid tools are payable on the connector
+  // with an MPP credential in _meta; the call is replayed to our own paid
+  // route so the real gates settle (src/mcp-mpp.js). Same rollout switch as
+  // the MPP shim - without MPP_SECRET_KEY there are no challenges to mint.
+  mppLoopback: (process.env.MPP_SECRET_KEY || "").trim() ? createMcpMppLoopback({ port: PORT }) : null,
   // Hosted leaderboard snapshot powers the new `top_x402_sellers` MCP tool —
   // same data the HTML /leaderboard and /api/leaderboard surfaces use, so
   // agents see the same numbers no matter which surface they hit. Hourly-
@@ -3968,7 +4027,15 @@ setInterval(() => {
   }
 }, 60_000).unref();
 const idemHashKey = (req) => {
-  const idem = req.header("idempotency-key");
+  // The x402 `payment-identifier` extension (declared on every route's 402) is
+  // honoured as an ALIAS of the Idempotency-Key header under the SAME binding
+  // rules below (exact credential + route + body) - so a stock x402 client that
+  // attaches a payment id gets the paid-retry replay without knowing our
+  // header. It is NOT a cross-authorization dedupe: the id is client-chosen
+  // text on a payload nothing has verified yet at this point in the chain, so
+  // only the exact original credential can replay (a fresh authorization with
+  // the same id is a new payment). Header wins when both are present.
+  const idem = req.header("idempotency-key") || paymentIdentifierOf(req);
   if (!idem || idem.length > 256) return null;
   // Must match @x402/express's OWN precedence exactly (payment-signature wins
   // when both are present, verified against node_modules/@x402/express) - the
@@ -4219,6 +4286,8 @@ if (FREE_MODE) {
       let key = null;
       if (req.path === EMBEDDINGS_PATH) {
         key = embeddingsCacheKey(req.body);
+      } else if (req.path === RERANK_PATH) {
+        key = rerankCacheKey(req.body); // default-ON like embeddings (deterministic ranker)
       } else if (req.body?.cache === true && req.body?.stream !== true) {
         const tierSlug = GATEWAY_TIER_BY_PATH[req.path];
         if (tierSlug) key = promptCacheKey(tierSlug, req.body);

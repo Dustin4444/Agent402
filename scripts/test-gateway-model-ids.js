@@ -14,7 +14,7 @@
 // It FAILS on network error rather than skipping: a skipped guard is the same
 // silent green that let every one of those ship.
 import {
-  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, costFor, tierFor, tierAllows,
+  TIERS, AUTO_RANKINGS, SPEECH_MODELS, MODEL_COST, FLEX_MODELS, REASONING_MODELS, reasoningRowMatches, costFor, tierFor, tierAllows,
 } from "../src/tools/llm-gateway-kit.js";
 
 let pass = 0, fail = 0;
@@ -111,6 +111,32 @@ for (const id of FLEX_MODELS) {
     } catch { /* informational */ }
   }
   if (gained.length) console.log(`note - ranked models with a flex endpoint not yet in FLEX_MODELS: ${gained.join(", ")}`);
+}
+
+// 7. Reasoning table: every REASONING_MODELS entry must still describe a live
+//    reasoning model whose supported_efforts contain every effort we list
+//    (an effort we might inject that upstream dropped = a 400 per call), and
+//    whose reasoning is default-on or mandatory (else the default injection is
+//    pointless). Prefix rows (gpt-5.6-) are checked against every live id
+//    that matches.
+for (const row of REASONING_MODELS) {
+  const label = row.id || row.prefix;
+  const matches = models.filter((m) => reasoningRowMatches(row, m.id));
+  ok(matches.length > 0, `reasoning: ${label} matches at least one live model`);
+  for (const m of matches) {
+    const r = m.reasoning || {};
+    const live = Array.isArray(r.supported_efforts) ? r.supported_efforts : [];
+    const missing = row.efforts.filter((e) => !live.includes(e));
+    ok(missing.length === 0, `reasoning: ${m.id} supports every effort we list${missing.length ? ` (missing upstream: ${missing.join(", ")}; live: ${live.join(", ")})` : ""}`);
+    ok(r.mandatory === true || r.default_enabled === true, `reasoning: ${m.id} still reasons by default (mandatory=${r.mandatory}, default_enabled=${r.default_enabled}) - else drop it from the table`);
+  }
+}
+// Informational: ranked/fallback models that reason by default but are NOT in the table
+// (they would get no default effort and could return paid empty "length" answers).
+{
+  const watchedIds = [...new Set([...Object.values(AUTO_RANKINGS).flatMap((b) => Object.values(b).flat()), ...Object.values(TIERS).flatMap((t) => t.fallbacks || [])])];
+  const untabled = watchedIds.filter((id) => { const m = models.find((x) => x.id === id); const r = m?.reasoning; return r && (r.mandatory === true || r.default_enabled === true) && Array.isArray(r.supported_efforts) && !REASONING_MODELS.some((row) => reasoningRowMatches(row, id)); });
+  if (untabled.length) console.log(`note - ranked/fallback models that reason by default but have no REASONING_MODELS row: ${untabled.join(", ")}`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

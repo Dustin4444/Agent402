@@ -531,6 +531,7 @@ export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, win
     </div>
     ${note ? `<div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;border-bottom:1px solid var(--dark-border2);overflow-wrap:anywhere;">discovery &middot; ${esc(note)}</div>` : ""}
     <div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;overflow-wrap:anywhere;">rolling ${esc(winLabel)} totals${capped ? " (scan capped - a floor)" : ""} &middot; payTo ${payTo ? esc(payTo) : `not advertised on ${esc(C.chainName)}`}${firstSeen ? ` &middot; first settlement ${esc(firstSeen)}` : ""}${payTo ? ` &middot; <a href="${esc(C.explorerWalletUrl(payTo))}" rel="noopener" style="color:var(--accent-lit);text-decoration:none;">verify on ${esc(C.explorerUrl)} &rarr;</a>` : ""}</div>
+    ${seller.bazaar && (seller.bazaar.calls30d > 0 || seller.bazaar.payers30d > 0) ? `<div style="padding:10px 16px;font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);line-height:1.7;border-top:1px solid var(--dark-border2);overflow-wrap:anywhere;">Coinbase Bazaar, last 30 days (their measurement, not ours) &middot; ${Number(seller.bazaar.calls30d || 0).toLocaleString("en-US")} calls &middot; ${Number(seller.bazaar.payers30d || 0).toLocaleString("en-US")} distinct payers${seller.bazaar.lastCalledAt ? ` &middot; last call ${esc(String(seller.bazaar.lastCalledAt).slice(0, 10))}` : ""}</div>` : ""}
   </div>`;
 }
 

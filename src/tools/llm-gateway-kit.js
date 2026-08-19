@@ -42,7 +42,7 @@ import { payerFromRequest, paymentHeaderOf } from "../payer.js";
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-function bad(message, statusCode = 400) {
+export function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
@@ -153,6 +153,8 @@ export const TIERS = {
   "v1-chat-nano": {
     route: "POST /v1/nano/chat/completions",
     price: 0.003,
+    priceSort: true, // cheapest provider under max_price (budget tier: price IS the product)
+    reasoningDefault: "lowest", // see REASONING_MODELS: minimal/low effort unless the buyer asks
     maxInputChars: 12_000,
     maxTokens: 768,
     maxPrice: { prompt: 0.5, completion: 1.5 }, // priciest allowlisted: deepseek-chat ~$0.27/$1.10
@@ -181,6 +183,7 @@ export const TIERS = {
     ],
   },
   "v1-chat": {
+    reasoningDefault: "lowest", // budget tier: lowest non-none effort on default-on reasoning models
     route: "POST /v1/chat/completions",
     price: 0.02,
     maxInputChars: 32_000,
@@ -198,6 +201,7 @@ export const TIERS = {
     ],
   },
   "v1-chat-pro": {
+    reasoningDefault: "low", // real reasoning, but never medium/high by default under a 4k cap
     route: "POST /v1/pro/chat/completions",
     price: 0.10,
     maxInputChars: 48_000,
@@ -214,6 +218,7 @@ export const TIERS = {
     ],
   },
   "v1-chat-premium": {
+    reasoningDefault: "model", // premium buyers bought depth; 8k cap leaves room for the model default
     route: "POST /v1/premium/chat/completions",
     price: 0.50,
     // Raised from 64k -> 200k chars (2026-08-11) for genuine long-context use
@@ -256,12 +261,14 @@ export const TIERS = {
   // (an explicit ranked model is honored here at the auto caps), and listing
   // this tier first would hijack those models' self-correcting 400s.
   "v1-chat-auto": {
+    reasoningDefault: "lowest",
     route: "POST /v1/auto/chat/completions",
     price: 0.01,
     maxInputChars: 16_000,
     maxTokens: 1024,
     maxPrice: { prompt: 0.6, completion: 3 }, // priciest ranked: gemini-2.5-flash ~$0.30/$2.50
     router: true,
+    priceSort: true, // budget router: cheapest provider under the cap
     fallbacks: ["openai/gpt-4o-mini"],
     prefixes: [...new Set(Object.values(AUTO_RANKINGS).flatMap((byCategory) => Object.values(byCategory).flat()))],
   },
@@ -295,7 +302,7 @@ export function tierFor(model) {
 }
 
 const MAX_MESSAGES = 100;
-const MAX_IMAGES = 4;
+export const MAX_IMAGES = 4;
 const MAX_IMAGE_URL_LEN = 2048;
 const MAX_N = 4; // `n` multiplies output cost - bounded and priced in the margin clamp
 
@@ -393,6 +400,28 @@ export function costFor(model) {
   return best ? best.cost : null;
 }
 
+/** Worst-case input multiplier when prompt caching is on: Anthropic bills a
+ *  cache write at 1.25x list input (5-minute TTL; 1h would be 2x and is
+ *  refused). Everyone else caches implicitly at <= list. */
+export function cacheWriteFactor(model) {
+  return canonicalModel(model).toLowerCase().startsWith("anthropic/") ? 1.25 : 1;
+}
+
+/** Buyer's prompt-cache preference (top-level OpenRouter `cache_control`):
+ *  default ON as {type:"ephemeral"} (5m). `false`/null turns it off. A 1h
+ *  TTL doubles Anthropic cache-write cost, so it is refused with guidance.
+ *  Call-time only - it never changes the answer, so it is NOT part of the
+ *  normalized body / cache key. Exported for the gateway test. */
+export function cacheControlPref(input) {
+  const cc = input?.cache_control;
+  if (cc === undefined) return { type: "ephemeral" };
+  if (cc === false || cc === null) return null;
+  if (!cc || typeof cc !== "object" || Array.isArray(cc)) throw bad('"cache_control" must be {type:"ephemeral"} (optional ttl:"5m"), or false to disable prompt caching');
+  if (cc.type !== "ephemeral") throw bad('"cache_control.type" must be "ephemeral"');
+  if (cc.ttl !== undefined && cc.ttl !== "5m") throw bad('"cache_control.ttl" must be "5m" - the 1h tier doubles cache-write cost and is not offered at these flat prices');
+  return { type: "ephemeral" };
+}
+
 export const MARGIN = 0.7;   // worst-case upstream ≤ 70% of the tier price
 const MIN_OUT_TOKENS = 64;   // a clamp below this is useless - reject with guidance instead
 const IMAGE_TOKENS = 1600;   // conservative flat per-image input estimate (high-detail tiling)
@@ -423,7 +452,12 @@ export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
     completion: Math.min(listed.completion, tier.maxPrice.completion),
   };
   const inTokens = estimateInputTokens(body, imageCount);
-  const inUsd = (inTokens / 1e6) * cost.prompt;
+  // Prompt caching rides by default (top-level cache_control, see
+  // cacheControlPref): on Anthropic a cache WRITE bills 1.25x list input
+  // (reads 0.1x), so the worst case for a first-seen long prompt is 1.25x -
+  // priced in here so the clamp stays an honest bound; every other provider
+  // caches implicitly at list price or below.
+  const inUsd = (inTokens / 1e6) * cost.prompt * cacheWriteFactor(body.model);
   const n = body.n || 1;
   const outUsd = ((Number(body.max_tokens) || 0) / 1e6) * cost.completion * n;
   return { inTokens, inUsd, outUsd, totalUsd: inUsd + outUsd, cost };
@@ -535,12 +569,18 @@ export function validateRequest(input, tierSlug) {
   if (totalChars > tier.maxInputChars) throw bad(`Input too large (${totalChars} chars). The ${tierSlug} tier allows up to ${tier.maxInputChars} chars`);
   if (totalImages > MAX_IMAGES) throw bad(`Too many images (${totalImages}). Maximum is ${MAX_IMAGES} per request`);
 
-  let maxTokens = input.max_tokens != null ? parseInt(input.max_tokens, 10) : Math.min(1024, tier.maxTokens);
+  // OpenAI's newer SDKs send max_completion_tokens (reasoning-model wire);
+  // honour it as the alias it is instead of silently defaulting the cap.
+  const requestedMax = input.max_tokens != null ? input.max_tokens : input.max_completion_tokens;
+  let maxTokens = requestedMax != null ? parseInt(requestedMax, 10) : Math.min(1024, tier.maxTokens);
   if (Number.isNaN(maxTokens) || maxTokens < 1) maxTokens = Math.min(1024, tier.maxTokens);
   if (maxTokens > tier.maxTokens) maxTokens = tier.maxTokens; // clamp, don't reject - drop-in friendliness
 
   const body = { model, messages, max_tokens: maxTokens };
   for (const k of PASSTHROUGH) if (input[k] !== undefined) body[k] = input[k];
+  // Buyer reasoning preference (changes the answer -> normalized body).
+  const reasoning = validateReasoning(input, tier);
+  if (reasoning !== undefined) body.reasoning = reasoning;
   // Tools are OpenAI function-calling entries ONLY. OpenRouter also serves
   // SERVER-SIDE tool types (openrouter:subagent fans out to up to 10 worker
   // models billed to us at their rates; openrouter:advisor consults pricier
@@ -589,6 +629,7 @@ export function validateRequest(input, tierSlug) {
   // set — everything else (notably max_price) stays server-owned. Part of the
   // normalized body, so zdr and non-zdr responses never share a cache entry.
   if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
+  cacheControlPref(input); // shape-validate only (400 on a bad value); the preference is call-time, not in the normalized body
   clampToMargin(body, tier, totalImages);
   return body;
 }
@@ -614,6 +655,7 @@ export const FLEX_MODELS = [
   "openai/gpt-5-nano", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra",
 ];
 const FLEX_ENABLED = () => String(process.env.OPENROUTER_FLEX || "on").toLowerCase() !== "off";
+export const PROVIDER_SORT_ENABLED = () => String(process.env.OPENROUTER_PROVIDER_SORT || "on").toLowerCase() !== "off";
 export function flexEligible(model) {
   if (!FLEX_ENABLED()) return false;
   const m = String(model || "");
@@ -628,6 +670,107 @@ export function flexAttempts(chain) {
     out.push({ model, flex: false });
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Reasoning defaults - the "paid empty answer" guard. Reasoning tokens are
+// OUTPUT tokens that count against max_tokens, and several ranked models
+// reason by default (gpt-5 family: mandatory, default effort medium; gemini
+// 3.x flash: mandatory; claude 5: default on at HIGH). Measured 2026-08-19:
+// gpt-5-nano at max_tokens 64 AND 256 with default or "low" effort returned
+// finish_reason "length" with EMPTY content - every token spent thinking,
+// nothing said, the buyer charged; "minimal" answered. So (a) when the buyer
+// sent no reasoning preference, a default-on/mandatory model gets the tier's
+// default effort (budget tiers: the lowest non-"none" effort it supports;
+// pro: "low"; premium: the model's own default - those buyers bought depth
+// and the 8k cap leaves room), (b) a buyer `reasoning`/`reasoning_effort` is
+// validated and passed through (it changes the answer -> normalized body ->
+// cache key), and (c) an answer that is "length" + empty is treated like an
+// empty refusal: the chain walks on, and a chain exhausted end-to-end is a
+// 502 (settlement cancelled), never a paid empty 200.
+// Table is live-verified by scripts/test-gateway-model-ids.js against
+// /models `reasoning.supported_efforts` + `mandatory`/`default_enabled`.
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+export const REASONING_MODELS = [
+  // `id` rows match the exact id (plus ":variant" suffixes such as :batch);
+  // `prefix` rows match a whole family. Exact by default: a loose prefix
+  // silently pulled in google/gemini-3.1-flash-lite-IMAGE, a different model
+  // with a different effort set (caught by the live guard on first run).
+  { id: "openai/gpt-5-nano", efforts: ["minimal", "low", "medium", "high"] },
+  { prefix: "openai/gpt-5.6-", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
+  { id: "google/gemini-3.1-flash-lite", efforts: ["minimal", "low", "medium", "high"] },
+  { id: "google/gemini-3.5-flash-lite", efforts: ["minimal", "low", "medium", "high"] },
+  { id: "google/gemini-3.5-flash", efforts: ["minimal", "low", "medium", "high"] },
+  { id: "google/gemini-3.6-flash", efforts: ["minimal", "low", "medium", "high"] },
+  { id: "anthropic/claude-sonnet-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { id: "anthropic/claude-opus-5", efforts: ["low", "medium", "high", "xhigh", "max"] },
+];
+export function reasoningRowMatches(row, id) {
+  const m = String(id || "").toLowerCase();
+  if (row.id) return m === row.id || m.startsWith(row.id + ":");
+  return !!row.prefix && m.startsWith(row.prefix);
+}
+export function reasoningProfile(model) {
+  const id = canonicalModel(model).toLowerCase();
+  let best = null;
+  for (const row of REASONING_MODELS) {
+    if (!reasoningRowMatches(row, id)) continue;
+    const len = (row.id || row.prefix).length;
+    if (!best || len > best.len) best = { ...row, len };
+  }
+  return best;
+}
+/** The reasoning object to inject for a chain link when the buyer set none:
+ *  null = leave the model's default alone. */
+export function defaultReasoningFor(model, tierSlug) {
+  const prof = reasoningProfile(model);
+  if (!prof) return null;
+  const policy = TIERS[tierSlug]?.reasoningDefault || "lowest";
+  if (policy === "model") return null;
+  const nonNone = prof.efforts.filter((e) => e !== "none");
+  if (policy === "low") return { effort: nonNone.includes("low") ? "low" : (nonNone[0] || null) };
+  // "lowest": the cheapest effort the model supports that still reasons
+  const order = ["minimal", "low", "medium", "high", "xhigh", "max"];
+  const lowest = order.find((e) => nonNone.includes(e));
+  return lowest ? { effort: lowest } : null;
+}
+/** Validate a buyer reasoning preference (OpenRouter `reasoning` object or
+ *  OpenAI's `reasoning_effort` string). Returns the normalized object or
+ *  undefined when the buyer sent none. */
+export function validateReasoning(input, tier) {
+  let r = input?.reasoning;
+  if (r === undefined && typeof input?.reasoning_effort === "string") r = { effort: input.reasoning_effort };
+  if (r === undefined) return undefined;
+  if (!r || typeof r !== "object" || Array.isArray(r)) throw bad('"reasoning" must be an object: {effort?: "none"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max", max_tokens?: int, exclude?: bool, enabled?: bool}');
+  const out = {};
+  for (const k of Object.keys(r)) {
+    if (!["effort", "max_tokens", "exclude", "enabled"].includes(k)) throw bad(`"reasoning.${k}" is not supported - allowed: effort, max_tokens, exclude, enabled`);
+  }
+  if (r.effort !== undefined) {
+    if (!REASONING_EFFORTS.includes(r.effort)) throw bad(`"reasoning.effort" must be one of: ${REASONING_EFFORTS.join(", ")}`);
+    out.effort = r.effort;
+  }
+  if (r.max_tokens !== undefined) {
+    const n = Number(r.max_tokens);
+    if (!Number.isInteger(n) || n < 1) throw bad('"reasoning.max_tokens" must be a positive integer');
+    if (n > tier.maxTokens) throw bad(`"reasoning.max_tokens" (${n}) exceeds this tier's output cap (${tier.maxTokens}) - reasoning tokens are output tokens`);
+    out.max_tokens = n;
+  }
+  if (r.exclude !== undefined) { if (typeof r.exclude !== "boolean") throw bad('"reasoning.exclude" must be a boolean'); out.exclude = r.exclude; }
+  if (r.enabled !== undefined) { if (typeof r.enabled !== "boolean") throw bad('"reasoning.enabled" must be a boolean'); out.enabled = r.enabled; }
+  return out;
+}
+/** "length" with nothing said: the output cap was spent before any content
+ *  (reasoning ate it, or the cap was absurdly small). A PAID empty 200 is the
+ *  failure; the chain walks on exactly as for an empty refusal. */
+export function isEmptyLength(data) {
+  const choice = data?.choices?.[0];
+  if (!choice) return false;
+  if (String(choice.finish_reason || "").toLowerCase() !== "length") return false;
+  const m = choice.message || {};
+  const hasText = typeof m.content === "string" && m.content.trim() !== "";
+  const hasToolCalls = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+  return !hasText && !hasToolCalls;
 }
 
 /** Per-buyer identity for OpenRouter's `user` field. OpenRouter scopes provider
@@ -663,16 +806,28 @@ export function upstreamUserId(req) {
  *  `onUsage(usage, rawCost)` fires once with the stripped cost for telemetry. */
 export function createSseUsageScrubber({ onUsage } = {}) {
   let buf = "";
+  // Usage can sit at the top level (chat completions, Anthropic message_delta)
+  // or NESTED: the Responses API's final frame is {type:"response.completed",
+  // response:{..., usage:{cost,...}}} (live-verified 2026-08-19) and an
+  // Anthropic message_start carries message.usage. Every one of those is
+  // scrubbed; the first (top-level or nested) usage object feeds telemetry.
+  const usageSites = (obj) => [obj?.usage, obj?.response?.usage, obj?.message?.usage].filter((u) => u && typeof u === "object");
   const processLine = (line) => {
     if (!line.startsWith("data: ") || !line.includes('"usage"')) return line;
     let obj;
     try { obj = JSON.parse(line.slice(6)); } catch { return line; }
-    const u = obj && typeof obj === "object" ? obj.usage : null;
-    if (!u || typeof u !== "object") return line;
-    const rawCost = typeof u.cost === "number" ? u.cost : null;
-    const had = ("cost" in u) || ("cost_details" in u) || ("is_byok" in u);
-    delete u.cost; delete u.cost_details; delete u.is_byok;
-    try { onUsage?.(u, rawCost, obj); } catch { /* telemetry never breaks a stream */ }
+    const sites = obj && typeof obj === "object" ? usageSites(obj) : [];
+    if (!sites.length) return line;
+    let had = false, reported = false;
+    for (const u of sites) {
+      const rawCost = typeof u.cost === "number" ? u.cost : null;
+      if (("cost" in u) || ("cost_details" in u) || ("is_byok" in u) || ("cache_discount" in u)) had = true;
+      delete u.cost; delete u.cost_details; delete u.is_byok; delete u.cache_discount;
+      if (!reported && (rawCost !== null || typeof u.prompt_tokens === "number" || typeof u.input_tokens === "number")) {
+        reported = true;
+        try { onUsage?.(u, rawCost, obj); } catch { /* telemetry never breaks a stream */ }
+      }
+    }
     return had ? `data: ${JSON.stringify(obj)}` : line;
   };
   return {
@@ -691,11 +846,11 @@ export function createSseUsageScrubber({ onUsage } = {}) {
   };
 }
 
-async function fetchOpenRouter(body, { timeoutMs, signal } = {}) {
+export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTER_URL } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
   try {
-    return await fetch(OPENROUTER_URL, {
+    return await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
@@ -713,7 +868,7 @@ async function fetchOpenRouter(body, { timeoutMs, signal } = {}) {
   }
 }
 
-async function throwUpstreamError(res) {
+export async function throwUpstreamError(res) {
   const text = await res.text().catch(() => "");
   if (res.status === 401 || res.status === 403) throw bad("Gateway upstream auth failed", 502);
   if (res.status === 402) throw bad("Gateway upstream balance exhausted - the operator has been notified", 502);
@@ -766,14 +921,14 @@ export function isEmptyRefusal(data) {
  *  headers are written — once streaming starts, an upstream drop just ends
  *  the stream. Output cost stays bounded: max_tokens was clamped server-side
  *  before the upstream call, so the provider stops the stream at the cap. */
-async function streamOpenRouterTo(body, res, { onUsage } = {}) {
+export async function streamOpenRouterTo(body, res, { onUsage, url } = {}) {
   // One controller covers connect AND the whole body read; client disconnect
   // aborts the upstream so a closed tab never keeps burning tokens.
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 180_000);
   res.on?.("close", () => ctrl.abort());
   try {
-    const upstream = await fetchOpenRouter(body, { signal: ctrl.signal });
+    const upstream = await fetchOpenRouter(body, { signal: ctrl.signal, url });
     if (!upstream.ok) await throwUpstreamError(upstream);
     res.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",
@@ -1061,6 +1216,90 @@ async function embeddingsHandler(input, req) {
   try {
     const w = { key: embeddingsCacheKey(input), body: data };
     if (req) (req.__deferredCache ??= []).push(w); else promptCacheStore(w.key, w.body);
+  } catch { /* never fail a served response over the cache */ }
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// /v1/rerank - reranking over OpenRouter's /rerank router (Cohere wire:
+// {query, documents[], top_n} -> {results:[{index, relevance_score,
+// document}]}). Deterministic output (a ranker, not a sampler) -> cache
+// default-ON like embeddings. One model, locked: cohere/rerank-v3.5 (live
+// probe 2026-08-19: 1 "search unit" = $0.001 upstream). Cohere's search unit
+// is ONE query against up to 100 documents, with long documents split into
+// extra chunks that each count - so the caps below (<= 50 docs, <= 1,600
+// chars each, query <= 500 chars) keep every request at exactly one unit, and
+// $0.001 sits under the $0.002 price at the 70% margin bound without any
+// token math. Structured {text, image} documents are refused (image reranking
+// bills differently); strings only.
+export const RERANK_PATH = "/v1/rerank";
+export const RERANK_PRICE = 0.002;
+export const RERANK_MODEL = "cohere/rerank-v3.5";
+const RERANK_URL = "https://openrouter.ai/api/v1/rerank";
+const RERANK_MAX_DOCS = 50;
+const RERANK_MAX_DOC_CHARS = 1_600;
+const RERANK_MAX_QUERY_CHARS = 500;
+const RERANK_MAX_TOTAL_CHARS = 40_000;
+export function validateRerankRequest(input) {
+  if (!input || typeof input !== "object") throw bad("Body must be a JSON object: {query, documents[], top_n?}");
+  if (input.model !== undefined && canonicalModel(input.model) !== RERANK_MODEL && String(input.model) !== "rerank-v3.5") throw bad(`"model" must be ${RERANK_MODEL} (the only rerank model served)`);
+  const query = input.query;
+  if (typeof query !== "string" || !query.trim()) throw bad('"query" (string) is required');
+  if (query.length > RERANK_MAX_QUERY_CHARS) throw bad(`"query" too long (${query.length} chars; max ${RERANK_MAX_QUERY_CHARS})`);
+  const documents = input.documents;
+  if (!Array.isArray(documents) || documents.length === 0) throw bad('"documents" must be a non-empty array of strings');
+  if (documents.length > RERANK_MAX_DOCS) throw bad(`Too many documents (${documents.length}); max ${RERANK_MAX_DOCS} per call - split the set`);
+  let total = 0;
+  documents.forEach((d, i) => {
+    if (typeof d !== "string") throw bad(`documents[${i}] must be a string (structured {text,image} documents are not served)`);
+    if (d.length > RERANK_MAX_DOC_CHARS) throw bad(`documents[${i}] too long (${d.length} chars; max ${RERANK_MAX_DOC_CHARS})`);
+    total += d.length;
+  });
+  if (total > RERANK_MAX_TOTAL_CHARS) throw bad(`documents total ${total} chars; max ${RERANK_MAX_TOTAL_CHARS} per call`);
+  const body = { model: RERANK_MODEL, query, documents };
+  if (input.top_n !== undefined) {
+    const n = Number(input.top_n);
+    if (!Number.isInteger(n) || n < 1) throw bad('"top_n" must be a positive integer');
+    body.top_n = Math.min(n, documents.length);
+  }
+  return body;
+}
+/** Cache key for /v1/rerank - default-ON (deterministic), cache:false opts out. */
+export function rerankCacheKey(input) {
+  if (input?.cache === false) return null;
+  const body = validateRerankRequest(input);
+  return createHash("sha256").update(`v1-rerank\n${stableStringify(body)}`).digest("hex");
+}
+async function rerankHandler(input, req) {
+  const body = validateRerankRequest(input);
+  const key = OPENROUTER_KEY();
+  if (!key) throw bad("Rerank gateway not configured (OPENROUTER_API_KEY unset)", 503);
+  const user = upstreamUserId(req);
+  let res;
+  try {
+    res = await fetch(RERANK_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "HTTP-Referer": "https://agent402.tools", "X-Title": "Agent402.Tools x402 gateway", "X-OpenRouter-Title": "Agent402.Tools x402 gateway", "X-OpenRouter-Categories": "personal-agent,api" },
+      body: JSON.stringify({ ...body, ...(user ? { user } : {}) }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (e) {
+    throw bad(`Upstream request failed: ${e.message}`, 504);
+  }
+  if (!res.ok) await throwUpstreamError(res);
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); } catch { throw bad("Upstream returned non-JSON", 502); }
+  if (!Array.isArray(data?.results)) throw bad("Upstream returned no results", 502);
+  // Billing fields are operator telemetry, never buyer-visible; search_units stays (a count, not a bill).
+  if (data.usage && typeof data.usage === "object") {
+    const upstreamUsd = typeof data.usage.cost === "number" ? data.usage.cost : null;
+    delete data.usage.cost; delete data.usage.cost_details; delete data.usage.is_byok; delete data.usage.cache_discount;
+    import("../posthog.js").then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({ tier: "v1-rerank", model: RERANK_MODEL, priceUsd: RERANK_PRICE, upstreamUsd, promptTokens: data.usage.search_units, completionTokens: 0 })).catch(() => {});
+  }
+  try {
+    const w = { key: rerankCacheKey(input), body: data };
+    if (w.key) { if (req) (req.__deferredCache ??= []).push(w); else promptCacheStore(w.key, w.body); }
   } catch { /* never fail a served response over the cache */ }
   return data;
 }
@@ -1420,8 +1659,19 @@ function makeHandler(tierSlug) {
     const providerPrefs = {
       ...(TIERS[tierSlug].maxPrice ? { max_price: TIERS[tierSlug].maxPrice } : {}),
       ...(body.zdr === true ? { zdr: true } : {}),
+      // Cheapest provider under the cap - ONLY on the budget tiers, where
+      // price is the product. On the same model, sort-by-price can land on a
+      // lower-precision (quantized) provider; pro/premium buyers did not buy
+      // that, and max_price already bounds their cost. OPENROUTER_PROVIDER_SORT=off disables.
+      ...(TIERS[tierSlug].priceSort === true && PROVIDER_SORT_ENABLED() ? { sort: "price" } : {}),
     };
     const provider = Object.keys(providerPrefs).length ? providerPrefs : undefined;
+    // Prompt cache: top-level cache_control (default on, buyer may disable)
+    // + session_id = the per-buyer id, so OpenRouter pins the buyer's turns
+    // to one provider and implicit caches (OpenAI/Gemini/DeepSeek/Grok) and
+    // Anthropic's explicit cache actually get hit. Call-time only, never in
+    // the cache key (validated shape in validateRequest).
+    const cacheControl = cacheControlPref(input);
     // Margin holds on EVERY link of the chain, not just the requested model:
     // validateRequest clamped max_tokens against the REQUESTED model's cost,
     // so a cheap-model clamp (often a no-op) would ride unchanged to a
@@ -1435,10 +1685,28 @@ function makeHandler(tierSlug) {
     // Per-buyer `user` for OpenRouter's abuse isolation (see upstreamUserId):
     // call-time injection, never in the normalized body or cache keys.
     const user = upstreamUserId(req);
+    // Structured outputs: route only to providers that honour
+    // response_format (require_parameters) and, off-stream, let OpenRouter's
+    // response-healing plugin repair almost-JSON (live-verified 2026-08-19:
+    // accepted, no cost change). Server-set; buyer `plugins` never pass.
+    const rfType = body.response_format && typeof body.response_format === "object" ? body.response_format.type : null;
+    const structured = rfType === "json_schema" || rfType === "json_object";
+    const providerForLink = structured ? { ...(provider || {}), require_parameters: true } : provider;
     const outboundFor = (model, flex = false) => {
       const attempt = { ...body, model };
       clampToMargin(attempt, TIERS[tierSlug], imageCount); // throws 400 → caller skips this candidate
-      return { ...attempt, zdr: undefined, ...(provider ? { provider } : {}), ...(user ? { user } : {}), ...(flex ? { service_tier: "flex" } : {}) };
+      // Reasoning default per link (see REASONING_MODELS): only when the
+      // buyer expressed no preference. Deterministic given the model, so it
+      // needs no place in the cache key.
+      const reasoning = body.reasoning !== undefined ? body.reasoning : defaultReasoningFor(model, tierSlug);
+      return {
+        ...attempt, zdr: undefined, cache_control: undefined,
+        ...(reasoning ? { reasoning } : {}),
+        ...(providerForLink ? { provider: providerForLink } : {}), ...(user ? { user, session_id: user } : {}),
+        ...(cacheControl ? { cache_control: cacheControl } : {}),
+        ...(structured && body.stream !== true ? { plugins: [{ id: "response-healing" }] } : {}),
+        ...(flex ? { service_tier: "flex" } : {}),
+      };
     };
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
@@ -1497,6 +1765,14 @@ function makeHandler(tierSlug) {
           refusedModel = model;
           continue;
         }
+        if (isEmptyLength(data)) {
+          // The output cap was spent before any content (reasoning tokens are
+          // output tokens). Never serve a paid empty 200: try the next link
+          // (flex->default first, then the chain); end-to-end empty is a 502.
+          lastErr = bad("Upstream produced no content within the output cap (reasoning consumed it) - raise max_tokens, lower reasoning.effort, or pick a non-reasoning model", 502);
+          refusedModel = model; // same model + same effort on the default tier would be empty too - don't pay twice
+          continue;
+        }
         // The exact upstream cost is operator telemetry, never a buyer-visible
         // field — capture it, then strip it before the response is cached or
         // returned. Standard token counts stay (OpenAI wire shape).
@@ -1505,6 +1781,7 @@ function makeHandler(tierSlug) {
           delete data.usage.cost;
           delete data.usage.cost_details;
           delete data.usage.is_byok;
+          delete data.usage.cache_discount; // a USD saving is a billing number too
           await recordUsage(data.usage, upstreamUsd, data.model || model, data.service_tier || (flex ? "flex" : "default"));
         }
         // Routed requests disclose the decision: additive key, OpenAI wire
@@ -1547,6 +1824,9 @@ const INPUT_SCHEMA = {
     messages: { type: "array", description: "OpenAI chat messages: [{role, content}] - text and image_url content blocks supported" },
     max_tokens: { type: "number", description: "Output token cap (clamped to the tier maximum)" },
     zdr: { type: "boolean", description: "Optional - true routes only to zero-data-retention providers (also accepted as provider.zdr). Same price; a model with no ZDR provider errors upstream and walks the failover chain." },
+    cache_control: { description: 'Optional - prompt caching preference. Default ON ({type:"ephemeral"}, 5-minute TTL): repeated prefixes across your turns are served from the provider cache (same price to you). Send false to disable. ttl:"1h" is not offered.' },
+    reasoning: { type: "object", description: 'Optional - reasoning control for reasoning models: {effort: "none"|"minimal"|"low"|"medium"|"high"|"xhigh"|"max", max_tokens?: int, exclude?: bool, enabled?: bool}. Reasoning tokens count against max_tokens. When omitted, reasoning-by-default models get a low effort on the budget tiers (so the cap is not spent thinking) and the model default on premium. OpenAI\'s reasoning_effort string is accepted too.' },
+    max_completion_tokens: { type: "integer", description: "Optional - alias of max_tokens (newer OpenAI SDKs send this)." },
   },
   required: ["model", "messages"],
 };
@@ -1650,6 +1930,31 @@ export const LLM_GATEWAY_TOOLS = [
       output: { example: { object: "list", data: [{ object: "embedding", index: 0, embedding: [0.0023, -0.0091, 0.0152] }], model: EMBEDDINGS_DEFAULT_MODEL, usage: { prompt_tokens: 12, total_tokens: 12 } } },
     },
     handler: embeddingsHandler,
+  },
+  {
+    route: "POST /v1/rerank",
+    name: "Rerank (Cohere-compatible)",
+    slug: "v1-rerank",
+    category: "llm",
+    price: "$0.002",
+    description:
+      "Rerank documents against a query over x402 - the Cohere /rerank wire ({query, documents[], top_n} -> results with relevance_score), served by cohere/rerank-v3.5, $0.002 per call in USDC, no API key, no signup. Up to 50 documents (1,600 chars each, 40k total) and a 500-char query per call. Deterministic, so a byte-identical repeat within 10 minutes is served FREE from cache (X-Cache: hit; opt out with cache:false). The retrieval companion to /v1/embeddings - embed and recall, then rerank the top candidates.",
+    tags: ["rerank", "reranking", "retrieval", "rag", "semantic-search", "cohere", ...SHARED_TAGS],
+    discovery: {
+      bodyType: "json",
+      input: { query: "What is the capital of France?", documents: ["Paris is the capital of France.", "Berlin is the capital of Germany.", "Madrid is in Spain."], top_n: 2 },
+      inputSchema: {
+        properties: {
+          query: { type: "string", description: "The search query (max 500 chars)" },
+          documents: { type: "array", items: { type: "string" }, description: "Documents to rank (1-50 strings, 1,600 chars each, 40k total)" },
+          top_n: { type: "integer", description: "Optional - return only the top N results" },
+          cache: { type: "boolean", description: "Optional - false disables the default-on response cache" },
+        },
+        required: ["query", "documents"],
+      },
+      output: { example: { id: "gen-rerank-…", model: "rerank-v3.5", results: [{ index: 0, relevance_score: 0.89, document: { text: "Paris is the capital of France." } }, { index: 1, relevance_score: 0.15, document: { text: "Berlin is the capital of Germany." } }], usage: { search_units: 1 } } },
+    },
+    handler: rerankHandler,
   },
   {
     route: "POST /v1/images/generations",

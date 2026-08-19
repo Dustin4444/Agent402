@@ -95,3 +95,19 @@ The paid canary buys from the gateway every day with real USDC: a nano completio
 ## Upstream service tiers
 
 Where the upstream offers it (Gemini 2.5/3.x families, gpt-5-nano, gpt-5.6-*, and the image model), the gateway asks for OpenRouter's **flex** service tier first (lower price, higher latency, lower availability) and retries the same model on the default tier if flex has no capacity, before moving to the next failover link. Buyers see the same price either way; the response's `service_tier` field says which tier served.
+
+## Prompt caching
+
+Every chat call asks the upstream to cache the prompt prefix (OpenRouter's top-level `cache_control: {type:"ephemeral"}`, 5-minute TTL) and pins your turns to one provider (`session_id`), so a multi-turn agent conversation is served from the provider cache on repeated prefixes. Same flat price to you either way. Send `cache_control: false` to opt out. The budget tiers (nano, auto) additionally pick the cheapest provider under their price cap; pro and premium keep OpenRouter's default provider balancing.
+
+## Rerank
+
+`POST /v1/rerank` ($0.002) speaks the Cohere rerank wire: `{query, documents[], top_n}` in, `results[{index, relevance_score, document}]` out, served by `cohere/rerank-v3.5`. Up to 50 documents (1,600 chars each, 40k total) and a 500-char query per call. Deterministic, so a byte-identical repeat within 10 minutes is served free from cache (`cache:false` opts out). Pair it with `/v1/embeddings`: embed, recall your top candidates, rerank them.
+
+## Anthropic Messages API
+
+The same five tiers also speak the Anthropic Messages wire: `POST /v1/nano/messages`, `/v1/auto/messages`, `/v1/messages`, `/v1/pro/messages`, `/v1/premium/messages` (same prices, models, caps and failover as each tier's chat route). Point the Anthropic SDK, Claude Code or the Agent SDK at `https://agent402.tools/v1` (or `/v1/pro`, `/v1/premium`) with an x402-paying fetch and call `messages.create` as usual: `system`, content blocks (text, image, tool_use, tool_result), client tools, `thinking`, `stop_sequences`, streaming (`message_start` … `message_stop`). Any model on the tier is served through this wire (Claude natively, others translated upstream). `max_tokens` is required by the wire and clamped to the tier cap; a reply that spends its whole cap thinking and says nothing is never served (the failover chain walks on, and an exhausted chain is a 502 you are not charged for).
+
+## OpenAI Responses API
+
+The same five tiers also speak the OpenAI Responses wire: `POST /v1/nano/responses`, `/v1/auto/responses`, `/v1/responses`, `/v1/pro/responses`, `/v1/premium/responses`. Point `responses.create()` (or the OpenAI Agents SDK) at `https://agent402.tools/v1` (or a tier prefix) through an x402-paying fetch. `input` as a string or item list, `instructions`, function tools, `text.format`, `reasoning`, streaming (`response.created` … `response.completed`) all work; server-side tools (web search, file search, computer use, MCP) are not served, and there is no stored conversation state (`store` is always false, `previous_response_id` is refused) - send the full input each call.

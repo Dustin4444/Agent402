@@ -90,3 +90,19 @@ export function payerFromRequest(req) {
     return null;
   }
 }
+
+/** x402 `payment-identifier` extension id carried by the payment payload
+ *  (@x402/extensions: `extensions["payment-identifier"].info.id`, 16-128 chars
+ *  of [A-Za-z0-9_-]). Returned raw; callers bind it to the credential exactly
+ *  like an Idempotency-Key header (the id alone proves nothing - it is
+ *  client-chosen text on an UNVERIFIED payload at the time it is read). */
+export function paymentIdentifierOf(req) {
+  const header = paymentHeaderOf(req);
+  if (!header) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
+    const id = payload?.extensions?.["payment-identifier"]?.info?.id;
+    if (typeof id !== "string" || id.length < 16 || id.length > 128 || !/^[A-Za-z0-9_-]+$/.test(id)) return null;
+    return id;
+  } catch { return null; }
+}

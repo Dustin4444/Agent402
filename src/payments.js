@@ -17,6 +17,7 @@ import {
   builderCodeResourceServerExtension,
   declareBuilderCodeExtension,
 } from "@x402/extensions/builder-code";
+import { declarePaymentIdentifierExtension, PAYMENT_IDENTIFIER } from "@x402/extensions/payment-identifier";
 import { normalizePayerAddress } from "./payer.js";
 import { installFacilitatorDiagnostics, labelFacilitatorErrors } from "./facilitator-diagnostics.js";
 
@@ -501,6 +502,7 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
     labelFacilitatorErrors(label, client);
     facilitatorClients.push(memoizeGetSupported(client));
     facilitatorLabels.push(label);
+    facilitatorRegistry.push({ label, client: facilitatorClients[facilitatorClients.length - 1] });
     // Clients expose their base URL as `url`; a subclass that does not is
     // simply not diagnosed rather than a boot failure.
     const u = client?.url || client?.config?.url || client?.options?.url;
@@ -1078,6 +1080,11 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       const ext = {};
       if (item.bazaar !== false) Object.assign(ext, declareDiscoveryExtension(slimDiscovery(item.discovery)));
       if (builderCode) Object.assign(ext, { [BUILDER_CODE]: declareBuilderCodeExtension(builderCode) });
+      // x402 payment-identifier (optional): a buyer MAY attach a payment id to
+      // its payload; we honour it as an Idempotency-Key alias (server.js
+      // idemHashKey). Declared so CDP-native clients (x402Client extensions,
+      // awal, purl) know the seller understands it. ~120 bytes per 402.
+      ext[PAYMENT_IDENTIFIER] = declarePaymentIdentifierExtension(false);
       return [
         route,
         {
@@ -1287,6 +1294,29 @@ export function fallbackCandidatesFor(network, payAiClient, solvadorClient) {
 // decision, it never influences it.
 let railsConfigured = [];
 let railsOffered = [];
+// The facilitator clients + labels as built (module-level copy, operator
+// diagnostics only). CDP's facilitator table has grown (Polygon, Arbitrum,
+// Solana, World) and CDP is FIRST in facilitatorClients, so it may now be
+// settling chains the boot log's labels attribute to PayAI; /supported needs
+// a JWT, so the only way to know what prod's clients advertise is to ask the
+// clients themselves. This feeds GET /__operator/facilitators.json.
+let facilitatorRegistry = [];
+export async function facilitatorSupportReport() {
+  return Promise.all(facilitatorRegistry.map(async ({ label, client }) => {
+    try {
+      const s = await client.getSupported();
+      const kinds = Array.isArray(s?.kinds) ? s.kinds : [];
+      return {
+        label,
+        networks: [...new Set(kinds.filter((k) => k?.scheme === "exact").map((k) => k.network))],
+        kinds: kinds.map((k) => ({ scheme: k.scheme, network: k.network, x402Version: k.x402Version })),
+        extensions: Array.isArray(s?.extensions) ? s.extensions : [],
+      };
+    } catch (e) {
+      return { label, error: String(e?.message || e).slice(0, 200) };
+    }
+  }));
+}
 export function railStatus() {
   return railsConfigured.map((n) => ({
     network: n,

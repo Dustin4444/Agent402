@@ -7,12 +7,17 @@
 // networks, ranked lexically against the task, cap-filtered.
 //
 // What is deliberately NOT routable here:
-//   - endpoints with dynamic pricing (`payment.dynamic` / no integer amount) -
-//     the router's cap must be checkable BEFORE we sign; payTempo re-checks
-//     the live 402 anyway, but a task should not resolve to an endpoint whose
-//     price we cannot state up front;
 //   - path templates (`/:network/v2`) - nothing to fill them with;
 //   - anything not tempo/charge in USDC.e - the spending wallet's asset pin.
+// Dynamic pricing (`payment.dynamic` / no integer amount - ~185 registry
+// endpoints, ~17%) IS routable since 2026-08-19, ranked AFTER every in-cap
+// fixed-price candidate of equal score: the resolver live-probes each
+// candidate's 402 anyway, so it reads the dynamic seller's tempo/charge
+// amount from the real challenge, prices it there, and skips it when the
+// live amount exceeds the tier cap (src/server.js resolveExternalSeller;
+// payTempo re-checks the same cap before signing). A task therefore resolves
+// to a dynamic seller only when no fixed-price seller matches, and never at
+// a price the buyer did not agree to.
 // Proven-ness (recent inbound USDC.e transfers to the challenge's recipient)
 // is checked at PAY time in tempo-buyer.js against the LIVE 402's recipient -
 // that stays. Since 2026-08-18 the index also records each seller's live
@@ -23,7 +28,7 @@
 // the router never tried the proven one ranked second). Same shape as the
 // Base leg's leaderboard gate. Without a board (cold boot, RPC down) the
 // ranker keeps prior behaviour and the pay-time gate alone decides.
-import { mppIndexSnapshot } from "./mpp-index.js";
+import { mppIndexSnapshot, parseOffers } from "./mpp-index.js";
 import { TEMPO_USDC, TEMPO_CAIP2 } from "./tempo-buyer.js";
 
 const USDC_LC = TEMPO_USDC.toLowerCase();
@@ -41,12 +46,12 @@ export function tempoCatalog(snapshot = mppIndexSnapshot()) {
       const p = e?.payment;
       if (!p || p.method !== "tempo" || (p.intent && p.intent !== "charge")) continue;
       if (String(p.currency || "").toLowerCase() !== USDC_LC) continue;
-      if (p.dynamic) continue;
       if (typeof e.path !== "string" || !e.path.startsWith("/") || /[:{*]/.test(e.path)) continue;
       const amount = String(p.amount || "");
-      if (!/^\d+$/.test(amount) || amount === "0") continue;
+      const fixed = !p.dynamic && /^\d+$/.test(amount) && amount !== "0";
+      if (!fixed && amount && /^\d+$/.test(amount) && amount === "0") continue; // a literal zero is not a price
       const decimals = Number.isInteger(p.decimals) ? p.decimals : 6;
-      const priceUsd = Number(amount) / 10 ** decimals;
+      const priceUsd = fixed ? Number(amount) / 10 ** decimals : null;
       const recipient = (s.offers || []).find((o) => o?.method === "tempo" && (o.intent || "charge") === "charge" && o.recipient && String(o.currency || "").toLowerCase() === USDC_LC)?.recipient || null;
       out.push({
         origin, seller: s.name || origin.replace(/^https:\/\//, ""),
@@ -55,7 +60,7 @@ export function tempoCatalog(snapshot = mppIndexSnapshot()) {
         url: origin + e.path,
         description: [e.description, s.description].filter(Boolean).join(" - "),
         tags: [...(s.tags || []), ...(s.categories || [])],
-        priceUsd, priceAtomic: amount,
+        priceUsd, priceAtomic: fixed ? amount : null, dynamic: !fixed,
         networks: [TEMPO_CAIP2],
         wire: "mpp",
       });
@@ -75,7 +80,10 @@ export function rankTempoResources(resources, task, { capUsd, excludeOrigin = ""
   if (!want.length) return [];
   const scored = [];
   for (const r of resources) {
-    if (!(r.priceUsd > 0 && r.priceUsd <= capUsd)) continue;
+    // Fixed price must fit the cap here; a dynamic price is checked against
+    // the LIVE 402 by the resolver (and again by payTempo) - admit it, rank it
+    // below fixed-price peers.
+    if (!r.dynamic && !(r.priceUsd > 0 && r.priceUsd <= capUsd)) continue;
     if (excludeOrigin && r.origin === excludeOrigin) continue;
     let settled = 0;
     if (provenByRecipient) {
@@ -92,5 +100,20 @@ export function rankTempoResources(resources, task, { capUsd, excludeOrigin = ""
     }
     if (score > 0) scored.push({ ...r, score, settled });
   }
-  return scored.sort((a, b) => b.score - a.score || b.settled - a.settled || a.priceUsd - b.priceUsd);
+  // score desc; fixed price before dynamic at equal score (a known price the
+  // buyer already agreed to beats one we still have to read); then settled
+  // desc; then cheaper first.
+  return scored.sort((a, b) => b.score - a.score || (a.dynamic ? 1 : 0) - (b.dynamic ? 1 : 0) || b.settled - a.settled || (a.priceUsd ?? Infinity) - (b.priceUsd ?? Infinity));
+}
+
+/** Price of a dynamic-priced seller, read from its LIVE 402: the first
+ *  tempo/charge offer in USDC.e with an integer base-units amount, in USD
+ *  (6 decimals). null when the challenge carries no such offer - the
+ *  resolver then skips the candidate. Injectable parser for tests. */
+export async function liveTempoPriceUsd(wwwAuth, { parse = parseOffers } = {}) {
+  const offers = await parse(String(wwwAuth || ""));
+  const offer = (offers || []).find((o) => o && o.method === "tempo" && (o.intent || "charge") === "charge" && String(o.currency || "").toLowerCase() === USDC_LC && /^\d+$/.test(String(o.amount || "")) && String(o.amount) !== "0");
+  if (!offer) return null;
+  const usd = Number(offer.amount) / 1e6;
+  return usd > 0 ? usd : null;
 }

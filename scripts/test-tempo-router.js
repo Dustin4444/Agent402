@@ -44,11 +44,21 @@ const snap = { sellers: [
       { method: "GET", path: "/scrape", description: "scrape", payment: { intent: "charge", method: "tempo", currency: TEMPO_USDC, decimals: 6, amount: "1000" } } ] },
 ] };
 const cat = tempoCatalog(snap);
-ok(cat.length === 2, `catalog keeps only routable endpoints (got ${cat.length}: ${cat.map((r) => r.url).join(", ")})`);
-ok(cat.every((r) => r.origin === "https://firecrawl.example"), "dropped: dynamic price, path template, non-USDC.e currency, stripe method, unverified seller, non-https origin");
-ok(cat[0].priceUsd === 0.002 && cat[0].networks[0] === TEMPO_CAIP2 && cat[0].wire === "mpp", "resource carries priceUsd from base units, the Tempo CAIP-2, and wire=mpp");
+ok(cat.length === 3, `catalog keeps routable endpoints incl. the dynamic-priced one (got ${cat.length}: ${cat.map((r) => r.url).join(", ")})`);
+ok(cat.every((r) => r.origin === "https://firecrawl.example"), "dropped: path template, non-USDC.e currency, stripe method, unverified seller, non-https origin");
+ok(cat[0].priceUsd === 0.002 && cat[0].networks[0] === TEMPO_CAIP2 && cat[0].wire === "mpp" && cat[0].dynamic === false, "resource carries priceUsd from base units, the Tempo CAIP-2, wire=mpp, dynamic=false");
+const dyn = cat.find((r) => r.path === "/v1/dynamic");
+ok(dyn && dyn.dynamic === true && dyn.priceUsd === null && dyn.priceAtomic === null, "a dynamic-priced endpoint is a candidate with NO up-front price (the resolver prices it from the live 402)");
 const ranked = rankTempoResources(cat, "scrape a web page", { capUsd: 0.005 });
-ok(ranked.length === 1 && ranked[0].path === "/v1/scrape", "ranking matches the task and cap-filters (crawl at $0.05 is out at a $0.005 cap)");
+ok(ranked.length === 2 && ranked[0].path === "/v1/scrape" && ranked[1].path === "/v1/dynamic", `ranking matches the task, cap-filters fixed prices (crawl at $0.05 is out at $0.005) and ranks the dynamic seller AFTER the fixed-price peer (got ${ranked.map((r) => r.path).join(", ")})`);
+ok(rankTempoResources(cat, "dynamic priced scrape", { capUsd: 0.005 })[0].path === "/v1/dynamic", "a dynamic seller still wins on a clearly better lexical match - the resolver's live-price check decides from there");
+{
+  const { liveTempoPriceUsd } = await import("../src/tempo-sellers.js");
+  const parse = async () => [{ method: "evm", intent: "charge", currency: "0xusdc", amount: "5000" }, { method: "tempo", intent: "charge", currency: TEMPO_USDC.toLowerCase(), amount: "3000" }];
+  ok(await liveTempoPriceUsd("Payment ...", { parse }) === 0.003, "live price: the tempo/charge USDC.e offer's base-units amount -> USD ($0.003)");
+  ok(await liveTempoPriceUsd("x", { parse: async () => [{ method: "tempo", intent: "charge", currency: "0xother", amount: "3000" }] }) === null, "live price: a non-USDC.e tempo offer is not a price we can pay");
+  ok(await liveTempoPriceUsd("x", { parse: async () => [{ method: "tempo", intent: "charge", currency: TEMPO_USDC.toLowerCase(), amount: "0.003" }] }) === null && await liveTempoPriceUsd("x", { parse: async () => [] }) === null, "live price: decimal/zero/missing amount -> null (resolver skips the candidate)");
+}
 ok(rankTempoResources(cat, "scrape", { capUsd: 0.005, excludeOrigin: "https://firecrawl.example" }).length === 0, "excludeOrigin (never route to ourselves) honoured");
 ok(rankTempoResources(cat, "", { capUsd: 1 }).length === 0, "empty task ranks nothing");
 

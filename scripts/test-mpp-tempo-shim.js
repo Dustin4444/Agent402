@@ -21,7 +21,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import express from "express";
 import { Challenge, Credential } from "mppx";
-import { createTempoGate, mintTempoChallenge, tempoEnabled, checkTempoCredentialBinding } from "../src/mpp-tempo.js";
+import { createTempoGate, createTempoChallengeAppender, mintTempoChallenge, tempoEnabled, checkTempoCredentialBinding } from "../src/mpp-tempo.js";
 import { createReplayGuard } from "../src/replay-guard.js";
 
 let pass = 0;
@@ -265,7 +265,8 @@ async function listen(app) {
   } finally { console.warn = origWarn; }
   ok(res.status === 402, "case C: broadcast failure after a successful handler -> 402, not 200");
   ok(body.result === undefined, "case C: the handler's original body is discarded, never leaked to the buyer");
-  ok(typeof body.reason === "string" && body.reason.includes("unavailable"), "case C: the failure reason is surfaced");
+  ok(typeof body.detail === "string" && body.detail.includes("unavailable"), "case C: the failure reason is surfaced (RFC 9457 detail)");
+  ok(body.type === "https://paymentauth.org/problems/verification-failed" && body.status === 402 && /application\/problem\+json/.test(res.headers.get("content-type") || ""), `case C: settle failure is an RFC 9457 problem (type=${body.type}, ct=${res.headers.get("content-type")})`);
   const line = warned.find((w) => w.includes("[mpp-tempo] broadcast failed"));
   ok(!!line && line.includes("unavailable"), "case C: the broadcast failure is LOGGED with the relay's reason (was a silent 402 before 2026-08-18)");
   ok(!!line && /validate=\d+ms handler=\d+ms broadcast=\d+ms/.test(line), "case C: the log line carries per-phase timing (validBefore is 25s on this rail; latency vs verdict must be distinguishable)");
@@ -280,13 +281,27 @@ async function listen(app) {
     validate: async () => ({ ok: false, error: "expired" }),
     broadcast: async () => ({ ok: true, receipt: {} }),
   }));
-  app.use((req, res) => res.status(402).json({ fallenThrough: true, tempoSettling: !!req.tempoSettling }));
+  let downstream = null;
+  app.use((req, res) => { downstream = { fallenThrough: true, tempoSettling: !!req.tempoSettling }; res.status(402).json({ fallenThrough: true }); });
   const { server, url } = await listen(app);
-  const res = await fetch(`${url}/anything`, { headers: { Authorization: buildTempoCredential() } });
+  // /paid is priced, so the binding check PASSES and validate() is what rejects
+  // (on /anything the binding check would refuse first: "route has no price").
+  const res = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential() } });
   const body = await res.json();
   ok(res.status === 402, "case D: invalid credential falls through to the next middleware's own 402");
-  ok(body.fallenThrough === true, "case D: request reaches downstream middleware untouched");
-  ok(body.tempoSettling === false, "case D: req.tempoSettling is never set for a rejected credential");
+  ok(downstream?.fallenThrough === true, "case D: request reaches downstream middleware untouched");
+  ok(downstream?.tempoSettling === false, "case D: req.tempoSettling is never set for a rejected credential");
+  // ...but the downstream 402's BODY is rewritten into the spec's problem+json
+  // (RFC 9457) naming why the credential was refused; a 200 would be untouched.
+  ok(body.type === "https://paymentauth.org/problems/verification-failed" && /expired/.test(body.detail || "") && body.fallenThrough === undefined && /problem\+json/.test(res.headers.get("content-type") || ""), `case D: the fall-through 402 body is an RFC 9457 verification-failed problem carrying the relay's reason (${body.type}: ${body.detail})`);
+  let okBody = null;
+  const app2 = express();
+  app2.use(createTempoGate({ ...GATE, validate: async () => ({ ok: false, error: "expired" }), broadcast: async () => ({ ok: true, receipt: {} }) }));
+  app2.use((req, res) => res.status(200).json({ free: true }));
+  const s2 = await listen(app2);
+  okBody = await (await fetch(`${s2.url}/paid`, { headers: { Authorization: buildTempoCredential() } })).json();
+  ok(okBody.free === true, "case D: a non-402 downstream response is never rewritten (only the 402 body becomes the problem)");
+  s2.server.close();
   server.close();
 }
 
@@ -318,6 +333,10 @@ async function listen(app) {
   const replayGuard = createReplayGuard();
   let handlerRuns = 0;
   const app = express();
+  // Prod mount order: the challenge APPENDER sits before the gate, so the
+  // gate's own direct 402s (replay, settle failure) carry a fresh tempo
+  // challenge at writeHead - the spec's "402 + fresh challenge + problem".
+  app.use(createTempoChallengeAppender(GATE));
   app.use(createTempoGate({
     ...GATE,
     validate: async () => ({ ok: true, validation: {} }),
@@ -338,7 +357,11 @@ async function listen(app) {
   ]);
   const statuses = [r1.status, r2.status].sort();
   ok(handlerRuns === 1, `case F: the SAME credential fired concurrently -> the handler runs exactly once, not twice (got ${handlerRuns})`);
-  ok(statuses[0] === 200 && statuses[1] === 409, `case F: one request succeeds, the concurrent replay is rejected 409 (got ${statuses.join(",")})`);
+  ok(statuses[0] === 200 && statuses[1] === 402, `case F: one request succeeds, the concurrent replay is rejected 402 (spec: invalid-challenge problem + fresh challenge, not a bare 409) (got ${statuses.join(",")})`);
+  const replayRes = r1.status === 402 ? r1 : r2;
+  const replayBody = await replayRes.json().catch(() => ({}));
+  ok(replayBody.type === "https://paymentauth.org/problems/invalid-challenge" && /problem\+json/.test(replayRes.headers.get("content-type") || "") && /already used|in flight/.test(replayBody.detail || ""), `case F: the replay's body is an RFC 9457 invalid-challenge problem (${replayBody.type})`);
+  ok(/method="tempo"|method=tempo|tempo/.test(replayRes.headers.get("www-authenticate") || ""), "case F: the replay 402 carries a FRESH tempo challenge (WWW-Authenticate: Payment)");
   server.close();
 }
 

@@ -19,6 +19,15 @@ Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operatin
 - `src/payments.js` — x402 v2 middleware (USDC on Base/Polygon/Arbitrum, CDP facilitator, Bazaar discovery).
 - `src/pow.js` — proof-of-work tier (signed, single-use, slug-scoped). `WALLET_ONLY_SLUGS` = non-PoW tools.
 - `src/mcp-http.js` — hosted MCP connector (`/mcp`): tools `search_tools`, `find_tool`, `call_tool`, `about_agent402`.
+  **Native MPP on /mcp (2026-08-19, `src/mcp-mpp.js`):** a wallet-only tool called on the connector is payable
+  there - mppx's MCP wire (JSON-RPC error `-32042` + `data.challenges`; credential in
+  `_meta["org.paymentauth/credential"]`; receipt in `_meta["org.paymentauth/receipt"]`). Settlement authority is
+  UNCHANGED: the call is replayed as a LOOPBACK HTTP request to our own paid route (127.0.0.1:PORT, buyer IP on
+  X-Forwarded-For) with `Authorization: Payment <credential>`, the real gates verify+settle, and only the wire
+  shapes are translated (402 -> -32042 with that 402's fresh challenges + its RFC 9457 body as `problem`; 200 +
+  Payment-Receipt -> result + receipt meta; other statuses -> isError "not charged"). Rollout switch =
+  MPP_SECRET_KEY (no gates, no challenges -> the old paid-access text). `scripts/test-mcp-mpp.js` (14, boots
+  the real server, stock SDK client + `McpClient.wrap`, stub facilitator sees exactly one verify + one settle).
 - `src/find.js` — `/api/find` tool resolver (lexical ranking; also used by the `find_tool` MCP tool).
 - `src/discovery.js` — `/.well-known/x402` service manifest + `/api/reliability` report.
 - `src/stats.js`, `src/seo.js`, `src/landing.js`, `src/pages.js`, `src/guides.js`, `src/privacy.js`, `src/terms.js`.
@@ -96,7 +105,7 @@ key such logic off the FINAL (post-settlement) response, e.g. `res.on("finish")`
 with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.)
 
 ## Notable features (current)
-- **Idempotency:** opt-in `Idempotency-Key` header; cache key = `sha256(METHOD /path + key + gate-credential)`. **Settlement-aware (FR4-01):** the body is captured at `res.json` but COMMITTED to the cache only on `res.on("finish")` when the FINAL `statusCode === 200` — i.e. after `@x402/express` has settled — so an unsettled 200 (settlement-failure → 402) is never cached/replayed. No-op without the header; streamed responses are never replayable. `scripts/test-idempotency-settlement.js`.
+- **Idempotency:** opt-in `Idempotency-Key` header; cache key = `sha256(METHOD /path + key + gate-credential)`. **x402 `payment-identifier` (2026-08-19):** declared on every route's 402 (`declarePaymentIdentifierExtension(false)`, payments.js) and honoured as an ALIAS of the header (`paymentIdentifierOf(req)` in payer.js, header wins) under the SAME binding rules - exact credential + route + body - never a cross-authorization dedupe (the id is client-chosen text on a payload unverified at that point in the chain). Pinned in test-mpp-shim (declared on the 402; exact retry replays with one settle; same id on a new credential settles again). **Settlement-aware (FR4-01):** the body is captured at `res.json` but COMMITTED to the cache only on `res.on("finish")` when the FINAL `statusCode === 200` — i.e. after `@x402/express` has settled — so an unsettled 200 (settlement-failure → 402) is never cached/replayed. No-op without the header; streamed responses are never replayable. `scripts/test-idempotency-settlement.js`.
 - **Tollbooth:** charge modes (`bots`/`all`/`strict`), adaptive PoW, analytics (`gate.stats()` + `/__tollbooth/stats` + `/__tollbooth` dashboard), deploy templates (Cloudflare/Next.js/Docker). Defaults preserve original behavior.
   **0.7.0 (2026-08-18): `x402:` middleware mode + MPP.** `createTollbooth({ x402: paymentMiddleware })` delegates paid requests to the operator's @x402/express middleware with the REAL response (verify -> handler -> settle in its own order), lifts its PAYMENT-REQUIRED onto the gate's 402 (stock x402 v2 clients can pay), and - default on - mints `WWW-Authenticate: Payment` evm/charge challenges from it and translates `Authorization: Payment` -> PAYMENT-SIGNATURE (`tollbooth/mpp.js`, dependency-free codec, HMAC id binding compatible with mppx's `Challenge.verify`), mirroring `Payment-Receipt` on settle. **`x402VerifierFromExpress` is deprecated: with @x402/express v2 (settle AFTER handler) it granted on verify and never settled - served, never charged - because it handed the middleware a stub response the real handler never ended; measured in `scripts/test-tollbooth-mpp.js` (32 assertions: real @x402/express + stub facilitator, real mppx client buys, real @x402/fetch buys, settle counted once each, tampered credential, PoW-first).** Edge gate: PoW + legacy verify only for now.
 - **Buyer SDK (`agent402-client`):** `find()` + `call()` with auto-payment (PoW free / x402 paid), caching, idempotent retries, non-custodial.
@@ -109,6 +118,41 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   so `tierFor()` ordering is stable), base `$0.02`, pro `$0.10`, premium `$0.50`,
   plus **`/v1/embeddings` `$0.002`** (OpenAI upstream, batch ≤64/16k chars, cache
   DEFAULT-ON — deterministic output; `cache:false` opts out; `embeddingsCacheKey`),
+  plus **`/v1/rerank` `$0.002`** (`v1-rerank`, 2026-08-19 build #12 part 1 — Cohere wire
+  `{query, documents[], top_n}` over OpenRouter `/rerank`, model locked `cohere/rerank-v3.5`;
+  live: 1 search unit = $0.001; caps ≤50 docs × ≤1,600 chars, ≤40k total, query ≤500 chars keep
+  every call at ONE search unit so $0.001 sits under the 70% bound with no token math; strings
+  only (structured {text,image} docs bill differently → 400); cache DEFAULT-ON (`rerankCacheKey`,
+  deterministic ranker); billing fields stripped, `search_units` kept; `gateway_usage` tier
+  `v1-rerank`; paid-canary `llm-rerank` leg),
+  plus the **Anthropic Messages wire on all five tiers** (`src/tools/llm-messages-kit.js`, build #12
+  part 2 — `POST /v1/nano/messages` `$0.003`, `/v1/auto/messages` `$0.01`, `/v1/messages` `$0.02`,
+  `/v1/pro/messages` `$0.10`, `/v1/premium/messages` `$0.50`; slugs `<tier>-messages`; same TIERS
+  config = same allowlist/caps/max_price/flex/failover as the chat route; OpenRouter `/api/v1/messages`
+  serves ANY model through this wire (live-verified gemini + claude); Anthropic body validated
+  (system, content blocks text/image/tool_use/tool_result/thinking, client tools with input_schema
+  only — server tools refused, thinking {enabled budget|adaptive|disabled}, stop_sequences, top_k);
+  margin clamp runs on a PROBE copy with base64 images replaced by a marker (billed flat); usage
+  cost/is_byok/cost_details stripped non-stream, SSE `message_delta` frame scrubbed by the shared
+  scrubber; `stop_reason:max_tokens` + nothing said walks the chain (`isEmptyMaxTokens`);
+  telemetry tier `<tier>:messages`; auto tier adds `agent402_router`; NOT on this wire: the opt-in
+  prompt cache and reasoning-effort defaults (buyer sets `thinking` natively). Canary `llm-messages`
+  leg. `scripts/test-llm-messages.js` (41)),
+  plus the **OpenAI Responses wire on all five tiers** (`src/tools/llm-responses-kit.js`, build #12
+  part 3 — `POST /v1/{nano,auto,pro,premium}/responses` + `/v1/responses`, slugs `<tier>-responses`,
+  same TIERS config; OpenRouter `/api/v1/responses` (any model; live-verified gpt-4o-mini, gpt-5-nano,
+  claude); `input` string or items (message with input_text/input_image parts, function_call,
+  function_call_output, reasoning), `instructions`, `max_output_tokens` (default/clamp like the chat
+  wire), function tools ONLY (web_search*/file_search/computer/mcp/code_interpreter/image_generation
+  refused), `text.format` (json_schema/json_object → `provider.require_parameters`), buyer `reasoning`
+  validated + the chat wire's default effort injection (`defaultReasoningFor`), `store` forced false,
+  `previous_response_id`/`background` refused (no server state), `input_file` refused (metered parse);
+  `status:incomplete` for max_output_tokens + nothing said walks the chain (`isEmptyIncomplete`);
+  usage billing stripped non-stream, and the stream's NESTED `response.usage` scrubbed - the shared
+  SSE scrubber now strips `obj.usage`, `obj.response.usage` and `obj.message.usage` (the top-level-only
+  scrub would have leaked cost on every streamed Responses call). Telemetry `<tier>:responses`; canary
+  `llm-responses` leg; `scripts/test-llm-responses.js` (26). The grounded web-search tier is the only
+  part of build #12 still NOT built),
   plus **`/v1/images/generations` `$0.08`** (`v1-images` — OpenAI images wire translated
   to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
   n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →
@@ -177,6 +221,29 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   own image leg, which now rides flex automatically). `gateway_usage.serviceTier` records which
   tier served. `OPENROUTER_FLEX=off` disables. The live guard fails CI if a FLEX_MODELS entry
   loses its `*/flex` endpoint (flex on a model without one 404s = a wasted attempt per call).
+  **Prompt-cache levers (2026-08-19):** every chat call carries top-level `cache_control:{type:"ephemeral"}`
+  (default on; buyer `cache_control:false` disables; `ttl:"1h"` refused - 2x Anthropic write cost) and
+  `session_id` = the per-buyer `user` id (OpenRouter sticky provider routing, so implicit caches on
+  OpenAI/Gemini/DeepSeek/Grok and Anthropic's explicit cache actually hit). Call-time only, never in the
+  cache key. The margin clamp prices Anthropic input at 1.25x (`cacheWriteFactor`: a first-seen long
+  prompt is a cache WRITE) so the bound stays honest; reads bill 0.1x. `usage.cache_discount` is stripped
+  with the other billing fields (non-stream + SSE scrubber). `provider.sort:"price"` rides on the BUDGET
+  tiers only (nano + auto, `priceSort: true`): on the same model sort-by-price can land on a quantized
+  provider - a buyer-visible quality change pro/premium did not buy, and max_price already bounds them.
+  `OPENROUTER_PROVIDER_SORT=off` disables. All four fields live-verified accepted by OpenRouter on
+  Gemini/DeepSeek/OpenAI/Anthropic before shipping.
+  **Reasoning defaults + wire compat (2026-08-19, build #5):** `REASONING_MODELS` (prefix ->
+  supported efforts; live-guarded) + `defaultReasoningFor(model, tier)`: when the buyer sent no
+  `reasoning`/`reasoning_effort`, a default-on/mandatory reasoning link gets `reasoning.effort` =
+  lowest non-"none" effort on nano/auto/base (`reasoningDefault:"lowest"`), "low" on pro, the
+  model default on premium. Measured: gpt-5-nano at max_tokens 64 AND 256 with default/low effort
+  returned `finish_reason:length` + EMPTY content (paid empty answer); minimal answered. Buyer
+  `reasoning` objects are validated (effort set, max_tokens <= tier cap, exclude/enabled bools)
+  and live in the normalized body (cache key); `max_completion_tokens` is honoured as the cap
+  alias. `isEmptyLength` (length + nothing said) walks the chain like an empty refusal (same
+  model's default-tier retry skipped), end-to-end empty -> 502. `response_format` json_schema /
+  json_object adds `provider.require_parameters:true` and, off-stream, `plugins:[{id:
+  "response-healing"}]` (live-verified: accepted, no cost change; buyer `plugins` never pass).
   **zdr knob:** `zdr:true` (or
   `provider.zdr`) is the ONLY buyer-settable provider field — folds into the server-owned
   provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),
@@ -222,6 +289,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   burner via `autoSwap: true` - on-chain tx 0x28db1d76… swapped 1001 PathUSD → 1000 USDC.e
   and delivered 1000 USDC.e to our payTo, 200 + Payment-Receipt. Both canaries keep
   `autoSwap: true`.
+- **SOR widened to dynamic-priced MPP sellers + Bazaar quality (2026-08-19, build #9):**
+  `tempoCatalog` now admits `payment.dynamic` / non-integer-amount tempo/charge USDC.e endpoints
+  (~185 registry endpoints) as candidates with `priceUsd:null, dynamic:true`; `rankTempoResources`
+  ranks them AFTER in-cap fixed-price peers of equal score; `resolveExternalSeller` (server.js)
+  prices a dynamic candidate from its LIVE 402 tempo/charge offer (`liveTempoPriceUsd`, mppx
+  codec) and skips it when over the tier cap or unreadable - never "choose now, learn the price
+  at pay time"; payTempo re-checks the same cap before signing. **Bazaar quality:** the Bazaar
+  feed's per-resource `quality{l30DaysTotalCalls,l30DaysUniquePayers,lastCalledAt}` is folded per
+  origin (calls summed, payers MAX - a seller-level unique count is unknowable from per-resource
+  counts) into `bazaarQualityByOrigin` (x402-index.js; `bazaarQualityFor`/`bazaarQualityEntries`),
+  exposed as `bazaar` on index-snapshot sellers and on /api/find EXTERNAL rows, used as a routeQuery
+  tiebreak after health (more distinct payers first), folded as MAX into the SOR gate's
+  settled/payers evidence (buildSettledByOrigin/buildPayersByOrigin), and shown on the market
+  seller card as "Coinbase Bazaar, last 30 days (their measurement, not ours)". `curated` is NOT
+  ingested: it only appears on curated items in the Bazaar SEARCH endpoint (the bundles endpoint
+  needs auth), so it cannot be bulk-enumerated keylessly. `scripts/test-bazaar-quality.js`,
+  `test-tempo-router.js` (41).
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.
@@ -290,6 +374,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   without creds. Restore = download object, gunzip, replace file, restart.
   `scripts/test-backup.js` (28 assertions, stub S3 + real sqlite, in CI);
   signer proven live against the real bucket 2026-08-05 before first deploy.
+- **Facilitator support report (`GET /__operator/facilitators.json`, 2026-08-19, fix #9):** operator-
+  authed dump of what each configured facilitator client ADVERTISES (`getSupported` kinds → exact
+  networks, extensions) plus `firstTriedFor` (the first client advertising each network = the one
+  @x402 tries first). Built because CDP's facilitator table grew (Polygon, Arbitrum, Solana, World)
+  and CDP is first in `facilitatorClients`, so it may settle chains the boot-log LABELS attribute to
+  PayAI; `/supported` needs a JWT so only the live clients can answer. Read it on prod after a
+  deploy before deciding fee (CDP $0.001/tx after 1k/mo vs PayAI 10k free) vs Bazaar signal.
 - **Well-known store (`src/well-known-store.js`, 2026-08-05):** operator-published
   domain-verification documents served at `/.well-known/<path>` without a redeploy
   (built for Talkshi's 15-minute domain challenge; covers any serve-a-file-to-prove-
@@ -324,7 +415,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `scripts/test-mpp-shim.js` (offline, in CI): real mppx client buys over the
   native wire vs a stub facilitator, single verify+settle, EIP-712 sig checked
   against Base USDC's real domain, x402 pass-through untouched, HMAC
-  tamper/expiry rejected.
+  tamper/expiry rejected. **RFC 9457 failures (2026-08-19, `src/mpp-problem.js`):** a REJECTED MPP
+  credential (evm: malformed / not ours / expired / bad payload; tempo: binding, validate, replay,
+  post-handler settle failure) answers the spec shape - 402 + FRESH challenges + `application/problem+json`
+  `{type: https://paymentauth.org/problems/<kind>, title, status, detail, hint?}` using mppx's own type
+  vocabulary (invalid-challenge, malformed-credential, verification-failed, payment-insufficient,
+  invalid-payload). Fall-through rejections mark the request (`markMppProblem`, patches `res.send` so the
+  paywall's `{}` 402 body becomes the problem doc; non-402 responses untouched); direct ones (tempo replay -
+  was a 409 - and settle failure) use `sendMppProblem`. A bare unpaid 402 stays body-less - only rejections
+  are problems. Pinned on the wire in test-mpp-shim (through the real server) and test-mpp-tempo-shim.
 - **Tempo MPP settlement (`src/mpp-tempo.js`, 2026-08-17):** a SECOND, independent
   MPP path — Tempo (chain 4217, PathUSD `0x20c0…0000`) is MPP's native method, built
   on TIP-20 primitives that are NOT EIP-3009, so it cannot be translated into x402

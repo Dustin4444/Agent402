@@ -231,6 +231,51 @@ export const TOOLS = [
       `expected an OpenAI embeddings list with a real vector, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Anthropic Messages wire on the nano tier (OpenRouter /messages upstream,
+    // any model served through it). A real Anthropic-shaped reply proves the
+    // wire, the tier plumbing and settlement; nonce in the prompt so nothing
+    // upstream can answer from a cache.
+    kit: "llm-messages",
+    path: "/v1/nano/messages",
+    method: "POST",
+    body: { model: "google/gemini-2.5-flash-lite", max_tokens: 32, messages: [{ role: "user", content: `Reply with exactly the word OK. (${EMBED_CANARY_INPUT.slice(-16)})` }] },
+    priceUsd: 0.003,
+    check: (r) =>
+      (r.type === "message" && r.role === "assistant" && Array.isArray(r.content) && r.content.some((b) => b.type === "text" && typeof b.text === "string") &&
+        typeof r.stop_reason === "string" && r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage)) ||
+      `expected an Anthropic Messages reply (type message, content[], usage without cost), got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
+    // OpenAI Responses wire on the nano tier (OpenRouter /responses upstream).
+    // A real Response object (status completed, output[] with output_text,
+    // usage without cost) proves the wire + settlement; nonce in the input.
+    kit: "llm-responses",
+    path: "/v1/nano/responses",
+    method: "POST",
+    body: { model: "openai/gpt-4.1-nano", input: `Reply with exactly the word OK. (${EMBED_CANARY_INPUT.slice(-16)})`, max_output_tokens: 32 },
+    priceUsd: 0.003,
+    check: (r) =>
+      (r.object === "response" && r.status === "completed" && Array.isArray(r.output) && r.output.some((o) => o.type === "message" && Array.isArray(o.content) && o.content.some((c) => c.type === "output_text" && typeof c.text === "string")) &&
+        r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage)) ||
+      `expected an OpenAI Responses object (status completed, output_text, usage without cost), got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
+    // Rerank wire (Cohere shape over OpenRouter /rerank, cohere/rerank-v3.5).
+    // A real relevance ordering (the French capital first) proves the wire,
+    // the locked model and settlement. Cache is default-on, so the query
+    // carries the per-run nonce - a cached hit would be served free and fake
+    // a settle (same doctrine as llm-embed).
+    kit: "llm-rerank",
+    path: "/v1/rerank",
+    method: "POST",
+    body: { query: `What is the capital of France? ${EMBED_CANARY_INPUT.slice(-24)}`, documents: ["Berlin is the capital of Germany.", "Paris is the capital of France.", "Madrid is the capital of Spain."], top_n: 2 },
+    priceUsd: 0.002,
+    check: (r) =>
+      (Array.isArray(r.results) && r.results.length === 2 && r.results[0]?.index === 1 && typeof r.results[0]?.relevance_score === "number" &&
+        r.usage?.search_units === 1 && !("cost" in (r.usage || {}))) ||
+      `expected Cohere-wire results ranking the French capital first with usage.search_units 1 and no cost, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Image generation tier — OpenAI images wire over OpenRouter (Gemini
     // flash-image). A real base64 payload of plausible image size proves the
     // modalities translation, the price-capped provider call, and settlement.

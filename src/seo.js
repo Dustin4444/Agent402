@@ -54,7 +54,7 @@ Disallow: /api/memory
 Disallow: /__operator
 ${costly}
 
-# Machine-readable catalogs for agents: ${baseUrl}/llms.txt , ${baseUrl}/openapi.json , ${baseUrl}/api/pricing , ${baseUrl}/api/cacheable , ${baseUrl}/.well-known/x402 , ${baseUrl}/api/reliability , ${baseUrl}/api/find?q={task} , ${baseUrl}/api/route , ${baseUrl}/api/leaderboard
+# Machine-readable catalogs for agents: ${baseUrl}/SKILL.md , ${baseUrl}/llms.txt , ${baseUrl}/openapi.json , ${baseUrl}/api/pricing , ${baseUrl}/api/cacheable , ${baseUrl}/.well-known/x402 , ${baseUrl}/api/reliability , ${baseUrl}/api/find?q={task} , ${baseUrl}/api/route , ${baseUrl}/api/leaderboard
 Sitemap: ${baseUrl}/sitemap.xml
 Sitemap: ${baseUrl}/sitemapindex.xml
 `;
@@ -73,6 +73,7 @@ export function sitemapXml(baseUrl, catalog) {
     ...Object.keys(CHAIN_PAGES).map((key) => ({ loc: `${baseUrl}/${key}`, priority: "0.8" })),
     { loc: `${baseUrl}/faq`, priority: "0.8" },
     { loc: `${baseUrl}/llms.txt`, priority: "0.8" },
+    { loc: `${baseUrl}/SKILL.md`, priority: "0.8" },
     { loc: `${baseUrl}/openapi.json`, priority: "0.7" },
     { loc: `${baseUrl}/api/pricing`, priority: "0.7" },
     { loc: `${baseUrl}/api/find`, priority: "0.7" },
@@ -319,11 +320,12 @@ Every x402 authorization is single-use, so any retry needs a fresh signature. Se
 
 We state it this way deliberately: the honest guarantee is "settlement ordering makes an error non-chargeable, and here is how to verify it yourself", not "this can never happen". A contract you can check beats one you have to believe.
 
-**MPP clients are first-class (dual-stack), and now a native second method too.** Every paid endpoint also speaks MPP (Machine Payments Protocol, the IETF-track \`Payment\` HTTP auth scheme): the same 402 carries a \`WWW-Authenticate: Payment\` challenge with TWO offers - \`evm\` charge (EIP-3009 USDC, settles on-chain identically to x402) and \`tempo\` charge (native TIP-1034/TIP-20, settled via Tempo's own relay, a genuinely different mechanism). Settled responses return a signed \`Payment-Receipt\` header either way. An \`mppx\` client (\`Fetch.from\` with \`evm.charge\` or \`tempo.charge\`) works out of the box - same URL, same price, whichever method your client speaks.
+**MPP clients are first-class (dual-stack), and now a native second method too.** Every paid endpoint also speaks MPP (Machine Payments Protocol, the IETF-track \`Payment\` HTTP auth scheme): the same 402 carries a \`WWW-Authenticate: Payment\` challenge with TWO offers - \`evm\` charge (EIP-3009 USDC, settles on-chain identically to x402) and \`tempo\` charge (native TIP-1034/TIP-20, settled via Tempo's own relay, a genuinely different mechanism). Settled responses return a signed \`Payment-Receipt\` header either way. An \`mppx\` client (\`Fetch.from\` with \`evm.charge\` or \`tempo.charge\`) works out of the box - same URL, same price, whichever method your client speaks. The hosted MCP connector at \`${baseUrl}/mcp\` pays the same way: a wallet-only tool answers JSON-RPC error -32042 with the challenges, and an MCP client wrapped with mppx's \`McpClient.wrap()\` pays and retries on its own (receipt in \`_meta\`).
 
 **How to read our 402 if you only speak one dialect.** The same response carries BOTH headers, always - \`WWW-Authenticate: Payment\` is additive, never a replacement for the real x402 \`PAYMENT-REQUIRED\` header (full \`accepts\` array, \`exact\` scheme, EIP-3009). A client that hard-fails on an unrecognized \`WWW-Authenticate\` scheme instead of also checking for \`PAYMENT-REQUIRED\` will bail with something like "no supported rail" on a 402 it could have paid - this has happened at least once (see issue #794). If your parser only understands one of the two dialects, check for the header it understands FIRST rather than trusting whichever header happens to be read first; do not treat an unrecognized \`WWW-Authenticate\` scheme as "this server has no payment option for me."
 
 ## Key machine surfaces
+- [/SKILL.md](${baseUrl}/SKILL.md): agent-onboarding skill sheet - setup (MCP server / SDK / plain HTTP), discover, pay (x402, MPP or proof-of-work), read the 402, common issues. Start here if you are setting Agent402 up for the first time
 - [/api/search](${baseUrl}/api/search): **front door** - live web search (title, URL, snippet). Start here to discover pages; follow with extract or answer
 - [/api/answer](${baseUrl}/api/answer): **front door** - cited answer grounded in live web search results
 - [/api/search-news](${baseUrl}/api/search-news): live news search for current events / headlines

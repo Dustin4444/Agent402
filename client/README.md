@@ -69,6 +69,15 @@ const a = new Agent402({ fetch: payFetch });
 const article = await a.call("extract", { url: "https://example.com/article" });
 ```
 
+## Retries never double-charge
+
+Every paid call the SDK makes carries an `Idempotency-Key`, so a retry of a
+call whose response was lost replays the original result instead of paying
+again. If your x402 client attaches the standard `payment-identifier`
+extension to its payloads instead, Agent402 honours that id the same way (an
+exact retry with the same credential replays; a fresh authorization with the
+same id is a new payment).
+
 ## Workflows (skill packs)
 
 For jobs that no single tool covers — e.g. "audit a domain", "build a stock

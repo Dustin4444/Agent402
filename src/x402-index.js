@@ -214,6 +214,30 @@ const discoveryStatus = new Map(); // name -> { url, fetchedAt, resources, origi
 // 404s (the bulk of the unhealthy cohort — they only ever published settled
 // resources, never a manifest). Map<origin, Array<tool>>.
 const bazaarToolsByOrigin = new Map();
+// Per-origin Bazaar `quality` (Coinbase-measured 30-day calls + unique payers,
+// last call time), aggregated from the discovery feed's per-resource objects:
+// calls summed, unique payers MAX across resources (a seller-level unique
+// count is unknowable from per-resource counts; max is the safe lower bound,
+// never a sum that double-counts one wallet across routes). An independent
+// evidence source next to our own on-chain scan: a Base seller Coinbase has
+// watched being paid by N distinct wallets this month is proven for the SOR
+// gate whether or not our scan has caught up, and /api/find can rank on it.
+const bazaarQualityByOrigin = new Map();
+export function bazaarQualityFor(origin) {
+  return bazaarQualityByOrigin.get(String(origin || "").replace(/\/$/, "")) || null;
+}
+export function bazaarQualityEntries() { return [...bazaarQualityByOrigin.entries()]; }
+export function _setBazaarQualityForTest(origin, q) { if (q) bazaarQualityByOrigin.set(origin, q); else bazaarQualityByOrigin.delete(origin); }
+function foldBazaarQuality(map, origin, q) {
+  if (!q || typeof q !== "object") return;
+  const calls = Number(q.l30DaysTotalCalls) || 0, payers = Number(q.l30DaysUniquePayers) || 0;
+  const last = typeof q.lastCalledAt === "string" ? q.lastCalledAt : null;
+  const cur = map.get(origin) || { calls30d: 0, payers30d: 0, lastCalledAt: null };
+  cur.calls30d += calls;
+  cur.payers30d = Math.max(cur.payers30d, payers);
+  if (last && (!cur.lastCalledAt || last > cur.lastCalledAt)) cur.lastCalledAt = last;
+  map.set(origin, cur);
+}
 
 // Public x402 seller registries we crawl. Each exposes an unauthenticated
 // discovery endpoint; we extract unique origins from the listings.
@@ -389,6 +413,7 @@ async function discoverOneSource(source, selfOrigin) {
     // disjoint origins don't clobber each other).
     const synthesize = isBazaarDiscoveryUrl(source.url) || source.synthesizeTools === true;
     const toolsByOrigin = synthesize ? new Map() : null;
+    const qualityByOrigin = toolsByOrigin ? new Map() : null;
     let droppedTestnet = 0, droppedJunk = 0;
     for (const item of list) {
       const url = item.resource || item.resourceUrl || item.url || item.endpoint || item.homepage;
@@ -408,11 +433,13 @@ async function discoverOneSource(source, selfOrigin) {
           arr.push(t);
           toolsByOrigin.set(origin, arr);
         }
+        if (qualityByOrigin && item.quality) foldBazaarQuality(qualityByOrigin, origin, item.quality);
       }
     }
     if (toolsByOrigin) {
       // Atomic swap-in (per-origin) to avoid stale partial state mid-update.
       for (const [o, arr] of toolsByOrigin) bazaarToolsByOrigin.set(o, arr);
+      if (qualityByOrigin) for (const [o, q] of qualityByOrigin) bazaarQualityByOrigin.set(o, q);
     }
     // Small niche-chain registries (GoPlausible's AVM feed) seed a bazaar-
     // fallback cache entry IMMEDIATELY, so their sellers appear the moment we
@@ -620,6 +647,10 @@ export function bazaarItemToTool(item, originUrl) {
         .map((a) => [a.network, a.payTo])
     ),
     provenance: "bazaar",
+    // Coinbase-measured 30-day usage of THIS resource (null when absent).
+    quality: item.quality && typeof item.quality === "object"
+      ? { calls30d: Number(item.quality.l30DaysTotalCalls) || 0, payers30d: Number(item.quality.l30DaysUniquePayers) || 0, lastCalledAt: typeof item.quality.lastCalledAt === "string" ? item.quality.lastCalledAt : null }
+      : null,
   };
 }
 
@@ -2580,6 +2611,9 @@ export function indexSnapshot({ baseUrl, catalog, prices, network, toolCount, wa
     mpp: v.paywall?.mpp ?? null,
     history: Array.isArray(v.history) ? v.history.slice() : [],
     source: v.source || (v.manifest && !v.manifest.synthesized ? "manifest" : null),
+    // Coinbase-measured 30-day usage from the Bazaar feed (calls, distinct
+    // payers, last call) - null when the Bazaar does not list this origin.
+    bazaar: bazaarQualityFor(origin),
     // Union of the chains this seller's crawled 402s advertise. Manifest-
     // sourced crawls carry no accepts, so also union the Bazaar's view of the
     // same origin — a seller with its own manifest AND Stellar accepts on the
@@ -2832,6 +2866,11 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
   scored.sort((a, b) => {
     if (b[0] !== a[0]) return b[0] - a[0];
     if (b[1].health !== a[1].health) return b[1].health - a[1].health;
+    // Coinbase-measured 30-day unique payers (Bazaar quality): a seller more
+    // wallets actually paid this month ranks ahead of an equally-matched,
+    // equally-healthy one nobody has. Local rows carry none (equal).
+    const qa = bazaarQualityFor(a[1].seller)?.payers30d || 0, qb = bazaarQualityFor(b[1].seller)?.payers30d || 0;
+    if (qb !== qa) return qb - qa;
     const pa = priceRank(a[1].price);
     const pb = priceRank(b[1].price);
     if (pa !== pb) return pa - pb;
@@ -2908,6 +2947,10 @@ export function routeQuery({ query, top, include, networkFilter, baseUrl, catalo
       // A buyer that intends to pay should prefer "x402"; a buyer that just
       // wants the capability can use either.
       payable: payabilityOf(t),
+      // Coinbase-measured 30-day usage of this seller on the Bazaar (calls,
+      // distinct payers, last call) - absent for our own rows and for sellers
+      // the Bazaar does not list. A third-party measurement, shown as such.
+      ...(external && bazaarQualityFor(t.seller) ? { bazaar: bazaarQualityFor(t.seller) } : {}),
       // The deciding factors, in the order the sort applies them, so a seller
       // who loses a routing decision can fix the actual reason.
       //

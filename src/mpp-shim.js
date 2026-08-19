@@ -33,6 +33,7 @@
 // codec primitives here — its request-guard/settlement path is deliberately
 // NOT mounted (double-settle risk vs @x402/express).
 import { Challenge, Credential, PaymentRequest, Receipt, x402, evm } from "mppx";
+import { mppProblem, markMppProblem } from "./mpp-problem.js";
 import { RAILS } from "./rails.js";
 
 /** Replay of the paywall's own header names (see @x402/core http). */
@@ -115,15 +116,22 @@ export function createMppShim({ secretKey, realm }) {
       !req.headers[PAYMENT_SIGNATURE_HEADER] &&
       !req.headers["x-payment"]
     ) {
-      const paymentSignature = translateCredential(auth, { secretKey });
-      if (paymentSignature) {
-        req.headers[PAYMENT_SIGNATURE_HEADER] = paymentSignature;
+      const t = translateCredentialDetailed(auth, { secretKey });
+      if (t.paymentSignature) {
+        req.headers[PAYMENT_SIGNATURE_HEADER] = t.paymentSignature;
         // The scheme is consumed; leaving it would only invite double-reads.
         delete req.headers.authorization;
         req.mppCredential = true;
+      } else if (t.reject && t.reject.kind !== "method-unsupported") {
+        // Invalid evm credential: fall through untranslated - the paywall
+        // re-issues a 402 whose outbound hook below mints fresh MPP
+        // challenges - and that 402's body becomes RFC 9457 problem+json
+        // naming WHY (spec shape; mppx's own server does the same).
+        // "method-unsupported" here means "not evm/charge" - most likely a
+        // tempo credential the tempo gate (mounted after us) will judge, so
+        // we leave the verdict to it.
+        markMppProblem(req, res, mppProblem(t.reject.kind, t.reject.detail));
       }
-      // Invalid credential: fall through untranslated — the paywall re-issues
-      // a 402 whose outbound hook below mints fresh MPP challenges.
     }
 
     // ---- OUTBOUND: append WWW-Authenticate on 402s, Payment-Receipt on 200s ----
@@ -219,18 +227,26 @@ export function challengeHeaderFromPaymentRequired(paymentRequiredHeader, { secr
  * @returns {string|null}
  */
 export function translateCredential(authorizationHeader, { secretKey }) {
+  return translateCredentialDetailed(authorizationHeader, { secretKey }).paymentSignature || null;
+}
+
+/** Same as translateCredential but says WHY it refused, as an RFC 9457 kind
+ *  + buyer-safe detail: {paymentSignature} on success, {reject:{kind,detail}}
+ *  otherwise. Exported for the shim test. */
+export function translateCredentialDetailed(authorizationHeader, { secretKey }) {
+  const reject = (kind, detail) => ({ reject: { kind, detail } });
   let credential;
   try {
     credential = Credential.deserialize(authorizationHeader);
   } catch {
-    return null;
+    return reject("malformed-credential", "Credential is malformed: the Authorization: Payment value does not decode.");
   }
   const challenge = credential.challenge;
-  if (challenge.method !== "evm" || challenge.intent !== "charge") return null;
+  if (challenge.method !== "evm" || challenge.intent !== "charge") return reject("method-unsupported", `Challenge method ${JSON.stringify(challenge.method)}/${JSON.stringify(challenge.intent)} is not evm/charge.`);
   // HMAC binding (spec: servers MUST bind ids to challenge params). This also
   // proves the echoed accepts entry in meta is ours and untampered.
-  if (!Challenge.verify(challenge, { secretKey })) return null;
-  if (challenge.expires && Date.parse(challenge.expires) < Date.now()) return null;
+  if (!Challenge.verify(challenge, { secretKey })) return reject("invalid-challenge", `Challenge "${challenge.id}" is invalid: not issued by this server or tampered.`);
+  if (challenge.expires && Date.parse(challenge.expires) < Date.now()) return reject("invalid-challenge", `Challenge "${challenge.id}" is invalid: expired at ${challenge.expires}. Request the resource again for a fresh challenge.`);
   // Deserialized challenges keep the wire-shaped `opaque` (base64url JCS)
   // rather than a decoded `meta` — accept either.
   let meta = challenge.meta;
@@ -238,28 +254,30 @@ export function translateCredential(authorizationHeader, { secretKey }) {
     try {
       meta = PaymentRequest.deserialize(challenge.opaque);
     } catch {
-      return null;
+      return reject("invalid-challenge", `Challenge "${challenge.id}" is invalid: opaque data does not decode.`);
     }
   }
   const acceptedJson = meta?.[META_ACCEPTS_KEY];
-  if (!acceptedJson) return null;
+  if (!acceptedJson) return reject("invalid-challenge", `Challenge "${challenge.id}" is invalid: missing the x402 accepts binding.`);
   let accepted;
   try {
     accepted = JSON.parse(acceptedJson);
   } catch {
-    return null;
+    return reject("invalid-challenge", `Challenge "${challenge.id}" is invalid: accepts binding is not JSON.`);
   }
   const payload = evm.AuthorizationPayloadSchema.safeParse(credential.payload);
-  if (!payload.success) return null;
+  if (!payload.success) return reject("invalid-payload", "Credential payload does not match the evm/charge schema (from, to, value, validAfter, validBefore, nonce, signature).");
   const { from, to, value, validAfter, validBefore, nonce, signature } = payload.data;
-  return x402.Header.encodePaymentSignature({
-    x402Version: 2,
-    accepted,
-    payload: {
-      authorization: { from, to, value, validAfter, validBefore, nonce },
-      signature,
-    },
-  });
+  return {
+    paymentSignature: x402.Header.encodePaymentSignature({
+      x402Version: 2,
+      accepted,
+      payload: {
+        authorization: { from, to, value, validAfter, validBefore, nonce },
+        signature,
+      },
+    }),
+  };
 }
 
 /**
