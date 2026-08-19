@@ -93,10 +93,26 @@ child = spawn(process.execPath, [join(ROOT, "tollbooth/index.js")], {
   stdio: ["ignore", "pipe", "pipe"],
 });
 let cliLog = "";
+let childExit = null;
 child.stdout.on("data", (d) => { cliLog += d; }); child.stderr.on("data", (d) => { cliLog += d; });
+child.on("exit", (code, signal) => { childExit = { code, signal }; });
 const B = `http://127.0.0.1:${PORT}`;
-for (let i = 0; i < 100; i++) { try { await fetch(`${B}/__tollbooth/stats`); break; } catch { await new Promise((r) => setTimeout(r, 100)); } }
+// Readiness is judged by an ANSWERED request, and an exhausted wait FAILS with
+// evidence: the child's exit status and its full log. On 2026-08-19 a CI run
+// died here with a bare `fetch failed ... ECONNREFUSED` two lines after the
+// banner had been logged, and nothing recorded whether the child had exited,
+// how, or what it printed - one occurrence, no mechanism. A test that can fail
+// without evidence cannot be fixed; this one now names the child's fate.
+let ready = false;
+const deadline = Date.now() + 30_000;
+while (Date.now() < deadline && !childExit) {
+  try { await fetch(`${B}/__tollbooth/stats`); ready = true; break; } catch { await new Promise((r) => setTimeout(r, 100)); }
+}
+const childState = () => `child ${childExit ? `EXITED code=${childExit.code} signal=${childExit.signal}` : `alive pid=${child.pid}`}; log:\n${cliLog.trim() || "(empty)"}`;
+ok(ready, `CLI answered /__tollbooth/stats on :${PORT} within 30s (${childState()})`);
 ok(/x402 \+ MPP \(USDC, settling via/.test(cliLog), `boot banner says it settles both wires (log: ${cliLog.trim().split("\n").pop()})`);
+// Any later network failure against the CLI reports the child's fate too.
+process.on("unhandledRejection", (e) => { fail(`unhandled: ${e?.message || e} (${childState()})`); });
 
 const r402 = await fetch(`${B}/page`);
 ok(r402.status === 402, "unpaid GET -> 402");

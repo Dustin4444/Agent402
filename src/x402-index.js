@@ -2146,6 +2146,15 @@ export function persistIndexCache(file = INDEX_CACHE_FILE) {
         error: null,
         source: v.source ?? null,
         history: Array.isArray(v.history) ? v.history.slice(-10) : [],
+        // The paywall probe result rides too - it carries the live MPP
+        // dual-stack flag (`paywall.mpp`) that seeds the MPP index via
+        // mppDualStackOrigins(). Probes are budgeted (PAYWALL_PROBES_PER_CYCLE
+        // per 5-min crawl across ~2,200 origins, ~7h for one full pass), so a
+        // memory-only result was wiped by every deploy and the MPP seed read
+        // ZERO origins after each boot (measured live 2026-08-19: two crawl
+        // cycles after a deploy, `discoveryX402Crawl.origins: 0`). The probe
+        // has its own `at` timestamp; staleness stays the reader's call.
+        paywall: v.paywall ?? null,
       }]);
     }
     if (!out.length) return false;
