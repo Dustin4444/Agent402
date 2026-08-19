@@ -114,7 +114,7 @@ const METERED_SLUGS = new Set([
   "wallet-balance", "token-metadata", "token-price", "wallet-transactions",
   "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call",
   "dex-pair", "dex-pool", "dex-quote",
-  "nft-collection", "nft-floor", "nft-sales",
+  "nft-collection", "nft-floor",
   "l2-gas-comparison",
   // CDP (Coinbase Developer Platform keys)
   "wallet-balances", "testnet-fund", "onramp-link", "onchain-sql", "onchain-sql-schema",

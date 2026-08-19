@@ -191,7 +191,7 @@ export const WALLET_ONLY_SLUGS = new Set([
   // NFT-market-kit: Alchemy NFT API v3 (shares ALCHEMY_API_KEY + compute-unit
   // pool with chain-kit / dex-kit / mev-and-l2-kit). 3 net-new market-side
   // tools that complement chain-kit's existing nft-holdings + nft-metadata.
-  "nft-collection", "nft-floor", "nft-sales",
+  "nft-collection", "nft-floor",
   // Weather-kit: all 5 tools fetch from Open-Meteo (keyless, per-IP rate limit).
   "weather-current", "weather-daily", "weather-hourly", "weather-history", "weather-air-quality",
   // Geo-kit: all 3 tools fetch from Nominatim (shared per-IP rate limit).

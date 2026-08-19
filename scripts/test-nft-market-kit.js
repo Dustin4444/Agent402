@@ -14,9 +14,9 @@ const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail+
 // ----------------------------------------------------------------------------
 // Catalog envelope
 // ----------------------------------------------------------------------------
-ok(NFT_MARKET_TOOLS.length === 3, `3 tools exported (got ${NFT_MARKET_TOOLS.length})`);
+ok(NFT_MARKET_TOOLS.length === 2, `2 tools exported (got ${NFT_MARKET_TOOLS.length}); nft-sales retired 2026-08-19 (Alchemy getNFTSales removal)`);
 
-const expectedSlugs = ["nft-collection", "nft-floor", "nft-sales"];
+const expectedSlugs = ["nft-collection", "nft-floor"];
 for (const slug of expectedSlugs) {
   ok(!!NFT_MARKET_TOOLS.find((t) => t.slug === slug), `slug present: ${slug}`);
 }
@@ -91,11 +91,6 @@ await throws(h("nft-collection")({ contract: "0x" + "a".repeat(40), network: "so
 await throws(h("nft-floor")({}), 400, "nft-floor: missing contract");
 await throws(h("nft-floor")({ contract: "not-an-address" }), 400, "nft-floor: bad contract");
 
-// nft-sales
-await throws(h("nft-sales")({}), 400, "nft-sales: missing contract");
-await throws(h("nft-sales")({ contract: "not-an-address" }), 400, "nft-sales: bad contract");
-await throws(h("nft-sales")({ contract: "0x" + "a".repeat(40), tokenId: "bad" }), 400, "nft-sales: bad tokenId");
-
 // ----------------------------------------------------------------------------
 // 503 path — Alchemy not configured (verifies the gate)
 // ----------------------------------------------------------------------------
@@ -104,7 +99,6 @@ delete process.env.ALCHEMY_API_KEY;
 
 await throws(h("nft-collection")({ contract: "0x" + "a".repeat(40) }), 503, "nft-collection: 503 without ALCHEMY_API_KEY");
 await throws(h("nft-floor")({ contract: "0x" + "a".repeat(40) }), 503, "nft-floor: 503 without ALCHEMY_API_KEY");
-await throws(h("nft-sales")({ contract: "0x" + "a".repeat(40) }), 503, "nft-sales: 503 without ALCHEMY_API_KEY");
 
 if (savedKey) process.env.ALCHEMY_API_KEY = savedKey;
 
@@ -121,8 +115,6 @@ if (process.env.NFT_LIVE_TEST === "1" && process.env.ALCHEMY_API_KEY) {
     const fl = await h("nft-floor")({ contract: BAYC });
     ok(fl.openSea && typeof fl.openSea.available === "boolean", `live nft-floor: BAYC floor query returned`);
 
-    const sa = await h("nft-sales")({ contract: BAYC, limit: 3 });
-    ok(typeof sa.count === "number", `live nft-sales: BAYC sales count=${sa.count}`);
   } catch (e) {
     console.error(`LIVE ERR: ${e.message}`);
     fail++;
