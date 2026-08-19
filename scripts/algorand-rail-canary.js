@@ -53,6 +53,8 @@ import { createHmac } from "node:crypto";
 // from the server's own definition of an identity-bound route.
 import { isIdentityBoundRoute } from "../src/payments.js";
 
+import { FAST_REJECT_MS, isThrottle, isUpstreamOutage, outcomeOf } from "./avm-canary-classify.js";
+
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
 const AVM_CAIP2_PREFIX = "algorand:";
 
@@ -84,8 +86,6 @@ const DELAY_MS = Number(process.env.CANARY_DELAY_MS || "1000");
 // skim. So a throttle gets ONE retry after a real pause, and only a throttle
 // that survives that is reported - as its own class, not as a broken tool.
 const THROTTLE_BACKOFF_MS = Number(process.env.CANARY_THROTTLE_BACKOFF_MS || "8000");
-const isThrottle = (status, body) =>
-  status === 429 || (status === 503 && /rate.?limit|throttl|too many|overload/i.test(String(body || "")));
 // A genuine settlement rejection means the facilitator actually attempted (and
 // failed) an on-chain broadcast - real Algorand round trips through this
 // script measured 5s+. A 402 that comes back in under this window never
@@ -94,7 +94,7 @@ const isThrottle = (status, body) =>
 // this was found from). Threshold sits well above the ~85ms observed fast
 // rejections and well below genuine ~5s settlements, so it can't misclassify
 // a real slow rejection as a throttle.
-const FAST_REJECT_MS = Number(process.env.CANARY_FAST_REJECT_MS || "1500");
+
 const ONLY = String(arg("--slugs", process.env.CANARY_SLUGS || "")).split(",").map((s) => s.trim()).filter(Boolean);
 const DRY = process.env.CANARY_DRY === "1" || args.includes("--dry");
 
@@ -174,7 +174,7 @@ console.log(`catalog: ${tools.length} routes · dry=${DRY} · total cap $${MAX_U
 // skipped     over the per-tool price cap, or the total cap was reached
 const report = {
   target: TARGET, payer: payerAddress, dry: DRY,
-  ok: [], railFail: [], rateLimited: [], toolFail: [], throttled: [], noAvm: [], skipped: [],
+  ok: [], railFail: [], rateLimited: [], toolFail: [], throttled: [], upstreamFail: [], noAvm: [], skipped: [],
   spentUsd: 0, startedAt: new Date().toISOString(),
 };
 let processed = 0;
@@ -259,7 +259,25 @@ for (const t of tools) {
     });
   };
 
-  try {
+  // One buy = up to TWO fresh attempts. Every attempt SIGNS AGAIN (an AVM
+  // authorization is single-use, and a >=400 cancels settlement, so a retried
+  // payment costs nothing unless it succeeds). This sweep makes ~500 sequential
+  // paid buys over ~55 min; on the way, three NON-defects each fail the whole
+  // weekly gate if judged on first sight (measured across runs 2026-08-19):
+  //   - an edge 502 "upstream error" (Railway swapping a container mid-sweep;
+  //     it hits pure-CPU tools like xml-validate too, which have no upstream);
+  //   - a THIRD-PARTY upstream 5xx/timeout (Blockscout/GLEIF/OpenRouter, or a
+  //     router "Seller rejected the paid retry") - their outage, buyer NOT
+  //     charged (>=400 cancels settlement);
+  //   - a 409 "authorization already used": two equal-priced AVM buys inside
+  //     one ~50-min validity window can sign to the same txid, so the second
+  //     trips the replay guard. A fresh signature in a later round is a new
+  //     txid, so the retry clears it.
+  // So: classify only what SURVIVES a fresh retry, and a persistent third-party
+  // outage is reported but does NOT fail the run (same posture as the external
+  // buyer - "a failed third-party buy never pages"). A persistent failure from
+  // OUR OWN handler still fails the run.
+  const attempt = async () => {
     const startedMs = Date.now();
     const paid = await payOnce();
     const elapsedMs = Date.now() - startedMs;
@@ -267,75 +285,60 @@ for (const t of tools) {
     let tx = null;
     if (receiptHdr) { try { tx = JSON.parse(Buffer.from(receiptHdr, "base64").toString("utf8")).transaction; } catch { /* best-effort */ } }
     const body = await paid.text().catch(() => "");
-
-    if (paid.status === 402 && elapsedMs < FAST_REJECT_MS) {
-      // Too fast to have reached the chain (see FAST_REJECT_MS) - the same
-      // "our own burst, not a defect" shape as isThrottle() below, just
-      // surfacing as a plain 402 instead of 429/503 for this facilitator.
-      // One retry after a real pause; a rejection that SURVIVES the pause AND
-      // is still fast is the rate limit, not a coincidence.
-      console.log(`WAIT ${key.padEnd(46)} HTTP 402 in ${elapsedMs}ms (too fast to be a real settlement attempt) - retrying in ${THROTTLE_BACKOFF_MS}ms`);
+    return { status: paid.status, body, tx, elapsedMs };
+  };
+  try {
+    let a = await attempt();
+    let out = outcomeOf(a);
+    let retried = false;
+    // Anything that is not a clean settled payload gets ONE fresh retry after a
+    // real pause. fast-402/throttle already meant "our own burst"; slow-402 and
+    // other non-200s get the same benefit of the doubt - a rail/edge/upstream
+    // blip mid-sweep must not fail a weekly gate on first sight. Only a problem
+    // that SURVIVES the retry is real.
+    if (out !== "ok") {
+      const why = out === "fast-402" ? `HTTP 402 in ${a.elapsedMs}ms (too fast to be a settlement)`
+        : out === "throttle" ? `HTTP ${a.status} (upstream throttle)`
+          : out === "slow-402" ? `HTTP 402 after ${a.elapsedMs}ms`
+            : out === "empty" ? "settled 200 with an empty body"
+              : `HTTP ${a.status}: ${a.body.slice(0, 100)}`;
+      console.log(`WAIT ${key.padEnd(46)} ${why} - retrying in ${THROTTLE_BACKOFF_MS}ms`);
       await sleep(THROTTLE_BACKOFF_MS);
-      const retryStartedMs = Date.now();
-      let retried = null, retryBody = "", retryElapsedMs = 0;
-      try {
-        retried = await payOnce();
-        retryElapsedMs = Date.now() - retryStartedMs;
-        retryBody = await retried.text();
-      } catch (e) { retryBody = String(e?.message || e); }
-      if (retried && retried.status === 200 && retryBody.trim()) {
-        report.ok.push({ key, slug: t.slug, usd, tx: tx || null, bytes: retryBody.length, throttledFirst: true });
-        report.spentUsd += usd;
-        console.log(`OK   ${key.padEnd(46)} $${usd} · recovered after rate-limit backoff  [${report.ok.length}]`);
-      } else if (retried && retried.status === 402 && retryElapsedMs < FAST_REJECT_MS) {
-        report.rateLimited.push({ key, slug: t.slug, reason: `HTTP 402 in ${retryElapsedMs}ms, still too fast after ${THROTTLE_BACKOFF_MS}ms backoff` });
-        console.log(`RATE-LIMITED ${key.padEnd(36)} still fast-rejected after backoff`);
-      } else {
-        // The retry took real time (or a different status), so this is not
-        // the fast-reject throttle shape after all - treat as a genuine
-        // rail defect rather than silently swallowing it.
-        report.railFail.push({ key, slug: t.slug, usd, reason: `settlement rejected: HTTP ${retried?.status ?? paid.status} after ${THROTTLE_BACKOFF_MS}ms backoff (${retryElapsedMs}ms): ${String(retryBody).slice(0, 140)}` });
-      }
-    } else if (paid.status === 402) {
-      // Took real time (>= FAST_REJECT_MS), so the facilitator actually
-      // attempted and failed a genuine settlement - the rail itself
-      // (facilitator, accept, validity window, opt-in) is broken.
-      report.railFail.push({ key, slug: t.slug, usd, reason: `settlement rejected after ${elapsedMs}ms: ${body.slice(0, 160)}` });
-    } else if (isThrottle(paid.status, body)) {
-      // Upstream said "slow down", almost certainly at us: this sweep buys
-      // every tool back to back and hits one vendor repeatedly. Pause properly
-      // and buy again ONCE. A >=400 cancelled settlement, so the first attempt
-      // charged nothing and the retry is a fresh payment that only costs money
-      // if it succeeds.
-      console.log(`WAIT ${key.padEnd(46)} HTTP ${paid.status} (upstream throttle) - retrying in ${THROTTLE_BACKOFF_MS}ms`);
-      await sleep(THROTTLE_BACKOFF_MS);
-      let retried = null, retryBody = "";
-      try {
-        retried = await payOnce();
-        retryBody = await retried.text();
-      } catch (e) { retryBody = String(e?.message || e); }
-      if (retried && retried.status === 200 && retryBody.trim()) {
-        report.ok.push({ key, slug: t.slug, usd, tx: tx || null, bytes: retryBody.length, throttledFirst: true });
-        report.spentUsd += usd;
-        console.log(`OK   ${key.padEnd(46)} $${usd} · recovered after throttle  [${report.ok.length}]`);
-      } else {
-        // Survived a real pause, so it is not just our burst. Reported as its
-        // own class: the handler is fine, the vendor is refusing us.
-        report.throttled.push({ key, slug: t.slug, reason: `HTTP ${retried?.status ?? paid.status} after ${THROTTLE_BACKOFF_MS}ms backoff: ${String(retryBody).slice(0, 140)}` });
-        console.log(`THROTTLED ${key.padEnd(40)} still limited after backoff`);
-      }
-    } else if (paid.status !== 200) {
-      // A >=400 cancels settlement (see the ordering note in CLAUDE.md), so we
-      // were NOT charged — the tool is broken, the rail is fine.
-      report.toolFail.push({ key, slug: t.slug, reason: `HTTP ${paid.status}: ${body.slice(0, 160)}` });
-    } else if (!body.trim()) {
-      report.toolFail.push({ key, slug: t.slug, reason: "settled 200 with an empty body" });
-    } else {
-      report.ok.push({ key, slug: t.slug, usd, tx: tx || null, bytes: body.length });
-      report.spentUsd += usd;
-      console.log(`OK   ${key.padEnd(46)} $${usd}${tx ? ` · tx ${tx.slice(0, 10)}…` : " · (no receipt header)"}  [${report.ok.length}]`);
+      a = await attempt();
+      out = outcomeOf(a);
+      retried = true;
     }
-    if (paid.status !== 200) console.log(`FAIL ${key.padEnd(46)} HTTP ${paid.status}`);
+
+    if (out === "ok") {
+      report.ok.push({ key, slug: t.slug, usd, tx: a.tx || null, bytes: a.body.length, ...(retried ? { recovered: true } : {}) });
+      report.spentUsd += usd;
+      console.log(`OK   ${key.padEnd(46)} $${usd}${a.tx ? ` · tx ${a.tx.slice(0, 10)}…` : " · (no receipt header)"}${retried ? " · recovered on retry" : ""}  [${report.ok.length}]`);
+    } else if (out === "fast-402" || out === "throttle") {
+      // Survived a real pause and is STILL the fast/throttle shape -> the
+      // facilitator is rate-limiting THIS wallet's volume, not a rail defect.
+      report.throttled.push({ key, slug: t.slug, reason: `HTTP ${a.status} after ${THROTTLE_BACKOFF_MS}ms backoff: ${String(a.body).slice(0, 120)}` });
+      console.log(`THROTTLED ${key.padEnd(40)} still limited after backoff`);
+    } else if (out === "slow-402") {
+      // Took real time (>= FAST_REJECT_MS) TWICE, so the facilitator genuinely
+      // attempted and refused settlement - the rail (facilitator, accept,
+      // validity window, opt-in) is the fault.
+      report.railFail.push({ key, slug: t.slug, usd, reason: `settlement rejected after ${a.elapsedMs}ms, twice: ${a.body.slice(0, 140) || "(empty body)"}` });
+      console.log(`FAIL ${key.padEnd(46)} HTTP 402 (settlement refused, twice)`);
+    } else if (out === "empty") {
+      report.toolFail.push({ key, slug: t.slug, reason: "settled 200 with an empty body, twice" });
+      console.log(`FAIL ${key.padEnd(46)} 200 empty body (twice)`);
+    } else if (isUpstreamOutage(a.status, a.body)) {
+      // Persistent third-party / edge failure: their outage, not our defect,
+      // and a >=400 cancelled settlement so the buyer was never charged.
+      // Reported, does NOT fail the run.
+      report.upstreamFail.push({ key, slug: t.slug, reason: `HTTP ${a.status}: ${a.body.slice(0, 140)}` });
+      console.log(`UPSTREAM ${key.padEnd(41)} HTTP ${a.status} (third-party/edge, not charged, twice)`);
+    } else {
+      // A >=400 cancels settlement (see the ordering note in CLAUDE.md), so we
+      // were NOT charged - our own handler is the fault, the rail is fine.
+      report.toolFail.push({ key, slug: t.slug, reason: `HTTP ${a.status}: ${a.body.slice(0, 160)} (twice)` });
+      console.log(`FAIL ${key.padEnd(46)} HTTP ${a.status} (twice)`);
+    }
   } catch (e) { report.toolFail.push({ key, slug: t.slug, reason: `pay: ${String(e.message).slice(0, 160)}` }); }
 
   processed++;
@@ -348,7 +351,7 @@ const unexpectedNoAvm = report.noAvm.filter((n) => !n.expected);
 
 console.log(`\n=== Algorand rail canary ===`);
 const recovered = report.ok.filter((o) => o.throttledFirst).length;
-console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · rate-limited: ${report.rateLimited.length} · tool failures: ${report.toolFail.length} · upstream throttles: ${report.throttled.length}${recovered ? ` (${recovered} recovered on retry)` : ""}`);
+console.log(`settled+payload: ${report.ok.length} · rail failures: ${report.railFail.length} · rate-limited: ${report.rateLimited.length} · tool failures: ${report.toolFail.length} · upstream throttles: ${report.throttled.length} · third-party outages: ${report.upstreamFail.length}${recovered ? ` (${recovered} recovered on retry)` : ""}`);
 console.log(`no AVM accept: ${report.noAvm.length} (${report.noAvm.length - unexpectedNoAvm.length} expected identity-bound, ${unexpectedNoAvm.length} unexpected) · skipped: ${report.skipped.length}`);
 console.log(`spent (recycles to our own payTo): $${report.spentUsd.toFixed(4)}${capped ? "  [TOTAL CAP REACHED]" : ""}`);
 
@@ -373,6 +376,10 @@ if (report.throttled.length) {
   console.log(`  NOTE: this sweep buys every tool back to back, which no real buyer does.`);
   console.log(`  Raise CANARY_DELAY_MS or CANARY_THROTTLE_BACKOFF_MS if this recurs.`);
 }
+if (report.upstreamFail.length) {
+  console.log(`\nTHIRD-PARTY / EDGE OUTAGES (persisted through a fresh retry; buyer NOT charged - their outage or an edge blip, not our rail/tool defect, so these do NOT fail the run):`);
+  for (const f of report.upstreamFail) console.log(`  ${f.key} — ${f.reason}`);
+}
 if (unexpectedNoAvm.length) {
   console.log(`\nUNEXPECTED: these tools offer no algorand accept and are not identity-bound:`);
   for (const n of unexpectedNoAvm) console.log(`  ${n.key} (${n.slug})`);
@@ -394,6 +401,10 @@ if (OUT) { writeFileSync(OUT, JSON.stringify(report, null, 2)); console.log(`\nw
 // because the next real failure lands in a report people have learned to skim.
 // They are still printed, and a throttle that survives a real backoff is worth
 // reading - it just does not page.
+// Third-party/edge outages (report.upstreamFail) are deliberately excluded:
+// they persisted through a fresh retry but the buyer was never charged and the
+// fault is a vendor or the edge, not our rail or handler - same doctrine as the
+// external buyer. They are printed above so a spike is still visible.
 const bad = report.railFail.length + report.toolFail.length + unexpectedNoAvm.length;
 if (bad) { console.error(`\nFAIL: ${bad} problem(s) on the Algorand rail.`); process.exit(1); }
 console.log(`\nPASS: every attempted tool settled on Algorand and returned a payload.`);

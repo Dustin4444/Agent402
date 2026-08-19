@@ -1009,11 +1009,25 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   weekly Mon ~06:41 UTC + dispatch):** buys EVERY catalog tool on Algorand and asserts
   402 → sign → settle → 200 → non-empty payload. Fills the gap between paid-canary (ONE
   Algorand leg) and challenge-sweep (skips already-registered, so it re-verifies nothing).
-  Failures are classified **rail** (paid, still got a 402 = settlement refused), **tool**
-  (settled path fine, handler didn't deliver; a ≥400 cancels settlement so nobody was
-  charged), and **unexpected-missing-accept** (a non-identity-bound tool stopped
-  advertising `algorand:*`). All three fail the run and open/close ONE issue, heartbeat
-  style — no tolerance thresholds, each class is a real defect. Identity-bound routes are
+  **Every non-clean buy gets ONE fresh-signed retry before it is classified (2026-08-19):**
+  a >=400 cancels settlement so a retry costs nothing unless it succeeds, and this sweep
+  makes ~500 sequential paid buys over ~55 min, so three NON-defects otherwise fail the whole
+  weekly gate on first sight — an edge `502 "upstream error"` (Railway swapping a container
+  mid-sweep; it hits pure-CPU tools like `xml-validate` too), a THIRD-PARTY upstream 5xx/timeout
+  (Blockscout/GLEIF/OpenRouter, or a router `"Seller rejected the paid retry"`), and a
+  `409 "authorization already used"` (two equal-priced AVM buys inside one ~50-min validity
+  window can sign to the same txid; a fresh signature in a later round is a new txid). Only what
+  SURVIVES the retry is classified: **rail** (paid, still a slow 402 = settlement refused), **tool**
+  (settled path fine, our own handler didn't deliver; a ≥400 cancels settlement so nobody was
+  charged), **unexpected-missing-accept** (a non-identity-bound tool stopped advertising
+  `algorand:*`) — these three FAIL the run — plus **upstream** (a persistent third-party/edge
+  outage: reported prominently, buyer never charged, **does NOT fail the run**, same doctrine as
+  the external buyer) and **throttle**/**rate-limited** (our own burst). The pure classifiers
+  (`outcomeOf`, `isUpstreamOutage`, `isThrottle`) live in `scripts/avm-canary-classify.js`
+  (side-effect-free so they unit-test without booting the sweep) and are pinned by
+  `scripts/test-algorand-canary-classify.js` (21, in CI). One issue, heartbeat style; a passing
+  run auto-closes it. Before this, ANY blip over 500 buys kept the issue permanently open
+  (#806). Identity-bound routes are
   excluded via `isIdentityBoundRoute` **imported from `src/payments.js`**, never a local
   pattern, so it can't drift from the server (a `^memory` heuristic missed `my-usage`).
   Self-buys recycle to our payTo; true cost = txn fees + per-tool upstream spend, hence
