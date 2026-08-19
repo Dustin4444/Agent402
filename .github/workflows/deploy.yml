@@ -1738,7 +1738,7 @@ jobs:
           E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
 
       - name: Tollbooth tests (pay-per-crawl gate — node + edge/Web-Crypto)
-        run: node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js
+        run: node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js && node tollbooth/tempo.test.js
 
       - name: Tollbooth atomic replay + origin binding (F05/F18 — Durable Object single-use claim + PoW origin/method binding — offline)
         run: node scripts/test-tollbooth-replay.js
@@ -2294,7 +2294,7 @@ jobs:
 
       - name: Gate agent402-tollbooth (tests run with NO npm token in env)
         run: |
-          node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js   # gate: node + edge + feature/security assertions must pass before shipping
+          node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js && node tollbooth/tempo.test.js   # gate: node + edge + feature/security + tempo assertions must pass before shipping
 
       - name: Publish agent402-tollbooth to npm
         run: |

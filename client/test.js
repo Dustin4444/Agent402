@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { Agent402, withNetworkPreference, NETWORK_CAIP2 } from "./index.js";
+import { Agent402, withNetworkPreference, withPayeeAllowlist, NETWORK_CAIP2 } from "./index.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PORT = 3081;
@@ -37,6 +37,25 @@ let pass = 0; const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); 
   const untouched = { createPaymentPayload: (pr) => pr.accepts.length };
   withNetworkPreference(untouched, []);
   ok(untouched.createPaymentPayload({ accepts }) === 2, "empty preference leaves the client untouched");
+}
+
+// Offline: withPayeeAllowlist refuses a 402 whose payTo is not allowlisted -
+// the buyer-side "who gets paid" control (filters accepts before any signature).
+{
+  const calls = [];
+  const fake = { createPaymentPayload: async (pr) => { calls.push(pr); return { ok: true }; } };
+  withPayeeAllowlist(fake, ["0xABCDEF0000000000000000000000000000000001"]);
+  await fake.createPaymentPayload({ accepts: [
+    { network: "eip155:8453", payTo: "0xabcdef0000000000000000000000000000000001" },
+    { network: "eip155:8453", payTo: "0x9999999999999999999999999999999999999999" },
+  ] });
+  if (calls.length !== 1 || calls[0].accepts.length !== 1 || calls[0].accepts[0].payTo !== "0xabcdef0000000000000000000000000000000001") { console.error("FAIL: withPayeeAllowlist should keep only the allowlisted payee (case-insensitive 0x)"); process.exit(1); }
+  let refused = null;
+  try { await fake.createPaymentPayload({ accepts: [{ network: "eip155:8453", payTo: "0x9999999999999999999999999999999999999999" }] }); } catch (e) { refused = e; }
+  if (!refused || !/payee allowlist refused/.test(refused.message)) { console.error("FAIL: withPayeeAllowlist must refuse a quote with no allowlisted payee"); process.exit(1); }
+  let empty = null; try { withPayeeAllowlist({ createPaymentPayload: async () => {} }, []); } catch (e) { empty = e; }
+  if (!empty) { console.error("FAIL: withPayeeAllowlist with no payees must throw"); process.exit(1); }
+  console.log("ok - withPayeeAllowlist filters accepts to allowlisted payees and refuses otherwise");
 }
 // Offline: buyer spending caps refuse to overpay BEFORE signing (defends the
 // x402 "wallet drain via uncapped spending" failure mode). No server needed —

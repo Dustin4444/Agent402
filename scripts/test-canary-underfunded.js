@@ -101,6 +101,15 @@ check("chain sweep: an unreadable balance is reported, never low", () => {
   assert.deepEqual(r.unreadable, ["monad"]);
   assert.equal(r.low.length, 0);
 });
+check("chain sweep: a per-chain lowWater override pages Tempo at $0.40 while Monad at $0.40 is fine (100 buys/day runway)", () => {
+  const r = chainLowWaterReport([
+    { key: "tempo-pathusd", label: "Tempo (PathUSD)", usd: 0.4, lowWater: 0.5 },
+    { key: "monad", label: "Monad", usd: 0.4 },
+  ], { chainLowWater: 0.05 });
+  assert.equal(r.low.length, 1);
+  assert.equal(r.low[0].key, "tempo-pathusd");
+  assert.equal(r.low[0].lowWater, 0.5);
+});
 check("chain sweep: a balance exactly at the threshold is not low", () => {
   const r = chainLowWaterReport([{ key: "celo", label: "Celo", usd: 0.05 }], { chainLowWater: 0.05 });
   assert.equal(r.low.length, 0);

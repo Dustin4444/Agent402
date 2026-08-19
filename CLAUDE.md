@@ -107,6 +107,19 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 ## Notable features (current)
 - **Idempotency:** opt-in `Idempotency-Key` header; cache key = `sha256(METHOD /path + key + gate-credential)`. **x402 `payment-identifier` (2026-08-19):** declared on every route's 402 (`declarePaymentIdentifierExtension(false)`, payments.js) and honoured as an ALIAS of the header (`paymentIdentifierOf(req)` in payer.js, header wins) under the SAME binding rules - exact credential + route + body - never a cross-authorization dedupe (the id is client-chosen text on a payload unverified at that point in the chain). Pinned in test-mpp-shim (declared on the 402; exact retry replays with one settle; same id on a new credential settles again). **Settlement-aware (FR4-01):** the body is captured at `res.json` but COMMITTED to the cache only on `res.on("finish")` when the FINAL `statusCode === 200` — i.e. after `@x402/express` has settled — so an unsettled 200 (settlement-failure → 402) is never cached/replayed. No-op without the header; streamed responses are never replayable. `scripts/test-idempotency-settlement.js`.
 - **Tollbooth:** charge modes (`bots`/`all`/`strict`), adaptive PoW, analytics (`gate.stats()` + `/__tollbooth/stats` + `/__tollbooth` dashboard), deploy templates (Cloudflare/Next.js/Docker). Defaults preserve original behavior.
+  **0.9.0 (2026-08-19, build #13): native MPP on TEMPO + split payments.** `createTollbooth({ tempo: { apiKey,
+  recipient, currency|currencies, splits:[{recipient, amount}], chainId, apiBaseUrl } })` (env
+  `TOLLBOOTH_TEMPO_API_KEY`/`_RECIPIENT`/`_CURRENCY`/`_SPLITS`) - `tollbooth/tempo.js`, dependency-free like
+  mpp.js: mints tempo/charge challenges with the same HMAC id binding (mppx Challenge.verify agrees), wire
+  request byte-for-byte mppx's schema output (base-units amount, NO decimals, `methodDetails.chainId`,
+  `methodDetails.splits` in base units, ≤10, total < price - a bad split never mints), speaks Tempo's relay
+  over plain fetch (`/v1/mpp/validate` before the handler, `/v1/mpp/broadcast` after a <400 response with
+  `idempotency-key`, `tempo-api-key` header), buffers the handler's response (writeHead/write/end/
+  flushHeaders) exactly like the main app's tempo gate, replays with `Payment-Receipt` +
+  `X-Tollbooth-Paid: mpp-tempo`, counts `tempoPaid`; refused credentials get the gate 402 + fresh
+  challenges + RFC 9457 `problem`; single-use via the operator's `replayStore` (`tempo:<id>`) or an
+  in-process map; works with NO x402 middleware (Tempo-only tollbooths). `tollbooth/tempo.test.js` (31,
+  in CI). NOT yet published to npm (needs `[publish]`).
   **0.7.0 (2026-08-18): `x402:` middleware mode + MPP.** `createTollbooth({ x402: paymentMiddleware })` delegates paid requests to the operator's @x402/express middleware with the REAL response (verify -> handler -> settle in its own order), lifts its PAYMENT-REQUIRED onto the gate's 402 (stock x402 v2 clients can pay), and - default on - mints `WWW-Authenticate: Payment` evm/charge challenges from it and translates `Authorization: Payment` -> PAYMENT-SIGNATURE (`tollbooth/mpp.js`, dependency-free codec, HMAC id binding compatible with mppx's `Challenge.verify`), mirroring `Payment-Receipt` on settle. **`x402VerifierFromExpress` is deprecated: with @x402/express v2 (settle AFTER handler) it granted on verify and never settled - served, never charged - because it handed the middleware a stub response the real handler never ended; measured in `scripts/test-tollbooth-mpp.js` (32 assertions: real @x402/express + stub facilitator, real mppx client buys, real @x402/fetch buys, settle counted once each, tampered credential, PoW-first).** Edge gate: PoW + legacy verify only for now.
 - **Buyer SDK (`agent402-client`):** `find()` + `call()` with auto-payment (PoW free / x402 paid), caching, idempotent retries, non-custodial.
 - **LLM gateway (`src/tools/llm-gateway-kit.js`, OpenAI wire paths):** five tiers —
@@ -151,8 +164,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   usage billing stripped non-stream, and the stream's NESTED `response.usage` scrubbed - the shared
   SSE scrubber now strips `obj.usage`, `obj.response.usage` and `obj.message.usage` (the top-level-only
   scrub would have leaked cost on every streamed Responses call). Telemetry `<tier>:responses`; canary
-  `llm-responses` leg; `scripts/test-llm-responses.js` (26). The grounded web-search tier is the only
-  part of build #12 still NOT built),
+  `llm-responses` leg; `scripts/test-llm-responses.js` (26)),
+  plus the **grounded tier** (build #12 part 4 — `POST /v1/grounded/chat/completions` `$0.03`,
+  `v1-chat-grounded`: the auto router + OpenRouter's `web` plugin (Exa, `max_results` 5) on every
+  call, answers carry OpenAI-wire `annotations` url_citation; search is billed per REQUEST on top of
+  tokens (measured: Exa auto $0.007 in `usage.cost`, ~700 injected prompt tokens/result) so the
+  tier carries `fixedUpstreamUsd: 0.007` + `extraInputTokens: 4500`, both folded into
+  `worstCaseUpstreamCost`/`clampToMargin` (largest call on the priciest ranked model ≈ $0.015 vs the
+  $0.021 bound); `noCache: true` (promptCacheKey null, no deferred write - the web moves); web +
+  response-healing plugins merge; `:online` stays refused everywhere else (this tier is the
+  sanctioned home); listed LAST in TIERS so tierFor() keeps resolving explicit models to their
+  home tiers; canary `llm-grounded` leg. Build #12 is COMPLETE: rerank, Messages, Responses,
+  grounded),
   plus **`/v1/images/generations` `$0.08`** (`v1-images` — OpenAI images wire translated
   to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
   n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →
@@ -459,7 +482,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `scripts/test-mpp-tempo-relay-errors.js`. Live proof = `tempo-canary.yml`
   (dispatch, `scripts/tempo-canary-verify.js`, EVM canary burner funded with 2
   PathUSD on Tempo mainnet — checked on-chain 2026-08-18, never trust the comment) plus a
-  daily `mpp-tempo` leg in paid-canary. `scripts/test-mpp-tempo-shim.js` (offline, in
+  daily `mpp-tempo` leg in paid-canary - which since 2026-08-19 is a VOLUME leg: after the first
+  graded settle it buys the same $0.001 route `TEMPO_CANARY_TX_COUNT` times in total (default 100,
+  ~$0.10/day from the PathUSD burner via autoSwap; Mike's call - real on-chain Tempo volume for the
+  leaderboard window, the proven-seller gate and Tempo's attribution feed). Volume failures never
+  change the rail verdict; <80% success warns loudly; 10 straight failures stop the loop. The
+  per-chain funding sweep gained `tempo-pathusd` (low-water $0.50 ≈ 5 days) + `tempo-usdce` rows
+  (per-entry `lowWater` override in `chainLowWaterReport`). Burner 0x902d…8256 held 1.99 PathUSD on
+  2026-08-19; top up with PathUSD or USDC.e (USDC.e skips the swap) when "CANARY BURNER LOW" names Tempo. `scripts/test-mpp-tempo-shim.js` (offline, in
   CI) proves challenge wiring + settlement ordering with injected stubs.
 - **MPP index seeds (2026-08-19):** two discovery sources - the mpp.dev registry (141 rows, 99
   bare-origin) and **MPPScan's tRPC `servers.list`** (`timeframeDays:0` = all-time, 200/page,

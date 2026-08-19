@@ -19,12 +19,14 @@ import { createPow } from "./pow.js";
 import { makeBotMatcher, AI_BOTS } from "./bots.js";
 import { memorySink } from "./sinks.js";
 import { challengesFromPaymentRequired, translateCredential, receiptFromPaymentResponse, isMppCredential, DEFAULT_MPP_CHAIN_IDS } from "./mpp.js";
+import { tempoConfig, mintTempoChallenges, parseTempoCredential, checkTempoBinding, tempoRelay, relayInput, broadcastIdempotencyKey, tempoReceiptHeader, tempoProblem } from "./tempo.js";
 
 export { AI_BOTS, makeBotMatcher } from "./bots.js";
 export { createPow, leadingZeroBits } from "./pow.js";
 export { memorySink, kvStatsSink, httpStatsSink } from "./sinks.js";
 export { sqliteReplayStore, redisReplayStore } from "./replay.js";
 export { challengesFromPaymentRequired, translateCredential, receiptFromPaymentResponse, DEFAULT_MPP_CHAIN_IDS } from "./mpp.js";
+export { tempoConfig, mintTempoChallenges, parseTempoCredential, checkTempoBinding, tempoRelay, toBaseUnits, TEMPO_USDC_E, TEMPO_PATHUSD, TEMPO_MAINNET_CHAIN_ID } from "./tempo.js";
 
 const VERIFY_TIMEOUT_MS = Number(process.env.TOLLBOOTH_VERIFY_TIMEOUT_MS) || 10_000;
 
@@ -127,6 +129,24 @@ const STRIP_INBOUND = new Set([
  * @param {boolean} [config.observe]           observe-only: classify, count, never 402 (deploy a week before enforcing)
  * @param {object} [config.statsSink]          pluggable durable-stats sink (default: in-memory). See sinks.js.
  */
+/** Tempo config from env (null when TOLLBOOTH_TEMPO_API_KEY is unset). */
+export function tempoFromEnv(env = process.env) {
+  const apiKey = (env.TOLLBOOTH_TEMPO_API_KEY || "").trim();
+  if (!apiKey) return null;
+  const recipient = (env.TOLLBOOTH_TEMPO_RECIPIENT || env.TOLLBOOTH_PAYTO || "").trim();
+  const currencies = (env.TOLLBOOTH_TEMPO_CURRENCY || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const splits = (env.TOLLBOOTH_TEMPO_SPLITS || "").split(",").map((s) => s.trim()).filter(Boolean).map((pair) => {
+    const [recipient, amount] = pair.split(":").map((x) => x.trim());
+    return { recipient, amount };
+  });
+  return {
+    apiKey, recipient,
+    ...(currencies.length ? { currencies } : {}),
+    ...(splits.length ? { splits } : {}),
+    ...(env.TOLLBOOTH_TEMPO_API_BASE ? { apiBaseUrl: env.TOLLBOOTH_TEMPO_API_BASE } : {}),
+  };
+}
+
 export function createTollbooth(config = {}) {
   const {
     price = process.env.TOLLBOOTH_PRICE || "$0.001",
@@ -162,6 +182,13 @@ export function createTollbooth(config = {}) {
     mppNetworks = process.env.TOLLBOOTH_MPP_NETWORKS
       ? (process.env.TOLLBOOTH_MPP_NETWORKS.trim().toLowerCase() === "all" ? "all" : process.env.TOLLBOOTH_MPP_NETWORKS.split(",").map((s) => Number(s.trim())).filter(Number.isInteger))
       : DEFAULT_MPP_CHAIN_IDS,
+    // Native MPP on Tempo (0.9.0): { apiKey, recipient, currency|currencies,
+    // splits: [{recipient, amount}], decimals, chainId, apiBaseUrl }. Settles
+    // through Tempo's relay, independent of `x402` - a tollbooth can charge in
+    // USDC.e on Tempo with no x402 facilitator at all. From env:
+    // TOLLBOOTH_TEMPO_API_KEY + TOLLBOOTH_TEMPO_RECIPIENT (+ TOLLBOOTH_TEMPO_CURRENCY,
+    // TOLLBOOTH_TEMPO_SPLITS="0xabc:0.0002,0xdef:0.0001").
+    tempo = config.tempo !== undefined ? config.tempo : tempoFromEnv(process.env),
     resourceBaseUrl = process.env.TOLLBOOTH_RESOURCE_BASE || "",
     // Adaptive proof-of-work: raise difficulty as charged-request load climbs, so
     // high-volume abuse pays escalating CPU regardless of how it disguises itself.
@@ -193,6 +220,25 @@ export function createTollbooth(config = {}) {
   if (mppOn && !(mppSecret || powSecret || process.env.TOLLBOOTH_MPP_SECRET || process.env.TOLLBOOTH_SECRET)) {
     console.warn("[agent402-tollbooth] MPP enabled with a per-process random secret - set TOLLBOOTH_SECRET (or mppSecret) for multi-worker deploys.");
   }
+  const tempoCfg = tempo ? tempoConfig(tempo) : null; // throws on a bad config - never boot a gate that mints unpayable challenges
+  const tempoKey = tempoCfg
+    ? (mppKey || String(mppSecret || powSecret || process.env.TOLLBOOTH_MPP_SECRET || process.env.TOLLBOOTH_SECRET || randomBytes(32).toString("hex")))
+    : null;
+  if (tempoCfg && !mppKey && !(mppSecret || powSecret || process.env.TOLLBOOTH_MPP_SECRET || process.env.TOLLBOOTH_SECRET)) {
+    console.warn("[agent402-tollbooth] Tempo enabled with a per-process random secret - set TOLLBOOTH_SECRET (or mppSecret) for multi-worker deploys.");
+  }
+  const tempoRelayClient = tempoCfg ? tempoRelay(tempoCfg) : null;
+  // Single-use record for tempo credentials (challenge id), sharing the
+  // operator's replayStore when given (same atomic `claim` contract as PoW).
+  const tempoSeen = new Map(); // id -> expiresAt (in-process fallback)
+  const tempoClaim = async (id, expiresAtMs) => {
+    if (replayStore && typeof replayStore.claim === "function") return replayStore.claim(`tempo:${id}`, expiresAtMs);
+    const now = Date.now();
+    for (const [k, exp] of tempoSeen) if (exp <= now) tempoSeen.delete(k);
+    if (tempoSeen.has(id)) return false;
+    tempoSeen.set(id, expiresAtMs);
+    return true;
+  };
 
   // Passive analytics — never affects request handling, just counts what happens.
   // `mem` is an always-on in-process mirror so `.stats()` stays synchronous for
@@ -279,8 +325,78 @@ export function createTollbooth(config = {}) {
         ...extra,
       };
       if (powEngine) body.proofOfWork = powEngine.challenge(powResource, difficultyNow());
+      // Native Tempo challenge(s) on every 402, next to whatever evm challenges
+      // the x402 rail lifted - a stock mppx client pays whichever it speaks.
+      if (tempoCfg) {
+        const tempoWww = mintTempoChallenges({ price, realm: mppRealm(req), secretKey: tempoKey, tempo: tempoCfg });
+        if (tempoWww) headers = { ...headers, "WWW-Authenticate": [headers["WWW-Authenticate"], tempoWww].filter(Boolean).join(", ") };
+      }
       for (const [k, v] of Object.entries(headers)) { if (v != null && v !== "") res.setHeader(k, v); }
       res.status(402).json(body);
+    };
+
+    // Native Tempo rail: validate with the relay BEFORE the handler, buffer
+    // the handler's response, broadcast ONLY after a <400 response (the same
+    // settle-after-handler discipline @x402/express enforces), then replay
+    // the buffered response with a Payment-Receipt. A refused credential gets
+    // the gate's 402 with fresh challenges plus an RFC 9457 `problem`.
+    const tempoRail = async (cred) => {
+      const reject = (kind, detail) => { res.setHeader("X-Tollbooth-Error", `tempo-${kind}`); return send402({ problem: tempoProblem(kind, detail) }); };
+      const binding = checkTempoBinding(cred, { secretKey: tempoKey, realm: mppRealm(req), price, tempo: tempoCfg });
+      if (!binding.ok) return reject(/below this route's price/.test(binding.reason) ? "payment-insufficient" : "invalid-challenge", `Challenge is invalid: ${binding.reason}. Request the resource again for a fresh challenge.`);
+      let claimed;
+      try { claimed = await tempoClaim(cred.challenge.id, Date.parse(cred.challenge.expires) || Date.now() + 300_000); } catch { claimed = false; }
+      if (!claimed) return reject("invalid-challenge", "Challenge is invalid: this credential was already used or is in flight. Request the resource again for a fresh challenge.");
+      const input = relayInput(cred);
+      const v = await tempoRelayClient.validate(input).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+      if (!v.ok) return reject("verification-failed", `Payment verification failed: ${String(v.error || "the Tempo relay rejected the credential").slice(0, 200)}.`);
+      // Buffer the handler's response (writeHead/write/end/flushHeaders) -
+      // Node's real 'finish' never fires while end is buffered, so the sync
+      // primitive is a promise resolved inside the buffered end.
+      const originalWriteHead = res.writeHead.bind(res);
+      const originalWrite = res.write.bind(res);
+      const originalEnd = res.end.bind(res);
+      const originalFlushHeaders = typeof res.flushHeaders === "function" ? res.flushHeaders.bind(res) : null;
+      let buffered = [];
+      let settled = false;
+      let endCalled;
+      const endPromise = new Promise((resolve) => { endCalled = resolve; });
+      const restore = () => {
+        settled = true;
+        res.writeHead = originalWriteHead; res.write = originalWrite; res.end = originalEnd;
+        if (originalFlushHeaders) res.flushHeaders = originalFlushHeaders;
+      };
+      res.writeHead = (...a) => { if (!settled) { buffered.push(["writeHead", a]); return res; } return originalWriteHead(...a); };
+      res.write = (...a) => { if (!settled) { buffered.push(["write", a]); return true; } return originalWrite(...a); };
+      res.end = (...a) => { if (!settled) { buffered.push(["end", a]); endCalled(); return res; } return originalEnd(...a); };
+      if (originalFlushHeaders) res.flushHeaders = () => { if (!settled) { buffered.push(["flushHeaders", []]); return; } return originalFlushHeaders(); };
+      const replay = () => {
+        for (const [fn, a] of buffered) {
+          if (fn === "writeHead") originalWriteHead(...a);
+          else if (fn === "write") originalWrite(...a);
+          else if (fn === "flushHeaders") { if (originalFlushHeaders) originalFlushHeaders(); }
+          else originalEnd(...a);
+        }
+        buffered = [];
+      };
+      try { next(); } catch (err) { restore(); return next(err); }
+      await endPromise;
+      if (res.statusCode >= 400) { restore(); replay(); return; } // handler failed: never broadcast, nobody charged
+      const b = await tempoRelayClient.broadcast(input, { idempotencyKey: broadcastIdempotencyKey(input) }).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+      if (!b.ok) {
+        // Broadcast failed AFTER a successful handler: discard the body, 402
+        // (mirrors @x402/express's settle-failure path). Loud - this is the
+        // one path that can be our latency rather than the relay's verdict.
+        console.warn(`[agent402-tollbooth] tempo broadcast failed after a successful handler (${req.method} ${req.url}) - answered 402, not charged: ${b.error}`);
+        buffered = [];
+        restore();
+        return reject("verification-failed", `Payment verification failed: Tempo settlement was not accepted (${String(b.error || "no relay detail").slice(0, 200)}).`);
+      }
+      incr("tempoPaid");
+      restore();
+      res.setHeader("Payment-Receipt", tempoReceiptHeader(b.receipt));
+      res.setHeader("X-Tollbooth-Paid", "mpp-tempo");
+      replay();
     };
 
     // Paid rail, middleware mode: delegate to the operator's x402 middleware
@@ -403,6 +519,10 @@ export function createTollbooth(config = {}) {
     // either directly or after the free rail declined, so it lives in a function
     // the (possibly async) proof-of-work branch can hand control back to.
     const paidRail = () => {
+      if (tempoCfg) {
+        const cred = parseTempoCredential(req.headers.authorization);
+        if (cred) return tempoRail(cred);
+      }
       if (x402) return middlewareRail();
       const payHeader = req.headers["x-payment"] || req.headers["payment-signature"];
       if (payTo && typeof verifyX402 === "function" && payHeader) {

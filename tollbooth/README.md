@@ -222,6 +222,40 @@ for custom verifiers you wrote yourself, and now warns once at construction;
 everyone else should pass the middleware as `x402:` above. `verifyX402` still
 receives `opts.signal` (aborted on `TOLLBOOTH_VERIFY_TIMEOUT_MS`).
 
+## Native MPP on Tempo (0.9.0)
+
+Tollbooth can charge crawlers in USDC.e **natively on Tempo** - MPP's own
+payment method - with no x402 facilitator at all, and (optionally) split every
+payment with a platform fee in the same on-chain transaction:
+
+```js
+app.use(createTollbooth({
+  price: "$0.001",
+  tempo: {
+    apiKey: process.env.TEMPO_API_KEY,        // Tempo API key with the mpp:write scope
+    recipient: "0xYourTempoPayTo",
+    // currency: defaults to USDC.e on Tempo mainnet; currencies: [...] to offer more than one
+    splits: [{ recipient: "0xPlatform", amount: "0.0002" }], // optional, up to 10, total < price
+  },
+}));
+```
+
+Or from env on the CLI: `TOLLBOOTH_TEMPO_API_KEY`, `TOLLBOOTH_TEMPO_RECIPIENT`
+(defaults to `TOLLBOOTH_PAYTO`), optional `TOLLBOOTH_TEMPO_CURRENCY`,
+`TOLLBOOTH_TEMPO_SPLITS="0xabc:0.0002,0xdef:0.0001"`.
+
+Every 402 then carries a `WWW-Authenticate: Payment` tempo/charge challenge
+(next to any evm challenges from the x402 rail, if you run both); a stock
+`mppx` client with `tempo.charge({ account })` pays it. The gate validates the
+credential with Tempo's relay BEFORE your handler runs, buffers the response,
+and broadcasts ONLY after a successful (<400) response - the same
+settle-after-handler discipline as the x402 rail - then replays the response
+with a `Payment-Receipt` header and `X-Tollbooth-Paid: mpp-tempo`. A refused
+credential gets a 402 with fresh challenges and an RFC 9457 `problem` in the
+body. Challenges are HMAC-bound to your `TOLLBOOTH_SECRET`; each credential is
+single-use (share a `replayStore` across workers). No new dependency: the
+relay is spoken to over plain `fetch`.
+
 ## Configuration
 
 | Option | Default | What |
