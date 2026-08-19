@@ -63,7 +63,7 @@ import { installEgressMeter, egressReport } from "./egress-meter.js";
 import { acpFeed, acpManifest } from "./acp.js";
 import { findTools, findRelatedSellers } from "./find.js";
 import { recordWish, getWishesAggregate, annotateServed } from "./wish.js";
-import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories } from "./x402-index.js";
+import { indexSnapshot, sellerDetail, routableSellerSummaries, routeQuery, startCrawler, validateOriginInput, registerOrigin, allIndexedTools, indexedToolCategories, bazaarQualityEntries } from "./x402-index.js";
 import { startMppCrawler, registerMppOrigin, validateOriginInput as validateMppOriginInput, mppIndexSnapshot } from "./mpp-index.js";
 import { startMppLeaderboard, mppLeaderboardSnapshot } from "./mpp-leaderboard.js";
 import { tempoSelfRecipient } from "./mpp-tempo.js";
@@ -733,6 +733,10 @@ function buildPayersByOrigin() {
       if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, n));
     }
   }
+  // Coinbase-measured 30-day distinct payers from the Bazaar feed (x402-index
+  // bazaarQualityEntries): an independent observer of the same settlements,
+  // folded as a MAX - positive evidence only, never lowers ours.
+  for (const [o, q] of bazaarQualityEntries()) if (q?.payers30d > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, q.payers30d));
   try {
     const econ = economySnapshotCached();
     if (econ?.topMerchants?.length) {
@@ -765,6 +769,8 @@ function buildSettledByOrigin() {
       if (o) m.set(norm(o), Math.max(m.get(norm(o)) || 0, row.callsSettled || 0));
     }
   }
+  // Bazaar 30-day settled calls (Coinbase-measured) - same MAX fold as payers.
+  for (const [o, q] of bazaarQualityEntries()) if (q?.calls30d > 0) m.set(norm(o), Math.max(m.get(norm(o)) || 0, q.calls30d));
   // Third source, and the only one that does not depend on a registry listing
   // us a seller: join each CRAWLED origin's advertised Base payTo against the
   // merchants we ourselves observed settling on-chain. The two sources above
@@ -807,7 +813,11 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
       .slice(0, 5)
       .map((r) => ({
         seller: r.origin, slug: r.path.replace(/^\//, ""), url: r.url, method: r.method,
-        price: `$${r.priceUsd}`, priceUsd: r.priceUsd, networks: r.networks, wire: "mpp", settled: r.settled,
+        // Dynamic-priced sellers carry no price here: the live-probe loop
+        // below reads it from the real tempo/charge challenge and drops the
+        // candidate when it exceeds the cap.
+        price: r.dynamic ? null : `$${r.priceUsd}`, priceUsd: r.dynamic ? null : r.priceUsd, dynamic: !!r.dynamic,
+        networks: r.networks, wire: "mpp", settled: r.settled,
       }));
   } else if (chain === "algorand") {
     // Algorand sellers live in the GoPlausible facilitator catalog, not our
@@ -857,6 +867,20 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
         signal: AbortSignal.timeout(6000),
       });
       live = probe.status === 402;
+      if (live && r.dynamic) {
+        // Dynamic-priced MPP seller: the price exists only on the live 402.
+        // Read the tempo/charge USDC.e amount from its challenge; over the cap
+        // (or unreadable) = not a candidate for THIS tier - never "choose now,
+        // discover the price at pay time".
+        const { liveTempoPriceUsd } = await import("./tempo-sellers.js");
+        const liveUsd = await liveTempoPriceUsd(probe.headers.get("www-authenticate"));
+        if (!(liveUsd > 0 && liveUsd <= cap)) {
+          console.log(`[sor] skipping dynamic-priced ${r.seller}${r.url.replace(/^https?:\/\/[^/]+/, "")}: live tempo/charge price ${liveUsd ? `$${liveUsd}` : "unreadable"} vs cap $${cap}`);
+          live = false;
+        } else {
+          r.price = `$${liveUsd}`; r.priceUsd = liveUsd;
+        }
+      }
       if (live) {
         // The address that EARNED proven-ness must be the address being paid.
         // Otherwise a seller can build trust on one wallet's settlement history

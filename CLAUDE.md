@@ -245,6 +245,23 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   burner via `autoSwap: true` - on-chain tx 0x28db1d76… swapped 1001 PathUSD → 1000 USDC.e
   and delivered 1000 USDC.e to our payTo, 200 + Payment-Receipt. Both canaries keep
   `autoSwap: true`.
+- **SOR widened to dynamic-priced MPP sellers + Bazaar quality (2026-08-19, build #9):**
+  `tempoCatalog` now admits `payment.dynamic` / non-integer-amount tempo/charge USDC.e endpoints
+  (~185 registry endpoints) as candidates with `priceUsd:null, dynamic:true`; `rankTempoResources`
+  ranks them AFTER in-cap fixed-price peers of equal score; `resolveExternalSeller` (server.js)
+  prices a dynamic candidate from its LIVE 402 tempo/charge offer (`liveTempoPriceUsd`, mppx
+  codec) and skips it when over the tier cap or unreadable - never "choose now, learn the price
+  at pay time"; payTempo re-checks the same cap before signing. **Bazaar quality:** the Bazaar
+  feed's per-resource `quality{l30DaysTotalCalls,l30DaysUniquePayers,lastCalledAt}` is folded per
+  origin (calls summed, payers MAX - a seller-level unique count is unknowable from per-resource
+  counts) into `bazaarQualityByOrigin` (x402-index.js; `bazaarQualityFor`/`bazaarQualityEntries`),
+  exposed as `bazaar` on index-snapshot sellers and on /api/find EXTERNAL rows, used as a routeQuery
+  tiebreak after health (more distinct payers first), folded as MAX into the SOR gate's
+  settled/payers evidence (buildSettledByOrigin/buildPayersByOrigin), and shown on the market
+  seller card as "Coinbase Bazaar, last 30 days (their measurement, not ours)". `curated` is NOT
+  ingested: it only appears on curated items in the Bazaar SEARCH endpoint (the bundles endpoint
+  needs auth), so it cannot be bulk-enumerated keylessly. `scripts/test-bazaar-quality.js`,
+  `test-tempo-router.js` (41).
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

@@ -819,6 +819,9 @@ jobs:
       - name: Bazaar validate client (catalog method travels, required vs advisory, 429 backoff, unreadable never valid - offline)
         run: node scripts/test-bazaar-validate.js
 
+      - name: Bazaar quality ingestion (30d calls/payers on index sellers + /api/find external rows + ranking tiebreak - offline)
+        run: node scripts/test-bazaar-quality.js
+
       - name: Manifest resources[] dedup (a tool registered under 2 HTTP methods lists its URL once, not twice)
         run: node scripts/test-manifest-resources-dedup.js
 
