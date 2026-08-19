@@ -31,6 +31,20 @@ import { validateOriginInput, isMppChallenge } from "./x402-index.js";
 export { validateOriginInput };
 
 const MPP_DISCOVERY_URL = process.env.MPP_DISCOVERY_URL || "https://mpp.dev/api/services";
+// Second seed source (2026-08-19): MPPScan, the public MPP registry that
+// aggregates sellers by origin (mpp.dev's own docs point sellers there for
+// self-registration). It has no JSON API we could find; its server-rendered
+// page embeds the origin list it renders, so we read that. Seeds only - every
+// origin still has to pass OUR live probe before it is listed. Measured at
+// launch: 223 origins there vs 99 usable from the mpp.dev registry.
+const MPPSCAN_DISCOVERY_URL = process.env.MPPSCAN_DISCOVERY_URL || "https://www.mppscan.com/";
+// The MPP discovery format (mpp.dev/protocol/discovery): a seller's
+// /openapi.json carries `x-payment-info` on paid operations. For origins the
+// mpp.dev registry does not describe (MPPScan-only seeds, self-serve entries
+// without a hint), that document is where a real priced path comes from, so
+// the probe hits a paywalled endpoint instead of the bare root.
+const MAX_DISCOVERY_DOC_BYTES = 2 * 1024 * 1024;
+const DISCOVERY_DOC_TTL_MS = 60 * 60 * 1000;
 const MPP_CRAWL_INTERVAL_MS = 5 * 60 * 1000; // 5 min - same politeness as the x402 crawler
 const MPP_DISCOVERY_INTERVAL_MS = 60 * 60 * 1000; // 1 hr - registries don't change fast
 const MPP_CRAWL_CONCURRENCY = 10; // ~150 known services total; no need for x402's 25
@@ -157,6 +171,79 @@ const registryByOrigin = new Map();
 let discoveryStatus = { url: MPP_DISCOVERY_URL, fetchedAt: null, services: 0, added: 0, error: null };
 export function mppDiscoveryStatus() { return discoveryStatus; }
 
+/** Pull the origin list MPPScan renders server-side. Pure; exported for tests.
+ *  Tolerates both the raw HTML (JSON is escaped inside a script payload) and
+ *  an already-unescaped body. Only https origins that pass validateOriginInput
+ *  come back, de-duplicated. */
+export function parseMppScanOrigins(html) {
+  const text = String(html || "").replace(/\\"/g, '"');
+  const out = new Set();
+  const re = /"originUrls":\s*\[((?:"https?:\/\/[^"]+"\s*,?\s*)+)\]/g;
+  let m;
+  while ((m = re.exec(text))) {
+    for (const u of m[1].match(/"https?:\/\/[^"]+"/g) || []) {
+      const v = validateOriginInput(u.slice(1, -1));
+      if (!v.error) out.add(v.origin);
+    }
+  }
+  return [...out];
+}
+
+let mppScanStatus = { url: MPPSCAN_DISCOVERY_URL, fetchedAt: null, origins: 0, added: 0, error: null };
+export function mppScanDiscoveryStatus() { return mppScanStatus; }
+const seedSource = new Map(); // origin -> "registry" | "mppscan" | "submitted"
+
+/** Fetch MPPScan's page and add its origins as seeds. Never throws. */
+export async function discoverMppScan() {
+  try {
+    const { html } = await safeFetch(MPPSCAN_DISCOVERY_URL, { maxBytes: MAX_REGISTRY_BYTES, headers: { Accept: "text/html" } });
+    const origins = parseMppScanOrigins(html);
+    let added = 0;
+    for (const o of origins) {
+      if (!discoveredSeeds.has(o)) { added++; if (!seedSource.has(o)) seedSource.set(o, "mppscan"); }
+      discoveredSeeds.add(o);
+    }
+    mppScanStatus = { url: MPPSCAN_DISCOVERY_URL, fetchedAt: Date.now(), origins: origins.length, added, error: origins.length ? null : "no originUrls found on the page (layout changed?)" };
+  } catch (e) {
+    mppScanStatus = { url: MPPSCAN_DISCOVERY_URL, fetchedAt: Date.now(), origins: 0, added: 0, error: String(e?.message || e).slice(0, 200) };
+  }
+  return mppScanStatus;
+}
+
+/** From an MPP discovery document (OpenAPI 3.1 with x-payment-info), pick a
+ *  paid operation to probe: prefer GET, then POST; the path must be a plain
+ *  path (no templates). Pure; exported for tests. Returns null when nothing
+ *  priced is declared. */
+export function probeTargetFromDiscovery(doc) {
+  const paths = doc && typeof doc === "object" && doc.paths && typeof doc.paths === "object" ? doc.paths : null;
+  if (!paths) return null;
+  const candidates = [];
+  for (const [path, item] of Object.entries(paths)) {
+    if (typeof path !== "string" || !path.startsWith("/") || /[{}:*]/.test(path) || item == null || typeof item !== "object") continue;
+    for (const method of ["get", "post"]) {
+      const op = item[method];
+      if (op && typeof op === "object" && (op["x-payment-info"] || item["x-payment-info"])) candidates.push({ method: method.toUpperCase(), path });
+    }
+  }
+  return candidates.find((c) => c.method === "GET") || candidates[0] || null;
+}
+
+const discoveryDocCache = new Map(); // origin -> { at, target|null }
+/** Fetch `${origin}/openapi.json` (guarded, capped, cached 1h) and derive a
+ *  probe target. Never throws; null on any failure. */
+async function discoveryProbeTarget(origin) {
+  const hit = discoveryDocCache.get(origin);
+  if (hit && Date.now() - hit.at < DISCOVERY_DOC_TTL_MS) return hit.target;
+  let target = null;
+  try {
+    const { html } = await safeFetch(`${origin}/openapi.json`, { maxBytes: MAX_DISCOVERY_DOC_BYTES, headers: { Accept: "application/json" }, timeoutMs: PROBE_TIMEOUT_MS });
+    const t = probeTargetFromDiscovery(JSON.parse(html));
+    if (t) target = { method: t.method, url: `${origin}${t.path}` };
+  } catch { target = null; }
+  discoveryDocCache.set(origin, { at: Date.now(), target });
+  return target;
+}
+
 // ---------------------------------------------------------------------------
 // Backoff (per origin - one representative endpoint per seller, unlike the
 // x402 side's per-origin+path matrix, since MPP verification only ever probes
@@ -208,9 +295,18 @@ export function pickProbeTarget(origin, svc, hint = submittedHints.get(origin)) 
   const pick = priced.find((e) => String(e.method || "GET").toUpperCase() === "GET") || priced[0];
   if (pick) return { method: String(pick.method || "GET").toUpperCase(), url: `${origin}${pick.path}` };
   // No registry endpoints: the submitter's own hint (validated at submission),
-  // else the bare origin root - the honest limitation described above.
+  // else the bare origin root (the caller may first try the seller's own MPP
+  // discovery document - see resolveProbeTarget).
   if (hint && (hint.path || hint.method)) return { method: hint.method || "GET", url: `${origin}${hint.path || ""}` };
   return { method: "GET", url: origin };
+}
+
+/** Full target resolution: registry endpoints > submitted hint > the seller's
+ *  /openapi.json x-payment-info operation > bare root. */
+async function resolveProbeTarget(origin, svc) {
+  const t = pickProbeTarget(origin, svc);
+  if (t.url !== origin) return t;
+  return (await discoveryProbeTarget(origin)) || t;
 }
 
 /** Make one unpaid request to `target` and confirm a genuine MPP challenge.
@@ -275,7 +371,7 @@ const HEALTH_WINDOW = 5;
  *  the reason recorded, same posture as x402-index.js's crawlSeller(). */
 export async function verifyMppSeller(origin) {
   const svc = registryByOrigin.get(origin) || null;
-  const target = pickProbeTarget(origin, svc);
+  const target = await resolveProbeTarget(origin, svc);
   const result = await probeMppChallenge(target);
   noteProbeOutcome(origin, result.ok);
   const prior = cache.get(origin);
@@ -306,6 +402,7 @@ export async function verifyMppSeller(origin) {
     history,
     fromRegistry: !!svc,
     fromSubmission: submittedSeeds.has(origin),
+    fromMppScan: seedSource.get(origin) === "mppscan",
   };
   cache.set(origin, entry);
   return entry;
@@ -426,9 +523,9 @@ export function startMppCrawler() {
   loadSubmittedSeeds();
   const warmed = loadPersistedMppIndexCache();
   if (warmed) console.log(`[mpp-index] warm-started ${warmed} sellers from ${MPP_INDEX_CACHE_FILE}`);
-  discoverMppRegistry().then(() => runMppCrawl()).then(() => persistMppIndexCache());
+  Promise.all([discoverMppRegistry(), discoverMppScan()]).then(() => runMppCrawl()).then(() => persistMppIndexCache());
   crawlerTimer = setInterval(() => { runMppCrawl().then(() => persistMppIndexCache()).catch(() => {}); }, MPP_CRAWL_INTERVAL_MS);
-  discoveryTimer = setInterval(() => discoverMppRegistry(), MPP_DISCOVERY_INTERVAL_MS);
+  discoveryTimer = setInterval(() => { discoverMppRegistry(); discoverMppScan(); }, MPP_DISCOVERY_INTERVAL_MS);
   if (typeof crawlerTimer.unref === "function") crawlerTimer.unref();
   if (typeof discoveryTimer.unref === "function") discoveryTimer.unref();
 }
@@ -444,6 +541,9 @@ export function __testReset() {
   cache.clear();
   discoveredSeeds.clear();
   registryByOrigin.clear();
+  seedSource.clear();
+  discoveryDocCache.clear();
+  mppScanStatus = { url: MPPSCAN_DISCOVERY_URL, fetchedAt: null, origins: 0, added: 0, error: null };
   submittedSeeds.clear();
   crawlBackoff.clear();
   discoveryStatus = { url: MPP_DISCOVERY_URL, fetchedAt: null, services: 0, added: 0, error: null };
@@ -468,6 +568,7 @@ export function mppIndexSnapshot() {
     discoveredTotal: discoveredSeeds.size,
     sellers: verified,
     discovery: discoveryStatus,
+    discoveryMppScan: mppScanStatus,
     generatedAt: Date.now(),
   };
 }

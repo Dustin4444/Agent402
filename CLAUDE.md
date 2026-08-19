@@ -333,6 +333,14 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   PathUSD on Tempo mainnet — checked on-chain 2026-08-18, never trust the comment) plus a
   daily `mpp-tempo` leg in paid-canary. `scripts/test-mpp-tempo-shim.js` (offline, in
   CI) proves challenge wiring + settlement ordering with injected stubs.
+- **MPP index seeds (2026-08-19):** two discovery sources - the mpp.dev registry (141 rows, 99
+  bare-origin) and **MPPScan's server-rendered origin list** (`parseMppScanOrigins`, ~220
+  origins; no JSON API found, so the SSR payload is read - `discoveryMppScan` on the snapshot
+  reports an error if the layout stops yielding origins). Probe target resolution: registry
+  endpoints > submitted hint > the seller's OWN `/openapi.json` `x-payment-info` operation
+  (the MPP discovery format; `probeTargetFromDiscovery`, cached 1h) > bare root. Measured
+  live at launch: verified sellers 33 → 101 in one crawl (67 MPPScan-only), 99 with a Tempo
+  recipient. Verification is still ours: nothing lists without a real MPP challenge.
 - **MPP index + leaderboard (`src/mpp-index.js`, `src/mpp-leaderboard.js`, 2026-08-18):** the
   MPP counterpart of the x402 index/leaderboard. The index probe now parses each verified
   seller's LIVE challenge with mppx's codec (`parseOffers`: method/intent, recipient,

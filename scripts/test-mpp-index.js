@@ -2,7 +2,7 @@
 // x402 side - protocol-agnostic) + the registerMppOrigin flow with an
 // injected fake verifier + the snapshot honesty invariant. No network, no /data.
 import {
-  validateOriginInput, registerMppOrigin, mppIndexSnapshot,
+  validateOriginInput, registerMppOrigin, mppIndexSnapshot, parseMppScanOrigins, probeTargetFromDiscovery,
   __testResetSubmitted, __testSetSubmittedCap, __testReset,
 } from "../src/mpp-index.js";
 import { isMppChallenge } from "../src/x402-index.js";
@@ -69,6 +69,28 @@ ok(snap.verifiedSellers === 1, "snapshot counts only the verified seller, never 
 ok(snap.sellers.length === 1 && snap.sellers[0].origin === "https://real-one.example", "snapshot's seller list excludes the unverified origin entirely");
 
 __testReset();
+
+// --- second seed source: MPPScan's server-rendered origin list (2026-08-19) ---
+{
+  const page = `<script>self.__next_f.push([1,"[[\\"servers\\",\\"list\\"],{\\"input\\":{\\"originUrls\\":[\\"https://alpha.example\\",\\"https://beta.example/\\",\\"http://insecure.example\\",\\"https://alpha.example\\",\\"https://gamma.example/v1/tenant\\"]}}]"])</script>`;
+  const got = parseMppScanOrigins(page);
+  ok(got.length === 2 && got.includes("https://alpha.example") && got.includes("https://beta.example"), `parseMppScanOrigins: escaped SSR payload -> validated https origins, deduped, http and path-scoped dropped (got ${JSON.stringify(got)})`);
+  ok(parseMppScanOrigins("<html>no data</html>").length === 0 && parseMppScanOrigins("").length === 0, "parseMppScanOrigins: no list -> []");
+}
+// --- MPP discovery document -> probe target -----------------------------------
+{
+  const doc = { openapi: "3.1.0", paths: {
+    "/v1/{id}": { get: { "x-payment-info": { offers: [] } } },
+    "/v1/search": { post: { "x-payment-info": { offers: [] } } },
+    "/v1/models": { get: { summary: "free" } },
+    "/v1/quote": { get: { "x-payment-info": { offers: [] } } },
+  } };
+  const t = probeTargetFromDiscovery(doc);
+  ok(t && t.method === "GET" && t.path === "/v1/quote", `probeTargetFromDiscovery: prefers a plain GET path with x-payment-info (got ${JSON.stringify(t)})`);
+  ok(probeTargetFromDiscovery({ paths: { "/v1/search": { post: { "x-payment-info": {} } } } })?.method === "POST", "probeTargetFromDiscovery: falls back to a priced POST");
+  ok(probeTargetFromDiscovery({ paths: { "/v1/models": { get: {} } } }) === null && probeTargetFromDiscovery(null) === null && probeTargetFromDiscovery({ paths: "x" }) === null, "probeTargetFromDiscovery: nothing priced / junk -> null");
+}
+ok("discoveryMppScan" in mppIndexSnapshot(), "snapshot exposes the MPPScan discovery status alongside the registry's");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
