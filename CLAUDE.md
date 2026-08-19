@@ -18,7 +18,11 @@ Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operatin
   memory). Add tools here.
 - `src/payments.js` — x402 v2 middleware (USDC on Base/Polygon/Arbitrum, CDP facilitator, Bazaar discovery).
 - `src/pow.js` — proof-of-work tier (signed, single-use, slug-scoped). `WALLET_ONLY_SLUGS` = non-PoW tools.
-- `src/mcp-http.js` — hosted MCP connector (`/mcp`): tools `search_tools`, `find_tool`, `call_tool`, `about_agent402`.
+- `src/mcp-http.js` — hosted MCP connector (`/mcp`): tools are DOTTED since the Smithery-naming commit `8aefdd89`
+  (`catalog.search`, `catalog.find`, `catalog.call`, `payment.info`, `server.describe`, `sellers.list`, `demand.request`,
+  plus flagship aliases `web.search`/`web.answer`/`web.news`/`browser.render`/`market.quote`/`audio.transcribe`/
+  `memory.read`/`memory.write`); the old snake names (`search_tools`, `find_tool`, `call_tool`, `about_agent402`,
+  `describe_server`, `list_top_sellers`, `request_tool`) remain CallTool ALIASES only, not listed.
   **Native MPP on /mcp (2026-08-19, `src/mcp-mpp.js`):** a wallet-only tool called on the connector is payable
   there - mppx's MCP wire (JSON-RPC error `-32042` + `data.challenges`; credential in
   `_meta["org.paymentauth/credential"]`; receipt in `_meta["org.paymentauth/receipt"]`). Settlement authority is
@@ -119,11 +123,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `X-Tollbooth-Paid: mpp-tempo`, counts `tempoPaid`; refused credentials get the gate 402 + fresh
   challenges + RFC 9457 `problem`; single-use via the operator's `replayStore` (`tempo:<id>`) or an
   in-process map; works with NO x402 middleware (Tempo-only tollbooths). `tollbooth/tempo.test.js` (31,
-  in CI). Published 2026-08-19 via `[publish]`. **Live relay proof is still owed:** the offline suite
-  proves the Tempo rail against a STUB relay (wire copied from mppx's own Relay.js, challenge interop
-  proven by mppx `Challenge.verify`); `tollbooth-tempo-live.yml` (dispatch) boots a tollbooth on the
-  real relay and pays it $0.001 from the canary burner - it needs `TEMPO_API_KEY` added as an Actions
-  SECRET (it is a Railway var only today); run it once and record the tx here.
+  in CI). Published 2026-08-19 via `[publish]`. **LIVE-PROVEN 2026-08-19 (0.9.1):** `tollbooth-tempo-live.yml`
+  (dispatch; `TEMPO_API_KEY` is an Actions secret since 2026-08-19) boots a tollbooth on the REAL relay and
+  pays it $0.001 from the canary burner - run 32302253442: 200 + `X-Tollbooth-Paid: mpp-tempo` +
+  Payment-Receipt, tx `0x9ec426902345790c3d07cbcf32831e702648907e43ebed5c21077677101c3728`, `tempoPaid:1`.
+  The FIRST live run (0.9.0) failed and found what the stub relay could not: `relayInput` forwarded the
+  wire challenge with `request` as the base64url STRING, while mppx hands the relay the DESERIALIZED
+  credential (`request` = decoded object, Relay.js `toRelayInput`) - the real relay refused every
+  credential. 0.9.1 decodes it and `tollbooth/tempo.test.js` pins the relay wire shape (34). Lesson
+  (same as the main gate's two wire drifts): a stub relay that accepts anything proves nothing about the
+  wire; the live dispatch is the proof, and it prints the 402 `problem` + `X-Tollbooth-Error` on failure.
   **0.7.0 (2026-08-18): `x402:` middleware mode + MPP.** `createTollbooth({ x402: paymentMiddleware })` delegates paid requests to the operator's @x402/express middleware with the REAL response (verify -> handler -> settle in its own order), lifts its PAYMENT-REQUIRED onto the gate's 402 (stock x402 v2 clients can pay), and - default on - mints `WWW-Authenticate: Payment` evm/charge challenges from it and translates `Authorization: Payment` -> PAYMENT-SIGNATURE (`tollbooth/mpp.js`, dependency-free codec, HMAC id binding compatible with mppx's `Challenge.verify`), mirroring `Payment-Receipt` on settle. **`x402VerifierFromExpress` is deprecated: with @x402/express v2 (settle AFTER handler) it granted on verify and never settled - served, never charged - because it handed the middleware a stub response the real handler never ended; measured in `scripts/test-tollbooth-mpp.js` (32 assertions: real @x402/express + stub facilitator, real mppx client buys, real @x402/fetch buys, settle counted once each, tampered credential, PoW-first).** Edge gate: PoW + legacy verify only for now.
 - **Buyer SDK (`agent402-client`):** `find()` + `call()` with auto-payment (PoW free / x402 paid), caching, idempotent retries, non-custodial.
 - **LLM gateway (`src/tools/llm-gateway-kit.js`, OpenAI wire paths):** five tiers —
@@ -326,7 +335,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   feed's per-resource `quality{l30DaysTotalCalls,l30DaysUniquePayers,lastCalledAt}` is folded per
   origin (calls summed, payers MAX - a seller-level unique count is unknowable from per-resource
   counts) into `bazaarQualityByOrigin` (x402-index.js; `bazaarQualityFor`/`bazaarQualityEntries`),
-  exposed as `bazaar` on index-snapshot sellers and on /api/find EXTERNAL rows, used as a routeQuery
+  exposed as `bazaar` on index-snapshot sellers and on `/api/route?include=external` EXTERNAL rows (routeQuery; `/api/find` returns local tools + `relatedSellers` without it), used as a routeQuery
   tiebreak after health (more distinct payers first), folded as MAX into the SOR gate's
   settled/payers evidence (buildSettledByOrigin/buildPayersByOrigin), and shown on the market
   seller card as "Coinbase Bazaar, last 30 days (their measurement, not ours)". `curated` is NOT
