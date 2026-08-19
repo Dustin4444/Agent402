@@ -434,9 +434,18 @@ let settledTx = "";
 // 9) Independently confirm on Horizon - the step that actually proves the
 // founding motivation: our facilitator's reported success corresponds to a
 // REAL, independently-verifiable on-chain confirmation.
+// The facilitator reports success off Soroban RPC's getTransaction; Horizon
+// is a SEPARATE ingestion pipeline and can lag it by seconds (CI run
+// 32265874173: /settle 200, Horizon 404 eight milliseconds later). Poll
+// briefly - a confirmed tx appears within a couple of ledgers; one that
+// never appears is still a hard failure.
 {
-  const tx = await horizon.transactions().transaction(settledTx).call();
-  ok(tx.successful === true, "Horizon independently confirms the settled transaction succeeded");
+  let tx = null, lastErr = null;
+  for (let i = 0; i < 30 && !tx; i++) {
+    try { tx = await horizon.transactions().transaction(settledTx).call(); }
+    catch (e) { lastErr = e; if (e?.constructor?.name !== "NotFoundError" && e?.response?.status !== 404) throw e; await new Promise((r) => setTimeout(r, 1000)); }
+  }
+  ok(tx?.successful === true, `Horizon independently confirms the settled transaction succeeded${tx ? "" : ` (never appeared on Horizon within 30s: ${lastErr?.message})`}`);
 }
 
 // 10) Concurrency regression test - the actual bug this hardening pass
