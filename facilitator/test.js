@@ -62,6 +62,7 @@ import {
 import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "./shape.js";
 import { withTimeout, TimeoutError } from "./timeout.js";
 import { decodeErrorResultXdr } from "./rpc-diagnostics.js";
+import { ensureRpcTimeout, installRpcRequestTimeout } from "./rpc-timeout.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const NETWORK = "stellar:testnet";
@@ -138,6 +139,7 @@ const horizon = getHorizonClient(NETWORK);
   console.log("timeout.js unit tests ✓");
 }
 
+
 // 0c) Offline unit tests for rpc-diagnostics.js's XDR decoder - fast,
 // deterministic, no network. Found live in production (2026-08-15): a real
 // canary settlement rejection surfaced only as errorReason:
@@ -181,6 +183,43 @@ const horizon = getHorizonClient(NETWORK);
   ok(decodeErrorResultXdr(undefined) === null, "decodeErrorResultXdr: no errorResultXdr at all -> null, not a crash");
 
   console.log("rpc-diagnostics.js unit tests ✓");
+}
+
+// 0d) Offline tests for rpc-timeout.js - the per-request RPC bound. A local
+// server that never answers stands in for a stalled provider (2026-08-14 and
+// 2026-08-19 both: /verify fine, /settle stalled inside one RPC round-trip).
+{
+  ok(ensureRpcTimeout({ defaults: {} }, 500) === true, "ensureRpcTimeout: sets a missing default");
+  const pre = { defaults: { timeout: 30_000 } };
+  ok(ensureRpcTimeout(pre, 500) === false && pre.defaults.timeout === 30_000, "ensureRpcTimeout: an explicitly configured positive timeout is respected");
+  ok(ensureRpcTimeout(null, 500) === false && ensureRpcTimeout({}, 500) === false, "ensureRpcTimeout: tolerates a missing client");
+
+  const { createServer } = await import("node:http");
+  const { rpc } = await import("@stellar/stellar-sdk");
+  const blackhole = createServer(() => { /* never respond */ });
+  await new Promise((r) => blackhole.listen(0, "127.0.0.1", r));
+  const url = `http://127.0.0.1:${blackhole.address().port}`;
+  installRpcRequestTimeout(300);
+  // Constructed the way @x402/stellar does it (fresh instance, no timeout
+  // option) - the patch must reach an instance it never saw being built.
+  const server = new rpc.Server(url, { allowHttp: true });
+  const t0 = Date.now();
+  let err = null;
+  try { await server.getLatestLedger(); } catch (e) { err = e; }
+  const took = Date.now() - t0;
+  ok(err && /timeout of 300 ?ms/i.test(String(err.message || err)) && took < 5_000, `rpc-timeout: a stalled RPC request rejects at the bound (${took}ms: ${String(err?.message || err).slice(0, 60)})`);
+  blackhole.close();
+  console.log("rpc-timeout.js unit tests ✓");
+}
+
+// Everything above is offline and deterministic; everything below needs
+// Stellar testnet plus a persistent funded payer. CI runs the offline half
+// on every push (FACILITATOR_TEST_OFFLINE_ONLY=1) - before this gate the
+// facilitator had no CI coverage at all, and a module missing from
+// package.json's files allowlist or a broken import shipped unseen.
+if (process.env.FACILITATOR_TEST_OFFLINE_ONLY === "1") {
+  console.log(`\nfacilitator offline tests: ${passed} passed (any failure throws above)`);
+  process.exit(0);
 }
 
 async function friendbotFund(publicKey) {

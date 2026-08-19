@@ -17,10 +17,17 @@ import { invalidVerify, invalidSettle, normalizeVerify, normalizeSettle } from "
 import { createSerialQueue } from "./queue.js";
 import { withTimeout } from "./timeout.js";
 import { installRpcDiagnostics } from "./rpc-diagnostics.js";
+import { installRpcRequestTimeout } from "./rpc-timeout.js";
 
 // Must install before ExactStellarScheme ever calls getRpcClient() /
 // sendTransaction() - a patch applied after the first real request would
-// simply miss it.
+// simply miss it. The request timeout goes FIRST so the diagnostics wrapper
+// sits outermost and still sees every sendTransaction result.
+// 10s per RPC round-trip: a stalled provider surfaces well inside the
+// caller's 30s settle budget WITH an error body (and payer), instead of the
+// caller giving up blind at 30s and this side hitting its 60s guard alone
+// (2026-08-14 and 2026-08-19, both pre-submission stalls).
+installRpcRequestTimeout(process.env.FACILITATOR_RPC_TIMEOUT_MS === undefined ? 10_000 : Number(process.env.FACILITATOR_RPC_TIMEOUT_MS));
 installRpcDiagnostics();
 
 const PORT = Number(process.env.PORT) || 4021;

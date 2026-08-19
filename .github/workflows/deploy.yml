@@ -1722,6 +1722,14 @@ jobs:
       - name: Tollbooth tests (pay-per-crawl gate — node + edge/Web-Crypto)
         run: node tollbooth/test.js && node tollbooth/edge.test.js && node tollbooth/features.test.js
 
+      # The Stellar facilitator had NO CI coverage until 2026-08-19 (its test
+      # needs testnet + a funded payer for the end-to-end half). The offline
+      # half - shape/queue/timeout/XDR-decoder/per-request RPC timeout - runs
+      # here on its own lockfile, so a broken import or a module missing from
+      # the files allowlist fails CI instead of shipping to the live rail.
+      - name: Stellar facilitator offline tests (shape, queue, timeouts, RPC request bound, XDR decoder)
+        run: cd facilitator && npm ci --ignore-scripts && FACILITATOR_TEST_OFFLINE_ONLY=1 node test.js
+
       - name: Tollbooth atomic replay + origin binding (F05/F18 — Durable Object single-use claim + PoW origin/method binding — offline)
         run: node scripts/test-tollbooth-replay.js
 
