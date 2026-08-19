@@ -54,7 +54,9 @@ jobs:
             const paid = await fetch(url, { headers: { Authorization: cred } });
             const body = await paid.json().catch(() => ({}));
             const rc = paid.headers.get("payment-receipt");
-            console.log("paid:", paid.status, JSON.stringify(body).slice(0, 100), "X-Tollbooth-Paid:", paid.headers.get("x-tollbooth-paid"));
+            // On a refusal the gate's 402 carries an RFC 9457 `problem` (code only, no relay body) and
+            // X-Tollbooth-Error names the rail step - print both so a failed proof is diagnosable from the log.
+            console.log("paid:", paid.status, JSON.stringify(body).slice(0, 600), "X-Tollbooth-Paid:", paid.headers.get("x-tollbooth-paid"), "X-Tollbooth-Error:", paid.headers.get("x-tollbooth-error"));
             if (rc) { const rec = Receipt.deserialize(rc); console.log("receipt:", rec.method, rec.status, "https://explore.tempo.xyz/tx/" + rec.reference); }
             console.log("stats:", JSON.stringify(gate.stats()));
             server.close();

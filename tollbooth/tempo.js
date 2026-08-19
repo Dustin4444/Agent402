@@ -217,7 +217,16 @@ export function tempoRelay(tempo) {
 }
 
 export function relayInput(credential) {
-  return { challenge: credential.challenge, payload: credential.payload, ...(credential.source ? { source: credential.source } : {}) };
+  // The relay's input is mppx's DESERIALIZED credential (Relay.js
+  // toRelayInput): the challenge with `request` as the decoded object, not
+  // the base64url string that rides on the wire. The first live proof
+  // (run 32295980187, 2026-08-19) sent the wire string and the relay refused
+  // every credential while the stub relay in the offline suite accepted
+  // either - the suite now pins the decoded shape.
+  const { request, ...challenge } = credential.challenge;
+  let decoded = request;
+  if (typeof request === "string") { try { decoded = JSON.parse(unb64url(request)); } catch { decoded = request; } }
+  return { challenge: { ...challenge, request: decoded }, payload: credential.payload, ...(credential.source ? { source: credential.source } : {}) };
 }
 export function broadcastIdempotencyKey(input) {
   return `mpp_${createHash("sha256").update(canonicalJson(input), "utf8").digest("hex")}`;
