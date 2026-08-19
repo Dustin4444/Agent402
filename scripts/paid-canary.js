@@ -231,6 +231,22 @@ export const TOOLS = [
       `expected an OpenAI embeddings list with a real vector, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Grounded tier: auto router + web search plugin (Exa, 5 results). A real
+    // reply with url_citation annotations proves the plugin rode, the clamp
+    // held with the search fee inside it, and settlement. Nonce in the prompt
+    // (never cached anyway - the web moves).
+    kit: "llm-grounded",
+    path: "/v1/grounded/chat/completions",
+    method: "POST",
+    body: { messages: [{ role: "user", content: `What is the current Node.js LTS version? One line, cite the source. (${EMBED_CANARY_INPUT.slice(-16)})` }], max_tokens: 120 },
+    priceUsd: 0.03,
+    check: (r) =>
+      (typeof r.choices?.[0]?.message?.content === "string" && r.choices[0].message.content.length > 0 &&
+        Array.isArray(r.choices[0].message.annotations) && r.choices[0].message.annotations.some((a) => a.type === "url_citation") &&
+        r.agent402_router?.served && !("cost" in (r.usage || {}))) ||
+      `expected a grounded reply with url_citation annotations + agent402_router and no cost, got ${JSON.stringify(r).slice(0, 140)}`,
+  },
+  {
     // Anthropic Messages wire on the nano tier (OpenRouter /messages upstream,
     // any model served through it). A real Anthropic-shaped reply proves the
     // wire, the tier plumbing and settlement; nonce in the prompt so nothing

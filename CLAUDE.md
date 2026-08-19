@@ -151,8 +151,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   usage billing stripped non-stream, and the stream's NESTED `response.usage` scrubbed - the shared
   SSE scrubber now strips `obj.usage`, `obj.response.usage` and `obj.message.usage` (the top-level-only
   scrub would have leaked cost on every streamed Responses call). Telemetry `<tier>:responses`; canary
-  `llm-responses` leg; `scripts/test-llm-responses.js` (26). The grounded web-search tier is the only
-  part of build #12 still NOT built),
+  `llm-responses` leg; `scripts/test-llm-responses.js` (26)),
+  plus the **grounded tier** (build #12 part 4 — `POST /v1/grounded/chat/completions` `$0.03`,
+  `v1-chat-grounded`: the auto router + OpenRouter's `web` plugin (Exa, `max_results` 5) on every
+  call, answers carry OpenAI-wire `annotations` url_citation; search is billed per REQUEST on top of
+  tokens (measured: Exa auto $0.007 in `usage.cost`, ~700 injected prompt tokens/result) so the
+  tier carries `fixedUpstreamUsd: 0.007` + `extraInputTokens: 4500`, both folded into
+  `worstCaseUpstreamCost`/`clampToMargin` (largest call on the priciest ranked model ≈ $0.015 vs the
+  $0.021 bound); `noCache: true` (promptCacheKey null, no deferred write - the web moves); web +
+  response-healing plugins merge; `:online` stays refused everywhere else (this tier is the
+  sanctioned home); listed LAST in TIERS so tierFor() keeps resolving explicit models to their
+  home tiers; canary `llm-grounded` leg. Build #12 is COMPLETE: rerank, Messages, Responses,
+  grounded),
   plus **`/v1/images/generations` `$0.08`** (`v1-images` — OpenAI images wire translated
   to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
   n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →

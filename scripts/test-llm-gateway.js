@@ -98,10 +98,10 @@ await gatewayTool.handler({ model: "gpt-4o-mini", messages: msg1(), max_tokens: 
 const list = modelsList();
 ok(list.object === "list" && Array.isArray(list.data) && list.data.length > 10, "models list has OpenAI shape");
 ok(list.data.every((m) => m.object === "model" && m.x402?.priceUsd > 0 && m.x402?.endpoint?.startsWith("/v1")), "every model entry carries x402 tier metadata");
-ok(new Set(list.data.map((m) => m.x402.tier)).size === 8, "all five chat tiers + embeddings + images + speech represented");
+ok(new Set(list.data.map((m) => m.x402.tier)).size === 9, "all five chat tiers + grounded + embeddings + images + speech represented");
 
 // Catalog invariants: wallet-only-priced routes at OpenAI wire paths.
-ok(LLM_GATEWAY_TOOLS.length === 9, "nine gateway routes (five chat tiers, embeddings, rerank, images, speech)");
+ok(LLM_GATEWAY_TOOLS.length === 10, "ten gateway routes (five chat tiers + grounded, embeddings, rerank, images, speech)");
 
 // Nano tier — priced for loops; nano models keep working on the base tier
 // (drop-in callers can overpay) but tierFor leads with the cheapest home.
@@ -290,7 +290,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(promptCacheGet(k3) === null, "different key misses");
 
   ok(GATEWAY_TIER_BY_PATH["/v1/nano/chat/completions"] === "v1-chat-nano", "path -> tier map covers nano");
-  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 5, "path -> tier map covers all five tiers");
+  ok(Object.keys(GATEWAY_TIER_BY_PATH).length === 6, "path -> tier map covers the five tiers + grounded");
 
   // The handler writes the cache ONLY when the buyer opted in.
   process.env.OPENROUTER_API_KEY = "test-key";
@@ -860,6 +860,37 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     () => ok(false, "an imageless upstream response must not serve"),
     (e) => ok(e.statusCode === 502 && /no image/i.test(e.message), "imageless upstream response (both tiers) → 502")
   );
+  globalThis.fetch = realFetch;
+  delete process.env.OPENROUTER_API_KEY;
+}
+
+// Grounded tier (2026-08-19) - the auto router + OpenRouter's web plugin on
+// every call. Search is billed per REQUEST (measured: Exa auto $0.007 in
+// usage.cost, ~700 injected prompt tokens per result), so the tier carries it
+// as fixedUpstreamUsd + extraInputTokens in the clamp; never cached.
+{
+  const { worstCaseUpstreamCost, promptCacheKey: pck, MARGIN } = await import("../src/tools/llm-gateway-kit.js");
+  const g = TIERS["v1-chat-grounded"];
+  const grounded = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-grounded");
+  ok(grounded && grounded.route === "POST /v1/grounded/chat/completions" && grounded.price === "$0.03" && g.router === true && g.web?.id === "web" && g.noCache === true, "grounded tier registered: router, web plugin, no cache, $0.03");
+  const wc = worstCaseUpstreamCost({ model: "openai/gpt-4o-mini", messages: msg1(), max_tokens: 1024 }, g);
+  const plain = worstCaseUpstreamCost({ model: "openai/gpt-4o-mini", messages: msg1(), max_tokens: 1024 }, TIERS["v1-chat-auto"]);
+  ok(wc.fixedUsd === 0.007 && wc.inTokens - plain.inTokens === 4500 && wc.totalUsd > plain.totalUsd + 0.007, "worst-case cost on the grounded tier adds the search fee and the injected-result tokens");
+  const big = worstCaseUpstreamCost({ model: "google/gemini-2.5-flash", messages: [{ role: "user", content: "x ".repeat(8000) }], max_tokens: 1024 }, g);
+  ok(big.totalUsd <= g.price * MARGIN, `largest grounded call (16k chars in on the priciest ranked model, 1024 out, 5 results) stays under the 70% bound (${big.totalUsd.toFixed(5)} <= ${(g.price * MARGIN).toFixed(5)})`);
+  ok(pck("v1-chat-grounded", { messages: msg1(), cache: true }) === null, "grounded answers are never cacheable (the web moves)");
+  ok(tierFor("openai/gpt-4o-mini") === "v1-chat" && tierFor("google/gemini-2.5-flash") !== "v1-chat-grounded", "grounded is listed last: explicit models still resolve to their home tiers");
+  process.env.OPENROUTER_API_KEY = "test-key";
+  const realFetch = globalThis.fetch;
+  let seen = null;
+  globalThis.fetch = async (url, init) => { seen = JSON.parse(init.body); return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-g", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "Node 24 [1]", annotations: [{ type: "url_citation", url_citation: { url: "https://nodejs.org", title: "Node.js" } }] }, finish_reason: "stop" }], usage: { prompt_tokens: 1987, completion_tokens: 47, cost: 0.0072175 } }) }; };
+  const gout = await grounded.handler({ messages: msg1(), max_tokens: 64 }, { header: () => undefined });
+  ok(JSON.stringify(seen.plugins) === '[{"id":"web","engine":"exa","max_results":5}]' && seen.provider?.sort === "price" && seen.provider?.max_price, "grounded outbound carries the web plugin (exa, 5 results) next to the server-owned provider prefs");
+  ok(gout.agent402_router?.category === "general" && Array.isArray(gout.choices[0].message.annotations) && !("cost" in gout.usage), "grounded reply keeps url_citation annotations, discloses the router, strips cost");
+  await grounded.handler({ messages: msg1(), max_tokens: 64, response_format: { type: "json_object" } }, { header: () => undefined });
+  ok(seen.plugins.length === 2 && seen.plugins[0].id === "web" && seen.plugins[1].id === "response-healing", "web + response-healing plugins merge for structured output");
+  let e = null; try { validateRequest({ model: "openai/gpt-4o-mini:online", messages: msg1() }, "v1-chat"); } catch (x) { e = x; }
+  ok(e?.statusCode === 400 && /:online/.test(e.message), ":online stays refused on the other tiers (the grounded tier is the sanctioned home)");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }

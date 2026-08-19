@@ -111,3 +111,7 @@ The same five tiers also speak the Anthropic Messages wire: `POST /v1/nano/messa
 ## OpenAI Responses API
 
 The same five tiers also speak the OpenAI Responses wire: `POST /v1/nano/responses`, `/v1/auto/responses`, `/v1/responses`, `/v1/pro/responses`, `/v1/premium/responses`. Point `responses.create()` (or the OpenAI Agents SDK) at `https://agent402.tools/v1` (or a tier prefix) through an x402-paying fetch. `input` as a string or item list, `instructions`, function tools, `text.format`, `reasoning`, streaming (`response.created` … `response.completed`) all work; server-side tools (web search, file search, computer use, MCP) are not served, and there is no stored conversation state (`store` is always false, `previous_response_id` is refused) - send the full input each call.
+
+## Grounded answers (web search)
+
+`POST /v1/grounded/chat/completions` ($0.03) is the auto router plus a live Exa web search on every call (up to 5 results): the model answers from the results and the reply carries `url_citation` annotations. Omit `model` (or send `auto`) and the gateway picks the model by task type; the response adds `agent402_router`. This is the one place web search is offered - `:online` model variants are refused on the other tiers because search is billed per request on top of tokens, and here that fee is part of the flat price. Never cached.

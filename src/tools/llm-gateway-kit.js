@@ -272,6 +272,32 @@ export const TIERS = {
     fallbacks: ["openai/gpt-4o-mini"],
     prefixes: [...new Set(Object.values(AUTO_RANKINGS).flatMap((byCategory) => Object.values(byCategory).flat()))],
   },
+  // Grounded tier - the auto router plus OpenRouter's web-search plugin on
+  // every call (Exa, up to 5 results), $0.03. The sanctioned home for "answer
+  // with the live web": `:online` variants stay refused on every other tier
+  // because the search is billed per REQUEST on top of tokens, outside
+  // provider.max_price. Here that fee is the tier's own cost: measured
+  // 2026-08-19 - Exa auto $0.007/request in usage.cost, ~700 injected prompt
+  // tokens per result - and both ride into the margin clamp as
+  // fixedUpstreamUsd + extraInputTokens. Results come back as OpenAI-wire
+  // `annotations` (url_citation). Never cached: the web moves. Listed after
+  // auto so tierFor() keeps resolving explicit models to their home tiers.
+  "v1-chat-grounded": {
+    reasoningDefault: "lowest",
+    route: "POST /v1/grounded/chat/completions",
+    price: 0.03,
+    maxInputChars: 16_000,
+    maxTokens: 1024,
+    maxPrice: { prompt: 0.6, completion: 3 },
+    router: true,
+    priceSort: true,
+    fallbacks: ["openai/gpt-4o-mini"],
+    prefixes: [...new Set(Object.values(AUTO_RANKINGS).flatMap((byCategory) => Object.values(byCategory).flat()))],
+    web: { id: "web", engine: "exa", max_results: 5 },
+    fixedUpstreamUsd: 0.007,
+    extraInputTokens: 4_500,
+    noCache: true,
+  },
 };
 
 // Drop-in compatibility: bare OpenAI-style names map to their OpenRouter ids,
@@ -451,16 +477,22 @@ export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
     prompt: Math.min(listed.prompt, tier.maxPrice.prompt),
     completion: Math.min(listed.completion, tier.maxPrice.completion),
   };
-  const inTokens = estimateInputTokens(body, imageCount);
+  // A tier may inject upstream input of its own (the grounded tier's web
+  // results ride into the prompt as tokens - measured ~700 tokens/result) and
+  // carry a fixed per-call upstream fee (the search itself, billed per
+  // request on top of tokens). Both are the tier's cost, not the buyer's
+  // input, and both are priced here so the clamp stays an honest bound.
+  const inTokens = estimateInputTokens(body, imageCount) + (tier.extraInputTokens || 0);
   // Prompt caching rides by default (top-level cache_control, see
   // cacheControlPref): on Anthropic a cache WRITE bills 1.25x list input
   // (reads 0.1x), so the worst case for a first-seen long prompt is 1.25x -
   // priced in here so the clamp stays an honest bound; every other provider
   // caches implicitly at list price or below.
   const inUsd = (inTokens / 1e6) * cost.prompt * cacheWriteFactor(body.model);
+  const fixedUsd = Number(tier.fixedUpstreamUsd) || 0;
   const n = body.n || 1;
   const outUsd = ((Number(body.max_tokens) || 0) / 1e6) * cost.completion * n;
-  return { inTokens, inUsd, outUsd, totalUsd: inUsd + outUsd, cost };
+  return { inTokens, inUsd, fixedUsd, outUsd, totalUsd: inUsd + fixedUsd + outUsd, cost };
 }
 
 /** Shrinks body.max_tokens so the worst-case upstream bill stays ≤ MARGIN ×
@@ -468,10 +500,10 @@ export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
  *  the budget. Exported for the failover chain walk (each fallback model is
  *  re-clamped at its own cost) and for the pricing-margin CI test. */
 export function clampToMargin(body, tier, imageCount) {
-  const { inUsd, inTokens, cost } = worstCaseUpstreamCost(body, tier, imageCount);
+  const { inUsd, fixedUsd, inTokens, cost } = worstCaseUpstreamCost(body, tier, imageCount);
   const budgetUsd = tier.price * MARGIN;
   const n = body.n || 1;
-  const affordableOut = Math.floor(((budgetUsd - inUsd) * 1e6) / cost.completion / n);
+  const affordableOut = Math.floor(((budgetUsd - inUsd - fixedUsd) * 1e6) / cost.completion / n);
   if (affordableOut < MIN_OUT_TOKENS) {
     throw bad(
       `Input is too large for "${body.model}" at this tier's price (est. ${inTokens} input tokens). ` +
@@ -983,6 +1015,7 @@ export function stableStringify(v) {
  *  validateRequest) on invalid input — callers treat that as "no cache" and
  *  let the normal path produce the real 402/400. Returns null for streams. */
 export function promptCacheKey(tierSlug, input) {
+  if (TIERS[tierSlug]?.noCache) return null; // grounded tier: the web moves, never replay
   const body = validateRequest(input, tierSlug);
   if (body.stream === true) return null;
   return createHash("sha256").update(`${tierSlug}\n${stableStringify(body)}`).digest("hex");
@@ -1699,12 +1732,16 @@ function makeHandler(tierSlug) {
       // buyer expressed no preference. Deterministic given the model, so it
       // needs no place in the cache key.
       const reasoning = body.reasoning !== undefined ? body.reasoning : defaultReasoningFor(model, tierSlug);
+      const plugins = [
+        ...(TIERS[tierSlug].web ? [{ ...TIERS[tierSlug].web }] : []),
+        ...(structured && body.stream !== true ? [{ id: "response-healing" }] : []),
+      ];
       return {
         ...attempt, zdr: undefined, cache_control: undefined,
         ...(reasoning ? { reasoning } : {}),
         ...(providerForLink ? { provider: providerForLink } : {}), ...(user ? { user, session_id: user } : {}),
         ...(cacheControl ? { cache_control: cacheControl } : {}),
-        ...(structured && body.stream !== true ? { plugins: [{ id: "response-healing" }] } : {}),
+        ...(plugins.length ? { plugins } : {}),
         ...(flex ? { service_tier: "flex" } : {}),
       };
     };
@@ -1790,7 +1827,7 @@ function makeHandler(tierSlug) {
         if (routedCategory && data && typeof data === "object") {
           data.agent402_router = { category: routedCategory, quality: routedQuality, served: data.model || model };
         }
-        if (input.cache === true) {
+        if (input.cache === true && !TIERS[tierSlug].noCache) {
           // FR4-01 class: defer the cache write to AFTER settlement. @x402/express
           // settles after this handler, so writing now would cache an
           // unsettled 200. Stash on req; the route binder commits on a final 200.
@@ -1870,6 +1907,23 @@ export const LLM_GATEWAY_TOOLS = [
       output: { example: { ...EXAMPLE_OUT, agent402_router: { category: "general", quality: "balanced", served: "openai/gpt-4o-mini" } } },
     },
     handler: makeHandler("v1-chat-auto"),
+  },
+  {
+    route: "POST /v1/grounded/chat/completions",
+    name: "Grounded chat (web search, OpenAI-compatible)",
+    slug: "v1-chat-grounded",
+    category: "llm",
+    price: "$0.03",
+    description:
+      'OpenAI-compatible chat completions GROUNDED in a live web search on every call: the gateway runs an Exa search (up to 5 results) for the prompt, hands the results to the model, and returns the answer with url_citation annotations - $0.03 per call in USDC, no API key, no signup. Model is chosen server-side like the auto tier (omit "model" or send "auto"; explicit ranked models accepted); the response adds agent402_router {category, quality, served}. The sanctioned way to get live-web answers from the gateway (":online" model variants are refused elsewhere because search is billed per request). Caps 16k chars in / 1024 tokens out. Streaming supported. Never cached - the web moves.',
+    tags: [...SHARED_TAGS, "router", "grounded", "web-search", "citations"],
+    discovery: {
+      bodyType: "json",
+      input: { messages: [{ role: "user", content: "What is the current Node.js LTS version? One line, cite the source." }], max_tokens: 120 },
+      inputSchema: AUTO_INPUT_SCHEMA,
+      output: { example: { ...EXAMPLE_OUT, agent402_router: { category: "general", quality: "balanced", served: "openai/gpt-4o-mini" }, annotations_note: "message.annotations carries url_citation entries" } },
+    },
+    handler: makeHandler("v1-chat-grounded"),
   },
   {
     route: "POST /v1/chat/completions",
