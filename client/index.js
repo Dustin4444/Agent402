@@ -402,4 +402,32 @@ export function withNetworkPreference(client, networks) {
   return client;
 }
 
+/**
+ * Payee allowlist: refuse to pay ANY 402 whose accepts would send funds to an
+ * address outside `payees` - the buyer-side mirror of a spend control (CDP's
+ * CdpX402Client bounds amounts and networks; this bounds WHO gets paid). Same
+ * wrapping style as withNetworkPreference: the payment-aware fetch sees a
+ * filtered `accepts`, so a quote that names an unknown payTo is never paid -
+ * it throws before any signature exists. Addresses compare case-insensitively
+ * for 0x (EVM) and exactly otherwise (base58/Stellar are case-sensitive).
+ * Works on any x402Client (createPaymentPayload) - register it before
+ * wrapFetchWithPayment.
+ */
+export function withPayeeAllowlist(client, payees) {
+  const norm = (a) => (typeof a === "string" && /^0x[0-9a-fA-F]{40}$/.test(a) ? a.toLowerCase() : String(a || "").trim());
+  const allowed = new Set((payees || []).map(norm).filter(Boolean));
+  if (!allowed.size) throw new Error("withPayeeAllowlist: at least one payee address is required");
+  const orig = client.createPaymentPayload.bind(client);
+  client.createPaymentPayload = (paymentRequired) => {
+    const list = Array.isArray(paymentRequired?.accepts) ? paymentRequired.accepts : [];
+    const picked = list.filter((a) => allowed.has(norm(a?.payTo)));
+    if (!picked.length) {
+      const offered = [...new Set(list.map((a) => a?.payTo).filter(Boolean))];
+      throw new Error(`payee allowlist refused this quote: the seller asks to be paid at [${offered.join(", ")}], none of which is allowlisted`);
+    }
+    return orig({ ...paymentRequired, accepts: picked });
+  };
+  return client;
+}
+
 export default Agent402;

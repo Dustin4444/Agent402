@@ -188,6 +188,23 @@ Short names map to CAIP-2 (`base`, `solana`, `polygon`, `arbitrum`,
 without a package update. If the preference matches none of a seller's
 payment options it throws **before** any payment is signed.
 
+
+## Only pay who you meant to (`withPayeeAllowlist`)
+
+The buyer-side mirror of a spend control: bound WHO gets paid, not just how
+much. Wrap your x402 client before `wrapFetchWithPayment` and any 402 whose
+`accepts` would send funds to an address outside the list is refused before a
+signature exists (a routed or redirected seller can never collect).
+
+```js
+import { withPayeeAllowlist } from "agent402-client";
+withPayeeAllowlist(client, ["0xYourSellerPayTo", "0xAnother"]);   // 0x addresses compare case-insensitively
+const payFetch = wrapFetchWithPayment(fetch, client);
+```
+
+Pairs with `maxPerCallUsd` / `dailyLimitUsd` (how much) and
+`withNetworkPreference` (which chain).
+
 ## Legal
 
 Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). This package is MIT-licensed; the hosted server is AGPL-3.0. Both are provided as-is without warranty, and self-hosted deployments are their operator's responsibility.
