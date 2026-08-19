@@ -576,11 +576,12 @@ export const CHAIN_FUNDING = [
   { key: "optimism", label: "Optimism", token: "0x0b2c639c533813f4aa9d7837caf62653d097ff85", rpcs: ["https://mainnet.optimism.io", "https://optimism-rpc.publicnode.com"] },
   { key: "robinhood", label: "Robinhood Chain (USDG)", token: "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168", rpcs: ["https://rpc.mainnet.chain.robinhood.com"] },
   // Tempo: the mpp-tempo leg buys TEMPO_CANARY_TX_COUNT (100) x $0.001 a day
-  // from this burner (PathUSD, auto-swapped to USDC.e at pay time), so its
-  // runway is ~$0.10/day - low-water $0.50 (5 days), not the $0.05 the
-  // one-buy legs use. Both tokens read; PathUSD is the funded one.
-  { key: "tempo-pathusd", label: "Tempo (PathUSD)", token: "0x20c0000000000000000000000000000000000000", rpcs: ["https://rpc.tempo.xyz"], lowWater: 0.5 },
-  { key: "tempo-usdce", label: "Tempo (USDC.e)", token: "0x20C000000000000000000000b9537d11c60E8b50", rpcs: ["https://rpc.tempo.xyz"], lowWater: 0 },
+  // from this burner, so its runway is ~$0.10/day - low-water $0.50 (5 days),
+  // not the $0.05 the one-buy legs use. Funded in USDC.e since 2026-08-19
+  // (25 USDC.e; pays USDC.e-first challenges natively, no swap). PathUSD is
+  // the swap-backed reserve (1.99), read informationally.
+  { key: "tempo-usdce", label: "Tempo (USDC.e)", token: "0x20C000000000000000000000b9537d11c60E8b50", rpcs: ["https://rpc.tempo.xyz"], lowWater: 0.5 },
+  { key: "tempo-pathusd", label: "Tempo (PathUSD)", token: "0x20c0000000000000000000000000000000000000", rpcs: ["https://rpc.tempo.xyz"], lowWater: 0 },
 ];
 
 /** Pure verdict over the chain-balance sweep, exported for offline tests:
