@@ -17,7 +17,11 @@ import {
   ListToolsRequestSchema,
   ListPromptsRequestSchema,
   GetPromptRequestSchema,
+  McpError,
 } from "@modelcontextprotocol/sdk/types.js";
+import {
+  MCP_PAYMENT_REQUIRED_CODE, MCP_RECEIPT_META, credentialHeaderFromMeta, challengesFromHeader, receiptFromHeader, challengeIdFromMeta,
+} from "./mcp-mpp.js";
 import { findTools, findRelatedSellers, applyFrontDoorTerms } from "./find.js";
 import { routableSellerSummaries } from "./x402-index.js";
 import { logSafe } from "./log-safe.js";
@@ -94,7 +98,7 @@ let mcpInFlight = 0;
  * decides the free set. `opts.onServed(slug, { latencyMs, errored })` feeds
  * both the stats counters and the analytics dashboard with full per-call meta.
  */
-export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null }) {
+export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = () => {}, getLeaderboard = null, getMppLeaderboard = null, mppLoopback = null }) {
   // Live per-tool prices for the skill-pack a la carte comparison. Built once
   // from the same catalog this connector serves, so the number an agent sees
   // next to a pack is the price it would actually pay for the steps.
@@ -209,7 +213,8 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
   function walletRequiredText(def) {
     return [
       `"${def.slug}" (${def.price}/call) needs per-call USDC payment and is not part of this hosted free tier.`,
-      `To use it from Claude/any MCP client: run the npm server with a funded Base wallet -`,
+      ...(mppLoopback ? [`Pay it RIGHT HERE over MPP: call again with an MPP credential in _meta["org.paymentauth/credential"] - mppx's McpClient.wrap() does this automatically (USDC on Base/Celo via evm.charge, or native Tempo via tempo.charge); the receipt comes back in _meta["org.paymentauth/receipt"].`] : []),
+      `Or from Claude/any MCP client: run the npm server with a funded Base wallet -`,
       `npx agent402-mcp with env AGENT_KEY=0x<private key> (USDC on Base/Polygon/Arbitrum, or USDG on Robinhood Chain via AGENT402_NETWORKS=robinhood) and/or SOLANA_AGENT_KEY=<base58 secret> (USDC on Solana); spend caps: AGENT402_MAX_PER_CALL, AGENT402_BUDGET.`,
       `Or call it over HTTP with any x402 client. Docs: ${baseUrl}/tools/${def.slug}`,
     ].join(" ");
@@ -265,7 +270,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           title: "Search the Agent402 tool catalog",
           annotations: { title: "Search the Agent402 tool catalog", ...SAFE },
           description:
-            `BROWSE the long catalog behind the flagship set: keyword search over Agent402's 500+ deterministic pay-per-call tools (exact count ${tools.size}). Start with the listed flagships for search/answer/news/render/data/transcribe/memory; use this when you need a long-tail slug. Counterpart catalog.find resolves a task to ONE ready-to-run pick - search explores, find decides. ${freeCount} pure-CPU tools run free here (proof-of-work); the rest need a USDC wallet via npx agent402-mcp. Also an OpenAI-compatible LLM gateway at ${baseUrl}/v1 (flat per-call; wallet = account). Returns { results, workflows }; run one with catalog.call.`,
+            `BROWSE the long catalog behind the flagship set: keyword search over Agent402's 500+ deterministic pay-per-call tools (exact count ${tools.size}). Start with the listed flagships for search/answer/news/render/data/transcribe/memory; use this when you need a long-tail slug. Counterpart catalog.find resolves a task to ONE ready-to-run pick - search explores, find decides. ${freeCount} pure-CPU tools run free here (proof-of-work); the rest are payable right here over MPP (credential in _meta - mppx McpClient pays automatically) or via npx agent402-mcp with a wallet. Also an OpenAI-compatible LLM gateway at ${baseUrl}/v1 (flat per-call; wallet = account). Returns { results, workflows }; run one with catalog.call.`,
           inputSchema: {
             type: "object",
             properties: {
@@ -396,6 +401,54 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         }] : []),
       ],
     }));
+
+    /** Paid tool over native MPP: loopback to the real paid route. */
+    async function payOverMpp(entry, reqParams, args, isNamed, ip, signal) {
+      const meta = reqParams?._meta;
+      const credentialHeader = credentialHeaderFromMeta(meta);
+      // Same params shaping as the free path (flagship: args IS params;
+      // catalog.call: {slug, params} envelope, JSON string or flattened).
+      let params = isNamed ? args : args.params;
+      if (typeof params === "string") { try { params = JSON.parse(params); } catch { params = {}; } }
+      if (!params || typeof params !== "object" || Array.isArray(params)) { const { slug: _drop, ...rest } = args || {}; params = rest && Object.keys(rest).length ? rest : {}; }
+      const startedAt = Date.now();
+      const r = await mppLoopback({ def: entry.def, params, credentialHeader, ip, signal, idempotencyKey: meta?.["org.agent402/idempotency-key"] });
+      if (r.status === 402) {
+        const challenges = challengesFromHeader(r.headers.get("www-authenticate"));
+        if (!challenges.length) {
+          // No MPP challenge on the 402 (gates not minting for this route):
+          // fall back to the paid-access instructions rather than an empty ask.
+          return { content: [{ type: "text", text: walletRequiredText(entry.def) }], isError: true };
+        }
+        const problem = r.json && typeof r.json === "object" && typeof r.json.type === "string" ? r.json : undefined;
+        // mppx's wire: -32042 + {httpStatus, challenges, problem?}. A rejected
+        // credential (problem present) says why; a first ask carries only the
+        // challenges. Price rides inside each challenge's request.amount.
+        throw new McpError(MCP_PAYMENT_REQUIRED_CODE, problem?.detail || `Payment Required: ${entry.def.price} per call (pay with an MPP credential in _meta["org.paymentauth/credential"])`, { httpStatus: 402, challenges, ...(problem ? { problem } : {}) });
+      }
+      if (r.status >= 400) {
+        onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: true, statusCode: r.status, errorMessage: String(r.json?.error || r.text || r.status).slice(0, 200), inputKeys: Object.keys(params || {}) });
+        const detail = r.json ? JSON.stringify(r.json) : String(r.text || "").slice(0, 500);
+        return { content: [{ type: "text", text: `Agent402 (${entry.def.slug}) HTTP ${r.status}${r.status >= 400 && r.status < 500 ? " - not charged" : " - not charged (settlement runs only after a successful handler)"}: ${detail}` }], isError: true };
+      }
+      onServed(entry.def.slug, { latencyMs: Date.now() - startedAt, errored: false });
+      const receipt = receiptFromHeader(r.headers.get("payment-receipt"));
+      const receiptMeta = receipt ? { [MCP_RECEIPT_META]: { ...receipt, ...(challengeIdFromMeta(meta) ? { challengeId: challengeIdFromMeta(meta) } : {}) } } : {};
+      if (r.bytes) {
+        return {
+          content: [{ type: "image", data: r.bytes.toString("base64"), mimeType: r.contentType.split(";")[0] }],
+          structuredContent: { slug: entry.def.slug, result: { contentType: r.contentType.split(";")[0], encoding: "base64", note: "Binary payload is in the image content block" } },
+          ...(receipt ? { _meta: receiptMeta } : {}),
+        };
+      }
+      const result = r.json !== undefined ? r.json : { text: r.text };
+      if (isNamed) return { ...mcpJsonResult(result), ...(receipt ? { _meta: receiptMeta } : {}) };
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        structuredContent: { slug: entry.def.slug, result },
+        ...(receipt ? { _meta: receiptMeta } : {}),
+      };
+    }
 
     server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const { name: rawName, arguments: args = {} } = req.params;
@@ -637,7 +690,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             connector: "hosted free tier - no wallet is held on this connector (authless)",
             freeTier: {
               pureCpuToolsFree: freeCount,
-              how: "pure-CPU tools run free here (rate-limited); wallet-only tools return paid-access instructions",
+              how: "pure-CPU tools run free here (rate-limited); wallet-only tools are payable on this connector over MPP (JSON-RPC -32042 carries the challenges; send the credential in _meta[\"org.paymentauth/credential\"], receipt returns in _meta[\"org.paymentauth/receipt\"] - mppx's McpClient.wrap() handles it) or via the npm server with a wallet",
               proofOfWork: "a walletless client can solve a proof-of-work puzzle instead of paying on eligible tools",
             },
             pay: {
@@ -674,7 +727,14 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           return { content: [{ type: "text", text: `Unknown slug "${resolvedSlug}". Use catalog.search to find the right slug.` }], isError: true };
         }
         if (!entry.free) {
-          return { content: [{ type: "text", text: walletRequiredText(entry.def) }], isError: true };
+          // Native MPP (2026-08-19): with the MPP gates mounted, a paid tool is
+          // payable right here on the connector. The call is replayed as a
+          // loopback HTTP request to our own paid route so the REAL gates
+          // verify + settle (settlement authority unchanged); we only
+          // translate wire shapes (see src/mcp-mpp.js). Without the gates
+          // (no MPP_SECRET_KEY) the old paid-access instructions stand.
+          if (!mppLoopback) return { content: [{ type: "text", text: walletRequiredText(entry.def) }], isError: true };
+          return await payOverMpp(entry, req.params, args, isNamed, ip, signal);
         }
         if (rateLimited(ip)) {
           return {
@@ -772,6 +832,9 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
           structuredContent: { slug: entry.def.slug, result },
         };
       } catch (err) {
+        // A payment ask is a JSON-RPC ERROR (-32042) by mppx's wire, not an
+        // isError text the client would show verbatim - let the SDK send it.
+        if (err instanceof McpError) throw err;
         return { content: [{ type: "text", text: `Agent402: ${err.message}` }], isError: true };
       }
     });

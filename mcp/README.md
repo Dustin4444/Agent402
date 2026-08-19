@@ -8,8 +8,12 @@ Your agent gets browser rendering, screenshots, PDF text extraction, URL→markd
 
 **Zero install (hosted connector):** add `https://agent402.tools/mcp` as a remote
 MCP server - e.g. claude.ai → Settings → Connectors → Add custom connector. The
-pure-CPU tools run free there (rate-limited); for the full catalog and no rate
-limit, run this package locally with a wallet:
+pure-CPU tools run free there (rate-limited), and the paid tools are payable
+right on the connector over [MPP](https://agent402.tools/what-is-mpp): a paid
+call answers JSON-RPC error `-32042` with the challenges, and an MCP client
+wrapped with `mppx`'s `McpClient.wrap()` (USDC on Base/Celo, or native Tempo)
+pays and retries on its own, receipt in `_meta`. For no rate limit, or to pay
+over x402 instead, run this package locally with a wallet:
 
 With a funded wallet (USDC on Base, Polygon, Arbitrum, Monad, or Solana, or USDG on Robinhood Chain - the underlying service accepts 12 chains in total, but this package currently signs only EVM and Solana payments) - every tool available:
 

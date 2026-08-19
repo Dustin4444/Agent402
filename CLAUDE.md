@@ -19,6 +19,15 @@ Hosted at https://agent402.tools. Maintained by Havok Holdings LLC (the operatin
 - `src/payments.js` — x402 v2 middleware (USDC on Base/Polygon/Arbitrum, CDP facilitator, Bazaar discovery).
 - `src/pow.js` — proof-of-work tier (signed, single-use, slug-scoped). `WALLET_ONLY_SLUGS` = non-PoW tools.
 - `src/mcp-http.js` — hosted MCP connector (`/mcp`): tools `search_tools`, `find_tool`, `call_tool`, `about_agent402`.
+  **Native MPP on /mcp (2026-08-19, `src/mcp-mpp.js`):** a wallet-only tool called on the connector is payable
+  there - mppx's MCP wire (JSON-RPC error `-32042` + `data.challenges`; credential in
+  `_meta["org.paymentauth/credential"]`; receipt in `_meta["org.paymentauth/receipt"]`). Settlement authority is
+  UNCHANGED: the call is replayed as a LOOPBACK HTTP request to our own paid route (127.0.0.1:PORT, buyer IP on
+  X-Forwarded-For) with `Authorization: Payment <credential>`, the real gates verify+settle, and only the wire
+  shapes are translated (402 -> -32042 with that 402's fresh challenges + its RFC 9457 body as `problem`; 200 +
+  Payment-Receipt -> result + receipt meta; other statuses -> isError "not charged"). Rollout switch =
+  MPP_SECRET_KEY (no gates, no challenges -> the old paid-access text). `scripts/test-mcp-mpp.js` (14, boots
+  the real server, stock SDK client + `McpClient.wrap`, stub facilitator sees exactly one verify + one settle).
 - `src/find.js` — `/api/find` tool resolver (lexical ranking; also used by the `find_tool` MCP tool).
 - `src/discovery.js` — `/.well-known/x402` service manifest + `/api/reliability` report.
 - `src/stats.js`, `src/seo.js`, `src/landing.js`, `src/pages.js`, `src/guides.js`, `src/privacy.js`, `src/terms.js`.

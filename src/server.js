@@ -57,6 +57,7 @@ import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
 import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
 import { skillMd } from "./skill-md.js";
+import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
 import { runSelfCheck } from "./selfcheck.js";
 import { installEgressMeter, egressReport } from "./egress-meter.js";
@@ -3752,6 +3753,11 @@ app.get("/analytics", async (req, res) => {
 mountMcp(app, CATALOG, {
   baseUrl: BASE_URL,
   isComputePayable,
+  // Native MPP on /mcp (2026-08-19): paid tools are payable on the connector
+  // with an MPP credential in _meta; the call is replayed to our own paid
+  // route so the real gates settle (src/mcp-mpp.js). Same rollout switch as
+  // the MPP shim - without MPP_SECRET_KEY there are no challenges to mint.
+  mppLoopback: (process.env.MPP_SECRET_KEY || "").trim() ? createMcpMppLoopback({ port: PORT }) : null,
   // Hosted leaderboard snapshot powers the new `top_x402_sellers` MCP tool —
   // same data the HTML /leaderboard and /api/leaderboard surfaces use, so
   // agents see the same numbers no matter which surface they hit. Hourly-
