@@ -37,6 +37,7 @@ import { countTokens } from "gpt-tokenizer/model/gpt-4o";
 // the same reason as above: embeddingsCacheKey (pre-paywall) must stay sync.
 import { countTokens as countEmbeddingTokens } from "gpt-tokenizer/model/text-embedding-3-small";
 import { redactSecrets } from "./redact.js";
+import { payerFromRequest, paymentHeaderOf } from "../payer.js";
 
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
@@ -170,7 +171,10 @@ export const TIERS = {
       // from OpenRouter entirely (verified against the live models list).
       "google/gemini-2.5-flash-lite",
       "meta-llama/llama-3.2-1b-instruct", "meta-llama/llama-3.2-3b-instruct",
-      "mistralai/ministral-3b", "mistralai/ministral-8b",
+      // ministral-3b/8b were renamed upstream to the -2512 ids (the bare ids
+      // 404 at OpenRouter; live-verified 2026-08-19). Listed with the live id so
+      // /v1/models never advertises a name the upstream no longer serves.
+      "mistralai/ministral-3b-2512", "mistralai/ministral-8b-2512",
       "qwen/qwen-2.5-7b-instruct",
       "deepseek/deepseek-chat",
       "poolside/laguna-xs-2.1", "poolside/laguna-s-2.1", // $0.06-0.09/$0.12-0.18
@@ -185,8 +189,10 @@ export const TIERS = {
     prefixes: [
       "openai/gpt-4o-mini", "openai/gpt-4.1-mini", "openai/gpt-4.1-nano",
       "openai/gpt-5.6-terra", // $1/$6 after the 2026-07-30 cut — under the tier bound
-      "anthropic/claude-haiku", "anthropic/claude-3-haiku", "anthropic/claude-3.5-haiku",
-      "google/gemini-flash", "google/gemini-2.0-flash", "google/gemini-2.5-flash",
+      "anthropic/claude-haiku", "anthropic/claude-3-haiku", // claude-3.5-haiku left OpenRouter (live-verified 2026-08-19)
+      // gemini-flash (bare) and gemini-2.0-flash left OpenRouter (live-verified
+      // 2026-08-19, scripts/test-gateway-model-ids.js); 2.5 + 3.x remain.
+      "google/gemini-2.5-flash",
       "google/gemini-3.1-flash-lite", "google/gemini-3.5-flash-lite", // $0.25/$1.50, $0.30/$2.50
       "deepseek/", "meta-llama/", "mistralai/", "qwen/",
     ],
@@ -201,8 +207,8 @@ export const TIERS = {
       "openai/gpt-4o", "openai/gpt-4.1",
       // claude-sonnet prefix covers claude-sonnet-5, $2/$10 — see MODEL_COST
       // below for the pricing-history note.
-      "anthropic/claude-sonnet", "anthropic/claude-3.5-sonnet", "anthropic/claude-3.7-sonnet",
-      "google/gemini-pro", "google/gemini-2.5-pro",
+      "anthropic/claude-sonnet", // covers claude-sonnet-4.x and -5; 3.5/3.7-sonnet left OpenRouter (2026-08-19)
+      "google/gemini-2.5-pro", // bare gemini-pro left OpenRouter (2026-08-19)
       "google/gemini-3.1-pro", "google/gemini-3.5-flash", "google/gemini-3.6-flash", // $2/$12, $1.5/$9, $1.5/$7.5
       "x-ai/grok",
     ],
@@ -326,9 +332,15 @@ export const MODEL_COST = [
   // match these prefixes.
   ["openai/gpt-5.6-sol", { prompt: 6, completion: 35 }],
   ["openai/gpt-5.6-terra", { prompt: 1.5, completion: 8 }],
-  ["openai/gpt-5.6-luna", { prompt: 0.2, completion: 1 }],
+  ["openai/gpt-5.6-luna", { prompt: 0.2, completion: 1.2 }], // live 2026-08-19: $0.20/$1.20 (was $1)
+  // gpt-5-pro / gpt-5-image (+ -mini, :batch) sit under the "openai/gpt-5"
+  // prefix at far higher rates - explicit so the family rate never prices them
+  // (live 2026-08-19: image $10/$10, image-mini $2.5/$2, pro:batch $7.5/$60).
+  ["openai/gpt-5-pro", { prompt: 15, completion: 120 }],
+  ["openai/gpt-5-image", { prompt: 10, completion: 10 }],
   ["openai/gpt-5", { prompt: 1.25, completion: 10 }],
   ["openai/gpt-4o-mini", { prompt: 0.15, completion: 0.6 }],
+  ["openai/gpt-4o-2024-05-13", { prompt: 5, completion: 15 }], // the original 4o snapshot still lists at its launch price
   ["openai/gpt-4o", { prompt: 2.5, completion: 10 }],
   ["openai/gpt-4.1-nano", { prompt: 0.1, completion: 0.4 }],
   ["openai/gpt-4.1-mini", { prompt: 0.4, completion: 1.6 }],
@@ -342,6 +354,7 @@ export const MODEL_COST = [
   // made $2/$10 the permanent standard price (confirmed against their own
   // release notes, not just OpenRouter's current listing — the two would
   // read identically before 09-01 either way). Live on OpenRouter at $2/$10.
+  ["anthropic/claude-sonnet-4", { prompt: 3, completion: 15 }], // sonnet-4 / 4.5 / 4.6 still list at $3/$15 (live 2026-08-19)
   ["anthropic/claude-sonnet", { prompt: 2, completion: 10 }],
   ["anthropic/claude-3.5-sonnet", { prompt: 3, completion: 15 }],
   ["anthropic/claude-3.7-sonnet", { prompt: 3, completion: 15 }],
@@ -358,10 +371,14 @@ export const MODEL_COST = [
   ["google/gemini-3.1-pro", { prompt: 2.5, completion: 15 }],
   ["google/gemini", { prompt: 0.4, completion: 2.5 }], // flash family
   ["x-ai/grok", { prompt: 3, completion: 15 }],
+  // deepseek-v4-pro ($1.44/$2.88) and r1 ($0.70-0.80/$0.80-2.50) price above
+  // deepseek-chat; explicit so the family rate keeps fitting chat (live 2026-08-19).
+  ["deepseek/deepseek-v4-pro", { prompt: 1.5, completion: 3 }],
+  ["deepseek/deepseek-r1", { prompt: 0.8, completion: 2.5 }],
   ["deepseek/", { prompt: 0.6, completion: 2.5 }],
   ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
-  ["mistralai/", { prompt: 2, completion: 6 }],
-  ["qwen/", { prompt: 1.6, completion: 6.4 }],
+  ["mistralai/", { prompt: 2, completion: 7.5 }], // mistral-medium-3-5 $1.5/$7.5 (live 2026-08-19)
+  ["qwen/", { prompt: 2, completion: 6.4 }], // qwen3.8-max / -2.4t-a95b $2/$6 (live 2026-08-19)
   ["poolside/", { prompt: 0.15, completion: 0.3 }], // laguna xs/s: $0.06-0.09/$0.12-0.18
 ];
 
@@ -481,6 +498,16 @@ export function validateRequest(input, tierSlug) {
     throw bad('"quality" applies only when the gateway picks the model - omit "model" (or send "auto") to use it');
   }
   if (!model) throw bad('"model" is required (e.g. "openai/gpt-4o-mini" or "gpt-4o-mini")');
+  // Model-id variants that change what is BILLED, not just how it routes.
+  // The allowlist's ":variant" match exists for cost-neutral routing hints
+  // (:nitro, :floor); these two are not that. Live-verified 2026-08-19
+  // against OpenRouter's docs: ":online" attaches the web-search plugin at
+  // $0.005-0.007 PER REQUEST on top of tokens (outside provider.max_price and
+  // larger than the nano price by itself); ":batch" is the asynchronous batch
+  // API (24h window), not a chat completion this path can serve.
+  const variant = model.includes(":") ? model.slice(model.indexOf(":") + 1).toLowerCase() : "";
+  if (variant === "online") throw bad(`Model variant ":online" is not offered - web search is billed per request on top of token pricing and is outside this tier's price. Use "${model.slice(0, model.indexOf(":"))}" instead.`);
+  if (variant === "batch") throw bad(`Model variant ":batch" is not offered - batch ids are asynchronous (24h window) and not served on the synchronous chat completions path. Use "${model.slice(0, model.indexOf(":"))}" instead.`);
   if (!tierAllows(tierSlug, model)) {
     const home = tierFor(model);
     throw bad(
@@ -566,6 +593,67 @@ export function validateRequest(input, tierSlug) {
   return body;
 }
 
+/** Per-buyer identity for OpenRouter's `user` field. OpenRouter scopes provider
+ *  abuse/policy blocks to this id; without it every request rides the
+ *  ACCOUNT identity, so one abusive buyer could get the whole gateway
+ *  provider-blocked. Derived, never raw: sha256 of the x402 payer (the signed
+ *  EIP-3009 `from`, same source as src/payer.js) or, when no payer is readable
+ *  (SVM/Stellar payloads, MPP `Authorization: Payment` credentials), of the
+ *  gate credential itself. Null for non-HTTP callers. Injected at call time
+ *  like `provider` - never part of the normalized body or any cache key. */
+export function upstreamUserId(req) {
+  if (!req) return null;
+  let basis = null;
+  const payer = payerFromRequest(req);
+  if (payer) basis = `payer:${payer}`;
+  else {
+    const cred = paymentHeaderOf(req) || (typeof req.header === "function" ? req.header("authorization") : null);
+    if (cred) basis = `credential:${cred}`;
+  }
+  if (!basis) return null;
+  return `a402:${createHash("sha256").update(basis).digest("hex").slice(0, 32)}`;
+}
+
+/** Line-aware SSE pass-through that strips OpenRouter's billing fields from
+ *  the usage frame. OpenRouter now includes full usage on EVERY response
+ *  with no opt-in (their docs: `usage.include` "has no effect"; verified
+ *  live 2026-08-19 - a streamed nano call carried `usage.cost`,
+ *  `cost_details` and `is_byok` in its final frame). The non-stream path has
+ *  always deleted those before the buyer saw them; the stream path piped raw
+ *  bytes, so every streaming buyer was shown our upstream bill. Frames that
+ *  carry no usage pass through byte-for-byte; partial lines are buffered
+ *  across chunks so a frame split mid-JSON is never forwarded half-scrubbed.
+ *  `onUsage(usage, rawCost)` fires once with the stripped cost for telemetry. */
+export function createSseUsageScrubber({ onUsage } = {}) {
+  let buf = "";
+  const processLine = (line) => {
+    if (!line.startsWith("data: ") || !line.includes('"usage"')) return line;
+    let obj;
+    try { obj = JSON.parse(line.slice(6)); } catch { return line; }
+    const u = obj && typeof obj === "object" ? obj.usage : null;
+    if (!u || typeof u !== "object") return line;
+    const rawCost = typeof u.cost === "number" ? u.cost : null;
+    const had = ("cost" in u) || ("cost_details" in u) || ("is_byok" in u);
+    delete u.cost; delete u.cost_details; delete u.is_byok;
+    try { onUsage?.(u, rawCost, obj); } catch { /* telemetry never breaks a stream */ }
+    return had ? `data: ${JSON.stringify(obj)}` : line;
+  };
+  return {
+    push(chunk) {
+      buf += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      const i = buf.lastIndexOf("\n");
+      if (i < 0) return "";
+      const complete = buf.slice(0, i);
+      buf = buf.slice(i + 1);
+      return complete.split("\n").map(processLine).join("\n") + "\n";
+    },
+    flush() {
+      const rest = buf; buf = "";
+      return rest ? processLine(rest) : "";
+    },
+  };
+}
+
 async function fetchOpenRouter(body, { timeoutMs, signal } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
@@ -577,6 +665,8 @@ async function fetchOpenRouter(body, { timeoutMs, signal } = {}) {
         "Content-Type": "application/json",
         "HTTP-Referer": "https://agent402.tools",
         "X-Title": "Agent402.Tools x402 gateway",
+        "X-OpenRouter-Title": "Agent402.Tools x402 gateway",
+        "X-OpenRouter-Categories": "personal-agent,api",
       },
       body: JSON.stringify(body),
       signal: signal ?? AbortSignal.timeout(timeoutMs ?? 90_000),
@@ -639,7 +729,7 @@ export function isEmptyRefusal(data) {
  *  headers are written — once streaming starts, an upstream drop just ends
  *  the stream. Output cost stays bounded: max_tokens was clamped server-side
  *  before the upstream call, so the provider stops the stream at the cap. */
-async function streamOpenRouterTo(body, res) {
+async function streamOpenRouterTo(body, res, { onUsage } = {}) {
   // One controller covers connect AND the whole body read; client disconnect
   // aborts the upstream so a closed tab never keeps burning tokens.
   const ctrl = new AbortController();
@@ -655,8 +745,12 @@ async function streamOpenRouterTo(body, res) {
       "X-Accel-Buffering": "no",
     });
     res.flushHeaders?.();
+    // Billing fields are stripped in flight (see createSseUsageScrubber);
+    // everything else passes through byte-for-byte.
+    const scrub = createSseUsageScrubber({ onUsage });
     try {
-      for await (const chunk of upstream.body) res.write(chunk);
+      for await (const chunk of upstream.body) { const out = scrub.push(chunk); if (out) res.write(out); }
+      const tail = scrub.flush(); if (tail) res.write(tail);
     } catch { /* upstream dropped mid-stream — end what we have */ }
     res.end();
   } finally {
@@ -742,32 +836,59 @@ export const GATEWAY_TIER_BY_PATH = Object.fromEntries(
 // is operator information and never leaves the server. Cached 5 minutes so
 // the public endpoint can't be used to hammer OpenRouter through us.
 const OPENROUTER_CREDITS_URL = "https://openrouter.ai/api/v1/credits";
+const OPENROUTER_KEY_URL = "https://openrouter.ai/api/v1/key";
 const CREDITS_CACHE_MS = 5 * 60 * 1000;
-const LOW_CREDITS_USD = () => Number(process.env.OPENROUTER_LOW_CREDITS_USD) || 5;
+// $15, not $5 (raised 2026-08-19): top-up is manual, and at the margin clamp
+// (upstream <= 70% of price) $5 of credits is under an hour of a busy day.
+const LOW_CREDITS_USD = () => Number(process.env.OPENROUTER_LOW_CREDITS_USD) || 15;
+// The prod key carries its own USD limit (a runaway/leak backstop, set in the
+// OpenRouter dashboard, monthly reset). It is a SECOND ceiling: hitting it
+// stops the gateway exactly like an empty balance, so it pages on the same
+// "low" bucket when the remaining share drops under this fraction.
+const LOW_KEY_LIMIT_FRACTION = () => Number(process.env.OPENROUTER_LOW_KEY_LIMIT_FRACTION) || 0.25;
 let creditsCache = null; // { at, result }
+let creditsUnknownSince = null; // first moment the status went "unknown" (null while readable)
+export function _resetCreditsCacheForTest() { creditsCache = null; creditsUnknownSince = null; }
 
+/** Bucketed balance status for /api/gateway-status and the heartbeat alarm.
+ *  Reads BOTH ceilings and reports the worse: the account credit balance
+ *  (/credits - documented as management-key-only, works with our key today)
+ *  and the key's own limit (/key `limit_remaining`, any key). Either alone
+ *  failing reads "unknown" for that leg; only both unreadable is "unknown"
+ *  overall, and a readable leg saying "low" always wins. Numbers never leave
+ *  this function - the public payload is buckets only. */
 export async function gatewayCreditsStatus() {
   const key = OPENROUTER_KEY();
   if (!key) return { configured: false, status: "unconfigured" };
   if (creditsCache && Date.now() - creditsCache.at < CREDITS_CACHE_MS) return creditsCache.result;
-  let result;
-  try {
-    const res = await fetch(OPENROUTER_CREDITS_URL, {
-      headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    const body = res.ok ? await res.json() : null;
-    const total = Number(body?.data?.total_credits);
-    const used = Number(body?.data?.total_usage);
-    if (Number.isFinite(total) && Number.isFinite(used)) {
-      result = { configured: true, status: total - used < LOW_CREDITS_USD() ? "low" : "ok" };
-    } else {
-      // Shape surprise or upstream error — "unknown", never a false page.
-      result = { configured: true, status: "unknown" };
-    }
-  } catch {
-    result = { configured: true, status: "unknown" };
-  }
+  const headers = { Authorization: `Bearer ${key}` };
+  const readJson = async (url) => {
+    try {
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+      return res.ok ? await res.json() : null;
+    } catch { return null; }
+  };
+  const [credits, keyInfo] = await Promise.all([readJson(OPENROUTER_CREDITS_URL), readJson(OPENROUTER_KEY_URL)]);
+  const total = Number(credits?.data?.total_credits);
+  const used = Number(credits?.data?.total_usage);
+  const creditsLeg = Number.isFinite(total) && Number.isFinite(used) ? (total - used < LOW_CREDITS_USD() ? "low" : "ok") : "unknown";
+  const limit = Number(keyInfo?.data?.limit);
+  const remaining = Number(keyInfo?.data?.limit_remaining);
+  let keyLeg = "unknown";
+  if (keyInfo?.data && (keyInfo.data.limit === null || keyInfo.data.limit === undefined)) keyLeg = "ok"; // no key limit configured
+  else if (Number.isFinite(limit) && Number.isFinite(remaining) && limit > 0) keyLeg = remaining / limit < LOW_KEY_LIMIT_FRACTION() ? "low" : "ok";
+  // "low" on either leg wins; "ok" requires the credit balance itself to be
+  // readable and fine (the key limit alone cannot vouch for the balance);
+  // anything else is "unknown". Unknown never pages on its own, which is how
+  // a dead alarm hid for months once (charged-failure, 2026-07-25) - so the
+  // payload also carries HOW LONG it has been unknown (a duration, not a
+  // balance), and the heartbeat pages on a sustained unknown.
+  const status = (creditsLeg === "low" || keyLeg === "low") ? "low" : creditsLeg === "ok" && keyLeg !== "unknown" ? "ok" : "unknown";
+  if (status === "unknown") creditsUnknownSince ??= Date.now(); else creditsUnknownSince = null;
+  const result = {
+    configured: true, status, credits: creditsLeg, keyLimit: keyLeg,
+    ...(creditsUnknownSince ? { unknownForMinutes: Math.floor((Date.now() - creditsUnknownSince) / 60_000) } : {}),
+  };
   creditsCache = { at: Date.now(), result };
   return result;
 }
@@ -1075,13 +1196,10 @@ export const SPEECH_MODELS = [
       "zf_xiaobei", "zf_xiaoni", "zf_xiaoxiao", "zf_xiaoyi", "zm_yunjian", "zm_yunxi", "zm_yunxia", "zm_yunyang",
     ]),
   },
-  {
-    id: "zyphra/zonos-v0.1-hybrid",
-    aliases: ["zonos-v0.1-hybrid", "zonos"],
-    costPerChar: 0.000007,
-    map: { alloy: "american_female", ash: "american_male", ballad: "british_male", coral: "american_female", echo: "american_male", fable: "british_male", onyx: "american_male", nova: "american_female", sage: "british_female", shimmer: "american_female", verse: "american_male" },
-    voices: new Set(["american_female", "american_male", "british_female", "british_male", "random"]),
-  },
+  // zyphra/zonos-v0.1-hybrid was link 4 until 2026-08-19: it has ZERO
+  // endpoints on OpenRouter now (absent from ?output_modalities=speech), so
+  // every walk past Kokoro burned a failed round-trip. Removed; the chain is
+  // five links. scripts/test-gateway-model-ids.js now checks every link live.
   {
     // MAI-Voice-2-Flash — same four voices as MAI-Voice-2 at $15/M chars
     // (vs $22/M): worst case $0.030 = 50% of the price. Proven by a real
@@ -1252,11 +1370,20 @@ function makeHandler(tierSlug) {
     // a fallback whose input alone busts its budget is skipped (payment
     // settled; serving a shorter answer beats losing money or 502ing).
     const imageCount = countImages(body.messages);
+    // Per-buyer `user` for OpenRouter's abuse isolation (see upstreamUserId):
+    // call-time injection, never in the normalized body or cache keys.
+    const user = upstreamUserId(req);
     const outboundFor = (model) => {
       const attempt = { ...body, model };
       clampToMargin(attempt, TIERS[tierSlug], imageCount); // throws 400 → caller skips this candidate
-      return { ...attempt, zdr: undefined, ...(provider ? { provider } : {}) };
+      return { ...attempt, zdr: undefined, ...(provider ? { provider } : {}), ...(user ? { user } : {}) };
     };
+    const recordUsage = (usage, upstreamUsd, served) => import("../posthog.js")
+      .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
+        tier: tierSlug, model: served, priceUsd: TIERS[tierSlug].price, upstreamUsd,
+        promptTokens: usage?.prompt_tokens, completionTokens: usage?.completion_tokens,
+      }))
+      .catch(() => { /* telemetry must never fail a served response */ });
     if (body.stream === true) {
       // The route binder invokes __sse(res) after the paywall settled.
       // streamOpenRouterTo throws only BEFORE headers are written, so the
@@ -1268,7 +1395,9 @@ function makeHandler(tierSlug) {
             let outbound;
             try { outbound = outboundFor(model); } catch (e) { if (!lastErr) lastErr = e; continue; }
             try {
-              return await streamOpenRouterTo(outbound, res);
+              // Streams now carry margin telemetry too: the scrubber hands us
+              // the upstream cost it strips from the final usage frame.
+              return await streamOpenRouterTo(outbound, res, { onUsage: (usage, cost, frame) => recordUsage(usage, cost, frame?.model || model) });
             } catch (e) {
               if (res.headersSent || ![502, 503, 504].includes(e?.statusCode)) throw e;
               lastErr = e;
@@ -1283,10 +1412,12 @@ function makeHandler(tierSlug) {
       let outbound;
       try { outbound = outboundFor(model); } catch (e) { if (!lastErr) lastErr = e; continue; }
       try {
-        // usage.include asks OpenRouter for the exact upstream bill on this
-        // call — margin telemetry. Injected at call time (like provider), so
-        // it is never part of the normalized body or cache keys. Non-stream
-        // only: on streams the accounting rides the raw SSE the buyer sees.
+        // usage.include once asked OpenRouter for the exact upstream bill;
+        // OpenRouter now returns it on every response regardless (2026-08),
+        // so this is a harmless no-op kept for older gateway behaviour. It is
+        // injected at call time (like provider), never part of the normalized
+        // body or cache keys. Streams get the same accounting via the SSE
+        // scrubber in streamOpenRouterTo.
         const data = await callOpenRouter({ ...outbound, usage: { include: true } });
         // An empty safety refusal (HTTP 200, no content) walks the chain like
         // a provider error — a buyer must never pay for nothing. See
@@ -1304,17 +1435,7 @@ function makeHandler(tierSlug) {
           delete data.usage.cost;
           delete data.usage.cost_details;
           delete data.usage.is_byok;
-          try {
-            const { capturePostHogGatewayUsage } = await import("../posthog.js");
-            capturePostHogGatewayUsage({
-              tier: tierSlug,
-              model: data.model || model,
-              priceUsd: TIERS[tierSlug].price,
-              upstreamUsd,
-              promptTokens: data.usage.prompt_tokens,
-              completionTokens: data.usage.completion_tokens,
-            });
-          } catch { /* telemetry must never fail a served response */ }
+          await recordUsage(data.usage, upstreamUsd, data.model || model);
         }
         // Routed requests disclose the decision: additive key, OpenAI wire
         // shape otherwise untouched (the standard `model` field already names
@@ -1490,7 +1611,7 @@ export const LLM_GATEWAY_TOOLS = [
     category: "llm",
     price: "$0.060",
     description:
-      "OpenAI-compatible text-to-speech over x402 - point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by Voxtral Mini TTS behind a six-model failover chain (xAI Grok Voice, Kokoro, Zonos, MAI-Voice-2 Flash, MAI-Voice-2), every link proven by a real paid canary - a provider outage never becomes your failure. Up to 2,000 chars in, raw mp3 (default) or pcm bytes out - the same wire shape as OpenAI's endpoint. OpenAI voice names (alloy, nova, …) map per-model; native voice ids (e.g. en_paul_cheerful) work too. zdr:true routes only to zero-data-retention providers.",
+      "OpenAI-compatible text-to-speech over x402 - point any OpenAI SDK's audio.speech.create() at base_url https://agent402.tools/v1 and pay $0.06 per call in USDC, no API key, no signup. Served by Voxtral Mini TTS behind a five-model failover chain (xAI Grok Voice, Kokoro, MAI-Voice-2 Flash, MAI-Voice-2), every link proven by a real paid canary - a provider outage never becomes your failure. Up to 2,000 chars in, raw mp3 (default) or pcm bytes out - the same wire shape as OpenAI's endpoint. OpenAI voice names (alloy, nova, …) map per-model; native voice ids (e.g. en_paul_cheerful) work too. zdr:true routes only to zero-data-retention providers.",
     tags: ["tts", "text-to-speech", "speech", "audio", "voice", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",

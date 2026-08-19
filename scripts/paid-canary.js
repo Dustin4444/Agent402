@@ -246,7 +246,7 @@ export const TOOLS = [
   },
   {
     // TTS — the response is mp3 BYTES, not JSON: a real audio-sized payload
-    // proves the binary sentinel path, the six-model failover chain's head
+    // proves the binary sentinel path, the five-model failover chain's head
     // (or a live fallback), and settlement. Re-added 2026-07-16 when the
     // tier moved off OpenRouter's phantom OpenAI TTS ids onto the
     // probe-proven chain (Voxtral → Grok → Kokoro → Zonos → MAI).

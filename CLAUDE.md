@@ -115,9 +115,9 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `b64_json`, no cache/stream, imageless upstream → 502),
   plus **`/v1/audio/speech` `$0.06`** (`v1-audio-speech` — OpenAI TTS wire on
   OpenRouter's audio API. OpenRouter has NO OpenAI TTS models (their docs still say
-  otherwise — burned us 2026-07-09); serves a SIX-model failover chain instead
-  (`SPEECH_MODELS`: Voxtral Mini TTS → Grok Voice → Kokoro-82M → Zonos →
-  MAI-Voice-2-Flash → MAI-Voice-2, all proven by real buys via the dispatchable
+  otherwise — burned us 2026-07-09); serves a FIVE-model failover chain instead
+  (`SPEECH_MODELS`: Voxtral Mini TTS → Grok Voice → Kokoro-82M →
+  MAI-Voice-2-Flash → MAI-Voice-2 (Zonos removed 2026-08-19: zero endpoints upstream), all proven by real buys via the dispatchable
   `.github/workflows/openrouter-tts-probe.yml`, which probes the live
   `?output_modalities=speech` list — never hardcoded ids; latest full sweep run
   30971572514, 2026-08-05, which also proved the -Flash link before it entered).
@@ -147,8 +147,27 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `usage:{include:true}` to OpenRouter (call-time inject, never in cache keys); exact
   upstream cost → PostHog `gateway_usage` event (price/upstream/margin/tokens), then
   `cost`/`cost_details`/`is_byok` are STRIPPED before the response is cached or returned
-  (never leak the bill to buyers; posthog.js loaded lazily in the handler). Streams skip
-  accounting — cost would ride the buyer's raw SSE. **zdr knob:** `zdr:true` (or
+  (never leak the bill to buyers; posthog.js loaded lazily in the handler). **Streams
+  too (2026-08-19):** OpenRouter now puts full usage incl. `cost` in the final SSE frame with NO
+  opt-in (`usage.include` is a documented no-op), and the stream path piped raw bytes, so every
+  streaming buyer saw our upstream bill - verified live with a nano stream. `createSseUsageScrubber`
+  strips the billing fields in flight (line-aware, partial lines buffered across chunks) and hands
+  the cost to the same PostHog event, so streams carry margin telemetry now. **`user` field:**
+  every upstream call carries `user: a402:<sha256(payer or gate credential)>` (`upstreamUserId`) -
+  OpenRouter scopes provider policy blocks to it; without it one abusive buyer could get the whole
+  account blocked. Call-time injection, never in cache keys. **Variants:** `:online` (per-request
+  web-search billing outside max_price) and `:batch` (async) are refused with self-explaining 400s;
+  routing-only `:nitro`/`:floor` still pass. **Live-catalog guard:** `scripts/test-gateway-model-ids.js`
+  (CI, network) fails on any advertised/ranked/fallback/TTS id missing upstream, any MODEL_COST
+  entry under a live admitted price inside the tier's max_price, or a ranked model expiring within
+  14 days - it found 5 dead advertised ids, the dead Zonos TTS link, and 9 underpriced MODEL_COST
+  rows on its first run (all fixed the same day). **Balance alarm (`gatewayCreditsStatus`) reads
+  TWO ceilings:** `/credits` (balance, low-water `OPENROUTER_LOW_CREDITS_USD` default $15) and
+  `/key` `limit_remaining` (the prod key's own monthly USD limit, $250/month set 2026-08-19;
+  low under `OPENROUTER_LOW_KEY_LIMIT_FRACTION` 0.25); either low → "low"; "ok" needs the balance
+  leg readable; otherwise "unknown" with `unknownForMinutes`, and heartbeat opens "Gateway balance
+  UNREADABLE (OpenRouter)" after 180 min of unknown (a balance we cannot read is its own alarm).
+  **zdr knob:** `zdr:true` (or
   `provider.zdr`) is the ONLY buyer-settable provider field — folds into the server-owned
   provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),
   stripped from the top-level outbound body. All tiers in `WALLET_ONLY_SLUGS` and
