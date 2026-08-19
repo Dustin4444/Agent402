@@ -238,6 +238,9 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const nestedOut = scN.push('data: {"type":"response.completed","response":{"id":"r","usage":{"input_tokens":6,"output_tokens":3,"cost":0.0000018,"is_byok":false,"cost_details":{"upstream_inference_cost":0.0000018}}}}\n');
   ok(!/cost|is_byok/.test(nestedOut) && /"input_tokens":6/.test(nestedOut) && nestedSeen?.cost === 0.0000018 && nestedSeen.u.input_tokens === 6, "scrubber strips response.usage billing fields in a Responses completed frame and reports the cost");
   ok(!/cost/.test(createSseUsageScrubber().push('data: {"type":"message_start","message":{"usage":{"input_tokens":1,"cost":0.1}}}\n')), "scrubber strips message.usage billing fields (Anthropic message_start) too");
+  // SSE permits "data:" with no space; a format change upstream must not re-open the stream leak.
+  const noSpace = createSseUsageScrubber().push('data:{"id":"x","usage":{"prompt_tokens":2,"cost":0.5,"cache_discount":-0.1}}\n');
+  ok(!/cost|cache_discount/.test(noSpace) && /"prompt_tokens":2/.test(noSpace), "scrubber handles a 'data:' frame with no space after the colon");
 
   // Flex-first on eligible links: gemini-2.5-flash-lite (nano allowlist) is
   // tried on flex, falls to default on a capacity error, and only THEN does
@@ -825,7 +828,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
       text: async () => JSON.stringify({
         id: "gen-i", model: seen.model,
         choices: [{ index: 0, message: { role: "assistant", content: "", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${PNG_B64}` } }] }, finish_reason: "stop" }],
-        usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304, cost: 0.039, cost_details: {}, is_byok: false },
+        usage: { prompt_tokens: 14, completion_tokens: 1290, total_tokens: 1304, cost: 0.039, cost_details: {}, is_byok: false, cache_discount: 0 },
       }),
     };
   };
@@ -836,7 +839,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(seen.provider?.zdr === true, "zdr folds into the images provider prefs too");
   ok(seen.usage?.include === true, "images calls request usage accounting");
   ok(out.data[0].b64_json === PNG_B64 && out.data[0].media_type === "image/png" && typeof out.created === "number", "data URI translated to the OpenAI images shape");
-  ok(out.usage.cost === undefined && out.usage.cost_details === undefined, "upstream cost stripped from the images response");
+  ok(out.usage.cost === undefined && out.usage.cost_details === undefined && out.usage.is_byok === undefined && out.usage.cache_discount === undefined, "upstream cost (incl. is_byok + cache_discount) stripped from the images response");
   const { _testEventsForTest } = await import("../src/posthog.js");
   const ev = _testEventsForTest().filter((e) => e.event === "gateway_usage").pop();
   ok(ev?.properties.tier === "v1-images" && ev?.properties.upstreamUsd === 0.039 && ev?.properties.priceUsd === 0.08, "images margin telemetry captured");
@@ -891,6 +894,13 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(seen.plugins.length === 2 && seen.plugins[0].id === "web" && seen.plugins[1].id === "response-healing", "web + response-healing plugins merge for structured output");
   let e = null; try { validateRequest({ model: "openai/gpt-4o-mini:online", messages: msg1() }, "v1-chat"); } catch (x) { e = x; }
   ok(e?.statusCode === 400 && /:online/.test(e.message), ":online stays refused on the other tiers (the grounded tier is the sanctioned home)");
+  // Every attempt re-runs the $0.007 search, so the grounded chain is capped
+  // at two attempts (cost audit 2026-08-19): a chain failing end-to-end costs
+  // at most $0.014 in search fees, not 8 x $0.007.
+  let tries = 0;
+  globalThis.fetch = async () => { tries++; return { ok: false, status: 503, text: async () => JSON.stringify({ error: { message: "capacity" } }) }; };
+  let ge = null; try { await grounded.handler({ messages: msg1(), max_tokens: 64 }, { header: () => undefined }); } catch (x) { ge = x; }
+  ok(g.maxAttempts === 2 && tries === 2 && ge?.statusCode === 502, `grounded chain makes at most 2 upstream attempts on failure (made ${tries}, surfaced ${ge?.statusCode})`);
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
@@ -904,6 +914,7 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const rerank = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-rerank");
   ok(rerank && rerank.route === "POST /v1/rerank" && rerank.price === "$0.002" && RERANK_PATH === "/v1/rerank" && RERANK_PRICE === 0.002, "v1-rerank tool registered at POST /v1/rerank, $0.002");
   const good = validateRerankRequest({ query: "capital of France?", documents: ["Paris", "Berlin", "Madrid"], top_n: 10 });
+  ok(validateRerankRequest({ query: "q".repeat(400), documents: Array.from({ length: 25 }, () => "english words repeated ".repeat(68)) }).documents.length === 25, "rerank: 25 x ~1,560 chars of English (39k total) at the query cap is still one search unit (accepted)");
   ok(good.model === RERANK_MODEL && good.top_n === 3 && good.documents.length === 3, "valid body: model locked, top_n clamped to the document count");
   for (const [label, body] of [
     ["no query", { documents: ["a"] }],
@@ -915,6 +926,9 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     ["other model", { query: "q", documents: ["a"], model: "cohere/rerank-english-v3.0" }],
     ["bad top_n", { query: "q", documents: ["a"], top_n: 0 }],
     ["too many chars total", { query: "q", documents: Array.from({ length: 30 }, () => "y".repeat(1500)) }],
+    // Under every char cap (26 x 1,500 = 39,000) but CJK tokenizes ~1/char:
+    // 26 x 4 chunks = 104 chunks -> a second search unit upstream.
+    ["over one search unit (CJK tokens)", { query: "問題", documents: Array.from({ length: 26 }, () => "漢".repeat(1500)) }],
   ]) {
     let e = null; try { validateRerankRequest(body); } catch (x) { e = x; }
     ok(e?.statusCode === 400, `rerank ${label} -> 400 (${e?.message?.slice(0, 60)})`);

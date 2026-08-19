@@ -247,7 +247,7 @@ async function listen(app) {
   app.use(createTempoGate({
     ...GATE,
     validate: async () => ({ ok: true, validation: {} }),
-    broadcast: async () => ({ ok: false, error: "relay temporarily unavailable" }),
+    broadcast: async () => ({ ok: false, error: "relay temporarily unavailable", reason: "relay temporarily unavailable" }),
   }));
   app.use(paywallStub);
   app.get("/paid", (req, res) => res.status(200).json({ result: "should never reach the buyer" }));
@@ -278,7 +278,7 @@ async function listen(app) {
   const app = express();
   app.use(createTempoGate({
     ...GATE,
-    validate: async () => ({ ok: false, error: "expired" }),
+    validate: async () => ({ ok: false, error: "expired", reason: "expired" }),
     broadcast: async () => ({ ok: true, receipt: {} }),
   }));
   let downstream = null;
@@ -296,7 +296,7 @@ async function listen(app) {
   ok(body.type === "https://paymentauth.org/problems/verification-failed" && /expired/.test(body.detail || "") && body.fallenThrough === undefined && /problem\+json/.test(res.headers.get("content-type") || ""), `case D: the fall-through 402 body is an RFC 9457 verification-failed problem carrying the relay's reason (${body.type}: ${body.detail})`);
   let okBody = null;
   const app2 = express();
-  app2.use(createTempoGate({ ...GATE, validate: async () => ({ ok: false, error: "expired" }), broadcast: async () => ({ ok: true, receipt: {} }) }));
+  app2.use(createTempoGate({ ...GATE, validate: async () => ({ ok: false, error: "expired", reason: "expired" }), broadcast: async () => ({ ok: true, receipt: {} }) }));
   app2.use((req, res) => res.status(200).json({ free: true }));
   const s2 = await listen(app2);
   okBody = await (await fetch(`${s2.url}/paid`, { headers: { Authorization: buildTempoCredential() } })).json();
@@ -467,7 +467,7 @@ async function listen(app) {
 }
 {
   const app = express();
-  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => ({ ok: false, error: "relay down" }) }));
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => ({ ok: false, error: "relay down", reason: "relay down" }) }));
   app.use(paywallStub);
   app.get("/paid", (_req, res) => { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.flushHeaders?.(); res.write("data: secret\n\n"); res.end(); });
   const { server, url } = await listen(app);
@@ -479,6 +479,50 @@ async function listen(app) {
 
 function isDeepOrderOk(actual, expected) {
   return actual.length === expected.length && actual.every((v, i) => v === expected[i]);
+}
+
+// Case J (security review 2026-08-19): a tempo-settling request must not carry
+// an unverified x402 payer. The dispatcher skips x402 verification once the
+// tempo gate accepts, so a forged PAYMENT-SIGNATURE riding alongside the tempo
+// credential would be read by payerFromRequest() as the payer (memory identity,
+// my-usage, idempotency seeding). The gate drops those headers on acceptance.
+{
+  const { payerFromRequest, paymentIdentifierOf } = await import("../src/payer.js");
+  const app = express();
+  app.use(createTempoGate({ ...GATE, validate: async () => ({ ok: true, validation: {} }), broadcast: async () => ({ ok: true, receipt: { method: "tempo", status: "success", reference: "0x0j", timestamp: new Date().toISOString() } }) }));
+  app.use((req, res, next) => (req.tempoSettling ? next() : res.status(402).json({})));
+  app.get("/paid", (req, res) => res.json({ actor: payerFromRequest(req), pid: paymentIdentifierOf(req), xp: req.headers["x-payment"] ?? null }));
+  const { server, url } = await listen(app);
+  const forged = Buffer.from(JSON.stringify({ x402Version: 2, payload: { authorization: { from: "0x1111111111111111111111111111111111111111" } }, extensions: { "payment-identifier": { info: { id: "attacker-id" } } } })).toString("base64");
+  const res = await fetch(`${url}/paid`, { headers: { Authorization: buildTempoCredential(), "PAYMENT-SIGNATURE": forged, "X-PAYMENT": forged } });
+  const body = await res.json();
+  ok(res.status === 200 && body.actor === null && body.pid === null && body.xp === null, `case J: a forged x402 payer header alongside a tempo credential is dropped before the handler (actor ${body.actor}, pid ${body.pid})`);
+  server.close();
+}
+
+// Case K (same review): identity-bound routes (wallet-keyed memory, my-usage)
+// are never payable over Tempo - no tempo challenge is minted for them and a
+// tempo credential for one is refused at the binding check, before any relay
+// call, as an RFC 9457 problem on the fall-through 402.
+{
+  const priceForId = (_m, path) => (path === "/memory" ? { priceUsd: 0.05, identityBound: true } : priceFor(_m, path));
+  const b = checkTempoCredentialBinding(buildTempoCredential(), { secretKey: GATE_SECRET, realm: REALM, priceFor: priceForId, method: "GET", path: "/memory" });
+  ok(b.ok === false && /identity/.test(b.reason || ""), `case K: binding refuses a tempo credential on an identity-bound route (${b.reason})`);
+  let validateCalls = 0;
+  const app = express();
+  app.use(createTempoChallengeAppender({ ...GATE, priceFor: priceForId }));
+  app.use(createTempoGate({ ...GATE, priceFor: priceForId, validate: async () => { validateCalls++; return { ok: true, validation: {} }; }, broadcast: async () => ({ ok: true, receipt: {} }) }));
+  app.use((req, res) => (req.tempoSettling ? res.json({ served: true }) : res.status(402).json({})));
+  const { server, url } = await listen(app);
+  const bare = await fetch(`${url}/memory`);
+  const www = bare.headers.get("www-authenticate") || "";
+  ok(bare.status === 402 && !/tempo/i.test(www), `case K: no tempo challenge is minted on an identity-bound route's 402 (WWW-Authenticate: ${www.slice(0, 40) || "(none)"})`);
+  const paidBare = await fetch(`${url}/paid`);
+  ok(/tempo/i.test(paidBare.headers.get("www-authenticate") || ""), "case K: an ordinary paid route still gets its tempo challenge");
+  const res = await fetch(`${url}/memory`, { headers: { Authorization: buildTempoCredential() } });
+  const body = await res.json();
+  ok(res.status === 402 && validateCalls === 0 && /identity/.test(body.detail || ""), `case K: a tempo credential on an identity-bound route is refused before any relay call (${res.status}, validate calls ${validateCalls}: ${String(body.detail).slice(0, 80)})`);
+  server.close();
 }
 
 facilitator.close();

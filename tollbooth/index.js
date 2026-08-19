@@ -349,7 +349,12 @@ export function createTollbooth(config = {}) {
       if (!claimed) return reject("invalid-challenge", "Challenge is invalid: this credential was already used or is in flight. Request the resource again for a fresh challenge.");
       const input = relayInput(cred);
       const v = await tempoRelayClient.validate(input).catch((e) => ({ ok: false, error: String(e?.message || e) }));
-      if (!v.ok) return reject("verification-failed", `Payment verification failed: ${String(v.error || "the Tempo relay rejected the credential").slice(0, 200)}.`);
+      if (!v.ok) {
+        // Operator log gets the relay's full message (`detail`); the buyer's
+        // 402 problem gets status + code only (`error`) - never an upstream body.
+        console.warn(`[agent402-tollbooth] tempo credential rejected by validate (${req.method} ${req.url}): ${v.detail || v.error}`);
+        return reject("verification-failed", `Payment verification failed: ${String(v.error || "the Tempo relay rejected the credential").slice(0, 160)}.`);
+      }
       // Buffer the handler's response (writeHead/write/end/flushHeaders) -
       // Node's real 'finish' never fires while end is buffered, so the sync
       // primitive is a promise resolved inside the buffered end.
@@ -387,10 +392,10 @@ export function createTollbooth(config = {}) {
         // Broadcast failed AFTER a successful handler: discard the body, 402
         // (mirrors @x402/express's settle-failure path). Loud - this is the
         // one path that can be our latency rather than the relay's verdict.
-        console.warn(`[agent402-tollbooth] tempo broadcast failed after a successful handler (${req.method} ${req.url}) - answered 402, not charged: ${b.error}`);
+        console.warn(`[agent402-tollbooth] tempo broadcast failed after a successful handler (${req.method} ${req.url}) - answered 402, not charged: ${b.detail || b.error}`);
         buffered = [];
         restore();
-        return reject("verification-failed", `Payment verification failed: Tempo settlement was not accepted (${String(b.error || "no relay detail").slice(0, 200)}).`);
+        return reject("verification-failed", `Payment verification failed: Tempo settlement was not accepted (${String(b.error || "no relay detail").slice(0, 160)}).`);
       }
       incr("tempoPaid");
       restore();

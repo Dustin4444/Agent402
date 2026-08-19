@@ -110,6 +110,15 @@ check("chain sweep: a per-chain lowWater override pages Tempo at $0.40 while Mon
   assert.equal(r.low[0].key, "tempo-pathusd");
   assert.equal(r.low[0].lowWater, 0.5);
 });
+check("chain sweep: the live Tempo rows - USDC.e pages under $5 (volume runner runway), PathUSD lowWater 0 never pages", () => {
+  const r = chainLowWaterReport([
+    { key: "tempo-usdce", label: "Tempo (USDC.e)", usd: 4.9, lowWater: 5 },
+    { key: "tempo-pathusd", label: "Tempo (PathUSD)", usd: 0, lowWater: 0 },
+  ], { chainLowWater: 0.05 });
+  assert.deepEqual(r.low.map((x) => x.key), ["tempo-usdce"]);
+  const r2 = chainLowWaterReport([{ key: "tempo-usdce", label: "Tempo (USDC.e)", usd: 5, lowWater: 5 }], { chainLowWater: 0.05 });
+  assert.equal(r2.low.length, 0);
+});
 check("chain sweep: a balance exactly at the threshold is not low", () => {
   const r = chainLowWaterReport([{ key: "celo", label: "Celo", usd: 0.05 }], { chainLowWater: 0.05 });
   assert.equal(r.low.length, 0);

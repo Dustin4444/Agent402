@@ -73,6 +73,17 @@ const paid = await fetch(`${url}/paid`, { headers: { Authorization: credFor(live
 const paidBody = await paid.json();
 ok(paid.status === 200 && paidBody.result === "ok" && paid.headers.get("x-tollbooth-paid") === "mpp-tempo", `gate: a bound tempo credential is validated, served and broadcast (got ${paid.status})`);
 ok(calls.validate.length === 1 && calls.broadcast.length === 1 && calls.broadcast[0].idempotencyKey.startsWith("mpp_") && calls.broadcast[0].input.challenge.id === liveCh.id, "gate: relay validate once BEFORE the handler, broadcast once AFTER with an idempotency key");
+// The relay's input is mppx's deserialized credential: `challenge.request` is
+// the DECODED request object (amount/currency/recipient/methodDetails), never
+// the base64url wire string; `payload` rides verbatim. The first live proof
+// failed on exactly this (run 32295980187): the real relay refused the wire
+// string while this stub accepted anything. Mirrors mppx Relay.js toRelayInput.
+{
+  const vi = calls.validate[0];
+  ok(vi && typeof vi.challenge.request === "object" && vi.challenge.request.amount === "1000" && typeof vi.challenge.request.recipient === "string" && Number(vi.challenge.request.methodDetails?.chainId) === 4217 && typeof vi.challenge.id === "string" && vi.challenge.method === "tempo", `relay wire: challenge.request is the decoded object (${JSON.stringify(vi?.challenge?.request).slice(0, 80)})`);
+  ok(vi && vi.payload && typeof vi.payload.type === "string", "relay wire: payload rides verbatim");
+  ok(JSON.stringify(calls.broadcast[0].input.challenge.request) === JSON.stringify(vi.challenge.request), "relay wire: broadcast sends the same decoded input as validate");
+}
 const receipt = paid.headers.get("payment-receipt");
 ok(receipt && JSON.parse(Buffer.from(receipt, "base64url").toString()).method === "tempo", "gate: Payment-Receipt rides on the 200 (base64url JSON, method tempo)");
 ok(handlerRuns === 1, "gate: handler ran exactly once");

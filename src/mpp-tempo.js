@@ -173,6 +173,17 @@ function describeRelayFailure(e) {
   const message = String(e?.message || e).slice(0, 200);
   return `${message}${detail ? ` details=${detail}` : ""}${raw ? ` ${raw}` : ""}${!detail && !raw ? " (no relay verdict — failed before/without a relay round trip)" : ""}`;
 }
+/** The BUYER-facing reason: mppx's own message plus the relay's error CODE
+ *  only. Never the raw relay body (`__relayTrace.relayError`) - that is an
+ *  upstream response relayed verbatim into a public 402 problem document,
+ *  and a relay that echoes our API key or account details in an error would
+ *  hand it to every MPP buyer. describeRelayFailure (above) keeps the full
+ *  trace for the operator log. (Leak audit 2026-08-19.) */
+function buyerReason(e) {
+  const code = e?.details && typeof e.details === "object" && typeof e.details.code === "string" ? e.details.code.slice(0, 60) : null;
+  const message = String(e?.message || e || "Payment verification failed.").replace(/[\r\n]+/g, " ").slice(0, 120);
+  return code ? `${message} (${code})` : message;
+}
 
 // The configured Method.Server is cheap to hold but not free to rebuild per
 // request; memoize it, keyed on the config values that actually shape it so
@@ -314,6 +325,12 @@ export function checkTempoCredentialBinding(authorizationHeader, { secretKey, re
   const item = typeof priceFor === "function" ? priceFor(method, path) : null;
   const priceUsd = Number(item?.priceUsd);
   if (!(priceUsd > 0)) return bad("route has no price - a tempo credential buys nothing here");
+  // Security review 2026-08-19: the memory family / my-usage derive the
+  // caller's identity from the SIGNED x402 payer; Tempo settles through the
+  // relay with no payer this server verifies, so a tempo credential must never
+  // reach those handlers (it would be served under whatever payer header the
+  // request also carried).
+  if (item.identityBound) return bad("this route is wallet-identity bound (the payment IS the identity); Tempo credentials carry no payer this server verifies - pay it over an x402 rail");
   const expected = BigInt(Math.round(priceUsd * 10 ** envDecimals()));
   let amount;
   try { amount = BigInt(String(r.amount)); } catch { return bad("challenge amount is not an integer base-units string"); }
@@ -333,7 +350,7 @@ export async function validateTempoCredential(authorizationHeader) {
     // mppx's VerificationFailedError.message is ALWAYS the bare "Payment
     // verification failed." — the relay's verdict is elsewhere; see
     // describeRelayFailure for where.
-    return { ok: false, error: describeRelayFailure(e) };
+    return { ok: false, error: describeRelayFailure(e), reason: buyerReason(e) };
   }
 }
 
@@ -345,7 +362,7 @@ export async function broadcastTempoCredential(authorizationHeader) {
     const [receipt] = await withRelayTrace(() => Method.broadcastCredential([tempoMethod()], authorizationHeader));
     return { ok: true, receipt };
   } catch (e) {
-    return { ok: false, error: describeRelayFailure(e) };
+    return { ok: false, error: describeRelayFailure(e), reason: buyerReason(e) };
   }
 }
 
@@ -398,7 +415,10 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
       try {
         if (res.statusCode === 402) {
           const item = priceFor(req.method, req.path);
-          if (item) {
+          // Identity-bound routes (wallet-keyed memory, my-usage) are paid
+          // with the payer AS the identity; a tempo credential carries no
+          // verified payer, so no tempo challenge is offered for them.
+          if (item && !item.identityBound) {
             const header = mintTempoChallenge({
               priceUsd: item.priceUsd,
               description: item.description,
@@ -485,7 +505,7 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         console.warn(`[mpp-tempo] credential rejected by validate(): ${v.error || "(no error detail)"}`);
         // Fall through to a fresh 402 (same as an invalid evm credential) -
         // whose body now says verification-failed with the relay's reason.
-        markMppProblem(req, res, mppProblem("verification-failed", `Payment verification failed: ${String(v.error || "the Tempo relay rejected the credential").slice(0, 200)}.`));
+        markMppProblem(req, res, mppProblem("verification-failed", `Payment verification failed: ${String(v.reason || "the Tempo relay rejected the credential").slice(0, 160)}`));
         return next();
       }
 
@@ -516,6 +536,13 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // downstream (PoW/replay-guard/x402mw): none of it applies to a
       // credential that was never an x402 payment header.
       req.tempoSettling = true;
+      // The tempo credential is the ONLY payment evidence on this request.
+      // Drop any x402 payment header that rode alongside it: the dispatcher
+      // skips x402 verification for a tempo-settling request, so such a
+      // header is unverified, yet payerFromRequest() would read its
+      // authorization.from as the payer (memory identity, my-usage,
+      // idempotency seeding, telemetry). Security review 2026-08-19.
+      for (const h of ["payment-signature", "x-payment", "payment-identifier"]) delete req.headers[h];
 
       // Buffering mechanics verified against node_modules/@x402/express's
       // own paymentVerified branch (dist/esm/index.mjs) rather than
@@ -596,7 +623,7 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         console.warn(`[mpp-tempo] broadcast failed AFTER a successful handler (${req.method} ${req.path}) — buyer answered 402, not charged by us: ${b.error} [${timing}]`);
         bufferedCalls = [];
         restore();
-        sendMppProblem(res, mppProblem("verification-failed", `Payment verification failed: Tempo settlement was not accepted (${String(b.error || "no relay detail").slice(0, 200)}).`));
+        sendMppProblem(res, mppProblem("verification-failed", `Payment verification failed: Tempo settlement was not accepted (${String(b.reason || "no relay detail").slice(0, 160)}).`));
         releaseReplay();
         return;
       }

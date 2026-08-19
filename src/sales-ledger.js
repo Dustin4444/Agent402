@@ -130,6 +130,20 @@ const qMppRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx, internal
   FROM sales WHERE wire IN ('mpp', 'mpp-tempo')
   ORDER BY ts DESC LIMIT ?`);
+// PUBLIC aggregate sources (cost audit 2026-08-19): the public view used to be
+// derived from the 30 NEWEST rows, so once the Tempo volume runner started
+// settling ~1,000 internal buys a day the 30 newest were always our own and
+// /api/revenue/mpp read "externalCount 0" with only our hashes on the rail
+// cards - a public misstatement by crowding. Totals now come from the whole
+// ledger grouped by network x internal, and the recent hashes are EXTERNAL
+// rows first (internal hashes only fill a rail that has no external settle yet).
+const qMppTotals = db.prepare(`
+  SELECT network, internal, COUNT(*) AS n, MIN(ts) AS first_ts, MAX(ts) AS last_ts
+  FROM sales WHERE wire IN ('mpp', 'mpp-tempo')
+  GROUP BY network, internal`);
+const qMppRecentExternal = db.prepare(`
+  SELECT ts, network, tx FROM sales WHERE wire IN ('mpp', 'mpp-tempo') AND internal = 0
+  ORDER BY ts DESC LIMIT ?`);
 // Every MPP tx hash, for joining the wire onto the on-chain revenue ledger
 // (separate db) so the chart can filter by wire. Unbounded by design: the
 // series spans the whole chart window, not just the recent list. Widened to
@@ -311,31 +325,42 @@ export function mppSales({ limit = 30, detailed = false } = {}) {
   // count and chain-resolvable tx hashes, not a shopping list. Unauthenticated
   // callers get exactly that; the operator view keeps the full rows.
   if (!detailed) {
+    // All-time totals per network x internal (see qMppTotals) - never "the 30
+    // newest rows", which our own volume runner now dominates.
+    const totals = qMppTotals.all();
+    const rails = {};
+    let count = 0, externalCount = 0, firstTs = null, lastTs = null;
+    for (const t of totals) {
+      const n = t.network || "unknown";
+      const e = rails[n] || (rails[n] = { count: 0, external: 0, internal: 0, lastAt: null, lastExternalAt: null, txs: [], txsInternal: false });
+      e.count += t.n; count += t.n;
+      if (t.internal) e.internal += t.n; else { e.external += t.n; externalCount += t.n; if (!e.lastExternalAt || t.last_ts > Date.parse(e.lastExternalAt)) e.lastExternalAt = new Date(t.last_ts).toISOString(); }
+      if (!e.lastAt || t.last_ts > Date.parse(e.lastAt)) e.lastAt = new Date(t.last_ts).toISOString();
+      if (firstTs === null || t.first_ts < firstTs) firstTs = t.first_ts;
+      if (lastTs === null || t.last_ts > lastTs) lastTs = t.last_ts;
+    }
+    // Recent on-chain proof: external rows first; a rail with no external
+    // settle yet shows its newest internal (canary) hashes, flagged as such.
+    const ext = qMppRecentExternal.all(Math.min(Math.max(1, limit | 0), 100));
+    for (const r of ext) { const e = rails[r.network || "unknown"]; if (e && r.tx && e.txs.length < 12) e.txs.push(r.tx); }
+    for (const r of rows) { const e = rails[r.network || "unknown"]; if (e && e.external === 0 && r.tx && e.txs.length < 12) { e.txs.push(r.tx); e.txsInternal = true; } }
     return {
       persistent: salesPersistent,
-      count: rows.length,
+      count,
       // Adoption evidence without the purchase pattern: WHEN the wire was used,
       // on WHICH rails, and the tx hashes that prove it on-chain.
-      firstAt: rows.length ? new Date(rows[rows.length - 1].ts).toISOString() : null,
-      lastAt: rows.length ? new Date(rows[0].ts).toISOString() : null,
-      byNetwork: rows.reduce((a, r) => { a[r.network || "unknown"] = (a[r.network || "unknown"] || 0) + 1; return a; }, {}),
-      externalCount: rows.filter((r) => !r.internal).length,
-      txs: rows.map((r) => r.tx).filter(Boolean),
-      // Per-rail slice of the same evidence (count, external count, newest
-      // settlement, hashes) so /revenue can give each MPP rail its own card
-      // and link every hash to the RIGHT explorer — the flat `txs` list above
-      // cannot be resolved per chain once more than one rail has settled.
+      firstAt: firstTs !== null ? new Date(firstTs).toISOString() : null,
+      lastAt: lastTs !== null ? new Date(lastTs).toISOString() : null,
+      byNetwork: Object.fromEntries(Object.entries(rails).map(([n, e]) => [n, e.count])),
+      externalCount,
+      internalCount: count - externalCount,
+      txs: ext.map((r) => r.tx).filter(Boolean),
+      // Per-rail slice of the same evidence (all-time count, external/internal
+      // split, newest settlement, recent external hashes) so /revenue can give
+      // each MPP rail its own card and link every hash to the RIGHT explorer.
       // Still aggregate: no tool, no price, no payer, no per-tx timestamp.
-      rails: rows.reduce((a, r) => {
-        const n = r.network || "unknown";
-        const e = a[n] || (a[n] = { count: 0, external: 0, lastAt: null, txs: [] });
-        e.count += 1;
-        if (!r.internal) e.external += 1;
-        if (!e.lastAt) e.lastAt = new Date(r.ts).toISOString(); // rows are newest-first
-        if (r.tx && e.txs.length < 12) e.txs.push(r.tx);
-        return a;
-      }, {}),
-      note: "Aggregate view. Per-settlement tool/price rows are operator-only; the tx hashes above resolve on-chain for independent verification.",
+      rails,
+      note: "Aggregate view, all-time. internal = settlements paid by our own wallets (daily canary, Tempo volume runner); external = everyone else. Per-settlement tool/price rows are operator-only; the tx hashes resolve on-chain for independent verification.",
     };
   }
   return {

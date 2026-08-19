@@ -28,6 +28,22 @@ const tx = (id, recipient, sender, minutesAgo, units = "1000", token = TEMPO_USD
   ok(Object.keys(old.buckets).length === 0, "prune drops buckets past 31 days");
 }
 
+// ---- bounded state: untracked recipients keep counts only (no payer list) and
+// are pruned after 48h; tracked ones keep full detail for 31 days ----
+{
+  const st = emptyFeedState();
+  const track = new Set([R1]);
+  foldTransfers(st, [tx("u1", R2, "0x01", 10), tx("u2", R2, "0x02", 10), tx("t1", R1, "0x01", 10), tx("u3", R2, "0x03", 60 * 60), tx("t2", R1, "0x03", 60 * 60)], { track });
+  const hkNow = Object.keys(st.buckets).sort().pop();
+  ok(st.buckets[hkNow][R2].t === 2 && st.buckets[hkNow][R2].p === undefined, "untracked recipient: counts kept, no payer list");
+  ok(st.buckets[hkNow][R1].p.length === 1, "tracked recipient: payer list kept");
+  ok(feedStats(st, [R2], { now: NOW }).get(R2).transfers === 2 && feedStats(st, [R2], { now: NOW }).get(R2).payers.size === 0, "stats on an untracked recipient: transfers count, payers 0 (not a throw)");
+  pruneFeedState(st, NOW, { track });
+  ok(Object.values(st.buckets).some((b) => b[R2]), "prune at 48h: recent untracked buckets survive");
+  pruneFeedState(st, NOW + 49 * 3600e3, { track });
+  ok(!Object.values(st.buckets).some((b) => b[R2]) && Object.values(st.buckets).some((b) => b[R1]), "prune past 48h: untracked entries dropped, tracked entries kept");
+}
+
 // ---- sync with a stub API: cursor paging, overlap dedupe, first-page failure throws, mid-page failure keeps what it got ----
 {
   const { feedCovers } = await import("../src/tempo-transfers.js");

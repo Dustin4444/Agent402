@@ -338,6 +338,38 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (payments.js, by slug) carries purpose-written what+when copy for the 15 flagships - Bazaar/402
   only, the catalog description (llms.txt/MCP/find) is untouched. `scripts/test-bazaar-descriptions.js`
   (95, in CI against the booted server).
+- **Security + cost review of the 2026-08-19 builds (same day, four lenses: leaks / free upstream /
+  spend bounds / live claims; fixes in PR #838):** HIGH `:online` was accepted on the NEW Messages +
+  Responses wires (chat refused it) - `refuseCostVariants()` is now shared by every wire; HIGH a
+  Tempo-settled request honoured an UNSIGNED `PAYMENT-SIGNATURE` riding alongside the tempo credential
+  (dispatcher skips x402 verification once the tempo gate accepts; `payerFromRequest` read the forged
+  `authorization.from` = memory/my-usage identity takeover for $0.001) - the gate now deletes
+  `payment-signature`/`x-payment`/`payment-identifier` on acceptance AND identity-bound routes refuse
+  Tempo at the binding check + get no tempo challenge (`priceFor` carries `identityBound`;
+  test-mpp-tempo-shim cases J/K). MED: relay error BODIES were relayed verbatim into buyer-facing RFC
+  9457 `detail` (our gate + tollbooth) - buyer gets mppx message + relay CODE only (`buyerReason`,
+  tollbooth `relayFailure` vs `relayFailureDetail` for the log); the Tempo transfer feed's `lastError`
+  (public on /api/mpp-leaderboard) is redacted + code-only (test-leaderboard-redaction covers the MPP
+  board); Responses `function_call_output.output` arrays go through `probeParts` (input_file/images);
+  per-block `cache_control.ttl:"1h"` refused on chat+Messages (`checkBlockCacheControl`, tools too);
+  Responses/Messages `tool_choice` shape-checked; gpt-4o-mini images priced at ~48k tokens in the clamp
+  (`imageTokensFor`: OpenAI bills 4o-mini image input ~33x 4o's token count). ACCOUNTING: a settled
+  call paid by OUR wallets (heartbeat token on a USDC/Tempo request: canary, tempo-volume) used to bump
+  viaUSDC/viaMPPWire/the chain split - now `viaUSDCInternal`/`viaMPPWireInternal` + heartbeat series
+  (`recordServedCall(..., {internal})`, test-stats-internal-paid); `/api/revenue/mpp` derived
+  "external" from the 30 NEWEST rows (all ours once volume ran) - now all-time GROUP BY network x
+  internal, external hashes first (`qMppTotals`); MPP leaderboard totals exclude the self row
+  (`selfTransfers`). BOUNDS: the transfer feed folds payer detail only for rankable recipients + self
+  and keeps other addresses 48h counts-only (was every chain-wide address for 31 days, ~22MB JSON and
+  linear in chain volume; `track` set, async persist); grounded tier `maxAttempts: 2` (each attempt
+  re-bills the $0.007 search); rerank refuses past ONE Cohere search unit by an o200k chunk estimate
+  (CJK at ~1 token/char reached 2 units under the char caps); tempo-volume: `if: always()` on the
+  alert step, unreadable balance refuses (exit 2), count validated + capped 1000/run, bucketed
+  balances in the public log/issue; Algorand rail sweep bare requests got the heartbeat single-retry
+  (16 "tool failures" on run 32288638827 were the deploy switch 19:19-19:21; the other 3 were
+  Blockscout upstream 500s, not charged). Images `usage.cache_discount` stripped; SSE scrubber matches
+  `data:` with no space. Open/accepted: flex attempt that times out after generation may bill twice on
+  that call (bounded 1.4x tier price, rare; shorter flex abort would cut legitimate slow flex answers).
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.
