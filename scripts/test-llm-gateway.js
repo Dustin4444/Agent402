@@ -230,6 +230,14 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   ok(sc.flush() === "" && sc.push("data: [DONE]") === "" && sc.flush() === "data: [DONE]", "flush forwards a trailing unterminated line");
   const clean = 'data: {"usage":{"prompt_tokens":1,"completion_tokens":1}}';
   ok(createSseUsageScrubber().push(clean + "\n") === clean + "\n", "a usage frame with no billing fields passes through byte-for-byte");
+  // NESTED usage (Responses API final frame) must be scrubbed too - the
+  // first scrubber only looked at top-level obj.usage, which would have
+  // forwarded response.usage.cost on every streamed /v1/.../responses call.
+  let nestedSeen = null;
+  const scN = createSseUsageScrubber({ onUsage: (u, cost) => { nestedSeen = { u, cost }; } });
+  const nestedOut = scN.push('data: {"type":"response.completed","response":{"id":"r","usage":{"input_tokens":6,"output_tokens":3,"cost":0.0000018,"is_byok":false,"cost_details":{"upstream_inference_cost":0.0000018}}}}\n');
+  ok(!/cost|is_byok/.test(nestedOut) && /"input_tokens":6/.test(nestedOut) && nestedSeen?.cost === 0.0000018 && nestedSeen.u.input_tokens === 6, "scrubber strips response.usage billing fields in a Responses completed frame and reports the cost");
+  ok(!/cost/.test(createSseUsageScrubber().push('data: {"type":"message_start","message":{"usage":{"input_tokens":1,"cost":0.1}}}\n')), "scrubber strips message.usage billing fields (Anthropic message_start) too");
 
   // Flex-first on eligible links: gemini-2.5-flash-lite (nano allowlist) is
   // tried on flex, falls to default on a capacity error, and only THEN does

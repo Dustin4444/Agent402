@@ -806,16 +806,28 @@ export function upstreamUserId(req) {
  *  `onUsage(usage, rawCost)` fires once with the stripped cost for telemetry. */
 export function createSseUsageScrubber({ onUsage } = {}) {
   let buf = "";
+  // Usage can sit at the top level (chat completions, Anthropic message_delta)
+  // or NESTED: the Responses API's final frame is {type:"response.completed",
+  // response:{..., usage:{cost,...}}} (live-verified 2026-08-19) and an
+  // Anthropic message_start carries message.usage. Every one of those is
+  // scrubbed; the first (top-level or nested) usage object feeds telemetry.
+  const usageSites = (obj) => [obj?.usage, obj?.response?.usage, obj?.message?.usage].filter((u) => u && typeof u === "object");
   const processLine = (line) => {
     if (!line.startsWith("data: ") || !line.includes('"usage"')) return line;
     let obj;
     try { obj = JSON.parse(line.slice(6)); } catch { return line; }
-    const u = obj && typeof obj === "object" ? obj.usage : null;
-    if (!u || typeof u !== "object") return line;
-    const rawCost = typeof u.cost === "number" ? u.cost : null;
-    const had = ("cost" in u) || ("cost_details" in u) || ("is_byok" in u) || ("cache_discount" in u);
-    delete u.cost; delete u.cost_details; delete u.is_byok; delete u.cache_discount;
-    try { onUsage?.(u, rawCost, obj); } catch { /* telemetry never breaks a stream */ }
+    const sites = obj && typeof obj === "object" ? usageSites(obj) : [];
+    if (!sites.length) return line;
+    let had = false, reported = false;
+    for (const u of sites) {
+      const rawCost = typeof u.cost === "number" ? u.cost : null;
+      if (("cost" in u) || ("cost_details" in u) || ("is_byok" in u) || ("cache_discount" in u)) had = true;
+      delete u.cost; delete u.cost_details; delete u.is_byok; delete u.cache_discount;
+      if (!reported && (rawCost !== null || typeof u.prompt_tokens === "number" || typeof u.input_tokens === "number")) {
+        reported = true;
+        try { onUsage?.(u, rawCost, obj); } catch { /* telemetry never breaks a stream */ }
+      }
+    }
     return had ? `data: ${JSON.stringify(obj)}` : line;
   };
   return {
