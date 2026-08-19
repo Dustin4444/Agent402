@@ -482,15 +482,18 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `scripts/test-mpp-tempo-relay-errors.js`. Live proof = `tempo-canary.yml`
   (dispatch, `scripts/tempo-canary-verify.js`, EVM canary burner funded with 2
   PathUSD on Tempo mainnet — checked on-chain 2026-08-18, never trust the comment) plus a
-  daily `mpp-tempo` leg in paid-canary - which since 2026-08-19 is a VOLUME leg: after the first
-  graded settle it buys the same $0.001 route `TEMPO_CANARY_TX_COUNT` times in total (default 100,
-  ~$0.10/day from the PathUSD burner via autoSwap; Mike's call - real on-chain Tempo volume for the
-  leaderboard window, the proven-seller gate and Tempo's attribution feed). Volume failures never
-  change the rail verdict; <80% success warns loudly; 10 straight failures stop the loop. The
-  per-chain funding sweep gained `tempo-usdce` (low-water $0.50 ≈ 5 days) + `tempo-pathusd` rows
+  daily `mpp-tempo` leg in paid-canary (one GRADED settle = the rail proof; `TEMPO_CANARY_TX_COUNT`
+  can add volume ad hoc, default 1). **Tempo VOLUME (2026-08-19, Mike: ~1,000 tx/day at $0.001):**
+  `tempo-volume.yml` (cron every 2h, dispatchable with `count`) runs `scripts/tempo-volume.js`: 84
+  buys of `/api/uuid` (pure-CPU - no upstream spend; the $0.001 lands in OUR payTo, only Tempo's
+  buyer-side fee is real cost) over tempo/charge from the canary burner, sequential (one wallet,
+  nonces) with a 250ms pace, heartbeat token so stats file it as internal; refuses to start under $2
+  on the wallet (exit 2) or with no tempo challenge on the live 402; exit 1 under 80% settled; opens/
+  closes "Tempo MPP volume FAILING" heartbeat-style. 12 × 84 ≈ 1,008/day ≈ $1/day. The per-chain
+  funding sweep gained `tempo-usdce` (low-water **$5** ≈ 5 days at that rate) + `tempo-pathusd` rows
   (per-entry `lowWater` override in `chainLowWaterReport`). Burner 0x902d…8256: Mike funded **25 USDC.e**
-  on 2026-08-19 (≈250 days at 100/day; pays USDC.e challenges natively, no swap) + 1.99 PathUSD reserve
-  (swap-backed). Top up USDC.e when "CANARY BURNER LOW" names Tempo. `scripts/test-mpp-tempo-shim.js` (offline, in
+  on 2026-08-19 (≈25 days at 1,000/day; USDC.e challenges paid natively, no swap) + 1.99 PathUSD
+  reserve. Top up USDC.e when "CANARY BURNER LOW" names Tempo or the volume issue opens with exit 2. `scripts/test-mpp-tempo-shim.js` (offline, in
   CI) proves challenge wiring + settlement ordering with injected stubs.
 - **MPP index seeds (2026-08-19):** two discovery sources - the mpp.dev registry (141 rows, 99
   bare-origin) and **MPPScan's tRPC `servers.list`** (`timeframeDays:0` = all-time, 200/page,

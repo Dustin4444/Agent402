@@ -1,0 +1,78 @@
+name: Tempo MPP volume
+
+# ~1,000 settled Tempo MPP transactions a day at $0.001 against our own
+# cheapest route, from the canary burner (USDC.e on Tempo): 12 runs x 84.
+# Real on-chain volume for the MPP leaderboard window, the router's
+# proven-seller gate and Tempo's transfer feed. The route is pure-CPU
+# (/api/uuid), so the only cost is Tempo's buyer-side fee; the $0.001 lands
+# in our own payTo. The daily paid canary keeps the single GRADED mpp-tempo
+# settle as the rail proof; this workflow is volume, graded only on its own
+# success rate (>= 80%), and it refuses to start when the wallet is below
+# $2 so it can never drain the burner to zero itself (the canary's funding
+# sweep pages at $0.50 on the same wallet).
+on:
+  schedule:
+    - cron: "41 */2 * * *"   # every 2 hours (GitHub delivers late/sparsely; that is fine for volume)
+  workflow_dispatch:
+    inputs:
+      count:
+        description: "Transactions this run (default 84)"
+        required: false
+        default: "84"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: tempo-volume
+  cancel-in-progress: false
+
+jobs:
+  volume:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_URL: https://agent402.tools
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install (lock-pinned; mppx + viem from the repo lock)
+        run: npm ci --ignore-scripts
+      - name: Buy ${{ inputs.count || '84' }} x /api/uuid over Tempo MPP
+        id: vol
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+          TEMPO_VOLUME_TX: ${{ inputs.count || '84' }}
+        run: |
+          [ -n "$BURNER_KEY" ] || { echo "No BURNER_KEY secret - cannot run"; exit 2; }
+          echo "::add-mask::$BURNER_KEY"
+          set +e
+          node scripts/tempo-volume.js 2>&1 | tee /tmp/tempo-volume.log
+          CODE=${PIPESTATUS[0]}
+          set -e
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Alert (open issue) or clear (close issue)
+        # Same heartbeat-style doctrine: one issue per episode, auto-closed on
+        # the next good run. Exit 2 (refused: low balance / no challenge) pages
+        # too - a silent skip is how alarms die.
+        run: |
+          CODE="${{ steps.vol.outputs.code }}"
+          TITLE="Tempo MPP volume FAILING"
+          OPEN=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          TAIL=$(tail -n 12 /tmp/tempo-volume.log 2>/dev/null || true)
+          if [ "$CODE" != "0" ]; then
+            if [ -z "$OPEN" ]; then
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body "$(printf 'The 2-hourly Tempo MPP volume run (scripts/tempo-volume.js, ~84 x $0.001 buys of /api/uuid over tempo/charge from the canary burner) did not reach its success bar (exit %s). Exit 1 = under 80%% settled; exit 2 = refused to start (burner below $2 on Tempo, or no tempo challenge on the live 402 - TEMPO_API_KEY unset on prod?).\n\n```\n%s\n```\n\nRun: %s/%s/actions/runs/%s\nA run that settles >= 80%% closes this.' "$CODE" "$TAIL" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID")"
+            else
+              gh issue comment "$OPEN" --repo "$GITHUB_REPOSITORY" --body "$(printf 'Still failing at %s (exit %s)\n\n```\n%s\n```' "$(date -u +%FT%TZ)" "$CODE" "$TAIL")"
+            fi
+            exit 1
+          elif [ -n "$OPEN" ]; then
+            gh issue close "$OPEN" --repo "$GITHUB_REPOSITORY" --comment "Recovered: volume run settled >= 80% at $(date -u +%FT%TZ)."
+          fi
