@@ -803,6 +803,24 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
     : { ok: false, status: 401, json: async () => ({}) });
   const unk = await gatewayCreditsStatus();
   ok(unk.status === "unknown" && unk.credits === "unknown" && unk.keyLimit === "ok" && unk.unknownForMinutes === 0, `unreadable balance → unknown with unknownForMinutes (got ${JSON.stringify(unk)})`);
+  // Management key: the documented credential for /credits rides that leg
+  // when set; /key is ALWAYS read with the API key (it describes the caller,
+  // and the management key has no limit of its own).
+  _resetCreditsCacheForTest();
+  process.env.OPENROUTER_MANAGEMENT_KEY = "mgmt-key";
+  const bearers = {};
+  globalThis.fetch = async (url, init) => {
+    bearers[String(url).endsWith("/key") ? "key" : "credits"] = init.headers.Authorization;
+    return { ok: true, status: 200, json: async () => (String(url).endsWith("/key")
+      ? { data: { label: "k", limit: 250, limit_remaining: 200 } }
+      : { data: { total_credits: 100, total_usage: 1 } }) };
+  };
+  const viaMgmt = await gatewayCreditsStatus();
+  ok(viaMgmt.status === "ok" && bearers.credits === "Bearer mgmt-key" && bearers.key === "Bearer test-key", `management key reads /credits, API key reads /key (got ${JSON.stringify(bearers)})`);
+  delete process.env.OPENROUTER_MANAGEMENT_KEY;
+  _resetCreditsCacheForTest();
+  await gatewayCreditsStatus();
+  ok(bearers.credits === "Bearer test-key", "without a management key the API key reads /credits (fallback)");
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
   delete process.env.OPENROUTER_LOW_CREDITS_USD;

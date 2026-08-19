@@ -887,25 +887,35 @@ let creditsCache = null; // { at, result }
 let creditsUnknownSince = null; // first moment the status went "unknown" (null while readable)
 export function _resetCreditsCacheForTest() { creditsCache = null; creditsUnknownSince = null; }
 
+// The management (provisioning) key, when set, is the DOCUMENTED credential
+// for /credits; the ordinary API key happens to be accepted there today
+// (verified 2026-08-19) and stays the fallback, so the balance leg keeps
+// working if the management key is absent or revoked. It is never used for
+// /key: that endpoint describes the CALLING key, and the management key has
+// no limit of its own - reading it there would report the wrong ceiling.
+const OPENROUTER_MANAGEMENT_KEY = () => (process.env.OPENROUTER_MANAGEMENT_KEY || "").trim();
+
 /** Bucketed balance status for /api/gateway-status and the heartbeat alarm.
  *  Reads BOTH ceilings and reports the worse: the account credit balance
- *  (/credits - documented as management-key-only, works with our key today)
- *  and the key's own limit (/key `limit_remaining`, any key). Either alone
- *  failing reads "unknown" for that leg; only both unreadable is "unknown"
- *  overall, and a readable leg saying "low" always wins. Numbers never leave
- *  this function - the public payload is buckets only. */
+ *  (/credits - management key when configured, else the API key) and the
+ *  prod key's own limit (/key `limit_remaining`, read with THAT key). Either
+ *  alone failing reads "unknown" for that leg; only both unreadable is
+ *  "unknown" overall, and a readable leg saying "low" always wins. Numbers
+ *  never leave this function - the public payload is buckets only. */
 export async function gatewayCreditsStatus() {
   const key = OPENROUTER_KEY();
   if (!key) return { configured: false, status: "unconfigured" };
   if (creditsCache && Date.now() - creditsCache.at < CREDITS_CACHE_MS) return creditsCache.result;
-  const headers = { Authorization: `Bearer ${key}` };
-  const readJson = async (url) => {
+  const readJson = async (url, bearer) => {
     try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(10_000) });
       return res.ok ? await res.json() : null;
     } catch { return null; }
   };
-  const [credits, keyInfo] = await Promise.all([readJson(OPENROUTER_CREDITS_URL), readJson(OPENROUTER_KEY_URL)]);
+  const [credits, keyInfo] = await Promise.all([
+    readJson(OPENROUTER_CREDITS_URL, OPENROUTER_MANAGEMENT_KEY() || key),
+    readJson(OPENROUTER_KEY_URL, key),
+  ]);
   const total = Number(credits?.data?.total_credits);
   const used = Number(credits?.data?.total_usage);
   const creditsLeg = Number.isFinite(total) && Number.isFinite(used) ? (total - used < LOW_CREDITS_USD() ? "low" : "ok") : "unknown";
