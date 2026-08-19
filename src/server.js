@@ -139,6 +139,7 @@ import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
 import { LLM_MESSAGES_TOOLS } from "./tools/llm-messages-kit.js";
+import { LLM_RESPONSES_TOOLS } from "./tools/llm-responses-kit.js";
 import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
@@ -155,6 +156,8 @@ const GATEWAY_TOOLS_ENABLED = [
   ...LLM_GATEWAY_TOOLS.filter((t) => t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true"),
   // Anthropic Messages wire on the same five tiers (src/tools/llm-messages-kit.js).
   ...LLM_MESSAGES_TOOLS,
+  // OpenAI Responses wire on the same five tiers (src/tools/llm-responses-kit.js).
+  ...LLM_RESPONSES_TOOLS,
 ];
 import { IMAGE_GEN_TOOLS } from "./tools/image-gen-kit.js";
 import { CODE_RUN_TOOLS } from "./tools/code-run-kit.js";

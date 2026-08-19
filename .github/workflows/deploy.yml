@@ -828,6 +828,9 @@ jobs:
       - name: Anthropic Messages wire on the five tiers (validation, probe clamp, outbound prefs, billing strip, failover, paid-empty guard, SSE scrub - offline)
         run: node scripts/test-llm-messages.js
 
+      - name: OpenAI Responses wire on the five tiers (validation, server-tool refusal, store:false, reasoning defaults, nested usage scrub - offline)
+        run: node scripts/test-llm-responses.js
+
       - name: Manifest resources[] dedup (a tool registered under 2 HTTP methods lists its URL once, not twice)
         run: node scripts/test-manifest-resources-dedup.js
 

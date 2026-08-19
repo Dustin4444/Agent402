@@ -63,6 +63,7 @@ import {
   embeddingsCacheKey,
 } from "../src/tools/llm-gateway-kit.js";
 import { LLM_MESSAGES_TOOLS } from "../src/tools/llm-messages-kit.js";
+import { LLM_RESPONSES_TOOLS } from "../src/tools/llm-responses-kit.js";
 import { LLM_TOOLS } from "../src/tools/llm-kit.js";
 import { EMBED_TOOLS } from "../src/tools/embed-kit.js";
 import { IMAGE_GEN_TOOLS } from "../src/tools/image-gen-kit.js";
@@ -220,6 +221,7 @@ const HANDLER_CASES = [
   { slug: "v1-embeddings", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-embeddings"), input: { input: "hello", cache: false } },
   { slug: "v1-rerank", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-rerank"), input: { query: "q", documents: ["a", "b"], cache: false } },
   { slug: "v1-chat-messages", handler: bySlug(LLM_MESSAGES_TOOLS, "v1-chat-messages"), input: { model: "anthropic/claude-haiku-4.5", max_tokens: 16, messages: [{ role: "user", content: "hi" }] } },
+  { slug: "v1-chat-responses", handler: bySlug(LLM_RESPONSES_TOOLS, "v1-chat-responses"), input: { model: "openai/gpt-4o-mini", input: "hi", max_output_tokens: 16 } },
   { slug: "v1-images", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-images"), input: { prompt: "a red apple" } },
   { slug: "v1-audio-speech", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-audio-speech"), input: { input: "hello world" } },
   { slug: "llm", handler: bySlug(LLM_TOOLS, "llm"), input: { model: "gpt-4o-mini", messages: [{ role: "user", content: "hi" }], max_tokens: 5 } },

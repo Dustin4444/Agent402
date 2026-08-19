@@ -137,8 +137,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   scrubber; `stop_reason:max_tokens` + nothing said walks the chain (`isEmptyMaxTokens`);
   telemetry tier `<tier>:messages`; auto tier adds `agent402_router`; NOT on this wire: the opt-in
   prompt cache and reasoning-effort defaults (buyer sets `thinking` natively). Canary `llm-messages`
-  leg. `scripts/test-llm-messages.js` (41). `/v1/responses` and the grounded web-search tier are
-  still NOT built),
+  leg. `scripts/test-llm-messages.js` (41)),
+  plus the **OpenAI Responses wire on all five tiers** (`src/tools/llm-responses-kit.js`, build #12
+  part 3 — `POST /v1/{nano,auto,pro,premium}/responses` + `/v1/responses`, slugs `<tier>-responses`,
+  same TIERS config; OpenRouter `/api/v1/responses` (any model; live-verified gpt-4o-mini, gpt-5-nano,
+  claude); `input` string or items (message with input_text/input_image parts, function_call,
+  function_call_output, reasoning), `instructions`, `max_output_tokens` (default/clamp like the chat
+  wire), function tools ONLY (web_search*/file_search/computer/mcp/code_interpreter/image_generation
+  refused), `text.format` (json_schema/json_object → `provider.require_parameters`), buyer `reasoning`
+  validated + the chat wire's default effort injection (`defaultReasoningFor`), `store` forced false,
+  `previous_response_id`/`background` refused (no server state), `input_file` refused (metered parse);
+  `status:incomplete` for max_output_tokens + nothing said walks the chain (`isEmptyIncomplete`);
+  usage billing stripped non-stream, and the stream's NESTED `response.usage` scrubbed - the shared
+  SSE scrubber now strips `obj.usage`, `obj.response.usage` and `obj.message.usage` (the top-level-only
+  scrub would have leaked cost on every streamed Responses call). Telemetry `<tier>:responses`; canary
+  `llm-responses` leg; `scripts/test-llm-responses.js` (26). The grounded web-search tier is the only
+  part of build #12 still NOT built),
   plus **`/v1/images/generations` `$0.08`** (`v1-images` — OpenAI images wire translated
   to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
   n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →

@@ -246,6 +246,20 @@ export const TOOLS = [
       `expected an Anthropic Messages reply (type message, content[], usage without cost), got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
+    // OpenAI Responses wire on the nano tier (OpenRouter /responses upstream).
+    // A real Response object (status completed, output[] with output_text,
+    // usage without cost) proves the wire + settlement; nonce in the input.
+    kit: "llm-responses",
+    path: "/v1/nano/responses",
+    method: "POST",
+    body: { model: "openai/gpt-4.1-nano", input: `Reply with exactly the word OK. (${EMBED_CANARY_INPUT.slice(-16)})`, max_output_tokens: 32 },
+    priceUsd: 0.003,
+    check: (r) =>
+      (r.object === "response" && r.status === "completed" && Array.isArray(r.output) && r.output.some((o) => o.type === "message" && Array.isArray(o.content) && o.content.some((c) => c.type === "output_text" && typeof c.text === "string")) &&
+        r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage)) ||
+      `expected an OpenAI Responses object (status completed, output_text, usage without cost), got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Rerank wire (Cohere shape over OpenRouter /rerank, cohere/rerank-v3.5).
     // A real relevance ordering (the French capital first) proves the wire,
     // the locked model and settlement. Cache is default-on, so the query
