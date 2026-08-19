@@ -42,7 +42,7 @@ import { payerFromRequest, paymentHeaderOf } from "../payer.js";
 const OPENROUTER_KEY = () => (process.env.OPENROUTER_API_KEY || "").trim();
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-function bad(message, statusCode = 400) {
+export function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
 
@@ -302,7 +302,7 @@ export function tierFor(model) {
 }
 
 const MAX_MESSAGES = 100;
-const MAX_IMAGES = 4;
+export const MAX_IMAGES = 4;
 const MAX_IMAGE_URL_LEN = 2048;
 const MAX_N = 4; // `n` multiplies output cost - bounded and priced in the margin clamp
 
@@ -655,7 +655,7 @@ export const FLEX_MODELS = [
   "openai/gpt-5-nano", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra",
 ];
 const FLEX_ENABLED = () => String(process.env.OPENROUTER_FLEX || "on").toLowerCase() !== "off";
-const PROVIDER_SORT_ENABLED = () => String(process.env.OPENROUTER_PROVIDER_SORT || "on").toLowerCase() !== "off";
+export const PROVIDER_SORT_ENABLED = () => String(process.env.OPENROUTER_PROVIDER_SORT || "on").toLowerCase() !== "off";
 export function flexEligible(model) {
   if (!FLEX_ENABLED()) return false;
   const m = String(model || "");
@@ -834,11 +834,11 @@ export function createSseUsageScrubber({ onUsage } = {}) {
   };
 }
 
-async function fetchOpenRouter(body, { timeoutMs, signal } = {}) {
+export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTER_URL } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
   try {
-    return await fetch(OPENROUTER_URL, {
+    return await fetch(url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
@@ -856,7 +856,7 @@ async function fetchOpenRouter(body, { timeoutMs, signal } = {}) {
   }
 }
 
-async function throwUpstreamError(res) {
+export async function throwUpstreamError(res) {
   const text = await res.text().catch(() => "");
   if (res.status === 401 || res.status === 403) throw bad("Gateway upstream auth failed", 502);
   if (res.status === 402) throw bad("Gateway upstream balance exhausted - the operator has been notified", 502);
@@ -909,14 +909,14 @@ export function isEmptyRefusal(data) {
  *  headers are written — once streaming starts, an upstream drop just ends
  *  the stream. Output cost stays bounded: max_tokens was clamped server-side
  *  before the upstream call, so the provider stops the stream at the cap. */
-async function streamOpenRouterTo(body, res, { onUsage } = {}) {
+export async function streamOpenRouterTo(body, res, { onUsage, url } = {}) {
   // One controller covers connect AND the whole body read; client disconnect
   // aborts the upstream so a closed tab never keeps burning tokens.
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 180_000);
   res.on?.("close", () => ctrl.abort());
   try {
-    const upstream = await fetchOpenRouter(body, { signal: ctrl.signal });
+    const upstream = await fetchOpenRouter(body, { signal: ctrl.signal, url });
     if (!upstream.ok) await throwUpstreamError(upstream);
     res.writeHead(200, {
       "Content-Type": "text/event-stream; charset=utf-8",

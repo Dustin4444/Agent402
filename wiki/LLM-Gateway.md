@@ -103,3 +103,7 @@ Every chat call asks the upstream to cache the prompt prefix (OpenRouter's top-l
 ## Rerank
 
 `POST /v1/rerank` ($0.002) speaks the Cohere rerank wire: `{query, documents[], top_n}` in, `results[{index, relevance_score, document}]` out, served by `cohere/rerank-v3.5`. Up to 50 documents (1,600 chars each, 40k total) and a 500-char query per call. Deterministic, so a byte-identical repeat within 10 minutes is served free from cache (`cache:false` opts out). Pair it with `/v1/embeddings`: embed, recall your top candidates, rerank them.
+
+## Anthropic Messages API
+
+The same five tiers also speak the Anthropic Messages wire: `POST /v1/nano/messages`, `/v1/auto/messages`, `/v1/messages`, `/v1/pro/messages`, `/v1/premium/messages` (same prices, models, caps and failover as each tier's chat route). Point the Anthropic SDK, Claude Code or the Agent SDK at `https://agent402.tools/v1` (or `/v1/pro`, `/v1/premium`) with an x402-paying fetch and call `messages.create` as usual: `system`, content blocks (text, image, tool_use, tool_result), client tools, `thinking`, `stop_sequences`, streaming (`message_start` … `message_stop`). Any model on the tier is served through this wire (Claude natively, others translated upstream). `max_tokens` is required by the wire and clamped to the tier cap; a reply that spends its whole cap thinking and says nothing is never served (the failover chain walks on, and an exhausted chain is a 502 you are not charged for).

@@ -251,6 +251,8 @@ const NETWORK = new Set([
   // same tolerance as the LLM proxy.
   "/v1/embeddings",
   "/v1/rerank",
+  // Anthropic Messages wire (OpenRouter /messages upstream) - same tolerance.
+  "/v1/nano/messages", "/v1/auto/messages", "/v1/messages", "/v1/pro/messages", "/v1/premium/messages",
   // Image generation wire path: hits OpenRouter upstream (Gemini image model).
   // 503 without OPENROUTER_API_KEY — same tolerance as the chat tiers.
   "/v1/images/generations",

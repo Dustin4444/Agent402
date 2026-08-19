@@ -231,6 +231,21 @@ export const TOOLS = [
       `expected an OpenAI embeddings list with a real vector, got ${JSON.stringify(r).slice(0, 100)}`,
   },
   {
+    // Anthropic Messages wire on the nano tier (OpenRouter /messages upstream,
+    // any model served through it). A real Anthropic-shaped reply proves the
+    // wire, the tier plumbing and settlement; nonce in the prompt so nothing
+    // upstream can answer from a cache.
+    kit: "llm-messages",
+    path: "/v1/nano/messages",
+    method: "POST",
+    body: { model: "google/gemini-2.5-flash-lite", max_tokens: 32, messages: [{ role: "user", content: `Reply with exactly the word OK. (${EMBED_CANARY_INPUT.slice(-16)})` }] },
+    priceUsd: 0.003,
+    check: (r) =>
+      (r.type === "message" && r.role === "assistant" && Array.isArray(r.content) && r.content.some((b) => b.type === "text" && typeof b.text === "string") &&
+        typeof r.stop_reason === "string" && r.usage && typeof r.usage.output_tokens === "number" && !("cost" in r.usage)) ||
+      `expected an Anthropic Messages reply (type message, content[], usage without cost), got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Rerank wire (Cohere shape over OpenRouter /rerank, cohere/rerank-v3.5).
     // A real relevance ordering (the French capital first) proves the wire,
     // the locked model and settlement. Cache is default-on, so the query

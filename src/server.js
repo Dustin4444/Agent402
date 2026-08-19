@@ -138,6 +138,7 @@ import { CRYPTO_HASH_TOOLS } from "./tools/crypto-hash-kit.js";
 import { STRING_TOOLS } from "./tools/string-kit.js";
 import { CALENDAR_TOOLS } from "./tools/calendar-kit.js";
 import { LLM_TOOLS } from "./tools/llm-kit.js";
+import { LLM_MESSAGES_TOOLS } from "./tools/llm-messages-kit.js";
 import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCacheStore, GATEWAY_TIER_BY_PATH, embeddingsCacheKey, EMBEDDINGS_PATH, rerankCacheKey, RERANK_PATH, gatewayCreditsStatus } from "./tools/llm-gateway-kit.js";
 // /v1/audio/speech stays behind OPENROUTER_TTS_ENABLED as a rollout gate:
 // @x402/express (v2.16) runs the handler first and settles only a <400
@@ -150,9 +151,11 @@ import { LLM_GATEWAY_TOOLS, modelsList, promptCacheKey, promptCacheGet, promptCa
 // Railway var to true after this ships, then run the paid canary — its
 // llm-speech leg is the standing proof. If the flag is ever pulled again,
 // also pull the canary leg, or every canary run goes red.
-const GATEWAY_TOOLS_ENABLED = LLM_GATEWAY_TOOLS.filter(
-  (t) => t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true"
-);
+const GATEWAY_TOOLS_ENABLED = [
+  ...LLM_GATEWAY_TOOLS.filter((t) => t.slug !== "v1-audio-speech" || process.env.OPENROUTER_TTS_ENABLED === "true"),
+  // Anthropic Messages wire on the same five tiers (src/tools/llm-messages-kit.js).
+  ...LLM_MESSAGES_TOOLS,
+];
 import { IMAGE_GEN_TOOLS } from "./tools/image-gen-kit.js";
 import { CODE_RUN_TOOLS } from "./tools/code-run-kit.js";
 import { TTS_TOOLS } from "./tools/tts-kit.js";

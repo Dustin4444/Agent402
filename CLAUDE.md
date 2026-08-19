@@ -124,8 +124,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   every call at ONE search unit so $0.001 sits under the 70% bound with no token math; strings
   only (structured {text,image} docs bill differently → 400); cache DEFAULT-ON (`rerankCacheKey`,
   deterministic ranker); billing fields stripped, `search_units` kept; `gateway_usage` tier
-  `v1-rerank`; paid-canary `llm-rerank` leg. `/v1/messages` (Anthropic wire), `/v1/responses`
-  and the grounded web-search tier from build #12 are NOT built yet),
+  `v1-rerank`; paid-canary `llm-rerank` leg),
+  plus the **Anthropic Messages wire on all five tiers** (`src/tools/llm-messages-kit.js`, build #12
+  part 2 — `POST /v1/nano/messages` `$0.003`, `/v1/auto/messages` `$0.01`, `/v1/messages` `$0.02`,
+  `/v1/pro/messages` `$0.10`, `/v1/premium/messages` `$0.50`; slugs `<tier>-messages`; same TIERS
+  config = same allowlist/caps/max_price/flex/failover as the chat route; OpenRouter `/api/v1/messages`
+  serves ANY model through this wire (live-verified gemini + claude); Anthropic body validated
+  (system, content blocks text/image/tool_use/tool_result/thinking, client tools with input_schema
+  only — server tools refused, thinking {enabled budget|adaptive|disabled}, stop_sequences, top_k);
+  margin clamp runs on a PROBE copy with base64 images replaced by a marker (billed flat); usage
+  cost/is_byok/cost_details stripped non-stream, SSE `message_delta` frame scrubbed by the shared
+  scrubber; `stop_reason:max_tokens` + nothing said walks the chain (`isEmptyMaxTokens`);
+  telemetry tier `<tier>:messages`; auto tier adds `agent402_router`; NOT on this wire: the opt-in
+  prompt cache and reasoning-effort defaults (buyer sets `thinking` natively). Canary `llm-messages`
+  leg. `scripts/test-llm-messages.js` (41). `/v1/responses` and the grounded web-search tier are
+  still NOT built),
   plus **`/v1/images/generations` `$0.08`** (`v1-images` — OpenAI images wire translated
   to OpenRouter chat `modalities:["image","text"]`, model locked `google/gemini-2.5-flash-image`,
   n locked 1, `IMAGES_MAX_TOKENS` 1600 + `IMAGES_MAX_PRICE` provider bound, data-URI →
