@@ -166,6 +166,56 @@ try {
   ok(xPaid.status === 200, `plain x402 buy still works (got ${xPaid.status})`);
   ok(!xPaid.headers.get("payment-receipt"), "x402 buyer gets NO Payment-Receipt (wire isolation)");
 
+  // ---- 4a. x402 payment-identifier extension (2026-08-19): declared on the
+  // 402, honoured as an Idempotency-Key alias under the same binding rules ----
+  {
+    const pr = x402.Header.decodePaymentRequiredEnvelope(prHeader);
+    ok(pr.extensions?.["payment-identifier"]?.info?.required === false && pr.extensions["payment-identifier"].schema, "402 declares the payment-identifier extension (optional)");
+    const payId = `pay_${"e".repeat(32)}`;
+    const idAuth = { ...xAuth, nonce: `0x${"55".repeat(32)}` };
+    const idSig = await account.signTypedData({
+      domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+      types: { TransferWithAuthorization: [
+        { name: "from", type: "address" }, { name: "to", type: "address" },
+        { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" },
+        { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
+      ] },
+      primaryType: "TransferWithAuthorization",
+      message: { ...idAuth, value: BigInt(idAuth.value), validAfter: BigInt(idAuth.validAfter), validBefore: BigInt(idAuth.validBefore) },
+    });
+    const idHeader = x402.Header.encodePaymentSignature({
+      x402Version: 2, accepted: advertised, payload: { authorization: idAuth, signature: idSig },
+      extensions: { "payment-identifier": { info: { required: false, id: payId }, schema: pr.extensions["payment-identifier"].schema } },
+    });
+    const settlesBefore = facCalls.settle.length;
+    const first = await fetch(`${B}/api/uuid`, { headers: { "PAYMENT-SIGNATURE": idHeader } });
+    const firstBody = await first.json();
+    ok(first.status === 200 && first.headers.get("x-idempotent-replay") !== "true" && facCalls.settle.length === settlesBefore + 1, `x402 buy carrying a payment-identifier settles once (got ${first.status})`);
+    const again = await fetch(`${B}/api/uuid`, { headers: { "PAYMENT-SIGNATURE": idHeader } });
+    const againBody = await again.json();
+    ok(again.status === 200 && again.headers.get("x-idempotent-replay") === "true" && facCalls.settle.length === settlesBefore + 1 && JSON.stringify(againBody) === JSON.stringify(firstBody), "exact retry (same credential + same payment id) replays the result with NO second settle - no Idempotency-Key header needed");
+    // A different credential with the same id is a NEW payment (the id is
+    // client-chosen text on an unverified payload; only the exact original
+    // credential can replay).
+    const otherAuth = { ...xAuth, nonce: `0x${"66".repeat(32)}` };
+    const otherSig = await account.signTypedData({
+      domain: { name: "USD Coin", version: "2", chainId: 8453, verifyingContract: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" },
+      types: { TransferWithAuthorization: [
+        { name: "from", type: "address" }, { name: "to", type: "address" },
+        { name: "value", type: "uint256" }, { name: "validAfter", type: "uint256" },
+        { name: "validBefore", type: "uint256" }, { name: "nonce", type: "bytes32" },
+      ] },
+      primaryType: "TransferWithAuthorization",
+      message: { ...otherAuth, value: BigInt(otherAuth.value), validAfter: BigInt(otherAuth.validAfter), validBefore: BigInt(otherAuth.validBefore) },
+    });
+    const otherHeader = x402.Header.encodePaymentSignature({
+      x402Version: 2, accepted: advertised, payload: { authorization: otherAuth, signature: otherSig },
+      extensions: { "payment-identifier": { info: { required: false, id: payId }, schema: pr.extensions["payment-identifier"].schema } },
+    });
+    const other = await fetch(`${B}/api/uuid`, { headers: { "PAYMENT-SIGNATURE": otherHeader } });
+    ok(other.status === 200 && other.headers.get("x-idempotent-replay") !== "true" && facCalls.settle.length === settlesBefore + 2, "same payment id on a DIFFERENT credential is a new payment (settles again) - never a cross-credential replay");
+  }
+
   // ---- 4b. Body-bearing POST buy over the native MPP wire ----
   const settlesBefore = facCalls.settle.length;
   const paidPost = await mppFetch(`${B}/api/hash`, {
@@ -216,7 +266,7 @@ try {
   const dMpp = stats.toolCallsServed?.viaMPPWire - statsBefore.toolCallsServed?.viaMPPWire;
   const dUsdc = stats.toolCallsServed?.viaUSDC - statsBefore.toolCallsServed?.viaUSDC;
   ok(dMpp === 3, `stats viaMPPWire grew by exactly the MPP-wire settles (delta ${dMpp}, want 3)`);
-  ok(dUsdc === 4, `stats viaUSDC grew by all USDC settles regardless of wire (delta ${dUsdc}, want 4)`);
+  ok(dUsdc === 6, `stats viaUSDC grew by all USDC settles regardless of wire (delta ${dUsdc}, want 6: 3 MPP-wire + 1 plain x402 + 2 payment-identifier buys; the replay settled nothing)`);
 
   // ---- 5. Translator rejects tampering, wrong secret, and expiry ----
   const header402 = challengeHeaderFromPaymentRequired(prHeader, { secretKey: SECRET, realm: `localhost:${PORT}` });

@@ -17,6 +17,7 @@ import {
   builderCodeResourceServerExtension,
   declareBuilderCodeExtension,
 } from "@x402/extensions/builder-code";
+import { declarePaymentIdentifierExtension, PAYMENT_IDENTIFIER } from "@x402/extensions/payment-identifier";
 import { normalizePayerAddress } from "./payer.js";
 import { installFacilitatorDiagnostics, labelFacilitatorErrors } from "./facilitator-diagnostics.js";
 
@@ -1078,6 +1079,11 @@ export async function buildPaymentMiddleware({ walletAddress, network, baseUrl, 
       const ext = {};
       if (item.bazaar !== false) Object.assign(ext, declareDiscoveryExtension(slimDiscovery(item.discovery)));
       if (builderCode) Object.assign(ext, { [BUILDER_CODE]: declareBuilderCodeExtension(builderCode) });
+      // x402 payment-identifier (optional): a buyer MAY attach a payment id to
+      // its payload; we honour it as an Idempotency-Key alias (server.js
+      // idemHashKey). Declared so CDP-native clients (x402Client extensions,
+      // awal, purl) know the seller understands it. ~120 bytes per 402.
+      ext[PAYMENT_IDENTIFIER] = declarePaymentIdentifierExtension(false);
       return [
         route,
         {

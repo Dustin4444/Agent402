@@ -774,6 +774,118 @@ your money on the chain you already trusted it on, instead of quietly
 routing everything through one chain regardless of what you sent.
 `,
   },
+  {
+    slug: "pay-with-coinbase-agentic-wallet",
+    title: "Pay Agent402 from Coinbase's own agent tooling: Agentic Wallet CLI, Agentic Wallet MCP, purl, and the CDP SDK",
+    description:
+      "Already holding a Coinbase Agentic Wallet, the Agentic Wallet MCP tools, Stripe's purl, or a CDP-managed wallet in code? Every Agent402 endpoint is a plain x402 resource on Base, so those pay it unchanged - here are the exact commands, the spend caps to set, and the two extensions we honour (payment-identifier, bazaar).",
+    md: `
+Agent402 is indexed on the Coinbase x402 Bazaar and every paid endpoint is a
+plain x402 v2 resource settling USDC on Base (plus eleven more rails). So the
+buyer tooling Coinbase and Stripe ship for x402 pays it with no Agent402-specific
+setup. This guide is the command sheet. Nothing here needs an API key from us:
+the payment is the identity.
+
+## Agentic Wallet CLI (\`awal\`)
+
+Coinbase's wallet CLI for agents signs x402 payments from a hosted Agentic
+Wallet. Sign in once, then discover and pay:
+
+\`\`\`bash
+npx awal@latest auth login you@example.com      # one-time sign-in
+npx awal@latest status
+
+# find us on the Bazaar (keyword search over the x402 index; cached 12h)
+npx awal@latest x402 bazaar search "decode a VIN" -k 5
+npx awal@latest x402 details https://agent402.tools/api/vin-decode
+
+# pay a GET endpoint (query params with -q), capped at $0.01 (atomic USDC units)
+npx awal@latest x402 pay https://agent402.tools/api/vin-decode -q '{"vin":"1HGCM82633A004352"}' --max-amount 10000
+
+# pay a POST endpoint with a JSON body
+npx awal@latest x402 pay https://agent402.tools/api/extract -X POST \\
+  -d '{"url":"https://example.com/article"}' --max-amount 10000 --json
+\`\`\`
+
+\`--max-amount\` is the per-payment ceiling in atomic units (USDC has 6
+decimals: \`10000\` = $0.01). Read the price off the 402 first with
+\`x402 details\`; every Agent402 price is also in
+[/api/pricing](https://agent402.tools/api/pricing).
+
+## Agentic Wallet MCP (Claude, Cursor, any MCP host)
+
+The same wallet exposed as MCP tools. The flow an agent follows is:
+\`list-bazaar-resources\` or \`get-resource-details\` to find the endpoint,
+\`check-payment-requirements\` to read our 402 (price, network, pay-to) without
+paying, then \`make-x402-request\` to pay and fetch. Point them at any
+\`https://agent402.tools/api/...\` URL from [/api/pricing](https://agent402.tools/api/pricing)
+or resolve a task first with \`GET https://agent402.tools/api/find?q=<task>\`
+(free) and hand the returned \`url\` to \`make-x402-request\`.
+
+## Stripe's \`purl\` (x402 curl)
+
+Stripe's open-source x402 client. Install with Homebrew (\`brew install
+stripe/purl/purl\`) or build from [github.com/stripe/purl](https://github.com/stripe/purl),
+add a wallet, and treat any paid URL like curl:
+
+\`\`\`bash
+purl wallet add --name agent --type evm -k 0x<private key> --set-active=true
+purl --dry-run "https://agent402.tools/api/dns?name=example.com&type=A"   # parse the 402 quote, pay nothing
+purl "https://agent402.tools/api/dns?name=example.com&type=A"             # pay and fetch
+\`\`\`
+
+We run purl against production in CI, so a purl that cannot parse our 402 is a
+failing build on our side, not a surprise on yours.
+
+## CDP SDK in code (\`CdpX402Client\`)
+
+A CDP-managed wallet with server-side spend controls, wrapped around fetch:
+
+\`\`\`ts
+import { CdpX402Client } from "@coinbase/cdp-sdk/x402";
+import { wrapFetchWithPayment } from "@x402/fetch";
+
+const client = new CdpX402Client({
+  spendControls: {
+    maxAmountPerPayment: { atomic: 50_000n, asset: USDC_BASE },   // $0.05 per call
+    maxCumulativeSpend:  { atomic: 2_000_000n, asset: USDC_BASE }, // $2 per window
+    maxCumulativeSpendWindow: "24h",
+    allowedNetworks: ["eip155:8453"],
+  },
+});
+const pay = wrapFetchWithPayment(globalThis.fetch, client);
+const r = await pay("https://agent402.tools/api/extract", {
+  method: "POST", headers: { "content-type": "application/json" },
+  body: JSON.stringify({ url: "https://example.com/article" }),
+});
+\`\`\`
+
+Or swap the wallet for our buyer SDK's caps: \`new Agent402({ fetch: pay,
+maxPerCallUsd: 0.05, dailyLimitUsd: 2 })\` from
+[agent402-client](https://www.npmjs.com/package/agent402-client) adds
+\`find()\`, caching and idempotent retries on top of any payment-aware fetch.
+
+## Two x402 extensions we honour
+
+- **payment-identifier** - every 402 declares it (optional). Attach a
+  \`pay_...\` id to your payment payload and an exact retry of that payment
+  (same credential, same body) replays the original result with no second
+  settle, exactly as our \`Idempotency-Key\` header does. A fresh
+  authorization carrying the same id is a new payment.
+- **bazaar** - every endpoint carries the discovery extension (input schema,
+  output example), which is what makes it show up in \`awal x402 bazaar
+  search\` and the Agentic Wallet MCP's resource list at all.
+
+## What you get back
+
+A \`200\` with JSON and a \`PAYMENT-RESPONSE\` header (the settle receipt).
+A \`4xx\`/\`5xx\` never charges: settlement runs after the handler and only
+for a successful response, and you can verify that from the headers you hold
+(no \`PAYMENT-RESPONSE\` = nothing settled). Prefer MPP? The same 402 also
+carries a \`WWW-Authenticate: Payment\` challenge - see
+[x402 and MPP on the same paywall](/guides/x402-and-mpp).
+`,
+  },
 ];
 
 const GUIDE_INDEX_CSS = `

@@ -23,7 +23,7 @@ import {
   grant, revoke, listGrants, getLog, remember, recall, forget,
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
-import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf } from "./payer.js";
+import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
@@ -4006,7 +4006,15 @@ setInterval(() => {
   }
 }, 60_000).unref();
 const idemHashKey = (req) => {
-  const idem = req.header("idempotency-key");
+  // The x402 `payment-identifier` extension (declared on every route's 402) is
+  // honoured as an ALIAS of the Idempotency-Key header under the SAME binding
+  // rules below (exact credential + route + body) - so a stock x402 client that
+  // attaches a payment id gets the paid-retry replay without knowing our
+  // header. It is NOT a cross-authorization dedupe: the id is client-chosen
+  // text on a payload nothing has verified yet at this point in the chain, so
+  // only the exact original credential can replay (a fresh authorization with
+  // the same id is a new payment). Header wins when both are present.
+  const idem = req.header("idempotency-key") || paymentIdentifierOf(req);
   if (!idem || idem.length > 256) return null;
   // Must match @x402/express's OWN precedence exactly (payment-signature wins
   // when both are present, verified against node_modules/@x402/express) - the
