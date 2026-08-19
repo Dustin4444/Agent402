@@ -153,6 +153,7 @@ export const TIERS = {
   "v1-chat-nano": {
     route: "POST /v1/nano/chat/completions",
     price: 0.003,
+    priceSort: true, // cheapest provider under max_price (budget tier: price IS the product)
     maxInputChars: 12_000,
     maxTokens: 768,
     maxPrice: { prompt: 0.5, completion: 1.5 }, // priciest allowlisted: deepseek-chat ~$0.27/$1.10
@@ -262,6 +263,7 @@ export const TIERS = {
     maxTokens: 1024,
     maxPrice: { prompt: 0.6, completion: 3 }, // priciest ranked: gemini-2.5-flash ~$0.30/$2.50
     router: true,
+    priceSort: true, // budget router: cheapest provider under the cap
     fallbacks: ["openai/gpt-4o-mini"],
     prefixes: [...new Set(Object.values(AUTO_RANKINGS).flatMap((byCategory) => Object.values(byCategory).flat()))],
   },
@@ -393,6 +395,28 @@ export function costFor(model) {
   return best ? best.cost : null;
 }
 
+/** Worst-case input multiplier when prompt caching is on: Anthropic bills a
+ *  cache write at 1.25x list input (5-minute TTL; 1h would be 2x and is
+ *  refused). Everyone else caches implicitly at <= list. */
+export function cacheWriteFactor(model) {
+  return canonicalModel(model).toLowerCase().startsWith("anthropic/") ? 1.25 : 1;
+}
+
+/** Buyer's prompt-cache preference (top-level OpenRouter `cache_control`):
+ *  default ON as {type:"ephemeral"} (5m). `false`/null turns it off. A 1h
+ *  TTL doubles Anthropic cache-write cost, so it is refused with guidance.
+ *  Call-time only - it never changes the answer, so it is NOT part of the
+ *  normalized body / cache key. Exported for the gateway test. */
+export function cacheControlPref(input) {
+  const cc = input?.cache_control;
+  if (cc === undefined) return { type: "ephemeral" };
+  if (cc === false || cc === null) return null;
+  if (!cc || typeof cc !== "object" || Array.isArray(cc)) throw bad('"cache_control" must be {type:"ephemeral"} (optional ttl:"5m"), or false to disable prompt caching');
+  if (cc.type !== "ephemeral") throw bad('"cache_control.type" must be "ephemeral"');
+  if (cc.ttl !== undefined && cc.ttl !== "5m") throw bad('"cache_control.ttl" must be "5m" - the 1h tier doubles cache-write cost and is not offered at these flat prices');
+  return { type: "ephemeral" };
+}
+
 export const MARGIN = 0.7;   // worst-case upstream ≤ 70% of the tier price
 const MIN_OUT_TOKENS = 64;   // a clamp below this is useless - reject with guidance instead
 const IMAGE_TOKENS = 1600;   // conservative flat per-image input estimate (high-detail tiling)
@@ -423,7 +447,12 @@ export function worstCaseUpstreamCost(body, tier, imageCount = 0) {
     completion: Math.min(listed.completion, tier.maxPrice.completion),
   };
   const inTokens = estimateInputTokens(body, imageCount);
-  const inUsd = (inTokens / 1e6) * cost.prompt;
+  // Prompt caching rides by default (top-level cache_control, see
+  // cacheControlPref): on Anthropic a cache WRITE bills 1.25x list input
+  // (reads 0.1x), so the worst case for a first-seen long prompt is 1.25x -
+  // priced in here so the clamp stays an honest bound; every other provider
+  // caches implicitly at list price or below.
+  const inUsd = (inTokens / 1e6) * cost.prompt * cacheWriteFactor(body.model);
   const n = body.n || 1;
   const outUsd = ((Number(body.max_tokens) || 0) / 1e6) * cost.completion * n;
   return { inTokens, inUsd, outUsd, totalUsd: inUsd + outUsd, cost };
@@ -589,6 +618,7 @@ export function validateRequest(input, tierSlug) {
   // set — everything else (notably max_price) stays server-owned. Part of the
   // normalized body, so zdr and non-zdr responses never share a cache entry.
   if (input.zdr === true || input.provider?.zdr === true) body.zdr = true;
+  cacheControlPref(input); // shape-validate only (400 on a bad value); the preference is call-time, not in the normalized body
   clampToMargin(body, tier, totalImages);
   return body;
 }
@@ -614,6 +644,7 @@ export const FLEX_MODELS = [
   "openai/gpt-5-nano", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol", "openai/gpt-5.6-terra",
 ];
 const FLEX_ENABLED = () => String(process.env.OPENROUTER_FLEX || "on").toLowerCase() !== "off";
+const PROVIDER_SORT_ENABLED = () => String(process.env.OPENROUTER_PROVIDER_SORT || "on").toLowerCase() !== "off";
 export function flexEligible(model) {
   if (!FLEX_ENABLED()) return false;
   const m = String(model || "");
@@ -670,8 +701,8 @@ export function createSseUsageScrubber({ onUsage } = {}) {
     const u = obj && typeof obj === "object" ? obj.usage : null;
     if (!u || typeof u !== "object") return line;
     const rawCost = typeof u.cost === "number" ? u.cost : null;
-    const had = ("cost" in u) || ("cost_details" in u) || ("is_byok" in u);
-    delete u.cost; delete u.cost_details; delete u.is_byok;
+    const had = ("cost" in u) || ("cost_details" in u) || ("is_byok" in u) || ("cache_discount" in u);
+    delete u.cost; delete u.cost_details; delete u.is_byok; delete u.cache_discount;
     try { onUsage?.(u, rawCost, obj); } catch { /* telemetry never breaks a stream */ }
     return had ? `data: ${JSON.stringify(obj)}` : line;
   };
@@ -1420,8 +1451,19 @@ function makeHandler(tierSlug) {
     const providerPrefs = {
       ...(TIERS[tierSlug].maxPrice ? { max_price: TIERS[tierSlug].maxPrice } : {}),
       ...(body.zdr === true ? { zdr: true } : {}),
+      // Cheapest provider under the cap - ONLY on the budget tiers, where
+      // price is the product. On the same model, sort-by-price can land on a
+      // lower-precision (quantized) provider; pro/premium buyers did not buy
+      // that, and max_price already bounds their cost. OPENROUTER_PROVIDER_SORT=off disables.
+      ...(TIERS[tierSlug].priceSort === true && PROVIDER_SORT_ENABLED() ? { sort: "price" } : {}),
     };
     const provider = Object.keys(providerPrefs).length ? providerPrefs : undefined;
+    // Prompt cache: top-level cache_control (default on, buyer may disable)
+    // + session_id = the per-buyer id, so OpenRouter pins the buyer's turns
+    // to one provider and implicit caches (OpenAI/Gemini/DeepSeek/Grok) and
+    // Anthropic's explicit cache actually get hit. Call-time only, never in
+    // the cache key (validated shape in validateRequest).
+    const cacheControl = cacheControlPref(input);
     // Margin holds on EVERY link of the chain, not just the requested model:
     // validateRequest clamped max_tokens against the REQUESTED model's cost,
     // so a cheap-model clamp (often a no-op) would ride unchanged to a
@@ -1438,7 +1480,12 @@ function makeHandler(tierSlug) {
     const outboundFor = (model, flex = false) => {
       const attempt = { ...body, model };
       clampToMargin(attempt, TIERS[tierSlug], imageCount); // throws 400 → caller skips this candidate
-      return { ...attempt, zdr: undefined, ...(provider ? { provider } : {}), ...(user ? { user } : {}), ...(flex ? { service_tier: "flex" } : {}) };
+      return {
+        ...attempt, zdr: undefined, cache_control: undefined,
+        ...(provider ? { provider } : {}), ...(user ? { user, session_id: user } : {}),
+        ...(cacheControl ? { cache_control: cacheControl } : {}),
+        ...(flex ? { service_tier: "flex" } : {}),
+      };
     };
     const recordUsage = (usage, upstreamUsd, served, serviceTier) => import("../posthog.js")
       .then(({ capturePostHogGatewayUsage }) => capturePostHogGatewayUsage({
@@ -1505,6 +1552,7 @@ function makeHandler(tierSlug) {
           delete data.usage.cost;
           delete data.usage.cost_details;
           delete data.usage.is_byok;
+          delete data.usage.cache_discount; // a USD saving is a billing number too
           await recordUsage(data.usage, upstreamUsd, data.model || model, data.service_tier || (flex ? "flex" : "default"));
         }
         // Routed requests disclose the decision: additive key, OpenAI wire
@@ -1547,6 +1595,7 @@ const INPUT_SCHEMA = {
     messages: { type: "array", description: "OpenAI chat messages: [{role, content}] - text and image_url content blocks supported" },
     max_tokens: { type: "number", description: "Output token cap (clamped to the tier maximum)" },
     zdr: { type: "boolean", description: "Optional - true routes only to zero-data-retention providers (also accepted as provider.zdr). Same price; a model with no ZDR provider errors upstream and walks the failover chain." },
+    cache_control: { description: 'Optional - prompt caching preference. Default ON ({type:"ephemeral"}, 5-minute TTL): repeated prefixes across your turns are served from the provider cache (same price to you). Send false to disable. ttl:"1h" is not offered.' },
   },
   required: ["model", "messages"],
 };

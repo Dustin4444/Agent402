@@ -177,6 +177,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   own image leg, which now rides flex automatically). `gateway_usage.serviceTier` records which
   tier served. `OPENROUTER_FLEX=off` disables. The live guard fails CI if a FLEX_MODELS entry
   loses its `*/flex` endpoint (flex on a model without one 404s = a wasted attempt per call).
+  **Prompt-cache levers (2026-08-19):** every chat call carries top-level `cache_control:{type:"ephemeral"}`
+  (default on; buyer `cache_control:false` disables; `ttl:"1h"` refused - 2x Anthropic write cost) and
+  `session_id` = the per-buyer `user` id (OpenRouter sticky provider routing, so implicit caches on
+  OpenAI/Gemini/DeepSeek/Grok and Anthropic's explicit cache actually hit). Call-time only, never in the
+  cache key. The margin clamp prices Anthropic input at 1.25x (`cacheWriteFactor`: a first-seen long
+  prompt is a cache WRITE) so the bound stays honest; reads bill 0.1x. `usage.cache_discount` is stripped
+  with the other billing fields (non-stream + SSE scrubber). `provider.sort:"price"` rides on the BUDGET
+  tiers only (nano + auto, `priceSort: true`): on the same model sort-by-price can land on a quantized
+  provider - a buyer-visible quality change pro/premium did not buy, and max_price already bounds them.
+  `OPENROUTER_PROVIDER_SORT=off` disables. All four fields live-verified accepted by OpenRouter on
+  Gemini/DeepSeek/OpenAI/Anthropic before shipping.
   **zdr knob:** `zdr:true` (or
   `provider.zdr`) is the ONLY buyer-settable provider field — folds into the server-owned
   provider prefs next to `max_price`, lives in the normalized body (distinct cache entries),

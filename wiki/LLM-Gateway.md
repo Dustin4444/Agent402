@@ -95,3 +95,7 @@ The paid canary buys from the gateway every day with real USDC: a nano completio
 ## Upstream service tiers
 
 Where the upstream offers it (Gemini 2.5/3.x families, gpt-5-nano, gpt-5.6-*, and the image model), the gateway asks for OpenRouter's **flex** service tier first (lower price, higher latency, lower availability) and retries the same model on the default tier if flex has no capacity, before moving to the next failover link. Buyers see the same price either way; the response's `service_tier` field says which tier served.
+
+## Prompt caching
+
+Every chat call asks the upstream to cache the prompt prefix (OpenRouter's top-level `cache_control: {type:"ephemeral"}`, 5-minute TTL) and pins your turns to one provider (`session_id`), so a multi-turn agent conversation is served from the provider cache on repeated prefixes. Same flat price to you either way. Send `cache_control: false` to opt out. The budget tiers (nano, auto) additionally pick the cheapest provider under their price cap; pro and premium keep OpenRouter's default provider balancing.

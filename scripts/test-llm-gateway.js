@@ -461,6 +461,53 @@ ok(LLM_GATEWAY_TOOLS.every((t) => t.route.startsWith("POST /v1/")), "routes live
   const streamRes = { headersSent: false, writeHead() { this.headersSent = true; }, flushHeaders() {}, write() {}, end() {}, on() {} };
   await (await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), stream: true, zdr: true })).__sse(streamRes);
   ok(seen.provider?.zdr === true && seen.provider?.max_price, "streamed calls carry zdr AND the price cap");
+
+  // Prompt-cache levers (2026-08-19): top-level cache_control rides by
+  // default, session_id = the per-buyer id (sticky provider routing so
+  // implicit/explicit caches get hit), provider.sort:"price" on the budget
+  // tiers only. All call-time: never in the normalized body / cache key.
+  const { cacheControlPref, cacheWriteFactor, worstCaseUpstreamCost, validateRequest: vr } = await import("../src/tools/llm-gateway-kit.js");
+  ok(JSON.stringify(cacheControlPref({})) === '{"type":"ephemeral"}' && cacheControlPref({ cache_control: false }) === null && cacheControlPref({ cache_control: null }) === null, "cache_control defaults on (ephemeral), false/null turns it off");
+  for (const badCc of [{ type: "ephemeral", ttl: "1h" }, { type: "persistent" }, "yes", 1]) {
+    let e = null; try { cacheControlPref({ cache_control: badCc }); } catch (x) { e = x; }
+    ok(e?.statusCode === 400 && /cache_control/.test(e.message), `cache_control ${JSON.stringify(badCc)} -> self-explaining 400 (${e?.message?.slice(0, 60)})`);
+  }
+  ok(cacheWriteFactor("anthropic/claude-sonnet-5") === 1.25 && cacheWriteFactor("openai/gpt-4o-mini") === 1 && cacheWriteFactor("deepseek/deepseek-chat") === 1, "cache-write factor: 1.25x on Anthropic input, 1x elsewhere");
+  {
+    const b = { model: "anthropic/claude-sonnet-5", messages: msg1(), max_tokens: 64 };
+    const withCache = worstCaseUpstreamCost(b, TIERS["v1-chat-premium"]);
+    const plain = (withCache.inTokens / 1e6) * withCache.cost.prompt;
+    ok(Math.abs(withCache.inUsd - plain * 1.25) < 1e-12, "worst-case input cost prices the Anthropic cache write at 1.25x (the clamp stays an honest bound)");
+  }
+  ok(JSON.stringify(vr({ model: "deepseek/deepseek-chat", messages: msg1(), cache_control: false }, "v1-chat-nano")) === JSON.stringify(vr({ model: "deepseek/deepseek-chat", messages: msg1() }, "v1-chat-nano")), "cache_control never reaches the normalized body (same cache key either way)");
+  seen = null;
+  globalThis.fetch = async (url, init) => {
+    seen = JSON.parse(init.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ id: "gen-c", model: seen.model, choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.0001, cache_discount: -0.00005 } }) };
+  };
+  const fakeReqC = { header: (n) => (n === "payment-signature" ? Buffer.from(JSON.stringify({ payload: { authorization: { from: "0xAbCdEf0000000000000000000000000000000001" } } })).toString("base64") : undefined) };
+  const outC = await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5 }, fakeReqC);
+  ok(seen.cache_control?.type === "ephemeral" && typeof seen.session_id === "string" && seen.session_id === seen.user && seen.session_id.startsWith("a402:"), `default outbound carries cache_control ephemeral + session_id = the per-buyer id (${seen.session_id?.slice(0, 12)}...)`);
+  ok(seen.provider?.sort === "price", "nano (budget tier) asks for the cheapest provider under the cap");
+  ok(outC.usage && !("cache_discount" in outC.usage) && !("cost" in outC.usage), "cache_discount is stripped with the other billing fields");
+  seen = null;
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5, cache_control: false }, fakeReqC);
+  ok(!("cache_control" in seen) || seen.cache_control === undefined, "cache_control:false -> no cache_control upstream");
+  seen = null;
+  const pro = LLM_GATEWAY_TOOLS.find((t) => t.slug === "v1-chat-pro");
+  await pro.handler({ model: "openai/gpt-4o", messages: msg1(), max_tokens: 5 }, fakeReqC);
+  ok(seen.provider?.sort === undefined && seen.provider?.max_price, "pro tier does NOT sort by price (a quantized provider is a buyer-visible quality change); cap still rides");
+  process.env.OPENROUTER_PROVIDER_SORT = "off";
+  seen = null;
+  await nano.handler({ model: "deepseek/deepseek-chat", messages: msg1(), max_tokens: 5 }, fakeReqC);
+  ok(seen.provider?.sort === undefined, "OPENROUTER_PROVIDER_SORT=off disables price sort");
+  delete process.env.OPENROUTER_PROVIDER_SORT;
+  {
+    const { createSseUsageScrubber: mkScrub } = await import("../src/tools/llm-gateway-kit.js");
+    const sc = mkScrub();
+    const line = 'data: {"usage":{"prompt_tokens":1,"completion_tokens":1,"cost":0.001,"cache_discount":-0.0002}}\n';
+    ok(!sc.push(line).includes("cache_discount"), "stream scrubber strips cache_discount too");
+  }
   globalThis.fetch = realFetch;
   delete process.env.OPENROUTER_API_KEY;
 }
