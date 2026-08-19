@@ -89,7 +89,7 @@ const METERED_SLUGS = new Set([
   "embed", "embed-large", "moderate",
   // OpenRouter gateway
   "v1-chat-nano", "v1-chat-auto", "v1-chat", "v1-chat-pro", "v1-chat-premium",
-  "v1-embeddings", "v1-images", "v1-audio-speech",
+  "v1-embeddings", "v1-rerank", "v1-images", "v1-audio-speech",
   // Calls the v1-chat gateway handler in-process — same OpenRouter key dependency.
   "pdf-summarize",
   // E2B

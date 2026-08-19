@@ -217,6 +217,7 @@ const scan = (obj) => {
 const HANDLER_CASES = [
   { slug: "v1-chat-nano", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-chat-nano"), input: { model: "gpt-4.1-nano", messages: [{ role: "user", content: "hi" }], max_tokens: 5 } },
   { slug: "v1-embeddings", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-embeddings"), input: { input: "hello", cache: false } },
+  { slug: "v1-rerank", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-rerank"), input: { query: "q", documents: ["a", "b"], cache: false } },
   { slug: "v1-images", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-images"), input: { prompt: "a red apple" } },
   { slug: "v1-audio-speech", handler: bySlug(LLM_GATEWAY_TOOLS, "v1-audio-speech"), input: { input: "hello world" } },
   { slug: "llm", handler: bySlug(LLM_TOOLS, "llm"), input: { model: "gpt-4o-mini", messages: [{ role: "user", content: "hi" }], max_tokens: 5 } },

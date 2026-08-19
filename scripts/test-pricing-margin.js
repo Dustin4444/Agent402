@@ -183,6 +183,16 @@ console.log("\n# /v1/embeddings — token-density margin clamp");
   }
   // The clamp's own ceiling is the margin bound: accepted worst ≤ 70% of price.
   table.push({ tier: "v1-embeddings", price: EMBEDDINGS_PRICE, worst: EMBEDDINGS_PRICE * MARGIN, model: "any (clamp ceiling)" });
+  // /v1/rerank: caps keep every call at ONE Cohere search unit (live 2026-08-19:
+  // $0.001) - the bound is structural, so the row is the measured unit price.
+  {
+    const { RERANK_PRICE, validateRerankRequest } = await import("../src/tools/llm-gateway-kit.js");
+    const RERANK_UNIT_USD = 0.001;
+    ok(RERANK_UNIT_USD <= RERANK_PRICE * MARGIN, `rerank: one search unit (${usd(RERANK_UNIT_USD)}) within the 70% bound of $${RERANK_PRICE}`);
+    const maxed = validateRerankRequest({ query: "q".repeat(500), documents: Array.from({ length: 25 }, () => "x".repeat(1600)) });
+    ok(maxed.documents.length <= 100 && maxed.documents.every((d) => d.length <= 1600), "rerank: the largest accepted body is still one Cohere search unit (<=100 docs, short docs)");
+    table.push({ tier: "v1-rerank", price: RERANK_PRICE, worst: RERANK_UNIT_USD, model: "cohere/rerank-v3.5 (1 search unit)" });
+  }
 
   // Cap-before-spend: the handler must throw with ZERO upstream fetches.
   const realFetch = globalThis.fetch;
