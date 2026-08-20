@@ -1202,6 +1202,9 @@ jobs:
       - name: Tempo MPP settlement (native tempo/charge via Tempo's relay — challenge wiring + settlement-ordering proof — offline)
         run: node scripts/test-mpp-tempo-shim.js
 
+      - name: Stripe MPP settlement (stripe/charge cards via SPT — mint/binding/settlement-ordering, $0.50 min — offline)
+        run: node scripts/test-mpp-stripe.js
+
       - name: Tempo relay verdicts are visible (non-2xx relay status + body reach the rejection log, per-request — offline)
         run: node scripts/test-mpp-tempo-relay-errors.js
 

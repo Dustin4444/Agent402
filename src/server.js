@@ -74,6 +74,7 @@ import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankB
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
+import { createStripeChallengeAppender, createStripeGate, stripeTxFromReceiptHeader } from "./mpp-stripe.js";
 import { confirmTempoSettlement } from "./tempo-confirm.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
@@ -3959,6 +3960,22 @@ if (!FREE_MODE) {
   });
   if (tempoAppender) app.use(tempoAppender);
 
+  // Stripe cards-over-MPP: append a stripe/charge challenge to the 402 on
+  // routes >= $0.50 (SPT card minimum), next to evm/tempo. Same priceFor
+  // shape; the appender itself enforces the minimum. Rollout switch =
+  // STRIPE_SECRET_KEY + STRIPE_PROFILE_ID (unset -> not mounted).
+  const stripeAppender = createStripeChallengeAppender({
+    realm: new URL(BASE_URL).host,
+    priceFor: (method, path) => {
+      const def = CATALOG[`${method} ${path}`];
+      if (!def) return null;
+      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      if (!priceUsd) return null;
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def) };
+    },
+  });
+  if (stripeAppender) app.use(stripeAppender);
+
   const mppShim = createMppShim({
     secretKey: process.env.MPP_SECRET_KEY || "",
     realm: new URL(BASE_URL).host,
@@ -3998,6 +4015,29 @@ if (!FREE_MODE) {
   if (tempoGate) {
     app.use(tempoGate);
     console.log("Tempo MPP settlement enabled (native tempo/charge via Tempo's relay)");
+  }
+
+  // Stripe cards-over-MPP settlement — settles a Stripe PaymentIntent (via the
+  // mppx stripe method's SPT charge) post-handler on a <400, same buffer-then-
+  // decide discipline as the tempo gate. Its own replay guard (challenge ids,
+  // never shared). The stripe/charge challenge signs with a Stripe-DERIVED
+  // secret, not MPP_SECRET_KEY, so no secret is passed here (mpp-stripe derives
+  // it). createStripeGate refuses to mount without STRIPE_SECRET_KEY +
+  // STRIPE_PROFILE_ID (the rollout switch) or without priceFor.
+  const stripeReplayGuard = createReplayGuard();
+  const stripeGate = createStripeGate({
+    replayGuard: stripeReplayGuard,
+    realm: new URL(BASE_URL).host,
+    priceFor: (method, path) => {
+      const def = CATALOG[`${method} ${path}`];
+      if (!def) return null;
+      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      return priceUsd ? { priceUsd, identityBound: isIdentityBoundRoute(def) } : null;
+    },
+  });
+  if (stripeGate) {
+    app.use(stripeGate);
+    console.log("Stripe MPP settlement enabled (stripe/charge cards via Shared Payment Tokens)");
   }
 }
 
@@ -4559,8 +4599,8 @@ app.use((req, res, next) => {
         // flag they'd fall through networkFromPaymentResponse(null) and get
         // mislabeled wire:"x402" below. req.tempoSettled is set by the gate
         // itself, only after a real broadcast succeeded.
-        const networkFor = () => (req.tempoSettled ? "tempo" : networkFromPaymentResponse(settleReceipt));
-        const wireFor = () => (req.tempoSettled ? "mpp-tempo" : req.mppCredential ? "mpp" : "x402");
+        const networkFor = () => (req.tempoSettled ? "tempo" : req.stripeSettled ? "stripe" : networkFromPaymentResponse(settleReceipt));
+        const wireFor = () => (req.tempoSettled ? "mpp-tempo" : req.stripeSettled ? "mpp-stripe" : req.mppCredential ? "mpp" : "x402");
         // For USDC, also attribute the settlement chain from the settle receipt
         // (multi-chain x402: Base vs Solana vs Polygon…) so /api/stats can
         // answer "did anyone pay on <chain>" without per-chain explorer scans.
@@ -4571,7 +4611,7 @@ app.use((req, res, next) => {
           // "mpp-tempo" still counts toward the broad MPP-adoption counter —
           // it IS MPP's own native method, just a distinct wire from the
           // evm-translated one.
-          method === "usdc" && (req.tempoSettled || req.mppCredential) ? "mpp" : null,
+          method === "usdc" && (req.tempoSettled || req.stripeSettled || req.mppCredential) ? "mpp" : null,
           // A paid call from our own wallets (signed heartbeat token on a
           // settled request: daily canary, Tempo volume runner) is booked as
           // internal, never as external paid demand - see stats.recordCall.
@@ -4595,7 +4635,10 @@ app.use((req, res, next) => {
           // facilitator-receipt fallback: sales ledger + telemetry, never
           // identity. Before 2026-08-20 tempo payers recorded null and a
           // self-funded test wallet's buy classified as external revenue.
-          const payer = req.tempoSettled ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+          // Stripe settles carry no wallet payer (the payer is a Stripe
+          // customer behind the SPT, not an on-chain address) — record null,
+          // like a Solana buyer with no server-visible payer.
+          const payer = (req.tempoSettled || req.stripeSettled) ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           // Client attribution: the User-Agent PRODUCT TOKEN only (first
           // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
           // "node") so payment_settled can answer "which SDK/client do paying
@@ -4611,7 +4654,7 @@ app.use((req, res, next) => {
           recordSale({
             slug: def.slug, priceUsd, rail, network,
             payer,
-            tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : txFromPaymentResponse(settleReceipt),
+            tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : req.stripeSettled ? stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : txFromPaymentResponse(settleReceipt),
             synthetic,
             wire: rail === "usdc" ? wireFor() : null,
           });

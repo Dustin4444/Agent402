@@ -93,6 +93,7 @@
     "posthog-node": "^5.49.1",
     "qrcode": "^1.5.4",
     "redis": "^6.2.1",
+    "stripe": "^22.5.0",
     "tesseract.js": "^5.1.1",
     "turndown": "^7.2.4",
     "viem": "^2.55.8"

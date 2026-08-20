@@ -149,7 +149,7 @@ const qIntRecent = db.prepare(`
 // canary's Base+Celo native-wire legs.
 const qMppRecent = db.prepare(`
   SELECT ts, slug, price_usd, rail, network, payer, tx, internal
-  FROM sales WHERE wire IN ('mpp', 'mpp-tempo')
+  FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe')
   ORDER BY ts DESC LIMIT ?`);
 // PUBLIC aggregate sources (cost audit 2026-08-19): the public view used to be
 // derived from the 30 NEWEST rows, so once the Tempo volume runner started
@@ -171,10 +171,10 @@ const canonRail = (network) => CAIP_TO_RAIL[String(network || "").toLowerCase()]
 
 const qMppTotals = db.prepare(`
   SELECT network, internal, COUNT(*) AS n, MIN(ts) AS first_ts, MAX(ts) AS last_ts
-  FROM sales WHERE wire IN ('mpp', 'mpp-tempo')
+  FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe')
   GROUP BY network, internal`);
 const qMppRecentExternal = db.prepare(`
-  SELECT ts, network, tx FROM sales WHERE wire IN ('mpp', 'mpp-tempo') AND internal = 0
+  SELECT ts, network, tx FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe') AND internal = 0
   ORDER BY ts DESC LIMIT ?`);
 // Every MPP tx hash, for joining the wire onto the on-chain revenue ledger
 // (separate db) so the chart can filter by wire. Unbounded by design: the
@@ -184,7 +184,7 @@ const qMppRecentExternal = db.prepare(`
 // and Tempo is deliberately excluded from RAILS (not x402-settleable), so no
 // Tempo tx hash could match anyway — see the revenue-chart Tempo gap noted
 // in the same audit (Tempo settlements aren't a chart series yet).
-const qMppTx = db.prepare("SELECT tx FROM sales WHERE wire IN ('mpp', 'mpp-tempo') AND tx IS NOT NULL");
+const qMppTx = db.prepare("SELECT tx FROM sales WHERE wire IN ('mpp', 'mpp-tempo', 'mpp-stripe') AND tx IS NOT NULL");
 // Settlement RECEIPTS we recorded: one row per call we served on a paying rail
 // and believed was paid for, carrying the tx the FACILITATOR said it settled.
 // Reconciling these against transfers actually seen on-chain is the only way to
