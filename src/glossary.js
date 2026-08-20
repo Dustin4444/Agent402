@@ -52,7 +52,7 @@ export const GLOSSARY = [
     see: [["/agentic-finance#faq", "do agents need crypto?"]] },
   { id: "rails", name: "Rails (stablecoin rails)", alt: ["payment rails", "chains"],
     def: "The chains and stablecoins a payment can settle on. Agent402 accepts USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar and Algorand, USDG on Robinhood Chain, and PathUSD/USDC natively on Tempo - a buyer picks any rail listed in the 402 at the same list price (fee-charging rails carry the fee in the quote).",
-    see: [["/revenue", "revenue by rail"], ["/pricing", "pricing"]] },
+    see: [["/revenue", "transactions by rail"], ["/pricing", "pricing"]] },
   { id: "dual-stack", name: "Dual-stack (x402 + MPP)", alt: ["dual-stack seller"],
     def: "A server that answers ONE 402 with both an x402 offer and an MPP challenge for the same resource at the same price, and accepts either credential on the retry. A stock x402 client and a stock mppx client both work unmodified against it. Every paid route on Agent402 is dual-stack, and the open-source tollbooth adds it to any site.",
     see: [["/what-is-mpp#live", "where MPP settles today"], ["/sell", "sell dual-stack"]] },

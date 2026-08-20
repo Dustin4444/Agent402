@@ -11,7 +11,7 @@ Every paid endpoint on Agent402.Tools is **dual-stack**: the same 402 carries an
 | `evm` charge | USDC | Base, Celo | Same EIP-3009 on-chain settlement as x402, translated by the shim; verifiable on Basescan/Celoscan |
 | `tempo` charge | PathUSD | Tempo (chain 4217) | Native TIP-20 settlement through Tempo's hosted MPP relay, no x402 facilitator involved |
 
-The [MPP marketplace](https://agent402.tools/mpp-marketplace) lists other MPP sellers we can verify live and ranks them on the **MPP leaderboard**: inbound USDC.e transfers on Tempo to the recipient each seller's live challenge names, read from the chain by us over the most recent window (transfers, distinct payers, volume; rows at or above the router's floor are marked routable). Machine-readable at [`/api/mpp-index`](https://agent402.tools/api/mpp-index) and [`/api/mpp-leaderboard`](https://agent402.tools/api/mpp-leaderboard). The [revenue page](https://agent402.tools/revenue) shows every MPP-wire settlement per rail with explorer links.
+The [MPP marketplace](https://agent402.tools/mpp-marketplace) lists other MPP sellers we can verify live and ranks them on the **MPP leaderboard**: inbound USDC.e transfers on Tempo to the recipient each seller's live challenge names, read from the chain by us over the most recent window (transfers, distinct payers, volume; rows at or above the router's floor are marked routable). Machine-readable at [`/api/mpp-index`](https://agent402.tools/api/mpp-index) and [`/api/mpp-leaderboard`](https://agent402.tools/api/mpp-leaderboard). The [transactions page](https://agent402.tools/revenue) shows every MPP-wire settlement per rail with explorer links, led by transaction counts (adoption) with external revenue underneath.
 
 ## JavaScript (mppx)
 

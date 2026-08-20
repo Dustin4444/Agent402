@@ -550,7 +550,7 @@ function mobileMenuHtml(chainInfo, activePath) {
       ${mmLink("/101", "x402 & MPP 101 · walkthrough", activePath === "/101")}
       ${mmLink("/what-is-x402", "what is x402 / MPP", activePath === "/what-is-x402")}
       ${mmLink("/docs", "docs", activePath === "/docs")}
-      ${mmLink("/revenue", "revenue · on-chain", activePath === "/revenue")}
+      ${mmLink("/revenue", "transactions · on-chain", activePath === "/revenue")}
       ${mmLink("/status", "status · uptime", activePath === "/status")}
       ${mmLink("/integrations", "integrations", activePath === "/integrations")}
       <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
@@ -635,7 +635,7 @@ export function ledgerFooterFull() {
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">marketplace</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/marketplace" style="color:var(--muted);text-decoration:none;">Marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/guides/smart-order-router" style="color:var(--muted);text-decoration:none;">Router</a><a href="/marketplace/tools" style="color:var(--muted);text-decoration:none;">Every tool indexed</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Revenue</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/marketplace" style="color:var(--muted);text-decoration:none;">Marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">Leaderboard</a><a href="/guides/smart-order-router" style="color:var(--muted);text-decoration:none;">Router</a><a href="/marketplace/tools" style="color:var(--muted);text-decoration:none;">Every tool indexed</a><a href="/revenue" style="color:var(--muted);text-decoration:none;">Transactions</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for sellers</div>
@@ -671,7 +671,7 @@ export function ledgerFooterCompact() {
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/revenue" style="color:var(--muted);text-decoration:none;">revenue</a><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/agentic-finance" style="color:var(--muted);text-decoration:none;">agentic finance</a><a href="/glossary" style="color:var(--muted);text-decoration:none;">glossary</a><a href="/what-is-x402" style="color:var(--muted);text-decoration:none;">what is x402/MPP</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/revenue" style="color:var(--muted);text-decoration:none;">transactions</a><a href="/status" style="color:var(--muted);text-decoration:none;">status</a><a href="/agentic-finance" style="color:var(--muted);text-decoration:none;">agentic finance</a><a href="/glossary" style="color:var(--muted);text-decoration:none;">glossary</a><a href="/what-is-x402" style="color:var(--muted);text-decoration:none;">what is x402/MPP</a><a href="/privacy" style="color:var(--muted);text-decoration:none;">privacy</a><a href="/terms" style="color:var(--muted);text-decoration:none;">terms</a><a href="/transparency" style="color:var(--muted);text-decoration:none;">transparency</a><a href="/contact" style="color:var(--muted);text-decoration:none;">contact</a><a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" style="color:var(--muted);text-decoration:none;">github</a><a href="https://x.com/Agent402Tools" rel="noopener" style="color:var(--muted);text-decoration:none;">𝕏</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--hairline);">
       <span style="letter-spacing:.08em;text-transform:uppercase;font-size:10px;">For agents</span>
