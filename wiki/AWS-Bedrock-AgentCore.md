@@ -6,6 +6,14 @@
 
 This page is a 5-minute recipe to wire the two together - buy side (let an AgentCore agent call Agent402 tools) and sell side (charge AgentCore agents that crawl *your* site, using `agent402-tollbooth`).
 
+## The live-proven path: AgentCore Payments plugin
+
+AWS ships an agent-side **Payments plugin** (built with Coinbase and Stripe) that reads an x402 `402 Payment Required`, authorizes a USDC micropayment from an AgentCore-managed wallet, and retries the request with the payment proof. The agent code holds no keys and no payment logic, and spend is bounded by the Payment Session limit you set. It speaks both **x402 and MPP** - exactly the two wires every Agent402 endpoint serves.
+
+We publish a runnable sample: [`examples/agentcore-x402-buyer`](https://github.com/MikeyPetrillo/Agent402/tree/main/examples/agentcore-x402-buyer). It has a deterministic proof loop (`direct_buy.py`: fetch → 402 → sign → retry → verify the paid sha256 answer) and a Strands-agent showcase (`agent_buy.py`), with the full testnet (Base Sepolia faucet) → mainnet (Base USDC) path in its README. Validated live: an AgentCore agent bought `POST /api/hash` from agent402.tools for $0.001, settled on Base mainnet.
+
+> **Where payment happens matters:** AgentCore Gateway cannot pay a 402 on the Gateway→target hop - payment is an agent-side capability. Use Gateway for tool discovery, and the Payments plugin (or the adapters below) for settlement.
+
 ## What you get out of the box
 
 - 500+ deterministic, pay-per-call tools + 100+ multi-tool skill packs from Agent402, callable from an AgentCore-hosted agent
@@ -14,15 +22,14 @@ This page is a 5-minute recipe to wire the two together - buy side (let an Agent
 - CloudWatch observability for every payment (AgentCore handles this)
 - Strands SDK as the agent framework - AgentCore's preferred Python/TS surface
 
-## Option 1: Gateway target (zero code, all 500+ tools)
+## Option 1: Gateway target (zero code, free tier + discovery)
 
-The fastest path. Agent402 exposes a hosted [MCP](https://modelcontextprotocol.io) endpoint at `https://agent402.tools/mcp`; point AgentCore Gateway at it and every tool shows up in your agent.
+The fastest path for the free tier. Agent402 exposes a hosted [MCP](https://modelcontextprotocol.io) endpoint at `https://agent402.tools/mcp`; point AgentCore Gateway at it and the catalog shows up in your agent.
 
-1. **Identity:** in AgentCore Identity, create a `PaymentCredentialProvider` of type `coinbaseCdp` (or `stripe` / `privy` - your choice). Paste your CDP API key id + secret. AgentCore stores them encrypted.
-2. **Gateway target:** in AgentCore Gateway, add an MCP target:
-   - URL: `https://agent402.tools/mcp`
-   - Auth: none (free tier) or attach the `PaymentCredentialProvider` from step 1 (wallet tier)
-3. **Done.** Your agent sees Agent402's flagship-first MCP surface (~15 tools): `search_web` / `answer_question` as the front door, plus news/render/stock/transcribe/memory, meta tools (`search_tools`, `find_tool`, `call_tool`, `describe_server`, …), and via `call_tool` the full 500+ tool catalog. Payments - proof-of-work for free tools, USDC for wallet-only - happen in the request path; AgentCore logs every settled call to CloudWatch.
+1. **Gateway target:** in AgentCore Gateway, add an MCP target with URL `https://agent402.tools/mcp` (auth: none).
+2. **Done.** Your agent sees Agent402's flagship-first MCP surface (~15 tools): `web.search` / `web.answer` as the front door, plus news/render/stock/transcribe/memory, meta tools (`catalog.search`, `catalog.find`, `catalog.call`, `server.describe`, …), and via `catalog.call` the full 500+ tool catalog. Free tools pay automatically via proof-of-work in the request path - no wallet anywhere.
+
+For **wallet-only (paid) tools**, remember the Gateway cannot settle a 402 on the Gateway→target hop: pay agent-side with the Payments plugin (sample above). MPP-speaking clients can also pay wallet-only tools directly on the connector - `/mcp` serves native MPP challenges (JSON-RPC error `-32042`) - see [[Paying with MPP]].
 
 > Want to host the catalog yourself instead? Run Agent402 anywhere (`FREE_MODE=false` with `WALLET_ADDRESS` + CDP keys), and point Gateway at `https://your-host/mcp` the same way.
 
@@ -125,6 +132,7 @@ No bridging code, no protocol translation - x402 on both ends.
 
 ## See also
 
+- [`examples/agentcore-x402-buyer`](https://github.com/MikeyPetrillo/Agent402/tree/main/examples/agentcore-x402-buyer) - the live-proven Payments-plugin buyer sample
 - [[Adapters]] - sibling adapters for OpenAI, Anthropic, Vercel AI SDK, LangChain, LlamaIndex
 - [[MCP Connector]] - the hosted MCP path used in Option 1
 - [[Pay-per-crawl]] - `agent402-tollbooth` deep dive (deploy templates, modes, dashboard)
