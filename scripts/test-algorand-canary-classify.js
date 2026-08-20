@@ -47,5 +47,12 @@ const survivors = [
 ];
 ok(survivors.every((a) => outcomeOf(a) === "other" && isUpstreamOutage(a.status, a.body)), "every persistent third-party/edge failure from run 32301215912 is classified upstream (non-failing), not a tool defect");
 
+// ---- bare (unpaid) probe: a 502/503/504 is the edge in front of the tool
+// (the handler only ever answers 402 unpaid), so it is an upstream outage;
+// a 500/404 with a real body is a genuine defect. #842 was opened on a bare
+// 502 for nft-holdings while it was 402ing fine seconds later.
+ok(isUpstreamOutage(502, "") === true && isUpstreamOutage(503, "") === true && isUpstreamOutage(504, "") === true, "a bare-probe 502/503/504 (no body) is an upstream/edge outage");
+ok(isUpstreamOutage(500, "") === false && isUpstreamOutage(404, "") === false && isUpstreamOutage(400, "") === false, "a bare-probe 500/404/400 is NOT auto-excused (a real problem still fails)");
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

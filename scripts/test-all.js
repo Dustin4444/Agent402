@@ -187,7 +187,7 @@ const NETWORK = new Set([
   "/api/eas-attestations",
   // NFT-market-kit: Alchemy NFT v3 (503 without key in CI without secrets;
   // 4xx on placeholder contracts that don't exist on a given chain).
-  "/api/nft-collection", "/api/nft-floor", "/api/nft-sales",
+  "/api/nft-collection", "/api/nft-floor",
   // Skill packs (bundled execution endpoints) — orchestrate up to 8 underlying
   // tool calls per request; sequential chains can exceed the 20s AbortSignal in
   // CI even when each underlying call is fast. The partial-success envelope
