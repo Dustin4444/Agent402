@@ -4390,12 +4390,14 @@ if (FREE_MODE) {
   // hosted MCP free tier (src/rate-limit.js) — otherwise a client exhausted
   // on /mcp could keep hammering /api/* with fresh PoW solutions for free.
   app.use(async (req, res, next) => {
-    // A Tempo-credentialed request never carries an x402 payment header —
-    // none of PoW/trial/replay-guard/x402mw below applies to it, and running
-    // x402mw here would just 402 it as unauthenticated. mpp-tempo.js's own
-    // gate (mounted earlier, before this) already validated the credential
-    // and owns settlement for this request end to end.
-    if (req.tempoSettling) return next();
+    // A Tempo- or Stripe-credentialed request never carries an x402 payment
+    // header — none of PoW/trial/replay-guard/x402mw below applies to it, and
+    // running x402mw here would just 402 it as unauthenticated. mpp-tempo.js /
+    // mpp-stripe.js's own gates (mounted earlier, before this) already
+    // validated the credential and own settlement for this request end to end.
+    // Without the stripe bypass a validated card payment would be 402'd here
+    // and never served (fails safe — no charge — but the feature is dead).
+    if (req.tempoSettling || req.stripeSettling) return next();
     // Retired converters aren't catalog routes, so POW_ROUTES can't know them —
     // which briefly made them the only paid paths on the site with NO free
     // tier, while unit-convert (the identical work, same engine, same table)
