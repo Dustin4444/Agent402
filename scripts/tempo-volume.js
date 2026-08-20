@@ -2,14 +2,15 @@
 // Tempo MPP volume runner - buys our own cheapest route over MPP's native
 // tempo/charge method N times from the canary burner (USDC.e on Tempo).
 //
-// Why a separate scheduled run and not the daily canary: Mike wants ~1,000
-// settled Tempo transactions a day at $0.001 (real on-chain volume for the
-// MPP leaderboard window, the router's proven-seller gate and Tempo's
-// transfer feed). One wallet cannot sign 1,000 credentials in parallel
-// safely (nonces), and sequentially that is ~45 minutes - too long for the
-// canary job. So tempo-volume.yml runs this every 2 hours with
-// TEMPO_VOLUME_TX=84 (12 x 84 = 1,008/day); the daily canary keeps its ONE
-// graded mpp-tempo settle as the rail proof (its volume knob stays at 1).
+// Why a separate scheduled run and not the daily canary: Mike wants steady
+// settled Tempo volume at $0.001 (real on-chain volume for the MPP
+// leaderboard window, the router's proven-seller gate and Tempo's transfer
+// feed). One wallet cannot sign many credentials in parallel safely
+// (nonces), so buys are sequential - too long for the canary job at any
+// real volume. tempo-volume.yml runs this every 2 hours with
+// TEMPO_VOLUME_TX=17 (12 x 17 = ~200/day; lowered from 84 = ~1,000/day on
+// 2026-08-20, Mike's call); the daily canary keeps its ONE graded
+// mpp-tempo settle as the rail proof (its volume knob stays at 1).
 //
 // Every buy is a fresh 402 -> tempo challenge -> credential -> settle
 // (credentials are single-use). Requests carry the heartbeat token so our
@@ -20,19 +21,19 @@
 // 2 when the preflight (balance / challenge) refuses to start. Balance
 // guard: refuses to run below TEMPO_VOLUME_MIN_BALANCE_USD (default $2) so a
 // draining wallet is never ground to zero by the volume runner itself - the
-// canary's funding sweep pages at $5 USDC.e (about five days) for the same wallet.
+// canary's funding sweep pages at $5 USDC.e (~25 days at 200/day) for the same wallet.
 import { createHmac } from "node:crypto";
 import { privateKeyToAccount } from "viem/accounts";
 
 const TARGET = (process.env.TARGET_URL || "https://agent402.tools").replace(/\/$/, "");
 const ROUTE = process.env.TEMPO_VOLUME_ROUTE || "/api/uuid";
 // Dispatch input is free text: a non-number must refuse, not run 0 buys green.
-const countRaw = Number(process.env.TEMPO_VOLUME_TX || 84);
+const countRaw = Number(process.env.TEMPO_VOLUME_TX || 17);
 if (!Number.isInteger(countRaw) || countRaw < 1) { console.error(`REFUSING to run: TEMPO_VOLUME_TX must be a positive integer (got ${JSON.stringify(process.env.TEMPO_VOLUME_TX)})`); process.exit(2); }
 const COUNT = Math.min(1000, countRaw); // one run's hard cap ($1 at list); the 2-hourly schedule is the volume lever
 const MIN_SUCCESS = Number(process.env.TEMPO_VOLUME_MIN_SUCCESS || 0.8);
 const MIN_BALANCE_USD = Number(process.env.TEMPO_VOLUME_MIN_BALANCE_USD || 2);
-const PACE_MS = Number(process.env.TEMPO_VOLUME_PACE_MS || 250); // small gap between buys; ~1,000/day must never look like a flood to our own gate
+const PACE_MS = Number(process.env.TEMPO_VOLUME_PACE_MS || 250); // small gap between buys; steady volume must never look like a flood to our own gate
 const TEMPO_RPC = process.env.TEMPO_RPC_URL || "https://rpc.tempo.xyz";
 const USDCE = "0x20C000000000000000000000b9537d11c60E8b50";
 const PATHUSD = "0x20c0000000000000000000000000000000000000";
