@@ -1257,6 +1257,18 @@ const mppRailLabel = (n) => MPP_RAIL_META[n]?.label || netName(n) || n;
 // Wire overview: two equal cards. Numbers come from two different ledgers on
 // purpose — x402's from the on-chain settlement ledger (allTime), MPP's from
 // the sales ledger's wire attribution (mppSales) — and each card says which.
+// Honest rail throughput without double counting: MPP on Base/Celo settles as
+// on-chain USDC, so it is ALREADY inside the transfers-ledger inbound count;
+// only Tempo (native MPP, NOT RPC-scanned by the revenue ledger) is additive.
+// Summing all of mppSales().count over the inbound count would double-count
+// every Base/Celo MPP settlement — the inflation the adoption framing exists
+// to avoid. tempo key confirmed against /api/revenue/mpp.
+function railThroughput(snap) {
+  const onchain = Number(snap.allTime?.allTimeInboundCount || 0);
+  const tempoMpp = Number(snap.mpp?.rails?.tempo?.count || 0);
+  return { onchain, tempoMpp, total: onchain + tempoMpp };
+}
+
 function wireOverview(snap) {
   const at = snap.allTime;
   const mpp = snap.mpp || {};
@@ -1313,12 +1325,9 @@ function wireOverview(snap) {
 // and says so in the same breath.
 function railThroughputSection(snap) {
   const at = snap.allTime;
-  const mpp = snap.mpp || {};
-  const x402Total = Number(at?.allTimeInboundCount || 0);
-  const x402Usd = Number(at?.allTimeInboundUsd || 0);
-  const mppTotal = Number(mpp.count || 0);
-  const total = x402Total + mppTotal;
+  const { onchain, tempoMpp, total } = railThroughput(snap);
   const railCount = Array.isArray(snap.rails) ? snap.rails.length : 0;
+  const agents = Number(snap.agents?.buyers || 0);
   if (!total) return "";
   const stat = (n, label, sub) => `
     <div style="min-width:0;">
@@ -1332,10 +1341,11 @@ function railThroughputSection(snap) {
       <span style="font-weight:800;font-size:17px;">Rail throughput <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· every settled on-chain transaction, ours included</span></span>
       <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">throughput proves the rails · the revenue cards above count only money from others</span>
     </div>
-    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">
-      ${stat(total, "settled transactions all-time", `across ${railCount} x402 rails + the MPP wire`)}
-      ${stat(x402Total, "over x402", `$${x402Usd.toFixed(2)} moved on-chain incl. our canaries + self-funding sweeps`)}
-      ${stat(mppTotal, "over MPP", "incl. our Tempo volume runs (~200/day) + daily canaries")}
+    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;">
+      ${stat(total, "settled transactions all-time", `across ${railCount} rails + the MPP wire`)}
+      ${agents ? stat(agents, "distinct agents have paid", "unique external wallets - the adoption number") : ""}
+      ${stat(onchain, "on-chain (x402 + evm MPP)", "USDC transfers to our rail wallets, ours incl.")}
+      ${stat(tempoMpp, "native MPP on Tempo", "~200/day volume + daily canaries")}
     </div>
     <p style="font-size:12.5px;color:var(--muted);margin:14px 0 0;max-width:860px;">We run our own money through the same gates buyers use, continuously: a daily paid canary on every rail, ~200 Tempo MPP settlements a day, and weekly full-catalog sweeps. Those are real on-chain transactions - that is the point - but they are <strong>ours</strong>, so they live here and never in a revenue number. The chart below splits External / Internal explicitly.</p>
   </div>`;
@@ -1451,7 +1461,7 @@ export function revenueChartSection() {
 
 export function revenuePage(baseUrl, snap) {
   const canonical = baseUrl + "/revenue";
-  const title = "Live revenue - x402 and MPP, every rail on-chain | Agent402";
+  const title = "Transactions - x402 and MPP payment rails, every settle on-chain | Agent402";
   const description =
     `Consolidated live view of the Agent402 revenue wallets across both payment wires (x402 and MPP) and every rail - ${RAILS_AMP}, plus Tempo. One page instead of a dozen explorer tabs; every figure links to its on-chain proof.`;
   const chainKeyByLabel = { ...Object.fromEntries(Object.entries(EVM).map(([k, c]) => [c.label, k])), Solana: "solana", Stellar: "stellar", Algorand: "algorand" };
@@ -1479,7 +1489,8 @@ export function revenuePage(baseUrl, snap) {
           <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(r.asset)}</span></span>
           ${statusDot}
         </div>
-        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${at ? "$" + at.externalUsd + (at.caughtUp ? "" : "↺") : "-"}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">all-time external revenue${Number.isFinite(r.externalUsd) ? ` · window $${r.externalUsd}` : ""}</span></div>
+        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${at ? at.inboundCount.toLocaleString() + (at.caughtUp ? "" : "↺") : "-"}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">transactions on this rail (ours incl.)${at && at.externalCount ? ` · <strong style="color:var(--ink);">${at.externalCount.toLocaleString()}</strong> external` : ""}</span>
+          <span style="display:block;font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:5px;">$${at ? at.externalUsd : "0"} external revenue${Number.isFinite(r.externalUsd) ? ` · window $${r.externalUsd}` : ""}</span></div>
       </div>
       ${!hasBalance
         ? `<div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">rail read unavailable - public RPC error (detail in <a href="/api/revenue">/api/revenue</a>)</div>`
@@ -1513,13 +1524,29 @@ export function revenuePage(baseUrl, snap) {
   <div style="max-width:1100px;margin:0 auto;padding:56px 30px;">
     <section>
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /api/revenue</div>
-    <h1 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink);">Live revenue.</h1>
+    <h1 style="font-family:var(--font-body);font-weight:800;font-size:44px;line-height:1.05;letter-spacing:-.02em;margin:0 0 8px;color:var(--ink);">Transactions.</h1>
     <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:640px;margin:0 0 8px;">
-      Both wires we settle - <strong>x402</strong> and <strong>MPP</strong> - every rail's wallet, one page. Refreshed from public RPCs (60s cache), every figure verifiable at its explorer link.
+      Every payment that flows through our rails - both wires, <strong>x402</strong> and <strong>MPP</strong>, one page. Refreshed from public RPCs (60s cache), every figure verifiable at its explorer link.
       Machine-readable: <a href="/api/revenue">/api/revenue</a> · <a href="/api/revenue/mpp">/api/revenue/mpp</a>.
     </p>
-    ${snap.allTime ? `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:22px;">${snap.allTime.allTimeExternalCount.toLocaleString()}</strong> verifiable external payment${snap.allTime.allTimeExternalCount === 1 ? "" : "s"} all-time <span style="color:var(--muted);">- $${snap.allTime.allTimeExternalUsd.toFixed(4)} settled on-chain, each linked to its explorer proof${snap.allTime.syncing ? " · ledger backfilling - total still rising" : ""}</span></p>` : ""}
-    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>every figure is <strong style="color:var(--accent);">external</strong> revenue only - our own canary/test/funding money never counts (wallet balances are float, not earnings, and are not shown)</p>
+    ${(() => {
+      const at = snap.allTime;
+      const mpp = snap.mpp || {};
+      // Hero number = THROUGHPUT (every settled transaction, ours included):
+      // a rail that clears real on-chain payments continuously is the thing
+      // being proven. Revenue is real too and sits right under it, external
+      // only. See railThroughput() for why MPP is Tempo-only here (no double
+      // count of on-chain-settled Base/Celo MPP).
+      const throughput = railThroughput(snap).total;
+      const extCount = Number(at?.allTimeExternalCount || 0);
+      const extUsd = Number(at?.allTimeExternalUsd || 0);
+      const agents = Number(snap.agents?.buyers || 0);
+      if (!throughput) return "";
+      return `<p style="font-family:var(--font-mono);font-size:15px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:26px;">${throughput.toLocaleString()}</strong> settled transactions through our pay rails <span style="color:var(--muted);">- x402 + MPP, all-time · <strong>ours included</strong>: we run ~200 Tempo MPP settles/day plus a daily canary on every rail, so the plumbing is exercised continuously${at?.syncing ? " · ledger backfilling - total still rising" : ""}</span></p>
+    ${agents ? `<p style="font-family:var(--font-mono);font-size:14px;margin:0 0 6px;"><strong style="color:var(--accent);font-size:18px;">${agents.toLocaleString()}</strong> distinct agent${agents === 1 ? "" : "s"} have paid us <span style="color:var(--muted);">- unique external wallets across all rails${snap.agents?.top5SharePct != null ? ` · top 5 = ${snap.agents.top5SharePct}% of external payments` : ""}</span></p>` : ""}
+    <p style="font-family:var(--font-mono);font-size:14px;margin:0 0 6px;"><strong style="color:var(--accent);">${extCount.toLocaleString()}</strong> external payment${extCount === 1 ? "" : "s"} <span style="color:var(--muted);">- <strong style="color:var(--ink);">$${extUsd.toFixed(4)}</strong> real revenue settled on-chain, each linked to its explorer proof</span></p>`;
+    })()}
+    <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>the big number is <strong style="color:var(--ink);">total throughput</strong> (ours included - the rail-stability signal); every <strong style="color:var(--accent);">revenue</strong> figure is external only - our own canary/test/funding money is never counted as earnings (wallet balances are float, not shown)</p>
     </section>
     <section>
     ${wireOverview(snap)}
@@ -1531,11 +1558,11 @@ export function revenuePage(baseUrl, snap) {
     <section>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:44px 0 6px;">
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:26px;letter-spacing:-.01em;margin:0;">x402 rails <span style="color:var(--muted);font-weight:400;">· by chain</span></h2>
-      <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${snap.rails.length}</strong> chains, ranked by all-time external revenue · <a href="/api/revenue">/api/revenue</a></span>
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${snap.rails.length}</strong> chains, ranked by transactions · <a href="/api/revenue">/api/revenue</a></span>
     </div>
-    <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;max-width:760px;">One card per chain we accept x402 on. The headline is all-time external revenue from the settlement ledger; the rows are the newest external buys in the recent scan window, each linked to its explorer proof. Our own canary and test transfers are counted, not listed.</p>
+    <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;max-width:760px;">One card per chain we accept x402 on. The headline is the number of transactions settled on that rail (ours included - the adoption/liveness signal), with external revenue underneath; the rows are the newest external buys in the recent scan window, each linked to its explorer proof.</p>
     <div class="ml-2col rv-rails" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">
-      ${[...snap.rails].sort((a, b) => (Number(snap.allTime?.perChain?.[chainKeyByLabel[b.rail]]?.externalUsd) || 0) - (Number(snap.allTime?.perChain?.[chainKeyByLabel[a.rail]]?.externalUsd) || 0)).map(railCard).join("\n")}
+      ${[...snap.rails].sort((a, b) => (Number(snap.allTime?.perChain?.[chainKeyByLabel[b.rail]]?.inboundCount) || 0) - (Number(snap.allTime?.perChain?.[chainKeyByLabel[a.rail]]?.inboundCount) || 0)).map(railCard).join("\n")}
     </div>
     </section>
     <section>

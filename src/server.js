@@ -1521,7 +1521,7 @@ app.get("/api/revenue/mpp", (req, res) => {
 app.get("/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
-    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }) }));
+    res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), agents: ledgerBuyerConcentration(revenueWallets()) }));
   } catch (e) {
     res.status(500).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
   }
