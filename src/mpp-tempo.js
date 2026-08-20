@@ -461,7 +461,7 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
  *  free handler executions before Tempo's relay rejects the (N-1) duplicate
  *  broadcasts at settlement time — the same "Five Attacks on x402" Attack II
  *  class replay-guard.js documents, just unguarded on this second path. */
-export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, replayGuard, secretKey, realm, priceFor } = {}) {
+export function createTempoGate({ validate = validateTempoCredential, broadcast = broadcastTempoCredential, confirmSettlement = null, replayGuard, secretKey, realm, priceFor } = {}) {
   if (!tempoEnabled()) return null;
   // Fail CLOSED on the binding inputs: a gate that cannot verify "we minted
   // this challenge for this price" must not exist, because its existence is
@@ -604,9 +604,28 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
         return;
       }
       const tHandled = Date.now();
-      const b = await broadcast(auth);
+      let b = await broadcast(auth);
       const tBroadcast = Date.now();
       const timing = `validate=${tValidated - t0}ms handler=${tHandled - tValidated}ms broadcast=${tBroadcast - tHandled}ms`;
+      if (!b.ok && confirmSettlement) {
+        // The relay's verdict and the chain's truth can diverge: on
+        // 2026-08-20 the relay reported "Broadcast transaction hash does not
+        // match the signed transaction" for two payments that had SETTLED
+        // (an AgentCore/Privy buyer whose signature carries a yParity-style
+        // v byte the node normalizes — canonical txid != keccak(submitted)).
+        // Answering 402 then is a charged-but-failed the buyer retries into
+        // a double charge. So before discarding the response, ask the CHAIN
+        // whether this credential's own transaction landed (the txid commits
+        // to the signed bytes — exact binding, no window heuristics; see
+        // tempo-confirm.js). Verification, never a re-broadcast: nothing is
+        // submitted, so this can never double-charge — the stellar-confirm
+        // doctrine on the MPP rail. Fails closed: null keeps the 402.
+        const confirmed = await Promise.resolve(confirmSettlement(auth)).catch(() => null);
+        if (confirmed) {
+          console.warn(`[mpp-tempo] relay reported settlement failure but the credential's transaction SETTLED on-chain (${req.method} ${req.path} tx=${confirmed.txId}) — honouring the settlement that happened (verified from the chain, nothing re-broadcast). Relay said: ${b.error} [${timing} confirm=${Date.now() - tBroadcast}ms]`);
+          b = { ok: true, receipt: { method: "tempo", status: "success", reference: confirmed.txId, timestamp: new Date().toISOString() } };
+        }
+      }
       if (!b.ok) {
         // Broadcast failed AFTER a successful handler — discard the
         // buffered body and answer 402, mirroring @x402/express's own
