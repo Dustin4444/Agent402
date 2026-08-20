@@ -125,5 +125,16 @@ const GATE = { secretKey: SECRET, realm: REALM, priceFor };
   s.close();
 }
 
+// ---- wiring pin: server.js MUST bypass the x402 paywall for a validated
+// stripe request, exactly like req.tempoSettling. Without it a real card
+// payment is 402'd by the paywall and never served (the gate here runs with
+// no paywall in front, so it cannot catch this — hence a source scan). Caught
+// by the 2026-08-20 security review. ----
+{
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/req\.tempoSettling\s*\|\|\s*req\.stripeSettling/.test(src) || /req\.stripeSettling\s*\|\|\s*req\.tempoSettling/.test(src), "wiring: server.js bypasses the x402 paywall for req.stripeSettling (like req.tempoSettling)");
+}
+
 console.log(`\n${pass} passed, 0 failed`);
 process.exit(0);
