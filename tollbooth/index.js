@@ -19,7 +19,7 @@ import { createPow } from "./pow.js";
 import { makeBotMatcher, AI_BOTS } from "./bots.js";
 import { memorySink } from "./sinks.js";
 import { challengesFromPaymentRequired, translateCredential, receiptFromPaymentResponse, isMppCredential, DEFAULT_MPP_CHAIN_IDS } from "./mpp.js";
-import { tempoConfig, mintTempoChallenges, parseTempoCredential, checkTempoBinding, tempoRelay, relayInput, broadcastIdempotencyKey, tempoReceiptHeader, tempoProblem } from "./tempo.js";
+import { tempoConfig, mintTempoChallenges, parseTempoCredential, checkTempoBinding, tempoRelay, relayInput, broadcastIdempotencyKey, tempoReceiptHeader, tempoProblem, confirmTempoSettlement } from "./tempo.js";
 
 export { AI_BOTS, makeBotMatcher } from "./bots.js";
 export { createPow, leadingZeroBits } from "./pow.js";
@@ -387,7 +387,22 @@ export function createTollbooth(config = {}) {
       try { next(); } catch (err) { restore(); return next(err); }
       await endPromise;
       if (res.statusCode >= 400) { restore(); replay(); return; } // handler failed: never broadcast, nobody charged
-      const b = await tempoRelayClient.broadcast(input, { idempotencyKey: broadcastIdempotencyKey(input) }).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+      let b = await tempoRelayClient.broadcast(input, { idempotencyKey: broadcastIdempotencyKey(input) }).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+      if (!b.ok && tempoCfg.confirm) {
+        // The relay's verdict and the chain's truth can diverge (measured
+        // live 2026-08-20: a yParity-style v byte the node normalizes makes
+        // the relay's post-broadcast hash check fail a payment that SETTLED;
+        // the buyer retried into a double charge). Ask the chain whether this
+        // credential's own transaction landed before discarding the response —
+        // exact txid derivation from the signed bytes, verification never a
+        // re-broadcast, fails closed to the 402. See tempo.js.
+        const check = tempoCfg.confirmSettlement || ((c) => confirmTempoSettlement(c, { rpcUrl: tempoCfg.confirmRpcUrl, fetchImpl: tempoCfg.fetch }));
+        const confirmed = await Promise.resolve(check(cred)).catch(() => null);
+        if (confirmed?.txId) {
+          console.warn(`[agent402-tollbooth] tempo relay reported settlement failure but the credential's transaction SETTLED on-chain (${req.method} ${req.url} tx=${confirmed.txId}) - honouring the settlement (verified from the chain, nothing re-broadcast). Relay said: ${b.detail || b.error}`);
+          b = { ok: true, receipt: { method: "tempo", reference: confirmed.txId } };
+        }
+      }
       if (!b.ok) {
         // Broadcast failed AFTER a successful handler: discard the body, 402
         // (mirrors @x402/express's settle-failure path). Loud - this is the

@@ -93,6 +93,12 @@ export function tempoConfig(cfg = {}) {
     fetch: cfg.fetch || globalThis.fetch,
     relay: cfg.relay || null, // { validate(input) -> {ok, error?}, broadcast(input, {idempotencyKey}) -> {ok, receipt?, error?} } (tests)
     relayTimeoutMs: Number.isFinite(cfg.relayTimeoutMs) ? cfg.relayTimeoutMs : 20_000,
+    // Chain-truth confirm on broadcast failure (see confirmTempoSettlement):
+    // `confirm: false` disables; `confirmRpcUrl` overrides the Tempo RPC;
+    // `confirmSettlement` injects the whole check (tests).
+    confirm: cfg.confirm !== false,
+    confirmRpcUrl: String(cfg.confirmRpcUrl || process.env.TOLLBOOTH_TEMPO_RPC_URL || "https://rpc.tempo.xyz").replace(/\/$/, ""),
+    confirmSettlement: typeof cfg.confirmSettlement === "function" ? cfg.confirmSettlement : null,
   };
 }
 
@@ -239,4 +245,128 @@ export function tempoReceiptHeader(receipt) {
 export function tempoProblem(kind, detail) {
   const titles = { "invalid-challenge": "Invalid Challenge", "verification-failed": "Verification Failed", "malformed-credential": "Malformed Credential", "payment-insufficient": "Payment Insufficient" };
   return { type: `https://paymentauth.org/problems/${kind}`, title: titles[kind] || kind, status: 402, detail };
+}
+
+// ---------------------------------------------------------------------------
+// Chain-truth confirm on broadcast failure (2026-08-20) — the relay's verdict
+// and the chain's truth can diverge: a buyer whose packed signature ends with
+// a yParity-style v byte (0x00/0x01) gets normalized to 27/28 by the Tempo
+// node, so the canonical txid stops matching keccak(submitted bytes) and the
+// relay's post-broadcast hash check reports `invalid_payment` for a payment
+// that SETTLED (measured live: two double charges in one buy attempt).
+// Before answering 402, ask the chain whether this credential's OWN
+// transaction landed. The txid commits to the signed bytes, so the candidates
+// are exact — the submitted form and its v-swapped twin — never a time-window
+// or payer heuristic. Fails closed on every uncertainty. Dependency-free like
+// the rest of this file: keccak-256 is implemented below (BigInt lanes — it
+// runs at most once per FAILED broadcast, so speed is irrelevant) and pinned
+// against standard vectors plus the live incident transaction in the tests.
+// ---------------------------------------------------------------------------
+
+const KECCAK_RC = [
+  "0x0000000000000001", "0x0000000000008082", "0x800000000000808a", "0x8000000080008000",
+  "0x000000000000808b", "0x0000000080000001", "0x8000000080008081", "0x8000000000008009",
+  "0x000000000000008a", "0x0000000000000088", "0x0000000080008009", "0x000000008000000a",
+  "0x000000008000808b", "0x800000000000008b", "0x8000000000008089", "0x8000000000008003",
+  "0x8000000000008002", "0x8000000000000080", "0x000000000000800a", "0x800000008000000a",
+  "0x8000000080008081", "0x8000000000008080", "0x0000000080000001", "0x8000000080008008",
+].map(BigInt);
+const KECCAK_RHO = [0, 1, 62, 28, 27, 36, 44, 6, 55, 20, 3, 10, 43, 25, 39, 41, 45, 15, 21, 8, 18, 2, 61, 56, 14];
+const U64 = (1n << 64n) - 1n;
+
+function keccakF(A) {
+  const rotl = (v, n) => n === 0n ? v : (((v << n) & U64) | (v >> (64n - n)));
+  for (let round = 0; round < 24; round++) {
+    const C = [0, 1, 2, 3, 4].map((x) => A[x] ^ A[x + 5] ^ A[x + 10] ^ A[x + 15] ^ A[x + 20]);
+    for (let x = 0; x < 5; x++) {
+      const D = C[(x + 4) % 5] ^ rotl(C[(x + 1) % 5], 1n);
+      for (let y = 0; y < 5; y++) A[x + 5 * y] ^= D;
+    }
+    const B = new Array(25);
+    for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) B[y + 5 * ((2 * x + 3 * y) % 5)] = rotl(A[x + 5 * y], BigInt(KECCAK_RHO[x + 5 * y]));
+    for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) A[x + 5 * y] = B[x + 5 * y] ^ ((~B[((x + 1) % 5) + 5 * y] & U64) & B[((x + 2) % 5) + 5 * y]);
+    A[0] ^= KECCAK_RC[round];
+  }
+}
+
+/** keccak-256 of a Buffer, as a 0x hex string. Original Keccak padding
+ *  (0x01 … 0x80), NOT SHA-3's 0x06 — Ethereum txids use the former. */
+export function keccak256Hex(buf) {
+  const rate = 136;
+  const padded = Buffer.alloc(Math.ceil((buf.length + 1) / rate) * rate);
+  buf.copy(padded);
+  padded[buf.length] = 0x01;
+  padded[padded.length - 1] |= 0x80;
+  const A = new Array(25).fill(0n);
+  for (let off = 0; off < padded.length; off += rate) {
+    for (let i = 0; i < rate / 8; i++) A[i] ^= padded.readBigUInt64LE(off + i * 8);
+    keccakF(A);
+  }
+  const out = Buffer.alloc(32);
+  for (let i = 0; i < 4; i++) out.writeBigUInt64LE(A[i], i * 8);
+  return `0x${out.toString("hex")}`;
+}
+
+/** The txids this signed Tempo transaction could have landed under: the
+ *  submitted bytes, plus (when the envelope verifiably ends with the 65-byte
+ *  packed signature — RLP string header 0xb841 at the right offset) the
+ *  v-swapped twin: yParity (0/1) <-> legacy (27/28). */
+export function candidateTxIds(signedTx) {
+  const hex = String(signedTx || "").toLowerCase();
+  if (!/^0x76[0-9a-f]{2,}$/.test(hex) || hex.length % 2 !== 0) return [];
+  const out = [keccak256Hex(Buffer.from(hex.slice(2), "hex"))];
+  // b841 = RLP header for a 65-byte string; 134 hex chars = header + 65 bytes.
+  const sigIsLast = hex.length >= 138 && hex.slice(-134, -130) === "b841";
+  if (!sigIsLast) return out;
+  const swap = { "00": "1b", "01": "1c", "1b": "00", "1c": "01" }[hex.slice(-2)];
+  if (swap) out.push(keccak256Hex(Buffer.from(hex.slice(2, -2) + swap, "hex")));
+  return out;
+}
+
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+/** Did this credential's transaction settle despite the relay's verdict?
+ *  Returns { txId } when a candidate receipt exists, succeeded (status 0x1),
+ *  and carries the challenge's transfer (currency + recipient + >= amount) —
+ *  else null. Polls briefly (a just-mined tx may not be indexed when the
+ *  relay answers). Never throws. */
+export async function confirmTempoSettlement(credential, { rpcUrl, fetchImpl = globalThis.fetch, attempts = 4, delayMs = 2000 } = {}) {
+  try {
+    const payload = credential?.payload;
+    if (payload?.type !== "transaction" || typeof payload.signature !== "string") return null;
+    let request = credential?.challenge?.request;
+    if (typeof request === "string") { try { request = JSON.parse(unb64url(request)); } catch { return null; } }
+    const currency = String(request?.currency || "").toLowerCase();
+    const recipient = String(request?.recipient || "").toLowerCase();
+    let minAmount;
+    try { minAmount = BigInt(String(request?.amount)); } catch { return null; }
+    if (!currency.startsWith("0x") || !recipient.startsWith("0x") || !(minAmount > 0n)) return null;
+    const candidates = candidateTxIds(payload.signature);
+    if (!candidates.length) return null;
+    for (let i = 0; i < attempts; i++) {
+      if (i > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+      for (const txId of candidates) {
+        let receipt;
+        try {
+          const res = await fetchImpl(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getTransactionReceipt", params: [txId] }) });
+          if (!res.ok) continue;
+          const body = await res.json();
+          if (body.error) continue;
+          receipt = body.result;
+        } catch { continue; }
+        if (!receipt || receipt.status !== "0x1") continue;
+        for (const log of receipt.logs || []) {
+          if (String(log.address || "").toLowerCase() !== currency) continue;
+          if ((log.topics || [])[0] !== TRANSFER_TOPIC) continue;
+          if (`0x${String(log.topics[2] || "").slice(-40)}`.toLowerCase() !== recipient) continue;
+          let value;
+          try { value = BigInt(log.data); } catch { continue; }
+          if (value >= minAmount) return { txId };
+        }
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

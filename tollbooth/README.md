@@ -256,6 +256,23 @@ body. Challenges are HMAC-bound to your `TOLLBOOTH_SECRET`; each credential is
 single-use (share a `replayStore` across workers). No new dependency: the
 relay is spoken to over plain `fetch`.
 
+**Chain-truth confirm (0.9.2):** a relay can report settlement failure for a
+payment that actually landed - measured live: a buyer whose packed signature
+ends with a yParity-style v byte (0x00/0x01) gets normalized by the Tempo
+node, so the canonical txid stops matching the hash of the submitted bytes
+and the relay's post-broadcast check refuses a settled payment; the buyer is
+told 402 and retries into a double charge. On any broadcast failure the gate
+now derives the only txids the credential's own signed bytes could have
+landed under (submitted form + v-swapped twin - the txid commits to the
+bytes, so the binding is exact) and, if one of them succeeded on-chain paying
+your recipient at least the challenge amount in the challenge currency,
+serves the response as paid. Verification only - nothing is re-broadcast, so
+it can never double-charge; every uncertainty fails closed to the 402.
+Options: `confirm: false` disables, `confirmRpcUrl` overrides the Tempo RPC
+(default `https://rpc.tempo.xyz`, env `TOLLBOOTH_TEMPO_RPC_URL`). Still
+dependency-free (keccak-256 is implemented in-package and pinned against the
+live incident transaction in the tests).
+
 ## Configuration
 
 | Option | Default | What |

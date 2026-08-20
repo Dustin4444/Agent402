@@ -130,5 +130,92 @@ server.close();
   s2.server.close();
 }
 
+// ---- chain-truth confirm on broadcast failure (2026-08-20) ----
+// The relay can report `invalid_payment: "Broadcast transaction hash does not
+// match the signed transaction"` for a payment that SETTLED (a yParity-style
+// v byte the node normalizes). The gate must verify the chain before turning
+// that verdict into a buyer-facing 402 + double-charge loop. The fixture is
+// the REAL incident tx's on-chain bytes (Tempo mainnet, public data).
+{
+  const { keccak256Hex, candidateTxIds, confirmTempoSettlement } = await import("./tempo.js");
+  ok(keccak256Hex(Buffer.alloc(0)) === "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470", "keccak: empty-input vector (Keccak padding, not SHA-3)");
+  ok(keccak256Hex(Buffer.from("abc")) === "0x4e03657aea45a94fc7d47ba826c8d667c0d1e6e33a64a036ec44f58fa12d6c45", "keccak: 'abc' vector");
+
+  const ONCHAIN_RAW = "0x76f90110821079808447868c008306b9c2f87ef87c9420c000000000000000000000b9537d11c60e8b5080b86495777d59000000000000000000000000abf4fabd7c416fb67202e5f9002389fc75e2a9d000000000000000000000000000000000000000000000000000000000000003e8ef1ed71201faae27dd2de7e4657aff0000000000000000000055f3b3923b81d7c0a0da0e157163014a9f525ee19dca60039586bc2cc0fd5eda90326cd4c891ba57c080846a866f63809420c000000000000000000000b9537d11c60e8b5080c0b8419e35bf47532bcce30d028b13020ca217c47f348468d6a6bb129f851672eac35b337ed106315204c48b6daac0eac04bb34e03b7964c1ce4294b1b76c4a1ddf78a1c";
+  const REAL_TXID = "0x753f5655f3823e1a2cea84c9afca8d39b63669059b27120953e2da0cb78abc4f";
+  ok(keccak256Hex(Buffer.from(ONCHAIN_RAW.slice(2), "hex")) === REAL_TXID, "keccak: the incident tx's 277 bytes (multi-block absorb) hash to its REAL on-chain txid");
+  const SUBMITTED = ONCHAIN_RAW.slice(0, -2) + "01"; // what a yParity signer submits
+  const cands = candidateTxIds(SUBMITTED);
+  ok(cands.length === 2 && cands[1] === REAL_TXID, "candidates: v-swap (01 -> 1c) recovers the incident's on-chain txid from the submitted form");
+  ok(candidateTxIds(ONCHAIN_RAW)[1] === keccak256Hex(Buffer.from(SUBMITTED.slice(2), "hex")), "candidates: the reverse swap works too");
+  ok(candidateTxIds(`0x02${ONCHAIN_RAW.slice(4)}`).length === 0, "candidates: non-0x76 envelopes yield nothing");
+  ok(candidateTxIds(ONCHAIN_RAW.slice(0, -2) + "ff").length === 1, "candidates: an unrecognisable v byte gets only the identity candidate");
+  ok(candidateTxIds(`0x${"ab".repeat(70)}`).length === 0 && candidateTxIds(null).length === 0, "candidates: the test suite's own fake signature (and junk) derive nothing - the default confirm can never make a network call for them");
+
+  const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+  const chReq = (amount = "1000") => b64url(JSON.stringify({ amount, currency: TEMPO_USDC_E, recipient: RECIPIENT, methodDetails: { chainId: 4217 } }));
+  const cred = (over = {}) => ({ challenge: { request: over.request ?? chReq() }, payload: over.payload ?? { type: "transaction", signature: SUBMITTED } });
+  const receiptFor = ({ status = "0x1", token = TEMPO_USDC_E, to = RECIPIENT, amount = 1000n } = {}) => ({ status, logs: [{ address: token, topics: [TRANSFER, `0x${"0".repeat(64)}`, `0x${to.slice(2).toLowerCase().padStart(64, "0")}`], data: `0x${amount.toString(16).padStart(64, "0")}` }] });
+  const stubFetch = (map) => async (u, init) => { const q = JSON.parse(init.body); const r = map[q.params[0]] ?? null; return { ok: true, json: async () => ({ result: r }) }; };
+
+  const found = await confirmTempoSettlement(cred(), { rpcUrl: "http://stub", fetchImpl: stubFetch({ [REAL_TXID]: receiptFor() }), attempts: 1 });
+  ok(found?.txId === REAL_TXID, "confirm: the settled tx is found via the v-swapped candidate");
+  ok(await confirmTempoSettlement(cred(), { rpcUrl: "http://stub", fetchImpl: stubFetch({}), attempts: 1 }) === null, "confirm: no receipt -> null (the 402 stands)");
+  ok(await confirmTempoSettlement(cred(), { rpcUrl: "http://stub", fetchImpl: stubFetch({ [REAL_TXID]: receiptFor({ status: "0x0" }) }), attempts: 1 }) === null, "confirm: a reverted tx never confirms");
+  ok(await confirmTempoSettlement(cred(), { rpcUrl: "http://stub", fetchImpl: stubFetch({ [REAL_TXID]: receiptFor({ token: FEE_TO }) }), attempts: 1 }) === null, "confirm: a transfer in a different token never confirms");
+  ok(await confirmTempoSettlement(cred(), { rpcUrl: "http://stub", fetchImpl: stubFetch({ [REAL_TXID]: receiptFor({ to: FEE_TO }) }), attempts: 1 }) === null, "confirm: a transfer to someone else never confirms");
+  ok(await confirmTempoSettlement(cred({ request: chReq("5000") }), { rpcUrl: "http://stub", fetchImpl: stubFetch({ [REAL_TXID]: receiptFor({ amount: 1000n }) }), attempts: 1 }) === null, "confirm: an on-chain amount below the challenge amount never confirms");
+  ok(await confirmTempoSettlement(cred({ payload: { type: "hash", hash: "0xab" } }), { rpcUrl: "http://stub", fetchImpl: stubFetch({ [REAL_TXID]: receiptFor() }), attempts: 1 }) === null, "confirm: a non-transaction payload derives nothing -> null");
+  ok(await confirmTempoSettlement(cred(), { rpcUrl: "http://stub", fetchImpl: async () => { throw new Error("rpc down"); }, attempts: 1 }) === null, "confirm: RPC failure -> null, never throws");
+
+  // Gate: relay says failed, chain says settled -> buyer SERVED.
+  const failRelay = { async validate() { return { ok: true }; }, async broadcast() { return { ok: false, error: "relay HTTP 200 invalid_payment" }; } };
+  {
+    const app3 = express();
+    const gate = createTollbooth({ price: "$0.001", mode: "all", pow: false, powSecret: SECRET, resourceBaseUrl: "https://site.test", tempo: { apiKey: "k", recipient: RECIPIENT, relay: failRelay, confirmSettlement: async () => ({ txId: REAL_TXID }) } });
+    app3.use(gate);
+    app3.get("/p", (req, res) => res.json({ result: "ok" }));
+    const s3 = await listen(app3);
+    const r = await fetch(`${s3.url}/p`);
+    const w = r.headers.get("www-authenticate");
+    const c = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": w }))[0];
+    const res3 = await fetch(`${s3.url}/p`, { headers: { Authorization: credFor({ id: c.id, realm: c.realm, method: "tempo", intent: "charge", request: w.match(/request="([^"]+)"/)[1], expires: c.expires }) } });
+    const body3 = await res3.json();
+    const receipt = JSON.parse(Buffer.from(res3.headers.get("payment-receipt") || "", "base64url").toString());
+    ok(res3.status === 200 && body3.result === "ok" && res3.headers.get("x-tollbooth-paid") === "mpp-tempo", "gate: relay-failed but chain-confirmed -> 200, served as paid");
+    ok(receipt.reference === REAL_TXID && receipt.method === "tempo" && receipt.status === "success", "gate: Payment-Receipt carries the CONFIRMED on-chain txid");
+    ok(gate.stats().tempoPaid === 1, "gate: a chain-confirmed settlement counts as tempoPaid");
+    s3.server.close();
+  }
+  // Gate: confirm disabled -> the old behavior even when a confirm fn exists.
+  {
+    const app4 = express();
+    app4.use(createTollbooth({ price: "$0.001", mode: "all", pow: false, powSecret: SECRET, resourceBaseUrl: "https://site.test", tempo: { apiKey: "k", recipient: RECIPIENT, relay: failRelay, confirm: false, confirmSettlement: async () => ({ txId: REAL_TXID }) } }));
+    app4.get("/p", (req, res) => res.json({ result: "ok" }));
+    const s4 = await listen(app4);
+    const r = await fetch(`${s4.url}/p`);
+    const w = r.headers.get("www-authenticate");
+    const c = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": w }))[0];
+    const res4 = await fetch(`${s4.url}/p`, { headers: { Authorization: credFor({ id: c.id, realm: c.realm, method: "tempo", intent: "charge", request: w.match(/request="([^"]+)"/)[1], expires: c.expires }) } });
+    ok(res4.status === 402 && (await res4.json()).problem?.type === "https://paymentauth.org/problems/verification-failed", "gate: confirm:false disables the fallback entirely (402 as before)");
+    s4.server.close();
+  }
+  // Gate: default confirm with the suite's fake signature must answer 402
+  // WITHOUT any RPC fetch (no candidates -> no network in offline runs).
+  {
+    let rpcCalls = 0;
+    const app5 = express();
+    app5.use(createTollbooth({ price: "$0.001", mode: "all", pow: false, powSecret: SECRET, resourceBaseUrl: "https://site.test", tempo: { apiKey: "k", recipient: RECIPIENT, relay: failRelay, fetch: async () => { rpcCalls++; throw new Error("no network in tests"); } } }));
+    app5.get("/p", (req, res) => res.json({ result: "ok" }));
+    const s5 = await listen(app5);
+    const r = await fetch(`${s5.url}/p`);
+    const w = r.headers.get("www-authenticate");
+    const c = Challenge.fromHeadersList(new Headers({ "WWW-Authenticate": w }))[0];
+    const res5 = await fetch(`${s5.url}/p`, { headers: { Authorization: credFor({ id: c.id, realm: c.realm, method: "tempo", intent: "charge", request: w.match(/request="([^"]+)"/)[1], expires: c.expires }) } });
+    ok(res5.status === 402 && rpcCalls === 0, "gate: default confirm derives no candidates from a non-0x76 signature and never touches the RPC (offline-safe)");
+    s5.server.close();
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
