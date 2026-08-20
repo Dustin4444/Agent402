@@ -45,7 +45,7 @@ const PAGES = [
   { path: "/avalanche",   titleSubstr: "Avalanche" },
   { path: "/sei",         titleSubstr: "Sei" },
   { path: "/optimism",    titleSubstr: "Optimism" },
-  { path: "/revenue",     titleSubstr: "revenue" },
+  { path: "/revenue",     titleSubstr: "Transactions" },
   { path: "/what-is-mpp", titleSubstr: "MPP" },
   { path: "/agentic-finance", titleSubstr: "Agentic Finance" },
   { path: "/glossary",    titleSubstr: "glossary" },
