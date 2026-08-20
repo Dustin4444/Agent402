@@ -790,14 +790,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps
   prod for `"FAQPage"` / `GET /faq` / `AggregateOffer`. That gate runs BEFORE the deploy job,
   so a fix to those surfaces goes green on the run AFTER the one shipping it.
-- **/revenue layout = two wires, same structure (2026-08-18):** `revenuePage` renders a
-  wire overview (one card each for x402 and MPP, equal size, honest numbers from their own
-  ledgers), the chart, then `x402 rails · by chain` (12 cards, 3-up, ranked by all-time
-  external revenue, EXTERNAL rows only — internal canary transfers are counted in one line,
-  never listed) and `MPP wire · by rail` (`mppRailsSection`: Base/Celo/Tempo cards with the
-  same card language, per-rail hashes from `mppSales().rails`). MPP used to be one collapsed
-  `<details>` under twelve ~350px x402 cards. Keep both sections structurally parallel; the
-  numbers, not the layout, carry the scale difference.
+- **/revenue layout = two wires + a throughput band (2026-08-20, Mike):** `revenuePage` renders a
+  wire overview (one card each for x402 and MPP — **headlines are EXTERNAL-only**: the MPP card
+  headlining its combined count read as traction when 553 of 554 were our own volume runs, the
+  registry-inflation move we call out in others), then **`railThroughputSection`** — a PROMINENT
+  full-width band carrying the big COMBINED numbers (`allTimeInboundCount/Usd` on ledgerSummary +
+  `mppSales().count`) with provenance in the same breath ("every settled on-chain transaction, ours
+  included · throughput proves the rails, revenue counts only money from others"). Being paid proves
+  demand; ~200 settlements/day through the same gates buyers use proves the plumbing — both are
+  first-class, neither wears the other's clothes. Then the chart, `x402 rails · by chain` (EXTERNAL
+  rows only) and `MPP wire · by rail` (big number = "through the rail (ours incl.)", external called
+  out beside it; intro says "throughput, not revenue"). **Payer classification:** tempo settles
+  record the credential's did:pkh `source` as CLASSIFICATION-GRADE payer (`req.mppTempoPayer`,
+  never identity — same tier as the facilitator-receipt fallback); Mike's AgentCore/Privy test
+  wallet 0x24e6a249… is in OUR_EVM_WALLETS (its 2026-08-20 buy classified external for a day);
+  sales-ledger boots with an idempotent reclassification sweep (payer ∈ BURNERS → internal, plus
+  the one payer-less AgentCore row by tx hash).
 - **Buyer counts on /revenue (`ledgerBuyersDaily` + `ledgerBuyerConcentration`):** a
   **Buyers** metric answering "more buyers, or the same handful paying more?", which
   tx counts cannot (200 calls is one whale or fifty customers; the revenue line is

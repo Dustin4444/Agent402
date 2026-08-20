@@ -4589,11 +4589,13 @@ app.use((req, res, next) => {
           // SVM/Stellar payloads carry no such field, so fall back to the
           // facilitator-verified payer in the settle receipt — otherwise every
           // Solana/Stellar buyer records as null in PostHog and the sales ledger.
-          // Tempo carries neither shape today (no PAYMENT-SIGNATURE, no x402
-          // settle receipt) — payer is honestly null rather than guessed;
-          // filling this in needs the exact field Tempo's relay receipt uses,
-          // unverified without real relay access (see the approved plan).
-          const payer = req.tempoSettled ? null : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+          // Tempo settles carry the credential's did:pkh `source`, extracted
+          // by the gate as req.mppTempoPayer — CLASSIFICATION-GRADE only
+          // (client-supplied, unrecovered), same trust tier as the
+          // facilitator-receipt fallback: sales ledger + telemetry, never
+          // identity. Before 2026-08-20 tempo payers recorded null and a
+          // self-funded test wallet's buy classified as external revenue.
+          const payer = req.tempoSettled ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           // Client attribution: the User-Agent PRODUCT TOKEN only (first
           // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
           // "node") so payment_settled can answer "which SDK/client do paying

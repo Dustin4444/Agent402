@@ -596,6 +596,8 @@ export function ledgerSummary(wallets) {
   const per = {};
   let allTimeExternalUsd = 0;
   let allTimeExternalCount = 0;
+  let allTimeInboundUsd = 0;
+  let allTimeInboundCount = 0;
   const q = db.prepare(`SELECT
       COUNT(*) AS n, COALESCE(SUM(usd), 0) AS usd,
       COALESCE(SUM(CASE WHEN external = 1 THEN usd END), 0) AS extUsd,
@@ -615,10 +617,17 @@ export function ledgerSummary(wallets) {
     p.syncedAt = Math.max(p.syncedAt ?? 0, cur?.updated_ts ?? 0) || null;
     allTimeExternalUsd += t.extUsd;
     allTimeExternalCount += t.extN;
+    allTimeInboundUsd += t.usd;
+    allTimeInboundCount += t.n;
   }
   return {
     allTimeExternalUsd: Number(allTimeExternalUsd.toFixed(6)),
     allTimeExternalCount,
+    // ALL settled inbound transfers, our own canary/volume/test wallets
+    // included — the /revenue throughput band's number. Never presented as
+    // revenue: throughput proves the rails, external proves the demand.
+    allTimeInboundUsd: Number(allTimeInboundUsd.toFixed(6)),
+    allTimeInboundCount,
     perChain: per,
     persistent: ledgerPersistent,
     syncing: Object.values(per).some((p) => !p.caughtUp),
