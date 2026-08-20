@@ -133,6 +133,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   credential. 0.9.1 decodes it and `tollbooth/tempo.test.js` pins the relay wire shape (34). Lesson
   (same as the main gate's two wire drifts): a stub relay that accepts anything proves nothing about the
   wire; the live dispatch is the proof, and it prints the 402 `problem` + `X-Tollbooth-Error` on failure.
+  **0.9.2 (2026-08-20): chain-truth confirm on broadcast failure** — same fix as the main gate's
+  `src/tempo-confirm.js` (relay reports failure for a SETTLED payment when a buyer's yParity-style v byte
+  is normalized by the node), dependency-free: keccak-256 implemented in-package (BigInt lanes, pinned
+  against standard vectors + the live incident tx), candidates = submitted bytes + v-swapped twin, receipt
+  must succeed and pay the challenge currency/recipient/>=amount, fails closed to the 402. `confirm:false`
+  disables; `confirmRpcUrl`/`TOLLBOOTH_TEMPO_RPC_URL` overrides the RPC; `confirmSettlement` injectable.
+  `tollbooth/tempo.test.js` (55).
   **0.7.0 (2026-08-18): `x402:` middleware mode + MPP.** `createTollbooth({ x402: paymentMiddleware })` delegates paid requests to the operator's @x402/express middleware with the REAL response (verify -> handler -> settle in its own order), lifts its PAYMENT-REQUIRED onto the gate's 402 (stock x402 v2 clients can pay), and - default on - mints `WWW-Authenticate: Payment` evm/charge challenges from it and translates `Authorization: Payment` -> PAYMENT-SIGNATURE (`tollbooth/mpp.js`, dependency-free codec, HMAC id binding compatible with mppx's `Challenge.verify`), mirroring `Payment-Receipt` on settle. **`x402VerifierFromExpress` is deprecated: with @x402/express v2 (settle AFTER handler) it granted on verify and never settled - served, never charged - because it handed the middleware a stub response the real handler never ended; measured in `scripts/test-tollbooth-mpp.js` (32 assertions: real @x402/express + stub facilitator, real mppx client buys, real @x402/fetch buys, settle counted once each, tampered credential, PoW-first).** Edge gate: PoW + legacy verify only for now.
 - **Buyer SDK (`agent402-client`):** `find()` + `call()` with auto-payment (PoW free / x402 paid), caching, idempotent retries, non-custodial.
 - **LLM gateway (`src/tools/llm-gateway-kit.js`, OpenAI wire paths):** five tiers —
