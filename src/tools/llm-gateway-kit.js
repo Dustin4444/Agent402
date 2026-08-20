@@ -414,9 +414,12 @@ export const MODEL_COST = [
   ["google/gemini-3.1-pro", { prompt: 2.5, completion: 15 }],
   ["google/gemini", { prompt: 0.4, completion: 2.5 }], // flash family
   ["x-ai/grok", { prompt: 3, completion: 15 }],
-  // deepseek-v4-pro ($1.44/$2.88) and r1 ($0.70-0.80/$0.80-2.50) price above
-  // deepseek-chat; explicit so the family rate keeps fitting chat (live 2026-08-19).
-  ["deepseek/deepseek-v4-pro", { prompt: 1.5, completion: 3 }],
+  // deepseek-v4-pro and r1 ($0.70-0.80/$0.80-2.50) price above deepseek-chat;
+  // explicit so the family rate keeps fitting chat. v4-pro-0813's completion
+  // surged to $3.168 on 2026-08-20 (a pricier provider in its pool); table
+  // holds >= live with headroom so the margin clamp stays honest and the live
+  // guard does not reflap on a small wiggle (live-verified via the CI guard).
+  ["deepseek/deepseek-v4-pro", { prompt: 1.5, completion: 3.5 }],
   ["deepseek/deepseek-r1", { prompt: 0.8, completion: 2.5 }],
   ["deepseek/", { prompt: 0.6, completion: 2.5 }],
   ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
