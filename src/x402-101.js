@@ -96,7 +96,7 @@ export const SLIDES = [
     body: `<p><strong>Stablecoins</strong> are dollars that live on a public ledger: USDC is one dollar, always. Payments here are USDC (or USDG on Robinhood Chain), so nobody prices anything in a volatile token.</p>
 <p><strong>Twelve rails.</strong> A buyer pays on whichever chain their wallet already uses; the 402 lists them all at one price. On the EVM chains the buyer pays no network fee at all.</p>
 <p><strong>Every payment is a public record.</strong> That is what makes this an economy rather than a wire: sellers can be ranked by settlements the chain actually shows, revenue can be published with proof, and a router can refuse to send money to a seller nobody has ever paid.</p>
-<p class="s101-links"><a href="/revenue">Live revenue with every figure linked to its receipt &rarr;</a></p>`,
+<p class="s101-links"><a href="/revenue">Live transactions with every figure linked to its receipt &rarr;</a></p>`,
     notes: "Anticipate 'is this crypto speculation?' - no: dollar stablecoins only, and no native token is required from the buyer on the EVM chains. The public-ledger point is the strategic one: it enables trust without accounts. Show /revenue if you have time; every number links to chain proof.",
   },
   {
@@ -106,7 +106,7 @@ export const SLIDES = [
 <div><div class="s101-tag">Buy</div><strong>500+ pay-per-call tools</strong><p>Web search with citations, headless browser, PDFs, OCR, financial and SEC data, an OpenAI-compatible LLM gateway. Every one deterministic, priced, tested, settled on chain over x402 or MPP.</p></div>
 <div><div class="s101-tag">Route</div><strong>An open index and a Smart Order Router</strong><p>One call resolves a task to the best seller across the whole ecosystem, ours or anyone's, pays them on the agent's behalf and relays the result. Only sellers with proven settlement are routable.</p></div>
 <div><div class="s101-tag">Sell</div><strong>The tollbooth</strong><p>One line in front of any site or API: humans browse free, agents pay per request over both wires, straight to your wallet. Non-custodial, no signup, nothing deducted from your price.</p></div>
-<div><div class="s101-tag">Prove</div><strong>Numbers you can check</strong><p>Live revenue by rail and wire, an on-chain seller leaderboard, uptime measured from outside, refunds ledgered.</p></div>
+<div><div class="s101-tag">Prove</div><strong>Numbers you can check</strong><p>Live transaction counts by rail and wire (external revenue underneath), an on-chain seller leaderboard, uptime measured from outside, refunds ledgered.</p></div>
 </div>`,
     notes: "Tailor to who is in the room. A data or API company: lead with Sell (the tollbooth turns their existing API into something agents can pay for in an afternoon). An agent builder: lead with Buy and Route (one integration, 500+ tools, and a router that shops the whole ecosystem for them). Both: the payment is the identity, so there is no onboarding on either side.",
   },
