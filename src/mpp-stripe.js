@@ -33,6 +33,13 @@ const CHALLENGE_TIMEOUT_SECONDS = 300;
 export function stripeEnabled() {
   return Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PROFILE_ID);
 }
+/** Discovery metadata for /openapi.json x-payment-info (null unless enabled —
+ *  never advertise stripe/charge on any operation when the gate is dormant).
+ *  minUsd is the SPT card floor; only routes >= it are stripe-payable. */
+export function stripeDiscoveryInfo() {
+  if (!stripeEnabled()) return null;
+  return { minUsd: STRIPE_MIN_USD, currency: "usd", profileId: stripeProfileId() };
+}
 function stripeSecretKey() { return process.env.STRIPE_SECRET_KEY || ""; }
 function stripeProfileId() { return process.env.STRIPE_PROFILE_ID || ""; }
 function realmDefault() { try { return new URL(process.env.BASE_URL || "https://agent402.tools").host; } catch { return "agent402.tools"; } }

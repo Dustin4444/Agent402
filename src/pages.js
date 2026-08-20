@@ -6,6 +6,7 @@ import { ledgerShell, ledgerFooterCompact, esc as ledgerEsc } from "./ledger-chr
 import { SKILL_PACKS } from "./skills.js";
 import { RAILS_AMP, RAILS_OR, RAILS_PAREN, RAILS_SHORT } from "./rails.js";
 import { tempoDiscoveryInfo } from "./mpp-tempo.js";
+import { stripeDiscoveryInfo } from "./mpp-stripe.js";
 
 export const CATEGORIES = {
   web: { label: "Web & documents", blurb: "Read the live web: browser rendering, screenshots, article extraction, PDFs, metadata." },
@@ -574,6 +575,12 @@ export function openapiSpec(baseUrl, catalog) {
         // when actually enabled, same "never advertise what we can't settle"
         // rule mintTempoChallenge() itself enforces.
         const tempo = tempoDiscoveryInfo();
+        // Stripe cards-over-MPP (stripe/charge via SPT): a THIRD MPP method,
+        // advertised ONLY when the gate is live AND the route clears the $0.50
+        // SPT card minimum — same "never advertise what we can't settle" rule.
+        // Dormant (no keys) -> null -> no stripe offer on any operation.
+        const stripe = stripeDiscoveryInfo();
+        const stripeOffered = stripe && priceUsd >= stripe.minUsd;
         return {
           // STRUCTURED protocol objects, not bare strings: @agentcash/discovery
           // (MPPScan's crawler, whose L3 output x402scan consumes) parses
@@ -585,6 +592,7 @@ export function openapiSpec(baseUrl, catalog) {
             { x402: {} },
             { mpp: { method: "evm", intent: "charge", currency: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" } },
             ...(tempo ? [{ mpp: { method: "tempo", intent: "charge", currency: tempo.currency } }] : []),
+            ...(stripeOffered ? [{ mpp: { method: "stripe", intent: "charge", currency: "usd" } }] : []),
           ],
           price: { mode: "fixed", currency: "USD", amount: String(tool.price ?? "").replace(/[^0-9.]/g, "") || "0" },
           offers: [
@@ -602,6 +610,15 @@ export function openapiSpec(baseUrl, catalog) {
                   amount: String(Math.round(priceUsd * 10 ** tempo.decimals)),
                   currency: tempo.currency,
                   description: `${tool.price} on Tempo (chain 4217) - MPP tempo/charge, settled via Tempo's own relay (not x402)`,
+                }]
+              : []),
+            ...(stripeOffered
+              ? [{
+                  intent: "charge",
+                  method: "stripe",
+                  amount: String(Math.round(priceUsd * 100)),
+                  currency: "usd",
+                  description: `${tool.price} by card (Stripe Shared Payment Token) - MPP stripe/charge, settled to our Stripe balance; $0.50 card minimum`,
                 }]
               : []),
           ],
