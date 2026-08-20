@@ -1489,7 +1489,7 @@ export function revenuePage(baseUrl, snap) {
           <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(r.asset)}</span></span>
           ${statusDot}
         </div>
-        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${at ? at.inboundCount.toLocaleString() + (at.caughtUp ? "" : "↺") : "-"}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">transactions on this rail (ours incl.)${at && at.externalCount ? ` · <strong style="color:var(--ink);">${at.externalCount.toLocaleString()}</strong> external` : ""}</span>
+        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${at ? at.inboundCount.toLocaleString() : "-"}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">transactions on this rail (ours incl.)${at && at.externalCount ? ` · <strong style="color:var(--ink);">${at.externalCount.toLocaleString()}</strong> external` : ""}${at && !at.caughtUp ? " · still syncing" : ""}</span>
           <span style="display:block;font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:5px;">$${at ? at.externalUsd : "0"} external revenue${Number.isFinite(r.externalUsd) ? ` · window $${r.externalUsd}` : ""}</span></div>
       </div>
       ${!hasBalance
@@ -1549,11 +1549,11 @@ export function revenuePage(baseUrl, snap) {
     <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0 0 30px;">as of ${esc(snap.asOf)} · external in recent window <strong style="color:var(--accent);">$${(snap.windowExternalUsd ?? 0).toFixed(4)}</strong><br>the big number is <strong style="color:var(--ink);">total throughput</strong> (ours included - the rail-stability signal); every <strong style="color:var(--accent);">revenue</strong> figure is external only - our own canary/test/funding money is never counted as earnings (wallet balances are float, not shown)</p>
     </section>
     <section>
-    ${wireOverview(snap)}
-    ${railThroughputSection(snap)}
+    ${revenueChartSection()}
     </section>
     <section>
-    ${revenueChartSection()}
+    ${wireOverview(snap)}
+    ${railThroughputSection(snap)}
     </section>
     <section>
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:44px 0 6px;">

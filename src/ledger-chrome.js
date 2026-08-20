@@ -335,6 +335,7 @@ const NAV_ZONES = [
     // "add the 101 to the homepage nav") - it is the page to send someone who
     // is new to the space, so it should not live only under More.
     { href: "/101", label: "101" },
+    { href: "/revenue", label: "adoption" },
     { href: "/docs", label: "docs" },
   ],
 ];
