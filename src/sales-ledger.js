@@ -158,6 +158,17 @@ const qMppRecent = db.prepare(`
 // cards - a public misstatement by crowding. Totals now come from the whole
 // ledger grouped by network x internal, and the recent hashes are EXTERNAL
 // rows first (internal hashes only fill a rail that has no external settle yet).
+// MPP rails were keyed by the raw recorded `network`, so Celo settled two
+// ways - the friendly "celo" (evm/charge via the shim) and the CAIP-2
+// "eip155:42220" - and rendered as TWO cards ("Celo 51" + "celo 1"). Collapse
+// CAIP-2 EVM ids to the friendly rail key so one chain is one rail everywhere
+// (2026-08-20). Unknown ids pass through unchanged.
+const CAIP_TO_RAIL = {
+  "eip155:8453": "base", "eip155:42220": "celo", "eip155:137": "polygon",
+  "eip155:42161": "arbitrum", "eip155:10": "optimism", "eip155:43114": "avalanche",
+};
+const canonRail = (network) => CAIP_TO_RAIL[String(network || "").toLowerCase()] || (network || "unknown");
+
 const qMppTotals = db.prepare(`
   SELECT network, internal, COUNT(*) AS n, MIN(ts) AS first_ts, MAX(ts) AS last_ts
   FROM sales WHERE wire IN ('mpp', 'mpp-tempo')
@@ -352,7 +363,7 @@ export function mppSales({ limit = 30, detailed = false } = {}) {
     const rails = {};
     let count = 0, externalCount = 0, firstTs = null, lastTs = null;
     for (const t of totals) {
-      const n = t.network || "unknown";
+      const n = canonRail(t.network);
       const e = rails[n] || (rails[n] = { count: 0, external: 0, internal: 0, lastAt: null, lastExternalAt: null, txs: [], txsInternal: false });
       e.count += t.n; count += t.n;
       if (t.internal) e.internal += t.n; else { e.external += t.n; externalCount += t.n; if (!e.lastExternalAt || t.last_ts > Date.parse(e.lastExternalAt)) e.lastExternalAt = new Date(t.last_ts).toISOString(); }
@@ -363,8 +374,8 @@ export function mppSales({ limit = 30, detailed = false } = {}) {
     // Recent on-chain proof: external rows first; a rail with no external
     // settle yet shows its newest internal (canary) hashes, flagged as such.
     const ext = qMppRecentExternal.all(Math.min(Math.max(1, limit | 0), 100));
-    for (const r of ext) { const e = rails[r.network || "unknown"]; if (e && r.tx && e.txs.length < 12) e.txs.push(r.tx); }
-    for (const r of rows) { const e = rails[r.network || "unknown"]; if (e && e.external === 0 && r.tx && e.txs.length < 12) { e.txs.push(r.tx); e.txsInternal = true; } }
+    for (const r of ext) { const e = rails[canonRail(r.network)]; if (e && r.tx && e.txs.length < 12) e.txs.push(r.tx); }
+    for (const r of rows) { const e = rails[canonRail(r.network)]; if (e && e.external === 0 && r.tx && e.txs.length < 12) { e.txs.push(r.tx); e.txsInternal = true; } }
     return {
       persistent: salesPersistent,
       count,
