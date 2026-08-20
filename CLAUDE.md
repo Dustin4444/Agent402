@@ -533,6 +533,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   then hung on the buffered-writeHead replay). While the fix rode CI, prod's Tempo gate was
   disabled by parking `TEMPO_API_KEY` (rollout switch) and restored after the fixed build.
   `scripts/test-mpp-tempo-shim.js` cases H + I.
+  **Chain-truth confirm on broadcast failure (`src/tempo-confirm.js`, 2026-08-20):** the relay's
+  broadcast verdict can be WRONG in the charged-but-failed direction — measured live: an AgentCore/Privy
+  buyer's credential carries a yParity-style v byte (0x00/0x01) in the packed signature; the Tempo node
+  ACCEPTS the tx and stores the canonical 27/28 form, so canonical txid != keccak(submitted bytes) and the
+  relay's post-broadcast hash check reports `invalid_payment: "Broadcast transaction hash does not match
+  the signed transaction"` for a payment that SETTLED (txs 0xbb2e11e3…/0x753f5655…, buyer told 402, retried
+  = double charge). So on ANY broadcast failure the gate now asks the CHAIN before answering 402
+  (`confirmSettlement` param, wired in server.js): the credential's own signed bytes determine the only
+  txids it could have landed under (submitted + v-swapped twin — exact binding, no window heuristics, no
+  payer matching, the Stellar same-buyer-window lesson structurally avoided); a receipt that exists,
+  succeeded (0x1), and carries the challenge's transfer (currency + recipient + >= amount) is honoured —
+  200 + constructed Payment-Receipt, verification never a re-broadcast, cannot double-charge. Fails closed
+  on everything else (the 402 stands). `scripts/test-tempo-confirm.js` (26, in CI) pins the derivation
+  against the REAL incident tx's on-chain bytes. Tollbooth's tempo gate does NOT have this yet (same
+  exposure, smaller blast radius — operator gates). Whose bug upstream (Privy signer vs relay verify) is
+  deliberately unresolved here; the fix is correct under every theory.
   **The relay's verdict is invisible through mppx** (Relay.js drops non-2xx bodies
   AND the `message` of a 2xx `success:false` when the code is outside its allowlist —
   the live shape was `code:"unknown"`); `relayFetch` (injected `fetch`, per-request

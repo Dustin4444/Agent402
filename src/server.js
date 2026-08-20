@@ -74,6 +74,7 @@ import { getLeaderboardSnapshot, startLeaderboardRefresh, leaderboardPage, rankB
 import { buildPaymentMiddleware, enabledNetworks, isIdentityBoundRoute, railStatus, facilitatorSupportReport } from "./payments.js";
 import { createMppShim } from "./mpp-shim.js";
 import { createTempoChallengeAppender, createTempoGate, tempoTxFromReceiptHeader } from "./mpp-tempo.js";
+import { confirmTempoSettlement } from "./tempo-confirm.js";
 import { KIT } from "./tools/kit.js";
 import { KIT2 } from "./tools/kit2.js";
 import { UNIT_CATEGORIES, convertAnyUnit } from "./tools/convert-gen.js";
@@ -3981,6 +3982,10 @@ if (!FREE_MODE) {
   // createTempoGate refuses to mount (fail closed).
   const tempoGate = createTempoGate({
     replayGuard: tempoReplayGuard,
+    // Chain-truth fallback on relay broadcast failure (2026-08-20): a relay
+    // that reports failure for a settled payment must not turn into a
+    // buyer-facing 402 + double-charge loop. See tempo-confirm.js.
+    confirmSettlement: confirmTempoSettlement,
     secretKey: process.env.MPP_SECRET_KEY || "",
     realm: new URL(BASE_URL).host,
     priceFor: (method, path) => {
