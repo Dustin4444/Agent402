@@ -71,16 +71,22 @@ try { db.exec("ALTER TABLE sales ADD COLUMN wire TEXT"); } catch { /* exists */ 
 // Boot-time reclassification (2026-08-20): `internal` is decided at record
 // time, so a wallet that JOINS the burner/test set later leaves stale
 // external rows behind. Idempotent sweep: any row whose recorded payer is in
-// today's burner set is ours. Plus one payer-less row by tx hash: the
-// AgentCore/Privy validation buy of 2026-08-20 04:11 UTC (tempo settles
-// recorded payer NULL until the same day's mppTempoPayer fix, so the sweep
-// cannot reach it) — Mike's own test wallet 0x24e6a249…, confirmed his.
+// today's burner set is ours. Plus a small tx-hash allowlist for payer-less
+// rows the sweep can't reach: AgentCore/Privy validation buys from Mike's
+// test wallet 0x24e6a249… made BEFORE the same-day mppTempoPayer fix, when
+// tempo settles recorded payer NULL (04:11 and 12:58 UTC self-buys — the
+// wallet is in OUR_EVM_WALLETS, so every buy AFTER the fix classifies
+// internal on its own and this list stops growing).
+const INTERNAL_TX_ALLOWLIST = [
+  "0xa3c18eeacc2f0dff61a7144f93d8d33c60148adc31a07832c390769da2bd85a0",
+  "0x913e5fa8322cc54a499d73214af76449781831d732ab0344139edce37f35dcba",
+];
 try {
-  const list = [...BURNERS].map(() => "?").join(",");
-  const swept = db.prepare(`UPDATE sales SET internal = 1 WHERE internal = 0 AND payer IN (${list})`).run(...BURNERS).changes;
-  const oneOff = db.prepare("UPDATE sales SET internal = 1 WHERE internal = 0 AND tx = ?")
-    .run("0xa3c18eeacc2f0dff61a7144f93d8d33c60148adc31a07832c390769da2bd85a0").changes;
-  if (swept + oneOff > 0) console.log(`[sales-ledger] reclassified ${swept + oneOff} row(s) internal (burner-set membership${oneOff ? " + the 2026-08-20 AgentCore test buy" : ""})`);
+  const bList = [...BURNERS].map(() => "?").join(",");
+  const swept = db.prepare(`UPDATE sales SET internal = 1 WHERE internal = 0 AND payer IN (${bList})`).run(...BURNERS).changes;
+  const tList = INTERNAL_TX_ALLOWLIST.map(() => "?").join(",");
+  const oneOff = db.prepare(`UPDATE sales SET internal = 1 WHERE internal = 0 AND tx IN (${tList})`).run(...INTERNAL_TX_ALLOWLIST).changes;
+  if (swept + oneOff > 0) console.log(`[sales-ledger] reclassified ${swept + oneOff} row(s) internal (burner-set membership${oneOff ? ` + ${oneOff} pre-fix AgentCore test buy(s)` : ""})`);
 } catch (e) { console.warn(`[sales-ledger] internal reclassification sweep failed: ${String(e?.message || e).slice(0, 200)}`); }
 
 const insertSale = db.prepare(
