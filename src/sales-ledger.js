@@ -68,6 +68,21 @@ CREATE INDEX IF NOT EXISTS idx_sales_payer  ON sales (payer, ts);
 // surface the split once external MPP sales exist. NULL = pre-column rows.
 try { db.exec("ALTER TABLE sales ADD COLUMN wire TEXT"); } catch { /* exists */ }
 
+// Boot-time reclassification (2026-08-20): `internal` is decided at record
+// time, so a wallet that JOINS the burner/test set later leaves stale
+// external rows behind. Idempotent sweep: any row whose recorded payer is in
+// today's burner set is ours. Plus one payer-less row by tx hash: the
+// AgentCore/Privy validation buy of 2026-08-20 04:11 UTC (tempo settles
+// recorded payer NULL until the same day's mppTempoPayer fix, so the sweep
+// cannot reach it) — Mike's own test wallet 0x24e6a249…, confirmed his.
+try {
+  const list = [...BURNERS].map(() => "?").join(",");
+  const swept = db.prepare(`UPDATE sales SET internal = 1 WHERE internal = 0 AND payer IN (${list})`).run(...BURNERS).changes;
+  const oneOff = db.prepare("UPDATE sales SET internal = 1 WHERE internal = 0 AND tx = ?")
+    .run("0xa3c18eeacc2f0dff61a7144f93d8d33c60148adc31a07832c390769da2bd85a0").changes;
+  if (swept + oneOff > 0) console.log(`[sales-ledger] reclassified ${swept + oneOff} row(s) internal (burner-set membership${oneOff ? " + the 2026-08-20 AgentCore test buy" : ""})`);
+} catch (e) { console.warn(`[sales-ledger] internal reclassification sweep failed: ${String(e?.message || e).slice(0, 200)}`); }
+
 const insertSale = db.prepare(
   "INSERT INTO sales (ts, slug, price_usd, rail, network, payer, tx, internal, wire) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
 );

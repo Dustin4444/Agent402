@@ -335,7 +335,18 @@ export function checkTempoCredentialBinding(authorizationHeader, { secretKey, re
   let amount;
   try { amount = BigInt(String(r.amount)); } catch { return bad("challenge amount is not an integer base-units string"); }
   if (amount < expected) return bad(`challenge amount ${amount} is below this route's price ${expected}`);
-  return { ok: true, challenge: ch, amountAtomic: amount, expectedAtomic: expected };
+  // CLASSIFICATION-GRADE payer only (sales ledger / telemetry / internal-vs-
+  // external), never identity: `source` is client-supplied (did:pkh) and this
+  // server does not recover the tx signer to verify it. Spoofing it to a
+  // burner address only hides the spoofer's own purchases from OUR revenue
+  // stats; identity-bound routes refuse tempo credentials outright, so it can
+  // never touch memory/my-usage. Same trust tier as the facilitator settle
+  // receipt fallback in payer.js. Added 2026-08-20 — before this, tempo sales
+  // recorded payer null and a self-funded test wallet classified as external.
+  const src = String(credential?.source || "");
+  const m = /^did:pkh:eip155:\d+:(0x[0-9a-fA-F]{40})$/.exec(src);
+  const payerHint = m ? m[1].toLowerCase() : null;
+  return { ok: true, challenge: ch, amountAtomic: amount, expectedAtomic: expected, payerHint };
 }
 
 /** Non-mutating check (credential shape, relay pre-validation). The HMAC /
@@ -518,6 +529,9 @@ export function createTempoGate({ validate = validateTempoCredential, broadcast 
       // chain-matched external leg) can see it - a tempo credential carries
       // no x402 payment header for buyerPaymentNetwork() to read.
       req.mppTempoCredential = true;
+      // Classification-grade payer for the sales ledger (see the binding
+      // check's payerHint comment) — read at the recordSale site in server.js.
+      req.mppTempoPayer = binding.payerHint || null;
       const replayKey = replayGuard ? tempoReplayKey(auth) : null;
       if (replayGuard && replayKey) {
         const verdict = await replayGuard.begin(replayKey);

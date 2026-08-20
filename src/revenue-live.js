@@ -30,7 +30,12 @@ export const OUR_EVM_WALLETS = new Set(
   // burner. 0x77065d81… is the Base x402 SPENDING wallet (X402_UPSTREAM_BUYER_ADDRESS
   // on Railway) — its sweeps to the treasury are internal moves, never revenue.
   // All listed so historical AND ongoing self-flows stay internal.
-  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256,0x77065d81e18ad403bcd6e9a0616b288e16744121")
+  // 0x24e6a249… is Mike's AgentCore/Privy embedded TEST wallet (confirmed
+  // 2026-08-20) — the buyer in the AgentCore Payments validation runs. Its
+  // buys are self-funded test traffic on every chain it pays from, never
+  // revenue (its first Tempo MPP buy classified external for a day because
+  // tempo settles carried no payer; both halves fixed the same day).
+  (process.env.OUR_WALLETS || "0xfeda7403aabe9a492ed70e810b396d8548a4a022,0x902dcf34e53695bdea2ffb354b1a2e58bd598256,0x77065d81e18ad403bcd6e9a0616b288e16744121,0x24e6a249111ae0cc8ea09f487a114f7e7ef15e12")
     .toLowerCase().split(",").map((s) => s.trim()).filter(Boolean)
 );
 // Default = the canary's Solana burner (public address; the key lives only
@@ -1279,21 +1284,61 @@ function wireOverview(snap) {
     ],
     links: [`<a href="/what-is-x402">what is x402</a>`, `<a href="/api/revenue">/api/revenue</a>`, `<a href="/api/revenue/daily">/api/revenue/daily</a>`],
   });
+  // Headline = EXTERNAL, always — the combined count (dominated by our own
+  // volume/canary runs) lives in the throughput band below, labeled as ours.
+  // A big number that is mostly self-buys presented as "settlements" is the
+  // registry-instance-inflation move we call out in others (Mike, 2026-08-20).
   const mppCard = card({
     name: "MPP", wire: "Authorization: Payment", accent: false,
-    headline: `${mppCount.toLocaleString()} settlement${mppCount === 1 ? "" : "s"}`,
+    headline: `${mppExternal.toLocaleString()} external payment${mppExternal === 1 ? "" : "s"}`,
     sub: mppCount
-      ? `over the MPP wire · <strong>${mppExternal}</strong> external, ${mppCount - mppExternal} canary-proven${mpp.firstAt ? ` · since ${esc(String(mpp.firstAt).slice(0, 10))}` : ""}`
+      ? `real money from others over the MPP wire · <strong>${mppCount.toLocaleString()}</strong> total settlements through it incl. our own volume + canary runs (see throughput below)${mpp.firstAt ? ` · since ${esc(String(mpp.firstAt).slice(0, 10))}` : ""}`
       : "none recorded yet - the wire is live and canary-verified daily",
     rows: [
       mppRails.length
         ? `rails: ${mppRails.map(([n, c]) => `<strong>${esc(mppRailLabel(n))}</strong> ${c}`).join(" · ")}`
         : `rails offered: <strong>Base</strong> · <strong>Celo</strong> (evm/charge) · <strong>Tempo</strong> (native)`,
-      `Base + Celo settle the same USDC as x402 through the shim; Tempo settles PathUSD natively via its relay`,
+      `Base + Celo settle the same USDC as x402 through the shim; Tempo settles USDC.e (PathUSD accepted) natively via its relay`,
     ],
     links: [`<a href="/what-is-mpp">what is MPP</a>`, `<a href="/api/revenue/mpp">/api/revenue/mpp</a>`],
   });
   return `<div class="ml-2col rv-wires" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:24px;">${x402}${mppCard}</div>`;
+}
+
+// Rail throughput — the big combined numbers, wearing their provenance.
+// Being paid proves demand; a rail that settles real on-chain transactions
+// every two hours proves the plumbing. Both matter (Mike, 2026-08-20), so
+// the combined counts get a PROMINENT band of their own instead of leaking
+// into revenue-shaped headlines. Everything here includes our own traffic
+// and says so in the same breath.
+function railThroughputSection(snap) {
+  const at = snap.allTime;
+  const mpp = snap.mpp || {};
+  const x402Total = Number(at?.allTimeInboundCount || 0);
+  const x402Usd = Number(at?.allTimeInboundUsd || 0);
+  const mppTotal = Number(mpp.count || 0);
+  const total = x402Total + mppTotal;
+  const railCount = Array.isArray(snap.rails) ? snap.rails.length : 0;
+  if (!total) return "";
+  const stat = (n, label, sub) => `
+    <div style="min-width:0;">
+      <div style="font-family:var(--font-mono);font-size:30px;font-weight:700;color:var(--ink);line-height:1.1;">${n.toLocaleString()}</div>
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);margin-top:4px;">${label}</div>
+      ${sub ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:2px;">${sub}</div>` : ""}
+    </div>`;
+  return `
+  <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin:0 0 26px;">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:14px;">
+      <span style="font-weight:800;font-size:17px;">Rail throughput <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· every settled on-chain transaction, ours included</span></span>
+      <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">throughput proves the rails · the revenue cards above count only money from others</span>
+    </div>
+    <div class="ml-2col" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">
+      ${stat(total, "settled transactions all-time", `across ${railCount} x402 rails + the MPP wire`)}
+      ${stat(x402Total, "over x402", `$${x402Usd.toFixed(2)} moved on-chain incl. our canaries + self-funding sweeps`)}
+      ${stat(mppTotal, "over MPP", "incl. our Tempo volume runs (~200/day) + daily canaries")}
+    </div>
+    <p style="font-size:12.5px;color:var(--muted);margin:14px 0 0;max-width:860px;">We run our own money through the same gates buyers use, continuously: a daily paid canary on every rail, ~200 Tempo MPP settlements a day, and weekly full-catalog sweeps. Those are real on-chain transactions - that is the point - but they are <strong>ours</strong>, so they live here and never in a revenue number. The chart below splits External / Internal explicitly.</p>
+  </div>`;
 }
 
 // MPP by rail — the same card language as the x402 rail cards below, one per
@@ -1328,7 +1373,7 @@ function mppRailsSection(mpp) {
           <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(meta.label)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(meta.asset)}</span></span>
           ${dot}
         </div>
-        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${r.count}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">MPP settlement${r.count === 1 ? "" : "s"}${r.external != null ? ` · ${r.external} external` : ""}</span></div>
+        <div style="font-family:var(--font-mono);margin-top:6px;"><span style="font-size:22px;font-weight:700;color:var(--accent);">${r.count}</span><span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;">through the rail (ours incl.)${r.external != null ? ` · <strong style="color:var(--ink);">${r.external}</strong> external` : ""}</span></div>
       </div>
       <div style="font-family:var(--font-mono);font-size:12.5px;display:grid;gap:6px;">
         ${meta.how ? `<div style="color:var(--muted);">${esc(meta.how)}</div>` : ""}
@@ -1342,7 +1387,7 @@ function mppRailsSection(mpp) {
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:26px;letter-spacing:-.01em;margin:0;">MPP wire <span style="color:var(--muted);font-weight:400;">· by rail</span></h2>
       <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);"><strong style="color:var(--ink);">${count}</strong> settlement${count === 1 ? "" : "s"} over <code>Authorization: Payment</code> · <a href="/api/revenue/mpp">/api/revenue/mpp</a></span>
     </div>
-    <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;max-width:760px;">Settlements whose credential arrived over the <strong>MPP</strong> wire rather than x402's <code>PAYMENT-SIGNATURE</code>. On Base and Celo that is the same on-chain USDC settlement as x402 (the shim translates the credential); on Tempo it is native PathUSD through Tempo's relay. Counts here are recorded from the sales ledger, which began attributing the wire on 2026-07-24.</p>
+    <p style="font-size:13.5px;color:var(--muted);margin:0 0 16px;max-width:760px;">Settlements whose credential arrived over the <strong>MPP</strong> wire rather than x402's <code>PAYMENT-SIGNATURE</code>. On Base and Celo that is the same on-chain USDC settlement as x402 (the shim translates the credential); on Tempo it is native USDC.e (PathUSD accepted) through Tempo's relay. <strong>These counts are throughput, not revenue</strong> - the bulk is our own volume + canary runs exercising the rails continuously; the external column is money from others. Recorded from the sales ledger, which began attributing the wire on 2026-07-24.</p>
     <div class="ml-2col rv-mpp" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;">${cards}</div>`;
 }
 
@@ -1478,6 +1523,7 @@ export function revenuePage(baseUrl, snap) {
     </section>
     <section>
     ${wireOverview(snap)}
+    ${railThroughputSection(snap)}
     </section>
     <section>
     ${revenueChartSection()}
