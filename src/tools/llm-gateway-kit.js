@@ -415,12 +415,13 @@ export const MODEL_COST = [
   ["google/gemini", { prompt: 0.4, completion: 2.5 }], // flash family
   ["x-ai/grok", { prompt: 3, completion: 15 }],
   // deepseek-v4-pro and r1 price above deepseek-chat; explicit so the family
-  // rate keeps fitting chat. v4-pro-0813's POOL repriced to $1.32/$3.96 on
-  // 2026-08-20 (list-price move: DeepSeek's own endpoint included, 12/12
-  // providers at or under it) an hour after the previous $3.168-based bump;
-  // table holds >= the full pool with headroom so the margin clamp stays
-  // honest and the live guard does not reflap on a single provider wiggle.
-  ["deepseek/deepseek-v4-pro", { prompt: 1.5, completion: 4.5 }],
+  // rate keeps fitting chat. This prefix covers TWO live pools that repriced
+  // three times in two days (completion 3.168 -> 3.96 on -0813; then base
+  // v4-pro's 18-provider pool reached prompt $1.91 on 2026-08-20). Prompt is
+  // pinned AT v1-chat's max_price prompt cap (2.5), so no provider the tier
+  // admits can ever exceed it there — this guard cannot re-fire on prompt;
+  // completion 4.5 covers the observed max 3.96 with ~14% headroom.
+  ["deepseek/deepseek-v4-pro", { prompt: 2.5, completion: 4.5 }],
   ["deepseek/deepseek-r1", { prompt: 0.8, completion: 2.5 }],
   ["deepseek/", { prompt: 0.6, completion: 2.5 }],
   ["meta-llama/", { prompt: 3.5, completion: 3.5 }],
