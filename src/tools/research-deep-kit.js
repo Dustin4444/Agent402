@@ -19,8 +19,8 @@ const RERANK_URL = "https://openrouter.ai/api/v1/rerank";
 const M = {
   plan: "google/gemini-2.5-flash-lite",  // cheap planner
   ground: "google/gemini-2.5-flash",     // grounded search + read
-  synthStd: "anthropic/claude-sonnet-5", // standard synthesis
-  synthPrem: "anthropic/claude-opus-5",  // premium synthesis
+  synthStd: "anthropic/claude-sonnet-5", // circuit-breaker downgrade only (see below)
+  synthPrem: "anthropic/claude-opus-5",  // synthesis on ALL tiers
 };
 
 // synthMaxTokens carries GENEROUS headroom over the word target, because the
@@ -31,8 +31,15 @@ const M = {
 // tells the model to finish over reaching length. Caps held at a provider-safe
 // 8,000 (Claude's standard max output); the source list is appended in code, so
 // none of this budget is spent retyping URLs.
+// ALL tiers synthesize with Opus (synthPrem). A 10-query eval (fair Opus judge +
+// deterministic grounding audit) showed Opus beats Sonnet on every dimension for
+// this task - citation-quality 8.11->8.50 (the metric a separate verification
+// pass could NOT move), depth 7.78->8.00 (min=max=8), would_pay 7.78->7.90, 0
+// fabricated numbers. On the $5 tier Opus is ~$0.55-0.65 upstream (~87% margin,
+// well under maxUpstreamUsd), so the entry product is top-quality too. Tiers
+// differentiate by research breadth (searches/sources/length), not model.
 export const RESEARCH_TIERS = {
-  "research": { price: "$5", maxUpstreamUsd: 1.5, subQ: 3, searches: 3, topK: 15, synth: M.synthStd, synthMaxTokens: 5000, words: "~1,500" },
+  "research": { price: "$5", maxUpstreamUsd: 1.5, subQ: 3, searches: 3, topK: 15, synth: M.synthPrem, synthMaxTokens: 5000, words: "~1,500" },
   "research-pro": { price: "$15", maxUpstreamUsd: 4.5, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200" },
   "research-max": { price: "$30", maxUpstreamUsd: 9.0, subQ: 12, searches: 12, topK: 40, synth: M.synthPrem, synthMaxTokens: 8000, words: "~2,800" },
 };
