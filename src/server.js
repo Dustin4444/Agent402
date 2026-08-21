@@ -25,6 +25,9 @@ import {
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { compositeGuardBlocked, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
+import Stripe from "stripe";
+import { createHumanCheckout, humanCheckoutEnabled } from "./human-checkout.js";
+import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
@@ -1546,6 +1549,38 @@ app.get("/revenue", async (_req, res) => {
     }
   }
 });
+
+// ---- Human front door: standard Stripe Checkout for the premium products ----
+// The SAME endpoints agents buy over x402, sold to a HUMAN by card/Link. One
+// backend, two payment surfaces. Mounted only when Stripe is configured; a
+// report is NEVER generated without a verified-paid Stripe session, generation
+// is generate-once per session, and a failed report auto-refunds the card
+// (see src/human-checkout.js + test-human-checkout.js).
+if (humanCheckoutEnabled()) {
+  const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS].map((t) => [t.slug, t.handler]));
+  const _humanGenerate = async (kind, slug, input) => {
+    const h = _premiumHandlers[slug];
+    if (!h) throw new Error("no handler for " + slug);
+    const out = await h(kind === "dossier" ? { ticker: input } : { query: input });
+    const report = out?.dossier || out?.report;
+    if (!report) throw new Error("empty report");
+    return report;
+  };
+  let _humanCheckout;
+  try { _humanCheckout = createHumanCheckout({ stripe: new Stripe(process.env.STRIPE_SECRET_KEY), generate: _humanGenerate, baseUrl: BASE_URL }); } catch { _humanCheckout = null; }
+  if (_humanCheckout) {
+    app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
+    app.post("/api/buy", async (req, res) => {
+      try { res.json({ url: (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url }); }
+      catch (e) { res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 200) }); }
+    });
+    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""))));
+    app.get("/api/r/:sessionId", async (req, res) => {
+      try { res.set("Cache-Control", "no-store").json(await _humanCheckout.fulfill(String(req.params.sessionId || ""))); }
+      catch (e) { res.status(500).json({ status: "error", error: String(e?.message || e).slice(0, 200) }); }
+    });
+  }
+}
 // Sales ledger — AGGREGATE beacon: totals, the recording window, and counts.
 // Deliberately carries no per-call rows, no payer addresses, and no per-tool
 // ranking (see salesSummary's contract in src/sales-ledger.js for why each of
