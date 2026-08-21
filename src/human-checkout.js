@@ -31,6 +31,8 @@ export const HUMAN_PRODUCTS = {
   "dossier-max": { label: "Due-diligence dossier — Max", price: 3900, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
   "fund-report": { label: "Fund portfolio report (13F)", price: 900, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
   "fund-report-max": { label: "Fund portfolio report — Deep", price: 1900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "domain-audit": { label: "Domain security audit", price: 500, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "domain-audit-pro": { label: "Domain security audit — Pro", price: 900, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
 };
 
 export function humanCheckoutEnabled() {

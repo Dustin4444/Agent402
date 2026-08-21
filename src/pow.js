@@ -267,6 +267,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   // fund-report composites (src/tools/fund-report-kit.js) — SEC 13F diff +
   // grounded search + Opus synthesis; metered upstream, never PoW-eligible.
   "fund-report", "fund-report-max",
+  // domain-audit composites (src/tools/domain-audit-kit.js) — live network
+  // probes (egress) + Opus synthesis; egressing + metered, never PoW-eligible.
+  "domain-audit", "domain-audit-pro",
   // dossier-kit: company due-diligence dossier, fans out to EDGAR + grounded
   // web search + Opus synthesis - metered upstream, never free-tier/PoW.
   "dossier", "dossier-max",

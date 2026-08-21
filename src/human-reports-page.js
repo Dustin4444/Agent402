@@ -134,6 +134,18 @@ ${bar()}
         <div class="err" id="err-fund"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="fund">Get report →</button>
       </div>
+      <div class="pcard" data-kind="domain">
+        <div class="k">Domain audit</div>
+        <h3>Is your domain secure?</h3>
+        <p>SPF, DMARC, DKIM, TLS and security headers, one graded report with the exact fixes. Why your mail hits spam, answered.</p>
+        <div class="field"><input id="in-domain" type="text" placeholder="A domain, e.g. example.com"></div>
+        <div class="tiers">
+          <button class="tierbtn sel" data-p="domain-audit"><div class="nm">Standard</div><div class="pr">$5</div></button>
+          <button class="tierbtn" data-p="domain-audit-pro"><div class="nm">Pro</div><div class="pr">$9</div></button>
+        </div>
+        <div class="err" id="err-domain"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="domain">Get audit →</button>
+      </div>
     </div>
     <p class="note">One-time charge · card or Link · no subscription, no auto-renew · agents can also buy these over x402 in USDC</p>
   </section>

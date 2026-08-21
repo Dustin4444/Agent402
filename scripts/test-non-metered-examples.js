@@ -101,6 +101,8 @@ const METERED_SLUGS = new Set([
   // fund-report composites — SEC 13F diff + grounded search + Opus synthesis
   // over OpenRouter (503 without OPENROUTER_API_KEY), same key dependency.
   "fund-report", "fund-report-max",
+  // domain-audit composites — live probes + Opus synthesis over OpenRouter.
+  "domain-audit", "domain-audit-pro",
   // E2B
   "code-run", "code-run-pro",
   // Blockscout x402 buyer wallet

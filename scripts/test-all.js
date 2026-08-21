@@ -258,6 +258,9 @@ const NETWORK = new Set([
   // fund-report composites: SEC 13F diff + grounded search + synthesis; 503
   // without OPENROUTER_API_KEY, same NETWORK tolerance.
   "/v1/fund", "/v1/fund/max",
+  // domain-audit composites: live probes + synthesis; 503 without
+  // OPENROUTER_API_KEY, same NETWORK tolerance.
+  "/v1/domain-audit", "/v1/domain-audit/pro",
   // dossier-kit composites: EDGAR + grounded web search + synthesis, 503 without key.
   "/v1/dossier", "/v1/dossier/max",
   // Anthropic Messages wire (OpenRouter /messages upstream) - same tolerance.
