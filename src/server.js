@@ -28,6 +28,8 @@ import { compositeGuardBlocked, recordCompositeSpendFailure, recordCompositeSpen
 import Stripe from "stripe";
 import { createHumanCheckout, humanCheckoutEnabled } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
+import { createStripeSubscriptions, subscriptionsEnabled } from "./stripe-subscriptions.js";
+import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
@@ -1086,6 +1088,19 @@ const PH_UPSTREAM_TIMEOUT_MS = Number(process.env.POSTHOG_PROXY_TIMEOUT_MS) || 1
 const PH_MAX_CONCURRENT = Number(process.env.POSTHOG_PROXY_MAX_CONCURRENT) || 64;
 let phInFlight = 0;
 const phProxyLimiter = createRateLimiter("posthog-proxy", { perMin: PH_MAX_PER_MIN, perHour: PH_MAX_PER_MIN * 30 });
+// Recurring subscriptions engine (Phase 2). Initialized EARLY so the Stripe
+// webhook route can mount with a RAW body parser BEFORE the global express.json()
+// below - webhook signature verification needs the unparsed body.
+let _subs = null;
+try { _subs = subscriptionsEnabled() ? createStripeSubscriptions({ stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL }) : null; }
+catch { _subs = null; }
+if (_subs) {
+  app.post("/api/stripe/webhook", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
+    try { res.json(await _subs.handleWebhook(req.body, req.headers["stripe-signature"])); }
+    catch (e) { res.status(e?.statusCode || 400).json({ error: String(e?.message || e).slice(0, 200) }); }
+  });
+}
+
 app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (req, res) => {
   if (!PH_METHODS.has(req.method)) return res.status(405).end();
   const ip = (req.ip || req.socket.remoteAddress || "?").trim();
@@ -1594,6 +1609,29 @@ if (humanCheckoutEnabled()) {
       catch (e) { res.status(500).json({ status: "error", error: String(e?.message || e).slice(0, 200) }); }
     });
   }
+}
+// Monitoring subscriptions (Phase 2) - JSON routes + pages. The webhook is
+// mounted EARLY (raw body) above. Provisioning is belt-and-suspenders: the
+// confirm route records the sub from the paid session; the webhook keeps the
+// lifecycle (renewals/cancellations) in sync.
+if (_subs) {
+  app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage()));
+  app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""))));
+  app.post("/api/subscribe", async (req, res) => {
+    try { res.json({ url: (await _subs.createCheckout(req.body?.product, req.body?.target)).url }); }
+    catch (e) { res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 200) }); }
+  });
+  app.get("/api/monitors/confirm", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try {
+      const r = await _subs.recordFromSession(String(req.query.session || ""));
+      let portalUrl = null;
+      if (r.status === "active" && r.customer) {
+        try { portalUrl = (await _subs.portalSession(r.customer)).url; } catch { /* Customer Portal not configured yet */ }
+      }
+      res.json({ status: r.status, label: r.label, target: r.target, portalUrl });
+    } catch (e) { res.status(500).json({ status: "error", error: String(e?.message || e).slice(0, 200) }); }
+  });
 }
 // Sales ledger — AGGREGATE beacon: totals, the recording window, and counts.
 // Deliberately carries no per-call rows, no payer addresses, and no per-tool

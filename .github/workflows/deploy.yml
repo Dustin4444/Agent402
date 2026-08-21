@@ -810,6 +810,9 @@ jobs:
       - name: Human checkout (no free report, generate-once, auto-refund)
         run: node scripts/test-human-checkout.js
 
+      - name: Stripe subscriptions (checkout, provisioning, webhook signature discipline)
+        run: node scripts/test-stripe-subscriptions.js
+
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
 
