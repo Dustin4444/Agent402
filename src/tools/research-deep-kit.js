@@ -102,8 +102,11 @@ export function makeResearchHandler(tierSlug) {
     const toRun = subQuestions.slice(0, t.searches);
     const searchBody = (q) => ({
       model: M.ground,
-      messages: [{ role: "user", content: `Search the web and answer concisely with citations: ${q}` }],
-      max_tokens: 700,
+      // Pull CONCRETE facts (figures, dates, named examples) with citations, so
+      // the synthesis step has real specifics to ground on and never needs to
+      // invent them. Each fact must carry its source.
+      messages: [{ role: "user", content: `Search the web and answer this with SPECIFIC, verifiable facts - figures, statistics, dates, prices, named products/organizations, and concrete examples where the sources provide them - and attach a citation to each fact. Do not state a number unless a source supports it. Question: ${q}` }],
+      max_tokens: 900,
       plugins: [{ id: "web", engine: "exa", max_results: 5 }],
     });
     const results = await Promise.all(toRun.map((q) => chat(searchBody(q), SEARCH_TIMEOUT_MS).then(
@@ -142,7 +145,15 @@ export function makeResearchHandler(tierSlug) {
     // every [n] title/url wastes output tokens (it truncated the list at [11]
     // of 13 in testing) and risks hallucinated URLs — the list we append is
     // always complete, correct, and matches the structured `sources` field.
-    const synthPrompt = `Write a thorough, well-structured research report answering: "${query}".\n\nUse ONLY the sub-answers and sources below. Cite every claim inline with [n] matching the source numbers. Target ${t.words} words${outline.length ? `, following this outline: ${outline.join("; ")}` : ""}. Be specific, note disagreements between sources, and flag anything the sources do not establish. IMPORTANT: prioritize COMPLETING the report - finish your final sentence and closing paragraph - over reaching the word count; a complete shorter report is better than a longer truncated one. Do NOT write a "Sources" or "References" section - a complete source list is appended automatically, so end with your final analytical paragraph.\n\n=== SUB-ANSWERS ===\n${subAnswers}\n\n=== SOURCES ===\n${sourceBlock}`;
+    const synthPrompt = `You are writing a research report that will be SOLD to a paying customer, so factual accuracy is paramount and fabrication is the worst possible failure. Answer: "${query}".
+
+=== ABSOLUTE GROUNDING RULES (a fabricated fact fails the whole report) ===
+1. Use ONLY the information in the SUB-ANSWERS and SOURCES below. Treat them as your only knowledge on this topic.
+2. Every SPECIFIC fact - statistics, numbers, percentages, dates, prices, benchmark scores, product or version names, company actions, quotes - MUST appear in the provided material. NEVER introduce a specific figure, benchmark, name, or claim from your own training/memory. If the material does not give a number, describe it qualitatively ("substantially faster", "a majority") rather than inventing a precise one.
+3. Attach an inline [n] citation to every substantive claim, and ONLY attach [n] to a claim the corresponding source or sub-answer actually supports. Do not cite a source for something it does not say.
+4. Where sources disagree or are silent, say so plainly. Being less specific is always better than stating a precise figure you cannot ground.
+
+Write a thorough, well-structured, well-organized report of up to ${t.words} words${outline.length ? `, following this outline where the material supports it: ${outline.join("; ")}` : ""}. Go BEYOND summarizing each source in turn: compare and reconcile what the sources say, weigh the strength of the evidence, surface the key insight and its implications, and note where the sources agree, conflict, or leave gaps. Open with a short direct answer to the question, then develop it. Do NOT pad toward the word count with invented specifics - a shorter fully-grounded report is the goal, and the length is a ceiling, not a target. Prioritize COMPLETING the report (finish your final sentence and closing paragraph) over length. Do NOT write a "Sources" or "References" section - a complete source list is appended automatically, so end with your final analytical paragraph.\n\n=== SUB-ANSWERS ===\n${subAnswers}\n\n=== SOURCES ===\n${sourceBlock}`;
     // reasoning OFF: the synthesis models (Claude Sonnet/Opus) reason by
     // default, and reasoning tokens would eat the max_tokens budget before the
     // report is written (smoke test 2026-08-20: a 76-char "I'll write the
@@ -159,9 +170,13 @@ export function makeResearchHandler(tierSlug) {
 
     const meta = { tier: tierSlug, searches_run: good.length, sources_consulted: byUrl.size, sources_cited: sources.length, synthesis_model: synthModel };
     // Cost is NEVER returned to the buyer (same rule as the gateway).
-    return format === "json"
+    const out = format === "json"
       ? { report, sources, sub_questions: subQuestions, outline, meta }
       : { report, sources, sub_questions: subQuestions, meta };
+    // Debug seam (never in prod): expose the grounding material so an eval can
+    // check that every specific in the report traces to retrieved content.
+    if (process.env.RESEARCH_DEBUG === "1") out._debug = { subAnswers: good.map((r) => ({ q: r.q, answer: r.answer })), snippets: sources.map((s) => ({ n: s.n, snippet: s.snippet })) };
+    return out;
   };
 }
 
