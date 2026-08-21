@@ -255,6 +255,8 @@ const NETWORK = new Set([
   // over the gateway; not deterministic (LLM + live web), 503 without
   // OPENROUTER_API_KEY. Same NETWORK tolerance as the gateway tiers.
   "/v1/research", "/v1/research/pro", "/v1/research/max",
+  // dossier-kit composites: EDGAR + grounded web search + synthesis, 503 without key.
+  "/v1/dossier", "/v1/dossier/max",
   // Anthropic Messages wire (OpenRouter /messages upstream) - same tolerance.
   "/v1/nano/messages", "/v1/auto/messages", "/v1/messages", "/v1/pro/messages", "/v1/premium/messages",
   "/v1/nano/responses", "/v1/auto/responses", "/v1/responses", "/v1/pro/responses", "/v1/premium/responses",

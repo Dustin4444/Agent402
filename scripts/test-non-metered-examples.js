@@ -97,6 +97,7 @@ const METERED_SLUGS = new Set([
   // research-deep composites — fan out to grounded search + rerank + synthesis
   // over OpenRouter (503 without OPENROUTER_API_KEY), same key dependency.
   "research", "research-pro", "research-max",
+  "dossier", "dossier-max",
   // E2B
   "code-run", "code-run-pro",
   // Blockscout x402 buyer wallet
