@@ -404,8 +404,14 @@ async function recentInbound(c, wallet, latest) {
     })
     .sort((a, b) => b.block - a.block)
     .slice(0, 8);
-  // Best-effort block timestamps — one RPC call per transfer (8 max).
+  // Best-effort block timestamps — one RPC call per transfer (8 max). Bounded by
+  // a total deadline: rpcCall walks a fallback RPC list sequentially, so on a
+  // throttled rail 8 transfers x N-RPC retries could run for minutes and hang the
+  // whole /revenue response past the edge-proxy timeout (the outage this fixes).
+  // Same deadline discipline as the getLogs loop above; timestamps are optional.
+  const tsDeadline = Date.now() + 8_000;
   for (const t of recent) {
+    if (Date.now() > tsDeadline) break;
     try {
       const blk = await rpcCall(c.rpcs, "eth_getBlockByNumber", ["0x" + t.block.toString(16), false], 3000);
       if (blk?.timestamp) t.when = new Date(parseInt(blk.timestamp, 16) * 1000).toISOString();
@@ -1119,6 +1125,8 @@ function persistLastGood(rails) {
 // ledger.js persists every settlement - but that is a rewrite of where the
 // snapshot's numbers come from, not a constant. Filed rather than rushed.
 const SNAPSHOT_TTL_MS = parseInt(process.env.REVENUE_SNAPSHOT_TTL_MS, 10) || 60 * 60_000;
+const SCAN_REQUEST_DEADLINE_MS = parseInt(process.env.REVENUE_SCAN_DEADLINE_MS, 10) || 25_000;
+const SCAN_TIMED_OUT = Symbol("revenue-scan-timeout");
 export async function revenueSnapshot(opts) {
   if (cached && Date.now() - cachedAt < SNAPSHOT_TTL_MS) return cached;
   if (!refreshing) {
@@ -1126,8 +1134,25 @@ export async function revenueSnapshot(opts) {
       .catch(() => cached) // a failed scan keeps serving the last snapshot
       .finally(() => { refreshing = null; });
   }
+  // Stale-while-revalidate: never block a visitor on the multi-chain scan if we
+  // have anything to serve.
   if (cached) return cached;
-  return (await refreshing) || cached;
+  // Cold cache (first request after a boot, before the background primer warms
+  // it): wait for the scan, but NEVER past a hard deadline - a single throttled
+  // rail must not hang /revenue past the edge-proxy timeout (the outage this
+  // fixes). On deadline, throw so the route's own try/catch renders its graceful
+  // fallback instead of a 502; the background scan keeps running and fills the
+  // cache for the next request.
+  const result = await Promise.race([
+    refreshing,
+    new Promise((resolve) => setTimeout(() => resolve(SCAN_TIMED_OUT), SCAN_REQUEST_DEADLINE_MS)),
+  ]);
+  if (result === SCAN_TIMED_OUT || !result) {
+    const e = new Error("revenue snapshot is warming up - try again shortly");
+    e.snapshotWarming = true;
+    throw e;
+  }
+  return result;
 }
 
 async function refreshSnapshot({ walletAddress, solanaWallet }) {

@@ -12,9 +12,12 @@
 // code, settlement-safe (any upstream failure throws >=400 so the buyer is not
 // charged), cost read for the internal accumulator and never returned,
 // WALLET_ONLY, not cached. Gated on OPENROUTER_API_KEY (503 without it).
-import { fetchOpenRouter, throwUpstreamError, bad } from "./llm-gateway-kit.js";
+import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
 import { EDGAR_TOOLS } from "./edgar-kit.js";
 import { FINANCE_TOOLS } from "./finance-kit.js";
+
+// Per-buyer OpenRouter `user` id (OpenRouter abuse isolation); never throws.
+function safeUser(req) { try { return req ? upstreamUserId(req) : undefined; } catch { return undefined; } }
 
 const SYNTH = "anthropic/claude-opus-5"; // synthesis on both tiers (see research-deep eval)
 const GROUND = "google/gemini-2.5-flash"; // grounded web search + read
@@ -35,8 +38,8 @@ const SEARCH_TIMEOUT_MS = 60_000;
 const SYNTH_TIMEOUT_MS = 120_000;
 const DATA_TIMEOUT_MS = 25_000;
 
-async function chat(body, timeoutMs) {
-  const res = await fetchOpenRouter({ ...body, usage: { include: true } }, { timeoutMs });
+async function chat(body, timeoutMs, user) {
+  const res = await fetchOpenRouter({ ...body, ...(user ? { user } : {}), usage: { include: true } }, { timeoutMs });
   if (!res.ok) await throwUpstreamError(res);
   return res.json();
 }
@@ -122,13 +125,14 @@ async function pullFinancials(ticker, edgarConcept) {
 
 export function makeDossierHandler(tierSlug) {
   const t = DOSSIER_TIERS[tierSlug];
-  return async (input) => {
+  return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"ticker": "AAPL"}');
     const ticker = String(input.ticker ?? "").trim().toUpperCase();
     if (!ticker) throw bad('"ticker" (US stock ticker, e.g. "AAPL") is required');
     if (!TICKER_RE.test(ticker)) throw bad("ticker must be a short alphanumeric symbol, e.g. AAPL");
     const focus = Array.isArray(input.focus) ? input.focus.filter((x) => typeof x === "string").slice(0, 8) : [];
     const format = input.format === "json" ? "json" : "markdown";
+    const user = safeUser(req);
 
     const edgarFilings = getHandler(EDGAR_TOOLS, "edgar-filings");
     const edgarInsider = getHandler(EDGAR_TOOLS, "edgar-insider-trades");
@@ -172,7 +176,7 @@ export function makeDossierHandler(tierSlug) {
       max_tokens: 800,
       plugins: [{ id: "web", engine: "exa", max_results: 5 }],
     });
-    const webResults = await Promise.all(queries.map((q) => chat(searchBody(q), SEARCH_TIMEOUT_MS).then(
+    const webResults = await Promise.all(queries.map((q) => chat(searchBody(q), SEARCH_TIMEOUT_MS, user).then(
       (d) => ({ q, answer: textOf(d), sources: webSourcesFrom(d), cost: costOf(d) }),
       () => null,
     )));
@@ -226,7 +230,7 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
 === WEB RESEARCH ===\n${webBlock}
 === WEB SOURCES (numbered, with snippet content) ===\n${webSourceLines}`;
 
-    const sd = await chat({ model: SYNTH, messages: [{ role: "user", content: synthPrompt }], max_tokens: t.synthMaxTokens, reasoning: { enabled: false } }, SYNTH_TIMEOUT_MS);
+    const sd = await chat({ model: SYNTH, messages: [{ role: "user", content: synthPrompt }], max_tokens: t.synthMaxTokens, reasoning: { enabled: false } }, SYNTH_TIMEOUT_MS, user);
     spent += costOf(sd);
     const prose = textOf(sd);
     if (!prose) throw bad("Dossier synthesis produced nothing - not charged", 502);
