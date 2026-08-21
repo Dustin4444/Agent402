@@ -210,9 +210,17 @@ export function makeDossierHandler(tierSlug) {
     const quoteBlock = q ? `Live quote (${q.symbol || ticker}): last ${q.price ?? q.last ?? "?"} ${q.currency || ""}, day range ${q.dayLow ?? "?"}-${q.dayHigh ?? "?"}, 52-week ${q.week52Low ?? q.fiftyTwoWeekLow ?? "?"}-${q.week52High ?? q.fiftyTwoWeekHigh ?? "?"}, prev close ${q.previousClose ?? "?"}, change ${q.change ?? q.changePercent ?? "?"}.` : "Live quote: unavailable.";
     const filingLines = numbered.filter((s) => s.title.includes("SEC EDGAR")).map((s) => `[${s.n}] ${s.title} - ${s.url}`).join("\n") || "(no filings retrieved)";
     const insiderTrades = insider.ok ? (insider.data?.trades || insider.data?.transactions || []) : [];
+    // edgar-insider-trades returns Form 4 FILINGS (who filed, when, the filing
+    // URL) via full-text search - it does not parse the transaction table, so
+    // there is no code/shares/price here. Represent what we actually have.
+    const insiderName = (tr) => {
+      const dn = Array.isArray(tr.displayNames) ? tr.displayNames : (tr.displayNames ? [tr.displayNames] : []);
+      const cleaned = dn.map((n) => String(n).replace(/\s*\(CIK[^)]*\)\s*$/i, "").trim()).filter(Boolean);
+      return cleaned.join("; ") || tr.reportingOwner || tr.name || tr.insider || "insider";
+    };
     const insiderBlock = insiderTrades.length
-      ? insiderTrades.slice(0, 25).map((tr) => `- ${tr.reportingOwner || tr.name || tr.insider || "insider"}${tr.relationship || tr.title ? ` (${tr.relationship || tr.title})` : ""}: ${tr.transactionCode || tr.code || tr.type || "?"} ${tr.shares ?? tr.amount ?? "?"} sh on ${tr.transactionDate || tr.date || tr.filedAt || "?"}`).join("\n")
-      : (insider.ok ? "No Form 4 insider transactions in the window." : "Insider data unavailable.");
+      ? insiderTrades.slice(0, 25).map((tr) => `- ${insiderName(tr)} filed Form ${tr.form || "4"} on ${tr.filedDate || tr.date || tr.filedAt || "?"}`).join("\n")
+      : (insider.ok ? "No Form 4 insider filings in the window." : "Insider data unavailable.");
     const webBlock = webGood.map((r, i) => `WEB ANGLE ${i + 1}: ${r.q}\n${stripInlineCites(r.answer)}`).join("\n\n") || "(web research unavailable)";
     // Web sources WITH their snippet content, so the model can only cite [n] for
     // what a source actually says - not guess a claim from a title alone.
@@ -250,17 +258,15 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
     // Downloadable DATA APPENDIX - the structured tables the prose is grounded
     // in, so the buyer gets a spreadsheet-ready dataset, not only narrative.
     const insiderRows = insiderTrades.slice(0, 100).map((tr) => [
-      String(tr.reportingOwner || tr.name || tr.insider || ""),
-      String(tr.relationship || tr.title || ""),
-      String(tr.transactionCode || tr.code || tr.type || ""),
-      String(tr.shares ?? tr.amount ?? ""),
-      String(tr.price ?? tr.pricePerShare ?? ""),
-      String(tr.transactionDate || tr.date || tr.filedAt || ""),
+      insiderName(tr),
+      String(tr.form || "4"),
+      String(tr.filedDate || tr.date || tr.filedAt || ""),
+      String(tr.url || tr.link || ""),
     ]);
     const tables = [];
     if (insiderRows.length) tables.push({
-      name: "insider-trades", label: "Form 4 insider transactions",
-      columns: ["Insider", "Role", "Code", "Shares", "Price", "Date"], rows: insiderRows,
+      name: "insider-filings", label: "Form 4 insider filings",
+      columns: ["Insider", "Form", "Filed", "Filing URL"], rows: insiderRows,
     });
     if (financials.rows.length) tables.push({
       name: "financials", label: "SEC XBRL financials",
