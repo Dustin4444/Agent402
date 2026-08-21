@@ -1,0 +1,175 @@
+// Served pages for the human front door: the checkout page (/reports) and the
+// report-delivery page (/r/:sessionId). Same "Citation" identity as the mockup.
+import { HUMAN_PRODUCTS } from "./human-checkout.js";
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const HEAD = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{--paper:#F4F6F4;--surface:#fff;--surface-2:#FBFCFB;--ink:#14201B;--ink-soft:#35443C;--muted:#5D675F;--faint:#8A948C;--hair:#DBE2DC;--hair-strong:#C6D0C8;--accent:#15654A;--accent-hover:#0F5038;--accent-tint:#E1F0E7;--on-accent:#fff;color-scheme:light}
+  @media(prefers-color-scheme:dark){:root{--paper:#0E1512;--surface:#141C18;--surface-2:#101815;--ink:#E8EDE9;--ink-soft:#C4CEC7;--muted:#93A099;--faint:#6A766E;--hair:#26312B;--hair-strong:#33413A;--accent:#45B78E;--accent-hover:#58C79F;--accent-tint:#16362A;--on-accent:#08130E;color-scheme:dark}}
+  *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:"Public Sans",system-ui,sans-serif;font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:940px;margin:0 auto;padding:0 26px}
+  h1,h2,h3{font-family:"Newsreader",Georgia,serif;font-weight:500;line-height:1.14;margin:0;letter-spacing:-.01em;text-wrap:balance}
+  a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+  .eyebrow{font-family:"JetBrains Mono",monospace;font-size:11.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+  header.bar{border-bottom:1px solid var(--hair);background:var(--surface-2)}
+  .bar-in{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{font-family:"JetBrains Mono",monospace;font-weight:600}.brand .n{color:var(--accent)}.brand .s{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .btn{font-family:"Public Sans",sans-serif;font-size:15px;font-weight:600;border-radius:8px;border:1px solid transparent;cursor:pointer;padding:11px 18px;transition:background .15s;display:inline-flex;gap:8px;align-items:center;text-decoration:none}
+  .btn-primary{background:var(--accent);color:var(--on-accent)}.btn-primary:hover{background:var(--accent-hover);color:var(--on-accent)}
+  .btn-ghost{background:transparent;color:var(--ink);border-color:var(--hair-strong)}.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+  .btn:disabled{opacity:.5;cursor:default}
+  .hero{padding:54px 0 20px}.hero h1{font-size:clamp(32px,5vw,48px)}.hero h1 em{font-style:italic;color:var(--accent)}
+  .lede{font-size:19px;color:var(--ink-soft);max-width:600px;margin:16px 0 0}.lede b{color:var(--ink)}
+  section{padding:26px 0}
+  .products{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:8px}
+  @media(max-width:720px){.products{grid-template-columns:1fr}}
+  .pcard{border:1px solid var(--hair-strong);border-radius:14px;background:var(--surface);padding:22px}
+  .pcard h3{font-size:21px}.pcard .k{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+  .pcard p{color:var(--muted);font-size:15px;margin:8px 0 16px}
+  .field{display:flex;gap:8px;background:var(--surface-2);border:1.5px solid var(--hair-strong);border-radius:11px;padding:6px 6px 6px 14px;margin-bottom:12px}
+  .field:focus-within{border-color:var(--accent)}
+  .field input{flex:1;border:0;background:transparent;color:var(--ink);font-family:"Public Sans",sans-serif;font-size:16px;outline:none;min-width:0}
+  .tiers{display:flex;gap:8px;flex-wrap:wrap}
+  .tierbtn{flex:1;min-width:90px;border:1px solid var(--hair-strong);border-radius:9px;background:var(--surface);padding:10px;cursor:pointer;text-align:center;font-family:"Public Sans"}
+  .tierbtn .nm{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .tierbtn .pr{font-family:"Newsreader",serif;font-size:22px;color:var(--ink);margin-top:2px}
+  .tierbtn.sel{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}.tierbtn.sel .pr{color:var(--accent)}
+  .note{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--faint);margin-top:14px}
+  .err{color:#a5322b;font-size:14px;margin-top:8px;min-height:18px}
+  .trust{display:flex;gap:20px;flex-wrap:wrap;color:var(--muted);font-size:14px;margin-top:8px}
+  .trust span{display:inline-flex;gap:7px;align-items:center}.dot{width:5px;height:5px;border-radius:50%;background:var(--accent)}
+  footer{border-top:1px solid var(--hair);padding:26px 0 42px;color:var(--muted);font-size:13px;margin-top:30px}
+  /* report page */
+  .report{background:var(--surface);border:1px solid var(--hair);border-radius:14px;padding:30px 34px;margin-top:24px}
+  .report h1{font-size:28px;margin-bottom:6px}.report h2{font-size:22px;margin:26px 0 8px}.report h3{font-size:18px;margin:20px 0 6px}
+  .report p{color:var(--ink-soft);margin:0 0 14px}.report a{word-break:break-word}
+  .report ol,.report ul{color:var(--ink-soft)}
+  .cite{font-family:"JetBrains Mono",monospace;font-size:.72em;font-weight:600;color:var(--accent);vertical-align:super}
+  .spin{display:inline-block;width:16px;height:16px;border:2px solid var(--hair-strong);border-top-color:var(--accent);border-radius:50%;animation:sp .8s linear infinite;vertical-align:-3px;margin-right:8px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .status{background:var(--surface);border:1px solid var(--hair);border-radius:14px;padding:40px 34px;text-align:center;margin-top:24px}
+  .status h2{font-size:24px;margin-bottom:10px}.status p{color:var(--muted);max-width:440px;margin:0 auto}
+</style>`;
+
+function bar() {
+  return `<header class="bar"><div class="wrap bar-in"><a class="brand" href="/reports"><span class="n">agent402</span> <span class="s">Reports</span></a><a class="btn btn-ghost" href="/">Home</a></div></header>`;
+}
+
+export function humanReportsPage(baseUrl) {
+  const R = HUMAN_PRODUCTS;
+  return `<!doctype html><html lang="en"><head><title>Agent402 Reports</title>${HEAD}</head><body>
+${bar()}
+<main class="wrap">
+  <section class="hero">
+    <div class="eyebrow">Cited reports · pay per report · no subscription</div>
+    <h1>Reports you can <em>act</em> on.</h1>
+    <p class="lede">Deep research on any question, or due diligence on any public company — grounded in real sources, fully cited, in about two minutes. <b>No account, no subscription.</b> Pay by card, get your report.</p>
+    <div class="trust"><span><span class="dot"></span> Every claim cited</span><span><span class="dot"></span> If a report fails, you're auto-refunded</span><span><span class="dot"></span> Secured by Stripe</span></div>
+  </section>
+  <section>
+    <div class="products">
+      <div class="pcard" data-kind="research">
+        <div class="k">Deep research</div>
+        <h3>Ask a hard question</h3>
+        <p>Multiple live web searches, ranked sources, a cited report on whatever you ask.</p>
+        <div class="field"><input id="in-research" type="text" placeholder="e.g. How do AI agents pay for APIs in 2026?"></div>
+        <div class="tiers">
+          <button class="tierbtn sel" data-p="research"><div class="nm">Standard</div><div class="pr">$5</div></button>
+          <button class="tierbtn" data-p="research-pro"><div class="nm">Pro</div><div class="pr">$15</div></button>
+          <button class="tierbtn" data-p="research-max"><div class="nm">Max</div><div class="pr">$30</div></button>
+        </div>
+        <div class="err" id="err-research"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="research">Get report →</button>
+      </div>
+      <div class="pcard" data-kind="dossier">
+        <div class="k">Due-diligence dossier</div>
+        <h3>Everything on a public company</h3>
+        <p>SEC filings, insider trades, financials, and red flags — cited. Data a chatbot can't reach.</p>
+        <div class="field"><input id="in-dossier" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="tiers">
+          <button class="tierbtn sel" data-p="dossier"><div class="nm">Dossier</div><div class="pr">$19</div></button>
+          <button class="tierbtn" data-p="dossier-max"><div class="nm">Max</div><div class="pr">$39</div></button>
+        </div>
+        <div class="err" id="err-dossier"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="dossier">Get dossier →</button>
+      </div>
+    </div>
+    <p class="note">One-time charge · card or Link · no subscription, no auto-renew · agents can also buy these over x402 in USDC</p>
+  </section>
+</main>
+<footer><div class="wrap">Agent402 · grounded, cited reports · pay per report</div></footer>
+<script>
+  var sel={research:"research",dossier:"dossier"};
+  document.querySelectorAll(".pcard").forEach(function(card){
+    card.querySelectorAll(".tierbtn").forEach(function(b){
+      b.addEventListener("click",function(){
+        card.querySelectorAll(".tierbtn").forEach(function(x){x.classList.remove("sel")});
+        b.classList.add("sel"); sel[card.dataset.kind]=b.dataset.p;
+      });
+    });
+  });
+  document.querySelectorAll("[data-buy]").forEach(function(btn){
+    btn.addEventListener("click",async function(){
+      var kind=btn.dataset.buy, input=document.getElementById("in-"+kind).value.trim();
+      var errEl=document.getElementById("err-"+kind); errEl.textContent="";
+      if(!input){errEl.textContent="Please enter "+(kind==="dossier"?"a ticker.":"a question.");return}
+      btn.disabled=true; var t=btn.textContent; btn.innerHTML='<span class="spin"></span>Redirecting to checkout…';
+      try{
+        var r=await fetch("/api/buy",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({product:sel[kind],input:input})});
+        var j=await r.json();
+        if(j.url){window.location=j.url}else{errEl.textContent=j.error||"Could not start checkout.";btn.disabled=false;btn.textContent=t}
+      }catch(e){errEl.textContent="Network error, try again.";btn.disabled=false;btn.textContent=t}
+    });
+  });
+</script>
+</body></html>`;
+}
+
+// Delivery page: polls /api/r/:id and renders the report (client-side markdown).
+export function reportDeliveryPage(sessionId) {
+  return `<!doctype html><html lang="en"><head><title>Your report — Agent402</title>${HEAD}</head><body>
+${bar()}
+<main class="wrap">
+  <div id="app"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>This takes about a minute. Please keep this page open — it will appear here automatically.</p></div></div>
+</main>
+<footer><div class="wrap">Agent402 · your report is yours to keep — copy or bookmark this page</div></footer>
+<script>
+  var id=${JSON.stringify(sessionId)};
+  function mdToHtml(md){
+    var esc=function(s){return s.replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c]})};
+    var lines=esc(md).split(/\\r?\\n/), out=[], inList=false;
+    for(var i=0;i<lines.length;i++){var l=lines[i];
+      l=l.replace(/\\[(\\d+)\\]/g,'<span class="cite">[$1]</span>');
+      l=l.replace(/\\*\\*([^*]+)\\*\\*/g,"<strong>$1</strong>");
+      l=l.replace(/(https?:\\/\\/[^\\s)]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
+      if(/^### /.test(l)){out.push("<h3>"+l.slice(4)+"</h3>");continue}
+      if(/^## /.test(l)){out.push("<h2>"+l.slice(3)+"</h2>");continue}
+      if(/^# /.test(l)){out.push("<h1>"+l.slice(2)+"</h1>");continue}
+      if(/^\\s*[-*] /.test(l)){if(!inList){out.push("<ul>");inList=true}out.push("<li>"+l.replace(/^\\s*[-*] /,"")+"</li>");continue}
+      if(inList){out.push("</ul>");inList=false}
+      if(l.trim()==="")continue;
+      out.push("<p>"+l+"</p>");
+    }
+    if(inList)out.push("</ul>");
+    return out.join("\\n");
+  }
+  var app=document.getElementById("app");
+  function render(s){
+    if(s.status==="done"){app.innerHTML='<div class="report">'+mdToHtml(s.report)+'</div>';return true}
+    if(s.status==="error"){app.innerHTML='<div class="status"><h2>Something went wrong</h2><p>'+(s.error||"We couldn't complete this report.")+'</p><p><a href="/reports">Try another report</a></p></div>';return true}
+    if(s.status==="unpaid"){app.innerHTML='<div class="status"><h2>Payment not completed</h2><p>This report hasn\\'t been paid for yet. <a href="/reports">Start over</a></p></div>';return true}
+    if(s.status==="not_found"||s.status==="invalid"){app.innerHTML='<div class="status"><h2>Report not found</h2><p><a href="/reports">Start a new report</a></p></div>';return true}
+    return false;
+  }
+  async function poll(){
+    try{var r=await fetch("/api/r/"+encodeURIComponent(id));var s=await r.json();if(render(s))return}catch(e){}
+    setTimeout(poll,3000);
+  }
+  poll();
+</script>
+</body></html>`;
+}

@@ -807,6 +807,9 @@ jobs:
       - name: Composite-spend guard (research/dossier upstream-drain protection)
         run: node scripts/test-composite-guard.js
 
+      - name: Human checkout (no free report, generate-once, auto-refund)
+        run: node scripts/test-human-checkout.js
+
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
 
