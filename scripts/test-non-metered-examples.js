@@ -103,6 +103,9 @@ const METERED_SLUGS = new Set([
   "fund-report", "fund-report-max",
   // domain-audit composites — live probes + Opus synthesis over OpenRouter.
   "domain-audit", "domain-audit-pro",
+  // token-risk composites — Blockscout x402 buys (upstream-buyer wallet) +
+  // Opus synthesis over OpenRouter; metered upstream both ways.
+  "token-risk", "token-risk-pro",
   // E2B
   "code-run", "code-run-pro",
   // Blockscout x402 buyer wallet

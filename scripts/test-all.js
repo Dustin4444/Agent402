@@ -261,6 +261,9 @@ const NETWORK = new Set([
   // domain-audit composites: live probes + synthesis; 503 without
   // OPENROUTER_API_KEY, same NETWORK tolerance.
   "/v1/domain-audit", "/v1/domain-audit/pro",
+  // token-risk composites: Blockscout x402 buys + synthesis; 503 without the
+  // upstream-buyer wallet / OPENROUTER_API_KEY, same NETWORK tolerance.
+  "/v1/token-risk", "/v1/token-risk/pro",
   // dossier-kit composites: EDGAR + grounded web search + synthesis, 503 without key.
   "/v1/dossier", "/v1/dossier/max",
   // Anthropic Messages wire (OpenRouter /messages upstream) - same tolerance.
