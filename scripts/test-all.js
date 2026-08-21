@@ -251,6 +251,10 @@ const NETWORK = new Set([
   // same tolerance as the LLM proxy.
   "/v1/embeddings",
   "/v1/rerank",
+  // research-deep composites: multi-round grounded search + rerank + synthesis
+  // over the gateway; not deterministic (LLM + live web), 503 without
+  // OPENROUTER_API_KEY. Same NETWORK tolerance as the gateway tiers.
+  "/v1/research", "/v1/research/pro", "/v1/research/max",
   // Anthropic Messages wire (OpenRouter /messages upstream) - same tolerance.
   "/v1/nano/messages", "/v1/auto/messages", "/v1/messages", "/v1/pro/messages", "/v1/premium/messages",
   "/v1/nano/responses", "/v1/auto/responses", "/v1/responses", "/v1/pro/responses", "/v1/premium/responses",

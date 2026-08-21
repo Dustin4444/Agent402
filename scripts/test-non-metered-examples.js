@@ -94,6 +94,9 @@ const METERED_SLUGS = new Set([
   "v1-chat-nano-responses", "v1-chat-auto-responses", "v1-chat-responses", "v1-chat-pro-responses", "v1-chat-premium-responses",
   // Calls the v1-chat gateway handler in-process — same OpenRouter key dependency.
   "pdf-summarize",
+  // research-deep composites — fan out to grounded search + rerank + synthesis
+  // over OpenRouter (503 without OPENROUTER_API_KEY), same key dependency.
+  "research", "research-pro", "research-max",
   // E2B
   "code-run", "code-run-pro",
   // Blockscout x402 buyer wallet
