@@ -1,7 +1,8 @@
 // Checkout page (/reports) behavior. External file because the site-wide CSP
 // drops 'unsafe-inline' from script-src, so an inline <script> can't run.
 (function () {
-  var sel = { research: "research", dossier: "dossier" };
+  var sel = { research: "research", dossier: "dossier", fund: "fund-report" };
+  var need = { dossier: "a ticker.", research: "a question.", fund: "a fund name, ticker, or CIK." };
   document.querySelectorAll(".pcard").forEach(function (card) {
     card.querySelectorAll(".tierbtn").forEach(function (b) {
       b.addEventListener("click", function () {
@@ -17,7 +18,7 @@
       var input = (document.getElementById("in-" + kind).value || "").trim();
       var errEl = document.getElementById("err-" + kind);
       errEl.textContent = "";
-      if (!input) { errEl.textContent = "Please enter " + (kind === "dossier" ? "a ticker." : "a question."); return; }
+      if (!input) { errEl.textContent = "Please enter " + (need[kind] || "a value."); return; }
       btn.disabled = true;
       var label = btn.textContent;
       btn.innerHTML = '<span class="spin"></span>Redirecting to checkout…';

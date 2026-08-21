@@ -25,8 +25,7 @@ const HEAD = `<meta charset="utf-8"><meta name="viewport" content="width=device-
   .hero{padding:54px 0 20px}.hero h1{font-size:clamp(32px,5vw,48px)}.hero h1 em{font-style:italic;color:var(--accent)}
   .lede{font-size:19px;color:var(--ink-soft);max-width:600px;margin:16px 0 0}.lede b{color:var(--ink)}
   section{padding:26px 0}
-  .products{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:8px}
-  @media(max-width:720px){.products{grid-template-columns:1fr}}
+  .products{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-top:8px}
   .pcard{border:1px solid var(--hair-strong);border-radius:14px;background:var(--surface);padding:22px}
   .pcard h3{font-size:21px}.pcard .k{font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
   .pcard p{color:var(--muted);font-size:15px;margin:8px 0 16px}
@@ -93,7 +92,7 @@ ${bar()}
   <section class="hero">
     <div class="eyebrow">Cited reports · pay per report · no subscription</div>
     <h1>Reports you can <em>act</em> on.</h1>
-    <p class="lede">Deep research on any question, or due diligence on any public company — grounded in real sources, fully cited, in about two minutes. <b>No account, no subscription.</b> Pay by card, get your report.</p>
+    <p class="lede">Deep research on any question, due diligence on any public company, or a 13F breakdown of any fund. Grounded in real sources, fully cited, in about two minutes. <b>No account, no subscription.</b> Pay by card, get your report.</p>
     <div class="trust"><span><span class="dot"></span> Every claim cited</span><span><span class="dot"></span> If a report fails, you're auto-refunded</span><span><span class="dot"></span> Secured by Stripe</span></div>
   </section>
   <section>
@@ -122,6 +121,18 @@ ${bar()}
         </div>
         <div class="err" id="err-dossier"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="dossier">Get dossier →</button>
+      </div>
+      <div class="pcard" data-kind="fund">
+        <div class="k">Fund tracker</div>
+        <h3>Follow the smart money</h3>
+        <p>What a fund holds, and what it bought, added, trimmed, and exited last quarter, from SEC 13F filings, cited.</p>
+        <div class="field"><input id="in-fund" type="text" placeholder="A fund, e.g. Berkshire Hathaway"></div>
+        <div class="tiers">
+          <button class="tierbtn sel" data-p="fund-report"><div class="nm">Standard</div><div class="pr">$9</div></button>
+          <button class="tierbtn" data-p="fund-report-max"><div class="nm">Deep</div><div class="pr">$19</div></button>
+        </div>
+        <div class="err" id="err-fund"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="fund">Get report →</button>
       </div>
     </div>
     <p class="note">One-time charge · card or Link · no subscription, no auto-renew · agents can also buy these over x402 in USDC</p>

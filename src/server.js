@@ -117,6 +117,7 @@ import { FINANCE_TOOLS } from "./tools/finance-kit.js";
 import { CRYPTO_TOOLS } from "./tools/crypto-kit.js";
 import { RESEARCH_TOOLS } from "./tools/research-kit.js";
 import { RESEARCH_DEEP_TOOLS } from "./tools/research-deep-kit.js";
+import { FUND_TOOLS } from "./tools/fund-report-kit.js";
 import { DOSSIER_TOOLS } from "./tools/dossier-kit.js";
 import { NETWORK_TOOLS } from "./tools/network-kit.js";
 import { NETWORK_TOOLS2 } from "./tools/network-kit2.js";
@@ -215,7 +216,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
@@ -1557,20 +1558,22 @@ app.get("/revenue", async (_req, res) => {
 // is generate-once per session, and a failed report auto-refunds the card
 // (see src/human-checkout.js + test-human-checkout.js).
 if (humanCheckoutEnabled()) {
-  const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS].map((t) => [t.slug, t.handler]));
+  const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS].map((t) => [t.slug, t.handler]));
   const _humanGenerate = async (kind, slug, input) => {
     const h = _premiumHandlers[slug];
     if (!h) throw new Error("no handler for " + slug);
-    const out = await h(kind === "dossier" ? { ticker: input } : { query: input });
+    const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), research: (v) => ({ query: v }) };
+    const out = await h((argOf[kind] || argOf.research)(input));
     const report = out?.dossier || out?.report;
     if (!report) throw new Error("empty report");
     // Deliver a BUNDLE, not just prose: the report plus the structured data
-    // appendix (sources always; financials + insider tables on dossiers) so the
-    // human buyer gets spreadsheet-ready data, not only a document.
+    // appendix (sources always; financials + insider tables on dossiers, holdings
+    // + changes on fund reports) so the human buyer gets spreadsheet-ready data.
+    const titleOf = { dossier: () => (out?.company ? `${out.company} (${out.ticker})` : input), fund: () => out?.manager || input };
     return {
       report,
       kind,
-      title: kind === "dossier" ? (out?.company ? `${out.company} (${out.ticker})` : input) : input,
+      title: (titleOf[kind] || (() => input))(),
       sources: Array.isArray(out?.sources) ? out.sources : [],
       tables: Array.isArray(out?.tables) ? out.tables : [],
     };

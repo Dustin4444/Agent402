@@ -264,6 +264,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   // to multiple metered gateway calls (grounded search + rerank + synthesis),
   // so they cost real upstream money and are never free-tier/PoW-eligible.
   "research", "research-pro", "research-max",
+  // fund-report composites (src/tools/fund-report-kit.js) — SEC 13F diff +
+  // grounded search + Opus synthesis; metered upstream, never PoW-eligible.
+  "fund-report", "fund-report-max",
   // dossier-kit: company due-diligence dossier, fans out to EDGAR + grounded
   // web search + Opus synthesis - metered upstream, never free-tier/PoW.
   "dossier", "dossier-max",

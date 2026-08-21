@@ -29,6 +29,8 @@ export const HUMAN_PRODUCTS = {
   "research-max": { label: "Deep research report — Max", price: 3000, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
   "dossier": { label: "Company due-diligence dossier", price: 1900, kind: "dossier", slug: "dossier", inputField: "ticker", inputLabel: "a US stock ticker" },
   "dossier-max": { label: "Due-diligence dossier — Max", price: 3900, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "fund-report": { label: "Fund portfolio report (13F)", price: 900, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "fund-report-max": { label: "Fund portfolio report — Deep", price: 1900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
 };
 
 export function humanCheckoutEnabled() {

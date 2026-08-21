@@ -797,34 +797,20 @@ EDGAR_TOOLS.push(
       },
     },
     handler: async (i) => {
-      const { cik, name } = await resolveCompany({ ticker: i.ticker, cik: i.cik });
       const limit = clampInt(i.limit, 50, 1, 500);
-      const sub = await edgarGetJson(`https://data.sec.gov/submissions/CIK${cik}.json`);
-      const recent = sub?.filings?.recent;
-      if (!recent || !Array.isArray(recent.form)) throw bad("Manager has no recent filings", 422);
-      const idx = recent.form.findIndex((f) => String(f).toUpperCase() === "13F-HR");
-      if (idx < 0) throw bad(`Manager has no recent 13F-HR filings - confirm CIK ${cik} is an institutional investment manager`, 422);
-      const accession = recent.accessionNumber[idx];
-      const filedDate = recent.filingDate[idx];
-      const reportDate = recent.reportDate[idx];
-      const cikInt = parseInt(cik, 10);
-      const tableUrl = await fetchInformationTableUrl(cikInt, accession);
-      if (!tableUrl) throw bad("13F-HR filing has no informationtable.xml attachment (older filing format?)", 502);
-      const xml = await fetchXmlText(tableUrl);
-      const all = parse13fInformationTable(xml, reportDate);
-      all.sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
-      const totalValueUsd = all.reduce((acc, r) => acc + (r.valueUsd ?? 0), 0);
+      const r = await get13fHoldings({ cik: i.cik, ticker: i.ticker, index: 0 });
+      if (!r) throw bad("Manager has no recent 13F-HR filings", 422);
       return {
-        cik,
-        managerName: sub?.name ?? name ?? null,
-        accessionNumber: accession,
-        filedDate,
-        reportDate,
-        informationTableUrl: tableUrl,
-        totalHoldings: all.length,
-        returned: Math.min(all.length, limit),
-        totalValueUsd,
-        holdings: all.slice(0, limit),
+        cik: r.cik,
+        managerName: r.managerName,
+        accessionNumber: r.accessionNumber,
+        filedDate: r.filedDate,
+        reportDate: r.reportDate,
+        informationTableUrl: r.informationTableUrl,
+        totalHoldings: r.totalHoldings,
+        returned: Math.min(r.totalHoldings, limit),
+        totalValueUsd: r.totalValueUsd,
+        holdings: r.holdings.slice(0, limit),
         source: "SEC EDGAR 13F-HR informationtable.xml (public domain)",
       };
     },
@@ -958,3 +944,78 @@ EDGAR_TOOLS.push(
     },
   },
 );
+
+// ---------------------------------------------------------------------------
+// Reusable 13F helpers - exported for the Fund Portfolio Report product so the
+// 13F parsing lives in ONE place (edgar-13f-holdings uses get13fHoldings too).
+// ---------------------------------------------------------------------------
+
+// The Nth most recent 13F-HR holdings for a manager (index 0 = latest, 1 =
+// prior quarter). Returns null when the manager has fewer than index+1 13F-HR
+// filings (so a caller can ask for the prior quarter and get null, not throw).
+export async function get13fHoldings({ cik, ticker, index = 0 }) {
+  const resolved = await resolveCompany({ ticker, cik });
+  const _cik = resolved.cik;
+  const sub = await edgarGetJson(`https://data.sec.gov/submissions/CIK${_cik}.json`);
+  const recent = sub?.filings?.recent;
+  if (!recent || !Array.isArray(recent.form)) throw bad("Manager has no recent filings", 422);
+  const idxs = [];
+  for (let k = 0; k < recent.form.length; k++) if (String(recent.form[k]).toUpperCase() === "13F-HR") idxs.push(k);
+  if (!idxs.length) throw bad(`No 13F-HR filings for CIK ${_cik} - confirm this is an institutional investment manager (>$100M AUM)`, 422);
+  if (index >= idxs.length) return null;
+  const at = idxs[index];
+  const accession = recent.accessionNumber[at];
+  const filedDate = recent.filingDate[at];
+  const reportDate = recent.reportDate[at];
+  const cikInt = parseInt(_cik, 10);
+  const tableUrl = await fetchInformationTableUrl(cikInt, accession);
+  if (!tableUrl) throw bad("13F-HR filing has no informationtable.xml attachment (older filing format?)", 502);
+  const xml = await fetchXmlText(tableUrl);
+  const all = parse13fInformationTable(xml, reportDate);
+  all.sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
+  const totalValueUsd = all.reduce((acc, r) => acc + (r.valueUsd ?? 0), 0);
+  return { cik: _cik, managerName: sub?.name ?? resolved.name ?? null, accessionNumber: accession, filedDate, reportDate, informationTableUrl: tableUrl, totalHoldings: all.length, totalValueUsd, holdings: all };
+}
+
+// Resolve an institutional manager by cik, ticker, or NAME. Most funds have no
+// ticker, so a name resolves via EDGAR full-text search filtered to 13F-HR,
+// taking the CIK that appears most across recent hits.
+export async function resolveManager({ cik, ticker, name }) {
+  if (cik || ticker) { const r = await resolveCompany({ cik, ticker }); return { cik: r.cik, name: r.name }; }
+  const nm = String(name ?? "").trim();
+  if (!nm) throw bad("Provide the manager's SEC CIK, ticker, or name", 400);
+  const j = await eftsSearch({ q: `"${nm}"`, forms: "13F-HR" });
+  const hits = j?.hits?.hits ?? [];
+  // Build candidate entities from the hits' display_names (which embed the
+  // registered name + CIK), keyed by CIK, tallying how often each appears.
+  const cand = new Map();
+  for (const h of hits) {
+    const src = h?._source || {};
+    const ciks = src.ciks || [];
+    const dns = src.display_names || [];
+    for (let k = 0; k < ciks.length; k++) {
+      const c = padCik(ciks[k]); if (!c) continue;
+      const dn = String(dns[k] || dns[0] || "").replace(/\s*\(CIK[^)]*\)\s*$/i, "").trim();
+      const cur = cand.get(c) || { cik: c, name: dn, count: 0 };
+      if (!cur.name && dn) cur.name = dn;
+      cur.count++;
+      cand.set(c, cur);
+    }
+  }
+  if (!cand.size) throw bad(`No 13F filer found matching "${nm}" - try the manager's SEC CIK (find it on sec.gov EDGAR)`, 404);
+  // Score by NAME-MATCH QUALITY, not raw frequency: an exact name wins; then a
+  // prefix match, preferring the SHORTEST registered name (the closest to the
+  // query - so "Berkshire Hathaway" resolves to the parent, not a longer-named
+  // subsidiary), with hit frequency only as a final tiebreak.
+  const nmUp = nm.toUpperCase();
+  const score = (x) => {
+    const en = (x.name || "").toUpperCase();
+    if (en === nmUp) return 1e6;
+    let base = 0;
+    if (en.startsWith(nmUp)) base = 1e5;
+    else if (en.includes(nmUp)) base = 1e4;
+    return base - en.length * 10 + Math.min(x.count, 50);
+  };
+  const best = [...cand.values()].sort((a, b) => score(b) - score(a))[0];
+  return { cik: best.cik, name: best.name || nm };
+}
