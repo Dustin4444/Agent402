@@ -102,30 +102,7 @@ ${bar()}
   </section>
 </main>
 <footer><div class="wrap">Agent402 · grounded, cited reports · pay per report</div></footer>
-<script>
-  var sel={research:"research",dossier:"dossier"};
-  document.querySelectorAll(".pcard").forEach(function(card){
-    card.querySelectorAll(".tierbtn").forEach(function(b){
-      b.addEventListener("click",function(){
-        card.querySelectorAll(".tierbtn").forEach(function(x){x.classList.remove("sel")});
-        b.classList.add("sel"); sel[card.dataset.kind]=b.dataset.p;
-      });
-    });
-  });
-  document.querySelectorAll("[data-buy]").forEach(function(btn){
-    btn.addEventListener("click",async function(){
-      var kind=btn.dataset.buy, input=document.getElementById("in-"+kind).value.trim();
-      var errEl=document.getElementById("err-"+kind); errEl.textContent="";
-      if(!input){errEl.textContent="Please enter "+(kind==="dossier"?"a ticker.":"a question.");return}
-      btn.disabled=true; var t=btn.textContent; btn.innerHTML='<span class="spin"></span>Redirecting to checkout…';
-      try{
-        var r=await fetch("/api/buy",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({product:sel[kind],input:input})});
-        var j=await r.json();
-        if(j.url){window.location=j.url}else{errEl.textContent=j.error||"Could not start checkout.";btn.disabled=false;btn.textContent=t}
-      }catch(e){errEl.textContent="Network error, try again.";btn.disabled=false;btn.textContent=t}
-    });
-  });
-</script>
+<script src="/js/reports.js"></script>
 </body></html>`;
 }
 
@@ -134,42 +111,9 @@ export function reportDeliveryPage(sessionId) {
   return `<!doctype html><html lang="en"><head><title>Your report — Agent402</title>${HEAD}</head><body>
 ${bar()}
 <main class="wrap">
-  <div id="app"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>This takes about a minute. Please keep this page open — it will appear here automatically.</p></div></div>
+  <div id="app" data-session="${esc(sessionId)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>This takes about a minute. Please keep this page open — it will appear here automatically.</p></div></div>
 </main>
 <footer><div class="wrap">Agent402 · your report is yours to keep — copy or bookmark this page</div></footer>
-<script>
-  var id=${JSON.stringify(sessionId)};
-  function mdToHtml(md){
-    var esc=function(s){return s.replace(/[&<>]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;"}[c]})};
-    var lines=esc(md).split(/\\r?\\n/), out=[], inList=false;
-    for(var i=0;i<lines.length;i++){var l=lines[i];
-      l=l.replace(/\\[(\\d+)\\]/g,'<span class="cite">[$1]</span>');
-      l=l.replace(/\\*\\*([^*]+)\\*\\*/g,"<strong>$1</strong>");
-      l=l.replace(/(https?:\\/\\/[^\\s)]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
-      if(/^### /.test(l)){out.push("<h3>"+l.slice(4)+"</h3>");continue}
-      if(/^## /.test(l)){out.push("<h2>"+l.slice(3)+"</h2>");continue}
-      if(/^# /.test(l)){out.push("<h1>"+l.slice(2)+"</h1>");continue}
-      if(/^\\s*[-*] /.test(l)){if(!inList){out.push("<ul>");inList=true}out.push("<li>"+l.replace(/^\\s*[-*] /,"")+"</li>");continue}
-      if(inList){out.push("</ul>");inList=false}
-      if(l.trim()==="")continue;
-      out.push("<p>"+l+"</p>");
-    }
-    if(inList)out.push("</ul>");
-    return out.join("\\n");
-  }
-  var app=document.getElementById("app");
-  function render(s){
-    if(s.status==="done"){app.innerHTML='<div class="report">'+mdToHtml(s.report)+'</div>';return true}
-    if(s.status==="error"){app.innerHTML='<div class="status"><h2>Something went wrong</h2><p>'+(s.error||"We couldn't complete this report.")+'</p><p><a href="/reports">Try another report</a></p></div>';return true}
-    if(s.status==="unpaid"){app.innerHTML='<div class="status"><h2>Payment not completed</h2><p>This report hasn\\'t been paid for yet. <a href="/reports">Start over</a></p></div>';return true}
-    if(s.status==="not_found"||s.status==="invalid"){app.innerHTML='<div class="status"><h2>Report not found</h2><p><a href="/reports">Start a new report</a></p></div>';return true}
-    return false;
-  }
-  async function poll(){
-    try{var r=await fetch("/api/r/"+encodeURIComponent(id));var s=await r.json();if(render(s))return}catch(e){}
-    setTimeout(poll,3000);
-  }
-  poll();
-</script>
+<script src="/js/report-view.js"></script>
 </body></html>`;
 }
