@@ -23,10 +23,18 @@ const M = {
   synthPrem: "anthropic/claude-opus-5",  // premium synthesis
 };
 
+// synthMaxTokens carries GENEROUS headroom over the word target, because the
+// synthesis model is verbose and fills whatever budget it is given (measured:
+// a "~1,500 word" target produced ~1,750 words and truncated mid-sentence at a
+// 4,000 cap). Density is ~2.3 output tokens/word for this dense cited-markdown
+// format, so each budget = word_target x 2.3 x ~1.5 safety, and the prompt also
+// tells the model to finish over reaching length. Caps held at a provider-safe
+// 8,000 (Claude's standard max output); the source list is appended in code, so
+// none of this budget is spent retyping URLs.
 export const RESEARCH_TIERS = {
-  "research": { price: "$5", maxUpstreamUsd: 1.5, subQ: 3, searches: 3, topK: 15, synth: M.synthStd, synthMaxTokens: 2500, words: "~1,500" },
-  "research-pro": { price: "$15", maxUpstreamUsd: 4.5, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 4000, words: "~3,000" },
-  "research-max": { price: "$30", maxUpstreamUsd: 9.0, subQ: 12, searches: 12, topK: 40, synth: M.synthPrem, synthMaxTokens: 6000, words: "~5,000" },
+  "research": { price: "$5", maxUpstreamUsd: 1.5, subQ: 3, searches: 3, topK: 15, synth: M.synthStd, synthMaxTokens: 5000, words: "~1,500" },
+  "research-pro": { price: "$15", maxUpstreamUsd: 4.5, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200" },
+  "research-max": { price: "$30", maxUpstreamUsd: 9.0, subQ: 12, searches: 12, topK: 40, synth: M.synthPrem, synthMaxTokens: 8000, words: "~2,800" },
 };
 // Models this kit routes to — exported so the live-catalog guard checks them.
 export const RESEARCH_MODELS = [M.plan, M.ground, M.synthStd, M.synthPrem];
@@ -129,15 +137,25 @@ export function makeResearchHandler(tierSlug) {
     const synthModel = spent > t.maxUpstreamUsd ? M.synthStd : t.synth;
     const sourceBlock = sources.map((s) => `[${s.n}] ${s.title} (${s.url})\n${s.snippet}`).join("\n\n");
     const subAnswers = good.map((r, i) => `Q${i + 1}: ${r.q}\n${r.answer}`).join("\n\n");
-    const synthPrompt = `Write a thorough, well-structured research report answering: "${query}".\n\nUse ONLY the sub-answers and sources below. Cite every claim inline with [n] matching the source numbers. Target ${t.words} words${outline.length ? `, following this outline: ${outline.join("; ")}` : ""}. End with a "Sources" list of [n] title - url. Be specific, note disagreements between sources, and flag anything the sources do not establish.\n\n=== SUB-ANSWERS ===\n${subAnswers}\n\n=== SOURCES ===\n${sourceBlock}`;
+    // The model writes the PROSE only; we append the "## Sources" list in code
+    // from the structured `sources` array (below). Asking the model to retype
+    // every [n] title/url wastes output tokens (it truncated the list at [11]
+    // of 13 in testing) and risks hallucinated URLs — the list we append is
+    // always complete, correct, and matches the structured `sources` field.
+    const synthPrompt = `Write a thorough, well-structured research report answering: "${query}".\n\nUse ONLY the sub-answers and sources below. Cite every claim inline with [n] matching the source numbers. Target ${t.words} words${outline.length ? `, following this outline: ${outline.join("; ")}` : ""}. Be specific, note disagreements between sources, and flag anything the sources do not establish. IMPORTANT: prioritize COMPLETING the report - finish your final sentence and closing paragraph - over reaching the word count; a complete shorter report is better than a longer truncated one. Do NOT write a "Sources" or "References" section - a complete source list is appended automatically, so end with your final analytical paragraph.\n\n=== SUB-ANSWERS ===\n${subAnswers}\n\n=== SOURCES ===\n${sourceBlock}`;
     // reasoning OFF: the synthesis models (Claude Sonnet/Opus) reason by
     // default, and reasoning tokens would eat the max_tokens budget before the
     // report is written (smoke test 2026-08-20: a 76-char "I'll write the
     // report now…" stub that still 200'd). We want every token on the report.
     const sd = await chat({ model: synthModel, messages: [{ role: "user", content: synthPrompt }], max_tokens: t.synthMaxTokens, reasoning: { enabled: false } }, SYNTH_TIMEOUT_MS);
     spent += costOf(sd);
-    const report = textOf(sd);
-    if (!report) throw bad("Synthesis produced no report - not charged", 502);
+    const prose = textOf(sd);
+    if (!prose) throw bad("Synthesis produced no report - not charged", 502);
+    // Append the complete, deterministic source list from the structured array
+    // (the model was told not to write one). Always complete and correct, never
+    // truncated by the token budget.
+    const sourceList = sources.map((s) => `[${s.n}] ${s.title} - ${s.url}`).join("\n");
+    const report = sourceList ? `${prose}\n\n## Sources\n${sourceList}` : prose;
 
     const meta = { tier: tierSlug, searches_run: good.length, sources_consulted: byUrl.size, sources_cited: sources.length, synthesis_model: synthModel };
     // Cost is NEVER returned to the buyer (same rule as the gateway).
@@ -176,14 +194,14 @@ export const RESEARCH_DEEP_TOOLS = [
   },
   {
     route: "POST /v1/research/pro", name: "Deep research report - PRO (premium synthesis)", slug: "research-pro", category: "llm", price: RESEARCH_TIERS["research-pro"].price,
-    description: "The deeper research tier: more sub-questions, more grounded searches, wider reranked source set, and a premium (Claude Opus class) synthesis into a ~3,000-word cited report with structured findings. For questions worth a real dossier. USDC or card (Stripe). Not cached.",
+    description: "The deeper research tier: more sub-questions, more grounded searches, wider reranked source set, and a premium (Claude Opus class) synthesis into a ~2,200-word cited report with structured findings. For questions worth a real dossier. USDC or card (Stripe). Not cached.",
     tags: ["llm", "research", "web-search", "grounded", "citations", "deep-research", "agent", "premium"],
     discovery: { bodyType: "json", input: EXAMPLE, inputSchema: SCHEMA, output: { example: { ...OUT_EXAMPLE, meta: { ...OUT_EXAMPLE.meta, tier: "research-pro", synthesis_model: "anthropic/claude-opus-5" } } } },
     handler: makeResearchHandler("research-pro"),
   },
   {
     route: "POST /v1/research/max", name: "Deep research report - MAX (exhaustive)", slug: "research-max", category: "llm", price: RESEARCH_TIERS["research-max"].price,
-    description: "The exhaustive tier: up to a dozen sub-questions and grounded searches, the widest reranked source set, premium synthesis into a ~5,000-word cited report with a full source table. Our most thorough single-call research report. USDC or card (Stripe). Not cached.",
+    description: "The exhaustive tier: up to a dozen sub-questions and grounded searches, the widest reranked source set, premium synthesis into a ~2,800-word cited report with a full source table. Our most thorough single-call research report. USDC or card (Stripe). Not cached.",
     tags: ["llm", "research", "web-search", "grounded", "citations", "deep-research", "agent", "premium"],
     discovery: { bodyType: "json", input: EXAMPLE, inputSchema: SCHEMA, output: { example: { ...OUT_EXAMPLE, meta: { ...OUT_EXAMPLE.meta, tier: "research-max", synthesis_model: "anthropic/claude-opus-5" } } } },
     handler: makeResearchHandler("research-max"),
