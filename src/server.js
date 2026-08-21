@@ -24,6 +24,7 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
+import { compositeGuardBlocked, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
@@ -113,6 +114,7 @@ import { FINANCE_TOOLS } from "./tools/finance-kit.js";
 import { CRYPTO_TOOLS } from "./tools/crypto-kit.js";
 import { RESEARCH_TOOLS } from "./tools/research-kit.js";
 import { RESEARCH_DEEP_TOOLS } from "./tools/research-deep-kit.js";
+import { DOSSIER_TOOLS } from "./tools/dossier-kit.js";
 import { NETWORK_TOOLS } from "./tools/network-kit.js";
 import { NETWORK_TOOLS2 } from "./tools/network-kit2.js";
 import { HTML_TOOLS } from "./tools/html-kit.js";
@@ -210,7 +212,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
@@ -1445,6 +1447,18 @@ const revenueWallets = () => ({
   // matched self-funding, same rule as Base) — that inbound is revenue.
   algorandExtraWallets: [(process.env.ALGORAND_UPSTREAM_BUYER_ADDRESS || "").trim() || null].filter(Boolean),
 });
+// Warm the multi-chain revenue snapshot so no visitor ever hits a COLD cache and
+// awaits the full 12-rail scan (the /revenue 502/hang outage). Prior comments
+// claimed a boot warm + background primer existed; none did. Once `cached` is
+// set, stale-while-revalidate serves every later request instantly. The keep-
+// warm tick self-throttles: revenueSnapshot returns the cached object without
+// scanning while it is within SNAPSHOT_TTL, so this adds a scan only when the
+// cache has actually gone stale. Best-effort, unref'd; skipped when the crawler
+// is off (offline tests) to keep them from hitting live RPCs.
+if (process.env.X402_INDEX_CRAWL !== "off" && process.env.X402_SYNC_ON_START !== "false") {
+  setTimeout(() => { revenueSnapshot(revenueWallets()).catch(() => {}); }, 4_000).unref();
+  setInterval(() => { revenueSnapshot(revenueWallets()).catch(() => {}); }, 5 * 60_000).unref();
+}
 app.get("/api/revenue", async (_req, res) => {
   try {
     const snap = await revenueSnapshot(revenueWallets());
@@ -1525,7 +1539,11 @@ app.get("/revenue", async (_req, res) => {
     const snap = await revenueSnapshot(revenueWallets());
     res.set("Cache-Control", "public, max-age=30").type("html").send(revenuePage(BASE_URL, { ...snap, allTime: ledgerSummary(revenueWallets()), mpp: mppSales({ detailed: false }), agents: ledgerBuyerConcentration(revenueWallets()) }));
   } catch (e) {
-    res.status(500).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
+    if (e?.snapshotWarming) {
+      res.status(200).type("html").send('<!doctype html><meta http-equiv="refresh" content="6"><title>Transactions</title><body style="font-family:system-ui,sans-serif;max-width:560px;margin:12vh auto;padding:0 24px;color:#14201b"><h2 style="font-weight:500">Warming up…</h2><p style="color:#5d675f">The live on-chain transaction view is loading for the first time since a deploy. It refreshes here automatically in a few seconds.</p><p><a href="/" style="color:#15654a">Home</a></p></body>');
+    } else {
+      res.status(500).type("html").send('<p>Revenue view temporarily unavailable. <a href="/">Home</a></p>');
+    }
   }
 });
 // Sales ledger — AGGREGATE beacon: totals, the recording window, and counts.
@@ -4911,6 +4929,31 @@ for (const tool of ALL_KIT) {
             if (input[k] === undefined) input[k] = v;
           }
         }
+      }
+
+      // Composite-abuse guard: research/dossier run ~90s of expensive upstream
+      // work BEFORE settlement, and a non-200 releases the (reusable) EIP-3009
+      // nonce - so a payer can make us spend then dodge settlement repeatedly.
+      // Block a payer with too many recent spend-then-fail events BEFORE the next
+      // run; record the outcome on finish (only a genuine spend counts as a fail,
+      // a paid 200 clears it). Registered before the handler so it fires even if
+      // the handler throws. Same doctrine as the external-spend guard below.
+      if (EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
+        if (payer && compositeGuardBlocked(payer)) {
+          const e = new Error("This wallet has too many recent failed settlements on this route; blocked briefly to prevent upstream abuse. A successful payment clears it.");
+          e.statusCode = 429;
+          throw e;
+        }
+        res.on("finish", () => {
+          try {
+            // A settled 200 clears the payer; any non-200 (a settlement failure
+            // rewrites to 402, an empty-synthesis to 502) counts as a spend-then-
+            // fail. A wallet that repeatedly fails to settle IS the drain vector,
+            // whether malicious or a broken wallet - blocking it is correct.
+            if (res.statusCode === 200) recordCompositeSpendSuccess(payer);
+            else recordCompositeSpendFailure(payer);
+          } catch { /* never break a response */ }
+        });
       }
 
       let cacheKey = null;

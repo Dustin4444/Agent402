@@ -10,7 +10,11 @@
 // blow the margin. NOT deterministic (LLM + live web) → WALLET_ONLY, lenient
 // NETWORK test set, never cached (the web moves). Gated on OPENROUTER_API_KEY
 // (503 without it), independent of Stripe keys.
-import { fetchOpenRouter, throwUpstreamError, RERANK_MODEL, bad } from "./llm-gateway-kit.js";
+import { fetchOpenRouter, throwUpstreamError, RERANK_MODEL, bad, upstreamUserId } from "./llm-gateway-kit.js";
+
+// Per-buyer OpenRouter `user` id, so one abusive buyer can't get our whole
+// account provider-blocked (matches every gateway tier). Never throws.
+function safeUser(req) { try { return req ? upstreamUserId(req) : undefined; } catch { return undefined; } }
 
 const RERANK_URL = "https://openrouter.ai/api/v1/rerank";
 
@@ -50,15 +54,15 @@ const MAX_QUERY_CHARS = 2000;
 const SEARCH_TIMEOUT_MS = 60_000;
 const SYNTH_TIMEOUT_MS = 120_000;
 
-async function chat(body, timeoutMs) {
+async function chat(body, timeoutMs, user) {
   // usage.include gets `usage.cost` back so we can meter margin; stripped
-  // before the buyer ever sees the response.
-  const res = await fetchOpenRouter({ ...body, usage: { include: true } }, { timeoutMs });
+  // before the buyer ever sees the response. `user` scopes OpenRouter abuse.
+  const res = await fetchOpenRouter({ ...body, ...(user ? { user } : {}), usage: { include: true } }, { timeoutMs });
   if (!res.ok) await throwUpstreamError(res);
   return res.json();
 }
-async function rerankCall(query, documents, topN) {
-  const res = await fetchOpenRouter({ model: RERANK_MODEL, query, documents, top_n: topN }, { url: RERANK_URL, timeoutMs: 30_000 });
+async function rerankCall(query, documents, topN, user) {
+  const res = await fetchOpenRouter({ model: RERANK_MODEL, query, documents, top_n: topN, ...(user ? { user } : {}) }, { url: RERANK_URL, timeoutMs: 30_000 });
   if (!res.ok) await throwUpstreamError(res);
   return res.json();
 }
@@ -79,7 +83,7 @@ function sourcesFrom(data) {
 
 export function makeResearchHandler(tierSlug) {
   const t = RESEARCH_TIERS[tierSlug];
-  return async (input) => {
+  return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"query": "…"}');
     const query = typeof input.query === "string" ? input.query.trim() : "";
     if (!query) throw bad('"query" (string) is required — the research question to investigate');
@@ -87,6 +91,7 @@ export function makeResearchHandler(tierSlug) {
     const focus = Array.isArray(input.focus) ? input.focus.filter((x) => typeof x === "string").slice(0, 8) : [];
     const recency = ["week", "month", "year", "any"].includes(input.recency) ? input.recency : "any";
     const format = input.format === "json" ? "json" : "markdown";
+    const user = safeUser(req);
 
     let spent = 0;
 
@@ -94,7 +99,7 @@ export function makeResearchHandler(tierSlug) {
     const planPrompt = `You are a research planner. Break this question into ${t.subQ} focused, non-overlapping web-search sub-questions that together fully answer it. Return ONLY a JSON object: {"sub_questions": ["…"], "outline": ["section titles for the final report"]}.\n\nQuestion: ${query}${focus.length ? `\nEmphasize: ${focus.join(", ")}` : ""}${recency !== "any" ? `\nPrefer sources from the last ${recency}.` : ""}`;
     let plan;
     try {
-      const pd = await chat({ model: M.plan, messages: [{ role: "user", content: planPrompt }], max_tokens: 600, response_format: { type: "json_object" }, reasoning: { enabled: false } }, 45_000);
+      const pd = await chat({ model: M.plan, messages: [{ role: "user", content: planPrompt }], max_tokens: 600, response_format: { type: "json_object" }, reasoning: { enabled: false } }, 45_000, user);
       spent += costOf(pd);
       plan = JSON.parse(textOf(pd) || "{}");
     } catch {
@@ -116,7 +121,7 @@ export function makeResearchHandler(tierSlug) {
       max_tokens: 900,
       plugins: [{ id: "web", engine: "exa", max_results: 5 }],
     });
-    const results = await Promise.all(toRun.map((q) => chat(searchBody(q), SEARCH_TIMEOUT_MS).then(
+    const results = await Promise.all(toRun.map((q) => chat(searchBody(q), SEARCH_TIMEOUT_MS, user).then(
       (d) => ({ q, answer: textOf(d), sources: sourcesFrom(d), cost: costOf(d) }),
       () => null,
     )));
@@ -133,7 +138,7 @@ export function makeResearchHandler(tierSlug) {
     if (sources.length > 3) {
       try {
         const docs = sources.map((s) => `${s.title}\n${s.snippet}`.slice(0, 1500));
-        const rr = await rerankCall(query, docs, Math.min(t.topK, sources.length));
+        const rr = await rerankCall(query, docs, Math.min(t.topK, sources.length), user);
         const ranked = (rr?.results || []).map((x) => ({ ...sources[x.index], rank: Number(x.relevance_score) || null })).filter((x) => x.url);
         if (ranked.length) sources = ranked;
         spent += Number(rr?.usage?.cost) || 0.002;
@@ -167,7 +172,7 @@ Write a thorough, well-structured, well-organized report of up to ${t.words} wor
     // default, and reasoning tokens would eat the max_tokens budget before the
     // report is written (smoke test 2026-08-20: a 76-char "I'll write the
     // report now…" stub that still 200'd). We want every token on the report.
-    const sd = await chat({ model: synthModel, messages: [{ role: "user", content: synthPrompt }], max_tokens: t.synthMaxTokens, reasoning: { enabled: false } }, SYNTH_TIMEOUT_MS);
+    const sd = await chat({ model: synthModel, messages: [{ role: "user", content: synthPrompt }], max_tokens: t.synthMaxTokens, reasoning: { enabled: false } }, SYNTH_TIMEOUT_MS, user);
     spent += costOf(sd);
     const prose = textOf(sd);
     if (!prose) throw bad("Synthesis produced no report - not charged", 502);
