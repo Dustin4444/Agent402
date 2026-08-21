@@ -54,8 +54,31 @@ const HEAD = `<meta charset="utf-8"><meta name="viewport" content="width=device-
   .status{background:var(--surface);border:1px solid var(--hair);border-radius:14px;padding:40px 34px;text-align:center;margin-top:24px}
   .status h2{font-size:24px;margin-bottom:10px}.status p{color:var(--muted);max-width:440px;margin:0 auto}
   .report-actions{display:flex;gap:12px;align-items:center;margin:20px 0 4px;flex-wrap:wrap}
-  .keep-hint{color:var(--muted);font-size:13px}
-  @media print{.bar,footer,.no-print{display:none!important}body{background:#fff;color:#000}.wrap{max-width:100%;padding:0}.report{border:0;padding:0;margin:0}.report h1,.report h2,.report h3{color:#000}.report p,.report ol,.report ul{color:#111}.cite{color:#15654a}}
+  .keep-hint{color:var(--muted);font-size:13px;margin-top:2px}
+  /* report letterhead (screen + print) */
+  .rpt-head{border-bottom:2px solid var(--accent);padding-bottom:18px;margin-bottom:26px}
+  .rpt-brand{display:flex;align-items:baseline;gap:9px;font-family:"JetBrains Mono",monospace;margin-bottom:14px}
+  .rpt-brand .n{font-weight:600;color:var(--accent);font-size:15px}
+  .rpt-brand .s{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+  .rpt-title{font-size:30px;line-height:1.12;margin:0}
+  .rpt-meta{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.04em;color:var(--muted);margin-top:9px}
+  .report h1{border-bottom:1px solid var(--hair);padding-bottom:6px}
+  @media print{
+    @page{margin:18mm 16mm}
+    .bar,footer,.no-print{display:none!important}
+    html,body{background:#fff;color:#111}
+    .wrap{max-width:100%;padding:0}
+    .report{border:0;padding:0;margin:0;background:#fff}
+    .rpt-head{border-bottom-color:#15654a;margin-bottom:22px}
+    .rpt-brand .n{color:#15654a}.rpt-brand .s,.rpt-meta{color:#555}
+    .rpt-title,.report h1,.report h2,.report h3{color:#0d1a14}
+    .report h1{border-bottom-color:#ccc}
+    .report p,.report ol,.report ul{color:#222}
+    .cite{color:#15654a}
+    .report a{color:#15654a;text-decoration:none}
+    h1,h2,h3,.rpt-head{break-after:avoid;page-break-after:avoid}
+    p,li{orphans:3;widows:3}
+  }
 </style>`;
 
 function bar() {

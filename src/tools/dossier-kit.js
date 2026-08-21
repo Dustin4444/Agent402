@@ -102,7 +102,7 @@ const FIN_CONCEPTS = [
 async function pullFinancials(ticker, edgarConcept) {
   const results = await Promise.all(FIN_CONCEPTS.map(([tag, label]) =>
     settle(edgarConcept, { ticker, taxonomy: "us-gaap", tag }, DATA_TIMEOUT_MS).then((r) => ({ tag, label, r }))));
-  const seen = new Set(); const lines = [];
+  const seen = new Set(); const lines = []; const rows = [];
   for (const { tag, label, r } of results) {
     if (seen.has(label)) continue;
     const units = r.ok ? (r.data?.units || {}) : {};
@@ -119,8 +119,17 @@ async function pullFinancials(ticker, edgarConcept) {
     if (annual) parts.push(`latest annual ${val(annual)} (${annual.fp || "FY"}${annual.fy ? " " + annual.fy : ""}, ${annual.form || "?"} filed ${annual.filed || "?"})`);
     if (latest && latest !== annual) parts.push(`most recent ${val(latest)} (period ending ${latest.end}, ${latest.form || "?"})`);
     if (parts.length) lines.push(`- ${label}: ${parts.join("; ")}`);
+    // Structured row for the downloadable data appendix (same figures the prose
+    // is grounded in, machine-readable for a spreadsheet).
+    rows.push({
+      metric: label,
+      latestAnnual: annual ? val(annual) : "",
+      annualPeriod: annual ? `${annual.fp || "FY"}${annual.fy ? " " + annual.fy : ""} ${annual.form || ""} filed ${annual.filed || "?"}`.trim() : "",
+      mostRecent: (latest && latest !== annual) ? val(latest) : "",
+      recentPeriod: (latest && latest !== annual) ? `${latest.end} (${latest.form || "?"})` : "",
+    });
   }
-  return lines;
+  return { lines, rows };
 }
 
 export function makeDossierHandler(tierSlug) {
@@ -208,7 +217,7 @@ export function makeDossierHandler(tierSlug) {
     // Web sources WITH their snippet content, so the model can only cite [n] for
     // what a source actually says - not guess a claim from a title alone.
     const webSourceLines = numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => `[${s.n}] ${s.title}${s.snippet ? `\n    "${s.snippet.slice(0, 320)}"` : ""} - ${s.url}`).join("\n") || "(none)";
-    const financialsBlock = financials.length ? financials.join("\n") : "SEC XBRL financial facts unavailable for this issuer.";
+    const financialsBlock = financials.lines.length ? financials.lines.join("\n") : "SEC XBRL financial facts unavailable for this issuer.";
     const maxCite = numbered.length;
 
     // 5) SYNTHESIZE - grounding-strict cited dossier.
@@ -238,6 +247,27 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
     const sourceList = numbered.map((s) => `[${s.n}] ${s.title} - ${s.url}`).join("\n");
     const dossier = sourceList ? `${prose}\n\n## Sources\n${sourceList}` : prose;
 
+    // Downloadable DATA APPENDIX - the structured tables the prose is grounded
+    // in, so the buyer gets a spreadsheet-ready dataset, not only narrative.
+    const insiderRows = insiderTrades.slice(0, 100).map((tr) => [
+      String(tr.reportingOwner || tr.name || tr.insider || ""),
+      String(tr.relationship || tr.title || ""),
+      String(tr.transactionCode || tr.code || tr.type || ""),
+      String(tr.shares ?? tr.amount ?? ""),
+      String(tr.price ?? tr.pricePerShare ?? ""),
+      String(tr.transactionDate || tr.date || tr.filedAt || ""),
+    ]);
+    const tables = [];
+    if (insiderRows.length) tables.push({
+      name: "insider-trades", label: "Form 4 insider transactions",
+      columns: ["Insider", "Role", "Code", "Shares", "Price", "Date"], rows: insiderRows,
+    });
+    if (financials.rows.length) tables.push({
+      name: "financials", label: "SEC XBRL financials",
+      columns: ["Metric", "Latest annual", "Annual period", "Most recent", "Recent period"],
+      rows: financials.rows.map((r) => [r.metric, r.latestAnnual, r.annualPeriod, r.mostRecent, r.recentPeriod]),
+    });
+
     const meta = {
       tier: tierSlug, company, ticker,
       filings_10k: (k10.ok && k10.data?.filings?.length) || 0,
@@ -249,8 +279,8 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
       synthesis_model: SYNTH,
     };
     const out = format === "json"
-      ? { dossier, company, ticker, sources: numbered, meta }
-      : { dossier, company, ticker, sources: numbered, meta };
+      ? { dossier, company, ticker, sources: numbered, tables, meta }
+      : { dossier, company, ticker, sources: numbered, tables, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { webAnswers: webGood.map((r) => ({ q: r.q, answer: r.answer })), quoteBlock, insiderBlock, financialsBlock, webSources: numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => ({ n: s.n, snippet: s.snippet })) };
     return out;
   };
@@ -269,6 +299,7 @@ const OUT_EXAMPLE = {
   dossier: "# Due-Diligence Dossier: Example Corp (EXMP)\n\n## Snapshot\nExample Corp trades at ... [1]\n\n## Sources\n[1] 10-K filed ... - https://www.sec.gov/...",
   company: "Example Corp", ticker: "EXMP",
   sources: [{ n: 1, title: "10-K filed 2025-11-01 - SEC EDGAR", url: "https://www.sec.gov/..." }],
+  tables: [{ name: "financials", label: "SEC XBRL financials", columns: ["Metric", "Latest annual", "Annual period", "Most recent", "Recent period"], rows: [["Total revenue", "$1.2B", "FY 2024 10-K filed 2025-11-01", "$0.3B", "2025-09-30 (10-Q)"]] }],
   meta: { tier: "dossier", company: "Example Corp", ticker: "EXMP", filings_10k: 1, filings_10q: 3, filings_8k: 5, insider_transactions: 8, web_angles: 4, sources_cited: 18, synthesis_model: "anthropic/claude-opus-5" },
 };
 

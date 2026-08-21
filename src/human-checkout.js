@@ -107,8 +107,18 @@ export function createHumanCheckout({ stripe, generate, baseUrl }) {
     store.set(sessionId, { status: "generating", kind: p.kind, slug: p.slug });
     const job = (async () => {
       try {
-        const report = await generate(p.kind, p.slug, input);
-        const rec = { status: "done", kind: p.kind, slug: p.slug, input, report, at: new Date().toISOString() };
+        // generate() may return a plain report string (legacy / tests) or a
+        // bundle { report, title, sources, tables }. Normalize either way.
+        const g = await generate(p.kind, p.slug, input);
+        const bundle = (g && typeof g === "object") ? g : { report: String(g ?? "") };
+        const rec = {
+          status: "done", kind: p.kind, slug: p.slug, input,
+          report: bundle.report || "",
+          title: bundle.title || input,
+          sources: Array.isArray(bundle.sources) ? bundle.sources : [],
+          tables: Array.isArray(bundle.tables) ? bundle.tables : [],
+          at: new Date().toISOString(),
+        };
         store.set(sessionId, rec); saveStore(store);
         // Email the buyer their DURABLE report link, so losing the tab is fine
         // (Stripe Checkout collected the email). Best-effort, fire-and-forget;

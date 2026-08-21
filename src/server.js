@@ -1564,7 +1564,16 @@ if (humanCheckoutEnabled()) {
     const out = await h(kind === "dossier" ? { ticker: input } : { query: input });
     const report = out?.dossier || out?.report;
     if (!report) throw new Error("empty report");
-    return report;
+    // Deliver a BUNDLE, not just prose: the report plus the structured data
+    // appendix (sources always; financials + insider tables on dossiers) so the
+    // human buyer gets spreadsheet-ready data, not only a document.
+    return {
+      report,
+      kind,
+      title: kind === "dossier" ? (out?.company ? `${out.company} (${out.ticker})` : input) : input,
+      sources: Array.isArray(out?.sources) ? out.sources : [],
+      tables: Array.isArray(out?.tables) ? out.tables : [],
+    };
   };
   let _humanCheckout;
   try { _humanCheckout = createHumanCheckout({ stripe: new Stripe(process.env.STRIPE_SECRET_KEY), generate: _humanGenerate, baseUrl: BASE_URL }); } catch { _humanCheckout = null; }
