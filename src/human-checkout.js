@@ -18,6 +18,7 @@
 import Stripe from "stripe";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { sendReportReadyEmail } from "./email.js";
 
 // The premium products the human door sells. All >= $5 (the card floor); the
 // cheap agent tools stay crypto/agent-only. `slug` maps to the paid endpoint's
@@ -109,6 +110,11 @@ export function createHumanCheckout({ stripe, generate, baseUrl }) {
         const report = await generate(p.kind, p.slug, input);
         const rec = { status: "done", kind: p.kind, slug: p.slug, input, report, at: new Date().toISOString() };
         store.set(sessionId, rec); saveStore(store);
+        // Email the buyer their DURABLE report link, so losing the tab is fine
+        // (Stripe Checkout collected the email). Best-effort, fire-and-forget;
+        // a no-op until RESEND_API_KEY + EMAIL_FROM are set.
+        const email = session.customer_details?.email || session.customer_email;
+        if (email) sendReportReadyEmail({ to: email, reportUrl: `${baseUrl}/r/${sessionId}`, productLabel: p.label, subjectOf: input }).catch(() => {});
         return rec;
       } catch (err) {
         // Report failed AFTER payment -> refund the card automatically.

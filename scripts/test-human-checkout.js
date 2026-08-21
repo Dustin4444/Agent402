@@ -2,6 +2,10 @@
 // no free report without a PAID session, generate-once idempotency, and
 // auto-refund on report failure. Offline, in CI.
 import { createHumanCheckout, HUMAN_PRODUCTS, humanCheckoutEnabled } from "../src/human-checkout.js";
+import { rmSync, existsSync } from "node:fs";
+import { join } from "node:path";
+// Isolate: the store persists to /data|/tmp; a prior run must not pollute this one.
+try { rmSync(join(existsSync("/data") ? "/data" : "/tmp", "human-checkout.json")); } catch { /* first run */ }
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { c ? pass++ : fail++; console.log((c ? "ok" : "NOT OK") + " - " + m); };

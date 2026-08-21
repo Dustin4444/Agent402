@@ -53,6 +53,9 @@ const HEAD = `<meta charset="utf-8"><meta name="viewport" content="width=device-
   @keyframes sp{to{transform:rotate(360deg)}}
   .status{background:var(--surface);border:1px solid var(--hair);border-radius:14px;padding:40px 34px;text-align:center;margin-top:24px}
   .status h2{font-size:24px;margin-bottom:10px}.status p{color:var(--muted);max-width:440px;margin:0 auto}
+  .report-actions{display:flex;gap:12px;align-items:center;margin:20px 0 4px;flex-wrap:wrap}
+  .keep-hint{color:var(--muted);font-size:13px}
+  @media print{.bar,footer,.no-print{display:none!important}body{background:#fff;color:#000}.wrap{max-width:100%;padding:0}.report{border:0;padding:0;margin:0}.report h1,.report h2,.report h3{color:#000}.report p,.report ol,.report ul{color:#111}.cite{color:#15654a}}
 </style>`;
 
 function bar() {
