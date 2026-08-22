@@ -900,7 +900,7 @@ export const DERIVATIVES_TOOLS = [
     price: "$0.004",
     description:
       "Options chain for a currency and expiry on Deribit, sorted by strike: instrument, strike, call/put, bid, ask, mark, mark IV, open interest, 24h volume and underlying price for each listed option, plus the list of available expiries. Omit expiry to get the nearest one; pass type call or put to filter one side. limit caps rows (default 100, max 500). Keyless public data.",
-    tags: ["crypto", "derivatives", "options", "options-chain", "strikes", "implied-volatility", "deribit"],
+    tags: ["crypto", "crypto-options", "derivatives", "options", "options-chain", "strikes", "implied-volatility", "bitcoin", "ethereum", "deribit"],
     discovery: {
       bodyType: "json",
       input: { currency: "BTC", limit: 20 },

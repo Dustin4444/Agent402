@@ -358,7 +358,7 @@ export const IMAGES_FAST_TOOLS = [
     price: "$0.020",
     description:
       "Budget text-to-image over x402 - OpenAI images wire (prompt in, inline base64 out) at $0.02 per picture, a quarter of the flagship /v1/images/generations price. Served by FLUX.2 Klein 4B (about 2 seconds per image, 1024x1024 JPEG) with GPT Image 1 Mini as the failover. n locked to 1, text-to-image only, size and quality fixed. Point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and call /images/fast.",
-    tags: ["image-generation", "images", "text-to-image", "flux", "budget", "fast", ...SHARED_TAGS],
+    tags: ["image-generation", "images", "text-to-image", "generate", "generate-image", "create-image", "picture", "cheap", "flux", "budget", "fast", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
       input: { prompt: "A minimalist line drawing of a lighthouse at dawn" },
@@ -375,7 +375,7 @@ export const IMAGES_FAST_TOOLS = [
     price: "$0.050",
     description:
       "Higher-fidelity text-to-image over x402 - OpenAI images wire (prompt in, inline base64 out) at $0.05 per picture. Served by FLUX.2 Pro (about 9 seconds per image, 1024x1024 JPEG) with Qwen Image 3 at 1K as the failover. n locked to 1, text-to-image only, size and quality fixed. Point any OpenAI SDK's images.generate() at base_url https://agent402.tools/v1 and call /images/pro.",
-    tags: ["image-generation", "images", "text-to-image", "flux", "pro", ...SHARED_TAGS],
+    tags: ["image-generation", "images", "text-to-image", "generate", "generate-image", "create-image", "picture", "flux", "pro", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
       input: { prompt: "A photorealistic still life of a brass astrolabe on a walnut desk, soft window light" },
@@ -392,7 +392,7 @@ export const IMAGES_FAST_TOOLS = [
     price: "$0.200",
     description:
       "Text-to-video over x402 - one silent 4-second 720p clip (MP4, inline base64) for a flat $0.20, served by Veo 3.1 Lite. Choose aspect_ratio 16:9 (default) or 9:16; duration, resolution and audio are fixed so the price is. The call returns when the clip is ready (about 40 seconds measured, up to 4 minutes); a failed or timed-out generation is never charged.",
-    tags: ["video-generation", "videos", "text-to-video", "veo", ...SHARED_TAGS],
+    tags: ["video-generation", "video", "videos", "text-to-video", "generate", "generate-video", "create-video", "clip", "animation", "veo", ...SHARED_TAGS],
     discovery: {
       bodyType: "json",
       input: { prompt: "A paper boat drifting down a rain-soaked gutter, close up, cinematic", aspect_ratio: "16:9" },

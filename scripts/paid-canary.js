@@ -334,6 +334,30 @@ export const TOOLS = [
     check: (r) => (r.address === "0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0" && typeof r.isContract === "boolean" && r.untrustedContent === true) || `expected treasury profile with untrustedContent, got ${JSON.stringify(r).slice(0, 120)}`,
   },
   {
+    // Derivatives leg (2026-08-22) - a keyless public upstream, so the only cost
+    // is the settle itself. Two jobs: it seeds the new family into the
+    // settlement-driven explorers (they index routes that get PAID, the way the
+    // gov tools were seeded), and it proves daily that the upstream venue is
+    // still answering and the response still carries live numbers.
+    kit: "derivatives",
+    path: "/api/perp-funding",
+    method: "POST",
+    body: { coin: "BTC", points: 5 },
+    priceUsd: 0.003,
+    check: (r) => (r.coin === "BTC" && typeof r.funding?.hourlyPct === "number" && typeof r.source === "string") || `expected BTC funding numbers, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
+    // Solana intel leg (2026-08-22) - same reasoning as the derivatives leg, on
+    // the other new keyless family. Uses a well-known mint so the answer is
+    // stable and the check can assert real fields rather than mere shape.
+    kit: "solana-intel",
+    path: "/api/sol-token-safety",
+    method: "POST",
+    body: { mint: "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN" },
+    priceUsd: 0.005,
+    check: (r) => (typeof r.riskLevel === "string" && (typeof r.score === "number" || typeof r.normalizedScore === "number") && r.untrustedContent === true) || `expected a graded safety verdict, got ${JSON.stringify(r).slice(0, 120)}`,
+  },
+  {
     // Route-and-execute — the SOR's executing surface. Dispatches internally
     // to /api/hash; a real digest in the receipt-bearing envelope proves the
     // resolve → guard → dispatch → receipt chain on prod.
