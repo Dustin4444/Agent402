@@ -8,6 +8,7 @@ import { RAILS, RAILS_OR } from "./rails.js";
 import { CHAIN_PAGES } from "./market-page.js";
 import { EXEC_TIERS } from "./tools/route-execute.js";
 import { stripeEnabled } from "./mpp-stripe.js";
+import { seededProgrammaticPaths } from "./programmatic-seeds.js";
 
 // Computed ONCE when this module loads (i.e. once per deploy, since Railway
 // restarts the process), not per-request. Every sitemap lastmod below reuses
@@ -16,6 +17,13 @@ import { stripeEnabled } from "./mpp-stripe.js";
 // on day N+1 of the same deploy claimed everything had "just changed," a
 // signal crawlers learn to discount.
 const BOOT_DATE = new Date().toISOString().slice(0, 10);
+
+// Programmatic SEO landing pages (one per seeded ticker / 13F manager). ONLY
+// the curated seeds are advertised: an off-list slug still renders when it
+// resolves on EDGAR, but a sitemap that enumerated an open URL space would
+// invite crawlers to mint upstream requests forever. The hub pages get a
+// higher priority than the entity pages that hang off them.
+const programmaticUrls = (baseUrl) => seededProgrammaticPaths().map((p) => ({ loc: `${baseUrl}${p}`, priority: p.split("/").length === 3 ? "0.8" : "0.6" }));
 
 export function robotsTxt(baseUrl) {
   // Explicitly welcome AI/agent crawlers and search engines; point them at the
@@ -148,7 +156,7 @@ export function sitemapXml(baseUrl, catalog) {
     ...skillSlugs().map((s) => ({ loc: `${baseUrl}/skills/${s}`, priority: "0.8" })),
   ];
   const toolUrls = toolList(catalog).map((t) => ({ loc: `${baseUrl}/tools/${t.slug}`, priority: "0.8" }));
-  const entries = [...staticUrls, ...guideUrls, ...skillUrls, ...toolUrls]
+  const entries = [...staticUrls, ...programmaticUrls(baseUrl), ...guideUrls, ...skillUrls, ...toolUrls]
     .map((u) => `  <url><loc>${u.loc}</loc><lastmod>${lastmod}</lastmod><changefreq>weekly</changefreq><priority>${u.priority}</priority></url>`)
     .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
@@ -166,7 +174,7 @@ function subSitemap(urls, lastmod) {
 }
 export function sitemapIndex(baseUrl) {
   const lastmod = BOOT_DATE;
-  const subs = ["sitemap-pages.xml", "sitemap-tools.xml", "sitemap-guides.xml", "sitemap-skills.xml"];
+  const subs = ["sitemap-pages.xml", "sitemap-reports.xml", "sitemap-tools.xml", "sitemap-guides.xml", "sitemap-skills.xml"];
   const entries = subs.map((s) => `  <sitemap><loc>${baseUrl}/${s}</loc><lastmod>${lastmod}</lastmod></sitemap>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${entries}\n</sitemapindex>`;
 }
@@ -230,6 +238,9 @@ export function sitemapPages(baseUrl, catalog) {
 export function sitemapTools(baseUrl, catalog) {
   const lastmod = BOOT_DATE;
   return subSitemap(toolList(catalog).map((t) => ({ loc: `${baseUrl}/tools/${t.slug}`, priority: "0.8" })), lastmod);
+}
+export function sitemapReports(baseUrl) {
+  return subSitemap(programmaticUrls(baseUrl), BOOT_DATE);
 }
 export function sitemapGuides(baseUrl) {
   const lastmod = BOOT_DATE;

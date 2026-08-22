@@ -153,6 +153,7 @@ export function humanReportsPage(baseUrl) {
       </div>
     </div>
     <p class="note">One-time charge · card or Link · no subscription, no auto-renew · agents buy the same reports over x402 / MPP in USDC · want it re-run on change? <a href="/monitors" style="color:var(--ink);">Monitors</a></p>
+    <p class="note">Free SEC filing pages, no card needed: <a href="/reports/insider" style="color:var(--ink);">insider filings by ticker</a> · <a href="/reports/fund" style="color:var(--ink);">13F holdings by fund</a> · <a href="/reports/dossier" style="color:var(--ink);">company profiles by ticker</a></p>
   </section>
 </div>
 ${ledgerFooterCompact()}

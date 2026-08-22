@@ -125,6 +125,11 @@ export function authorityBucket(mintDisabled, freezeDisabled) {
 export async function probeTokenBrief(mintInput) {
   const mint = normMint(mintInput);
   const safety = await H("sol-token-safety")({ mint });
+  // NB the probe's concentration bucket comes from Jupiter's own top-holder
+  // share (the cheap summary carries it), which is a DIFFERENT measure from the
+  // RugCheck top-10 share the paid brief reports. It is only ever compared with
+  // itself across probes, so a bucket crossing still means "concentration
+  // moved"; never compare a probe bucket with a brief bucket.
   const auth = authorityBucket(safety?.authorities?.mintAuthorityDisabled, safety?.authorities?.freezeAuthorityDisabled);
   const signals = {
     mintAuthority: auth.mint,
@@ -247,7 +252,7 @@ function makeTokenBriefHandlerInner(tierSlug) {
       `Freeze authority: ${freezeDisabled === true ? "REVOKED (holder accounts cannot be frozen)" : freezeDisabled === false ? `LIVE - address ${report?.authorities?.freeze?.address || safety?.authorities?.freezeAuthority || "unknown"} can freeze token accounts` : "unknown"}`,
       `Metadata mutable: ${report?.token?.metadataMutable ?? "unknown"}; update authority ${report?.token?.updateAuthority || "unknown"}`,
       `Token program ${report?.token?.tokenProgram || safety?.tokenProgram || "unknown"}; transfer fee ${report?.transferFee ? `${report.transferFee.pct}% (max ${report.transferFee.maxAmount})` : "none reported"}`,
-      `Creator ${report?.creator || "unknown"}; creator balance ${report?.creatorBalance ?? "unknown"}; dev wallet ${jup?.dev || "unknown"}; dev balance ${jup?.audit?.devBalancePct ?? "unknown"}%; dev mints ${jup?.audit?.devMints ?? "unknown"}`,
+      `Creator ${report?.creator || "unknown"}; creator balance ${report?.creatorBalance ?? "unknown"}; dev wallet ${jup?.dev || "unknown"}; dev balance ${jup?.audit?.devBalancePct == null ? "unknown" : `${jup.audit.devBalancePct}%`}; dev mints ${jup?.audit?.devMints ?? "unknown"}`,
     ].join("\n");
 
     const marketLines = marketRows.slice(0, t.markets).map((m, i) => `${i + 1}. ${m.type || "?"} pool ${m.pool || "?"} - liquidity ${usd(m.liquidityUsd)}, LP locked ${pct(m.lpLockedPct)} (${usd(m.lpLockedUsd)}), LP providers ${m.lpProviders ?? "?"}`).join("\n");
@@ -387,7 +392,9 @@ ${riskBlock}`;
         pairsTotal: pairs?.totalPairs ?? null, pairTotals: pairs?.totals ?? null, pairs: pairRows,
         stats24h: jup?.stats24h ?? null,
       },
-      holders: { totalHolders: report?.totalHolders ?? null, concentration: conc, jupiterTopHoldersPct: jup?.audit?.topHoldersPct ?? null, rows: holderRows.slice(0, t.holders) },
+      // Evidence carries every holder row fetched (the appendix table shows all
+      // of them); t.holders caps only how many are spelled out in the prompt.
+      holders: { totalHolders: report?.totalHolders ?? null, concentration: conc, jupiterTopHoldersPct: jup?.audit?.topHoldersPct ?? null, rows: holderRows },
       risk: { score: safety?.score ?? null, scoreNormalised: safety?.scoreNormalised ?? null, riskLevel: safety?.riskLevel ?? null, riskCounts: safety?.riskCounts ?? null, rugged: report ? report.rugged : null, insiderNetworks: report?.insiderNetworks ?? null, risks },
       buckets, probes,
     };
@@ -432,7 +439,7 @@ const SCHEMA = {
 };
 
 const OUT_EXAMPLE = {
-  report: "# Solana Token Due-Diligence Brief: Jupiter (JUP)\n\n**Mint** `JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN` · **Mint authority** revoked · **Freeze authority** revoked · **LP locked** none · **Top-10 holders** very-high · **RugCheck band** danger\n\n## Snapshot\n...\n\n## What would change this brief\n...\n\nThis brief is evidence from public Solana data sources, not investment advice.\n\n## Sources\n[1] RugCheck full report for JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN - https://api.rugcheck.xyz/v1/tokens/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN/report",
+  report: "# Solana Token Due-Diligence Brief: Jupiter (JUP)\n\n**Mint** `JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN` · **Mint authority** revoked · **Freeze authority** revoked · **LP locked** partial-low · **Top-10 holders** very-high · **RugCheck band** danger\n\n## Snapshot\n...\n\n## What would change this brief\n...\n\nThis brief is evidence from public Solana data sources, not investment advice.\n\n## Sources\n[1] RugCheck full report for JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN - https://api.rugcheck.xyz/v1/tokens/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN/report",
   mint: MINTS.JUP,
   sources: [{ n: 1, title: "RugCheck full report for JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", url: "https://api.rugcheck.xyz/v1/tokens/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN/report" }],
   tables: [{ name: "holders", label: "Top holders", columns: ["Rank", "Owner", "Token account", "Share of supply", "Type", "Insider flag"], rows: [["1", "EXJH...", "6G4X...", "24.77%", "unlabelled wallet", "no"]] }],
@@ -443,16 +450,16 @@ const OUT_EXAMPLE = {
     liquidity: { totalMarketLiquidityUsd: 3585833.66, totalStableLiquidityUsd: 900000, totalLpProviders: 173, lpLockedPct: 8.98, marketsTotal: 1409, markets: [], lockers: [], pairsTotal: 30, pairTotals: { liquidityUsd: 95000000, volume24hUsd: 160000000, txns24h: 40000 }, pairs: [], stats24h: null },
     holders: { totalHolders: 2873512, concentration: { top1Pct: 24.77, top5Pct: 57.67, top10Pct: 66.1, top20Pct: 75.2, top10PctExcludingPools: 46.1, insiderHolders: 0, labeledPoolOrLockerAccounts: 2 }, jupiterTopHoldersPct: 15.28, rows: [] },
     risk: { score: 3550201, scoreNormalised: 97, riskLevel: "danger", riskCounts: { danger: 1, warn: 1, info: 0 }, rugged: false, insiderNetworks: 0, risks: [] },
-    buckets: { mint: "revoked", freeze: "revoked", lpLocked: "none", topHolders: "very-high", riskLevel: "danger" },
+    buckets: { mint: "revoked", freeze: "revoked", lpLocked: "partial-low", topHolders: "very-high", riskLevel: "danger" },
     probes: { report: true, safety: true, pairs: true, lookup: true, price: true },
   },
   meta: {
     tier: "token-brief", mint: MINTS.JUP, name: "Jupiter", symbol: "JUP",
-    mint_authority: "revoked", freeze_authority: "revoked", lp_locked_bucket: "none", top10_bucket: "very-high", risk_level: "danger",
+    mint_authority: "revoked", freeze_authority: "revoked", lp_locked_bucket: "partial-low", top10_bucket: "very-high", risk_level: "danger",
     top10_pct: 66.1, lp_locked_pct: 8.98, price_usd: 0.2027, holders_listed: 15, pairs_listed: 8, risk_flags: 2,
     probes: { report: true, safety: true, pairs: true, lookup: true, price: true },
     sources_cited: 5, synthesis_model: "anthropic/claude-opus-5",
-    fingerprint: "{\"mintAuthority\":\"revoked\",\"freezeAuthority\":\"revoked\",\"lpLocked\":\"none\",\"topHolders\":\"very-high\",\"riskLevel\":\"danger\",\"dangerRisks\":1,\"risks\":[\"LP Vault unlocked\",\"Mutable metadata\"]}",
+    fingerprint: "{\"mintAuthority\":\"revoked\",\"freezeAuthority\":\"revoked\",\"lpLocked\":\"partial-low\",\"topHolders\":\"very-high\",\"riskLevel\":\"danger\",\"dangerRisks\":1,\"risks\":[\"LP Vault unlocked\",\"Mutable metadata\"]}",
     disclaimer: "Evidence from public Solana data sources (RugCheck, DexScreener, Jupiter) at the time of the request. Not investment advice, not a verdict, not exhaustive.",
   },
   untrustedContent: true,

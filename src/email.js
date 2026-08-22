@@ -65,7 +65,7 @@ export async function sendReportReadyEmail({ to, reportUrl, productLabel, subjec
   return sendEmail({ to, subject: subj, html, text });
 }
 
-/** Monitor delivery / alert email. reason: welcome | scheduled | change | tls-expiring | filing. Best-effort. */
+/** Monitor delivery / alert email. reason: welcome | scheduled | change | tls-expiring | filing | recall | digest | safety-change. Best-effort. */
 export async function sendMonitorEmail({ to, reason, label, target, changes = [], reportUrl, manageUrl }) {
   const t = hdr(target);
   const lbl = hdr(label || "monitor", 60);
@@ -77,6 +77,7 @@ export async function sendMonitorEmail({ to, reason, label, target, changes = []
     filing: `New 13F filing: ${t}`,
     problem: `We could not complete your ${lbl} for ${t}`,
     recall: `New FDA recall activity: ${t}`,
+    "safety-change": `Token safety changed: ${t}`,
     digest: `${lbl}: this week's filings${t && t !== "all" ? ` for ${t}` : ""}`,
   };
   const leads = {
@@ -87,6 +88,7 @@ export async function sendMonitorEmail({ to, reason, label, target, changes = []
     filing: `${t} has a new SEC 13F filing. Your fresh holdings + changes report is ready.`,
     problem: `We have tried several times and could not produce a report for ${t}. We will keep trying daily; if the target is wrong, you can cancel or re-subscribe with a corrected one from the manage link below.`,
     recall: `The FDA recall feeds show new activity for ${t} since your last report:`,
+    "safety-change": `The on-chain safety picture for this token changed since your last brief:`,
     digest: `Your weekly IPO pipeline digest is ready${t && t !== "all" ? ` (filers matching "${t}")` : ""}.`,
   };
   const subj = subjects[reason] || `${lbl}: update for ${t}`;

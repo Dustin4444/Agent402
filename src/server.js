@@ -34,6 +34,7 @@ import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./hum
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
+import { insiderPage, fundPage, dossierPage, hubPage, loadTeaser, normalizeTicker, normalizeManagerSlug, isSeededTicker, seededManager } from "./programmatic-pages.js";
 import { createMonitorScheduler } from "./monitor-scheduler.js";
 import { createCredits, CREDIT_PACKS } from "./credits.js";
 import { creditsPage, creditsThanksPage } from "./credits-page.js";
@@ -71,7 +72,7 @@ import { agenticFinancePage } from "./agentic-finance.js";
 import { glossaryPage } from "./glossary.js";
 import { x402101Page } from "./x402-101.js";
 import { aifiCardSvg } from "./aifi-card.js";
-import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills } from "./seo.js";
+import { robotsTxt, sitemapXml, llmsTxt, sitemapIndex, sitemapPages, sitemapTools, sitemapGuides, sitemapSkills, sitemapReports } from "./seo.js";
 import { skillMd } from "./skill-md.js";
 import { createMcpMppLoopback } from "./mcp-mpp.js";
 import { serviceManifest, reliabilityReport } from "./discovery.js";
@@ -132,6 +133,7 @@ import { RESEARCH_DEEP_TOOLS } from "./tools/research-deep-kit.js";
 import { FUND_TOOLS } from "./tools/fund-report-kit.js";
 import { DOMAIN_AUDIT_TOOLS } from "./tools/domain-audit-kit.js";
 import { RECALL_TOOLS, probeRecalls, normRecallQuery } from "./tools/recall-report-kit.js";
+import { TOKEN_BRIEF_TOOLS, probeTokenBrief, describeTokenChanges } from "./tools/token-brief-kit.js";
 import { IPO_TOOLS, probeIpos, normIpoKeyword } from "./tools/ipo-report-kit.js";
 import { INSIDER_TOOLS, probeInsiderFilings } from "./tools/insider-flow-kit.js";
 import { TOKEN_RISK_TOOLS } from "./tools/token-risk-kit.js";
@@ -249,7 +251,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
@@ -1144,6 +1146,9 @@ try {
       fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
       recall: (t) => normRecallQuery(t),
       ipo: (t) => normIpoKeyword(t) || "all",
+      // Validates base58 AND that the mint actually resolves upstream, so a
+      // recurring charge never starts against a target we cannot watch.
+      token: async (t) => (await probeTokenBrief(String(t).trim())).mint,
       insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; throw e; } return k; },
     },
     onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
@@ -1694,6 +1699,45 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
 app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
 app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
 app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
+// Programmatic SEO landing pages for the SEC-filing products: one free,
+// crawlable page per ticker (insider / dossier) and per 13F manager (fund),
+// each showing real filing data and converting to the paid report. Only the
+// curated seed list is advertised (sitemap + hubs); an off-list slug renders
+// when it genuinely resolves on EDGAR and 404s when it does not. Cost control
+// lives in src/programmatic-pages.js (bounded cache, negative cache, EDGAR
+// concurrency gate, per-page deadline); the per-IP limiter is the same
+// sessionReadLimiter the other unauthenticated read routes use.
+const _pgLimited = (req, res) => {
+  if (!sessionReadLimiter.check(clientIp(req)).limited) return false;
+  res.status(429).type("text").send("Too many requests");
+  return true;
+};
+// `next()` on an unresolvable slug falls through to the branded shell 404 at
+// the bottom of this file - one 404 page for the whole site.
+async function _programmaticEntity(req, res, next, kind) {
+  if (_pgLimited(req, res)) return;
+  const isFund = kind === "fund";
+  const slug = isFund ? normalizeManagerSlug(req.params.manager) : normalizeTicker(req.params.ticker);
+  if (!slug) return next();
+  const seeded = isFund ? Boolean(seededManager(slug)) : isSeededTicker(slug);
+  let r;
+  try { r = await loadTeaser(kind, slug, { seeded }); }
+  catch { r = seeded ? { status: "degraded" } : { status: "missing" }; }
+  if (r.status === "missing") return next();
+  const degraded = r.status === "degraded";
+  const html = isFund
+    ? fundPage({ slug, data: r.data || null, baseUrl: BASE_URL, degraded })
+    : kind === "insider"
+      ? insiderPage({ ticker: slug, data: r.data || null, baseUrl: BASE_URL, degraded })
+      : dossierPage({ ticker: slug, data: r.data || null, baseUrl: BASE_URL, degraded });
+  res.set("Cache-Control", degraded ? "public, max-age=60" : "public, max-age=900").type("html").send(html);
+}
+app.get("/reports/insider", (req, res) => { if (_pgLimited(req, res)) return; res.set("Cache-Control", "public, max-age=600").type("html").send(hubPage({ kind: "insider", baseUrl: BASE_URL })); });
+app.get("/reports/fund", (req, res) => { if (_pgLimited(req, res)) return; res.set("Cache-Control", "public, max-age=600").type("html").send(hubPage({ kind: "fund", baseUrl: BASE_URL })); });
+app.get("/reports/dossier", (req, res) => { if (_pgLimited(req, res)) return; res.set("Cache-Control", "public, max-age=600").type("html").send(hubPage({ kind: "dossier", baseUrl: BASE_URL })); });
+app.get("/reports/insider/:ticker", (req, res, next) => { _programmaticEntity(req, res, next, "insider").catch(next); });
+app.get("/reports/fund/:manager", (req, res, next) => { _programmaticEntity(req, res, next, "fund").catch(next); });
+app.get("/reports/dossier/:ticker", (req, res, next) => { _programmaticEntity(req, res, next, "dossier").catch(next); });
 app.get("/credits", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(creditsPage(BASE_URL)));
 app.get("/credits/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(creditsThanksPage(String(req.query.session || ""), BASE_URL)));
 if (_credits) {
@@ -1845,6 +1889,7 @@ if (_subs) {
       manageUrlFor: (reportId) => `${BASE_URL}/monitors/manage?report=${encodeURIComponent(reportId)}&k=${_manageToken(reportId)}`,
       refreshStatus: (subId) => _subs.refreshStatus(subId),
       probeRecalls, probeIpos, probeInsiderFilings,
+      probeTokenBrief, describeTokenChanges,
     });
   } catch (e) { console.warn("[monitors] scheduler failed to initialize:", String(e?.message || e)); _monitors = null; }
 }
@@ -1956,6 +2001,7 @@ app.get("/docs/adapters/:slug", (req, res) => { const html = adapterDocPage(BASE
 app.get("/changelog.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=600"); res.type("application/rss+xml").send(changelogRss(BASE_URL)); });
 app.get("/sitemapindex.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapIndex(BASE_URL)); });
 app.get("/sitemap-pages.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapPages(BASE_URL, CATALOG)); });
+app.get("/sitemap-reports.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapReports(BASE_URL)); });
 app.get("/sitemap-tools.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapTools(BASE_URL, CATALOG)); });
 app.get("/sitemap-guides.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapGuides(BASE_URL)); });
 app.get("/sitemap-skills.xml", (_req, res) => { res.setHeader("Cache-Control", "public, max-age=3600"); res.type("application/xml").send(sitemapSkills(BASE_URL)); });

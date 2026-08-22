@@ -40,7 +40,7 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
   "research", "research-pro", "research-max", "dossier", "dossier-max",
   "fund-report", "fund-report-max", "domain-audit", "domain-audit-pro",
   "token-risk", "token-risk-pro",
-  "recall-report", "insider-report", "market-brief",
+  "recall-report", "insider-report", "market-brief", "token-brief",
   // Media tiers: one upstream call each, but a flat $0.014-$0.12 is spent BEFORE
   // settlement, so an unsettled repeat is free to the caller and real to us.
   // Being in this set also marks them longRunning (EVM exact only) - a 40-240 s

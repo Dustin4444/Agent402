@@ -45,6 +45,7 @@ export const HUMAN_PRODUCTS = {
   "fund-report-max": { label: "Fund portfolio report - Deep", price: 900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
   "domain-audit": { label: "Domain security audit", price: 300, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
   "domain-audit-pro": { label: "Domain security audit - Pro", price: 500, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "token-brief": { label: "Solana token due-diligence brief", price: 900, kind: "token", slug: "token-brief", inputField: "mint", inputLabel: "a Solana token mint address" },
   "recall-report": { label: "FDA recall report", price: 300, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
   "insider-report": { label: "Insider flow report (Form 4)", price: 400, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
   "market-brief": { label: "Market / competitor brief", price: 700, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },

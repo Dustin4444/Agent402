@@ -35,7 +35,7 @@ const EXPECTED = [
   "research", "research-pro", "research-max", "dossier", "dossier-max",
   "fund-report", "fund-report-max", "domain-audit", "domain-audit-pro",
   "token-risk", "token-risk-pro",
-  "recall-report", "insider-report", "market-brief",
+  "recall-report", "insider-report", "market-brief", "token-brief",
   "v1-images-fast", "v1-images-pro", "v1-videos",
 ];
 ok(EXPECTED.every((s) => g.EXPENSIVE_COMPOSITE_SLUGS.has(s)), "every expensive composite slug (research/dossier/fund/domain/token-risk/recall/insider/market-brief) is covered");
