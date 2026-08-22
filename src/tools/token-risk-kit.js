@@ -17,6 +17,7 @@
 // a local ruleset). Settlement-safe (throws >=400 on total failure), WALLET_ONLY,
 // not cached. Synthesis gated on OPENROUTER_API_KEY.
 import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
+import { recordCompositeUsage } from "../composite-spend-guard.js";
 import { BLOCKSCOUT_TOOLS } from "./blockscout-kit.js";
 import { CONTRACT_TOOLS } from "./contract-kit.js";
 
@@ -88,7 +89,7 @@ function isBurn(a) {
 }
 const holderType = (r) => (r.burn ? "burn/dead" : r.isContract ? "contract" : "EOA");
 
-export function makeTokenRiskHandler(tierSlug) {
+function makeTokenRiskHandlerInner(tierSlug) {
   const t = TOKEN_RISK_TIERS[tierSlug];
   return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"address": "0x…", "chain": "base"}');
@@ -107,8 +108,10 @@ export function makeTokenRiskHandler(tierSlug) {
     const info = infoR.ok ? infoR.data : null;
     const holdersData = holdersR.ok ? holdersR.data : null;
     const src = srcR.ok ? srcR.data : null;
-    // If we learned nothing on-chain at all, we can't assess it (not charged).
-    if (!info && !holdersData && !src) throw bad(`Could not read token "${address}" on ${chain} (token, holders, and source probes all failed). Confirm the address and chain. Not charged.`, 422);
+    // Minimum evidence: a RISK report needs on-chain token facts (supply) or the
+    // holder distribution - verified source alone (free Sourcify) is not a risk
+    // assessment and must not be sold as one. Not charged.
+    if (!info && !holdersData) throw bad(`Could not read token "${address}" on ${chain} (token and holder probes both failed${src ? "; only the contract source was readable" : ""}). Confirm the address and chain. Not charged.`, 422);
 
     const totalSupply = info?.totalSupply ?? null;
     const holders = Array.isArray(holdersData?.holders) ? holdersData.holders : [];
@@ -202,6 +205,7 @@ Write a clear, structured report of up to ${t.words} words: SNAPSHOT (what the t
     };
     const out = { report, address, chain, sources, tables, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { infoBlock, verifyBlock, holderBlock, scanBlock, webBlock };
+    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(TOKEN_RISK_TIERS[tierSlug]) });
     return out;
   };
 }
@@ -239,3 +243,15 @@ export const TOKEN_RISK_TOOLS = [
     handler: makeTokenRiskHandler("token-risk-pro"),
   },
 ];
+
+// Upstream-usage telemetry wrapper: a successful run records its exact spend at
+// the return site; a failed run (thrown >= 400, not charged) is recorded here
+// so the burn on failures is visible too (spend unknown at this point -> 0).
+const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
+export function makeTokenRiskHandler(tierSlug) {
+  const run = makeTokenRiskHandlerInner(tierSlug);
+  return async (input, req) => {
+    try { return await run(input, req); }
+    catch (e) { try { recordCompositeUsage({ slug: tierSlug, upstreamUsd: 0, ok: false, priceUsd: priceUsdOf(TOKEN_RISK_TIERS[tierSlug]) }); } catch { /* never mask the real error */ } throw e; }
+  };
+}

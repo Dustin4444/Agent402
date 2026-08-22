@@ -11,6 +11,7 @@
 // charged), cost read for the internal accumulator and never returned,
 // WALLET_ONLY, not cached. Gated on OPENROUTER_API_KEY (503 without it).
 import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
+import { recordCompositeUsage } from "../composite-spend-guard.js";
 import { EDGAR_TOOLS } from "./edgar-kit.js";
 import { FINANCE_TOOLS } from "./finance-kit.js";
 
@@ -130,7 +131,7 @@ async function pullFinancials(ticker, edgarConcept) {
   return { lines, rows };
 }
 
-export function makeDossierHandler(tierSlug) {
+function makeDossierHandlerInner(tierSlug) {
   const t = DOSSIER_TIERS[tierSlug];
   return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"ticker": "AAPL"}');
@@ -286,6 +287,7 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
       ? { dossier, company, ticker, sources: numbered, tables, meta }
       : { dossier, company, ticker, sources: numbered, tables, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { webAnswers: webGood.map((r) => ({ q: r.q, answer: r.answer })), quoteBlock, insiderBlock, financialsBlock, webSources: numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => ({ n: s.n, snippet: s.snippet })) };
+    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(DOSSIER_TIERS[tierSlug]) });
     return out;
   };
 }
@@ -323,3 +325,15 @@ export const DOSSIER_TOOLS = [
     handler: makeDossierHandler("dossier-max"),
   },
 ];
+
+// Upstream-usage telemetry wrapper: a successful run records its exact spend at
+// the return site; a failed run (thrown >= 400, not charged) is recorded here
+// so the burn on failures is visible too (spend unknown at this point -> 0).
+const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
+export function makeDossierHandler(tierSlug) {
+  const run = makeDossierHandlerInner(tierSlug);
+  return async (input, req) => {
+    try { return await run(input, req); }
+    catch (e) { try { recordCompositeUsage({ slug: tierSlug, upstreamUsd: 0, ok: false, priceUsd: priceUsdOf(DOSSIER_TIERS[tierSlug]) }); } catch { /* never mask the real error */ } throw e; }
+  };
+}

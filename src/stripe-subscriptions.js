@@ -13,7 +13,7 @@
 // - The webhook is only VERIFIED when STRIPE_WEBHOOK_SECRET is set; until then
 //   it refuses unverified events (never trusts an unsigned body).
 // Rollout switch = STRIPE_SECRET_KEY (same key as the one-shot checkout).
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 // The monitoring products. Each subscribes to a `target` (a domain, a fund,
@@ -43,11 +43,18 @@ const MAX_STORE = 20000;
 function loadStore(path) {
   try { return new Map(Object.entries(JSON.parse(readFileSync(path, "utf8")))); } catch { return new Map(); }
 }
-function saveStore(path, map) {
+// Merge-on-save + atomic rename: re-read the file, apply OUR changed keys on
+// top, write tmp + rename - so a second process's records are never dropped by
+// a whole-map overwrite, and a crash mid-write never leaves a torn file.
+function saveKeys(path, map, keys) {
   try {
-    const entries = [...map.entries()];
+    const disk = loadStore(path);
+    for (const k of keys) if (map.has(k)) disk.set(k, map.get(k));
+    const entries = [...disk.entries()];
     const keep = entries.length > MAX_STORE ? entries.slice(-MAX_STORE) : entries;
-    writeFileSync(path, JSON.stringify(Object.fromEntries(keep)));
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(Object.fromEntries(keep)));
+    renameSync(tmp, path);
   } catch { /* best-effort */ }
 }
 
@@ -57,7 +64,7 @@ function saveStore(path, map) {
  * @param {string} deps.baseUrl
  * @param {string} [deps.storePath]  override for tests
  */
-export function createStripeSubscriptions({ stripe, baseUrl, storePath }) {
+export function createStripeSubscriptions({ stripe, baseUrl, storePath, validateTarget = {}, onInvoicePaid }) {
   const path = storePath || STORE_PATH();
   const store = loadStore(path);          // subId -> record
 
@@ -65,16 +72,25 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath }) {
     if (!subId) return;
     const prev = store.get(subId) || {};
     store.set(subId, { ...prev, ...patch, updatedAt: new Date().toISOString() });
-    saveStore(path, store);
+    saveKeys(path, store, [subId]);
   }
 
   // Create a subscription Checkout Session for a monitor product + target.
   async function createCheckout(productKey, targetValue) {
-    const p = MONITOR_PRODUCTS[productKey];
+    const p = Object.hasOwn(MONITOR_PRODUCTS, String(productKey)) ? MONITOR_PRODUCTS[productKey] : null;
     if (!p) { const e = new Error("Unknown monitor product"); e.statusCode = 400; throw e; }
-    const target = String(targetValue ?? "").trim();
+    let target = String(targetValue ?? "").trim();
     if (!target) { const e = new Error(`Please provide ${p.inputLabel}.`); e.statusCode = 400; throw e; }
     if (target.length > 200) { const e = new Error("Input is too long."); e.statusCode = 400; throw e; }
+    // Validate (and normalize) the target BEFORE taking a recurring payment: a
+    // domain that does not parse or a manager EDGAR cannot resolve would
+    // otherwise be billed monthly for nothing. validateTarget[kind] returns the
+    // canonical target or throws a 4xx with a buyer-facing message.
+    const v = validateTarget[p.kind];
+    if (typeof v === "function") {
+      try { const t = await v(target); if (typeof t === "string" && t.trim()) target = t.trim().slice(0, 200); }
+      catch (err) { const e = new Error(String(err?.message || `We could not validate ${p.inputLabel}.`).slice(0, 200)); e.statusCode = err?.statusCode && err.statusCode < 500 ? err.statusCode : 400; throw e; }
+    }
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       line_items: [{
@@ -99,24 +115,39 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath }) {
 
   // Called by the success page: verify the session is a PAID subscription and
   // record it immediately (does not depend on the webhook being configured).
+  // The Checkout Session stays paid/complete FOREVER, so it must never be the
+  // source of the subscription's CURRENT status: a canceled subscriber reloading
+  // the thanks page must not flip themselves back to active. Status comes from
+  // the live Subscription object; if that read fails, an existing record keeps
+  // its status and only a first-time provisioning assumes active.
+  const negative = new Map();   // unknown ids are not re-asked of Stripe for 60s
   async function recordFromSession(sessionId) {
     if (typeof sessionId !== "string" || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return { status: "invalid" };
+    const n = negative.get(sessionId);
+    if (n && n > Date.now()) return { status: "not_found" };
     let session;
-    try { session = await stripe.checkout.sessions.retrieve(sessionId); } catch { return { status: "not_found" }; }
+    try { session = await stripe.checkout.sessions.retrieve(sessionId); }
+    catch { if (negative.size > 5000) negative.clear(); negative.set(sessionId, Date.now() + 60_000); return { status: "not_found" }; }
     if (!session || session.mode !== "subscription") return { status: "invalid" };
     if (session.payment_status !== "paid" && session.status !== "complete") return { status: "unpaid" };
     const subId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
     if (!subId) return { status: "pending" };
+    const existing = store.get(subId) || null;
+    let status = existing?.status || "active";
+    try {
+      const sub = await stripe.subscriptions.retrieve(subId);
+      if (sub?.status) status = sub.status;
+    } catch { /* keep existing status (or first-time active) */ }
     const rec = {
-      subId, customer: session.customer, status: "active",
-      product: session.metadata?.product || null,
-      target: session.metadata?.target || null,
-      email: session.customer_details?.email || session.customer_email || null,
-      createdAt: store.get(subId)?.createdAt || new Date().toISOString(),
+      subId, customer: session.customer, status,
+      product: existing?.product || session.metadata?.product || null,
+      target: existing?.target || session.metadata?.target || null,
+      email: session.customer_details?.email || session.customer_email || existing?.email || null,
+      createdAt: existing?.createdAt || new Date().toISOString(),
     };
     upsert(subId, rec);
     const p = MONITOR_PRODUCTS[rec.product];
-    return { status: "active", subId, customer: rec.customer, product: rec.product, label: p?.label || "monitor", target: rec.target };
+    return { status, subId, customer: rec.customer, product: rec.product, label: p?.label || "monitor", target: rec.target };
   }
 
   // Signature-verified webhook. Never trusts an unverified body: without the
@@ -131,10 +162,14 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath }) {
       case "checkout.session.completed": {
         const s = event.data.object;
         if (s.mode === "subscription" && s.subscription) {
-          upsert(typeof s.subscription === "string" ? s.subscription : s.subscription.id, {
-            customer: s.customer, status: "active",
-            product: s.metadata?.product || null, target: s.metadata?.target || null,
-            email: s.customer_details?.email || s.customer_email || null,
+          const id = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
+          // Stripe retries and reorders events: a completed-checkout event must
+          // never overwrite a status the subscription lifecycle already set.
+          const prev = store.get(id);
+          upsert(id, {
+            customer: s.customer, status: prev?.status || "active",
+            product: s.metadata?.product || prev?.product || null, target: s.metadata?.target || prev?.target || null,
+            email: s.customer_details?.email || s.customer_email || prev?.email || null,
           });
         }
         break;
@@ -156,9 +191,35 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath }) {
         upsert(sub.id, { status: "canceled" });
         break;
       }
+      case "invoice.paid": {
+        // Recurring revenue lands here (the first invoice too). Hand it to the
+        // accounting hook so /revenue and the operator surfaces see card
+        // subscriptions, not only x402 settlements. Idempotent on invoice id.
+        const inv = event.data.object;
+        const subId = typeof inv.subscription === "string" ? inv.subscription : inv.subscription?.id || inv.parent?.subscription_details?.subscription || null;
+        const rec = subId ? store.get(subId) : null;
+        if (typeof onInvoicePaid === "function" && inv.amount_paid > 0) {
+          try { onInvoicePaid({ invoiceId: inv.id, subId, product: rec?.product || null, amountUsd: inv.amount_paid / 100, customer: inv.customer }); } catch { /* accounting never breaks the webhook */ }
+        }
+        if (subId && rec) upsert(subId, { lastInvoiceId: inv.id, lastPaidAt: new Date().toISOString() });
+        break;
+      }
       default: break; // ignore unrelated events
     }
     return { received: true, type: event.type };
+  }
+
+  // Re-read a subscription's CURRENT status from Stripe and store it. The
+  // scheduler calls this before every PAID run so a cancellation/card failure
+  // the webhook has not (yet) delivered still stops fulfilment. Returns the
+  // status, or null when Stripe could not be read (caller decides).
+  async function refreshStatus(subId) {
+    if (!subId) return null;
+    try {
+      const sub = await stripe.subscriptions.retrieve(subId);
+      if (sub?.status) { upsert(subId, { status: sub.status, currentPeriodEnd: sub.current_period_end || null, cancelAtPeriodEnd: !!sub.cancel_at_period_end }); return sub.status; }
+    } catch { /* unreadable */ }
+    return null;
   }
 
   // Stripe-hosted Customer Portal for self-serve manage/cancel.
@@ -178,5 +239,5 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath }) {
   }
   const get = (subId) => store.get(subId) || null;
 
-  return { createCheckout, recordFromSession, handleWebhook, portalSession, listActive, get, _store: store };
+  return { createCheckout, recordFromSession, handleWebhook, portalSession, listActive, get, refreshStatus, _store: store };
 }

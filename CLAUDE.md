@@ -405,6 +405,42 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `sendMonitorEmail` (ZeptoMail). Ops: `GET /__operator/monitors.json`, `POST /__operator/monitors/run`
   (`?sub=<id>` forces one; heavy-limited). `MONITOR_SCHEDULER=off` disarms the timer. Rollout switch
   for all of it = `STRIPE_SECRET_KEY`. `scripts/test-monitor-scheduler.js` (35, offline, in CI).
+- **Security + cost review of the report products / human front door / recurring engine (2026-08-22,
+  three adversarial lenses - leaks+auth, money-safety, spend-bounds+abuse - same recipe as 08-19):**
+  HIGH a canceled subscriber re-activated themselves by reloading the thanks page (`recordFromSession`
+  hardcoded `active`; the Checkout Session stays paid forever) - status now comes from the live
+  Subscription object, a replayed `checkout.session.completed` never overwrites a terminal status, and
+  the scheduler calls `refreshStatus` BEFORE every paid run. HIGH a deploy mid-generation stranded a
+  paid one-shot as "generating" forever (charged, no report, no refund) - human-checkout is now one
+  atomic file per session (legacy single-file store imported once), a claim older than 10 min with no
+  local job is taken over ONCE (then refunded), a boot sweep re-drives abandoned claims, owed refunds
+  (refund call failed) are persisted + retried + listed at `GET /__operator/human-checkout.json`, never
+  reported as refunded. HIGH long-running composites (2-4 min, settle-after) were advertised on SVM
+  (recent-blockhash ~60-90s), default AVM (~28s) and Tempo (client-bounded credential): work done, never
+  charged - `def.longRunning` => EVM exact only (`acceptsForItem`), no Tempo challenge/binding, AVM
+  SLOW_TOOL_SECONDS 300 (card/SPT unaffected). MED the monitor report id doubled as the Customer Portal
+  bearer on a page we tell subscribers to share - the manage link is now `?report=<id>&k=<HMAC(report)>`
+  derived from STRIPE_SECRET_KEY, carried only in the subscriber's email, and the report JSON carries no
+  portal bearer. MED unlimited Stripe-API amplification on `/api/r/`, `/api/monitors/confirm`,
+  `/monitors/manage` - per-IP `sessionReadLimiter` (90/min) + 60s/10s negative caches for unknown/unpaid
+  ids. MED composite guard: key falls back to Tempo payer / client IP (nobody unkeyed), counts only 402
+  and 5xx (4xx input errors no longer block a wallet), plus a GLOBAL breaker (12 unsettled runs /15 min
+  => 503 pause on all composites, `COMPOSITE_GUARD_GLOBAL_*`). MED thin-evidence reports sold at full
+  price - research needs >= 1/3 of its searches, token-risk needs token OR holders (source alone is not
+  a risk report). MED monitor targets validated at checkout (`validateTarget`: domain parses, manager
+  resolves on EDGAR) and a target failing 5x tells the subscriber ONCE (`problem` email) - no silent
+  billing; per-sub cap 8 paid runs/30d (then alert-only); fingerprint excludes TLS issuer/valid-to (CDN
+  rotation is not a security change; expiry alert still fires). Accounting: card sales + paid
+  subscription invoices now land in the sales ledger (rail `card`, network `stripe`, wire
+  `stripe-checkout`/`stripe-subscription`), every composite run emits PostHog `composite_usage`
+  (upstream vs price; running totals in the operator JSON), and human/monitor runs carry a per-buyer
+  upstream `user` id. LOW: Stripe error text no longer relayed to buyers (SDK errors carry their own
+  statusCode - relay only our own 4xx), inputs >500 chars chunked across metadata keys (Stripe cap),
+  email subjects control-char-stripped, report viewer escapes quotes + CSV formula-prefix, `Object.hasOwn`
+  on product keys, `human-checkout`/`stripe-subscriptions` stores write tmp+rename (merge-on-save).
+  Prod runs ONE replica (Railway `numReplicas: 1`), so the cross-replica lost-update class is theoretical;
+  the file stores are now safe for it anyway. Tests: test-human-checkout (39), test-stripe-subscriptions
+  (28), test-monitor-scheduler (41), test-composite-guard (16, incl. EVM-only accepts + global breaker).
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

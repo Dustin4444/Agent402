@@ -37,7 +37,7 @@ const generate = async (kind, slug, input) => {
   return { report: `# Report ${kind} ${JSON.stringify(input)}\n\nbody`, title: `T:${kind}`, sources: [{ title: "s", url: "https://x" }], tables: [] };
 };
 let signals = { grade: "B", composite: 82, assessed: ["email auth", "security headers", "TLS"], spf: "present:~all:valid=true", dmarc: "p=none:pct=100:valid=true", dkim: ["s1:2048"], mx: 2, headers: ["strict-transport-security"], tls_issuer: "R3", tls_valid_to: "2026-12-01", tls_days_remaining: 90 };
-const fpOf = (s) => { const { tls_days_remaining: _d, ...rest } = s; return JSON.stringify(rest); };
+const fpOf = (s) => { const { tls_days_remaining: _d, tls_issuer: _i, tls_valid_to: _v, ...rest } = s; return JSON.stringify(rest); };
 let probeFail = false;
 const probeDomain = async (domain) => { calls.probe.push(domain); if (probeFail) throw new Error("all probes failed"); return { domain, signals: { ...signals }, fingerprint: fpOf(signals) }; };
 const normDomain = (t) => { const d = String(t).toLowerCase(); if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) throw new Error("bad domain"); return d; };
@@ -46,7 +46,7 @@ const latestFiling = async ({ cik }) => { calls.filing.push(cik); return { cik, 
 const resolveManager = async (a) => { calls.resolve.push(a); return { cik: "0001067983", name: "FUND X" }; };
 const notify = async (m) => { calls.mail.push(m); return true; };
 
-const mk = (opts = {}) => createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl: "https://agent402.tools", storePath: STORE, now, ownerId: "A", log: () => {}, sleep: async () => {}, ...opts });
+const mk = (opts = {}) => createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl: "https://agent402.tools", storePath: STORE, now, ownerId: "A", log: () => {}, sleep: async () => {}, manageUrlFor: (id) => `https://agent402.tools/monitors/manage?report=${id}&k=TOKEN`, ...opts });
 let sch = mk();
 
 ok(Object.values(MONITOR_PRODUCTS).every((p) => p.slug && p.kind), "every monitor product names the report slug it runs");
@@ -58,7 +58,8 @@ ok(r.full === 1 && calls.generate.length === 1 && calls.generate[0].slug === "do
 ok(calls.mail.length === 1 && calls.mail[0].reason === "welcome" && /\/m\/[A-Za-z0-9_-]{10,}$/.test(calls.mail[0].reportUrl) && calls.mail[0].to === "d@x.com", "welcome email carries a /m/<id> report link");
 const welcomeId = calls.mail[0].reportUrl.split("/m/")[1];
 const view = sch.reportView(welcomeId);
-ok(view && view.status === "done" && view.kind === "domain" && view.monitor.reason === "welcome" && view.monitor.manageUrl.includes(welcomeId), "the report is served by id with monitor context + manage link");
+ok(view && view.status === "done" && view.kind === "domain" && view.monitor.reason === "welcome" && !JSON.stringify(view).includes("manage"), "the report is served by id with monitor context and NO portal bearer in the JSON");
+ok(calls.mail[0].manageUrl === `https://agent402.tools/monitors/manage?report=${welcomeId}&k=TOKEN`, "the keyed manage link rides only in the email");
 ok(sch.subIdOfReport(welcomeId) === "sub_d" && sch.reportView("nope") === null, "report id resolves to its subscription; unknown id is null");
 
 // --- domain: quiet day = free probe, no regen ----------------------------------
@@ -112,9 +113,15 @@ r = await sch.tick();
 ok(r.checked === 1 && calls.mail.length === before, "the same expiring certificate does not alert again the next day");
 signals = { ...signals, tls_days_remaining: 89, tls_valid_to: "2027-03-01" };
 clock += DOMAIN_CHECK_MS;
+const mailsBeforeRenew = calls.mail.length;
+r = await sch.tick();
+ok(r.checked === 1 && calls.mail.length === mailsBeforeRenew, "a certificate RENEWAL alone is not a paid change (CDN rotation is noise) but re-arms the expiry alert");
+signals = { ...signals, tls_days_remaining: 7 };
+clock += DOMAIN_CHECK_MS;
 r = await sch.tick();
 m = calls.mail[calls.mail.length - 1];
-ok(r.full === 1 && m.reason === "change" && /renewed/.test(m.changes.join(" ")), "a renewed certificate is a change (new fingerprint) and re-arms the expiry alert");
+ok(m.reason === "tls-expiring" && /expires in 7 days/.test(m.changes[0]), "...so the NEW certificate nearing expiry alerts again");
+signals = { ...signals, tls_days_remaining: 80, tls_valid_to: "2027-06-01" };
 
 // --- domain: 30-day scheduled full --------------------------------------------------
 clock += DOMAIN_FULL_MS + 1;
@@ -176,6 +183,43 @@ const gb = calls.generate.length, mb = calls.mail.length;
 await sch.tick();
 ok(calls.generate.length === gb && calls.mail.length === mb && sch.status().subs.find((s) => s.subId === "sub_bad").nextAttemptAt, "an invalid target is skipped (no report, no email) and parked");
 active.delete("sub_bad");
+
+// --- Stripe status re-verified before a PAID run ------------------------------------------
+active.set("sub_s", { subId: "sub_s", status: "active", product: "domain-monitor", target: "s.example.com", email: "s@x.com" });
+const statusSch = mk({ refreshStatus: async () => "canceled" });
+const gS = calls.generate.length, mS = calls.mail.length;
+r = await statusSch.tick({ force: true, subId: "sub_s" });
+ok(calls.generate.length === gS && calls.mail.length === mS && r.full === 0, "a sub Stripe now reports canceled gets NO paid run and no email even though the local store says active");
+const statusSch2 = mk({ refreshStatus: async () => null });
+r = await statusSch2.tick({ force: true, subId: "sub_s" });
+ok(calls.generate.length === gS + 1, "an unreadable Stripe status proceeds on the stored status (fail-open for delivery, the stored status is still verified-paid)");
+active.delete("sub_s");
+
+// --- per-sub 30-day paid cap -------------------------------------------------------------------
+active.set("sub_c", { subId: "sub_c", status: "active", product: "domain-monitor", target: "c.example.com", email: "c@x.com" });
+let capSignals = { ...signals };
+const capProbe = async (d) => ({ domain: d, signals: { ...capSignals }, fingerprint: fpOf(capSignals) });
+const capSch = mk({ probeDomain: capProbe });
+await capSch.tick({ force: true, subId: "sub_c" }); // welcome
+let fulls = 1;
+for (let i = 0; i < 12; i++) {
+  clock += MIN_FULL_GAP_MS + 1;
+  capSignals = { ...capSignals, mx: 10 + i };
+  const rr = await capSch.tick({ force: true, subId: "sub_c" });
+  fulls += rr.full || 0;
+}
+const capRow = capSch.status().subs.find((x) => x.subId === "sub_c");
+ok(fulls === 8 && capRow.capReached === true && capRow.fullsLast30d === 8, "a flapping target is capped at 8 paid runs per 30 days; further changes are alert-only");
+active.delete("sub_c");
+
+// --- permanent failure notice (once) -----------------------------------------------------------
+active.set("sub_p", { subId: "sub_p", status: "active", product: "fund-monitor", target: "Nonexistent Fund", email: "p@x.com" });
+const failSch = mk({ resolveManager: async () => { const e = new Error("Could not confidently resolve"); e.statusCode = 404; throw e; } });
+const mP = calls.mail.length;
+for (let i = 0; i < 7; i++) { clock += DAY + 1; await failSch.tick({ force: true, subId: "sub_p" }); }
+const pMails = calls.mail.slice(mP).filter((x) => x.reason === "problem");
+ok(pMails.length === 1 && pMails[0].to === "p@x.com" && /Could not confidently resolve/.test(pMails[0].changes[0]), "after 5 consecutive failures the subscriber is told ONCE (with the manage link), not every day");
+active.delete("sub_p");
 
 // --- lock: a second owner skips while held; stale lock is reclaimed --------------------
 const other = mk({ ownerId: "B" });

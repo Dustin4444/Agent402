@@ -11,6 +11,7 @@
 // NETWORK test set, never cached (the web moves). Gated on OPENROUTER_API_KEY
 // (503 without it), independent of Stripe keys.
 import { fetchOpenRouter, throwUpstreamError, RERANK_MODEL, bad, upstreamUserId } from "./llm-gateway-kit.js";
+import { recordCompositeUsage } from "../composite-spend-guard.js";
 
 // Per-buyer OpenRouter `user` id, so one abusive buyer can't get our whole
 // account provider-blocked (matches every gateway tier). Never throws.
@@ -80,7 +81,7 @@ function sourcesFrom(data) {
   return out;
 }
 
-export function makeResearchHandler(tierSlug) {
+function makeResearchHandlerInner(tierSlug) {
   const t = RESEARCH_TIERS[tierSlug];
   return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"query": "…"}');
@@ -126,7 +127,11 @@ export function makeResearchHandler(tierSlug) {
     )));
     const good = results.filter(Boolean);
     for (const r of good) spent += r.cost;
-    if (!good.length) throw bad("All grounded searches failed upstream - not charged", 502);
+    // Minimum evidence: a report sold as multi-angle research must rest on a
+    // real share of its searches, not one survivor of twelve - under a third
+    // answering is an upstream incident, and a thin report is not charged.
+    const need = Math.max(1, Math.ceil(toRun.length / 3));
+    if (good.length < need) throw bad(`Only ${good.length} of ${toRun.length} grounded searches succeeded upstream - not enough evidence for this report. Not charged; please retry.`, 502);
 
     // Dedupe sources by URL across all searches.
     const byUrl = new Map();
@@ -189,6 +194,7 @@ Write a thorough, well-structured, well-organized report of up to ${t.words} wor
     // Debug seam (never in prod): expose the grounding material so an eval can
     // check that every specific in the report traces to retrieved content.
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { subAnswers: good.map((r) => ({ q: r.q, answer: r.answer })), snippets: sources.map((s) => ({ n: s.n, snippet: s.snippet })) };
+    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(RESEARCH_TIERS[tierSlug]) });
     return out;
   };
 }
@@ -235,3 +241,15 @@ export const RESEARCH_DEEP_TOOLS = [
     handler: makeResearchHandler("research-max"),
   },
 ];
+
+// Upstream-usage telemetry wrapper: a successful run records its exact spend at
+// the return site; a failed run (thrown >= 400, not charged) is recorded here
+// so the burn on failures is visible too (spend unknown at this point -> 0).
+const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
+export function makeResearchHandler(tierSlug) {
+  const run = makeResearchHandlerInner(tierSlug);
+  return async (input, req) => {
+    try { return await run(input, req); }
+    catch (e) { try { recordCompositeUsage({ slug: tierSlug, upstreamUsd: 0, ok: false, priceUsd: priceUsdOf(RESEARCH_TIERS[tierSlug]) }); } catch { /* never mask the real error */ } throw e; }
+  };
+}

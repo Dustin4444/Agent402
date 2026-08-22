@@ -42,6 +42,8 @@ export const MAX_FULL_PER_TICK = 10;
 export const MAX_BACKOFF_MS = DAY;
 export const LOCK_STALE_MS = 20 * 60_000;
 export const TICK_MS = 10 * 60_000;
+export const MAX_FULL_PER_SUB_30D = 8;   // welcome + scheduled + up to 6 change runs; beyond = alert-only
+export const PERMANENT_FAIL_NOTICE_AT = 5; // consecutive failures before the subscriber is told (once)
 const REPORTS_PER_SUB = 12;
 const MAX_RUNS_KEPT = 24;
 
@@ -107,7 +109,7 @@ export function describeDomainChanges(prev, next) {
  * @param {(s:string)=>void} [deps.log]
  * @param {(ms:number)=>Promise<void>} [deps.sleep]
  */
-export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), manageUrlFor = () => `${baseUrl}/monitors`, refreshStatus = null }) {
   const path = storePath || STORE_PATH();
   let store = loadStore(path);
   const me = ownerId || `${process.env.RAILWAY_REPLICA_ID || "local"}:${process.pid}:${randomBytes(3).toString("hex")}`;
@@ -134,10 +136,27 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     while (mine.length > REPORTS_PER_SUB) { const [id] = mine.shift(); delete store.reports[id]; }
   }
 
+  // Paid runs in the trailing 30 days (from the run log) - the per-sub cost cap.
+  function fullsIn30d(st) {
+    const since = now() - 30 * DAY;
+    return (st.runs || []).filter((r) => !r.alertOnly && Date.parse(r.at) >= since).length;
+  }
+  const capReached = (st) => fullsIn30d(st) >= MAX_FULL_PER_SUB_30D;
+
+  // Before spending on a paid run, ask Stripe whether this subscription is
+  // STILL active (a cancellation or failed renewal the webhook has not
+  // delivered must stop fulfilment). Unreadable -> proceed on the stored status.
+  async function stillActive(rec) {
+    if (typeof refreshStatus !== "function") return true;
+    const st = await refreshStatus(rec.subId);
+    return st == null || st === "active" || st === "trialing";
+  }
+
   async function runFull(rec, st, reason, changes = []) {
     const p = MONITOR_PRODUCTS[rec.product];
+    if (!(await stillActive(rec))) { const e = new Error("subscription no longer active"); e.inactive = true; throw e; }
     const input = inputFor(p.kind, rec.target, st);
-    const g = await generate(p.kind, p.slug, input);
+    const g = await generate(p.kind, p.slug, input, { buyerKey: `sub:${rec.subId}` });
     const bundle = (g && typeof g === "object") ? g : { report: String(g ?? "") };
     if (!bundle.report) throw new Error("empty report");
     const id = newReportId();
@@ -153,7 +172,9 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     pruneReports(rec.subId);
     persist();
     if (rec.email) {
-      notify({ to: rec.email, reason, label: p.label, target: rec.target, changes, reportUrl: `${baseUrl}/m/${id}`, manageUrl: `${baseUrl}/monitors/manage?report=${id}` }).catch(() => {});
+      // The manage link (a keyed bearer to the Stripe portal) rides ONLY in the
+      // subscriber's email; the report JSON/page carry no bearer to the portal.
+      notify({ to: rec.email, reason, label: p.label, target: rec.target, changes, reportUrl: `${baseUrl}/m/${id}`, manageUrl: manageUrlFor(id) }).catch(() => {});
     }
     return id;
   }
@@ -167,19 +188,28 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     persist();
     if (rec.email) {
       const id = st.lastReportId;
-      notify({ to: rec.email, reason, label: p.label, target: rec.target, changes, reportUrl: id ? `${baseUrl}/m/${id}` : `${baseUrl}/monitors`, manageUrl: id ? `${baseUrl}/monitors/manage?report=${id}` : `${baseUrl}/monitors` }).catch(() => {});
+      notify({ to: rec.email, reason, label: p.label, target: rec.target, changes, reportUrl: id ? `${baseUrl}/m/${id}` : `${baseUrl}/monitors`, manageUrl: id ? manageUrlFor(id) : `${baseUrl}/monitors` }).catch(() => {});
     }
   }
 
   // A successful step (probe, filing check, or report) ends a backoff episode.
   function recovered(st) { st.failures = 0; st.nextAttemptAt = null; st.lastError = null; }
 
-  function fail(st, e) {
+  function fail(st, e, rec = null) {
+    if (e?.inactive) { st.lastError = "subscription not active"; st.nextAttemptAt = now() + DAY; persist(); return; }
     st.failures = (st.failures || 0) + 1;
     const backoff = Math.min(HOUR * 2 ** (st.failures - 1), MAX_BACKOFF_MS);
     st.nextAttemptAt = now() + backoff;
     st.lastError = errMsg(e);
     st.lastErrorAt = new Date(now()).toISOString();
+    // A target we keep failing on is not "retry quietly forever while billing":
+    // tell the subscriber ONCE (with the manage link) and flag it for the
+    // operator; retries continue at the 24h backoff in case it recovers.
+    if (rec && st.failures === PERMANENT_FAIL_NOTICE_AT && !st.problemNotifiedAt) {
+      st.problemNotifiedAt = new Date(now()).toISOString();
+      const p = MONITOR_PRODUCTS[rec.product];
+      if (rec.email) notify({ to: rec.email, reason: "problem", label: p?.label || "monitor", target: rec.target, changes: [`We have not been able to complete a report for this target (${st.lastError}).`], reportUrl: st.lastReportId ? `${baseUrl}/m/${st.lastReportId}` : `${baseUrl}/monitors`, manageUrl: st.lastReportId ? manageUrlFor(st.lastReportId) : `${baseUrl}/monitors` }).catch(() => {});
+    }
     persist();
   }
 
@@ -196,6 +226,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     const retryPending = (st.failures || 0) > 0;
     const checkDue = force || retryPending || !st.lastCheckAt || now() - st.lastCheckAt >= DOMAIN_CHECK_MS;
     if (fullDue) {
+      if (!first && capReached(st)) return "skip"; // 30d cap: the scheduled run waits
       if (!budget.allow()) return "skip";
       try {
         // Probe first so the fingerprint baseline is set by the same run.
@@ -203,12 +234,12 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
         st.signals = pr.signals; st.fingerprint = pr.fingerprint; st.lastCheckAt = now();
         await runFull(rec, st, first ? "welcome" : "scheduled");
         return "full";
-      } catch (e) { fail(st, e); return "error"; }
+      } catch (e) { fail(st, e, rec); return "error"; }
     }
     if (!checkDue) return "skip";
     let pr;
     try { pr = await probeDomain(domain); }
-    catch (e) { fail(st, e); return "error"; }
+    catch (e) { fail(st, e, rec); return "error"; }
     const prev = st.signals || null, prevFp = st.fingerprint, prevTlsAlerted = st.tlsAlertedFor;
     const changes = describeDomainChanges(prev, pr.signals);
     const changed = !!(st.fingerprint && pr.fingerprint !== st.fingerprint);
@@ -220,14 +251,14 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     const reason = tlsExpiring && !changed ? "tls-expiring" : "change";
     if (tlsExpiring) { st.tlsAlertedFor = validTo; changes.unshift(`TLS certificate expires in ${days} day${days === 1 ? "" : "s"} (valid to ${validTo || "?"})`); }
     const gapOk = !st.lastFullAt || now() - st.lastFullAt >= MIN_FULL_GAP_MS;
-    if (gapOk && budget.allow()) {
+    if (gapOk && !capReached(st) && budget.allow()) {
       try { await runFull(rec, st, reason, changes); return "full"; }
       catch (e) {
         // The change is NOT delivered yet: restore the previous baseline so the
         // retry re-detects it (otherwise the new fingerprint would read as
         // "unchanged" and the subscriber would never hear about it).
         st.signals = prev; st.fingerprint = prevFp; st.tlsAlertedFor = prevTlsAlerted;
-        fail(st, e); return "error";
+        fail(st, e, rec); return "error";
       }
     }
     recovered(st);
@@ -247,7 +278,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
         st.cik = r.cik; st.managerName = r.name || null;
       }
       latest = await latestFiling({ cik: st.cik });
-    } catch (e) { fail(st, e); return "error"; }
+    } catch (e) { fail(st, e, rec); return "error"; }
     st.lastCheckAt = now();
     if (!latest) { recovered(st); st.lastError = "no 13F-HR filings yet"; persist(); return "checked"; }
     const first = !st.accession;
@@ -260,7 +291,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
       st.accession = latest.accessionNumber; st.filedDate = latest.filedDate || null; st.reportDate = latest.reportDate || null;
       persist();
       return "full";
-    } catch (e) { fail(st, e); return "error"; }
+    } catch (e) { fail(st, e, rec); return "error"; }
   }
 
   async function processSub(rec, opts) {
@@ -323,7 +354,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     if (!store.reports[reportId]) store.reports[reportId] = r;
     return {
       status: "done", kind: r.kind, title: r.title, report: r.report, sources: r.sources, tables: r.tables, at: r.at,
-      monitor: { label: r.label, target: r.target, reason: r.reason, changes: r.changes || [], manageUrl: `/monitors/manage?report=${reportId}` },
+      monitor: { label: r.label, target: r.target, reason: r.reason, changes: r.changes || [] },
     };
   }
   const subIdOfReport = (reportId) => (store.reports[reportId] || fromDisk(reportId))?.subId || null;
@@ -339,6 +370,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
         lastReportId: st.lastReportId || null, failures: st.failures || 0, lastError: st.lastError || null,
         nextAttemptAt: st.nextAttemptAt ? new Date(st.nextAttemptAt).toISOString() : null,
         accession: st.accession || null, grade: st.signals?.grade ?? null, tlsDays: st.signals?.tls_days_remaining ?? null,
+        fullsLast30d: fullsIn30d(st), capReached: capReached(st), problemNotifiedAt: st.problemNotifiedAt || null,
         runs: (st.runs || []).slice(-5),
       };
     });

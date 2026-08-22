@@ -11,7 +11,11 @@
         '</div>';
       return;
     }
-    if (s.status === "unpaid" || s.status === "pending") {
+    if (s.status === "canceled" || s.status === "incomplete_expired" || s.status === "unpaid" && s.label) {
+      app.innerHTML = '<div class="status"><h2>This subscription is no longer active</h2><p><a href="/monitors">Start a new monitor</a></p></div>';
+      return;
+    }
+    if (s.status === "unpaid" || s.status === "pending" || s.status === "incomplete" || s.status === "past_due" || s.status === "trialing") {
       app.innerHTML = '<div class="status"><h2>Almost there…</h2><p>Your subscription is being set up. Refresh this page in a moment.</p></div>';
       return;
     }

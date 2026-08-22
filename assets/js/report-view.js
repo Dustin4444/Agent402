@@ -12,7 +12,7 @@
   var api = (app && app.getAttribute("data-api")) || "/api/r/";
   if (!id) { if (app) app.innerHTML = notFound(); return; }
 
-  function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
   function notFound() { return '<div class="status"><h2>Report not found</h2><p><a href="/reports">Start a new report</a></p></div>'; }
 
   function mdToHtml(md) {
@@ -21,7 +21,10 @@
       var l = lines[i];
       l = l.replace(/\[(\d+)\]/g, '<span class="cite">[$1]</span>');
       l = l.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-      l = l.replace(/(https?:\/\/[^\s)]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+      // Text is already entity-escaped here, so a quote can never break out of
+      // href; the class also stops at an escaped quote/angle so the link text
+      // does not swallow trailing markup.
+      l = l.replace(/(https?:\/\/[^\s)<>"']+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
       if (/^### /.test(l)) { out.push("<h3>" + l.slice(4) + "</h3>"); continue; }
       if (/^## /.test(l)) { out.push("<h2>" + l.slice(3) + "</h2>"); continue; }
       if (/^# /.test(l)) { out.push("<h1>" + l.slice(2) + "</h1>"); continue; }
@@ -50,7 +53,13 @@
   function slugify(s) { return String(s || "report").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "report"; }
 
   function toCSV(columns, rows) {
-    var esc2 = function (v) { v = v == null ? "" : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    var esc2 = function (v) {
+      v = v == null ? "" : String(v);
+      // Formula injection: a cell starting with = + - @ (or tab/CR) would execute
+      // when the CSV is opened in a spreadsheet; prefix it so it reads as text.
+      if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+      return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    };
     var out = [columns.map(esc2).join(",")];
     for (var i = 0; i < rows.length; i++) out.push(rows[i].map(esc2).join(","));
     return out.join("\r\n");
@@ -102,7 +111,7 @@
       mon = '<div class="keep-hint no-print">' + esc(s.monitor.label || "Monitor") + " · " + esc(s.monitor.target || "") +
         (s.monitor.reason ? " · " + esc(reasonLabel(s.monitor.reason)) : "") +
         (ch.length ? "<ul>" + ch.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("") + "</ul>" : "") +
-        (s.monitor.manageUrl ? ' <a href="' + esc(s.monitor.manageUrl) + '">Manage or cancel this monitor</a>' : "") + "</div>";
+        ' Manage or cancel from the link in your email.</div>';
     }
     app.innerHTML = actions + mon + '<div class="report" id="report-body">' + head + mdToHtml(s.report || "") + "</div>";
 

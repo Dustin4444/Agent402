@@ -12,6 +12,7 @@
 // OPENROUTER_API_KEY for the synthesis (503 without it).
 import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
 import { KIT } from "./kit.js";
+import { recordCompositeUsage } from "../composite-spend-guard.js";
 import { NETWORK_TOOLS } from "./network-kit.js";
 import { NETWORK_TOOLS2 } from "./network-kit2.js";
 
@@ -134,13 +135,17 @@ export async function probeDomain(domain, { pro = false } = {}) {
     tls_valid_to: tls?.validTo || null,
     tls_days_remaining: tls?.daysRemaining ?? null,
   };
-  const { tls_days_remaining: _d, ...stable } = signals;
+  // Excluded from the fingerprint: days-remaining (volatile), and the TLS
+  // issuer / valid-to pair - multi-cert CDNs rotate issuers and renew often,
+  // which is not a security change; expiry is covered by tls_days_remaining
+  // (the monitor's expiry alert) and by the TLS score folded into composite.
+  const { tls_days_remaining: _d, tls_issuer: _i, tls_valid_to: _v, ...stable } = signals;
   const fingerprint = JSON.stringify(stable);
 
   return { domain, emailR, tlsR, hdrR, email, tls, hdr, ct, tech, whois, emailScore, headerScore, tlsScore, composite, grade, assessed, gradeCaveat, signals, fingerprint };
 }
 
-export function makeDomainAuditHandler(tierSlug) {
+function makeDomainAuditHandlerInner(tierSlug) {
   const t = DOMAIN_AUDIT_TIERS[tierSlug];
   return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"domain": "example.com"}');
@@ -217,6 +222,7 @@ Do NOT write a sources section. Ground every claim in the probe data; where a pr
     };
     const out = { report, domain, grade, composite, sources: [], tables, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { emailBlock, hdrBlock, tlsBlock, proBlock };
+    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(DOMAIN_AUDIT_TIERS[tierSlug]) });
     return out;
   };
 }
@@ -253,3 +259,15 @@ export const DOMAIN_AUDIT_TOOLS = [
     handler: makeDomainAuditHandler("domain-audit-pro"),
   },
 ];
+
+// Upstream-usage telemetry wrapper: a successful run records its exact spend at
+// the return site; a failed run (thrown >= 400, not charged) is recorded here
+// so the burn on failures is visible too (spend unknown at this point -> 0).
+const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
+export function makeDomainAuditHandler(tierSlug) {
+  const run = makeDomainAuditHandlerInner(tierSlug);
+  return async (input, req) => {
+    try { return await run(input, req); }
+    catch (e) { try { recordCompositeUsage({ slug: tierSlug, upstreamUsd: 0, ok: false, priceUsd: priceUsdOf(DOMAIN_AUDIT_TIERS[tierSlug]) }); } catch { /* never mask the real error */ } throw e; }
+  };
+}

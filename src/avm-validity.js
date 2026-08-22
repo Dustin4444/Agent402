@@ -27,6 +27,12 @@ const AVG_ROUND_SECONDS = 2.8;
 const DEFAULT_REQUIRED_SECONDS = 20;
 export const SLOW_TOOL_SECONDS = {
   "image-gen-premium": 90, // gpt-image-2 medium: ~40-60s typical, 60s upstream cap
+  // Long-running composites (2-4 min; see payments.js `longRunning`). Not
+  // advertised on Algorand at all, but a hand-built payment to the route must
+  // still be refused up front rather than burn the upstream run.
+  "research": 300, "research-pro": 300, "research-max": 300, "dossier": 300, "dossier-max": 300,
+  "fund-report": 300, "fund-report-max": 300, "domain-audit": 300, "domain-audit-pro": 300,
+  "token-risk": 300, "token-risk-pro": 300,
 };
 
 export const requiredSecondsFor = (slug) => SLOW_TOOL_SECONDS[slug] ?? DEFAULT_REQUIRED_SECONDS;

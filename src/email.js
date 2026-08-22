@@ -48,9 +48,12 @@ export async function sendEmail({ to, subject, html, text }) {
 }
 
 /** "Here's your report" email with the durable link. Best-effort. */
+// Header material: no control characters (header injection) and a hard length.
+const hdr = (s, n = 100) => String(s ?? "").replace(/[\r\n\x00-\x1f\x7f]/g, " ").slice(0, n);
+
 export async function sendReportReadyEmail({ to, reportUrl, productLabel, subjectOf }) {
-  const subj = `Your ${productLabel || "report"} is ready`;
-  const on = subjectOf ? ` on “${String(subjectOf).slice(0, 100)}”` : "";
+  const subj = `Your ${hdr(productLabel || "report", 60)} is ready`;
+  const on = subjectOf ? ` on “${hdr(subjectOf)}”` : "";
   const html = `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;color:#14201b">
     <h2 style="font-weight:500;color:#14201b">Your ${escapeHtml(productLabel || "report")} is ready</h2>
     <p style="color:#35443c">Your report${escapeHtml(on)} is finished and waiting for you. It's yours to keep — open it any time with the link below.</p>
@@ -64,14 +67,15 @@ export async function sendReportReadyEmail({ to, reportUrl, productLabel, subjec
 
 /** Monitor delivery / alert email. reason: welcome | scheduled | change | tls-expiring | filing. Best-effort. */
 export async function sendMonitorEmail({ to, reason, label, target, changes = [], reportUrl, manageUrl }) {
-  const t = String(target ?? "").slice(0, 100);
-  const lbl = label || "monitor";
+  const t = hdr(target);
+  const lbl = hdr(label || "monitor", 60);
   const subjects = {
     welcome: `Your ${lbl} is live: first report for ${t}`,
     scheduled: `${lbl}: fresh report for ${t}`,
     change: `Change detected on ${t}`,
     "tls-expiring": `Certificate for ${t} is expiring`,
     filing: `New 13F filing: ${t}`,
+    problem: `We could not complete your ${lbl} for ${t}`,
   };
   const leads = {
     welcome: `Your monitor for ${t} is active. Here is your first report, and we will email you again whenever something changes.`,
@@ -79,6 +83,7 @@ export async function sendMonitorEmail({ to, reason, label, target, changes = []
     change: `Our latest check of ${t} found changes since the last report:`,
     "tls-expiring": `Heads up: the TLS certificate for ${t} is close to expiry.`,
     filing: `${t} has a new SEC 13F filing. Your fresh holdings + changes report is ready.`,
+    problem: `We have tried several times and could not produce a report for ${t}. We will keep trying daily; if the target is wrong, you can cancel or re-subscribe with a corrected one from the manage link below.`,
   };
   const subj = subjects[reason] || `${lbl}: update for ${t}`;
   const lead = leads[reason] || `Your ${lbl} has an update for ${t}.`;

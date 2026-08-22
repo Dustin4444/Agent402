@@ -13,6 +13,7 @@
 // WALLET_ONLY, not cached. Pure SEC data for the core (no extra upstream wallet);
 // gated on OPENROUTER_API_KEY for the synthesis (503 without it).
 import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
+import { recordCompositeUsage } from "../composite-spend-guard.js";
 import { get13fHoldings, resolveManager } from "./edgar-kit.js";
 
 function safeUser(req) { try { return req ? upstreamUserId(req) : undefined; } catch { return undefined; } }
@@ -111,7 +112,7 @@ function diff13f(latestAgg, priorAgg) {
 }
 const pct = (part, whole) => (whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : "?");
 
-export function makeFundHandler(tierSlug) {
+function makeFundHandlerInner(tierSlug) {
   const t = FUND_TIERS[tierSlug];
   return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"manager": "Berkshire Hathaway"}');
@@ -237,6 +238,7 @@ Write a thorough, well-structured report of up to ${t.words} words with these se
     };
     const out = { report, manager: managerName, cik: resolved.cik, sources: numbered, tables, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { changeBlock, topHoldings, webAnswers: webGood.map((r) => ({ q: r.q, answer: r.answer })) };
+    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(FUND_TIERS[tierSlug]) });
     return out;
   };
 }
@@ -274,3 +276,15 @@ export const FUND_TOOLS = [
     handler: makeFundHandler("fund-report-max"),
   },
 ];
+
+// Upstream-usage telemetry wrapper: a successful run records its exact spend at
+// the return site; a failed run (thrown >= 400, not charged) is recorded here
+// so the burn on failures is visible too (spend unknown at this point -> 0).
+const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
+export function makeFundHandler(tierSlug) {
+  const run = makeFundHandlerInner(tierSlug);
+  return async (input, req) => {
+    try { return await run(input, req); }
+    catch (e) { try { recordCompositeUsage({ slug: tierSlug, upstreamUsd: 0, ok: false, priceUsd: priceUsdOf(FUND_TIERS[tierSlug]) }); } catch { /* never mask the real error */ } throw e; }
+  };
+}

@@ -436,6 +436,20 @@ export function capturePostHogToolGone({ route, replacement }) {
 // list-price estimate — and it back-checks the MODEL_COST table the margin
 // clamp prices against. upstreamUsd null (provider didn't report) still
 // captures tokens so volume stays queryable.
+/** One event per composite report run (research/dossier/fund/domain/token-risk): the
+ *  upstream we spent vs the price - these are the largest single upstream calls we
+ *  make and were invisible to margin telemetry before 2026-08-22. */
+export function capturePostHogCompositeUsage({ slug, upstreamUsd, ok, priceUsd }) {
+  if (!posthogEnabled()) return;
+  try {
+    client.capture({
+      distinctId: "agent402-server",
+      event: "composite_usage",
+      properties: { slug, upstreamUsd, ok, priceUsd, marginUsd: priceUsd != null ? Math.round((priceUsd - upstreamUsd) * 1e4) / 1e4 : null },
+    });
+  } catch { /* never throw */ }
+}
+
 export function capturePostHogGatewayUsage({ tier, model, priceUsd, upstreamUsd, promptTokens, completionTokens, serviceTier }) {
   if (!active()) return;
   const price = Number(priceUsd) || 0;

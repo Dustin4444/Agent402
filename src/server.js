@@ -24,7 +24,7 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
-import { compositeGuardBlocked, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, _compositeGuardState } from "./composite-spend-guard.js";
 import Stripe from "stripe";
 import { createHumanCheckout, humanCheckoutEnabled } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
@@ -1023,6 +1023,9 @@ for (const tier of EXEC_TIERS) {
 // routes. Every other tool is untouched and keeps all configured chains.
 for (const def of Object.values(CATALOG)) {
   if (isIdentityBoundRoute(def)) def.identityBound = true;
+  // Long-running composites settle AFTER a 2-4 min handler: EVM exact only
+  // (see acceptsForItem) and no Tempo challenge (see mpp-tempo).
+  if (EXPENSIVE_COMPOSITE_SLUGS.has(def.slug)) def.longRunning = true;
 }
 
 // Boot-time guard: the retired pairwise-converter 410 handler (see the
@@ -1096,13 +1099,37 @@ const phProxyLimiter = createRateLimiter("posthog-proxy", { perMin: PH_MAX_PER_M
 // (/api/buy, /api/subscribe) - each makes an outbound Stripe API call, so cap
 // the amplification a spammer can drive.
 const checkoutLimiter = createRateLimiter("checkout", { perMin: 20, perHour: 120 });
+// Per-IP limiter for the unauthenticated Stripe-READING routes (/api/r/:id poll,
+// /api/monitors/confirm, /monitors/manage): an unknown id costs a Stripe
+// retrieve (and manage a portal write), so a scanner could push our key into
+// Stripe's rate limit. A legitimate report poll is ~20/min.
+const sessionReadLimiter = createRateLimiter("session-read", { perMin: 90, perHour: 1500 });
 const clientIp = (req) => (req.ip || req.socket?.remoteAddress || "?").trim();
 // Recurring subscriptions engine (Phase 2). Initialized EARLY so the Stripe
 // webhook route can mount with a RAW body parser BEFORE the global express.json()
 // below - webhook signature verification needs the unparsed body.
 let _subs = null;
-try { _subs = subscriptionsEnabled() ? createStripeSubscriptions({ stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL }) : null; }
-catch { _subs = null; }
+try {
+  _subs = subscriptionsEnabled() ? createStripeSubscriptions({
+    stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
+    // Validate targets BEFORE the recurring charge: a domain must parse; a fund
+    // manager must resolve on EDGAR (the resolved registered name is stored).
+    validateTarget: {
+      domain: (t) => normDomain({ domain: t }),
+      fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
+    },
+    onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
+  }) : null;
+} catch (e) { console.warn("[monitors] subscriptions init failed:", String(e?.message || e).slice(0, 200)); _subs = null; }
+// Manage/cancel bearer for monitor subscribers: a keyed token over the report
+// id, carried ONLY in the subscriber's email - never in the report JSON or on
+// the report page, which subscribers are told to share. Derived from the
+// Stripe key so it needs no new secret; rotating the key invalidates links.
+const _manageToken = (reportId) => createHmac("sha256", `${(process.env.STRIPE_SECRET_KEY || "").trim()}:monitor-manage`).update(String(reportId)).digest("base64url").slice(0, 32);
+const _manageTokenOk = (reportId, k) => {
+  const want = Buffer.from(_manageToken(reportId)), got = Buffer.from(String(k || ""));
+  return want.length === got.length && timingSafeEqual(want, got);
+};
 if (_subs) {
   app.post("/api/stripe/webhook", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
     try { res.json(await _subs.handleWebhook(req.body, req.headers["stripe-signature"])); }
@@ -1588,12 +1615,17 @@ app.get("/revenue", async (_req, res) => {
 // `input` is a string (wrapped per kind) or an object passed straight through
 // (the scheduler pins a resolved CIK for fund monitors that way).
 const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS].map((t) => [t.slug, t.handler]));
-const _humanGenerate = async (kind, slug, input) => {
+const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     const h = _premiumHandlers[slug];
     if (!h) throw new Error("no handler for " + slug);
     const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }) };
     const arg = (input && typeof input === "object") ? input : (argOf[kind] || argOf.research)(input);
-    const out = await h(arg);
+    // A minimal request-shaped context so upstreamUserId() scopes OpenRouter's
+    // per-user provider policy to THIS buyer (session / subscription), instead
+    // of every card buyer sharing one anonymous bucket.
+    const key = String(ctx?.buyerKey || "human:anonymous");
+    const pseudoReq = { header: (n) => (String(n).toLowerCase() === "authorization" ? key : undefined), headers: { authorization: key } };
+    const out = await h(arg, pseudoReq);
     const report = out?.dossier || out?.report;
     if (!report) throw new Error("empty report");
     // Deliver a BUNDLE, not just prose: the report plus the structured data
@@ -1611,16 +1643,39 @@ const _humanGenerate = async (kind, slug, input) => {
 };
 if (humanCheckoutEnabled()) {
   let _humanCheckout;
-  try { _humanCheckout = createHumanCheckout({ stripe: new Stripe(process.env.STRIPE_SECRET_KEY), generate: _humanGenerate, baseUrl: BASE_URL }); } catch { _humanCheckout = null; }
+  try {
+    _humanCheckout = createHumanCheckout({
+      stripe: new Stripe(process.env.STRIPE_SECRET_KEY), generate: _humanGenerate, baseUrl: BASE_URL,
+      // Card sales land in the SAME sales ledger as x402 settlements (rail
+      // "card", network "stripe", the PaymentIntent as tx) so /revenue and the
+      // operator surfaces see the human front door.
+      onSale: ({ product, priceUsd, paymentIntent }) => recordSale({ slug: product, priceUsd, rail: "card", network: "stripe", payer: null, tx: paymentIntent, wire: "stripe-checkout" }),
+    });
+  } catch (e) { console.warn("[human-checkout] init failed:", String(e?.message || e).slice(0, 200)); _humanCheckout = null; }
   if (_humanCheckout) {
+    // Abandoned claims from a previous process (deploy mid-generation) are
+    // re-driven shortly after boot - the buyer may have closed the tab.
+    const _sweep = setTimeout(() => { _humanCheckout.recoverAbandoned().catch(() => {}); }, 45_000);
+    _sweep.unref?.();
+    app.get("/__operator/human-checkout.json", (req, res) => {
+      if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+      res.set("Cache-Control", "no-store").json({ ...(_humanCheckout.listIssues()), compositeGuard: _compositeGuardState() });
+    });
     app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
     app.post("/api/buy", async (req, res) => {
       if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
       try { res.json({ url: (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url }); }
-      catch (e) { res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 200) }); }
+      catch (e) {
+        // Our own 4xx messages are safe to show; a Stripe/SDK error is logged
+        // and answered generically (its text can echo key mode/request detail).
+        if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+        console.warn("[human-checkout] createSession failed:", String(e?.message || e).slice(0, 200));
+        res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
+      }
     });
     app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""))));
     app.get("/api/r/:sessionId", async (req, res) => {
+      if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
       try { res.set("Cache-Control", "no-store").json(await _humanCheckout.fulfill(String(req.params.sessionId || ""))); }
       catch (e) { res.status(500).json({ status: "error", error: String(e?.message || e).slice(0, 200) }); }
     });
@@ -1636,26 +1691,36 @@ if (_subs) {
   app.post("/api/subscribe", async (req, res) => {
     if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     try { res.json({ url: (await _subs.createCheckout(req.body?.product, req.body?.target)).url }); }
-    catch (e) { res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 200) }); }
+    catch (e) {
+      if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+      console.warn("[monitors] createCheckout failed:", String(e?.message || e).slice(0, 200));
+      res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
+    }
   });
   app.get("/api/monitors/confirm", async (req, res) => {
     res.set("Cache-Control", "no-store");
+    if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
     try {
       const r = await _subs.recordFromSession(String(req.query.session || ""));
       // Do NOT mint a billing portal on the auto-poll (a portal can view invoices
       // + payment method and cancel). The manage link mints it on explicit click.
       res.json({ status: r.status, label: r.label, target: r.target });
-    } catch (e) { res.status(500).json({ status: "error", error: String(e?.message || e).slice(0, 200) }); }
+    } catch (e) { console.warn("[monitors] confirm failed:", String(e?.message || e).slice(0, 200)); res.status(500).json({ status: "error", error: "Could not confirm the subscription right now." }); }
   });
   // Explicit manage/cancel: mint the Stripe Customer Portal at click time, then
   // redirect. (The session id is the buyer's bearer for this purchase.)
-  // Two bearers reach the portal: the checkout session id (the thanks page) or a
-  // delivered monitor report id (the email / report page) - both unguessable.
+  // Two bearers reach the portal: the checkout session id (the thanks page) or
+  // a delivered report id PLUS its keyed manage token `k` (the subscriber's
+  // email only). The bare report id is deliberately NOT enough: subscribers are
+  // told to share report links, and the portal shows card/billing details.
   app.get("/monitors/manage", async (req, res) => {
+    if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).type("text").send("Too many requests");
     try {
       let customer = null;
       if (req.query.report && _monitors) {
-        const subId = _monitors.subIdOfReport(String(req.query.report || ""));
+        const reportId = String(req.query.report || "");
+        if (!_manageTokenOk(reportId, req.query.k)) return res.redirect("/monitors");
+        const subId = _monitors.subIdOfReport(reportId);
         const rec = subId ? _subs.get(subId) : null;
         if (rec?.customer) customer = rec.customer;
       } else {
@@ -1686,6 +1751,8 @@ if (_subs) {
       subs: _subs, generate: _humanGenerate, probeDomain, normDomain,
       latestFiling: latest13fFiling, resolveManager: edgarResolveManager,
       notify: sendMonitorEmail, baseUrl: BASE_URL,
+      manageUrlFor: (reportId) => `${BASE_URL}/monitors/manage?report=${encodeURIComponent(reportId)}&k=${_manageToken(reportId)}`,
+      refreshStatus: (subId) => _subs.refreshStatus(subId),
     });
   } catch (e) { console.warn("[monitors] scheduler failed to initialize:", String(e?.message || e)); _monitors = null; }
 }
@@ -4134,7 +4201,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def) };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) };
     },
   });
   if (tempoAppender) app.use(tempoAppender);
@@ -4150,7 +4217,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def) };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) };
     },
   });
   if (stripeAppender) app.use(stripeAppender);
@@ -5099,19 +5166,30 @@ for (const tool of ALL_KIT) {
       // a paid 200 clears it). Registered before the handler so it fires even if
       // the handler throws. Same doctrine as the external-spend guard below.
       if (EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
-        if (payer && compositeGuardBlocked(payer)) {
-          const e = new Error("This wallet has too many recent failed settlements on this route; blocked briefly to prevent upstream abuse. A successful payment clears it.");
+        // Guard key: the signed EVM payer when present; otherwise the Tempo
+        // payer the gate verified, or the client IP (card/SPT buyers and any
+        // rail whose payer is only known post-settlement) - nobody is unkeyed.
+        const guardKey = payer || (req.mppTempoPayer ? `tempo:${req.mppTempoPayer}` : `ip:${clientIp(req)}`);
+        if (compositeGuardGlobalPaused()) {
+          const e = new Error("Premium report generation is briefly paused after a burst of unsettled runs; please retry in a few minutes. Not charged.");
+          e.statusCode = 503;
+          throw e;
+        }
+        if (compositeGuardBlocked(guardKey)) {
+          const e = new Error("Too many recent failed settlements on this route from this buyer; blocked briefly to prevent upstream abuse. A successful payment clears it.");
           e.statusCode = 429;
           throw e;
         }
         res.on("finish", () => {
           try {
-            // A settled 200 clears the payer; any non-200 (a settlement failure
-            // rewrites to 402, an empty-synthesis to 502) counts as a spend-then-
-            // fail. A wallet that repeatedly fails to settle IS the drain vector,
-            // whether malicious or a broken wallet - blocking it is correct.
-            if (res.statusCode === 200) recordCompositeSpendSuccess(payer);
-            else recordCompositeSpendFailure(payer);
+            // A settled 200 clears the key. A spend-then-fail is a 402 (the
+            // settlement-failure rewrite) or a 5xx AFTER the run (empty
+            // synthesis, upstream outage): both burned upstream with no revenue.
+            // A 4xx input/evidence error happens before meaningful spend and is
+            // NOT counted - three typos must not block a legitimate buyer.
+            const st = res.statusCode;
+            if (st === 200) recordCompositeSpendSuccess(guardKey);
+            else if (st === 402 || st >= 500) recordCompositeSpendFailure(guardKey);
           } catch { /* never break a response */ }
         });
       }

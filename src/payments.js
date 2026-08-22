@@ -413,6 +413,14 @@ export function acceptsForItem(item, rails) {
   // rail these routes structurally cannot serve - it fails closed at a 400 with
   // nobody charged, but a rail that cannot work should not be advertised.
   if (item.identityBound) return evm;
+  // Long-running composites (research/dossier/fund/domain/token-risk: 2-4 min
+  // handlers, settlement AFTER) stay EVM-`exact` ONLY: EIP-3009 validBefore is
+  // sized by maxTimeoutSeconds (300s) and covers the run; the SVM challenge
+  // embeds a recent blockhash (~60-90s), a default AVM txn is ~10 rounds
+  // (~28s) and Tempo credentials are client-bounded - on those rails the work
+  // is done, settlement fails, and the buyer is never charged. A rail that
+  // structurally cannot settle these must not be advertised for them.
+  if (item.longRunning) return evm;
   return [
     ...evm,
     ...upto,
