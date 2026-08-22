@@ -48,6 +48,12 @@ const pruneStmt = db.prepare("DELETE FROM pow_used WHERE exp < ?");
 // Tools that cost real money or reach the network are NOT compute-payable —
 // they stay wallet-only so PoW can't be used to farm Chromium/egress/storage.
 export const WALLET_ONLY_SLUGS = new Set([
+  "asset-transfers", "token-balances", "token-allowance", "tx-receipt", "block-receipts", "token-price-history",  // alchemy-data-kit.js (egress)
+  "fc-cast-search", "fc-channel-feed", "fc-trending", "fc-user-casts", "fc-cast", "fc-cast-replies", "fc-channel", "fc-user-search", "fc-cast-metrics",  // farcaster-social-kit.js (egress)
+  "coin-price-by-contract", "coin-profile", "coin-history", "coin-ohlc", "coin-market-chart-range", "coin-categories", "global-defi", "exchanges", "exchange-tickers", "exchange-rates", "coin-search", "coins-list",  // crypto-markets-kit.js (egress)
+  "defi-yields", "defi-yield-history", "defi-protocols", "defi-protocol", "defi-chains", "defi-chain-tvl-history", "stablecoins", "stablecoin-supply-history", "defi-fees", "defi-dex-volume",  // defi-kit.js (egress)
+  "crypto-news", "crypto-indicators", "crypto-market-pulse",  // crypto-signals-kit.js (egress)
+  "site-map", "site-crawl",  // crawl-kit.js (egress)
   // derivatives-kit (Hyperliquid/Deribit/DefiLlama egress), x-data-kit (X API), b2b-enrich-kit (Hunter/Apollo) - 2026-08-22
   "perp-markets", "perp-funding", "perp-funding-screener", "perp-open-interest", "perp-klines", "perp-orderbook", "perp-basis",
   "options-summary", "crypto-options-chain", "options-ticker", "options-volume",

@@ -1529,6 +1529,18 @@ jobs:
         run: node scripts/test-b2b-enrich-kit.js
       - name: solana-intel kit (offline)
         run: node scripts/test-solana-intel-kit.js
+      - name: alchemy-data kit (offline)
+        run: node scripts/test-alchemy-data-kit.js
+      - name: farcaster-social kit (offline)
+        run: node scripts/test-farcaster-social-kit.js
+      - name: crypto-markets kit (offline)
+        run: node scripts/test-crypto-markets-kit.js
+      - name: defi kit (offline)
+        run: node scripts/test-defi-kit.js
+      - name: crypto-signals kit (offline)
+        run: node scripts/test-crypto-signals-kit.js
+      - name: crawl kit (offline)
+        run: node scripts/test-crawl-kit.js
 
       - name: Paid-upstream leak guard (Brave + E2B — every metered route/pack must be skipped — offline)
         run: node scripts/test-brave-leak.js
