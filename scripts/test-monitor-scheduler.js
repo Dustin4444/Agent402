@@ -49,8 +49,10 @@ let recallItems = [{ recallNumber: "D-1", firm: "Acme", classification: "Class I
 const probeRecalls = async (q) => { calls.recalls = (calls.recalls || 0) + 1; return { query: q, items: recallItems, ids: recallItems.map((x) => x.recallNumber).sort(), fingerprint: "" }; };
 let ipoRows = [{ stage: "priced", name: "Newco", accessionNumber: "A-1" }];
 const probeIpos = async () => { calls.ipos = (calls.ipos || 0) + 1; return { rows: ipoRows, ids: ipoRows.map((r) => r.accessionNumber) }; };
+let form4 = [{ accessionNumber: "F-1", filedDate: "2026-08-01", displayNames: ["COOK TIM (CIK 1)"] }];
+const probeInsiderFilings = async () => { calls.form4 = (calls.form4 || 0) + 1; return { filings: form4, ids: form4.map((f) => f.accessionNumber).sort() }; };
 
-const mk = (opts = {}) => createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, probeRecalls, probeIpos, baseUrl: "https://agent402.tools", storePath: STORE, now, ownerId: "A", log: () => {}, sleep: async () => {}, manageUrlFor: (id) => `https://agent402.tools/monitors/manage?report=${id}&k=TOKEN`, ...opts });
+const mk = (opts = {}) => createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, probeRecalls, probeIpos, probeInsiderFilings, baseUrl: "https://agent402.tools", storePath: STORE, now, ownerId: "A", log: () => {}, sleep: async () => {}, manageUrlFor: (id) => `https://agent402.tools/monitors/manage?report=${id}&k=TOKEN`, ...opts });
 let sch = mk();
 
 ok(Object.values(MONITOR_PRODUCTS).every((p) => p.slug && p.kind), "every monitor product names the report slug it runs");
@@ -259,6 +261,20 @@ r = await sch.tick({ subId: "sub_i" });
 m = calls.mail[calls.mail.length - 1];
 ok(r.full === 1 && m.reason === "digest" && /1 new registration/.test(m.changes[0]), "a week with filings: digest run + 'digest' email with the counts");
 active.delete("sub_i");
+
+// --- insider watch: welcome, daily free probe, paid run only on a NEW Form 4 accession ----------
+active.set("sub_n", { subId: "sub_n", status: "active", product: "insider-monitor", target: "AAPL", email: "n@x.com" });
+clock += HOUR;
+r = await sch.tick({ force: true, subId: "sub_n" });
+const ng = calls.generate.filter((g) => g.kind === "insider");
+ok(r.full === 1 && ng.length === 1 && ng[0].slug === "insider-report" && ng[0].input.ticker === "AAPL", "insider first sight: welcome report via insider-report");
+clock += DAY + 1; r = await sch.tick({ force: true, subId: "sub_n" });
+ok(calls.generate.filter((g) => g.kind === "insider").length === 1, "same Form 4 set a day later: probe only");
+form4 = [...form4, { accessionNumber: "F-2", filedDate: "2026-09-12", displayNames: ["LEVINSON ART (CIK 2)"] }]; clock += DAY + 1;
+r = await sch.tick({ force: true, subId: "sub_n" });
+m = calls.mail[calls.mail.length - 1];
+ok(r.full === 1 && m.reason === "filing" && /LEVINSON ART/.test(m.changes[0]), "a NEW Form 4 accession triggers a paid re-run + 'filing' email naming the filer");
+active.delete("sub_n");
 
 // --- lock: a second owner skips while held; stale lock is reclaimed --------------------
 const other = mk({ ownerId: "B" });

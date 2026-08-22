@@ -452,6 +452,20 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   (weekly "digest" run, no email on an empty week). Products: `recall-monitor` + `ipo-monitor` ($9/mo) in
   MONITOR_PRODUCTS, `recall-report` ($5) in HUMAN_PRODUCTS + `/reports` card. Adding a monitor kind =
   kit with a cheap `probeX()` + a `processX` branch + MONITOR_PRODUCTS entry + email reason.
+- **Insider flow + market brief (2026-08-22):** `src/tools/insider-flow-kit.js` (`insider-report` $9, POST
+  `/v1/insider-report {ticker|cik, days}`: Form 4 filings against the issuer via EDGAR full-text search,
+  each filing's XML fetched (`fetchXmlText`, concurrency 4) and PARSED (`parseForm4`: owners/roles,
+  non-derivative transactions with code/shares/price/owned-after, 10b5-1 footnote flag) -> open-market
+  buys/sells vs awards/exercises/withholding, per-insider + net flow -> grounding-strict Opus synthesis,
+  transactions + insiders appendix; `probeInsiderFilings()` = the monitor's cheap daily probe
+  (fingerprint = accession set); `insider-monitor` $9/mo, kind `insider`, "filing" email on a new
+  accession). `market-brief` ($15, POST `/v1/research/market-brief`) = the research-deep pipeline with a
+  competitive-intelligence `planFrame` + fixed `synthFrame` (RESEARCH_TIERS supports both). Both in
+  WALLET_ONLY, composite guard, METERED, test-all NETWORK, HUMAN_PRODUCTS + `/reports` cards. EDGAR
+  primitives (`resolveCompany`, `eftsSearch`, `fetchXmlText`, `edgarGetJson`) are now exported from
+  edgar-kit for the composite kits. **`PAYING_RAILS` now includes `card` + `credits`** - Stripe card
+  sales/subscription invoices were recorded with rail `card` but not counted as paying, so the human
+  front door was invisible to `/revenue` (caught 2026-08-22).
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

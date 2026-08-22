@@ -35,9 +35,9 @@ const EXPECTED = [
   "research", "research-pro", "research-max", "dossier", "dossier-max",
   "fund-report", "fund-report-max", "domain-audit", "domain-audit-pro",
   "token-risk", "token-risk-pro",
-  "recall-report",
+  "recall-report", "insider-report", "market-brief",
 ];
-ok(EXPECTED.every((s) => g.EXPENSIVE_COMPOSITE_SLUGS.has(s)), "every expensive composite slug (research/dossier/fund/domain/token-risk/recall) is covered");
+ok(EXPECTED.every((s) => g.EXPENSIVE_COMPOSITE_SLUGS.has(s)), "every expensive composite slug (research/dossier/fund/domain/token-risk/recall/insider/market-brief) is covered");
 ok(g.EXPENSIVE_COMPOSITE_SLUGS.size === EXPECTED.length, "the guard set matches the expected composites exactly (no drift)");
 ok(!g.EXPENSIVE_COMPOSITE_SLUGS.has("uuid"), "cheap tools are NOT in the guard set");
 

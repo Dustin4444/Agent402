@@ -270,6 +270,8 @@ export const WALLET_ONLY_SLUGS = new Set([
   // recall-report (src/tools/recall-report-kit.js): free openFDA probes + Opus synthesis;
   // ipo-report (src/tools/ipo-report-kit.js): EDGAR egress, deterministic.
   "recall-report", "ipo-report",
+  // insider-report (EDGAR Form 4 XML + Opus synthesis); market-brief (research pipeline).
+  "insider-report", "market-brief",
   // domain-audit composites (src/tools/domain-audit-kit.js) — live network
   // probes (egress) + Opus synthesis; egressing + metered, never PoW-eligible.
   "domain-audit", "domain-audit-pro",

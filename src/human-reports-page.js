@@ -108,6 +108,24 @@ export function humanReportsPage(baseUrl) {
         <div class="err" id="err-fund"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="fund">Get report →</button>
       </div>
+      <div class="pcard" data-kind="insider">
+        <div class="k">Insider flow</div>
+        <h3>Who's buying, who's selling</h3>
+        <p>Every Form 4 against a company with the actual transactions parsed: open-market buys and sales by insider, awards and exercises set apart, a grounded signal read. SEC EDGAR, cited.</p>
+        <div class="field"><input id="in-insider" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="tiers">${tierBtn("insider-report", "Report", true)}</div>
+        <div class="err" id="err-insider"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="insider">Get report →</button>
+      </div>
+      <div class="pcard" data-kind="market">
+        <div class="k">Market / competitor brief</div>
+        <h3>Who's in the market, and how they differ</h3>
+        <p>Market at a glance, the key players and pricing, recent moves, differentiation, risks and a bottom line. Live web research with citations, nothing from memory.</p>
+        <div class="field"><input id="in-market" type="text" placeholder="A market, category or company, e.g. AI agent payment rails"></div>
+        <div class="tiers">${tierBtn("market-brief", "Brief", true)}</div>
+        <div class="err" id="err-market"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="market">Get brief →</button>
+      </div>
       <div class="pcard" data-kind="recall">
         <div class="k">FDA recall report</div>
         <h3>Is it recalled?</h3>

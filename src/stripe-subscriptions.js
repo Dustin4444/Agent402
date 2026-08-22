@@ -35,6 +35,11 @@ export const MONITOR_PRODUCTS = {
     inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan",
     blurb: "We check the FDA drug, food and device recall feeds for your term every day and email you a fresh cited report the moment a new recall appears.",
   },
+  "insider-monitor": {
+    label: "Insider flow watch", price: 900, kind: "insider", slug: "insider-report",
+    inputField: "ticker", inputLabel: "a US stock ticker",
+    blurb: "We watch Form 4 filings against this company every day and email you a fresh insider-flow report - buys, sells, who and how much - each time a new filing lands.",
+  },
   "ipo-monitor": {
     label: "IPO pipeline watch", price: 900, kind: "ipo", slug: "ipo-report",
     inputField: "keyword", inputLabel: "a keyword in the filer's name, or \"all\"",
