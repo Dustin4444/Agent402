@@ -50,7 +50,7 @@ const pruneStmt = db.prepare("DELETE FROM pow_used WHERE exp < ?");
 export const WALLET_ONLY_SLUGS = new Set([
   // derivatives-kit (Hyperliquid/Deribit/DefiLlama egress), x-data-kit (X API), b2b-enrich-kit (Hunter/Apollo) - 2026-08-22
   "perp-markets", "perp-funding", "perp-funding-screener", "perp-open-interest", "perp-klines", "perp-orderbook", "perp-basis",
-  "options-summary", "options-chain", "options-ticker", "options-volume",
+  "options-summary", "crypto-options-chain", "options-ticker", "options-volume",
   "sol-token-safety", "sol-token-report", "sol-token-holders", "sol-token-pairs", "sol-token-search", "sol-trending", "sol-price", "sol-swap-quote", "sol-token-lookup",
   "x-search-recent", "x-user", "x-user-tweets", "x-tweet", "x-users-lookup",
   "hunter-domain-search", "hunter-email-finder", "hunter-email-verify", "hunter-company", "apollo-people-search", "apollo-org-enrich", "apollo-person-match",

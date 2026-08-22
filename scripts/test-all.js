@@ -55,7 +55,7 @@ const skipE2b = process.env.E2B_LIVE_TEST !== "1";
 
 const NETWORK = new Set([
   "/api/perp-markets", "/api/perp-funding", "/api/perp-funding-screener", "/api/perp-open-interest", "/api/perp-klines", "/api/perp-orderbook", "/api/perp-basis",
-  "/api/options-summary", "/api/options-chain", "/api/options-ticker", "/api/options-volume",
+  "/api/options-summary", "/api/crypto-options-chain", "/api/options-ticker", "/api/options-volume",
   "/api/sol-token-safety", "/api/sol-token-report", "/api/sol-token-holders", "/api/sol-token-pairs", "/api/sol-token-search", "/api/sol-trending", "/api/sol-price", "/api/sol-swap-quote", "/api/sol-token-lookup",
   "/api/x-search-recent", "/api/x-user", "/api/x-user-tweets", "/api/x-tweet", "/api/x-users-lookup",
   "/api/hunter-domain-search", "/api/hunter-email-finder", "/api/hunter-email-verify", "/api/hunter-company", "/api/apollo-people-search", "/api/apollo-org-enrich", "/api/apollo-person-match",

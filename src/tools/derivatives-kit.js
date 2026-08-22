@@ -893,9 +893,9 @@ export const DERIVATIVES_TOOLS = [
   // options-chain - strikes for one expiry (nearest by default).
   // ===========================================================================
   {
-    route: "POST /api/options-chain",
+    route: "POST /api/crypto-options-chain",
     name: "Options chain by expiry",
-    slug: "options-chain",
+    slug: "crypto-options-chain",
     category: "crypto",
     price: "$0.004",
     description:

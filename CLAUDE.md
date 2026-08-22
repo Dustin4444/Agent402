@@ -1310,7 +1310,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 
 - **Seller-landscape builds (2026-08-22, from the x402scan/MPPScan top-seller research):** four kits. KEYLESS and listed:
   `src/tools/derivatives-kit.js` (`DERIVATIVES_TOOLS`, 11 tools $0.002-$0.005: perp-markets/funding/funding-screener/
-  open-interest/klines/orderbook/basis on Hyperliquid's public info API, options-summary/chain/ticker on Deribit public,
+  open-interest/klines/orderbook/basis on Hyperliquid's public info API, options-summary / crypto-options-chain / options-ticker on Deribit public (finance-kit already owns `options-chain` for equities),
   options-volume on DefiLlama - its `/overview/derivatives` is paywalled 402, so only options volume ships) and
   `src/tools/solana-intel-kit.js` (`SOLANA_INTEL_TOOLS`, 9 tools $0.002-$0.01: sol-token-safety/report/holders on RugCheck
   + Jupiter audit, sol-token-pairs/search/trending on DexScreener, sol-price/swap-quote/token-lookup on lite-api.jup.ag;

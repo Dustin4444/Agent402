@@ -143,7 +143,7 @@ globalThis.fetch = async (url, opts = {}) => {
 const EXPECTED = {
   "perp-markets": "$0.003", "perp-funding": "$0.003", "perp-funding-screener": "$0.003", "perp-open-interest": "$0.002",
   "perp-klines": "$0.003", "perp-orderbook": "$0.002", "perp-basis": "$0.003",
-  "options-summary": "$0.005", "options-chain": "$0.004", "options-ticker": "$0.002", "options-volume": "$0.002",
+  "options-summary": "$0.005", "crypto-options-chain": "$0.004", "options-ticker": "$0.002", "options-volume": "$0.002",
 };
 ok(DERIVATIVES_TOOLS.length === Object.keys(EXPECTED).length, `${Object.keys(EXPECTED).length} tools exported (got ${DERIVATIVES_TOOLS.length})`);
 ok(new Set(DERIVATIVES_TOOLS.map((t) => t.slug)).size === DERIVATIVES_TOOLS.length, "slugs unique");
@@ -185,9 +185,9 @@ await throws(h("perp-basis")({}), 400, "perp-basis: missing coin");
 await throws(h("perp-basis")({ coin: "x".repeat(40) }), 400, "perp-basis: coin too long");
 await throws(h("options-summary")({ currency: "B" }), 400, "options-summary: currency too short");
 await throws(h("options-summary")({ currency: "BTC-USD" }), 400, "options-summary: currency bad chars");
-await throws(h("options-chain")({ expiry: "2026-08-26" }), 400, "options-chain: expiry wrong format");
-await throws(h("options-chain")({ type: "straddle" }), 400, "options-chain: bad type");
-await throws(h("options-chain")({ limit: 0 }), 400, "options-chain: limit 0");
+await throws(h("crypto-options-chain")({ expiry: "2026-08-26" }), 400, "options-chain: expiry wrong format");
+await throws(h("crypto-options-chain")({ type: "straddle" }), 400, "options-chain: bad type");
+await throws(h("crypto-options-chain")({ limit: 0 }), 400, "options-chain: limit 0");
 await throws(h("options-ticker")({}), 400, "options-ticker: neither instrument nor currency");
 await throws(h("options-ticker")({ instrument: "btc perpetual" }), 400, "options-ticker: instrument with space");
 await throws(h("options-ticker")({ instrument: "BTC-PERPETUAL; DROP" }), 400, "options-ticker: instrument bad chars");
@@ -290,15 +290,15 @@ const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 }
 
 {
-  const out = await h("options-chain")({ currency: "btc", limit: 10 });
+  const out = await h("crypto-options-chain")({ currency: "btc", limit: 10 });
   ok(out.expiry === "26AUG26" && out.expiresAt === new Date(Date.UTC(2026, 7, 26, 8)).toISOString(), "options-chain: nearest expiry by default, 08:00 UTC");
   ok(out.expiries.join(",") === "26AUG26,25SEP26", "options-chain: available expiries listed");
   ok(out.count === 4 && out.options[0].strike === 70000 && out.options[3].strike === 80000, "options-chain: sorted by strike");
   ok(out.options[1].type === "call" && out.options[2].type === "put" && out.underlyingPrice === 77317.91, "options-chain: call before put at equal strike + underlying");
-  const puts = await h("options-chain")({ currency: "BTC", expiry: "26aug26", type: "put", limit: 1 });
+  const puts = await h("crypto-options-chain")({ currency: "BTC", expiry: "26aug26", type: "put", limit: 1 });
   ok(puts.count === 1 && puts.options[0].instrument === "BTC-26AUG26-70000-P", "options-chain: expiry case-folded + type filter + limit");
-  await throws(h("options-chain")({ currency: "BTC", expiry: "31DEC30" }), 422, "options-chain: unlisted expiry", /available: 26AUG26/);
-  await throws(h("options-chain")({ currency: "ETH" }), 422, "options-chain: currency with no options");
+  await throws(h("crypto-options-chain")({ currency: "BTC", expiry: "31DEC30" }), 422, "options-chain: unlisted expiry", /available: 26AUG26/);
+  await throws(h("crypto-options-chain")({ currency: "ETH" }), 422, "options-chain: currency with no options");
 }
 
 {
@@ -340,7 +340,7 @@ await throws(h("perp-orderbook")({ coin: "BTC" }), 503, "HL 429 -> 503");
 await throws(h("options-volume")({}), 503, "DefiLlama 429 -> 503");
 mode = "timeout";
 await throws(h("perp-klines")({ coin: "BTC" }), 504, "HL timeout -> 504");
-await throws(h("options-chain")({}), 504, "Deribit timeout -> 504");
+await throws(h("crypto-options-chain")({}), 504, "Deribit timeout -> 504");
 await throws(h("options-volume")({}), 504, "DefiLlama timeout -> 504");
 mode = "htmljunk";
 await throws(h("perp-markets")({}), 502, "HL non-JSON 200 -> 502");
@@ -357,7 +357,7 @@ await throws(h("perp-funding")({ coin: "ZZZZ" }), 422, "unknown coin rejected ag
 mode = "deribit-invalid";
 await throws(h("options-summary")({ currency: "ZZZ" }), 422, "Deribit invalid params -> 422", /invalid currency/);
 mode = "deribit-weird-reason";
-try { await h("options-chain")({}); fail++; console.error("ASSERT FAIL - weird reason did not throw"); }
+try { await h("crypto-options-chain")({}); fail++; console.error("ASSERT FAIL - weird reason did not throw"); }
 catch (e) {
   ok(e.statusCode === 422 && !/script|SECRET/.test(e.message) && /invalid params/.test(e.message), `Deribit error body never relayed verbatim (${e.message})`);
 }
