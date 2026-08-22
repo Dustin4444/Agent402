@@ -1707,22 +1707,47 @@ app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").s
 // lives in src/programmatic-pages.js (bounded cache, negative cache, EDGAR
 // concurrency gate, per-page deadline); the per-IP limiter is the same
 // sessionReadLimiter the other unauthenticated read routes use.
+// Its OWN bucket, not sessionReadLimiter's: that one guards the Stripe-reading
+// routes a paying buyer polls (/api/r/:id), and a crawler walking a few hundred
+// free SEO pages must never be able to starve a checkout. The real cost bound
+// for these pages is the EDGAR concurrency gate plus the 12-hour cache, so this
+// limit only has to stop the absurd case.
+// Generous on purpose: these are cheap cached HTML renders and a legitimate
+// full-sitemap crawl is ~250 requests in one burst. The UPSTREAM bound is the
+// EDGAR gate inside programmatic-pages.js (2 concurrent, queue of 8, 12-hour
+// cache), not this limit, which only stops the absurd case.
+const programmaticLimiter = createRateLimiter("programmatic-pages", { perMin: 600, perHour: 6000 });
+// A 429 to a search-engine crawler costs us the page in the index, which is the
+// whole point of these URLs, so the limiter answers 429 only with `Retry-After`
+// (crawlers back off and return rather than dropping the URL), and a request the
+// cache can already serve never spends budget - see `_pgLimited(req, res, free)`
+// below, where the page builders report whether they touched EDGAR at all.
+// PEEK, never spend: a page served from cache costs nothing upstream, so a
+// crawler walking the whole sitemap must not be throttled for it. Budget is
+// spent only by a build that actually reaches EDGAR (`_pgSpend` below).
 const _pgLimited = (req, res) => {
-  if (!sessionReadLimiter.check(clientIp(req)).limited) return false;
-  res.status(429).type("text").send("Too many requests");
+  if (!programmaticLimiter.peek(clientIp(req)).limited) return false;
+  res.set("Retry-After", "30");
+  res.status(429).type("text").send("Too many requests, retry shortly");
   return true;
 };
+const _pgSpend = (req) => { try { programmaticLimiter.check(clientIp(req)); } catch { /* limiter never breaks a page */ } };
 // `next()` on an unresolvable slug falls through to the branded shell 404 at
 // the bottom of this file - one 404 page for the whole site.
 async function _programmaticEntity(req, res, next, kind) {
   if (_pgLimited(req, res)) return;
   const isFund = kind === "fund";
-  const slug = isFund ? normalizeManagerSlug(req.params.manager) : normalizeTicker(req.params.ticker);
+  const raw = isFund ? String(req.params.manager || "") : String(req.params.ticker || "");
+  const slug = isFund ? normalizeManagerSlug(raw) : normalizeTicker(raw);
   if (!slug) return next();
+  // One page per entity, one URL per page: /reports/insider/aapl redirects to
+  // the canonical /reports/insider/AAPL rather than rendering a second copy.
+  if (raw !== slug) return res.redirect(301, `/reports/${kind}/${encodeURIComponent(slug)}`);
   const seeded = isFund ? Boolean(seededManager(slug)) : isSeededTicker(slug);
   let r;
   try { r = await loadTeaser(kind, slug, { seeded }); }
   catch { r = seeded ? { status: "degraded" } : { status: "missing" }; }
+  if (!r.cached) _pgSpend(req);  // only an EDGAR-touching build spends budget
   if (r.status === "missing") return next();
   const degraded = r.status === "degraded";
   const html = isFund

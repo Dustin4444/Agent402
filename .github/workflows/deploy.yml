@@ -1531,6 +1531,8 @@ jobs:
         run: node scripts/test-solana-intel-kit.js
       - name: token brief kit (offline)
         run: node scripts/test-token-brief-kit.js
+      - name: programmatic report pages (offline)
+        run: node scripts/test-programmatic-pages.js
       - name: images-fast kit (offline)
         run: node scripts/test-images-fast-kit.js
       - name: alchemy-data kit (offline)

@@ -50,10 +50,15 @@ async function edgarGetJson(url) {
     // 404 from data.sec.gov usually means "unknown CIK" or "no XBRL for this
     // tag/period" — surface as 422 (caller-attributable) so the dashboard
     // counts it correctly. 5xx is a real upstream outage.
+    // `upstreamStatus` rides along so a caller can tell "EDGAR says this does
+    // not exist" (404) from "EDGAR refused to answer us" (403 rate limit, 429).
+    // Both map to 422 for the paid tools, but a free page that negative-caches
+    // a throttle as "no such company" would 404 a real ticker for as long as
+    // that cache lives.
     const status = res.status;
-    if (status === 404) throw bad("EDGAR returned 404 - unknown CIK, ticker, or tag/period combination", 422);
-    if (status >= 500) throw bad(`EDGAR upstream HTTP ${status} - try again later`, 502);
-    throw bad(`EDGAR upstream HTTP ${status}: ${text.slice(0, 200)}`, 422);
+    if (status === 404) throw Object.assign(bad("EDGAR returned 404 - unknown CIK, ticker, or tag/period combination", 422), { upstreamStatus: 404 });
+    if (status >= 500) throw Object.assign(bad(`EDGAR upstream HTTP ${status} - try again later`, 502), { upstreamStatus: status });
+    throw Object.assign(bad(`EDGAR upstream HTTP ${status}: ${text.slice(0, 200)}`, 422), { upstreamStatus: status });
   }
   try {
     return JSON.parse(text);
@@ -626,8 +631,8 @@ async function fetchXmlText(url) {
     throw bad(`EDGAR XML fetch failed: ${e.message}`, 504);
   }
   if (!res.ok) {
-    if (res.status === 404) throw bad("EDGAR XML attachment not found (filing may not have the expected layout)", 422);
-    throw bad(`EDGAR XML HTTP ${res.status}`, res.status >= 500 ? 502 : 422);
+    if (res.status === 404) throw Object.assign(bad("EDGAR XML attachment not found (filing may not have the expected layout)", 422), { upstreamStatus: 404 });
+    throw Object.assign(bad(`EDGAR XML HTTP ${res.status}`, res.status >= 500 ? 502 : 422), { upstreamStatus: res.status });
   }
   return await res.text();
 }

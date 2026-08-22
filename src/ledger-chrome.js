@@ -863,8 +863,15 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
     url: baseUrl,
   };
   const allLd = [baseEcosystemLd, ...(jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [])];
+  // Every "<" is escaped as \u003c, exactly as jsonScriptTag does and for the
+  // same reason: JSON.stringify never escapes it, so a string field carrying
+  // the literal text "</script>" would close this tag early and let whatever
+  // follows execute as markup. Any page whose JSON-LD embeds text we did not
+  // author (a crawled seller description, a filer name off an SEC filing) is
+  // exactly that case. "<" is valid inside a JSON string and round-trips
+  // through JSON.parse unchanged, so this is lossless for consumers.
   const jsonLdBlock = allLd
-    .map((j) => `<script type="application/ld+json">${JSON.stringify(j)}</script>`)
+    .map((j) => `<script type="application/ld+json">${JSON.stringify(j).replace(/</g, "\\u003c")}</script>`)
     .join("\n");
   return `<!DOCTYPE html>
 <html lang="en">

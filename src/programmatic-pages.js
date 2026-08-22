@@ -62,6 +62,11 @@ export const slugToName = (slug) => String(slug || "").split("-").filter(Boolean
 const TTL_MS = Number(process.env.PROGRAMMATIC_TTL_MS) || 12 * 60 * 60 * 1000;
 const NEG_TTL_MS = Number(process.env.PROGRAMMATIC_NEG_TTL_MS) || 10 * 60 * 1000;
 const SOFT_NEG_TTL_MS = 60 * 1000;   // "EDGAR could not answer" - retry sooner
+// A build that RESOLVED the entity but could not read part of its data (a
+// throttled information table, a Form 4 XML that timed out) is cached only
+// briefly: caching a half-empty page for twelve hours would freeze one bad
+// minute onto a landing page for the rest of the day.
+const PARTIAL_TTL_MS = Number(process.env.PROGRAMMATIC_PARTIAL_TTL_MS) || 5 * 60 * 1000;
 const MAX_ENTRIES = Number(process.env.PROGRAMMATIC_CACHE_MAX) || 600;
 
 /** TTL map with a hard entry cap and oldest-first eviction. Positive and
@@ -90,26 +95,51 @@ const cache = createTeaserCache();
 // --- EDGAR politeness gate --------------------------------------------------
 // SEC's published ceiling is 10 requests/second. A page is 1-4 requests, so a
 // small concurrency cap keeps even a 20-wide crawler comfortably under it.
-const MAX_CONCURRENT = Number(process.env.PROGRAMMATIC_EDGAR_CONCURRENCY) || 3;
+const MAX_CONCURRENT = Number(process.env.PROGRAMMATIC_EDGAR_CONCURRENCY) || 2;
+// Beyond this many waiting builds we stop queueing and serve the page WITHOUT
+// live data. Measured 2026-08-22: a 20-wide sitemap crawl of all 253 seeded
+// URLs on a cold cache queued hundreds of builds and SEC started refusing our
+// requests (HTTP 403), which is both impolite and useless. A real crawler
+// paces itself and never reaches this depth, so it always gets full data; a
+// burst that could not be served politely degrades instead of piling up.
+const MAX_QUEUE = Number(process.env.PROGRAMMATIC_QUEUE_MAX) || 8;
 const BUILD_TIMEOUT_MS = Number(process.env.PROGRAMMATIC_TIMEOUT_MS) || 12_000;
+const GATE_BUSY = Object.assign(new Error("programmatic gate saturated"), { gateBusy: true });
 let active = 0;
 const waiters = [];
+export const gateDepth = () => ({ active, waiting: waiters.length });
 async function withGate(fn) {
-  if (active >= MAX_CONCURRENT) await new Promise((r) => waiters.push(r));
+  if (active >= MAX_CONCURRENT) {
+    if (waiters.length >= MAX_QUEUE) throw GATE_BUSY;
+    await new Promise((r) => waiters.push(r));
+  }
   active++;
   try { return await fn(); }
   finally { active--; const next = waiters.shift(); if (next) next(); }
 }
 const deadline = (p, ms) => Promise.race([p, new Promise((_, rej) => { const t = setTimeout(() => rej(Object.assign(new Error("teaser timeout"), { statusCode: 504 })), ms); t.unref?.(); })]);
 
-// A resolution failure EDGAR itself attributes to the caller ("unknown ticker",
-// "no 13F filer matching") means the slug is not a thing. Anything else (5xx,
-// timeout, network) means we could not read, which is a different answer.
-const isUnresolvable = (e) => e?.statusCode === 404 || e?.statusCode === 422;
+/** "This entity does not exist" vs "we could not read EDGAR" are DIFFERENT
+ *  answers and only the first may be negative-cached. edgarGetJson collapses
+ *  every non-5xx upstream status onto 422, so a 403 rate-limit looks exactly
+ *  like an unknown CIK unless the upstream status is consulted - and caching a
+ *  throttle as a miss 404s real tickers for as long as that entry lives (seen
+ *  live during a 20-wide crawl, 2026-08-22). */
+export function isUnresolvable(e) {
+  if (e?.gateBusy) return false;
+  const up = e?.upstreamStatus;
+  if (up === 403 || up === 429 || (typeof up === "number" && up >= 500)) return false;
+  return e?.statusCode === 404 || e?.statusCode === 422;
+}
 
 // --- teaser builders --------------------------------------------------------
 const TEASER_FILINGS = 4;             // Form 4 XMLs read per insider page
 const TEASER_HOLDINGS = 5;
+// One Form 4 can report a dozen sale lines from a single VWAP fill. Without a
+// per-filing cap that one person fills the whole teaser and the page reads as
+// "one insider trades here" (measured on a real issuer, 2026-08-22).
+const TEASER_TX_PER_FILING = 5;
+const TEASER_ROWS = 20;
 const MAX_TABLE_BYTES = Number(process.env.PROGRAMMATIC_MAX_13F_BYTES) || 4_000_000;
 const INSIDER_WINDOW_DAYS = 90;
 
@@ -141,7 +171,7 @@ export async function buildInsiderTeaser(ticker, deps = {}) {
     try { p = parse(await getXml(f.url)); } catch { continue; }
     const who = p.owners[0] || {};
     const role = [who.isOfficer ? (who.title || "officer") : null, who.isDirector ? "director" : null, who.isTenPct ? "10% owner" : null].filter(Boolean).join(", ") || "reporting person";
-    for (const x of p.transactions) {
+    for (const x of p.transactions.slice(0, TEASER_TX_PER_FILING)) {
       rows.push({
         insider: who.name || String(f.displayNames?.[0] || "").replace(/\s*\(CIK[^)]*\)\s*$/i, ""),
         role, date: x.date, filedDate: f.filedDate, code: x.code, kind: CODE_LABEL[x.code] || x.code,
@@ -154,8 +184,10 @@ export async function buildInsiderTeaser(ticker, deps = {}) {
     kind: "insider", ticker, name: pf.name || ticker, cik: pf.cik,
     startDate: pf.startDate, endDate: pf.endDate, windowDays: INSIDER_WINDOW_DAYS,
     filingsInWindow: pf.total, filingsRead: picked.length,
+    // Filings existed but none could be read: cache this only briefly.
+    partial: picked.length > 0 && rows.length === 0,
     latestFiledDate: picked[0]?.filedDate || null,
-    rows: rows.slice(0, 20),
+    rows: rows.slice(0, TEASER_ROWS),
   };
 }
 
@@ -183,14 +215,14 @@ export async function buildFundTeaser(slug, deps = {}) {
   };
   let table = null;
   try { table = await findTable(parseInt(who.cik, 10), filing.accessionNumber); }
-  catch { return { ...base, holdingsNote: "The holdings table for this filing could not be read from EDGAR just now." }; }
+  catch { return { ...base, partial: true, holdingsNote: "The holdings table for this filing could not be read from EDGAR just now." }; }
   if (!table) return { ...base, holdingsNote: "This filing does not carry an information table in the expected layout." };
   if (table.size > MAX_TABLE_BYTES) {
     return { ...base, holdingsNote: `This manager's holdings table is ${(table.size / 1_000_000).toFixed(1)} MB, too large to summarize on a free page. The paid report reads all of it.` };
   }
   let rows;
   try { rows = parseTable(await getXml(table.url), filing.filedDate); }
-  catch { return { ...base, holdingsNote: "The holdings table for this filing could not be read from EDGAR just now." }; }
+  catch { return { ...base, partial: true, holdingsNote: "The holdings table for this filing could not be read from EDGAR just now." }; }
   // An information table lists one ROW per (security, manager, discretion),
   // so the same holding legitimately appears several times. Ranking raw rows
   // shows the same issuer twice in a top five, which reads as a bug. Fold by
@@ -257,18 +289,21 @@ export async function buildDossierTeaser(ticker, deps = {}) {
 export async function loadTeaser(kind, slug, { seeded = false, builders = {}, teaserCache = cache } = {}) {
   const key = `${kind}:${slug}`;
   const hit = teaserCache.get(key);
-  if (hit) return hit.miss ? { status: "missing" } : { status: "ok", data: hit.value };
+  // `cached: true` means this answer cost nothing upstream, which is what lets
+  // the route serve a crawler burst without spending rate-limit budget.
+  if (hit) return hit.miss ? { status: "missing", cached: true } : { status: "ok", data: hit.value, cached: true };
   const build = builders[kind] || { insider: buildInsiderTeaser, fund: buildFundTeaser, dossier: buildDossierTeaser }[kind];
   if (!build) return { status: "missing" };
   try {
     const data = await withGate(() => deadline(build(slug), BUILD_TIMEOUT_MS));
-    return { status: "ok", data: teaserCache.setValue(key, data) };
+    return { status: "ok", data: teaserCache.setValue(key, data, data?.partial ? PARTIAL_TTL_MS : undefined) };
   } catch (e) {
-    if (isUnresolvable(e)) { teaserCache.setMiss(key); return { status: "missing" }; }
-    // Could not READ, which is not the same as "does not exist". A seeded
-    // entity still gets its page (the identity is not in question); an
-    // off-list slug is refused, but only briefly.
+    // A SEEDED entity is known to exist - we curated it - so no read failure
+    // may ever turn its page into a 404. It degrades instead.
     if (seeded) return { status: "degraded" };
+    if (isUnresolvable(e)) { teaserCache.setMiss(key); return { status: "missing" }; }
+    // Could not READ an off-list slug: refuse it, but only briefly, so a real
+    // long-tail page comes back on its own once EDGAR answers again.
     teaserCache.setMiss(key, SOFT_NEG_TTL_MS);
     return { status: "missing" };
   }
