@@ -13,14 +13,14 @@ export function apiExplorerPage(baseUrl) {
 .ae-wrap{max-width:1180px;margin:0 auto;padding:56px 30px 0}
 .ae-crumb{font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:14px}
 .ae-crumb a{color:var(--accent);text-decoration:none}
-.ae-search{width:100%;max-width:560px;padding:13px 16px;background:var(--card);border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-size:14px;outline:none;margin-bottom:14px}
+.ae-search{width:100%;max-width:560px;padding:13px 16px;background:var(--card);border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-size:14px;outline:none;margin-bottom:14px}
 .ae-search:focus{border-color:var(--accent)}
 .ae-count{margin-left:12px;color:var(--faint);font-family:var(--font-mono);font-size:12px}
 .ae-cats{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:22px}
-.ae-cat-btn{background:transparent;border:1.5px solid var(--ink);color:var(--ink);padding:5px 10px;font-family:var(--font-mono);font-size:11.5px;cursor:pointer;transition:.15s}
+.ae-cat-btn{background:transparent;border:1px solid var(--hairline);color:var(--ink);padding:5px 10px;font-family:var(--font-mono);font-size:11.5px;cursor:pointer;transition:.15s}
 .ae-cat-btn:hover{border-color:var(--accent);color:var(--accent)}
 .ae-cat-btn.active{background:var(--surface);color:var(--on-dark);border-color:var(--ink);font-weight:700}
-.ae-endpoint{background:var(--card);border:1.5px solid var(--ink);margin-bottom:8px;overflow:hidden}
+.ae-endpoint{background:var(--card);border:1px solid var(--hairline);margin-bottom:8px;overflow:hidden}
 .ae-ep-head{display:flex;align-items:center;gap:12px;padding:12px 18px;cursor:pointer;user-select:none}
 .ae-ep-head:hover{background:var(--card-zebra)}
 .ae-method{font-family:var(--font-mono);font-size:12px;font-weight:700;padding:2px 8px;min-width:48px;text-align:center}
@@ -32,7 +32,7 @@ export function apiExplorerPage(baseUrl) {
 .ae-endpoint.open .ae-ep-body{display:block}
 .ae-section{margin-bottom:12px}
 .ae-section-title{font-family:var(--font-mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px}
-.ae-schema{background:var(--surface);border:1.5px solid var(--ink);padding:12px 16px;font-family:var(--font-mono);font-size:12px;line-height:1.6;overflow-x:auto;color:var(--on-dark)}
+.ae-schema{background:var(--surface);border:1px solid var(--hairline);padding:12px 16px;font-family:var(--font-mono);font-size:12px;line-height:1.6;overflow-x:auto;color:var(--on-dark)}
 .ae-prop{margin:4px 0}
 .ae-prop-name{color:var(--accent)}
 .ae-prop-type{color:var(--dk-muted)}

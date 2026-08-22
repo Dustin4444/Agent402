@@ -15,8 +15,8 @@ export function operatorLoginPage(baseUrl) {
 .opl-h1{font-family:var(--font-body);font-weight:800;font-size:40px;line-height:1;letter-spacing:-.02em;margin:0 0 8px}
 .opl-sub{color:var(--muted);margin:0 0 24px;font-size:14px}
 .opl-form{display:flex;flex-direction:column;gap:12px}
-.opl-form input{font-family:var(--font-mono);font-size:14px;padding:12px 14px;border:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark)}
-.opl-form button{font-family:var(--font-body);font-weight:700;font-size:15px;padding:12px 14px;border:1.5px solid var(--ink);background:var(--ink);color:var(--surface);cursor:pointer}
+.opl-form input{font-family:var(--font-mono);font-size:14px;padding:12px 14px;border:1px solid var(--hairline);background:var(--surface);color:var(--on-dark)}
+.opl-form button{font-family:var(--font-body);font-weight:700;font-size:15px;padding:12px 14px;border:1px solid var(--hairline);background:var(--ink);color:var(--surface);cursor:pointer}
 .opl-err{color:#b8842e;font-size:13px;min-height:18px}
 `;
   const body = `
@@ -74,15 +74,15 @@ export function operatorPage(baseUrl, data) {
 .op-sub{color:var(--muted);margin:0 0 22px;font-size:14px;line-height:1.55}
 .op-sub a{color:var(--accent);text-decoration:none}
 .op-sub a:hover{text-decoration:underline}
-.op-sub code{font-family:var(--font-mono);font-size:12px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1.5px solid var(--ink)}
+.op-sub code{font-family:var(--font-mono);font-size:12px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1px solid var(--hairline)}
 .op-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:0 0 22px}
-.op-stat{background:var(--surface);border:1.5px solid var(--ink);padding:16px}
+.op-stat{background:var(--surface);border:1px solid var(--hairline);padding:16px}
 .op-stat .op-k{color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .op-stat .op-v{font-family:var(--font-mono);font-size:1.45rem;color:var(--on-dark);margin-top:4px}
 .op-stat .op-s{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px;margin-top:3px}
 .op-layout{display:grid;gap:18px;grid-template-columns:1fr 320px}
 @media(max-width:880px){.op-layout{grid-template-columns:1fr}}
-.op-panel{background:var(--surface);border:1.5px solid var(--ink);overflow:hidden}
+.op-panel{background:var(--surface);border:1px solid var(--hairline);overflow:hidden}
 .op-ph{padding:12px 16px;border-bottom:1px solid var(--dark-border);display:flex;justify-content:space-between;align-items:center}
 .op-ph h2{margin:0;font-size:.95rem;color:var(--accent);font-family:var(--font-body);font-weight:700}
 .op-ph input{background:var(--ink-panel);color:var(--on-dark);border:1px solid var(--dark-border);padding:5px 8px;font-family:var(--font-mono);font-size:12px}

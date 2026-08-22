@@ -153,7 +153,7 @@ function renderTask(task, catalog) {
 }
 
 const SHOP_CSS = `
-  .sh-task { background:var(--card); border:1.5px solid var(--ink); padding:20px 22px; margin:14px 0; }
+  .sh-task { background:var(--card); border:1px solid var(--hairline); padding:20px 22px; margin:14px 0; }
   .sh-task h2 { font-family:var(--font-body); font-weight:800; font-size:18px; margin:0 0 6px; }
   .sh-task-answer { color:var(--muted); font-size:14px; margin-bottom:10px; line-height:1.6; }
   .sh-task-primary { font-size:15px; margin-bottom:4px; }

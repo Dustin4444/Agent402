@@ -48,11 +48,11 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
   .crumbs a:hover { color:var(--accent); }
   h1 { font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 8px; }
   .lede { color:var(--muted); margin:0 0 24px; line-height:1.55; }
-  form { background:var(--card); border:1.5px solid var(--ink); padding:22px; display:grid; gap:16px; }
+  form { background:var(--card); border:1px solid var(--hairline); padding:22px; display:grid; gap:16px; }
   label { display:grid; gap:6px; font-size:.92rem; }
   label .k { color:var(--faint); font-family:var(--font-mono); font-size:.82rem; letter-spacing:.02em; text-transform:uppercase; }
   input, select, textarea {
-    background:var(--paper); border:1.5px solid var(--ink);
+    background:var(--paper); border:1px solid var(--hairline);
     color:var(--ink); padding:10px 12px; font:inherit; font-family:var(--font-body); outline:none;
   }
   input:focus, select:focus, textarea:focus { border-color:var(--accent); }
@@ -64,7 +64,7 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
   .alt { color:var(--faint); font-size:.85rem; text-align:center; margin-top:6px; }
   .alt a { color:var(--accent); }
   .note { color:var(--faint); font-size:.82rem; margin-top:14px; }
-  .badge { display:inline-block; background:var(--card); border:1.5px solid var(--ink); padding:2px 10px; color:var(--accent); font-family:var(--font-mono); font-size:.78rem; letter-spacing:.04em; text-transform:uppercase; margin-bottom:10px; }
+  .badge { display:inline-block; background:var(--card); border:1px solid var(--hairline); padding:2px 10px; color:var(--accent); font-family:var(--font-mono); font-size:.78rem; letter-spacing:.04em; text-transform:uppercase; margin-bottom:10px; }
   a { color:var(--accent); text-decoration:none; }
   a:hover { text-decoration:underline; }
   code { font-family:var(--font-mono); font-size:.86rem; }
@@ -101,7 +101,7 @@ export function tollboothWaitlistPage(baseUrl, { plan = "team", kind = "waitlist
   <div id="wl_err" style="display:none; color:#c0392b; font-size:.88rem;"></div>
 </form>
 
-<div id="wl_done" style="display:none; background:var(--card); border:1.5px solid var(--ink); padding:22px;">
+<div id="wl_done" style="display:none; background:var(--card); border:1px solid var(--hairline); padding:22px;">
   <h2 style="margin:0 0 6px; color:var(--accent); font-size:1.2rem;">Got it - you're on the list.</h2>
   <p style="margin:0; color:var(--muted);">We'll be in touch within 1 business day. In the meantime, <a href="/tollbooth">install the OSS gate</a> in observe mode and you'll have a week of bot-traffic data ready when we onboard you.</p>
 </div>

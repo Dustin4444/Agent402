@@ -87,11 +87,11 @@ function costRow([label, value, tone]) {
 }
 
 const formHtml = `
-  <div id="list-api" style="border:1.5px solid var(--ink);border-top:none;background:var(--paper);padding:18px 20px;">
+  <div id="list-api" style="border:1px solid var(--hairline);border-top:none;background:var(--paper);padding:18px 20px;">
     <div style="font-weight:800;font-size:15px;margin-bottom:8px;color:var(--ink);">Register in one call</div>
     <label for="reg-origin" style="display:block;font-family:var(--font-mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Your API's origin</label>
     <div style="display:flex;gap:10px;">
-      <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
+      <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1px solid var(--hairline);background:var(--paper);color:var(--ink);">
       <button id="reg-go" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
     <div id="reg-out" role="status" aria-live="polite" style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Unreachable sellers drop out of routing (never off the roster) until they recover.</div>
@@ -150,7 +150,7 @@ table{border-collapse:collapse;width:100%}
   ).join("");
 
   const body = `
-<header style="border-bottom:1.5px solid var(--ink);">
+<header style="border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:48px 30px 44px;">
     <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:22px;">
       <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">sell</span>
@@ -163,10 +163,10 @@ table{border-collapse:collapse;width:100%}
         <p style="font-size:16px;line-height:1.6;color:var(--muted);margin:0 0 30px;">Serve an x402 challenge, register your origin, and the index routes matching buyer tasks to you. Money moves buyer wallet to your wallet. We never hold it, and nothing is deducted from your price.</p>
         <div style="display:flex;flex-wrap:wrap;gap:11px;">
           <a href="#register" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">LIST AN x402 API →</a>
-          <a href="/tollbooth" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">TOLLBOOTH A SITE</a>
+          <a href="/tollbooth" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">TOLLBOOTH A SITE</a>
         </div>
       </div>
-      <div style="border:1.5px solid var(--ink);background:var(--surface);">
+      <div style="border:1px solid var(--hairline);background:var(--surface);">
         <div style="padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);">WHAT IT COSTS YOU</div>
         <table style="font-family:var(--font-mono);font-size:13px;"><tbody>${costsHtml}</tbody></table>
         <a href="#earn" style="display:block;padding:12px 18px;border-top:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11.5px;color:var(--accent-lit);text-decoration:none;">Read exactly how we make money ↓</a>
@@ -182,17 +182,17 @@ table{border-collapse:collapse;width:100%}
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">lanes shown · figures are a paid read</span>
   </div>
   <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:720px;margin:0 0 28px;">Settlements land on chain, but <em style="color:var(--on-dark2);">which tool an agent bought</em> never does - so this ledger cannot be reconstructed from a block explorer by anyone, including us. It is the one dataset in the x402 ecosystem that only the seller who served the call can see. Here are the lanes agents spend most in, in order. The numbers behind them are a tool, not a marketing page.</p>
-  <div class="sl-scroll" style="border:1.5px solid var(--ink);background:var(--card);">
+  <div class="sl-scroll" style="border:1px solid var(--hairline);background:var(--card);">
     <table style="font-size:14px;">
       <caption style="text-align:left;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:14px 18px;border-bottom:1px solid var(--hairline);">Where the buying is · ranked, figures withheld</caption>
-      <thead><tr style="border-bottom:1.5px solid var(--ink);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;width:40px;">#</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">lane</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">what agents buy in it</th></tr></thead>
+      <thead><tr style="border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;width:40px;">#</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">lane</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">what agents buy in it</th></tr></thead>
       <tbody>${lanesHtml}
         <tr style="background:var(--footer-bg);"><th scope="row" style="text-align:left;font-weight:400;padding:16px 18px;color:var(--faint);font-family:var(--font-mono);font-size:12px;">the figures</th><td style="padding:16px 18px;color:var(--muted);font-size:13.5px;line-height:1.5;">Per-tool purchase counts, distinct buyers, revenue and buyer-diversity - plus each tool's trend against the previous window, over any 1-90 day span.</td><td style="padding:16px 18px;text-align:right;"><a href="/tools/bestsellers" style="font-family:var(--font-mono);font-size:13px;color:var(--accent-lit);text-decoration:none;white-space:nowrap;">$0.005 →</a></td></tr>
       </tbody>
     </table>
   </div>
-  <div class="sl-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);border-top:none;">
-    <div style="padding:24px;border-right:1.5px solid var(--ink);background:var(--footer-bg);">
+  <div class="sl-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);border-top:none;">
+    <div style="padding:24px;border-right:1px solid var(--hairline);background:var(--footer-bg);">
       <h3 style="font-family:var(--font-mono);font-weight:700;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);margin:0 0 12px;">The unmet half</h3>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 14px;">We also log what agents searched for and <strong style="color:var(--ink);">did not find</strong>. Those wish clusters are ranked at <span style="font-family:var(--font-mono);font-size:13px;color:var(--ink);">/api/demand-radar</span>, tagged by whether agents asked outright or simply failed to discover something that already exists - and flagged when a cluster is within two signals of the build threshold. It is the closest thing to a build list for an x402 seller, and nobody else is sitting on the data.</p>
       <a href="/tools/demand-radar" style="font-family:var(--font-mono);font-size:12.5px;color:var(--ink);text-decoration:none;border-bottom:1.5px solid var(--accent);padding-bottom:1px;">demand radar → $0.005 per read</a>
@@ -209,8 +209,8 @@ table{border-collapse:collapse;width:100%}
     <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0;color:var(--ink);">Two ways in.</h2>
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">whether or not you speak the protocol yet</span>
   </div>
-  <div class="sl-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);margin-top:14px;">
-    <div style="padding:28px;border-right:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column;">
+  <div class="sl-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);margin-top:14px;">
+    <div style="padding:28px;border-right:1px solid var(--hairline);background:var(--card);display:flex;flex-direction:column;">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">01 / YOU HAVE AN API</div>
       <h3 style="font-weight:800;font-size:23px;margin:0 0 12px;color:var(--ink);">List it and get routed</h3>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">Return a 402 with your price, asset, network and payTo on the endpoints you want to charge for. Register the origin and the crawler reads your manifest on its next hourly pass. From then on the Smart Order Router can send you work, ranked against our own tools on the same terms.</p>
@@ -228,7 +228,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">If AI crawlers are already taking your content for free, tollbooth is the open answer. Humans browse normally; known bots get a 402 and either pay in USDC or solve a proof-of-work. MIT licensed, one middleware, no CDN lock-in and no merchant of record standing between you and the money.</p>
       <pre style="margin:0 0 18px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># express · next.js · cloudflare · proxy · wordpress
 </span>npm i agent402-tollbooth</pre>
-      <a href="/tollbooth" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">GATE YOUR CRAWLERS →</a>
+      <a href="/tollbooth" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">GATE YOUR CRAWLERS →</a>
     </div>
   </div>
 </section>
@@ -237,7 +237,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ POST /api/index/register</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--ink);">Five steps, no account.</h2>
   <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:700px;margin:0 0 30px;">There is no dashboard to log into and nothing to wait for. You serve a 402, you tell us where you live, and the crawler does the rest.</p>
-  <div class="sl-2col" style="display:grid;grid-template-columns:1.05fr .95fr;gap:0;border:1.5px solid var(--ink);">
+  <div class="sl-2col" style="display:grid;grid-template-columns:1.05fr .95fr;gap:0;border:1px solid var(--hairline);">
     <ol style="margin:0;padding:0;list-style:none;background:var(--card);">${registerStepsHtml}</ol>
     <div style="background:var(--footer-bg);padding:22px;">
       <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">One-liner (same thing, from a shell)</div>
@@ -260,7 +260,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">match score → crawl health → price</span>
   </div>
   <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:720px;margin:0 0 28px;">Four surfaces, and the router is the one that matters. A buyer describes a task, the router resolves it to a tool, and it does not care whose tool it is. New sellers get the benefit of the doubt on health rather than being buried until they have a track record.</p>
-  <div class="sl-scroll" style="border:1.5px solid var(--ink);background:var(--card);">
+  <div class="sl-scroll" style="border:1px solid var(--hairline);background:var(--card);">
     <table style="font-size:14px;">
       <tbody>${surfacesHtml}
         <tr style="background:var(--footer-bg);"><th scope="row" style="text-align:left;font-weight:400;padding:16px 18px;color:var(--faint);font-family:var(--font-mono);font-size:12px;">+ the rest</th><td style="padding:16px 18px;color:var(--muted);font-size:13.5px;line-height:1.5;">Ranked by distinct buyers, sales, revenue or buyer-diversity - plus each tool's trend against the previous window, over any 1-90 day span.</td><td style="padding:16px 18px;text-align:right;"><a href="/tools/bestsellers" style="font-family:var(--font-mono);font-size:13px;color:var(--accent-lit);text-decoration:none;white-space:nowrap;">$0.005 →</a></td></tr>
@@ -273,7 +273,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">$ GET /.well-known/x402</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--ink);">Get paid on your chain.</h2>
   <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:720px;margin:0 0 28px;">Advertise whichever rails you support. When a buyer pays on a chain you do not accept, the router settles with you on <em style="color:var(--on-dark2);">your</em> chain and relays the result - so a Solana buyer is not a lost sale for a Base-only seller. Gas is sponsored by the facilitator on EVM chains, so neither side needs the native token.</p>
-  <div style="border:1.5px solid var(--ink);background:var(--card);padding:26px;">
+  <div style="border:1px solid var(--hairline);background:var(--card);padding:26px;">
     <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:18px;">x402 settlement rails - each links to that chain's marketplace</div>
     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:18px 26px;">${railsHtml}</div>
     <div style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:20px;padding-top:16px;border-top:1px dashed var(--hairline);">gas sponsored by the facilitator on EVM chains - neither side needs the native token</div>
@@ -281,8 +281,8 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
 </section>
 
 <section id="earn" style="max-width:1180px;margin:0 auto;padding:60px 30px 0;">
-  <div class="sl-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
-    <div style="padding:30px;border-right:1.5px solid var(--ink);background:var(--footer-bg);">
+  <div class="sl-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);">
+    <div style="padding:30px;border-right:1px solid var(--hairline);background:var(--footer-bg);">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">HOW WE MAKE MONEY</div>
       <h2 style="font-weight:800;font-size:26px;margin:0 0 14px;color:var(--ink);">Buyer side, and only there</h2>
       <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 14px;">A buyer who discovers you and pays you directly costs you nothing and earns us nothing. That is most traffic, and it is the point.</p>
@@ -300,11 +300,11 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
 
 <section style="max-width:900px;margin:0 auto;padding:60px 30px 0;">
   <h2 style="font-weight:800;font-size:34px;line-height:1.02;letter-spacing:-.025em;margin:0 0 26px;color:var(--ink);">Seller questions.</h2>
-  <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+  <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">${faqHtml}</div>
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:48px 30px 56px;">
-  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:52px 44px;position:relative;overflow:hidden;">
+  <div style="background:var(--surface);border:1px solid var(--hairline);padding:52px 44px;position:relative;overflow:hidden;">
     <div style="position:absolute;right:26px;top:-36px;font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
     <div style="position:relative;">
       <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">One curl and you're listed.</h2>

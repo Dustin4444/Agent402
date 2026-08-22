@@ -161,7 +161,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress 
   // --- Page body ---------------------------------------------------------------
 
   const body = `
-  <header style="border-bottom:1.5px solid var(--ink);">
+  <header style="border-bottom:1px solid var(--hairline);">
     <div style="max-width:1180px;margin:0 auto;padding:48px 30px 40px;">
       <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:20px;"><a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">leaderboard</span></nav>
       <div class="lb-2col" style="display:grid;grid-template-columns:1.15fr .85fr;gap:50px;align-items:start;">
@@ -171,11 +171,11 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress 
           <p style="font-size:15.5px;line-height:1.6;color:var(--faint);margin:0 0 24px;">Agent402 is excluded from this ranking by default. An index that puts itself first is not evidence of anything, so our own figure is published separately below.</p>
           ${partialNote ? `<p style="font-size:13px;font-family:var(--font-mono);color:var(--accent);max-width:620px;margin:0 0 20px;">${esc(partialNote)}</p>` : ""}
           <div style="display:flex;flex-wrap:wrap;gap:11px;">
-            <a class="ml-cta" href="/api/leaderboard?include=external" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13.5px;text-decoration:none;padding:12px 18px;">GET /api/leaderboard</a>
+            <a class="ml-cta" href="/api/leaderboard?include=external" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13.5px;text-decoration:none;padding:12px 18px;">GET /api/leaderboard</a>
             <a class="ml-cta" href="/marketplace" style="background:transparent;border:1.5px solid var(--dash);color:var(--muted);font-family:var(--font-mono);font-weight:700;font-size:13.5px;text-decoration:none;padding:12px 18px;">BROWSE EVERY SELLER</a>
           </div>
         </div>
-        <div style="border:1.5px solid var(--ink);background:var(--surface);">
+        <div style="border:1px solid var(--hairline);background:var(--surface);">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);">
             <span>SNAPSHOT</span>
             <span style="display:inline-flex;align-items:center;gap:6px;color:var(--accent-lit);"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent-lit);display:inline-block;animation:ml-pulse 1.8s ease-in-out infinite;"></span>HOURLY</span>
@@ -192,7 +192,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress 
       <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">${esc(windowLabel)} window · top ${rows.length} of ${fmtNum(scannedSellers)} · include=external</span>
     </div>
     <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:760px;margin:0 0 26px;">Volume alone can be manufactured by paying yourself, so every row also carries distinct paying wallets and an organic ratio of buyers to calls. A thousand calls from two wallets reads very differently from a thousand from four hundred.</p>
-    <div class="lb-scroll" style="border:1.5px solid var(--ink);background:var(--surface);overflow-x:auto;">
+    <div class="lb-scroll" style="border:1px solid var(--hairline);background:var(--surface);overflow-x:auto;">
       <div class="lb-head" style="display:grid;grid-template-columns:36px 1fr 100px 80px 64px 78px 64px;gap:12px;padding:12px 18px;min-width:820px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--dk-muted3);border-bottom:1.5px solid var(--dark-border2);"><span>#</span><span>seller · payTo</span><span style="text-align:right;">usdc settled</span><span style="text-align:right;">calls</span><span style="text-align:right;">buyers</span><span style="text-align:right;">avg ticket</span><span style="text-align:right;">organic</span></div>
       <div style="min-width:820px;">${hasData ? tableRows : warmingHtml}</div>
     </div>
@@ -203,8 +203,8 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress 
   </section>
 
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
-    <div class="lb-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
-      <div style="padding:28px;border-right:1.5px solid var(--ink);background:var(--card);">
+    <div class="lb-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);">
+      <div style="padding:28px;border-right:1px solid var(--hairline);background:var(--card);">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">OUR OWN ROW, DISCLOSED</div>
         <h2 style="font-weight:800;font-size:24px;margin:0 0 14px;color:var(--ink);">Agent402, for comparison</h2>
         <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;">We run the index, so we keep ourselves out of the ranking above. Here is the same figure for us, from the same public endpoint. It counts paid calls in stablecoin only, excluding free proof-of-work calls and our own monitoring probes.</p>
@@ -227,11 +227,11 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress 
 
   <section style="max-width:900px;margin:0 auto;padding:56px 30px 0;">
     <h2 class="lb-h2" style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0 0 26px;color:var(--ink);">Questions about this table.</h2>
-    <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+    <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">${faqHtml}</div>
   </section>
 
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 64px;">
-    <div style="background:var(--surface);border:1.5px solid var(--ink);padding:48px 44px;position:relative;overflow:hidden;">
+    <div style="background:var(--surface);border:1px solid var(--hairline);padding:48px 44px;position:relative;overflow:hidden;">
       <div style="position:absolute;right:26px;top:-36px;font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
       <div style="position:relative;">
         <h2 class="lb-h2" style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Want a row here?</h2>

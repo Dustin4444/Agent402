@@ -313,7 +313,7 @@ const CSS = `
 .st-sub{color:var(--muted);margin:0 0 26px;font-size:15px;line-height:1.55}
 .st-sub a{color:var(--accent);text-decoration:none}
 .st-sub a:hover{text-decoration:underline}
-.hero{border:1.5px solid var(--ink);border-radius:2px;padding:22px;margin:0 0 26px;background:var(--card);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.hero{border:1px solid var(--hairline);border-radius:2px;padding:22px;margin:0 0 26px;background:var(--card);display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .hero .hw{font-family:var(--font-body);font-weight:700;font-size:22px}
 .hero .hm{color:var(--muted);font-size:14px;width:100%;margin:0}
 .dot{width:11px;height:11px;border-radius:50%;display:inline-block;flex:0 0 auto;background:var(--dash)}

@@ -840,6 +840,28 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   in front (no `age`/`cf-cache` header) — the server-side snapshot caches are the origin
   protection; the `max-age=120` on the response is a browser-only hint. Contract pinned by
   `scripts/test-x402-economy.js` (dedup + warm-cache identity, never-throws).
+- **Site redesign 2026-08-22 ("milled + obsidian", approved from the Agent402 Site Directions canvas):**
+  ONE light theme on `:root` (`--paper #F3F4F5`, `--card #FFF`, `--ink #111315`, obsidian panels keep
+  `--surface #0C0D0F` / `--on-dark`; `--accent #0F5E43` deep green for text/kickers on light,
+  `--accent-lit #9EF0B0` phosphor ONLY on dark; `color-scheme: light`, no toggle, no OS media query -
+  `test-theme.js` pins the new palette + the no-toggle rules). Fonts self-hosted Geist + Geist Mono
+  (`assets/fonts/geist-*-latin{,-ext}.woff2`, weights 300-700 / 400-700, metric-matched `Geist Fallback`
+  faces computed from the TTF metrics; `FONT_FILE_RE` in server.js admits them). `ledger-chrome.js`: status
+  band removed; nav = Reports · Monitors · Tools▾ | Market▾ · MPP▾ · Leaderboard | Sell▾ · Docs + llms.txt
+  pill + "Get a report" CTA (→ /reports, suppressed there) + burger; dropdown/mobile mechanics, chain rows
+  (`test-nav-chains`) and `site-chrome.js` unchanged; footers carry a "for people" column. Homepage
+  (`ledger-home.js`): hero = headline + obsidian 402-handshake terminal carrying the live counter
+  (`#hm-counter` etc. preserved), two doors (people / agents), proof strip, PoW demo, sell, leaderboard +
+  rails (obsidian band), demand lanes, rails chips, FAQ, closing CTA; the d3 dot-map + marquee are gone
+  (homepage loads NO third-party script - `test-home-page` pins that now). `/reports`, `/r/:id`, `/m/:id`,
+  `/monitors*` render through `ledgerShell` with shared `REPORTS_CSS` (class names unchanged for
+  reports.js / report-view.js / monitors.js). Error page + a new catch-all 404 render through the shell.
+  Sitewide `1.5px solid var(--ink)` borders softened to `1px solid var(--hairline)` (49 modules). Machine
+  surfaces (`/llms.txt`, `/openapi.json`, `/.well-known/x402`, `/api/*`, MCP, sitemap/robots, JSON-LD)
+  untouched; every page gate (`test-single-main-landmark`, reveal suite, `test-static-pages`,
+  `test-css-tokens-resolve`, `test-faint-contrast`, `test-home-page`, `test-surface-copy`, ...) green.
+  Booted page tests default to `TARGET_URL=http://localhost:3000` - if another app holds :3000 locally
+  they read its HTML and fail confusingly; boot ours on a free port and export TARGET_URL.
 - **Homepage = `src/ledger-home.js`** (`ledgerHomePage`; the old `src/landing.js` is unused
   but still unit-tested). Its `faqs` array renders BOTH the visible FAQ and the FAQPage
   JSON-LD, and the WebApplication offer is an AggregateOffer — deploy.yml's SEO gate greps

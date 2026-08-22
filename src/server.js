@@ -205,7 +205,7 @@ import { workflowsPage } from "./workflows.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
-import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
+import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
@@ -1673,7 +1673,7 @@ if (humanCheckoutEnabled()) {
         res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
       }
     });
-    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""))));
+    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL })));
     app.get("/api/r/:sessionId", async (req, res) => {
       if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
       try { res.set("Cache-Control", "no-store").json(await _humanCheckout.fulfill(String(req.params.sessionId || ""))); }
@@ -1686,8 +1686,8 @@ if (humanCheckoutEnabled()) {
 // confirm route records the sub from the paid session; the webhook keeps the
 // lifecycle (renewals/cancellations) in sync.
 if (_subs) {
-  app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage()));
-  app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""))));
+  app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
+  app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
   app.post("/api/subscribe", async (req, res) => {
     if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     try { res.json({ url: (await _subs.createCheckout(req.body?.product, req.body?.target)).url }); }
@@ -1734,7 +1734,7 @@ if (_subs) {
   });
   // Delivered monitor reports: same page + viewer as one-shot reports, served
   // from the scheduler's store (no Stripe session - the report id is the bearer).
-  app.get("/m/:reportId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.reportId || ""), { api: "/api/m/", waitCopy: "Loading your monitor report." })));
+  app.get("/m/:reportId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.reportId || ""), { api: "/api/m/", waitCopy: "Loading your monitor report.", baseUrl: BASE_URL })));
   app.get("/api/m/:reportId", (req, res) => {
     res.set("Cache-Control", "no-store");
     const id = String(req.params.reportId || "");
@@ -3599,7 +3599,7 @@ const fontB64 = (f) => readFileSync(new URL(`../assets/fonts/${f}`, import.meta.
 // render-blocking third-party Google Fonts stylesheet (worth ~1.9s of mobile
 // render-block + a cross-origin request chain) and gives repeat visits a free
 // cache hit. Filenames are strictly validated — no path traversal.
-const FONT_FILE_RE = /^(archivo|spacemono)-(400|500|600|700|800|900)\.woff2$/;
+const FONT_FILE_RE = /^((archivo|spacemono)-(400|500|600|700|800|900)|(geist|geist-mono)-(300|400|500|600|700)-(latin|latin-ext))\.woff2$/;
 app.get("/fonts/:file", (req, res) => {
   const file = String(req.params.file || "");
   if (!FONT_FILE_RE.test(file)) return res.status(404).end();
@@ -5336,6 +5336,25 @@ app.use((req, res, next) => {
 // routes (anything starting with /api or /__operator) return a small JSON
 // error; for HTML routes return a tiny page. Never expose `err.stack` to the
 // network. Has to be defined after every other route + middleware.
+// Unknown route: a branded 404 (the shell) for HTML, the same JSON shape the
+// error handler uses for /api + /__operator. Registered after every route
+// and before the error handler. Status stays 404 so route-existence probes
+// (test-mcp-self-consistency's live GET oracle) are unaffected.
+app.use((req, res) => {
+  const wantsJson = req.path.startsWith("/api") || req.path.startsWith("/__operator") || req.accepts(["html", "json"]) === "json";
+  if (wantsJson) return res.status(404).json({ ok: false, error: "not-found" });
+  const body = `<div style="max-width:640px;margin:0 auto;padding:96px 26px 80px;text-align:center;">
+      <div style="font-family:var(--font-mono);font-weight:500;font-size:72px;line-height:1;letter-spacing:-.03em;color:var(--ink);margin-bottom:14px;">404</div>
+      <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Page not found</h1>
+      <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">The page you're looking for doesn't exist.</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <a href="/" style="display:inline-block;padding:11px 18px;background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+        <a href="/tools" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Browse tools</a>
+        <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
+      </div>
+    </div>${ledgerFooterCompact()}`;
+  res.status(404).type("html").send(ledgerShell({ title: "Page not found - Agent402", description: "Page not found", canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", body }));
+});
 app.use((err, req, res, _next) => {
   if (res.headersSent) return; // already started streaming — let it go
   const status = err && typeof err.statusCode === "number" ? err.statusCode
@@ -5358,7 +5377,18 @@ app.use((err, req, res, _next) => {
     const is404 = status === 404;
     const t = is404 ? "Page not found" : `Error ${status}`;
     const m = is404 ? "The page you\u2019re looking for doesn\u2019t exist." : "Something went wrong. Try again in a moment.";
-    res.status(status).type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${CHROME_HEAD_LINKS}<title>${t} - Agent402</title><style>${CHROME_CSS}:root{--bg:#0b0e14;--text:#e6e9f0;--muted:#8b93a7;--accent:#4ade80;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,sans-serif}.e{max-width:600px;margin:0 auto;padding:80px 20px;text-align:center}.e .code{font:700 5rem/1 var(--mono);color:var(--accent);text-shadow:0 0 30px rgba(74,222,128,.3);margin-bottom:16px}.e h1{font-size:1.5rem;margin:0 0 12px}.e p{color:var(--muted);margin:0 0 28px}.e a.btn{display:inline-block;padding:10px 20px;background:var(--accent);color:#06210f;border-radius:10px;text-decoration:none;font-weight:600;margin:0 6px}.e a.ghost{background:transparent;border:1px solid #2a3550;color:var(--text)}.e a.ghost:hover{border-color:var(--accent)}.e .links{margin-top:32px;color:var(--muted);font-size:.9rem}.e .links a{color:var(--accent);margin:0 8px}</style></head><body>${renderHeader("")}<div class="e"><div class="code">${status}</div><h1>${t}</h1><p>${m}</p><a class="btn" href="/">Home</a><a class="btn ghost" href="/tools">Browse tools</a><a class="btn ghost" href="/api/find">Find a tool</a><div class="links">or try: <a href="/playground">Playground</a><a href="/docs">Docs</a><a href="/quickstart">Quickstart</a></div></div>${renderFooter()}</body></html>`);
+    const errBody = `<div style="max-width:640px;margin:0 auto;padding:96px 26px 80px;text-align:center;">
+      <div style="font-family:var(--font-mono);font-weight:500;font-size:72px;line-height:1;letter-spacing:-.03em;color:var(--ink);margin-bottom:14px;">${status}</div>
+      <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">${t}</h1>
+      <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">${m}</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <a href="/" style="display:inline-block;padding:11px 18px;background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+        <a href="/tools" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Browse tools</a>
+        <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
+      </div>
+      <div style="margin-top:30px;color:var(--faint);font-size:13.5px;font-family:var(--font-mono);">or try: <a href="/playground" style="color:var(--ink);">playground</a> · <a href="/docs" style="color:var(--ink);">docs</a> · <a href="/quickstart" style="color:var(--ink);">quickstart</a></div>
+    </div>${ledgerFooterCompact()}`;
+    res.status(status).type("html").send(ledgerShell({ title: `${t} - Agent402`, description: t, canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", body: errBody }));
   }
 });
 

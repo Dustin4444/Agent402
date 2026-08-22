@@ -33,18 +33,19 @@ const html = ledgerShell({
 // --- the :root palette IS the dark palette ----------------------------------
 const rootBlock = LEDGER_CSS.slice(LEDGER_CSS.indexOf(":root {"), LEDGER_CSS.indexOf("}", LEDGER_CSS.indexOf("--font-mono")));
 const tok = (name) => (rootBlock.match(new RegExp(`${name}:\\s*(\\S+);`)) || [])[1] || "";
-const isDark = (h) => /^#[0-3]/.test(h);      // #0E0E10, #171719, #1E1E21…
-const isLight = (h) => /^#[C-Fc-f]/.test(h);  // #ECECEA, #F4F4F2…
+const isDark = (h) => /^#[0-3]/.test(h);      // #0C0D0F, #111315, #24282C…
+const isLight = (h) => /^#[C-Fc-f]/.test(h);  // #F3F4F5, #FFFFFF, #E9EAEC…
 
-ok(isDark(tok("--paper")), `page background is dark (--paper ${tok("--paper")})`);
-ok(isLight(tok("--ink")), `foreground is light (--ink ${tok("--ink")})`);
-ok(isDark(tok("--card")), `cards are dark (--card ${tok("--card")})`);
+// 2026-08-22 redesign: the milled LIGHT ground is the one theme (was dark).
+ok(isLight(tok("--paper")), `page background is the light milled ground (--paper ${tok("--paper")})`);
+ok(isDark(tok("--ink")), `foreground is dark ink (--ink ${tok("--ink")})`);
+ok(isLight(tok("--card")), `cards are light (--card ${tok("--card")})`);
 // --ink and --cream must stay paired: ~100 chips are background:var(--ink)
 // with color:var(--cream), so if only one of them flips they go invisible.
-ok(isDark(tok("--cream")), `--cream is dark so ink chips read light-on-dark (${tok("--cream")})`);
+ok(isDark(tok("--surface")), `obsidian panels stay dark (--surface ${tok("--surface")})`);
 ok(isLight(tok("--on-dark")), `text on dark surfaces stays light (--on-dark ${tok("--on-dark")})`);
-ok(/color-scheme:\s*dark/.test(LEDGER_CSS), "color-scheme is dark so form controls and scrollbars match");
-ok(!/color-scheme:\s*light/.test(LEDGER_CSS), "no light color-scheme survives");
+ok(/color-scheme:\s*light/.test(LEDGER_CSS), "color-scheme is light so form controls and scrollbars match");
+ok(!/color-scheme:\s*dark/.test(LEDGER_CSS), "no dark color-scheme survives (one theme)");
 
 // --- nothing of the toggle mechanism is left --------------------------------
 ok(!LEDGER_CSS.includes('[data-theme="dark"]'), "no [data-theme] override block in the CSS");

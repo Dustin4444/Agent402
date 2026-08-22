@@ -3385,16 +3385,16 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
   .ix-wrap h1 { font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 8px; }
   .sub { color:var(--muted); margin:0 0 22px; font-size:.95rem; max-width:680px; line-height:1.6; }
   .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); margin:0 0 22px; }
-  .stat { background:var(--card); border:1.5px solid var(--ink); padding:16px; }
+  .stat { background:var(--card); border:1px solid var(--hairline); padding:16px; }
   .stat .k { color:var(--faint); font-family:var(--font-mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; }
   .stat .v { font-family:var(--font-mono); font-size:1.65rem; color:var(--ink); margin-top:4px; }
   .stat .s { color:var(--faint); font-size:.78rem; margin-top:3px; }
-  .panel { background:var(--card); border:1.5px solid var(--ink); overflow:hidden; margin-bottom:18px; }
-  .ph { padding:14px 18px; border-bottom:1.5px solid var(--ink); }
+  .panel { background:var(--card); border:1px solid var(--hairline); overflow:hidden; margin-bottom:18px; }
+  .ph { padding:14px 18px; border-bottom:1px solid var(--hairline); }
   .ph h2 { margin:0; font-family:var(--font-body);font-weight:800;font-size:20px;letter-spacing:-.01em;color:var(--accent); }
   .ph .pn { color:var(--muted); font-size:.82rem; margin-top:2px; }
   table { width:100%; border-collapse:collapse; font-size:.9rem; }
-  th { text-align:left; color:var(--faint); font-weight:500; font-family:var(--font-mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; padding:10px 18px; border-bottom:1.5px solid var(--ink); }
+  th { text-align:left; color:var(--faint); font-weight:500; font-family:var(--font-mono); font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; padding:10px 18px; border-bottom:1px solid var(--hairline); }
   th.num { text-align:right; }
   td { padding:10px 18px; border-bottom:1px solid var(--hairline); }
   td.num { font-family:var(--font-mono); text-align:right; }
@@ -3410,7 +3410,7 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
   .foot { color:var(--faint); font-size:.82rem; margin-top:24px; }
   .foot a { color:var(--accent); text-decoration:none; }
   .chains-label { display:flex; align-items:baseline; justify-content:space-between; gap:14px; flex-wrap:wrap; margin:0 0 12px; font-family:var(--font-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent); }
-  .chains { display:grid; grid-template-columns:repeat(${chainCells.length},minmax(0,1fr)); gap:0; border:1.5px solid var(--ink); background:var(--card); margin:0 0 8px; }
+  .chains { display:grid; grid-template-columns:repeat(${chainCells.length},minmax(0,1fr)); gap:0; border:1px solid var(--hairline); background:var(--card); margin:0 0 8px; }
   .chains a { display:block; min-width:0; overflow:hidden; padding:14px 16px; border-right:1px solid var(--hairline); text-decoration:none; }
   .chains a:last-child { border-right:none; }
   .chains .cn { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--font-mono); font-weight:700; font-size:13px; margin-bottom:3px; color:var(--faint); }

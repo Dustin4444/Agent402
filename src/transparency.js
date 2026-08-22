@@ -63,14 +63,14 @@ export function transparencyPage(baseUrl, traffic = null) {
 .tp-body a{color:var(--accent);text-decoration:none}
 .tp-body a:hover{text-decoration:underline}
 .tp-body b,.tp-body strong{color:var(--ink);font-weight:600}
-.tp-body code{font-family:var(--font-mono);font-size:13px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1.5px solid var(--ink)}
-.tp-ca{font-family:var(--font-mono);font-size:14px;word-break:break-all;background:var(--surface);color:var(--on-dark);border:1.5px solid var(--ink);padding:14px 16px;margin:0 0 8px}
+.tp-body code{font-family:var(--font-mono);font-size:13px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1px solid var(--hairline)}
+.tp-ca{font-family:var(--font-mono);font-size:14px;word-break:break-all;background:var(--surface);color:var(--on-dark);border:1px solid var(--hairline);padding:14px 16px;margin:0 0 8px}
 .tp-ca-label{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin:18px 0 6px}
 .tp-receipts{width:100%;border-collapse:collapse;margin:14px 0 22px;font-family:var(--font-mono);font-size:12.5px}
-.tp-receipts th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:6px 10px 6px 0;border-bottom:1.5px solid var(--ink)}
+.tp-receipts th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:6px 10px 6px 0;border-bottom:1px solid var(--hairline)}
 .tp-receipts td{padding:8px 10px 8px 0;border-bottom:1px solid var(--hairline);color:var(--muted);vertical-align:top}
 .tp-receipts td a{word-break:break-all}
-.tp-note{border:1.5px solid var(--ink);background:var(--card-bg,transparent);padding:16px 18px;margin:22px 0}
+.tp-note{border:1px solid var(--hairline);background:var(--card-bg,transparent);padding:16px 18px;margin:22px 0}
 .tp-note p{margin:0}
 .tp-fold{border:1.5px solid var(--hairline);background:var(--card);padding:14px 18px;margin:0 0 26px}
 .tp-fold summary{cursor:pointer;font-size:15px;color:var(--ink)}

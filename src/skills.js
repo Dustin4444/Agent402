@@ -3293,7 +3293,7 @@ function indexCatalog(catalog) {
 const SKILLS_CSS = `
 .sk-hero, .sk-2col { display:grid; gap:0; }
 @media (max-width:900px){ .sk-hero, .sk-2col { grid-template-columns:minmax(0,1fr) !important; } }
-.sk-cardgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--hairline); border:1.5px solid var(--ink); }
+.sk-cardgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; background:var(--hairline); border:1px solid var(--hairline); }
 @media (max-width:900px){ .sk-cardgrid { grid-template-columns:repeat(2,1fr); } }
 @media (max-width:640px){ .sk-cardgrid { grid-template-columns:1fr; } }
 .sk-flagship { display:flex; flex-direction:column; gap:11px; padding:24px; background:var(--card); color:inherit; text-decoration:none; }
@@ -3307,12 +3307,12 @@ const SKILLS_CSS = `
 .sk-scroll { overflow-x:auto; }
 .sk-scroll table { min-width:640px; }
 .sk-tl { margin:18px 0 8px; padding:0; list-style:none; }
-.sk-tl li { padding:16px 18px; border:1.5px solid var(--ink); margin-bottom:10px; background:var(--card); }
+.sk-tl li { padding:16px 18px; border:1px solid var(--hairline); margin-bottom:10px; background:var(--card); }
 .sk-tl .row { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .sk-tl .name { font-weight:700; color:var(--ink); }
 .sk-tl .name a { color:var(--ink); text-decoration:none; }
 .sk-tl .name a:hover { color:var(--accent); }
-.sk-buy { border:1.5px solid var(--ink); background:var(--card); padding:18px 20px; margin:24px 0 0; max-width:720px; }
+.sk-buy { border:1px solid var(--hairline); background:var(--card); padding:18px 20px; margin:24px 0 0; max-width:720px; }
 .sk-buy-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
 .sk-buy-price { font-family:var(--font-mono); font-size:26px; font-weight:700; color:var(--accent); }
 .sk-buy-unit { color:var(--muted); font-size:14px; }
@@ -3405,11 +3405,11 @@ export function skillsIndex(baseUrl) {
   const faqHtml = SKILLS_FAQS.map((f) => `<article style="padding:22px 0;border-bottom:1px solid var(--hairline);"><h3 style="font-weight:800;font-size:17.5px;margin:0 0 10px;color:var(--ink);">${e(f.q)}</h3><p style="font-size:15.5px;line-height:1.65;color:var(--muted);margin:0;">${e(f.a)}</p></article>`).join("");
 
   const body = `
-<div style="border-bottom:1.5px solid var(--ink);background:var(--footer-bg);">
+<div style="border-bottom:1px solid var(--hairline);background:var(--footer-bg);">
   <div style="max-width:1180px;margin:0 auto;padding:0 30px;display:flex;gap:0;overflow-x:auto;font-family:var(--font-mono);font-size:12.5px;">${tabsHtml}</div>
 </div>
 
-<header style="border-bottom:1.5px solid var(--ink);">
+<header style="border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:40px 30px 38px;">
     <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:20px;"><a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <a href="/tools" style="color:var(--muted);text-decoration:none;">our tools</a> / <span style="color:var(--ink);">skill packs</span></nav>
     <div class="sk-hero" style="grid-template-columns:1.05fr .95fr;gap:50px;align-items:start;">
@@ -3419,10 +3419,10 @@ export function skillsIndex(baseUrl) {
         <p style="font-size:16px;line-height:1.6;color:var(--faint);margin:0 0 30px;">A skill pack runs the sequence server-side. One request, one settlement, one response with every step in it. <strong style="color:var(--ink);font-weight:700;">${packCount}+ packs, $0.05 to $1.50.</strong></p>
         <div style="display:flex;flex-wrap:wrap;gap:11px;">
           <a class="ml-cta" href="#packs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">BROWSE THE PACKS →</a>
-          <a class="ml-cta" href="/api/skill-packs.json" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">skill-packs.json</a>
+          <a class="ml-cta" href="/api/skill-packs.json" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">skill-packs.json</a>
         </div>
       </div>
-      <div style="border:1.5px solid var(--ink);background:var(--surface);">
+      <div style="border:1px solid var(--hairline);background:var(--surface);">
         <div style="padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);display:flex;justify-content:space-between;gap:12px;"><span>THE SAME JOB, TWO WAYS</span><span style="color:var(--dk-muted3);">security-audit</span></div>
         <table style="font-family:var(--font-mono);font-size:12.5px;">
           <thead><tr style="border-bottom:1px solid var(--dark-border);color:var(--dk-muted3);"><th scope="col" style="text-align:left;font-weight:400;padding:10px 18px;"></th><th scope="col" style="text-align:right;font-weight:400;padding:10px 18px;">you orchestrate</th><th scope="col" style="text-align:right;font-weight:700;padding:10px 18px;color:var(--accent);">one pack</th></tr></thead>
@@ -3441,7 +3441,7 @@ export function skillsIndex(baseUrl) {
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">the part that matters</span>
   </div>
   <p style="font-size:16.5px;line-height:1.6;color:var(--muted);max-width:740px;margin:0 0 28px;">This is the real difference, and it only shows up when something goes wrong. Orchestrate seven calls yourself and a failure on step six leaves you holding five results you have already paid for, a broken chain, and the job of working out what to retry. A pack returns the whole ledger: what succeeded, what did not, and why - in one response you can act on.</p>
-  <div class="sk-scroll" style="border:1.5px solid var(--ink);background:var(--surface);">
+  <div class="sk-scroll" style="border:1px solid var(--hairline);background:var(--surface);">
     <table style="font-family:var(--font-body);font-size:14px;">
       <caption style="text-align:left;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);padding:14px 18px;border-bottom:1px solid var(--dark-border);">One run · a step failed · the response is still usable</caption>
       <thead><tr style="border-bottom:1.5px solid var(--dark-border2);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dk-muted3);"><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;width:44px;">step</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">tool</th><th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">outcome</th><th scope="col" style="text-align:right;font-weight:700;padding:12px 18px;">status</th></tr></thead>
@@ -3462,15 +3462,15 @@ export function skillsIndex(baseUrl) {
   </div>
   <p style="font-size:16px;line-height:1.6;color:var(--muted);max-width:700px;margin:0 0 28px;">Every pack publishes its tool sequence before you pay. These are deterministic sequences, not an agent improvising - the same inputs run the same steps in the same order, every time. Six are set out in full below; the rest of the ${packCount} follow.</p>
   <div class="sk-cardgrid">${flagshipCardsHtml}</div>
-  <div style="border:1.5px solid var(--ink);border-top:none;background:var(--footer-bg);padding:22px 24px;">
+  <div style="border:1px solid var(--hairline);border-top:none;background:var(--footer-bg);padding:22px 24px;">
     <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dk-muted3);margin-bottom:14px;">${rest.length} more · every pack links to its own sequence</div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;">${restChipsHtml}</div>
   </div>
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
-  <div class="sk-2col" style="grid-template-columns:1fr 1fr;border:1.5px solid var(--ink);">
-    <div style="padding:28px;border-right:1.5px solid var(--ink);background:var(--card);">
+  <div class="sk-2col" style="grid-template-columns:1fr 1fr;border:1px solid var(--hairline);">
+    <div style="padding:28px;border-right:1px solid var(--hairline);background:var(--card);">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">IN CODE</div>
       <h2 style="font-weight:800;font-size:24px;margin:0 0 14px;color:var(--ink);">One POST, over x402 or MPP</h2>
       <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 16px;">The pack quotes its price in the 402 challenge, your client signs once, and the response carries every step. Nothing to install and no key to rotate.</p>
@@ -3493,11 +3493,11 @@ export function skillsIndex(baseUrl) {
 
 <section style="max-width:900px;margin:0 auto;padding:56px 30px 0;">
   <h2 style="font-weight:800;font-size:34px;line-height:1.02;letter-spacing:-.025em;margin:0 0 24px;color:var(--ink);">About skill packs.</h2>
-  <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+  <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">${faqHtml}</div>
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:44px 30px 52px;">
-  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:46px 40px;position:relative;overflow:hidden;">
+  <div style="background:var(--surface);border:1px solid var(--hairline);padding:46px 40px;position:relative;overflow:hidden;">
     <div style="position:absolute;right:24px;top:-32px;font-weight:900;font-size:210px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
     <div style="position:relative;">
       <h2 style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Stop writing the glue.</h2>

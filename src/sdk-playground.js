@@ -70,7 +70,7 @@ export function sdkPlaygroundPage(baseUrl) {
   .sp-sub{color:var(--muted);margin:0 0 1.5rem;font-size:.95rem}
   .sp-sub a{color:var(--accent)}
   .sp-examples{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1rem}
-  .sp-example{background:transparent;border:1.5px solid var(--ink);color:var(--faint);padding:.4rem .85rem;font-family:var(--font-mono);font-size:.82rem;cursor:pointer;transition:.15s}
+  .sp-example{background:transparent;border:1px solid var(--hairline);color:var(--faint);padding:.4rem .85rem;font-family:var(--font-mono);font-size:.82rem;cursor:pointer;transition:.15s}
   .sp-example:hover{border-color:var(--accent);color:var(--ink)}
   .sp-example.active{background:var(--surface);color:var(--on-dark);border-color:var(--ink);font-weight:700}
   .sp-editor-wrap{display:flex;gap:1rem;margin-bottom:1rem}
@@ -90,7 +90,7 @@ export function sdkPlaygroundPage(baseUrl) {
   .sp-status{color:var(--faint);font-size:.85rem;font-family:var(--font-mono)}
   .sp-status .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--faint);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
   @keyframes spin{to{transform:rotate(360deg)}}
-  .sp-note{background:var(--card);border:1.5px solid var(--ink);padding:1rem 1.25rem;color:var(--muted);font-size:.88rem;margin-top:1.5rem}
+  .sp-note{background:var(--card);border:1px solid var(--hairline);padding:1rem 1.25rem;color:var(--muted);font-size:.88rem;margin-top:1.5rem}
   .sp-note a{color:var(--accent)}
   .sp-note code{font-family:var(--font-mono);background:var(--surface);color:var(--on-dark);padding:.15rem .4rem;font-size:.82rem}
   `;

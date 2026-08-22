@@ -1313,7 +1313,7 @@ function railThroughputSection(snap) {
       ${sub ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:2px;">${sub}</div>` : ""}
     </div>`;
   return `
-  <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin:0 0 26px;">
+  <div style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;margin:0 0 26px;">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:14px;">
       <span style="font-weight:800;font-size:17px;">Rail throughput <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· every settled on-chain transaction, ours included</span></span>
       <span style="font-family:var(--font-mono);font-size:11.5px;color:var(--muted);">throughput proves the rails · the revenue figure up top counts only money from others</span>
@@ -1354,7 +1354,7 @@ function mppRailsSection(mpp) {
       return href ? `<a href="${esc(href)}" rel="noopener">tx${i + 1}</a>` : `<span>${esc(String(tx).slice(0, 10))}…</span>`;
     }).join(" · ");
     return `
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;min-width:0;">
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;min-width:0;">
       <div style="border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
           <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(meta.label)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(meta.asset)}</span></span>
@@ -1393,16 +1393,16 @@ export function revenueChartSection() {
   return `
   <style>
   .rvz{--s1:#3987e5;--s2:#d95926;--s3:#199e70;--s4:#c98500;--s5:#d55181;--s6:#008300;--s7:#9085e9;--s8:#e66767;--sfree:#9aa0aa;--stempo:#0ea5b8;--snewbuyers:#199e70;--sretbuyers:#9085e9;--scumbuyers:#3987e5;--vsurf:var(--card)}
-  .rvz{border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin:0 0 26px}
+  .rvz{border:1px solid var(--hairline);background:var(--card);padding:18px 20px;margin:0 0 26px}
   .rvz-controls{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
-  .rvz-seg{display:inline-flex;border:1.5px solid var(--ink)}
-  .rvz-seg button{background:transparent;border:none;border-right:1.5px solid var(--ink);color:var(--muted);font-family:var(--font-mono);font-size:12px;padding:6px 12px;cursor:pointer}
+  .rvz-seg{display:inline-flex;border:1px solid var(--hairline)}
+  .rvz-seg button{background:transparent;border:none;border-right:1px solid var(--hairline);color:var(--muted);font-family:var(--font-mono);font-size:12px;padding:6px 12px;cursor:pointer}
   .rvz-seg button:last-child{border-right:none}
   .rvz-seg button.on{background:var(--surface);color:var(--on-dark);font-weight:700}
   .rvz-legend{display:flex;gap:12px;flex-wrap:wrap;font-family:var(--font-mono);font-size:11.5px;color:var(--muted);margin:10px 0 0}
   .rvz-legend span{display:inline-flex;align-items:center;gap:5px}
   .rvz-legend i{width:10px;height:10px;display:inline-block}
-  .rvz-tip{position:absolute;pointer-events:none;background:var(--surface);color:var(--on-dark);border:1.5px solid var(--ink);font-family:var(--font-mono);font-size:11.5px;line-height:1.6;padding:8px 11px;display:none;z-index:5;max-width:260px}
+  .rvz-tip{position:absolute;pointer-events:none;background:var(--surface);color:var(--on-dark);border:1px solid var(--hairline);font-family:var(--font-mono);font-size:11.5px;line-height:1.6;padding:8px 11px;display:none;z-index:5;max-width:260px}
   .rvz-wrap{position:relative}
   .rvz-empty{font-family:var(--font-mono);font-size:12.5px;color:var(--muted);padding:30px 0;text-align:center}
   .rvz details{margin-top:12px;font-size:12.5px}
@@ -1460,7 +1460,7 @@ export function revenuePage(baseUrl, snap) {
     const dotLabel = !hasBalance ? "unreachable" : stale ? "live · cached" : "live";
     const statusDot = `<span style="display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;color:${dotColor};"><span style="width:7px;height:7px;border-radius:50%;background:${dotColor};display:inline-block;"></span>${dotLabel}</span>`;
     return `
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;min-width:0;">
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;min-width:0;">
       <div style="border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px;">
           <span style="font-weight:800;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(r.rail)} <span style="font-family:var(--font-mono);font-size:12px;color:var(--muted);font-weight:400;">· ${esc(r.asset)}</span></span>

@@ -62,7 +62,7 @@ export function ledgerCatalogPage(baseUrl, catalog, skillPacks) {
 .cat-scroll table{min-width:780px}
 table{border-collapse:collapse;width:100%}
 @media (max-width:900px){.cat-2col{grid-template-columns:minmax(0,1fr)!important}}
-.cat-search-wrap{border:1.5px solid var(--ink)}
+.cat-search-wrap{border:1px solid var(--hairline)}
 .cat-search-wrap:focus-within{border-color:var(--accent)}
 `;
 
@@ -77,11 +77,11 @@ table{border-collapse:collapse;width:100%}
   ).join("");
 
   const body = `
-<div style="border-bottom:1.5px solid var(--ink);background:var(--footer-bg);">
+<div style="border-bottom:1px solid var(--hairline);background:var(--footer-bg);">
   <div style="max-width:1180px;margin:0 auto;padding:0 30px;display:flex;gap:0;overflow-x:auto;font-family:var(--font-mono);font-size:12.5px;">${tabsHtml}</div>
 </div>
 
-<header style="border-bottom:1.5px solid var(--ink);">
+<header style="border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:36px 30px 34px;">
     <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:18px;">
       <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">our tools</span>
@@ -112,10 +112,10 @@ table{border-collapse:collapse;width:100%}
     <h2 style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0;color:var(--ink);">Browse by category.</h2>
     <span style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);">counts from the live catalog</span>
   </div>
-  <div class="cat-scroll" style="border:1.5px solid var(--ink);background:var(--card);">
+  <div class="cat-scroll" style="border:1px solid var(--hairline);background:var(--card);">
     <table style="font-size:14px;">
       <thead>
-        <tr style="border-bottom:1.5px solid var(--ink);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);">
+        <tr style="border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);">
           <th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;width:250px;">category</th>
           <th scope="col" style="text-align:left;font-weight:700;padding:12px 18px;">what is in it</th>
           <th scope="col" style="text-align:right;font-weight:700;padding:12px 18px;white-space:nowrap;">tools</th>
@@ -130,8 +130,8 @@ table{border-collapse:collapse;width:100%}
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:52px 30px 0;">
-  <div class="cat-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
-    <div style="padding:28px;border-right:1.5px solid var(--ink);background:var(--footer-bg);">
+  <div class="cat-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);">
+    <div style="padding:28px;border-right:1px solid var(--hairline);background:var(--footer-bg);">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--green);margin-bottom:14px;">FREE TIER</div>
       <h2 style="font-weight:800;font-size:25px;margin:0 0 14px;color:var(--ink);">Pay with CPU, not USDC</h2>
       <p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0 0 16px;">Every pure-CPU tool is payable in compute. Your machine solves a single-use sha256 puzzle - about 85,000 hashes, a tenth of a second - and the call goes through. No wallet, no funding, no signup.</p>
@@ -153,7 +153,7 @@ table{border-collapse:collapse;width:100%}
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:44px 30px 52px;">
-  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:46px 40px;position:relative;overflow:hidden;">
+  <div style="background:var(--surface);border:1px solid var(--hairline);padding:46px 40px;position:relative;overflow:hidden;">
     <div style="position:absolute;right:24px;top:-32px;font-weight:900;font-size:210px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
     <div style="position:relative;">
       <h2 style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Don't browse. Just ask.</h2>

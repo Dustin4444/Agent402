@@ -22,7 +22,7 @@ export function comparePage(baseUrl) {
 .cmp-section h2{font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink)}
 .cmp-section p.cmp-desc{color:var(--muted);font-size:15px;line-height:1.55;margin:0 0 20px;max-width:760px}
 .cmp-scroll{overflow-x:auto}
-.cmp-table{width:100%;min-width:520px;border-collapse:collapse;background:var(--card);border:1.5px solid var(--ink);overflow:hidden;font-size:14px}
+.cmp-table{width:100%;min-width:520px;border-collapse:collapse;background:var(--card);border:1px solid var(--hairline);overflow:hidden;font-size:14px}
 .cmp-table th,.cmp-table td{padding:14px 18px;text-align:left;border-bottom:1px solid var(--hairline)}
 .cmp-table thead th{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
 .cmp-table thead th:first-child{color:var(--dk-muted2);font-weight:500;text-transform:none;letter-spacing:normal}
@@ -35,7 +35,7 @@ export function comparePage(baseUrl) {
 .check{color:var(--accent);font-size:1.1rem}
 .cross{color:#D63C1A;font-size:1.1rem}
 @media(max-width:640px){.cmp-table{font-size:13px}.cmp-table th,.cmp-table td{padding:10px 12px}.cmp-h1{font-size:36px !important}}
-.cmp-cta{text-align:center;margin:40px 0 48px;padding:36px 24px;background:var(--card);border:1.5px solid var(--ink)}
+.cmp-cta{text-align:center;margin:40px 0 48px;padding:36px 24px;background:var(--card);border:1px solid var(--hairline)}
 .cmp-cta h2{font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 12px;color:var(--ink)}
 .cmp-cta p{color:var(--muted);font-size:15px;margin:0 0 20px;line-height:1.55}
 .cmp-cta a.btn{display:inline-block;background:var(--accent);color:#fff;padding:12px 30px;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;border:1.5px solid var(--accent)}

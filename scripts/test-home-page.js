@@ -97,8 +97,12 @@ const catalog = {
 // --- CDN script tags: pinned versions + SRI, no wildcard trust --------------
 {
   const html = ledgerHomePage(BASE_URL, catalog, {}, {}, []);
-  ok(/<script src="https:\/\/unpkg\.com\/d3@7\.9\.0\/dist\/d3\.min\.js" integrity="sha384-[^"]+" crossorigin="anonymous">/.test(html), "d3 script tag is version-pinned with an SRI hash");
-  ok(/<script src="https:\/\/unpkg\.com\/topojson-client@3\.1\.0\/dist\/topojson-client\.min\.js" integrity="sha384-[^"]+" crossorigin="anonymous">/.test(html), "topojson-client script tag is version-pinned with an SRI hash");
+  // 2026-08-22 redesign: the dot-map (d3 + topojson from unpkg) is gone; the
+  // homepage loads NO third-party script at all. If one ever returns it must be
+  // version-pinned with an SRI hash - the old assertion shape - but the
+  // stronger invariant now is its absence.
+  ok(!/<script src="https?:\/\//.test(html), "homepage loads no third-party script (no CDN tags)");
+  ok(html.includes('<script src="/js/home-hero.js">'), "homepage behavior script is first-party");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

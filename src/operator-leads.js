@@ -79,12 +79,12 @@ export function operatorLeadsPage({ ok, rows, total, byPlan, dbEnabled }) {
 .ol-sub{color:var(--muted);margin:0 0 22px;font-size:14px;line-height:1.55}
 .ol-sub a{color:var(--accent);text-decoration:none}
 .ol-sub a:hover{text-decoration:underline}
-.ol-warn{background:var(--card);border:1.5px solid var(--ink);color:#b8842e;padding:12px 16px;margin-bottom:18px;font-size:14px}
+.ol-warn{background:var(--card);border:1px solid var(--hairline);color:#b8842e;padding:12px 16px;margin-bottom:18px;font-size:14px}
 .ol-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));margin:0 0 22px}
-.ol-stat{background:var(--surface);border:1.5px solid var(--ink);padding:12px 16px}
+.ol-stat{background:var(--surface);border:1px solid var(--hairline);padding:12px 16px}
 .ol-stat .ol-k{color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .ol-stat .ol-v{font-family:var(--font-mono);font-size:1.25rem;color:var(--on-dark);margin-top:2px}
-.ol-tbl-wrap{background:var(--surface);border:1.5px solid var(--ink);overflow:hidden}
+.ol-tbl-wrap{background:var(--surface);border:1px solid var(--hairline);overflow:hidden}
 table{width:100%;border-collapse:collapse}
 th{text-align:left;color:var(--dk-muted);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:10px 14px;border-bottom:1px solid var(--dark-border);background:var(--ink-panel)}
 td{padding:12px 14px;border-bottom:1px solid var(--dark-border);vertical-align:top;font-size:13px;color:var(--on-dark)}
@@ -98,7 +98,7 @@ tr:last-child td{border-bottom:0}
 .ol-kind{display:inline-block;color:#c4a44e;border:1px solid rgba(196,164,78,.3);padding:1px 8px;font-family:var(--font-mono);font-size:10px;margin-left:4px;text-transform:uppercase;letter-spacing:.04em}
 .ol-sites{max-width:240px;word-break:break-word}
 .ol-msg{max-width:320px;white-space:pre-wrap;color:var(--dk-muted)}
-.ol-empty{background:var(--card);border:1.5px solid var(--ink);padding:30px;text-align:center;color:var(--faint)}
+.ol-empty{background:var(--card);border:1px solid var(--hairline);padding:30px;text-align:center;color:var(--faint)}
 .ol-empty a{color:var(--accent)}
 @media(max-width:600px){.ol-h1{font-size:36px !important}}
 `;

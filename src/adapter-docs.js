@@ -261,7 +261,7 @@ export function adapterDocsIndex(baseUrl) {
   const extraCss = `
   .ml-ad-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1.25rem;margin-bottom:3rem}
   @media(max-width:680px){.ml-ad-grid{grid-template-columns:1fr}}
-  .ml-ad-card{background:var(--card);border:1.5px solid var(--ink);padding:1.5rem 1.6rem;text-decoration:none;color:var(--ink);transition:border-color .15s;display:block}
+  .ml-ad-card{background:var(--card);border:1px solid var(--hairline);padding:1.5rem 1.6rem;text-decoration:none;color:var(--ink);transition:border-color .15s;display:block}
   .ml-ad-card:hover{border-color:var(--accent)}`;
 
   const body = `
@@ -320,7 +320,7 @@ export function adapterDocPage(baseUrl, slug) {
   const configExamples = (adapter.config || []).map((c) => `// ${esc(c.desc)}\n${esc(c.example)}`).join("\n\n");
 
   const worksWithTags = (adapter.worksWith || []).map((w) =>
-    `<span style="background:var(--card);border:1.5px solid var(--ink);color:var(--muted);font-size:.82rem;padding:4px 12px;font-family:var(--font-mono);">${esc(w)}</span>`
+    `<span style="background:var(--card);border:1px solid var(--hairline);color:var(--muted);font-size:.82rem;padding:4px 12px;font-family:var(--font-mono);">${esc(w)}</span>`
   ).join("\n        ");
 
   const extraCss = `
@@ -335,7 +335,7 @@ export function adapterDocPage(baseUrl, slug) {
     <!-- TOC -->
     <aside class="ml-adp-toc" style="position:sticky;top:92px;font-family:var(--font-mono);font-size:13px;">
       <div style="font-size:11px;color:var(--accent);letter-spacing:.1em;margin-bottom:14px;">ADAPTER</div>
-      <div style="display:flex;flex-direction:column;gap:11px;border-left:1.5px solid var(--ink);padding-left:16px;">
+      <div style="display:flex;flex-direction:column;gap:11px;border-left:1px solid var(--hairline);padding-left:16px;">
         ${tocLinks}
         <a href="/docs/adapters" style="color:var(--faint);text-decoration:none;">&larr; all adapters</a>
       </div>
@@ -371,7 +371,7 @@ export function adapterDocPage(baseUrl, slug) {
         <h2 style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 12px;">Configuration</h2>
         <table style="width:100%;border-collapse:collapse;margin-bottom:14px;font-size:.88rem;">
           <thead>
-            <tr><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Option</th><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Type</th><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1.5px solid var(--ink);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Description</th></tr>
+            <tr><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--hairline);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Option</th><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--hairline);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Type</th><th style="text-align:left;color:var(--faint);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--hairline);font-size:.82rem;text-transform:uppercase;letter-spacing:.03em;font-family:var(--font-mono);">Description</th></tr>
           </thead>
           <tbody>
 ${configRows}
@@ -392,7 +392,7 @@ ${configRows}
       </div>` : ""}
 
       <!-- Navigation links -->
-      <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:36px;padding-top:20px;border-top:1.5px solid var(--ink);">
+      <div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:36px;padding-top:20px;border-top:1px solid var(--hairline);">
         <a href="/docs/adapters" style="color:var(--accent);text-decoration:none;font-size:.92rem;font-weight:600;">&larr; All adapters</a>
         <a href="/integrations" style="color:var(--accent);text-decoration:none;font-size:.92rem;font-weight:600;">Integrations overview</a>
         <a href="${esc(adapter.github)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:.92rem;font-weight:600;">GitHub source &rarr;</a>

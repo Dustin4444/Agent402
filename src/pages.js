@@ -205,7 +205,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
 
   const relatedCards = related.map((t) => {
     const desc = t.description.length > 120 ? t.description.slice(0, 120) + "\u2026" : t.description;
-    return `<div style="background:var(--card);border:1.5px solid var(--ink);padding:18px 20px;display:flex;flex-direction:column;gap:8px;">
+    return `<div style="background:var(--card);border:1px solid var(--hairline);padding:18px 20px;display:flex;flex-direction:column;gap:8px;">
   <h3 style="font-size:15px;margin:0;"><a href="/tools/${e(t.slug)}" style="text-decoration:none;color:var(--ink);">${e(t.name)}</a></h3>
   <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${ledgerPriceLine(t)} · <code style="background:transparent;color:var(--faint);font-size:12px;">${t.method} ${e(t.path)}</code></div>
   <p style="color:var(--muted);font-size:13px;margin:0;line-height:1.5;flex:1;">${e(desc)}</p>
@@ -250,7 +250,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
   .tp-grid { display:grid; gap:14px; margin:20px 0; }
   @media (min-width:640px){ .tp-grid { grid-template-columns:repeat(3,1fr); } }
   .tp-free { display:inline-block; background:var(--green); color:#08130b; font-weight:700; font-size:11px; letter-spacing:.02em; padding:2px 8px; font-family:var(--font-mono); vertical-align:middle; }
-  .tp-callout { background:var(--card); border:1.5px solid var(--ink); padding:16px 20px; margin:18px 0; font-size:15px; }
+  .tp-callout { background:var(--card); border:1px solid var(--hairline); padding:16px 20px; margin:18px 0; font-size:15px; }
   .tp-callout b { color:var(--accent); }
   `;
 
@@ -419,7 +419,7 @@ export function categoryPage(baseUrl, catalog, catKey) {
   };
   const cards = tools.map((t) => {
     const desc = t.description.length > 120 ? t.description.slice(0, 120) + "\u2026" : t.description;
-    return `<div style="background:var(--card);border:1.5px solid var(--ink);padding:18px 20px;display:flex;flex-direction:column;gap:8px;">
+    return `<div style="background:var(--card);border:1px solid var(--hairline);padding:18px 20px;display:flex;flex-direction:column;gap:8px;">
   <h3 style="font-size:15px;margin:0;"><a href="/tools/${e(t.slug)}" style="text-decoration:none;color:var(--ink);">${e(t.name)}</a></h3>
   <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">${ledgerPriceLine(t)} · <code style="background:transparent;color:var(--faint);font-size:12px;">${t.method} ${e(t.path)}</code></div>
   <p style="color:var(--muted);font-size:13px;margin:0;line-height:1.5;flex:1;">${e(desc)}</p>
@@ -436,7 +436,7 @@ export function categoryPage(baseUrl, catalog, catKey) {
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--faint);margin-bottom:18px;"><a href="/" style="color:var(--accent);text-decoration:none;">Agent402</a> / <a href="/tools" style="color:var(--accent);text-decoration:none;">tools</a> / ${e(cat.label)}</div>
   <h1 style="font-family:var(--font-body);font-weight:800;font-size:38px;line-height:1;letter-spacing:-.02em;margin-bottom:10px;">${e(cat.label)}</h1>
   <p style="color:var(--muted);font-size:16px;line-height:1.6;max-width:720px;">${e(cat.blurb)}</p>
-  <div style="background:var(--card);border:1.5px solid var(--ink);padding:16px 20px;margin:18px 0;font-size:15px;"><b style="color:var(--accent);">${tools.length} tools</b> in this category${freeCount ? ` - <b style="color:var(--accent);">${freeCount} free</b> via proof-of-work` : ""}. <a href="/tools" style="color:var(--accent);">\u2190 All tools</a></div>
+  <div style="background:var(--card);border:1px solid var(--hairline);padding:16px 20px;margin:18px 0;font-size:15px;"><b style="color:var(--accent);">${tools.length} tools</b> in this category${freeCount ? ` - <b style="color:var(--accent);">${freeCount} free</b> via proof-of-work` : ""}. <a href="/tools" style="color:var(--accent);">\u2190 All tools</a></div>
   <div class="cp-grid">${cards}</div>
 </div>
 ${ledgerFooterCompact()}`;

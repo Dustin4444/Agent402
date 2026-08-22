@@ -275,7 +275,7 @@ export const DOCS_LAYOUT_CSS = `
   .ml-docs-side-a:hover { background:var(--card); }
   .ml-docs-side-a.active { background:var(--card);color:var(--accent);border-left:2px solid var(--accent);padding-left:8px;font-weight:600; }
   .ml-docs-side-hidden { display:none !important; }
-  .ml-docs-api-cat { font-family:var(--font-body);font-weight:800;font-size:22px;letter-spacing:-.02em;margin:28px 0 8px;padding-bottom:6px;border-bottom:1.5px solid var(--ink);color:var(--ink); }
+  .ml-docs-api-cat { font-family:var(--font-body);font-weight:800;font-size:22px;letter-spacing:-.02em;margin:28px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--hairline);color:var(--ink); }
   .ml-docs-api-row { display:grid;grid-template-columns:1.2fr 2fr .5fr;gap:14px;padding:8px 0;border-bottom:1px solid var(--hairline);font-size:.9rem; }
   .ml-docs-api-row .slug { font-family:var(--font-mono);color:var(--ink); }
   .ml-docs-api-row .desc { color:var(--muted); }

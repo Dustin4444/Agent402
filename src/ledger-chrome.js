@@ -42,25 +42,33 @@ const GITHUB_ICON_SVG = `<svg width="19" height="19" viewBox="0 0 16 16" fill="c
 // the ?v= literal whenever the logo art changes or old marks linger for weeks.
 // ---------------------------------------------------------------------------
 
-export const LEDGER_HEAD = `<link rel="preload" href="/fonts/archivo-800.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/fonts/spacemono-400.woff2" as="font" type="font/woff2" crossorigin>
+export const LEDGER_HEAD = `<link rel="preload" href="/fonts/geist-500-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/geist-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <style>
-@font-face{font-family:'Archivo';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/archivo-400.woff2) format('woff2')}
-@font-face{font-family:'Archivo';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/archivo-500.woff2) format('woff2')}
-@font-face{font-family:'Archivo';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/archivo-600.woff2) format('woff2')}
-@font-face{font-family:'Archivo';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/archivo-700.woff2) format('woff2')}
-@font-face{font-family:'Archivo';font-style:normal;font-weight:800;font-display:swap;src:url(/fonts/archivo-800.woff2) format('woff2')}
-@font-face{font-family:'Archivo';font-style:normal;font-weight:900;font-display:swap;src:url(/fonts/archivo-900.woff2) format('woff2')}
-@font-face{font-family:'Space Mono';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/spacemono-400.woff2) format('woff2')}
-@font-face{font-family:'Space Mono';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/spacemono-700.woff2) format('woff2')}
-/* Metric-matched fallback faces (fontaine/capsize method, computed from the real
-   woff2 files vs Arial/Courier New): the fallback is sized to occupy the SAME box
-   as the web font, so when the self-hosted font swaps in nothing reflows - CLS ~0
-   AND the brand font always shows the moment it loads (no font-display:optional
-   fallback-flash). Overrides apply to whichever local() resolves, so vertical
-   metrics stay matched even on Arial-less systems (Android → Roboto). */
-@font-face{font-family:'Archivo Fallback';src:local('Arial'),local('Roboto'),local('Helvetica Neue');size-adjust:115.7664%;ascent-override:75.8424%;descent-override:18.14%;line-gap-override:0%}
-@font-face{font-family:'Space Mono Fallback';src:local('Courier New'),local('Courier'),local('Roboto Mono');size-adjust:101.9834%;ascent-override:109.8218%;descent-override:35.3979%;line-gap-override:0%}
+@font-face{font-family:'Geist';font-style:normal;font-weight:300;font-display:swap;src:url(/fonts/geist-300-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Geist';font-style:normal;font-weight:300;font-display:swap;src:url(/fonts/geist-300-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/geist-400-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Geist';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/geist-400-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/geist-500-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Geist';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/geist-500-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/geist-600-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Geist';font-style:normal;font-weight:600;font-display:swap;src:url(/fonts/geist-600-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Geist';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/geist-700-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Geist';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/geist-700-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/geist-mono-400-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:400;font-display:swap;src:url(/fonts/geist-mono-400-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/geist-mono-500-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:500;font-display:swap;src:url(/fonts/geist-mono-500-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/geist-mono-700-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Geist Mono';font-style:normal;font-weight:700;font-display:swap;src:url(/fonts/geist-mono-700-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+/* Metric-matched fallback faces (fontaine/capsize method, computed from the
+   Geist / Geist Mono TTF metrics - upm 1000, ascent 1005, descent 295,
+   xAvgCharWidth 567 / 600 - vs Arial / Courier New): the fallback occupies
+   the SAME box as the web font, so the swap never reflows (CLS ~0) and the
+   brand font shows the moment it loads. Overrides apply to whichever local()
+   resolves, so vertical metrics stay matched even on Arial-less systems. */
+@font-face{font-family:'Geist Fallback';src:local('Arial'),local('Roboto'),local('Helvetica Neue');size-adjust:128.4531%;ascent-override:78.2387%;descent-override:22.9656%;line-gap-override:0%}
+@font-face{font-family:'Geist Mono Fallback';src:local('Courier New'),local('Courier'),local('Roboto Mono');size-adjust:99.9837%;ascent-override:100.5164%;descent-override:29.5048%;line-gap-override:0%}
 </style>
 <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">
 <link rel="icon" type="image/png" sizes="512x512" href="/favicon.ico?v=3">
@@ -79,63 +87,58 @@ export const LEDGER_CSS = `
    else is made to wrap/fit at mobile widths in the media queries. */
 html { overflow-x: clip; }
 :root {
-  /* Accent as small text needs >=4.5:1 (WCAG AA). #BF360C clears it on every
-     light surface (white, cream card, zebra). On DARK surfaces a dark red fails,
-     so accent text there uses --accent-lit (a brighter red) via a scoped
-     override on each dark container. Accent-as-background keeps white text
-     legible on #BF360C (5.8:1); brightening it would BREAK that, so dark
-     containers only override text, never accent-bg buttons. */
-  --accent: #F0522E;
-  --accent-lit: #F0522E;
-  --paper: #0E0E10;
-  --card: #171719;
-  --card-zebra: #1E1E21;
-  --footer-bg: #131315;
-  --ink: #ECECEA;
-  --ink-panel: #171719;
-  --muted: #9E9E98;
-  /* Was #6C6C68 (3.15-3.66:1 against paper/card/card-zebra/footer-bg -
-     fails WCAG AA's 4.5:1 for normal text) - --faint is used at 10-13px in
-     shared nav/footer chrome that reaches every page. Raised to clear
-     4.5:1 with margin (4.86-5.64:1) against every dark surface it actually
-     appears on, keeping the original warm tint (R=G, B slightly lower) and
-     staying visually distinct from --muted (found in an internal audit,
-     2026-08-16). */
-  --faint: #8B8B87;
-  --hairline: #2A2A30;
-  --dash: #35353B;
-  --dark-border: #262626;
-  --dark-border2: #343434;
-  --cream: #0E0E10;
-  --cream2: #171719;
-  --surface: #17171A;
-  --on-dark: #F4F4F2;
-  --on-dark2: #CFCFCB;
-  --dk-muted: #9C9C9C;
-  --dk-muted2: #B8B8B8;
-  --dk-muted3: #888888;
-  --green: #3E9B6E;
-  --font-body: 'Archivo', 'Archivo Fallback', system-ui, sans-serif;
-  --font-mono: 'Space Mono', 'Space Mono Fallback', monospace;
+  /* Milled palette (2026-08-22 redesign): a light brushed-aluminum ground with
+     obsidian panels. Accent is a deep signal green (6.9:1 on paper, 4.5:1+ on
+     every light surface it is used as small text on); --accent-lit is the
+     phosphor green used ONLY as text/marks on dark surfaces (--surface,
+     --ink-panel) - never as a background under white text. */
+  --accent: #0F5E43;
+  --accent-lit: #9EF0B0;
+  --paper: #F3F4F5;
+  --card: #FFFFFF;
+  --card-zebra: #EDEFF1;
+  --footer-bg: #E8EAEC;
+  --ink: #111315;
+  --ink-panel: #0C0D0F;
+  --muted: #3A3F45;
+  /* --faint is used at 10-13px in shared nav/footer chrome on every page:
+     must clear WCAG AA 4.5:1 against --paper, --card, --card-zebra and
+     --footer-bg (test-faint-contrast computes it). #626970 clears all four. */
+  --faint: #626970;
+  --hairline: #D9DDE1;
+  --dash: #C3C9CF;
+  --dark-border: #24282C;
+  --dark-border2: #353B41;
+  --cream: #F3F4F5;
+  --cream2: #FFFFFF;
+  --surface: #0C0D0F;
+  --on-dark: #E9EAEC;
+  --on-dark2: #C9CED3;
+  --dk-muted: #9AA1A9;
+  --dk-muted2: #B3B9C0;
+  --dk-muted3: #868D95;
+  --green: #23774F;
+  --font-body: 'Geist', 'Geist Fallback', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
 }
-/* Dark is the ONLY theme. The palette above IS the dark palette, set directly
-   on :root rather than behind a [data-theme] attribute, so the first paint is
-   already dark: no flash, no pre-paint script, no stored preference, and
-   nothing to get out of sync. There is deliberately no light mode and no
-   toggle. Dark SURFACES still do not invert - a card or terminal that was
-   background:var(--surface) with color:var(--on-dark) keeps light text, which
-   is why --surface / --on-dark stay separate from the dual-use --ink. */
-:root { color-scheme: dark; }
+/* ONE theme, set directly on :root so the first paint is final: no flash, no
+   pre-paint script, no stored preference, no toggle, no OS-preference media query.
+   (The palette flipped from dark to the milled light ground in the 2026-08-22
+   redesign; the single-theme discipline is unchanged.) Dark SURFACES do not
+   invert - a panel that was background:var(--surface) with color:var(--on-dark)
+   is the obsidian element of the design, which is why --surface / --on-dark
+   stay separate from the dual-use --ink. */
+:root { color-scheme: light; }
 body { transition: background-color .18s ease, color .18s ease; }
 /* --- mobile hamburger menu (the hover nav dropdowns don't work on touch, and
    the inline links get squeezed to zero on a phone - so ≤880px collapses the
    whole nav into a tap menu) --- */
-.ml-burger { display:none; align-items:center; justify-content:center; width:38px; height:34px; padding:0; border:1.5px solid var(--ink); background:transparent; color:var(--ink); cursor:pointer; }
+.ml-burger { display:none; align-items:center; justify-content:center; width:38px; height:34px; padding:0; border:1px solid var(--hairline); border-radius:8px; background:var(--card); color:var(--ink); cursor:pointer; }
 .ml-burger .ml-burger-close { display:none; }
-.ml-mobile-menu { display:none; border-top:1.5px solid var(--ink); background:var(--paper); max-height:calc(100vh - 62px); overflow-y:auto; -webkit-overflow-scrolling:touch; }
+.ml-mobile-menu { display:none; border-top:1px solid var(--hairline); background:var(--paper); max-height:calc(100vh - 62px); overflow-y:auto; -webkit-overflow-scrolling:touch; }
 .ml-mm-h { padding:14px 20px 6px; font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
 .ml-mm-group { display:flex; flex-direction:column; }
-.ml-mm-link { padding:13px 20px; font-family:var(--font-mono); font-size:15px; color:var(--ink); text-decoration:none; border-bottom:1px solid var(--hairline); }
+.ml-mm-link { padding:13px 20px; font-family:var(--font-body); font-size:15px; color:var(--ink); text-decoration:none; border-bottom:1px solid var(--hairline); }
 .ml-mm-link:hover, .ml-mm-link:active { background:var(--card-zebra); }
 .ml-mm-active { color:var(--accent); font-weight:700; }
 .ml-mm-cta { background:var(--surface); color:var(--on-dark); font-weight:700; border-bottom:none; }
@@ -160,7 +163,7 @@ body { transition: background-color .18s ease, color .18s ease; }
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { background: var(--paper); font-family: var(--font-body); color: var(--ink); -webkit-font-smoothing: antialiased; }
-::selection { background: #d63c1a33; }
+::selection { background: #0F5E4326; }
 a { color: inherit; }
 
 /* --- nav dropdowns (CSS-only, zero-JS safe) --- */
@@ -168,9 +171,9 @@ a { color: inherit; }
 .mlnav-g > .mlnav-dd { display: none; position: absolute; top: 100%; left: -18px; padding-top: 13px; z-index: 60; }
 .mlnav-g:hover > .mlnav-dd, .mlnav-g:focus-within > .mlnav-dd { display: block; }
 .mlnav-row:hover { background: var(--card-zebra); }
-.ml-nav-link { color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; padding-bottom: 2px; transition: color .15s ease, border-color .15s ease; }
+.ml-nav-link { color: var(--muted); text-decoration: none; border-bottom: 1.5px solid transparent; padding-bottom: 2px; transition: color .15s ease, border-color .15s ease; }
 .ml-nav-link:hover { color: var(--ink); border-bottom-color: var(--dash); }
-.ml-nav-link-on { color: var(--ink); font-weight: 700; border-bottom-color: var(--accent); }
+.ml-nav-link-on { color: var(--ink); font-weight: 500; border-bottom-color: var(--ink); }
 .ml-nav-link-on:hover { border-bottom-color: var(--accent); }
 .mlr-row, tr[data-mfb-row] { transition: background-color .12s ease; }
 .mlr-row:hover, tr[data-mfb-row]:hover { background: var(--card-zebra); }
@@ -188,7 +191,7 @@ a { color: inherit; }
   .ml-2col { grid-template-columns: minmax(0, 1fr) !important; }
   .ml-2col > * { min-width: 0; }
   .ml-slip { grid-template-columns: 1fr !important; }
-  .ml-slip-cell { border-right: none !important; border-bottom: 1.5px solid var(--ink); }
+  .ml-slip-cell { border-right: none !important; border-bottom: 1px solid var(--hairline); }
   .ml-mkts { grid-template-columns: repeat(2, 1fr) !important; }
   .sl-hero { grid-template-columns: 1fr !important; }
   .sl-steps { grid-template-columns: repeat(2, 1fr) !important; }
@@ -240,7 +243,7 @@ a { color: inherit; }
 }
 
 /* --- home hero (settled-calls proof, spec strip, staggered load) --- */
-@keyframes ml-ring { 0% { box-shadow: 0 0 0 0 #d63c1a66; } 70% { box-shadow: 0 0 0 7px #d63c1a00; } 100% { box-shadow: 0 0 0 0 #d63c1a00; } }
+@keyframes ml-ring { 0% { box-shadow: 0 0 0 0 #0F5E4366; } 70% { box-shadow: 0 0 0 7px #0F5E4300; } 100% { box-shadow: 0 0 0 0 #0F5E4300; } }
 @keyframes ml-rise { to { opacity: 1; transform: none; } }
 .ml-stagger > * { opacity: 0; transform: translateY(8px); animation: ml-rise .6s ease forwards; }
 .ml-stagger > *:nth-child(1) { animation-delay: .02s; }
@@ -268,12 +271,12 @@ a { color: inherit; }
   .ml-reveal, .ml-reveal.ml-reveal-in { opacity: 1 !important; transform: none !important; transition: none !important; }
 }
 .mfb-label{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;}
-.mfb-tab{font-family:var(--font-mono);font-size:12px;padding:5px 11px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);text-decoration:none;white-space:nowrap;}
+.mfb-tab{font-family:var(--font-mono);font-size:12px;padding:5px 11px;border:1px solid var(--hairline);border-radius:999px;background:var(--card);color:var(--ink);text-decoration:none;white-space:nowrap;}
 /* Active tab: accent-as-background - the one pattern that stays legible in BOTH
    themes (white on #BF360C is 5.8:1; --ink/--on-dark flip light in dark mode and
    made the active tab a white blob with invisible text). */
 .mfb-tab.on{background:var(--accent);color:#fff;border-color:var(--accent);}
-.mfb-sel,.mfb-search{font-family:var(--font-mono);font-size:12px;padding:6px 10px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);}
+.mfb-sel,.mfb-search{font-family:var(--font-mono);font-size:12px;padding:6px 10px;border:1px solid var(--hairline);border-radius:8px;background:var(--card);color:var(--ink);}
 .mfb-search{flex:1;min-width:120px;}
 `;
 
@@ -322,21 +325,18 @@ function statusLine() {
 // (was 6, now 7: sell / x402 / mpp / leaderboard / our tools / 101 / docs).
 const NAV_ZONES = [
   [
-    { href: "/sell", label: "sell", panel: "sell" },
-    { href: "/marketplace", label: "x402", panel: "marketplace" },
-    { href: "/mpp-marketplace", label: "mpp", panel: "mpp" },
-    { href: "/leaderboard", label: "leaderboard" },
+    { href: "/reports", label: "Reports" },
+    { href: "/monitors", label: "Monitors" },
+    { href: "/tools", label: "Tools", panel: "tools" },
   ],
   [
-    { href: "/tools", label: "our tools", panel: "tools" },
+    { href: "/marketplace", label: "Market", panel: "marketplace" },
+    { href: "/mpp-marketplace", label: "MPP", panel: "mpp" },
+    { href: "/leaderboard", label: "Leaderboard" },
   ],
   [
-    // 2026-08-18: the ten-minute walkthrough gets a top-level word (Mike:
-    // "add the 101 to the homepage nav") - it is the page to send someone who
-    // is new to the space, so it should not live only under More.
-    { href: "/101", label: "101" },
-    { href: "/revenue", label: "adoption" },
-    { href: "/docs", label: "docs" },
+    { href: "/sell", label: "Sell", panel: "sell" },
+    { href: "/docs", label: "Docs" },
   ],
 ];
 
@@ -417,7 +417,7 @@ function chainRowHtml(c, live) {
 function marketPanelNav(chainInfo) {
   const rows = chainInfo.chains.map((c) => chainRowHtml(c, chainInfo.live)).join("\n                ");
   return `<span class="mlnav-dd">
-              <span style="display:block;width:340px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+              <span style="display:block;width:340px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">FIND A TOOL · OR BROWSE SELLERS</span>
                 <a href="/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">search our catalog</span><span style="color:var(--faint);">by task</span></a>
                 <a href="/guides/smart-order-router" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">smart order router</span><span style="color:var(--faint);">auto-pick a seller</span></a>
@@ -449,7 +449,7 @@ function mppPanelNav() {
     ? `<span style="display:block;padding:4px 16px 8px;font-size:11px;color:var(--faint);border-bottom:1px solid var(--hairline);">...and natively via Tempo</span>`
     : "";
   return `<span class="mlnav-dd">
-              <span style="display:block;width:300px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+              <span style="display:block;width:300px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">THE MPP PROTOCOL MARKETPLACE</span>
                 ${acceptedNote}
                 ${tempoNote}
@@ -467,7 +467,7 @@ function mppPanelNav() {
 // two panels.
 function ourToolsPanelNav() {
   return `<span class="mlnav-dd">
-              <span style="display:block;width:280px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+              <span style="display:block;width:280px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">OUR 500+ TOOL CATALOG</span>
                 <a href="/tools" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">catalog</span><span style="color:var(--faint);">browse by category</span></a>
                 <a href="/skills" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">skill packs</span><span style="color:var(--faint);">one payment, N tools</span></a>
@@ -479,7 +479,7 @@ function ourToolsPanelNav() {
 
 function sellPanelHtml() {
   return `<span class="mlnav-dd">
-              <span style="display:block;width:330px;border:1.5px solid var(--ink);background:var(--paper);box-shadow:5px 5px 0 #0b0b0b1f;">
+              <span style="display:block;width:330px;border:1px solid var(--hairline);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 18px 40px rgba(17,19,21,.12);">
                 <span style="display:block;padding:10px 16px 8px;font-size:11px;letter-spacing:.1em;color:var(--faint);border-bottom:1px solid var(--hairline);">FOR API SELLERS - GET PAID PER CALL</span>
                 <a href="/sell" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">list your API</span><span style="color:var(--faint);">free · health-ranked</span></a>
                 <a href="/tollbooth" class="mlnav-row" style="display:flex;justify-content:space-between;gap:12px;padding:9px 16px;text-decoration:none;color:var(--ink);"><span style="font-weight:700;">tollbooth</span><span style="color:var(--faint);">pay-per-crawl</span></a>
@@ -522,6 +522,11 @@ const mmLink = (href, label, active, extra = "") =>
 function mobileMenuHtml(chainInfo, activePath) {
   const chains = chainInfo.chains.map((c) => mmLink(c.href, c.label, c.href === activePath)).join("");
   return `<div id="ml-mobile-menu" class="ml-mobile-menu">
+    <div class="ml-mm-h">For people</div>
+    <div class="ml-mm-group">
+      ${mmLink("/reports", "reports · card or USDC", activePath === "/reports")}
+      ${mmLink("/monitors", "monitors · $9 / month", activePath === "/monitors")}
+    </div>
     <div class="ml-mm-h">Sell</div>
     <div class="ml-mm-group">
       ${mmLink("/sell", "list your API", activePath === "/sell")}
@@ -555,7 +560,7 @@ function mobileMenuHtml(chainInfo, activePath) {
       ${mmLink("/status", "status · uptime", activePath === "/status")}
       ${mmLink("/integrations", "integrations", activePath === "/integrations")}
       <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
-      ${activePath === "" || activePath === "/sell" ? "" : mmLink("/sell", "LIST YOUR API - FREE →", false, " ml-mm-cta")}
+      ${activePath === "/reports" ? "" : mmLink("/reports", "Get a report →", false, " ml-mm-cta")}
     </div>
   </div>`;
 }
@@ -588,23 +593,23 @@ function nav(activePath) {
   const zone3 = NAV_ZONES[2].map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
   const divider = `<span style="width:1px;height:15px;background:var(--hairline);flex:none;"></span>`;
 
-  return `<nav style="border-bottom:1.5px solid var(--ink);background:var(--paper);position:sticky;top:0;z-index:50;">
-  <div class="ml-nav-in" style="max-width:1180px;margin:0 auto;padding:14px 30px;display:flex;align-items:center;gap:26px;">
+  return `<nav style="border-bottom:1px solid var(--hairline);background:rgba(243,244,245,.86);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);position:sticky;top:0;z-index:50;">
+  <div class="ml-nav-in" style="max-width:1180px;margin:0 auto;padding:15px 30px;display:flex;align-items:center;gap:26px;">
     <a href="/" style="display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--ink);">
-      <span style="width:32px;height:32px;border:2px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;">402</span>
-      <span style="font-weight:800;font-size:18px;letter-spacing:-.02em;text-transform:uppercase;">Agent402<span style="color:var(--accent);">.</span>Tools</span>
+      <span aria-hidden="true" style="width:22px;height:22px;border-radius:6px;background:linear-gradient(145deg,#2A2D31,#0B0C0D);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 1px 2px rgba(0,0,0,.25);display:inline-block;"></span>
+      <span style="font-weight:600;font-size:16px;letter-spacing:-.01em;">Agent402</span>
     </a>
-    <div class="ml-nav-links" style="display:flex;align-items:center;gap:20px;margin-left:6px;font-family:var(--font-mono);font-size:13px;">
+    <div class="ml-nav-links" style="display:flex;align-items:center;gap:22px;margin-left:10px;font-family:var(--font-body);font-size:14px;">
       ${zone1}
       ${divider}
       ${zone2}
       ${divider}
       ${zone3}
     </div>
-    <div style="margin-left:auto;display:flex;align-items:center;gap:14px;">
+    <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
       <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" aria-label="GitHub" title="GitHub" style="display:flex;align-items:center;color:var(--muted);text-decoration:none;">${GITHUB_ICON_SVG}</a>
-
-      ${activePath === "" || activePath === "/sell" ? "" : `<a class="ml-nav-cta" href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:9px 15px;white-space:nowrap;">LIST YOUR API →</a>`}
+      <a class="ml-nav-gh" href="/llms.txt" style="font-family:var(--font-mono);font-size:12px;color:var(--muted);text-decoration:none;padding:8px 13px;border:1px solid var(--hairline);border-radius:999px;background:var(--card);white-space:nowrap;">llms.txt</a>
+      ${activePath === "/reports" ? "" : `<a class="ml-nav-cta" href="/reports" style="background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;font-family:var(--font-body);font-weight:500;font-size:13.5px;text-decoration:none;padding:9px 16px;border-radius:999px;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 6px 16px rgba(0,0,0,.18);white-space:nowrap;">Get a report</a>`}
       <button type="button" class="ml-burger" aria-label="Open menu" aria-expanded="false">
         <svg class="ml-burger-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
         <svg class="ml-burger-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -620,15 +625,19 @@ function nav(activePath) {
 // ---------------------------------------------------------------------------
 
 export function ledgerFooterFull() {
-  return `<footer style="border-top:1.5px solid var(--ink);background:var(--footer-bg);">
+  return `<footer style="border-top:1px solid var(--hairline);background:var(--footer-bg);">
   <div style="max-width:1180px;margin:0 auto;padding:48px 30px 32px;">
-    <div class="ml-ft-grid" style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr 1fr;gap:24px;">
+    <div class="ml-ft-grid" style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr 1fr 1fr;gap:24px;">
       <div>
         <a href="/" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;text-decoration:none;color:var(--ink);">
-          <span style="width:30px;height:30px;border:2px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;">402</span>
-          <span style="font-weight:800;font-size:16px;text-transform:uppercase;letter-spacing:-.02em;">Agent402<span style="color:var(--accent);">.</span>Tools</span>
+          <span aria-hidden="true" style="width:22px;height:22px;border-radius:6px;background:linear-gradient(145deg,#2A2D31,#0B0C0D);display:inline-block;"></span>
+          <span style="font-weight:600;font-size:16px;letter-spacing:-.01em;">Agent402</span>
         </a>
-        <p style="font-family:var(--font-mono);font-size:12px;line-height:1.6;color:var(--muted);margin:0;max-width:240px;">The open x402 index - discovery, routing, and on-chain ranking for the agent payments economy.</p>
+        <p style="font-size:13px;line-height:1.6;color:var(--muted);margin:0;max-width:260px;">500+ pay-per-call tools and finished reports for people and agents. USDC over x402 and MPP, or card. Open source.</p>
+      </div>
+      <div>
+        <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for people</div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/reports" style="color:var(--muted);text-decoration:none;">Reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">Monitors</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for agents</div>
@@ -664,11 +673,11 @@ export function ledgerFooterFull() {
 // ---------------------------------------------------------------------------
 
 export function ledgerFooterCompact() {
-  return `<footer style="border-top:1.5px solid var(--ink);background:var(--footer-bg);">
+  return `<footer style="border-top:1px solid var(--hairline);background:var(--footer-bg);">
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-      <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span style="width:24px;height:24px;border:2px solid var(--ink);color:var(--ink);font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center;">402</span><span style="font-weight:700;">Agent402.Tools</span></a>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/playground" style="color:var(--muted);text-decoration:none;">playground</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/skills" style="color:var(--muted);text-decoration:none;">skills</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
+      <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span aria-hidden="true" style="width:18px;height:18px;border-radius:5px;background:linear-gradient(145deg,#2A2D31,#0B0C0D);display:inline-block;"></span><span style="font-weight:600;font-family:var(--font-body);font-size:14px;">Agent402</span></a>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/playground" style="color:var(--muted);text-decoration:none;">playground</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/skills" style="color:var(--muted);text-decoration:none;">skills</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>
@@ -807,7 +816,6 @@ ${jsonLdBlock}
 ${posthogSnippet(baseUrl)}
 </head>
 <body style="overflow-x:hidden;">
-${statusLine()}
 ${nav(activePath)}
 <main>${body}</main>
 </body>

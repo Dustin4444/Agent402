@@ -152,7 +152,7 @@ table{border-collapse:collapse;width:100%}
   ).join("");
 
   const body = `
-<header style="border-bottom:1.5px solid var(--ink);">
+<header style="border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:52px 30px 44px;">
     <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:22px;">
       <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">what is x402 + mpp</span>
@@ -163,7 +163,7 @@ table{border-collapse:collapse;width:100%}
         <p style="font-size:19px;line-height:1.5;color:var(--on-dark2);margin:0 0 20px;"><strong style="color:var(--ink);font-weight:700;">x402 is an open protocol that lets software pay for a single HTTP request in stablecoins.</strong> The server answers <span style="font-family:var(--font-mono);font-size:17px;">402 Payment Required</span> with a price, the client signs a payment, and the same request completes. <strong style="color:var(--ink);font-weight:700;">MPP, the Machine Payments Protocol, is the IETF-track version of that same handshake</strong>, carried in standard HTTP authentication headers.</p>
         <p style="font-size:16px;line-height:1.6;color:var(--muted);margin:0;">No subscription, no checkout page, no account. That matters because an AI agent cannot open one: paying per call is the only purchase an autonomous program can actually make on its own. Both protocols are the wire underneath <a href="/agentic-finance" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">Agentic Finance</a>, agents that pay and get paid on their own; every term on this page is defined in the <a href="/glossary" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">glossary</a>. New to all of it? Start with the <a href="/101" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">ten-minute 101</a>.</p>
       </div>
-      <div style="border:1.5px solid var(--ink);background:var(--surface);">
+      <div style="border:1px solid var(--hairline);background:var(--surface);">
         <div style="padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);">ON THIS PAGE</div>
         <div style="display:flex;flex-direction:column;">${tocHtml}</div>
       </div>
@@ -183,8 +183,8 @@ table{border-collapse:collapse;width:100%}
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">02 / THE HANDSHAKE</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--ink);">How a paid request actually works.</h2>
   <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 32px;">Four steps, one round trip from the caller's point of view. Nothing here requires a browser, a human, or an account.</p>
-  <div class="wx-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
-    <div style="background:var(--card);border-right:1.5px solid var(--ink);">${stepsHtml}</div>
+  <div class="wx-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);">
+    <div style="background:var(--card);border-right:1px solid var(--hairline);">${stepsHtml}</div>
     <div style="background:var(--surface);">
       <div style="display:flex;align-items:center;gap:14px;padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.06em;color:var(--dk-muted);"><span style="color:var(--accent-lit);">●</span><span>on the wire</span></div>
       <pre style="margin:0;padding:20px 18px;font-family:var(--font-mono);font-size:12px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># 1. the agent asks, without paying
@@ -215,8 +215,8 @@ Payment-Receipt: 0x8f2a&hellip;c41d
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--ink);">x402 vs MPP, side by side.</h2>
   <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 30px;">They differ in wire format, not in economics. Same signed authorization, same facilitator, same price, same guarantee. A server can answer both on one route, which is what Agent402 does, so the buyer's client decides which dialect to speak.</p>
   <div class="wx-scroll">
-    <table style="font-size:14.5px;border:1.5px solid var(--ink);background:var(--card);">
-      <thead><tr style="border-bottom:1.5px solid var(--ink);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">&nbsp;</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--accent);">x402</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--accent);">MPP</th></tr></thead>
+    <table style="font-size:14.5px;border:1px solid var(--hairline);background:var(--card);">
+      <thead><tr style="border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">&nbsp;</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--accent);">x402</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;color:var(--accent);">MPP</th></tr></thead>
       <tbody>${compareRowsHtml}</tbody>
     </table>
   </div>
@@ -239,15 +239,15 @@ Payment-Receipt: 0x8f2a&hellip;c41d
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--ink);">Which chains settle x402 payments?</h2>
   <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 30px;">The protocol is chain-agnostic; each server picks what it accepts. Agent402 settles on twelve rails, so a buyer pays on whichever chain it already holds stablecoins on. Gas is sponsored by the facilitator on EVM chains, which means a caller needs only the stablecoin and no native gas token. Counts below are real settled calls per rail.</p>
   <div class="wx-scroll">
-    <table style="font-size:14.5px;border:1.5px solid var(--ink);background:var(--card);">
-      <thead><tr style="border-bottom:1.5px solid var(--ink);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">chain</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">asset</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">caip-2</th><th scope="col" style="text-align:right;font-weight:700;padding:13px 18px;">calls settled</th></tr></thead>
+    <table style="font-size:14.5px;border:1px solid var(--hairline);background:var(--card);">
+      <thead><tr style="border-bottom:1px solid var(--hairline);font-family:var(--font-mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);"><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">chain</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">asset</th><th scope="col" style="text-align:left;font-weight:700;padding:13px 18px;">caip-2</th><th scope="col" style="text-align:right;font-weight:700;padding:13px 18px;">calls settled</th></tr></thead>
       <tbody>${railsRowsHtml}</tbody>
     </table>
   </div>
   <p style="font-family:var(--font-mono);font-size:12.5px;color:var(--faint);margin:16px 0 0;">live from GET /api/stats · ${esc(mppWire)} of these settled over the MPP wire rather than x402</p>
 </section>
 
-<section id="who" style="background:var(--surface);margin-top:64px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
+<section id="who" style="background:var(--surface);margin-top:64px;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">06 / ADOPTION</div>
     <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--on-dark);">Who is actually settling x402 payments?</h2>
@@ -270,8 +270,8 @@ Payment-Receipt: 0x8f2a&hellip;c41d
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">07 / GET STARTED</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--ink);">Start on either side of the 402.</h2>
   <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 30px;">x402 has two sides, and both are open. Charge for what you serve, or pay for what you need.</p>
-  <div class="wx-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
-    <div style="padding:26px;border-right:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column;">
+  <div class="wx-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);">
+    <div style="padding:26px;border-right:1px solid var(--hairline);background:var(--card);display:flex;flex-direction:column;">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">SELL</div>
       <h3 style="font-weight:800;font-size:21px;margin:0 0 12px;color:var(--ink);">Charge agents for your API</h3>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">Put an x402 paywall in front of your endpoint, then register the origin so buyers and routers can find you. Free to list, no signup, and nothing deducted from your price: buyers pay straight into your wallet.</p>
@@ -288,7 +288,7 @@ Payment-Receipt: 0x8f2a&hellip;c41d
       <pre style="margin:0 0 18px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># zero install
 </span>claude mcp add --transport http \
   agent402 https://agent402.tools/mcp</pre>
-      <a href="/docs#add" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">ADD TO CLAUDE →</a>
+      <a href="/docs#add" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">ADD TO CLAUDE →</a>
     </div>
   </div>
 </section>
@@ -296,11 +296,11 @@ Payment-Receipt: 0x8f2a&hellip;c41d
 <section id="faq" style="max-width:900px;margin:0 auto;padding:64px 30px 0;">
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">08 / QUESTIONS</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 30px;color:var(--ink);">Questions people and agents ask.</h2>
-  <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+  <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">${faqHtml}</div>
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:56px 30px 56px;">
-  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:52px 44px;position:relative;overflow:hidden;">
+  <div style="background:var(--surface);border:1px solid var(--hairline);padding:52px 44px;position:relative;overflow:hidden;">
     <div style="position:absolute;right:26px;top:-36px;font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
     <div style="position:relative;">
       <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Now put it to work.</h2>

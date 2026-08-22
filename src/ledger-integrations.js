@@ -48,7 +48,7 @@ export function ledgerIntegrationsPage(baseUrl) {
 
   <!-- ADAPTERS -->
   <section style="max-width:1180px;margin:0 auto;padding:0 30px;">
-    <div style="border:1.5px solid var(--ink);background:var(--card);">
+    <div style="border:1px solid var(--hairline);background:var(--card);">
       ${ADAPTERS.map((a, i) => adapterRow(a, i === ADAPTERS.length - 1)).join("\n      ")}
     </div>
   </section>
@@ -57,7 +57,7 @@ export function ledgerIntegrationsPage(baseUrl) {
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">// same shape everywhere</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 22px;">Install, get tools, pass them in.</h2>
-    <div style="border:1.5px solid var(--ink);background:var(--surface);"><pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:13px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># pick your stack
+    <div style="border:1px solid var(--hairline);background:var(--surface);"><pre style="margin:0;padding:18px;font-family:var(--font-mono);font-size:13px;line-height:1.85;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># pick your stack
 </span>npm install agent402-openai-tools
 
 import { agent402Tools } from "agent402-openai-tools";
@@ -69,14 +69,14 @@ const { tools, execute } = await agent402Tools({ slugs: ["extract","hash","rende
 
   <!-- CTA -->
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 64px;">
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
       <div>
         <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0 0 6px;">Wire it into your framework.</h2>
         <p style="font-family:var(--font-mono);font-size:13px;color:var(--muted);margin:0;">zero-dep &middot; non-custodial &middot; proof-of-work or USDC</p>
       </div>
       <div style="display:flex;gap:11px;">
         <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART &rarr;</a>
-        <a href="/tools" style="background:transparent;border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
+        <a href="/tools" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
       </div>
     </div>
   </section>

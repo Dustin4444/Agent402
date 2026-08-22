@@ -30,17 +30,17 @@ export function contactPage(baseUrl) {
 .ct-intro{font-size:15.5px;line-height:1.55;color:var(--muted);max-width:620px;margin:0 0 36px}
 .ct-channels{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-bottom:40px}
 @media(max-width:640px){.ct-channels{grid-template-columns:1fr}}
-.ct-card{background:var(--card);border:1.5px solid var(--ink);padding:22px 24px}
+.ct-card{background:var(--card);border:1px solid var(--hairline);padding:22px 24px}
 .ct-card-label{font-family:var(--font-mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px}
 .ct-card a{color:var(--accent);text-decoration:none;font-size:16px;font-weight:700}
 .ct-card a:hover{text-decoration:underline}
 .ct-card p{color:var(--muted);font-size:13.5px;margin:6px 0 0;line-height:1.5}
-.ct-form{background:var(--card);border:1.5px solid var(--ink);padding:28px 28px 24px;margin-bottom:44px}
+.ct-form{background:var(--card);border:1px solid var(--hairline);padding:28px 28px 24px;margin-bottom:44px}
 .ct-form h2{font-family:var(--font-body);font-weight:800;font-size:24px;margin:0 0 6px}
 .ct-form p{color:var(--muted);font-size:14px;margin:0 0 20px}
 .ct-field{display:block;margin-bottom:16px}
 .ct-field label{display:block;font-family:var(--font-mono);font-size:12px;color:var(--ink);margin-bottom:6px;font-weight:700}
-.ct-field input,.ct-field textarea{width:100%;padding:11px 14px;background:var(--paper);border:1.5px solid var(--ink);color:var(--ink);font-family:var(--font-body);font-size:14px;outline:none}
+.ct-field input,.ct-field textarea{width:100%;padding:11px 14px;background:var(--paper);border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-body);font-size:14px;outline:none}
 .ct-field input:focus,.ct-field textarea:focus{border-color:var(--accent)}
 .ct-field textarea{min-height:120px;resize:vertical}
 .ct-submit{background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;border:none;padding:12px 24px;cursor:pointer}

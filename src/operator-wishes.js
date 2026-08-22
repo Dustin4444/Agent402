@@ -72,12 +72,12 @@ export function operatorWishesPage(baseUrl, aggregate) {
 .ow-sub{color:var(--muted);margin:0 0 22px;font-size:14px;line-height:1.55}
 .ow-sub a{color:var(--accent);text-decoration:none}
 .ow-sub a:hover{text-decoration:underline}
-.ow-sub code{font-family:var(--font-mono);font-size:12px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1.5px solid var(--ink)}
+.ow-sub code{font-family:var(--font-mono);font-size:12px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1px solid var(--hairline)}
 .ow-grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));margin:0 0 22px}
-.ow-stat{background:var(--surface);border:1.5px solid var(--ink);padding:12px 16px}
+.ow-stat{background:var(--surface);border:1px solid var(--hairline);padding:12px 16px}
 .ow-stat .ow-k{color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .ow-stat .ow-v{font-family:var(--font-mono);font-size:1.25rem;color:var(--on-dark);margin-top:2px}
-.ow-tbl-wrap{background:var(--surface);border:1.5px solid var(--ink);overflow:hidden}
+.ow-tbl-wrap{background:var(--surface);border:1px solid var(--hairline);overflow:hidden}
 table{width:100%;border-collapse:collapse}
 th{text-align:left;color:var(--dk-muted);font-weight:500;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding:10px 14px;border-bottom:1px solid var(--dark-border);background:var(--ink-panel)}
 td{padding:10px 14px;border-bottom:1px solid var(--dark-border);vertical-align:top;font-size:13px;color:var(--on-dark)}
@@ -89,7 +89,7 @@ tr:last-child td{border-bottom:0}
 .ow-badge{display:inline-block;border:1px solid var(--dark-border);padding:1px 10px;font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
 .ow-note{color:var(--dk-muted);font-size:11px;margin-top:3px}
 .ow-text{max-width:520px;word-break:break-word}
-.ow-empty{background:var(--card);border:1.5px solid var(--ink);padding:30px;text-align:center;color:var(--faint)}
+.ow-empty{background:var(--card);border:1px solid var(--hairline);padding:30px;text-align:center;color:var(--faint)}
 @media(max-width:600px){.ow-h1{font-size:36px !important}}
 `;
 

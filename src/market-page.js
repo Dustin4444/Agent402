@@ -36,7 +36,7 @@ const ROSTER_CSS = `
 .mlr-mpp{border:1px solid var(--green);color:var(--green);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:0 4px;margin-left:4px}
 .ml-chain-h1-wrap{min-height:80px}
 @media (max-width: 900px) { .ml-chain-h1-wrap{min-height:120px} }
-.mkt-search-wrap{border:1.5px solid var(--ink)}
+.mkt-search-wrap{border:1px solid var(--hairline)}
 .mkt-search-wrap:focus-within{border-color:var(--accent)}`;
 
 const esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -366,7 +366,7 @@ export function marketFilterBar(chainKey, _baseUrl) {
     .concat(Object.keys(CHAIN_PAGES).map((k) =>
       tab(k, CHAIN_PAGES[k].chainName, `/${k}`, k === chainKey)));
   return `
-  <div class="mfb" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:22px 0 6px;padding:12px;border:1.5px solid var(--ink);background:var(--card);">
+  <div class="mfb" style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:22px 0 6px;padding:12px;border:1px solid var(--hairline);background:var(--card);">
     <span class="mfb-label">Chain</span>
     <div class="mfb-tabs" style="display:flex;flex-wrap:wrap;gap:5px;">${tabs.join("")}</div>
     <span class="mfb-label" style="margin-left:6px;">Sort</span>
@@ -428,7 +428,7 @@ export function marketActivityHtml(chainKey, activity, selected) {
       ? `activity unavailable for this seller - no ${C.chainName} payTo advertised in its 402s, or the scan failed`
       : "activity scan temporarily unavailable";
     return `
-  <h2 id="activity" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Activity</h2>
+  <h2 id="activity" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">Activity</h2>
   <p style="color:var(--muted);font-size:13.5px;margin:0;">${why} - settlements remain independently verifiable on ${esc(C.explorerUrl)}</p>`;
   }
   const bars = (key) => {
@@ -443,7 +443,7 @@ export function marketActivityHtml(chainKey, activity, selected) {
       .join("")}</div>`;
   };
   const card = (label, value, key) => `
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;">
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;">
       <div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">${label}</div>
       <div style="font-size:26px;font-weight:800;">${value}</div>${bars(key)}
     </div>`;
@@ -456,7 +456,7 @@ export function marketActivityHtml(chainKey, activity, selected) {
     activity.truncated ? "scan capped - totals are a floor" : "",
   ].filter(Boolean).join(" · ");
   return `
-  <div id="activity" style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">
+  <div id="activity" style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:40px 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">
     <h2 style="font-size:21px;font-weight:800;margin:0;">Activity</h2>
     <span style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">${scopeLabel} · PAST ${esc(activity.days)} DAYS</span>
   </div>
@@ -511,7 +511,7 @@ export function sellerCardHtml(chainKey, seller, sel, activity, stat, payTo, win
       <div style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;color:var(--dk-muted);">${label}</div>
       <div style="font-size:22px;font-weight:800;color:var(--on-dark2);margin-top:2px;font-variant-numeric:tabular-nums;">${value}</div></div>`;
   return `
-  <div id="seller-card" style="background:var(--surface);--accent:var(--accent-lit);border:1.5px solid var(--ink);margin:28px 0 0;">
+  <div id="seller-card" style="background:var(--surface);--accent:var(--accent-lit);border:1px solid var(--hairline);margin:28px 0 0;">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid var(--dark-border2);">
       <div style="min-width:0;">
         <div style="font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.08em;">SELLER &middot; ${esc(C.chainName.toUpperCase())}</div>
@@ -703,7 +703,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
         const health = s.local ? "live" : (s.routable ? "healthy" : "unreachable");
         const good = s.local || s.routable;
         return `
-    <div${rowData(s)} style="border:${isSelected(s) ? "2px solid var(--accent)" : "1.5px solid var(--ink)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
+    <div${rowData(s)} style="border:${isSelected(s) ? "2px solid var(--accent)" : "1px solid var(--hairline)"};background:var(--card);padding:16px 18px;display:flex;flex-direction:column;gap:6px;">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
         <a href="${safeHref(s.homepage)}" rel="noopener" style="color:var(--ink);text-decoration:none;font-weight:700;font-size:15px;">${esc(s.displayName)}</a>
         ${s.local ? '<span class="mlr-badge">THIS HOST</span>' : ""}${s.mpp === true ? '<span class="mlr-mpp" title="Also reachable over the native MPP wire">MPP</span>' : ""}
@@ -719,10 +719,10 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
 
   const statsHtml = `
   <div class="ml-2col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} endpoints indexed</div></div>
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${tools.length.toLocaleString("en-US")}</div></div>
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">LATEST SETTLE</div><div style="font-size:26px;font-weight:800;">${latest ? usd(latest.usd) : "-"}</div></div>
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">PRICE FLOOR</div><div style="font-size:26px;font-weight:800;">${usd(low)}</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} endpoints indexed</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${tools.length.toLocaleString("en-US")}</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">LATEST SETTLE</div><div style="font-size:26px;font-weight:800;">${latest ? usd(latest.usd) : "-"}</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">PRICE FLOOR</div><div style="font-size:26px;font-weight:800;">${usd(low)}</div></div>
   </div>`;
 
   const honesty = rosterSellers.length === 1 && rosterSellers[0]?.local
@@ -755,11 +755,11 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   ];
 
   const formHtml = `
-  <div id="list-api" style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;margin-top:16px;">
+  <div id="list-api" style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;margin-top:16px;">
     <div style="font-weight:800;font-size:15px;margin-bottom:8px;">List your API</div>
     <label for="reg-origin" style="display:block;font-family:var(--font-mono);font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px;">Your API's origin</label>
     <div style="display:flex;gap:10px;">
-      <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);">
+      <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:1;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1px solid var(--hairline);background:var(--paper);color:var(--ink);">
       <button id="reg-go" style="background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
     </div>
     <div id="reg-out" role="status" aria-live="polite" data-listed-note="${esc(C.chainName)} sellers appear on this page; all sellers appear on /index." style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers. Ranking is health-based.</div>
@@ -769,7 +769,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   const canary = canaryManifestStatus(rail);
   const manifestRow = (label, value) => `<div style="display:flex;align-items:baseline;gap:8px;"><span style="color:var(--muted);flex:none;">${label}</span><span style="flex:1;border-bottom:1.5px dotted var(--dash);transform:translateY(-4px);"></span><span style="font-weight:700;min-width:0;overflow-wrap:anywhere;text-align:right;">${value}</span></div>`;
   const railManifestHtml = `
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:18px 20px;">
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:18px 20px;">
       <div style="display:flex;flex-direction:column;gap:4px;font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--muted);border-bottom:1px dashed var(--dash);padding-bottom:10px;margin-bottom:12px;"><span>·· RAIL MANIFEST ··</span><span>${esc(C.tickerLabel)}</span></div>
       <div style="display:flex;flex-direction:column;gap:9px;font-family:var(--font-mono);font-size:13px;">
         ${manifestRow("network", esc(C.caip2))}
@@ -798,15 +798,15 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   <div class="ml-2col" style="display:grid;grid-template-columns:1.15fr .85fr;gap:34px;align-items:start;">
     <div>
       <div class="ml-chain-h1-wrap" style="display:flex;align-items:flex-start;gap:14px;margin-bottom:12px;">
-        <span style="width:44px;height:44px;flex:none;border:2px solid var(--ink);color:var(--ink);display:flex;align-items:center;justify-content:center;" title="${esc(C.chainName)}">${chainMark(chainKey, 26) || `<span style="font-family:var(--font-mono);font-weight:700;font-size:12px;">${esc(C.ticker)}</span>`}</span>
+        <span style="width:44px;height:44px;flex:none;border:1px solid var(--hairline);color:var(--ink);display:flex;align-items:center;justify-content:center;" title="${esc(C.chainName)}">${chainMark(chainKey, 26) || `<span style="font-family:var(--font-mono);font-weight:700;font-size:12px;">${esc(C.ticker)}</span>`}</span>
         <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;margin:0;">The ${esc(C.chainName)} x402 marketplace</h1>
       </div>
       <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">${subheadHtml}</p>
-      <div style="margin:16px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--card);">
+      <div style="margin:16px 0 0;padding:16px 18px;border:1px solid var(--hairline);background:var(--card);">
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--faint);margin-bottom:10px;">START HERE · BUYER PATH</div>
         <form action="/tools" method="get" class="mkt-search-wrap" style="display:flex;gap:0;background:var(--paper);max-width:520px;margin-bottom:12px;">
           <input name="q" type="search" placeholder="what do you need? e.g. pdf ocr, web search" style="flex:1;border:none;background:transparent;font-family:var(--font-mono);font-size:13px;color:var(--ink);padding:11px 14px;outline:none;" />
-          <button type="submit" style="border:none;border-left:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;">FIND →</button>
+          <button type="submit" style="border:none;border-left:1px solid var(--hairline);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;">FIND →</button>
         </form>
         <div style="display:flex;flex-wrap:wrap;gap:14px;font-family:var(--font-mono);font-size:12.5px;">
           <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>
@@ -824,7 +824,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   ${statsHtml}`;
 
   const rosterHtml = `
-  <h2 id="sellers" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sellers settling on ${esc(C.chainName)}</h2>
+  <h2 id="sellers" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">Sellers settling on ${esc(C.chainName)}</h2>
   <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">pick a seller to scope the activity charts · THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · tx = settled calls, last 7 days on-chain</p>
   ${compact
     ? `<div style="display:flex;flex-direction:column;gap:8px;">${sellersHtml}</div>`
@@ -833,13 +833,13 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   ${honesty}`;
 
   const sellSectionHtml = `
-  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Sell on ${esc(C.chainName)}</h2>
+  <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">Sell on ${esc(C.chainName)}</h2>
   <div class="ml-2col" style="display:grid;grid-template-columns:1.1fr .9fr;gap:18px;align-items:start;">
     <div>
       <p style="font-size:14.5px;line-height:1.65;">${C.sellParagraphHtml}</p>
       ${formHtml}
     </div>
-    <div style="background:var(--surface);border:1.5px solid var(--ink);">
+    <div style="background:var(--surface);border:1px solid var(--hairline);">
       <div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;padding:10px 15px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;color:var(--dk-muted);letter-spacing:.06em;"><span>402 challenge · accepts[]</span><span>JSON</span></div>
       <pre style="margin:0;padding:16px 18px;font-family:var(--font-mono);font-size:12px;line-height:1.8;color:var(--on-dark);white-space:pre-wrap;word-break:break-word;">{
   <span style="color:var(--dk-muted3);">"scheme"</span>: "exact",
@@ -860,7 +860,7 @@ export function marketPage(chainKey, baseUrl, opts = {}) {
   </section>
 
   <section>
-    <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Browse ${esc(C.chainName)}-payable tools</h2>
+    <h2 style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">Browse ${esc(C.chainName)}-payable tools</h2>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;">${groupsHtml}</div>
     <p style="font-family:var(--font-mono);font-size:13px;background:var(--card-zebra);padding:10px 14px;margin:16px 0 0;">agents: GET ${esc(baseUrl)}/api/route?q=&lt;task&gt;&amp;network=${esc(C.networkParam)}</p>
   </section>
@@ -911,7 +911,7 @@ function economyStripHtml(economySnap) {
   const num = (v) => (v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null);
   const fmt = (n) => n.toLocaleString("en-US");
   const cell = (label, value) => `
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">${label}</div><div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;">${value}</div></div>`;
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">${label}</div><div style="font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;">${value}</div></div>`;
   const cells = [];
   const s7 = num(t7.settlements);
   if (s7 != null) cells.push(cell("SETTLEMENTS · 7D", fmt(s7)));
@@ -932,7 +932,7 @@ function economyStripHtml(economySnap) {
     : `<p style="color:var(--muted);font-size:13.5px;margin:0;">chain-wide settlement stats unavailable right now - detail in <a href="/api/x402-economy">/api/x402-economy</a></p>`;
   return `
   <div id="economy" style="margin:40px 0 0;">
-    <h2 style="font-size:21px;font-weight:800;margin:0 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">The economy</h2>
+    <h2 style="font-size:21px;font-weight:800;margin:0 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">The economy</h2>
     ${inner}
   </div>`;
 }
@@ -1078,7 +1078,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
     : "";
 
   const rosterHtml = `
-  <h2 id="sellers" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Every seller, every chain</h2>
+  <h2 id="sellers" style="font-size:21px;font-weight:800;margin:40px 0 14px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">Every seller, every chain</h2>
   <p style="font-size:13px;color:var(--faint);margin:-6px 0 12px;">THIS HOST = run by agent402 · every other seller is independent, found by the open crawl · Chain shows where each seller settles · Tools shows settled tx, last 7 days on-chain</p>
   <div style="display:flex;flex-direction:column;gap:8px;">${rows}</div>
   ${capNote}
@@ -1097,10 +1097,10 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
 
   const statsHtml = `
   <div class="ml-2col ml-4col" style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:26px 0 0;">
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} endpoints indexed</div></div>
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOL LISTINGS</div><div style="font-size:26px;font-weight:800;">${totalToolListings.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">advertised &middot; ours and every other seller</div></div>
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">CHAINS SUPPORTED</div><div style="font-size:26px;font-weight:800;">${Object.keys(CHAIN_PAGES).length}</div></div>
-    <div style="border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${(sellers.find((s) => s.local)?.toolCount || 0).toLocaleString("en-US")}</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">SELLERS LISTED</div><div style="font-size:26px;font-weight:800;">${rosterSellers.length.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">distinct payees &middot; ${sellers.length.toLocaleString("en-US")} endpoints indexed</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOL LISTINGS</div><div style="font-size:26px;font-weight:800;">${totalToolListings.toLocaleString("en-US")}</div><div style="font-family:var(--font-mono);font-size:10.5px;color:var(--faint);margin-top:2px;">advertised &middot; ours and every other seller</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">CHAINS SUPPORTED</div><div style="font-size:26px;font-weight:800;">${Object.keys(CHAIN_PAGES).length}</div></div>
+    <div style="border:1px solid var(--hairline);background:var(--card);padding:14px 16px;"><div style="font-family:var(--font-mono);font-size:11px;color:var(--faint);letter-spacing:.06em;">TOOLS (THIS HOST)</div><div style="font-size:26px;font-weight:800;">${(sellers.find((s) => s.local)?.toolCount || 0).toLocaleString("en-US")}</div></div>
   </div>`;
 
   // "Sellers on Base" for the hero subhead - live, not the design's frozen
@@ -1112,12 +1112,12 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   <div>
     <h1 style="font-size:34px;font-weight:800;letter-spacing:-.02em;margin:0 0 8px;">The x402 marketplace.</h1>
     <p style="font-size:16.5px;color:var(--muted);margin:0;max-width:640px;">The open index of paid APIs for agentic commerce - ${baseSellerCount.toLocaleString("en-US")} sellers on Base alone, theirs as well as ours, with what they charge and what they have actually settled.</p>
-    <div style="margin:18px 0 0;padding:16px 18px;border:1.5px solid var(--ink);background:var(--card);max-width:640px;">
+    <div style="margin:18px 0 0;padding:16px 18px;border:1px solid var(--hairline);background:var(--card);max-width:640px;">
       <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;color:var(--faint);margin-bottom:10px;">START HERE · BUYER PATH</div>
       <form action="/tools" method="get" class="mkt-search-wrap" style="display:flex;gap:0;background:var(--paper);margin-bottom:12px;">
         <span aria-hidden="true" style="display:flex;align-items:center;padding:0 0 0 13px;color:var(--faint);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="display:block;"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.5-4.5"></path></svg></span>
         <input name="q" type="search" placeholder="what do you need? e.g. pdf ocr, web search" style="flex:1;min-width:0;border:none;background:transparent;font-family:var(--font-mono);font-size:13px;color:var(--ink);padding:11px 12px;outline:none;" />
-        <button type="submit" style="border:none;border-left:1.5px solid var(--ink);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;white-space:nowrap;">FIND →</button>
+        <button type="submit" style="border:none;border-left:1px solid var(--hairline);background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:12px;padding:0 16px;cursor:pointer;white-space:nowrap;">FIND →</button>
       </form>
       <div style="display:flex;flex-wrap:wrap;gap:14px;font-family:var(--font-mono);font-size:12.5px;">
         <a href="/guides/smart-order-router" style="color:var(--accent);text-decoration:none;font-weight:700;">auto-route a task →</a>
@@ -1149,14 +1149,14 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   }).join("");
 
   const chainGridSection = `
-  <h2 style="font-size:21px;font-weight:800;margin:48px 0 4px;border-bottom:1.5px solid var(--ink);padding-bottom:8px;">Markets by chain</h2>
+  <h2 style="font-size:21px;font-weight:800;margin:48px 0 4px;border-bottom:1px solid var(--hairline);padding-bottom:8px;">Markets by chain</h2>
   <p style="font-size:13px;color:var(--faint);margin:8px 0 16px;">every rail has its own market page - a seller appears under every chain it accepts, so these do not sum to a distinct total</p>
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0;border:1.5px solid var(--ink);">${chainGridHtml}</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0;border:1px solid var(--hairline);">${chainGridHtml}</div>
   <p style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:12px;">Buying from a seller on another rail? The Smart Order Router settles with them on their chain and relays the result.</p>`;
 
   const routerAndMethodSection = `
-  <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);margin-top:48px;">
-    <div style="padding:26px;border-right:1.5px solid var(--ink);background:var(--card);">
+  <div class="ml-2col" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);margin-top:48px;">
+    <div style="padding:26px;border-right:1px solid var(--hairline);background:var(--card);">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">$ POST /api/route</div>
       <h2 style="font-weight:800;font-size:22px;margin:0 0 14px;color:var(--ink);">Or skip the browsing</h2>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 16px;">Describe the task and the Smart Order Router resolves it to a tool - from this index, ours or anyone else's - then runs it. It ranks by match score, then rolling crawl health, then price, and it will pay an external seller on your behalf.</p>
@@ -1187,11 +1187,11 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
   const faqSection = `
   <div style="max-width:760px;margin:56px 0 0;">
     <h2 style="font-weight:800;font-size:26px;letter-spacing:-.02em;margin:0 0 20px;color:var(--ink);">About this index.</h2>
-    <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+    <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">${faqHtml}</div>
   </div>`;
 
   const closingCta = `
-  <div style="margin:48px 0 0;background:var(--surface);border:1.5px solid var(--ink);padding:40px 36px;position:relative;overflow:hidden;">
+  <div style="margin:48px 0 0;background:var(--surface);border:1px solid var(--hairline);padding:40px 36px;position:relative;overflow:hidden;">
     <div style="position:relative;">
       <h2 style="font-weight:800;font-size:30px;letter-spacing:-.02em;margin:0 0 12px;color:var(--on-dark);">Add your API to the index.</h2>
       <p style="font-size:15.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;max-width:520px;">Free, no signup, nothing deducted. Serve a 402, register the origin, and the crawler picks you up on the next hourly pass.</p>

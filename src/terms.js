@@ -21,7 +21,7 @@ export function termsPage(baseUrl) {
 .tm-body a{color:var(--accent);text-decoration:none}
 .tm-body a:hover{text-decoration:underline}
 .tm-body b,.tm-body strong{color:var(--ink);font-weight:600}
-.tm-body code{font-family:var(--font-mono);font-size:13px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1.5px solid var(--ink)}
+.tm-body code{font-family:var(--font-mono);font-size:13px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1px solid var(--hairline)}
 @media(max-width:600px){.tm-h1{font-size:36px !important}}
 `;
 
