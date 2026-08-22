@@ -44,11 +44,16 @@ ok((await cr.claim("cs_unpaid")).status === "unpaid", "an unpaid session mints n
 ok((await cr.claim("cs_other")).status === "invalid", "a paid session that is not a credits pack mints nothing");
 ok((await cr.claim("cs_nope")).status === "not_found" && (await cr.claim("garbage")).status === "invalid", "unknown / malformed session ids mint nothing");
 
-// authorize + charge
+// authorize RESERVES, settle converts the hold to spend
 const a = cr.authorize(KEY, 0.001);
-ok(a.ok && a.balanceUsd === 20, "authorize: a funded key covers a $0.001 call");
-const ch = cr.charge(a.hash, 0.001, "whois");
-ok(ch.chargedUsd === 0.001 && ch.balanceUsd === 19.999 && debits.length === 1 && debits[0].slug === "whois", "charge debits exactly the list price and fires the accounting hook");
+ok(a.ok && a.balanceUsd === 19.999 && a.heldMicro === 1000 && cr.balance(KEY).heldUsd === 0.001, "authorize: a funded key covers a $0.001 call and the price is HELD (balance drops, held rises)");
+const ch = cr.settle(a.hash, a.heldMicro, "whois");
+ok(ch.chargedUsd === 0.001 && ch.balanceUsd === 19.999 && cr.balance(KEY).heldUsd === 0 && debits.length === 1 && debits[0].slug === "whois", "settle converts exactly the held amount to spend and fires the accounting hook");
+// concurrency: holds bound the total - two calls cannot both pass on a balance that covers one
+const b1 = cr.authorize(KEY, 19.5), b2 = cr.authorize(KEY, 19.5);
+ok(b1.ok && !b2.ok && b2.reason === "insufficient", "CONCURRENCY: a second authorize while the first is held is refused (no collective overspend)");
+cr.release(b1.hash, b1.heldMicro);
+ok(cr.balance(KEY).balanceUsd === 19.999 && cr.balance(KEY).heldUsd === 0, "release returns the hold to the balance");
 ok(!cr.authorize("a402_nope", 0.001).ok && cr.authorize("a402_nope", 0.001).reason === "malformed", "a malformed key is refused");
 ok(cr.authorize("a402_" + "x".repeat(32), 0.001).reason === "unknown", "an unknown (well-formed) key is refused");
 ok(cr.authorize(KEY, 25).reason === "insufficient" && cr.authorize(KEY, 25).balanceUsd === 19.999, "a call priced above the balance is refused with the balance");
@@ -61,13 +66,19 @@ const gate = cr.gate(priceFor);
 function fakeRes() { const r = new EventEmitter(); r.statusCode = 200; r.headers = {}; r.setHeader = (k, v) => { r.headers[k] = v; }; r.status = (c) => { r.statusCode = c; return r; }; r.json = (j) => { r.body = j; r.emit("finish"); return r; }; return r; }
 let nexted = false; let res = fakeRes();
 gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
-ok(nexted && res.headers["X-Credits-Balance"] === "19.999", "gate: a funded key on a priced route is authorized (next called, balance header set)");
+ok(nexted && res.headers["X-Credits-Balance"] === "19.998", "gate: a funded key on a priced route is authorized (next called, balance header shows the post-hold balance)");
 res.statusCode = 200; res.emit("finish");
 ok(cr.balance(KEY).balanceUsd === 19.998, "gate: a 200 is debited on finish");
 nexted = false; res = fakeRes();
 gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
 res.statusCode = 502; res.emit("finish");
-ok(nexted && cr.balance(KEY).balanceUsd === 19.998, "gate: a non-200 (upstream 502) is NOT debited");
+ok(nexted && cr.balance(KEY).balanceUsd === 19.998 && cr.balance(KEY).heldUsd === 0, "gate: a non-200 (upstream 502) is NOT debited (hold released)");
+// client abort BEFORE the response finished: released, never charged (Node's
+// default statusCode is 200 before anything is written)
+nexted = false; res = fakeRes();
+gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+res.statusCode = 200; res.emit("close");
+ok(cr.balance(KEY).balanceUsd === 19.998 && cr.balance(KEY).heldUsd === 0, "gate: a client abort before finish releases the hold and charges nothing");
 nexted = false; res = fakeRes();
 const priceFor2 = (m, p) => (p === "/v1/big" ? { priceUsd: 25, slug: "big" } : priceFor(m, p));
 cr.gate(priceFor2)({ method: "POST", path: "/v1/big", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
@@ -82,18 +93,39 @@ nexted = false; res = fakeRes();
 gate({ method: "GET", path: "/llms.txt", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
 ok(nexted && !res.headers["X-Credits-Balance"], "gate: a credits key on a non-priced route passes through (no charge)");
 
+// SECURITY: identity-bound routes are refused for credits, and accepted
+// requests lose any unsigned x402 payment headers (wallet-identity forgery).
+nexted = false; res = fakeRes();
+cr.gate((m, p) => (p === "/api/memory" ? { priceUsd: 0.001, slug: "memory", identityBound: true } : null))({ method: "POST", path: "/api/memory", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+ok(!nexted && res.statusCode === 402 && res.body.reason === "identity-bound" && cr.balance(KEY).heldUsd === 0, "SECURITY: an identity-bound route refuses credits (402, no hold, handler never runs)");
+nexted = false; res = fakeRes();
+const forged = { method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}`, "x-payment": "ZmFrZQ==", "payment-signature": "ZmFrZQ==", "payment-identifier": "x" } };
+gate(forged, res, () => { nexted = true; });
+ok(nexted && !("x-payment" in forged.headers) && !("payment-signature" in forged.headers) && !("payment-identifier" in forged.headers), "SECURITY: unsigned x402 payment headers are stripped when a credits request is accepted");
+res.statusCode = 200; res.emit("finish");
+// a prompt-cache hit is not charged
+nexted = false; res = fakeRes(); res.getHeader = (k) => (k === "X-Cache" ? "hit" : undefined);
+const bal0 = cr.balance(KEY).balanceUsd;
+gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+res.statusCode = 200; res.emit("finish");
+ok(cr.balance(KEY).balanceUsd === bal0 && cr.balance(KEY).heldUsd === 0, "a cache hit (X-Cache: hit) releases the hold - credits buyers get cached answers free like x402 buyers");
+// clawback: a refunded/disputed pack disables its key
+ok(cr.disableByPaymentIntent("pi_1", "refunded") === m1.keyId && cr.authorize(KEY, 0.001).reason === "disabled", "a refunded pack payment disables its key (clawback by PaymentIntent)");
+cr.setDisabled(m1.keyId, false);
+ok(cr.disableByPaymentIntent("pi_nope") === null, "an unknown PaymentIntent disables nothing");
+
 // disabled keys; operator status without key material; persistence across reload
 ok(cr.setDisabled(m1.keyId, true) && cr.authorize(KEY, 0.001).reason === "disabled", "operator can disable a key; it then refuses");
 cr.setDisabled(m1.keyId, false);
 const st = cr.status();
-ok(st.keys === 1 && st.loadedUsd === 20 && st.outstandingUsd === 19.998 && st.rows[0].keyId === m1.keyId && !JSON.stringify(st).includes(KEY) && !JSON.stringify(st).includes(a.hash), "operator status has totals + key ids and never the key or its hash");
+ok(st.keys === 1 && st.loadedUsd === 20 && st.outstandingUsd === 19.997 && st.rows[0].keyId === m1.keyId && !JSON.stringify(st).includes(KEY) && !JSON.stringify(st).includes(a.hash), "operator status has totals + key ids and never the key or its hash");
 cr = mk();
-ok(cr.balance(KEY).balanceUsd === 19.998 && (await cr.claim("cs_paid")).status === "claimed", "a fresh instance reads balances and the claim-once index from disk");
+ok(cr.balance(KEY).balanceUsd === 19.997 && (await cr.claim("cs_paid")).status === "claimed", "a fresh instance reads balances and the claim-once index from disk");
 
 // A $19 dossier on a $19.998 key IS covered (authorizes at balance >= price).
 nexted = false; res = fakeRes();
 cr.gate(priceFor)({ method: "POST", path: "/v1/dossier", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
-ok(nexted, "gate: a $19 call on a $19.998 key is authorized (balance >= price)");
+ok(nexted, "gate: a $19 call on a $19.997 key is authorized (balance >= price)");
 
 try { rmSync(DIR, { recursive: true, force: true }); } catch { /* ignore */ }
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);

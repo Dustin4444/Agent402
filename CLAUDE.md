@@ -466,7 +466,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   edgar-kit for the composite kits. **`PAYING_RAILS` now includes `card` + `credits`** - Stripe card
   sales/subscription invoices were recorded with rail `card` but not counted as paying, so the human
   front door was invisible to `/revenue` (caught 2026-08-22).
-- **Prepaid card credits (roadmap Phase 3, 2026-08-22, `src/credits.js`):** buy $20/$50/$100 by card
+- **Prepaid card credits (2026-08-22, `src/credits.js`):** buy $20/$50/$100 by card
   (`/credits`, `POST /api/credits/checkout`), claim the key ONCE on `/credits/thanks` (`GET
   /api/credits/claim?session=`; a second claim returns `claimed`, never the key; emailed too), spend it on
   any priced catalog route with `Authorization: Bearer a402_…` - the GATE (mounted before x402mw next to
@@ -474,8 +474,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   balance BEFORE the handler and DEBITS only on a final 200 (integer micro-dollars, sub-cent exact;
   `X-Credits-Balance` header; 402 `{reason, balanceUsd, topup}` on insufficient/unknown/disabled).
   Keys stored hashed (sha256) in per-key files under `/data/credits` (atomic), claim-once index.
-  Accounting: pack purchase = sale `credits:<pack>` rail `card`; each debit = sale on rail `credits`
-  (PAYING_RAILS) with the key id as payer; stats `viaCredits`; the route binder skips its own recordSale
+  Accounting: pack purchase = row `credits:<pack>` on the NON-paying rail `card-prepaid` (cash received);
+  each debit = sale on rail `credits` (PAYING_RAILS) with the key id as payer - counted once, when spent;
+  the gate RESERVES the price at authorize (hold) and settles on a final 200 / releases otherwise, so
+  concurrent calls can never overspend a key; debit fires on "finish" only (a client abort releases); stats `viaCredits`; the route binder skips its own recordSale
   for credits (onDebit books the exact charge). Ops: `GET /__operator/credits.json` (totals + key ids,
   never key material), `POST /__operator/credits/disable {keyId}`. `GET /api/credits/balance` (Bearer).
   Linked from footers, mobile menu, homepage people door, llms.txt, sitemap. `scripts/test-credits.js`
@@ -488,6 +490,26 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `agent402-mcp` 0.13.0 and `agent402-client` 0.7.0 accept a prepaid credits key (`AGENT402_CREDITS_KEY` env /
   `{ creditsKey }`) and pay wallet-only tools by card through it; `/reports` cards link each product's
   `/tools/<slug>` page as "Sample output + API docs".
+- **Security + cost review of the 2026-08-22 builds (dark theme, new products, credits, brand; three lenses + PMF):**
+  HIGH credits gate bypassed x402 but left unsigned `payment-signature`/`x-payment` in place - a $0.001
+  credits call could forge `authorization.from` on identity-bound routes (memory/my-usage takeover) - now
+  the gate REFUSES identity-bound routes (`priceFor` carries `identityBound`, 402 `identity-bound`) and
+  STRIPS the three payment headers on acceptance (same as Tempo/Stripe gates; pinned in test-credits).
+  HIGH authorize-then-charge had no reservation (N concurrent calls on one key all passed; only
+  floor(balance/price) debits landed) - authorize now HOLDS the price, settle() converts the hold on a
+  final 200, release() returns it otherwise; the debit fires on "finish" only (Node's default statusCode
+  is 200 before any write, so a client abort was being charged). HIGH `/revenue` double-counted credits
+  (pack purchase on rail `card` AND debits on rail `credits`) - packs are now `card-prepaid` (non-paying,
+  cash received), debits stay `credits`. MED the 30-day paid cap applied to domain only - every kind now
+  caps (alert-only + seen-set advance past it); a prompt-cache hit releases the hold (x402 buyers get
+  hits free); `charge.refunded` / `charge.dispute.created` disable the key (`disableByPaymentIntent`);
+  `allowEmpty` honoured only for the scheduler's own calls; insider needs >= 50% of Form 4 filings read,
+  recall >= 2 of 3 feeds; openFDA `OPENFDA_API_KEY` support (keyless is 1k/day/IP); credit packs also
+  mint from `checkout.session.completed`. Leak scan: a public example attributed invented figures to a
+  real Form 4 filer - anonymized; "roadmap/phase" framing dropped from public text. PMF/moat assessment
+  is the "Agent402 Fit and Moat" artifact (dossier-led card sales are the signal; programmatic SEC landing
+  pages + retention are the lever; stop adding rails/micro-tools). Prod is one replica, so the credits
+  in-memory cache is single-writer; revisit (sqlite/redis) before scaling replicas.
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

@@ -122,7 +122,9 @@ function makeInsiderHandlerInner(tierSlug) {
       catch (e) { return { f, err: String(e?.message || e).slice(0, 100) }; }
     });
     const good = parsed.filter((x) => x.p);
-    if (!good.length) throw bad("Could not read any Form 4 filing from EDGAR (upstream). Not charged - please retry.", 502);
+    // Minimum evidence: at least half the filings in the window must have been
+    // read, else this is an EDGAR incident and the report is not charged.
+    if (!good.length || good.length < Math.ceil(pf.filings.length / 2)) throw bad(`Could only read ${good.length} of ${pf.filings.length} Form 4 filings from EDGAR (upstream). Not charged - please retry.`, 502);
 
     // 3) AGGREGATE (deterministic).
     const rows = [];
@@ -217,11 +219,11 @@ const SCHEMA = {
   },
 };
 const OUT_EXAMPLE = {
-  report: "# Insider Flow Report: Apple Inc. (AAPL)\n\n**2026-05-24 to 2026-08-22** · 9 Form 4 filings read · 0 open-market buys ($0) · 4 open-market sales ($12,400,000)\n\n## Snapshot\n...\n\n## Sources\n[1] Form 4 filed 2026-08-20 by Newstead Jennifer - SEC EDGAR - https://www.sec.gov/Archives/...",
-  company: "Apple Inc.", ticker: "AAPL", cik: "0000320193",
-  sources: [{ n: 1, title: "Form 4 filed 2026-08-20 by Newstead Jennifer - SEC EDGAR", url: "https://www.sec.gov/Archives/edgar/data/1780525/000114036126033928/form4.xml" }],
-  tables: [{ name: "transactions", label: "Form 4 transactions", columns: ["Date", "Filed", "Insider", "Role", "Security", "Code", "Kind", "Shares", "Price", "Value (USD)", "Owned after", "10b5-1", "Filing"], rows: [["2026-08-18", "2026-08-20", "Newstead Jennifer", "General Counsel", "Common Stock", "S", "open-market sale", "12000", "228.5", "2742000", "118000", "noted", "https://www.sec.gov/Archives/..."]] }],
-  meta: { tier: "insider-report", company: "Apple Inc.", ticker: "AAPL", window_days: 90, filings_read: 9, transactions: 14, open_market_buys: 0, open_market_sells: 4, sell_usd: 12400000, net_open_market_usd: -12400000, sources_cited: 10, synthesis_model: "anthropic/claude-opus-5" },
+  report: "# Insider Flow Report: Example Corp (EXMP)\n\n**2026-05-24 to 2026-08-22** · 6 Form 4 filings read · 1 open-market buy ($240,000) · 3 open-market sales ($1,850,000)\n\n## Snapshot\n...\n\n## Sources\n[1] Form 4 filed 2026-08-18 by Example Officer - SEC EDGAR - https://www.sec.gov/Archives/edgar/data/0000000000/000000000000000000/form4.xml",
+  company: "Example Corp", ticker: "EXMP", cik: "0000000000",
+  sources: [{ n: 1, title: "Form 4 filed 2026-08-18 by Example Officer - SEC EDGAR", url: "https://www.sec.gov/Archives/edgar/data/0000000000/000000000000000000/form4.xml" }],
+  tables: [{ name: "transactions", label: "Form 4 transactions", columns: ["Date", "Filed", "Insider", "Role", "Security", "Code", "Kind", "Shares", "Price", "Value (USD)", "Owned after", "10b5-1", "Filing"], rows: [["2026-08-16", "2026-08-18", "Example Officer", "Chief Financial Officer", "Common Stock", "S", "open-market sale", "5000", "120.5", "602500", "41000", "noted", "https://www.sec.gov/Archives/edgar/data/0000000000/000000000000000000/form4.xml"]] }],
+  meta: { tier: "insider-report", company: "Example Corp", ticker: "EXMP", window_days: 90, filings_read: 6, transactions: 9, open_market_buys: 1, buy_usd: 240000, open_market_sells: 3, sell_usd: 1850000, net_open_market_usd: -1610000, sources_cited: 7, synthesis_model: "anthropic/claude-opus-5" },
 };
 
 export const INSIDER_TOOLS = [

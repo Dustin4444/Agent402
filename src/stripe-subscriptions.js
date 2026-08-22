@@ -79,7 +79,7 @@ function saveKeys(path, map, keys) {
  * @param {string} deps.baseUrl
  * @param {string} [deps.storePath]  override for tests
  */
-export function createStripeSubscriptions({ stripe, baseUrl, storePath, validateTarget = {}, onInvoicePaid }) {
+export function createStripeSubscriptions({ stripe, baseUrl, storePath, validateTarget = {}, onInvoicePaid, onPaymentSession, onChargeReversed }) {
   const path = storePath || STORE_PATH();
   const store = loadStore(path);          // subId -> record
 
@@ -177,6 +177,10 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
     switch (event.type) {
       case "checkout.session.completed": {
         const s = event.data.object;
+        // One-shot PAYMENT sessions (credit packs, reports) reach the optional
+        // hook so a buyer whose success redirect never loaded still gets
+        // fulfilled (credits: key minted + emailed) - claim is idempotent.
+        if (s.mode === "payment" && typeof onPaymentSession === "function") { try { await onPaymentSession(s); } catch { /* never fail the webhook on a hook */ } }
         if (s.mode === "subscription" && s.subscription) {
           const id = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
           // Stripe retries and reorders events: a completed-checkout event must
@@ -218,6 +222,14 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
           try { onInvoicePaid({ invoiceId: inv.id, subId, product: rec?.product || null, amountUsd: inv.amount_paid / 100, customer: inv.customer }); } catch { /* accounting never breaks the webhook */ }
         }
         if (subId && rec) upsert(subId, { lastInvoiceId: inv.id, lastPaidAt: new Date().toISOString() });
+        break;
+      }
+      case "charge.refunded":
+      case "charge.dispute.created": {
+        // Money went back (or is contested): let the credits store claw back.
+        const obj = event.data.object;
+        const pi = typeof obj?.payment_intent === "string" ? obj.payment_intent : obj?.payment_intent?.id || null;
+        if (pi && typeof onChargeReversed === "function") { try { await onChargeReversed(pi, event.type); } catch { /* never fail the webhook on a hook */ } }
         break;
       }
       default: break; // ignore unrelated events

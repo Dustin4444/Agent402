@@ -1,5 +1,4 @@
-// credits - PREPAID CARD CREDITS for the tool catalog (roadmap Phase 3, the
-// "tool-access business"): a person buys a $20/$50/$100 pack by card (Stripe
+// credits - PREPAID CARD CREDITS for the tool catalog: a person buys a $20/$50/$100 pack by card (Stripe
 // Checkout), gets an `a402_...` key ONCE, and spends it across every paid tool
 // with `Authorization: Bearer a402_...` - the card-native equivalent of the
 // per-call x402 model, for buyers who will not hold a wallet.
@@ -95,10 +94,11 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
     const keyId = hash.slice(0, 12);
     const email = session.customer_details?.email || session.customer_email || null;
     const loadedMicro = p.cents * 10_000;
-    const rec = { keyId, balanceMicro: loadedMicro, loadedMicro, spentMicro: 0, calls: 0, createdAt: new Date(now()).toISOString(), email, sessions: [sessionId], pack: packKey, lastUsedAt: null };
+    const paymentIntent = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
+    const rec = { keyId, balanceMicro: loadedMicro, loadedMicro, spentMicro: 0, calls: 0, createdAt: new Date(now()).toISOString(), email, sessions: [sessionId], paymentIntents: paymentIntent ? [paymentIntent] : [], pack: packKey, lastUsedAt: null };
     save(hash, rec);
     again[sessionId] = hash; writeJsonAtomic(SESSIONS, again);
-    try { onLoad?.({ sessionId, pack: packKey, priceUsd: p.cents / 100, keyId, paymentIntent: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null }); } catch { /* accounting never breaks minting */ }
+    try { onLoad?.({ sessionId, pack: packKey, priceUsd: p.cents / 100, keyId, paymentIntent }); } catch { /* accounting never breaks minting */ }
     if (email) {
       sendEmail({ to: email, subject: "Your Agent402 credits key",
         text: `Your prepaid credits are ready: $${(p.cents / 100).toFixed(2)} loaded.\n\nYour key (keep it secret, it is shown only here and on the thanks page):\n\n${key}\n\nUse it on any paid tool:\ncurl -H "Authorization: Bearer ${key}" ${baseUrl}/api/whois?domain=example.com\n\nBalance: GET ${baseUrl}/api/credits/balance with the same header.\nTop up: ${baseUrl}/credits\n\nAgent402`,
@@ -108,7 +108,12 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
     return { status: "minted", key, keyId, balanceUsd: microToUsd(loadedMicro) };
   }
 
-  // Pre-handler authorization: does this key exist and cover the list price?
+  // Pre-handler authorization WITH RESERVATION: the list price is moved from
+  // the available balance into a hold before the handler runs, so N concurrent
+  // calls on one key can never collectively exceed the balance (without the
+  // hold, every call passed the balance check and only floor(balance/price)
+  // debits landed - the rest were served free). settle() converts the hold to
+  // spend on a final 200; release() returns it on any other outcome.
   function authorize(keyString, priceUsd) {
     if (typeof keyString !== "string" || !KEY_RE.test(keyString)) return { ok: false, reason: "malformed" };
     const hash = hashKey(keyString);
@@ -117,29 +122,47 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
     if (rec.disabled) return { ok: false, reason: "disabled", balanceUsd: microToUsd(rec.balanceMicro) };
     const need = usdToMicro(priceUsd);
     if (rec.balanceMicro < need) return { ok: false, reason: "insufficient", balanceUsd: microToUsd(rec.balanceMicro), priceUsd };
-    return { ok: true, hash, keyId: rec.keyId, balanceUsd: microToUsd(rec.balanceMicro), priceUsd };
+    rec.balanceMicro -= need; rec.heldMicro = (rec.heldMicro || 0) + need;
+    save(hash, rec);
+    return { ok: true, hash, keyId: rec.keyId, heldMicro: need, balanceUsd: microToUsd(rec.balanceMicro), priceUsd };
   }
 
-  // Post-200 debit. Never negative: a race that drained the balance between
-  // authorize and charge charges what is left (the call was served; the
-  // shortfall is the risk of the authorize-then-charge shape, bounded to one
-  // list price per key).
-  function charge(hash, priceUsd, slug) {
+  // Final 200: the hold becomes spend (exactly the reserved amount).
+  function settle(hash, heldMicro, slug) {
     const rec = load(hash);
     if (!rec) return null;
-    const need = usdToMicro(priceUsd);
-    const taken = Math.min(need, rec.balanceMicro);
-    rec.balanceMicro -= taken; rec.spentMicro += taken; rec.calls += 1; rec.lastUsedAt = new Date(now()).toISOString();
+    const taken = Math.min(heldMicro, rec.heldMicro || 0);
+    rec.heldMicro = (rec.heldMicro || 0) - taken; rec.spentMicro += taken; rec.calls += 1; rec.lastUsedAt = new Date(now()).toISOString();
     save(hash, rec);
     try { onDebit?.({ slug, priceUsd: microToUsd(taken), keyId: rec.keyId }); } catch { /* accounting never breaks serving */ }
     return { balanceUsd: microToUsd(rec.balanceMicro), chargedUsd: microToUsd(taken) };
+  }
+  // Any non-200 outcome (4xx/5xx, client abort before the response finished):
+  // the hold goes back to the balance - nothing was charged.
+  function release(hash, heldMicro) {
+    const rec = load(hash);
+    if (!rec) return null;
+    const back = Math.min(heldMicro, rec.heldMicro || 0);
+    rec.heldMicro = (rec.heldMicro || 0) - back; rec.balanceMicro += back;
+    save(hash, rec);
+    return { balanceUsd: microToUsd(rec.balanceMicro) };
+  }
+  // Kept for direct callers/tests: an immediate debit without a prior hold.
+  function charge(hash, priceUsd, slug) {
+    const a = load(hash); if (!a) return null;
+    const need = usdToMicro(priceUsd);
+    const taken = Math.min(need, a.balanceMicro);
+    a.balanceMicro -= taken; a.spentMicro += taken; a.calls += 1; a.lastUsedAt = new Date(now()).toISOString();
+    save(hash, a);
+    try { onDebit?.({ slug, priceUsd: microToUsd(taken), keyId: a.keyId }); } catch { /* never breaks serving */ }
+    return { balanceUsd: microToUsd(a.balanceMicro), chargedUsd: microToUsd(taken) };
   }
 
   function balance(keyString) {
     if (typeof keyString !== "string" || !KEY_RE.test(keyString)) return null;
     const rec = load(hashKey(keyString));
     if (!rec) return null;
-    return { keyId: rec.keyId, balanceUsd: microToUsd(rec.balanceMicro), loadedUsd: microToUsd(rec.loadedMicro), spentUsd: microToUsd(rec.spentMicro), calls: rec.calls, createdAt: rec.createdAt, lastUsedAt: rec.lastUsedAt, disabled: !!rec.disabled };
+    return { keyId: rec.keyId, balanceUsd: microToUsd(rec.balanceMicro), heldUsd: microToUsd(rec.heldMicro || 0), loadedUsd: microToUsd(rec.loadedMicro), spentUsd: microToUsd(rec.spentMicro), calls: rec.calls, createdAt: rec.createdAt, lastUsedAt: rec.lastUsedAt, disabled: !!rec.disabled };
   }
 
   // Operator: totals + per-key rows (key id only - never the key or its hash).
@@ -149,7 +172,7 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
     const keys = files.map((f) => readJson(join(dir, f))).filter(Boolean);
     const tot = (k) => keys.reduce((a, r) => a + (Number(r[k]) || 0), 0);
     return {
-      keys: keys.length, loadedUsd: microToUsd(tot("loadedMicro")), spentUsd: microToUsd(tot("spentMicro")), outstandingUsd: microToUsd(tot("balanceMicro")), calls: tot("calls"),
+      keys: keys.length, loadedUsd: microToUsd(tot("loadedMicro")), spentUsd: microToUsd(tot("spentMicro")), outstandingUsd: microToUsd(tot("balanceMicro")), heldUsd: microToUsd(tot("heldMicro")), calls: tot("calls"),
       rows: keys.sort((a, b) => String(b.lastUsedAt || b.createdAt).localeCompare(String(a.lastUsedAt || a.createdAt))).slice(0, 200).map((r) => ({ keyId: r.keyId, balanceUsd: microToUsd(r.balanceMicro), spentUsd: microToUsd(r.spentMicro), calls: r.calls, createdAt: r.createdAt, lastUsedAt: r.lastUsedAt, disabled: !!r.disabled })),
     };
   }
@@ -158,6 +181,20 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
     try { files = readdirSync(dir).filter((f) => f.startsWith("k_") && f.endsWith(".json")); } catch { return false; }
     for (const f of files) { const r = readJson(join(dir, f)); if (r?.keyId === keyId) { r.disabled = !!disabled; save(f.slice(2, -5), r); return true; } }
     return false;
+  }
+
+  // A refunded or disputed pack payment disables its key (clawback). Looked
+  // up by PaymentIntent id from the Stripe webhook (charge.refunded /
+  // charge.dispute.created). Returns the key id or null.
+  function disableByPaymentIntent(paymentIntent, reason = "refunded") {
+    if (!paymentIntent) return null;
+    let files = [];
+    try { files = readdirSync(dir).filter((f) => f.startsWith("k_") && f.endsWith(".json")); } catch { return null; }
+    for (const f of files) {
+      const r = readJson(join(dir, f));
+      if (r && Array.isArray(r.paymentIntents) && r.paymentIntents.includes(paymentIntent)) { r.disabled = true; r.disabledReason = reason; save(f.slice(2, -5), r); log(`[credits] key ${r.keyId} disabled (${reason}, ${paymentIntent})`); return r.keyId; }
+    }
+    return null;
   }
 
   // Express gate: mount BEFORE the x402 paywall. `priceFor(method, path)` ->
@@ -172,26 +209,41 @@ export function createCredits({ stripe, baseUrl, storeDir, onDebit, onLoad, now 
       const key = auth.slice(7).trim();
       const item = priceFor(req.method, req.path);
       if (!item) return next(); // not a priced catalog route - let the site handle it
+      // Identity-bound routes (wallet-keyed memory, my-usage) derive the caller
+      // from a SIGNED x402 payer; a credits key carries no verified wallet, so
+      // they are refused here (same rule as the Tempo and Stripe gates).
+      if (item.identityBound) {
+        res.setHeader("X-Credits-Error", "identity-bound");
+        return res.status(402).json({ error: "This route is wallet-identity bound (the payment IS the identity); prepaid credits carry no verified wallet. Pay it over an x402 rail.", reason: "identity-bound" });
+      }
       const a = authorize(key, item.priceUsd);
       if (!a.ok) {
         res.setHeader("X-Credits-Error", a.reason);
         return res.status(402).json({ error: a.reason === "insufficient" ? `Insufficient credits: this call costs $${item.priceUsd} and the key holds $${a.balanceUsd}.` : a.reason === "unknown" ? "Unknown credits key." : a.reason === "disabled" ? "This credits key is disabled." : "Malformed credits key.", reason: a.reason, balanceUsd: a.balanceUsd ?? null, priceUsd: item.priceUsd, topup: `${baseUrl}/credits` });
       }
+      // Accepted: the x402 dispatcher is bypassed for this request, so any
+      // UNSIGNED payment headers riding alongside must not survive to a handler
+      // that reads authorization.from (payerFromRequest) - strip them, exactly
+      // as the Tempo and Stripe gates do on acceptance.
+      for (const h of ["payment-signature", "x-payment", "payment-identifier"]) { if (req.headers && h in req.headers) delete req.headers[h]; }
       req.creditsSettling = true; req.creditsSettled = true; req.creditsKeyId = a.keyId; req.creditsPriceUsd = item.priceUsd;
       res.setHeader("X-Credits-Balance", String(a.balanceUsd));
       let done = false;
-      const finish = () => {
+      // Debit ONLY when the response actually finished with a 200 (Node's default
+      // statusCode is 200 before anything is written, so a client abort before
+      // the first byte would otherwise read as a served 200 and be charged).
+      res.on("finish", () => {
         if (done) return; done = true;
-        if (res.statusCode === 200) {
-          const c = charge(a.hash, item.priceUsd, item.slug || req.path);
-          if (c) req.creditsCharged = c.chargedUsd;
-        }
-      };
-      res.on("finish", finish);
-      res.on("close", finish);
+        // A prompt-cache hit (X-Cache: hit) cost nothing upstream and is served
+        // free to x402 buyers pre-paywall - credits buyers get the same.
+        const cacheHit = String(res.getHeader?.("X-Cache") || "").toLowerCase() === "hit";
+        if (res.statusCode === 200 && !cacheHit) { const c = settle(a.hash, a.heldMicro, item.slug || req.path); if (c) req.creditsCharged = c.chargedUsd; }
+        else release(a.hash, a.heldMicro);
+      });
+      res.on("close", () => { if (done) return; done = true; release(a.hash, a.heldMicro); });
       return next();
     };
   }
 
-  return { createCheckout, claim, authorize, charge, balance, status, setDisabled, gate, _dir: dir };
+  return { createCheckout, claim, authorize, settle, release, charge, balance, status, setDisabled, disableByPaymentIntent, gate, _dir: dir };
 }

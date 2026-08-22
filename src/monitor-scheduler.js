@@ -289,6 +289,10 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     if (!latest) { recovered(st); st.lastError = "no 13F-HR filings yet"; persist(); return "checked"; }
     const first = !st.accession;
     if (!first && latest.accessionNumber === st.accession) { recovered(st); persist(); return "checked"; }
+    if (!first && capReached(st)) { // 30d paid cap: tell them, advance, no paid run
+      await alertOnly(rec, st, "filing", [`New 13F-HR filed ${latest.filedDate || "?"} (period ${latest.reportDate || "?"}), accession ${latest.accessionNumber}`]);
+      st.accession = latest.accessionNumber; recovered(st); persist(); return "alert";
+    }
     if (!budget.allow()) { persist(); return "skip"; }
     try {
       const reason = first ? "welcome" : "filing";
@@ -316,10 +320,12 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     const first = !st.recallIds;
     const fresh = first ? [] : pr.items.filter((x) => x.recallNumber && !seen.has(x.recallNumber));
     if (!first && !fresh.length) { recovered(st); persist(); return "checked"; }
+    const recallChanges = fresh.slice(0, 10).map((x) => `${x.recallInitiated || "?"} · ${x.classification || "?"} · ${x.firm || "?"}: ${x.product || "?"} (${x.reason || "no reason given"})`);
+    if (fresh.length > 10) recallChanges.push(`...and ${fresh.length - 10} more`);
+    if (!first && capReached(st)) { await alertOnly(rec, st, "recall", recallChanges); st.recallIds = pr.ids; recovered(st); persist(); return "alert"; }
     if (!budget.allow()) { persist(); return "skip"; }
     try {
-      const changes = fresh.slice(0, 10).map((x) => `${x.recallInitiated || "?"} · ${x.classification || "?"} · ${x.firm || "?"}: ${x.product || "?"} (${x.reason || "no reason given"})`);
-      if (fresh.length > 10) changes.push(`...and ${fresh.length - 10} more`);
+      const changes = recallChanges;
       await runFull(rec, st, first ? "welcome" : "recall", changes);
       st.recallIds = pr.ids; persist();
       return "full";
@@ -340,6 +346,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     catch (e) { fail(st, e, rec); return "error"; }
     st.lastCheckAt = now();
     if (!first && !pr.rows.length) { recovered(st); st.lastFullAt = now(); persist(); return "checked"; }
+    if (!first && capReached(st)) { recovered(st); st.lastFullAt = now(); persist(); return "checked"; }
     if (!budget.allow()) { persist(); return "skip"; }
     try {
       const priced = pr.rows.filter((r) => r.stage === "priced").length;
@@ -366,10 +373,12 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     const first = !st.form4Ids;
     const fresh = first ? [] : pf.filings.filter((f) => !seen.has(f.accessionNumber));
     if (!first && !fresh.length) { recovered(st); persist(); return "checked"; }
+    const f4Changes = fresh.slice(0, 8).map((f) => `Form 4 filed ${f.filedDate}: ${String(f.displayNames?.[0] || "reporting person").replace(/\s*\(CIK[^)]*\)\s*$/i, "")}`);
+    if (fresh.length > 8) f4Changes.push(`...and ${fresh.length - 8} more`);
+    if (!first && capReached(st)) { await alertOnly(rec, st, "filing", f4Changes); st.form4Ids = pf.ids; recovered(st); persist(); return "alert"; }
     if (!budget.allow()) { persist(); return "skip"; }
     try {
-      const changes = fresh.slice(0, 8).map((f) => `Form 4 filed ${f.filedDate}: ${String(f.displayNames?.[0] || "reporting person").replace(/\s*\(CIK[^)]*\)\s*$/i, "")}`);
-      if (fresh.length > 8) changes.push(`...and ${fresh.length - 8} more`);
+      const changes = f4Changes;
       await runFull(rec, st, first ? "welcome" : "filing", changes);
       st.form4Ids = pf.ids; persist();
       return "full";

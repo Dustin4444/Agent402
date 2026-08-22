@@ -80,7 +80,10 @@ export async function probeRecalls(query, { perFeed = 20, scope = "all" } = {}) 
       });
     }
   });
-  if (feeds.every((f) => status[f.kind] !== "ok")) throw bad("Could not reach the FDA enforcement feeds (openFDA) - not charged; please retry.", 502);
+  const okFeeds = feeds.filter((f) => status[f.kind] === "ok").length;
+  // Minimum evidence: a report sold as "drug, food and device" must have read
+  // at least two of the three feeds (or the single feed of a narrowed scope).
+  if (okFeeds < Math.min(2, feeds.length)) throw bad(`Could not read enough FDA enforcement feeds (openFDA: ${Object.entries(status).map(([k, v]) => `${k} ${v}`).join("; ")}) - not charged; please retry.`, 502);
   // Newest first; stable on recall number so the fingerprint is deterministic.
   items.sort((a, b) => String(b.recallInitiated || "").localeCompare(String(a.recallInitiated || "")) || String(a.recallNumber || "").localeCompare(String(b.recallNumber || "")));
   const ids = [...new Set(items.map((x) => x.recallNumber).filter(Boolean))].sort();
@@ -95,7 +98,11 @@ function makeRecallHandlerInner(tierSlug) {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"query": "losartan"}');
     const query = normRecallQuery(input);
     const scope = ["drug", "food", "device"].includes(input.scope) ? input.scope : "all";
-    const allowEmpty = input.allowEmpty === true; // the monitor's welcome report may legitimately find nothing yet
+    // The monitor's welcome report may legitimately find nothing yet - that is
+    // honoured ONLY for the scheduler's own calls (its pseudo-request carries a
+    // "sub:<id>" buyer key), never for a paying buyer (who would get an empty
+    // paid report).
+    const allowEmpty = input.allowEmpty === true && /^sub:/.test(String(req?.headers?.authorization || ""));
     const user = safeUser(req);
 
     // 1) PROBES (free, deterministic).

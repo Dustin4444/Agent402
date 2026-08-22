@@ -1127,16 +1127,23 @@ try {
       insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; throw e; } return k; },
     },
     onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
+    // Credit-pack sessions: mint + email the key from the webhook too (claim is
+    // idempotent; the thanks page then shows "claimed"). _credits is wired below.
+    onPaymentSession: (session) => (session?.metadata?.credits_pack && _credits ? _credits.claim(session.id) : null),
+    onChargeReversed: (paymentIntent, type) => (_credits ? _credits.disableByPaymentIntent(paymentIntent, type === "charge.dispute.created" ? "disputed" : "refunded") : null),
   }) : null;
 } catch (e) { console.warn("[monitors] subscriptions init failed:", String(e?.message || e).slice(0, 200)); _subs = null; }
-// Prepaid card credits (roadmap Phase 3, src/credits.js): same rollout switch
+// Prepaid card credits (src/credits.js): same rollout switch
 // as the human checkout. The GATE mounts inside the paywall block below
 // (before x402mw); the routes/pages mount with the other storefront routes.
 let _credits = null;
 try {
   _credits = humanCheckoutEnabled() ? createCredits({
     stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
-    onLoad: ({ pack, priceUsd, keyId, paymentIntent }) => recordSale({ slug: `credits:${pack}`, priceUsd, rail: "card", network: "stripe", payer: keyId, tx: paymentIntent, wire: "stripe-checkout" }),
+    // A pack PURCHASE is cash received, not revenue earned: booked on the
+    // non-paying rail "card-prepaid" for reconciliation, so /revenue counts
+    // the money once - when it is spent (rail "credits" below).
+    onLoad: ({ pack, priceUsd, keyId, paymentIntent }) => recordSale({ slug: `credits:${pack}`, priceUsd, rail: "card-prepaid", network: "stripe", payer: keyId, tx: paymentIntent, wire: "stripe-checkout" }),
     onDebit: ({ slug, priceUsd, keyId }) => recordSale({ slug, priceUsd, rail: "credits", network: "stripe", payer: keyId, tx: null, wire: "credits" }),
   }) : null;
 } catch (e) { console.warn("[credits] init failed:", String(e?.message || e).slice(0, 200)); _credits = null; }
@@ -4368,7 +4375,7 @@ if (!FREE_MODE) {
       const def = CATALOG[`${method} ${path}`];
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
-      return priceUsd ? { priceUsd, slug: def.slug } : null;
+      return priceUsd ? { priceUsd, slug: def.slug, identityBound: isIdentityBoundRoute(def) } : null;
     }));
     console.log("Prepaid card credits enabled (Bearer a402_ keys)");
   }
