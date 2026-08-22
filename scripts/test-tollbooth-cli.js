@@ -87,7 +87,7 @@ ok(CLI_NETWORKS.base === "eip155:8453" && CLI_NETWORKS.polygon === "eip155:137" 
 
 // ---- 2. the REAL CLI process, env only, no upstream ----
 const PORT = 40000 + Math.floor(Math.random() * 20000);
-child = spawn(process.execPath, [join(ROOT, "tollbooth/index.js")], {
+child = spawn(process.execPath, ["--trace-exit", join(ROOT, "tollbooth/index.js")], {
   cwd: ROOT,
   env: { PATH: process.env.PATH, PORT: String(PORT), TOLLBOOTH_PAYTO: PAYTO, TOLLBOOTH_FACILITATOR_URL: FAC, TOLLBOOTH_SECRET: SECRET, TOLLBOOTH_MODE: "all", TOLLBOOTH_PRICE: "$0.001", TOLLBOOTH_ADMIN_TOKEN: "t" },
   stdio: ["ignore", "pipe", "pipe"],
@@ -97,6 +97,13 @@ let childExit = null;
 child.stdout.on("data", (d) => { cliLog += d; }); child.stderr.on("data", (d) => { cliLog += d; });
 child.on("exit", (code, signal) => { childExit = { code, signal }; });
 const B = `http://127.0.0.1:${PORT}`;
+// SECOND OCCURRENCE 2026-08-22 (CI only, never locally): the child printed its
+// boot banner - so `app.listen` had already called back - and then EXITED code=0
+// with no signal, before the first stats fetch landed. A listening server keeps
+// a ref'd handle, so a clean exit there is not an ordinary shutdown; the log
+// below is the whole record we have. If this recurs, capture `child.pid`'s open
+// handles (e.g. spawn with `--trace-exit`) rather than widening the timeout: the
+// wait is not the problem, the child leaving is.
 // Readiness is judged by an ANSWERED request, and an exhausted wait FAILS with
 // evidence: the child's exit status and its full log. On 2026-08-19 a CI run
 // died here with a bare `fetch failed ... ECONNREFUSED` two lines after the
