@@ -22,8 +22,8 @@ const SYNTH = "anthropic/claude-opus-5";
 const GROUND = "google/gemini-2.5-flash";
 
 export const FUND_TIERS = {
-  "fund-report": { price: "$9", maxUpstreamUsd: 1.5, topN: 15, searches: 2, synthMaxTokens: 4500, words: "~1,500" },
-  "fund-report-max": { price: "$19", maxUpstreamUsd: 4, topN: 30, searches: 3, synthMaxTokens: 6500, words: "~2,400" },
+  "fund-report": { price: "$4", maxUpstreamUsd: 1.5, topN: 15, searches: 2, synthMaxTokens: 4500, words: "~1,500" },
+  "fund-report-max": { price: "$9", maxUpstreamUsd: 4, topN: 30, searches: 3, synthMaxTokens: 6500, words: "~2,400" },
 };
 export const FUND_MODELS = [SYNTH, GROUND];
 

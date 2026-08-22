@@ -15,20 +15,20 @@ Each report is a `POST` with a JSON body; the price is the whole outcome, not a 
 
 | Route | Price | Input | What you get |
 |---|---|---|---|
-| `POST /v1/research` | $5 | `{ query, focus?, recency?, format? }` | Deep research report: sub-questions planned, multiple live web searches, sources reranked, a ~1,500-word report with inline `[n]` citations and a source list |
-| `POST /v1/research/pro` | $15 | same | Deeper tier: more sub-questions and searches, wider source set, ~2,200 words |
-| `POST /v1/research/max` | $30 | same | Exhaustive tier, ~2,800 words |
-| `POST /v1/research/market-brief` | $15 | `{ query }` | Market / competitor brief on a category or company, same pipeline with a competitive-intelligence frame |
-| `POST /v1/dossier` | $19 | `{ ticker, focus?, format? }` | Company due-diligence dossier: SEC EDGAR filings (10-K / 10-Q / 8-K), Form 4 filing metadata, a live quote and grounded web research, ~2,400 words |
-| `POST /v1/dossier/max` | $39 | same | More filings, a full year of Form 4 activity, wider research, ~2,800 words with a full source table |
-| `POST /v1/fund` | $9 | `{ manager \| cik \| ticker, format? }` | 13F portfolio report: what the manager holds and what they bought, added, trimmed and exited last quarter, diffed from their two most recent 13F-HR filings, with a holdings appendix |
-| `POST /v1/fund/max` | $19 | same | Full holdings table, wider change analysis, longer report |
-| `POST /v1/domain-audit` | $5 | `{ domain, format? }` | Graded domain security and email-deliverability audit: SPF, DMARC, DKIM, MX, security headers, TLS, each from a live probe, with a letter grade and a prioritized fix list |
-| `POST /v1/domain-audit/pro` | $9 | same | Plus attack surface from Certificate Transparency logs, detected tech stack and registration data |
-| `POST /v1/recall-report` | $5 | `{ query, scope? }` | FDA recall report across the drug, food and device enforcement feeds (openFDA): firm, class, status, reason, distribution, date, with a records appendix |
-| `POST /v1/insider-report` | $9 | `{ ticker \| cik, days? }` | Insider flow: every Form 4 in the window with the transactions parsed from the filings, open-market buys and sells separated from awards, exercises and withholding, per insider and net |
-| `POST /v1/token-risk` | $5 | `{ address, chain, format? }` | Token and contract risk report from on-chain evidence: source verification, holder concentration (pools and contracts told apart from wallets), supply and market context. Evidence, never a "safe" verdict |
-| `POST /v1/token-risk/pro` | $12 | same | Plus a deterministic static-pattern scan of the verified source and a web reputation check |
+| `POST /v1/research` | $3 | `{ query, focus?, recency?, format? }` | Deep research report: sub-questions planned, multiple live web searches, sources reranked, a ~1,500-word report with inline `[n]` citations and a source list |
+| `POST /v1/research/pro` | $7 | same | Deeper tier: more sub-questions and searches, wider source set, ~2,200 words |
+| `POST /v1/research/max` | $12 | same | Exhaustive tier, ~2,800 words |
+| `POST /v1/research/market-brief` | $7 | `{ query }` | Market / competitor brief on a category or company, same pipeline with a competitive-intelligence frame |
+| `POST /v1/dossier` | $9 | `{ ticker, focus?, format? }` | Company due-diligence dossier: SEC EDGAR filings (10-K / 10-Q / 8-K), Form 4 filing metadata, a live quote and grounded web research, ~2,400 words |
+| `POST /v1/dossier/max` | $19 | same | More filings, a full year of Form 4 activity, wider research, ~2,800 words with a full source table |
+| `POST /v1/fund` | $4 | `{ manager \| cik \| ticker, format? }` | 13F portfolio report: what the manager holds and what they bought, added, trimmed and exited last quarter, diffed from their two most recent 13F-HR filings, with a holdings appendix |
+| `POST /v1/fund/max` | $9 | same | Full holdings table, wider change analysis, longer report |
+| `POST /v1/domain-audit` | $3 | `{ domain, format? }` | Graded domain security and email-deliverability audit: SPF, DMARC, DKIM, MX, security headers, TLS, each from a live probe, with a letter grade and a prioritized fix list |
+| `POST /v1/domain-audit/pro` | $5 | same | Plus attack surface from Certificate Transparency logs, detected tech stack and registration data |
+| `POST /v1/recall-report` | $3 | `{ query, scope? }` | FDA recall report across the drug, food and device enforcement feeds (openFDA): firm, class, status, reason, distribution, date, with a records appendix |
+| `POST /v1/insider-report` | $4 | `{ ticker \| cik, days? }` | Insider flow: every Form 4 in the window with the transactions parsed from the filings, open-market buys and sells separated from awards, exercises and withholding, per insider and net |
+| `POST /v1/token-risk` | $3 | `{ address, chain, format? }` | Token and contract risk report from on-chain evidence: source verification, holder concentration (pools and contracts told apart from wallets), supply and market context. Evidence, never a "safe" verdict |
+| `POST /v1/token-risk/pro` | $6 | same | Plus a deterministic static-pattern scan of the verified source and a web reputation check |
 | `POST /v1/ipo-report` | $0.05 | `{ days?, keyword? }` | Deterministic IPO pipeline digest: every 424B4 (priced) and S-1 (registering) on SEC EDGAR in the window, optional keyword filter on the filer's name. No synthesis, filing facts only |
 
 Every report route is wallet-only (no proof-of-work tier) and is listed in [`/api/pricing`](https://agent402.tools/api/pricing), `/openapi.json` and on its own `/tools/{slug}` page with a sample output. They are not cached: each call is a fresh run.
@@ -46,7 +46,7 @@ Over the MCP connector, `catalog.find` resolves a task like "audit example.com's
 
 ## Reports for people (`/reports`)
 
-[`/reports`](https://agent402.tools/reports) sells the same products by card through Stripe Checkout: pick a product, type the input (a question, a ticker, a fund, a domain, a recall term), pay, and the report renders at a private link `/r/<session>` (also emailed when the instance has email configured). Listed there: research ($5 / $15 / $30), market brief ($15), dossier ($19 / $39), fund report ($9 / $19), domain audit ($5 / $9), FDA recall report ($5) and insider flow report ($9). The token-risk and IPO reports are agent-facing routes and are not on the card page.
+[`/reports`](https://agent402.tools/reports) sells the same products by card through Stripe Checkout: pick a product, type the input (a question, a ticker, a fund, a domain, a recall term), pay, and the report renders at a private link `/r/<session>` (also emailed when the instance has email configured). Listed there: research ($3 / $7 / $12), market brief ($7), dossier ($9 / $19), fund report ($4 / $9), domain audit ($3 / $5), FDA recall report ($3) and insider flow report ($4). The token-risk and IPO reports are agent-facing routes and are not on the card page.
 
 Guarantees enforced in code rather than promised in copy:
 
@@ -54,7 +54,7 @@ Guarantees enforced in code rather than promised in copy:
 - A run that fails is **refunded automatically**; a refund that could not be issued is recorded as owed and retried, never reported as done.
 - Report pages are private links (`noindex`, no listing anywhere); the link is the bearer.
 
-## Monitors (`/monitors`, $9 per month each)
+## Monitors (`/monitors`, $5 per month each)
 
 A monitor is a Stripe subscription that keeps one report fresh for one target. The scheduler (`src/monitor-scheduler.js`) does a cheap, free check on a cadence and spends a full paid run only when the cadence says so or something actually changed, then emails a durable report link (`/m/<id>`).
 
@@ -89,7 +89,7 @@ Credits are the card-native equivalent of a wallet for the long tail; the report
 
 | | Per-call tools | Report products | Monitors |
 |---|---|---|---|
-| Price | $0.001 and up per call | $5 to $39 per report ($0.05 for the IPO digest) | $9 per month per target |
+| Price | $0.001 and up per call | $3 to $19 per report ($0.05 for the IPO digest) | $5 per month per target |
 | Pay with | x402, MPP, proof-of-work (pure-CPU), credits | x402, MPP, credits, or card at `/reports` | card subscription at `/monitors` |
 | Who | agents | agents and people | people (agents call the underlying report directly) |
 | Serving path | deterministic, no language model | deterministic evidence + grounded synthesis (IPO digest: deterministic only) | the same report kits on a schedule |

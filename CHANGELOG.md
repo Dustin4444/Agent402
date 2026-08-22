@@ -3,15 +3,15 @@
 ## Unreleased - 2026-08-22 - Reports, monitors, prepaid credits, MPP on Tempo
 
 - **Finished report products on `/v1`** - one paid call returns a complete, cited report:
-  `POST /v1/research` ($5) / `/v1/research/pro` ($15) / `/v1/research/max` ($30) /
-  `/v1/research/market-brief` ($15), `/v1/dossier` ($19) / `/v1/dossier/max` ($39),
-  `/v1/fund` ($9) / `/v1/fund/max` ($19), `/v1/domain-audit` ($5) / `/v1/domain-audit/pro` ($9),
-  `/v1/recall-report` ($5), `/v1/insider-report` ($9), `/v1/token-risk` ($5) / `/v1/token-risk/pro` ($12),
+  `POST /v1/research` ($3) / `/v1/research/pro` ($7) / `/v1/research/max` ($12) /
+  `/v1/research/market-brief` ($7), `/v1/dossier` ($9) / `/v1/dossier/max` ($19),
+  `/v1/fund` ($4) / `/v1/fund/max` ($9), `/v1/domain-audit` ($3) / `/v1/domain-audit/pro` ($5),
+  `/v1/recall-report` ($3), `/v1/insider-report` ($4), `/v1/token-risk` ($3) / `/v1/token-risk/pro` ($6),
   and the deterministic `/v1/ipo-report` ($0.05). Grounded in primary data fetched by the server
   (EDGAR, openFDA, DNS/TLS, on-chain reads, live web search) before synthesis; wallet-only.
 - **Card front door for people** - `/reports` (Stripe Checkout, `POST /api/buy`, delivery at
   `/r/:sessionId`; a report is generated once per paid session, a failed generation is refunded),
-  `/monitors` ($9/month subscriptions: domain security, fund 13F, FDA recall, insider flow, IPO
+  `/monitors` ($5/month subscriptions: domain security, fund 13F, FDA recall, insider flow, IPO
   pipeline - cheap daily probes, a paid re-run and an email only on change, reports at `/m/:id`,
   Stripe Customer Portal at `/monitors/manage`), and `/credits` (prepaid $20 / $50 / $100 packs,
   one `a402_` key, `Authorization: Bearer a402_...` on any priced route, debited only on a

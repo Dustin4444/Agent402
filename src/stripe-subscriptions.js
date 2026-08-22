@@ -21,27 +21,27 @@ import { join } from "node:path";
 // `slug` = the paid report handler the scheduler runs; price in cents, monthly.
 export const MONITOR_PRODUCTS = {
   "domain-monitor": {
-    label: "Domain security monitor", price: 900, kind: "domain", slug: "domain-audit",
+    label: "Domain security monitor", price: 500, kind: "domain", slug: "domain-audit",
     inputField: "domain", inputLabel: "a domain, e.g. example.com",
     blurb: "Monthly re-audit of your domain's email auth, TLS and security headers, with an alert the moment your certificate is expiring or your config drifts.",
   },
   "fund-monitor": {
-    label: "Fund 13F watch", price: 900, kind: "fund", slug: "fund-report",
+    label: "Fund 13F watch", price: 500, kind: "fund", slug: "fund-report",
     inputField: "manager", inputLabel: "a fund name, ticker, or CIK",
     blurb: "We watch this manager's SEC 13F filings and email you a fresh holdings + changes report each time they file.",
   },
   "recall-monitor": {
-    label: "FDA recall watch", price: 900, kind: "recall", slug: "recall-report",
+    label: "FDA recall watch", price: 500, kind: "recall", slug: "recall-report",
     inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan",
     blurb: "We check the FDA drug, food and device recall feeds for your term every day and email you a fresh cited report the moment a new recall appears.",
   },
   "insider-monitor": {
-    label: "Insider flow watch", price: 900, kind: "insider", slug: "insider-report",
+    label: "Insider flow watch", price: 500, kind: "insider", slug: "insider-report",
     inputField: "ticker", inputLabel: "a US stock ticker",
     blurb: "We watch Form 4 filings against this company every day and email you a fresh insider-flow report - buys, sells, who and how much - each time a new filing lands.",
   },
   "ipo-monitor": {
-    label: "IPO pipeline watch", price: 900, kind: "ipo", slug: "ipo-report",
+    label: "IPO pipeline watch", price: 500, kind: "ipo", slug: "ipo-report",
     inputField: "keyword", inputLabel: "a keyword in the filer's name, or \"all\"",
     blurb: "A weekly digest of every IPO that priced (424B4) and every new S-1 registration on SEC EDGAR, filtered to your keyword or the whole market. Filing facts only, no guessing.",
   },

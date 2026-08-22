@@ -77,7 +77,7 @@ the server runs in proof-of-work mode (pure-CPU tools stay free). Use dedicated
 low-value wallets for `AGENT_KEY` / `SOLANA_AGENT_KEY`, funded only with what
 you intend to spend. Most tools cost $0.001–$0.02. The routing tiers top out
 at $0.55 (`route-execute-max`); multi-tool skill packs run up to $1.50; and the
-report products run $5 to $39 per report (research $5 up to dossier-max $39),
+report products run $3 to $19 per report (research $3 up to dossier-max $19),
 so set `AGENT402_MAX_PER_CALL` if you want a hard per-call ceiling.
 
 ## How it works
@@ -98,7 +98,7 @@ so set `AGENT402_MAX_PER_CALL` if you want a hard per-call ceiling.
   | ≤ $0.50 | $0.55 | `POST /api/route/execute-max` |
 
   A tool priced above the tier's ceiling returns a self-correcting 409 naming its direct route.
-- **Report products** are catalog slugs like any other, so `catalog.call` runs them with a wallet or a credits key: `research` ($5), `research-pro` ($15), `research-max` ($30), `market-brief` ($15), `dossier` ($19), `dossier-max` ($39), `fund-report` ($9), `fund-report-max` ($19), `domain-audit` ($5), `domain-audit-pro` ($9), `token-risk` ($5), `token-risk-pro` ($12), `recall-report` ($5), `insider-report` ($9). The same reports are sold by card at https://agent402.tools/reports, and the recurring monitors (domain, fund, recall, insider, IPO - $9/month) at https://agent402.tools/monitors.
+- **Report products** are catalog slugs like any other, so `catalog.call` runs them with a wallet or a credits key: `research` ($3), `research-pro` ($7), `research-max` ($12), `market-brief` ($7), `dossier` ($9), `dossier-max` ($19), `fund-report` ($4), `fund-report-max` ($9), `domain-audit` ($3), `domain-audit-pro` ($5), `token-risk` ($3), `token-risk-pro` ($6), `recall-report` ($3), `insider-report` ($4). The same reports are sold by card at https://agent402.tools/reports, and the recurring monitors (domain, fund, recall, insider, IPO - $5/month) at https://agent402.tools/monitors.
 
 ## Workflows (skill packs)
 

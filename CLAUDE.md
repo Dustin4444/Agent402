@@ -389,7 +389,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
 - **Human front door + report products + recurring engine (2026-08-21):** `src/human-checkout.js`
   (Stripe Checkout for the premium report products, `/reports`, `POST /api/buy`, `/r/:sessionId`; no
   report without a Stripe-verified paid session, generate-once cross-replica, auto-refund on failure),
-  `src/stripe-subscriptions.js` (Phase 2a: `MONITOR_PRODUCTS` domain-monitor + fund-monitor $9/mo,
+  `src/stripe-subscriptions.js` (Phase 2a: `MONITOR_PRODUCTS` domain-monitor + fund-monitor $5/mo,
   subscription-mode Checkout, durable subscriber store, signature-verified webhook, Customer Portal;
   `/monitors`, `POST /api/subscribe`, `/monitors/thanks`, `/monitors/manage`), and **Phase 2b
   `src/monitor-scheduler.js`** (fulfilment: 10-min tick, unref'd, first tick +90s; per active sub -
@@ -441,7 +441,7 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Prod runs ONE replica (Railway `numReplicas: 1`), so the cross-replica lost-update class is theoretical;
   the file stores are now safe for it anyway. Tests: test-human-checkout (39), test-stripe-subscriptions
   (28), test-monitor-scheduler (41), test-composite-guard (16, incl. EVM-only accepts + global breaker).
-- **Recall watch + IPO watch (2026-08-22):** `src/tools/recall-report-kit.js` (`recall-report` $5, POST
+- **Recall watch + IPO watch (2026-08-22):** `src/tools/recall-report-kit.js` (`recall-report` $3, POST
   `/v1/recall-report {query}`: free openFDA drug/food/device enforcement probes -> grounding-strict Opus
   synthesis, records appendix; `probeRecalls()` exported - the monitor's free daily probe, fingerprint =
   recall numbers; `allowEmpty:true` lets a welcome report find nothing yet; WALLET_ONLY, composite-guarded,
@@ -449,17 +449,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   DETERMINISTIC S-1 + 424B4 digest from EDGAR full-text search, no LLM; `probeIpos()`; WALLET_ONLY for
   egress, not composite-guarded). Monitor kinds in `monitor-scheduler.js`: `recall` (daily probe, paid
   re-run + "recall" email only on a NEW recall number, seen-set advances after success) and `ipo`
-  (weekly "digest" run, no email on an empty week). Products: `recall-monitor` + `ipo-monitor` ($9/mo) in
-  MONITOR_PRODUCTS, `recall-report` ($5) in HUMAN_PRODUCTS + `/reports` card. Adding a monitor kind =
+  (weekly "digest" run, no email on an empty week). Products: `recall-monitor` + `ipo-monitor` ($5/mo) in
+  MONITOR_PRODUCTS, `recall-report` ($3) in HUMAN_PRODUCTS + `/reports` card. Adding a monitor kind =
   kit with a cheap `probeX()` + a `processX` branch + MONITOR_PRODUCTS entry + email reason.
-- **Insider flow + market brief (2026-08-22):** `src/tools/insider-flow-kit.js` (`insider-report` $9, POST
+- **Insider flow + market brief (2026-08-22):** `src/tools/insider-flow-kit.js` (`insider-report` $4, POST
   `/v1/insider-report {ticker|cik, days}`: Form 4 filings against the issuer via EDGAR full-text search,
   each filing's XML fetched (`fetchXmlText`, concurrency 4) and PARSED (`parseForm4`: owners/roles,
   non-derivative transactions with code/shares/price/owned-after, 10b5-1 footnote flag) -> open-market
   buys/sells vs awards/exercises/withholding, per-insider + net flow -> grounding-strict Opus synthesis,
   transactions + insiders appendix; `probeInsiderFilings()` = the monitor's cheap daily probe
-  (fingerprint = accession set); `insider-monitor` $9/mo, kind `insider`, "filing" email on a new
-  accession). `market-brief` ($15, POST `/v1/research/market-brief`) = the research-deep pipeline with a
+  (fingerprint = accession set); `insider-monitor` $5/mo, kind `insider`, "filing" email on a new
+  accession). `market-brief` ($7, POST `/v1/research/market-brief`) = the research-deep pipeline with a
   competitive-intelligence `planFrame` + fixed `synthFrame` (RESEARCH_TIERS supports both). Both in
   WALLET_ONLY, composite guard, METERED, test-all NETWORK, HUMAN_PRODUCTS + `/reports` cards. EDGAR
   primitives (`resolveCompany`, `eftsSearch`, `fetchXmlText`, `edgarGetJson`) are now exported from
@@ -1308,6 +1308,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   are the legacy push-trigger path; card PNGs under docs/announcements/media are
   fine to commit). No posted-tweet log or conversation state in this file.
 
+- **Report re-pricing (2026-08-22, Mike: "too high, be competitive"):** research $3 / pro $7 / max $12, market-brief $7,
+  dossier $9 / max $19, fund $4 / max $9, domain-audit $3 / pro $5, recall $3, insider $4, token-risk $3 / pro $6, every
+  monitor $5/mo. Cost basis measured in PostHog `$ai_generation` (OpenRouter): Opus synthesis p50 $0.075 / p95 $0.195 /
+  max $0.31 per call, Gemini planning $0.01, so a full report costs well under $1 upstream; the kits' `maxUpstreamUsd`
+  caps (1-9) are circuit breakers, all still below price. Prices live in THREE places that must move together: kit
+  `*_TIERS[...].price` (x402/MPP list), `HUMAN_PRODUCTS[...].price` cents (card), `MONITOR_PRODUCTS[...].price`; docs are
+  checked by `test-docs-truth` (price per slug vs live catalog). Card floor comment/test now >= $3 (Stripe min is $0.50).
 - **Machine-surface sync for products + credits (2026-08-22, batch A):** `/api/pricing` carries `credits`
   (packs) + `humanProducts` (reports/monitors) next to the catalog; `/openapi.json` is 2.1.0 with
   `securitySchemes` x402 / mpp / creditsKey (bearer `a402_…`) + `x-guidance`; `/llms.txt` has credits + reports

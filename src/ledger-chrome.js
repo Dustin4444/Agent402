@@ -230,6 +230,8 @@ a { color: inherit; }
 .ml-nav-link:hover { color: var(--ink); border-bottom-color: var(--dash); }
 .ml-nav-link-on { color: var(--ink); font-weight: 500; border-bottom-color: var(--ink); }
 .ml-nav-link-on:hover { border-bottom-color: var(--accent); }
+.ml-nav-glyph { display: inline-block; vertical-align: -2px; margin-right: 1px; opacity: .8; }
+.ml-nav-link-on .ml-nav-glyph, .ml-nav-link:hover .ml-nav-glyph { opacity: 1; }
 .mlr-row, tr[data-mfb-row] { transition: background-color .12s ease; }
 .mlr-row:hover, tr[data-mfb-row]:hover { background: var(--card-zebra); }
 .ml-chip { transition: background-color .12s ease, color .12s ease, border-color .12s ease; }
@@ -385,8 +387,10 @@ const NAV_ZONES = [
     { href: "/tools", label: "Tools", panel: "tools" },
   ],
   [
-    { href: "/marketplace", label: "Market", panel: "marketplace" },
-    { href: "/mpp-marketplace", label: "MPP", panel: "mpp" },
+    // Both are MARKETPLACES (the x402 index and the MPP index) - the shared
+    // storefront glyph + title say so; the word is the wire each one indexes.
+    { href: "/marketplace", label: "x402", panel: "marketplace", icon: "market", title: "x402 marketplace" },
+    { href: "/mpp-marketplace", label: "MPP", panel: "mpp", icon: "market", title: "MPP marketplace" },
     { href: "/leaderboard", label: "Leaderboard" },
   ],
   [
@@ -551,9 +555,14 @@ function directLinkHtml(l, activePath) {
   return `<a class="ml-nav-link${active ? " ml-nav-link-on" : ""}" href="${l.href}">${l.label}</a>`;
 }
 
+// Storefront glyph marking a nav word as a MARKETPLACE (x402 / MPP indexes).
+const MARKET_GLYPH = `<svg class="ml-nav-glyph" width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 6.5 3.2 3h9.6L14 6.5"/><path d="M2 6.5c0 1.1.9 2 2 2s2-.9 2-2c0 1.1.9 2 2 2s2-.9 2-2c0 1.1.9 2 2 2s2-.9 2-2"/><path d="M3.5 8.5V13h9V8.5"/><path d="M6.5 13V10.5h3V13"/></svg>`;
+
 function groupTriggerHtml(item, active, panelHtml) {
+  const glyph = item.icon === "market" ? `${MARKET_GLYPH} ` : "";
+  const title = item.title ? ` title="${esc(item.title)}" aria-label="${esc(item.title)}"` : "";
   return `<span class="mlnav-g" style="display:inline-flex;">
-        <a class="ml-nav-link${active ? " ml-nav-link-on" : ""}" href="${item.href}">${item.label} <span style="font-size:10px;">▾</span></a>
+        <a class="ml-nav-link${active ? " ml-nav-link-on" : ""}${item.icon ? " ml-nav-link-market" : ""}" href="${item.href}"${title}>${glyph}${item.label} <span style="font-size:10px;">▾</span></a>
         ${panelHtml}
       </span>`;
 }
@@ -584,7 +593,7 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-h">For people</div>
     <div class="ml-mm-group">
       ${mmLink("/reports", "reports · card or USDC", activePath === "/reports")}
-      ${mmLink("/monitors", "monitors · $9 / month", activePath === "/monitors")}
+      ${mmLink("/monitors", "monitors · $5 / month", activePath === "/monitors")}
       ${mmLink("/credits", "credits · pay by card, use every tool", activePath === "/credits")}
     </div>
     <div class="ml-mm-h">Buy</div>
@@ -594,7 +603,7 @@ function mobileMenuHtml(chainInfo, activePath) {
       ${mmLink("/playground", "playground · free", activePath === "/playground")}
       ${mmLink("/pricing", "pricing", activePath === "/pricing")}
     </div>
-    <div class="ml-mm-h">The index</div>
+    <div class="ml-mm-h">Marketplaces</div>
     <div class="ml-mm-group">
       ${mmLink("/marketplace", "x402 marketplace · every chain", activePath === "/marketplace")}
       ${mmLink("/mpp-marketplace", "mpp marketplace · verified sellers", activePath === "/mpp-marketplace")}

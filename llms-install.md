@@ -127,7 +127,7 @@ Solana/Polygon/Arbitrum/Monad/Celo/Avalanche/Sei/Optimism/Stellar/Algorand
  - plus USDG on Robinhood Chain, 12 chains in all); multi-tool skill packs
 run up to $1.50; the finished report products under `/v1` (deep research,
 company dossier, 13F fund report, domain audit, FDA recall, insider flow,
-token risk) cost $5 to $39 and are the same reports people buy by card at
+token risk) cost $3 to $19 and are the same reports people buy by card at
 `https://agent402.tools/reports`. See `https://agent402.tools/api/pricing`
 for exact prices.
 
