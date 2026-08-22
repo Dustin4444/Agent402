@@ -1335,6 +1335,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   $0.014 / 2 s, flux.2-pro $0.030, veo-lite 4 s $0.12 / 40 s. Registration helper pattern for a new kit: import + spread in
   ALL_KIT, slugs in WALLET_ONLY_SLUGS, routes in test-all NETWORK, test step in deploy.yml; a `slug:` regex over a kit file also
   matches example INPUTS named slug (defi-kit) - derive slugs from routes.
+  A key-gated tool ALSO needs its slug in `METERED_SLUGS` (`scripts/test-non-metered-examples.js`): that sweep treats a 503 as a
+  HARD failure (the lenient-NETWORK hole that once hid gov-data), so a tool whose key CI deliberately lacks fails the run until it
+  is excluded there like every other keyed tool. Nine such failures (alchemy-data x6, images/video x3) blocked the 2026-08-22
+  wave-2 deploy.
 - **Seller-landscape builds (2026-08-22, from the x402scan/MPPScan top-seller research):** four kits. KEYLESS and listed:
   `src/tools/derivatives-kit.js` (`DERIVATIVES_TOOLS`, 11 tools $0.002-$0.005: perp-markets/funding/funding-screener/
   open-interest/klines/orderbook/basis on Hyperliquid's public info API, options-summary / crypto-options-chain / options-ticker on Deribit public (finance-kit already owns `options-chain` for equities),
