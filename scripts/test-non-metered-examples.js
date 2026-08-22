@@ -124,8 +124,19 @@ const METERED_SLUGS = new Set([
   "fred-release-observations",
   // Neynar / Farcaster
   "farcaster-profile", "farcaster-by-address",
+  "fc-cast-search", "fc-channel-feed", "fc-trending", "fc-user-casts", "fc-cast",
+  "fc-cast-replies", "fc-channel", "fc-user-search", "fc-cast-metrics",
+  // X API v2 app-only bearer (per-post read billing) and the enrichment
+  // providers - each lists only with its own key, and 503s without it.
+  "x-search-recent", "x-user", "x-user-tweets", "x-tweet", "x-users-lookup",
+  "hunter-domain-search", "hunter-email-finder", "hunter-email-verify", "hunter-company",
+  "apollo-people-search", "apollo-org-enrich", "apollo-person-match",
+  // OpenRouter Image + Video APIs (flat per-image / per-second upstream price).
+  "v1-images-fast", "v1-images-pro", "v1-videos",
   // Alchemy hard-require (compute units) — publicJsonRpc-backed tools stay IN
   "wallet-balance", "token-metadata", "token-price", "wallet-transactions",
+  "asset-transfers", "token-balances", "token-allowance", "tx-receipt",
+  "block-receipts", "token-price-history",
   "nft-holdings", "nft-metadata", "gas-snapshot", "eth-call",
   "dex-pair", "dex-pool", "dex-quote",
   "nft-collection", "nft-floor",
