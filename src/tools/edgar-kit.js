@@ -573,7 +573,13 @@ function parse13fInformationTable(xml, reportDate) {
   return rows;
 }
 
-async function fetchInformationTableUrl(cikInt, accession) {
+// Locate a 13F-HR filing's information table AND report its declared byte size.
+// The size matters to any caller that is not being paid for the read: the
+// largest filers (index complexes with thousands of positions) publish tables
+// in the tens of megabytes, so a free surface must be able to decline the fetch
+// rather than pull it into memory. fetchInformationTableUrl() below keeps the
+// old url-only contract for the paid path.
+export async function findInformationTable(cikInt, accession) {
   const accDir = accession.replace(/-/g, "");
   const indexUrl = `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/index.json`;
   const idx = await edgarGetJson(indexUrl);
@@ -594,14 +600,19 @@ async function fetchInformationTableUrl(cikInt, accession) {
     return n.includes("informationtable") || n.includes("infotable");
   });
   if (namedHit) {
-    return `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/${namedHit.name}`;
+    return { name: namedHit.name, size: parseInt(namedHit.size, 10) || 0, url: `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/${namedHit.name}` };
   }
   const candidates = xmls
     .filter((it) => String(it.name).toLowerCase() !== "primary_doc.xml")
     .map((it) => ({ name: it.name, size: parseInt(it.size, 10) || 0 }))
     .sort((a, b) => b.size - a.size);
   if (!candidates.length) return null;
-  return `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/${candidates[0].name}`;
+  return { ...candidates[0], url: `https://www.sec.gov/Archives/edgar/data/${cikInt}/${accDir}/${candidates[0].name}` };
+}
+
+async function fetchInformationTableUrl(cikInt, accession) {
+  const hit = await findInformationTable(cikInt, accession);
+  return hit ? hit.url : null;
 }
 
 async function fetchXmlText(url) {
@@ -1050,4 +1061,4 @@ export async function resolveManager({ cik, ticker, name }) {
 
 // Shared EDGAR primitives for the composite report kits (insider-flow, ipo):
 // same User-Agent policy, same politeness, one implementation.
-export { resolveCompany, eftsSearch, fetchXmlText, edgarGetJson };
+export { resolveCompany, eftsSearch, fetchXmlText, edgarGetJson, parse13fInformationTable };
