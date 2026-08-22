@@ -18,6 +18,12 @@
 // Covered by scripts/test-x-data-kit.js (offline, stubbed fetch). Live
 // calls need a real bearer and are not exercised in CI.
 
+import { markUntrusted } from "./provenance.js";
+// The upstream bills per POST RETURNED, not per request, so the page size is
+// the real cost lever: a 100-post page at our per-call price would be sold far
+// below cost. 25 keeps every call inside the price on the read tiers.
+const X_MAX_POSTS_PER_CALL = () => Math.max(5, Math.min(100, parseInt(process.env.X_MAX_POSTS_PER_CALL || "25", 10) || 25));
+
 const X_API = "https://api.x.com/2";
 const TIMEOUT_MS = 12_000;
 const USER_AGENT = "Agent402/1.0 (+https://agent402.tools)";
@@ -237,7 +243,7 @@ export const X_DATA_TOOLS = [
       inputSchema: {
         properties: {
           query: { type: "string", description: "X search query (max 512 chars). Supports X operators: from:user, #tag, lang:en, -is:retweet, has:links." },
-          max_results: { type: "number", description: "Tweets per page, 10-100 (default 10)." },
+          max_results: { type: "number", description: "Tweets per page, 10-25 (default 10). The upstream bills per post returned, so the page size is capped." },
           sort_order: { type: "string", description: "recency (default) or relevancy." },
           next_token: { type: "string", description: "Pagination token from a previous response." },
         },
@@ -258,7 +264,7 @@ export const X_DATA_TOOLS = [
       const query = typeof i.query === "string" ? i.query.trim() : "";
       if (!query) throw bad('"query" is required - an X search query, e.g. "x402 -is:retweet"');
       if (query.length > 512) throw bad(`"query" is too long (${query.length} chars, max 512)`);
-      const maxResults = takeMaxResults(i.max_results, { min: 10, max: 100, dflt: 10 });
+      const maxResults = takeMaxResults(i.max_results, { min: 10, max: X_MAX_POSTS_PER_CALL(), dflt: 10 });
       const sort = i.sort_order === undefined || i.sort_order === null || i.sort_order === "" ? "recency" : String(i.sort_order);
       if (sort !== "recency" && sort !== "relevancy") throw bad('"sort_order" must be "recency" or "relevancy"');
       const nextToken = takeToken(i.next_token, "next_token");
@@ -328,7 +334,7 @@ export const X_DATA_TOOLS = [
         properties: {
           id: { type: "string", description: "Numeric X user id. Provide id OR username." },
           username: { type: "string", description: "X username (resolved to an id first). Provide id OR username." },
-          max_results: { type: "number", description: "Tweets per page, 5-100 (default 10)." },
+          max_results: { type: "number", description: "Tweets per page, 5-25 (default 10). The upstream bills per post returned, so the page size is capped." },
           exclude_retweets: { type: "boolean", description: "Drop retweets (default false)." },
           exclude_replies: { type: "boolean", description: "Drop replies (default false)." },
           since_id: { type: "string", description: "Only tweets with an id greater than this." },
@@ -350,7 +356,7 @@ export const X_DATA_TOOLS = [
       const hasId = i.id !== undefined && i.id !== null && i.id !== "";
       const hasUsername = typeof i.username === "string" && i.username.trim() !== "";
       if (!hasId && !hasUsername) throw bad('Provide "id" (numeric X user id) or "username"');
-      const maxResults = takeMaxResults(i.max_results, { min: 5, max: 100, dflt: 10 });
+      const maxResults = takeMaxResults(i.max_results, { min: 5, max: X_MAX_POSTS_PER_CALL(), dflt: 10 });
       const excludeRetweets = takeBool(i.exclude_retweets, "exclude_retweets");
       const excludeReplies = takeBool(i.exclude_replies, "exclude_replies");
       const sinceId = i.since_id === undefined || i.since_id === null || i.since_id === "" ? null : takeId(i.since_id, "since_id");
@@ -471,3 +477,14 @@ export const X_DATA_TOOLS = [
 ];
 
 export const __test = { takeUsername, takeId, takeMaxResults, takeToken, shapeTweet, shapeUser, X_API };
+
+// Free text in these results is written by third parties (headlines, posts,
+// casts, token names and descriptions, page titles). Anyone can mint a token or
+// publish a post, so this is the cheapest prompt-injection delivery vehicle in
+// the catalog: flag it as data, never instructions, the way site-crawl does.
+const UNTRUSTED_TEXT_SLUGS = new Set(["x-search-recent", "x-user", "x-user-tweets", "x-tweet", "x-users-lookup"]);
+for (const t of X_DATA_TOOLS) {
+  if (!UNTRUSTED_TEXT_SLUGS.has(t.slug)) continue;
+  const inner = t.handler;
+  t.handler = async (...args) => markUntrusted(await inner(...args));
+}

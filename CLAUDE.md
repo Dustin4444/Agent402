@@ -910,7 +910,10 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   protection; the `max-age=120` on the response is a browser-only hint. Contract pinned by
   `scripts/test-x402-economy.js` (dedup + warm-cache identity, never-throws).
 - **Site redesign 2026-08-22 ("milled + obsidian", approved from the Agent402 Site Directions canvas):**
-  TWO themes, DARK IS THE DEFAULT (same day, Mike): the dark palette sits on bare `:root` (first paint
+  TWO themes, LIGHT IS THE DEFAULT (flipped back the same day, Mike): the light "milled" palette sits on bare `:root`, the
+  obsidian dark palette is the `:root[data-theme="dark"]` override, `site-chrome.js` stamps `data-theme="dark"` pre-paint
+  only when the stored preference is dark, and typography tokens live on the default root (they are theme-independent - a
+  font token stranded in the override block fails `test-css-tokens-resolve`). The earlier dark-default note follows: the dark palette sits on bare `:root` (first paint
   dark, no script, no flash); the light "milled" palette is `:root[data-theme="light"]`, applied by
   `assets/js/site-chrome.js` (synchronous in `<head>`, reads `localStorage a402-theme` pre-paint) and
   flipped by the nav `.ml-theme-toggle`; no OS media query. Theme-specific surfaces ride tokens
@@ -1308,6 +1311,22 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   are the legacy push-trigger path; card PNGs under docs/announcements/media are
   fine to commit). No posted-tweet log or conversation state in this file.
 
+- **Review round on the seller-landscape kits (2026-08-22, three lenses: leaks/SSRF/PII, money/economics, abuse/DoS/hygiene):**
+  no HIGH left open. PII: served discovery examples for the enrichment + Farcaster tools named a REAL person with a work email,
+  title and social handle (same class as the Form 4 example) - all placeholders now, and the offline fixtures with them.
+  Prompt injection: third-party free text (RSS headlines, posts, casts, token names/descriptions, page titles) now rides
+  `markUntrusted` in crypto-signals / x-data / farcaster-social / solana-intel / site-map (site-crawl already did) via a
+  wrap pass at the end of each kit. Money: the price cut left every `maxUpstreamUsd` where it was (research-max was 75% of
+  price) - all rescaled to <= 40%; monitors at $5/mo cut `MAX_FULL_PER_SUB_30D` 8 -> 4 (measured report cost ~$0.10-0.30, so
+  4 runs is ~$1.20 against a $4.56 net fee); `v1-images-fast`/`v1-images-pro`/`v1-videos` joined `EXPENSIVE_COMPOSITE_SLUGS`
+  (spend guard + longRunning = EVM exact only: settle-after on SVM/AVM/Tempo is work done, never charged), per-link image
+  timeout 120s -> 45s so a timeout precedes billing, `VIDEOS_MAX_WAIT_MS` 240s -> 180s (under x402's 300s
+  `maxTimeoutSeconds`), and `SLOW_TOOL_SECONDS` gained the media tiers + site-crawl/site-map. Bounds: site-crawl page cap
+  2MB -> 300KB and a global 2-in-flight gate (JSDOM parse is synchronous - the image-pool lesson), CoinGecko a 25/min token
+  bucket (Demo is 30/min shared), RSS feeds an in-flight map (a cold burst fanned out N times per publisher), and
+  `content-length` refused before `res.text()` in three kits. X page size capped at 25 posts (X bills per post RETURNED, so
+  the page size is the cost lever). Hygiene: a literal NUL byte in a test made the file invisible to grep and secret
+  scanners; gitleaks allowlist rows pinned to literals.
 - **Second seller-landscape wave (2026-08-22, Mike: "build everything we can serve right away and profitably; existing keys
   are fair game"):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
   $0.005 robots+sitemap+homepage links <= 6 fetches; site-crawl $0.02 BFS <= 20 pages/depth 2, robots honoured, SSRF guard on

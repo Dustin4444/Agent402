@@ -2,7 +2,7 @@
 //
 // 2026-08-22: TWO themes, dark is the DEFAULT. The dark palette sits directly
 // on bare :root (first paint is already dark, no script needed, no flash); the
-// light "milled" palette is an override block under :root[data-theme="light"],
+// obsidian dark palette is an override block under :root[data-theme="dark"],
 // applied by /js/site-chrome.js (synchronous in <head>, reads the stored
 // preference BEFORE body paints) and flipped by the .ml-theme-toggle button.
 // No OS media query decides the theme, no inline script, no inline onclick.
@@ -28,36 +28,36 @@ const html = ledgerShell({
   baseUrl: "https://agent402.tools", body: "<main>hi</main>",
 });
 
-// --- the bare :root palette IS the dark (default) palette ---------------------
+// --- the bare :root palette IS the light (default) palette --------------------
 const rootStart = LEDGER_CSS.indexOf(":root {");
 const rootBlock = LEDGER_CSS.slice(rootStart, LEDGER_CSS.indexOf("\n}", rootStart));
-const lightStart = LEDGER_CSS.indexOf(':root[data-theme="light"] {');
-const lightBlock = lightStart >= 0 ? LEDGER_CSS.slice(lightStart, LEDGER_CSS.indexOf("\n}", lightStart)) : "";
+const darkStart = LEDGER_CSS.indexOf(':root[data-theme="dark"] {');
+const darkBlock = darkStart >= 0 ? LEDGER_CSS.slice(darkStart, LEDGER_CSS.indexOf("\n}", darkStart)) : "";
 const tokIn = (block, name) => (block.match(new RegExp(`${name}:\\s*([^;]+);`)) || [])[1]?.trim() || "";
 const tok = (name) => tokIn(rootBlock, name);
-const ltok = (name) => tokIn(lightBlock, name);
+const dtok = (name) => tokIn(darkBlock, name);
 const isDark = (h) => /^#[0-3]/.test(h);      // #0B0C0E, #141619, #24282C…
 const isLight = (h) => /^#[C-Fc-f]/.test(h);  // #F3F4F5, #FFFFFF, #E9EAEC…
 
-ok(isDark(tok("--paper")), `default page background is dark (--paper ${tok("--paper")})`);
-ok(isLight(tok("--ink")), `default foreground is light (--ink ${tok("--ink")})`);
-ok(isDark(tok("--card")), `default cards are dark (--card ${tok("--card")})`);
+ok(isLight(tok("--paper")), `default page background is light (--paper ${tok("--paper")})`);
+ok(isDark(tok("--ink")), `default foreground is dark (--ink ${tok("--ink")})`);
+ok(isLight(tok("--card")), `default cards are light (--card ${tok("--card")})`);
 ok(isLight(tok("--on-dark")), `text on obsidian surfaces stays light in both themes (--on-dark ${tok("--on-dark")})`);
-ok(/:root \{ color-scheme: dark; \}/.test(LEDGER_CSS), "bare :root declares color-scheme: dark (form controls + scrollbars match the default)");
+ok(/:root \{ color-scheme: light; \}/.test(LEDGER_CSS), "bare :root declares color-scheme: light (form controls + scrollbars match the default)");
 
-// --- the light theme is a complete override, not a partial one -----------------
-ok(lightBlock.length > 0, "a :root[data-theme=\"light\"] override block exists");
-ok(isLight(ltok("--paper")) && isDark(ltok("--ink")) && isLight(ltok("--card")), `light override flips paper/ink/card (${ltok("--paper")} / ${ltok("--ink")} / ${ltok("--card")})`);
-ok(/color-scheme:\s*light/.test(lightBlock), "light override sets color-scheme: light");
+// --- the dark theme is a complete override, not a partial one ------------------
+ok(darkBlock.length > 0, "a :root[data-theme=\"dark\"] override block exists");
+ok(isDark(dtok("--paper")) && isLight(dtok("--ink")) && isDark(dtok("--card")), `dark override flips paper/ink/card (${dtok("--paper")} / ${dtok("--ink")} / ${dtok("--card")})`);
+ok(/:root\[data-theme="dark"\] \{ color-scheme: dark; \}/.test(LEDGER_CSS), "dark override sets color-scheme: dark");
 const rootNames = [...rootBlock.matchAll(/--([a-z0-9-]+):/g)].map((m) => m[1]).filter((n) => !n.startsWith("font-"));
-const lightNames = new Set([...lightBlock.matchAll(/--([a-z0-9-]+):/g)].map((m) => m[1]));
-const missing = rootNames.filter((n) => !lightNames.has(n));
-ok(missing.length === 0, `every default token has a light counterpart${missing.length ? ` - MISSING: ${missing.map((n) => "--" + n).join(", ")}` : ""}`);
-ok(!/prefers-color-scheme/.test(LEDGER_CSS) && !html.includes("prefers-color-scheme"), "no OS preference media query decides the palette (dark is the default, the user flips it)");
+const darkNames = new Set([...darkBlock.matchAll(/--([a-z0-9-]+):/g)].map((m) => m[1]));
+const missing = rootNames.filter((n) => !darkNames.has(n));
+ok(missing.length === 0, `every default token has a dark counterpart${missing.length ? ` - MISSING: ${missing.map((n) => "--" + n).join(", ")}` : ""}`);
+ok(!/prefers-color-scheme/.test(LEDGER_CSS) && !html.includes("prefers-color-scheme"), "no OS preference media query decides the palette (light is the default, the user flips it)");
 
 // --- theme-specific surfaces go through tokens, never hardcoded hex -------------
 for (const name of ["--btn-bg", "--btn-fg", "--nav-bg", "--brand-mark", "--milled-bg", "--obsidian-bg", "--chip-bg", "--card-inset", "--on-accent"]) {
-  ok(tok(name) && ltok(name), `${name} is defined in BOTH themes (surfaces that differ per theme ride tokens)`);
+  ok(tok(name) && dtok(name), `${name} is defined in BOTH themes (surfaces that differ per theme ride tokens)`);
 }
 
 // --- the toggle: present, CSP-clean, no flash --------------------------------
@@ -69,7 +69,7 @@ ok(!/<html[^>]*data-theme/.test(html) && !/<body[^>]*data-theme/.test(html), "th
 const siteChromeJs = readFileSync(new URL("../assets/js/site-chrome.js", import.meta.url), "utf8");
 const headOnly = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
 ok(headOnly.includes('<script src="/js/site-chrome.js">'), "site-chrome.js is referenced in <head> (synchronous) so the stored theme applies before first paint");
-ok(/localStorage\.getItem\('a402-theme'\)/.test(siteChromeJs.slice(0, 1200)) && /setAttribute\('data-theme','light'\)/.test(siteChromeJs.slice(0, 1200)), "site-chrome.js applies a stored light preference at the very top (pre-paint)");
+ok(/localStorage\.getItem\('a402-theme'\)/.test(siteChromeJs.slice(0, 1200)) && /setAttribute\('data-theme','dark'\)/.test(siteChromeJs.slice(0, 1200)), "site-chrome.js applies a stored dark preference at the very top (pre-paint)");
 ok(/\.ml-theme-toggle/.test(siteChromeJs) && /localStorage\.setItem\('a402-theme'/.test(siteChromeJs) && siteChromeJs.includes("addEventListener('click'"), "site-chrome.js wires the toggle via addEventListener and stores the choice");
 ok(!html.includes("a402ToggleTheme"), "no global toggle function is referenced from markup");
 

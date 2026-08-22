@@ -62,9 +62,20 @@ const CONFIG = {
   CRAWL_CONCURRENCY: 3,
   CRAWL_TOTAL_MS: 25_000,
   CRAWL_FETCH_MS: 8_000,
-  CRAWL_TOTAL_BYTES: 10 * 1024 * 1024,
-  CRAWL_PAGE_BYTES: 2 * 1024 * 1024,
+  CRAWL_TOTAL_BYTES: 4 * 1024 * 1024,
+  // Per-page byte cap. JSDOM parsing is SYNCHRONOUS, so this number is an
+  // event-loop budget, not a bandwidth one: a 2 MB page measured ~1 s of blocked
+  // main thread (parse + clone + Readability + turndown), and this handler is
+  // reachable by any paying caller. 300 KB keeps a page under ~150 ms, which is
+  // the same reasoning that moved the image tools off the main thread. Anything
+  // larger is truncated, never refused.
+  CRAWL_PAGE_BYTES: 300 * 1024,
 };
+// Global in-flight cap across ALL concurrent site-crawl callers (per process).
+// Overflow answers 503, not 400: the input was fine, and a >= 400 cancels
+// settlement so nobody is charged for a queue we chose not to serve.
+const CRAWL_GLOBAL_MAX = Math.max(1, parseInt(process.env.CRAWL_GLOBAL_MAX || "2", 10) || 2);
+let crawlInFlight = 0;
 const MAP_MAX_LIMIT = 500;
 const MAP_DEFAULT_LIMIT = 100;
 const CRAWL_MAX_LIMIT = 20;
@@ -542,6 +553,18 @@ async function siteMapHandler(input) {
 // site-crawl
 // ---------------------------------------------------------------------------
 async function siteCrawlHandler(input) {
+  // Global gate: JSDOM parsing is synchronous, so N concurrent crawls block the
+  // event loop N times over. Overflow is a 503 (capacity), never a 400, and a
+  // >= 400 cancels settlement so the caller is not charged for it.
+  if (crawlInFlight >= CRAWL_GLOBAL_MAX) {
+    const e = new Error("Crawler is at capacity right now, retry in a few seconds. You were not charged.");
+    e.statusCode = 503; throw e;
+  }
+  crawlInFlight++;
+  try { return await siteCrawlRun(input); } finally { crawlInFlight--; }
+}
+
+async function siteCrawlRun(input) {
   const startUrl = takeStartUrl(input.url);
   const limit = takeInt(input, "limit", { min: 1, max: CRAWL_MAX_LIMIT, def: CRAWL_DEFAULT_LIMIT });
   const maxDepth = takeInt(input, "maxDepth", { min: 0, max: CRAWL_MAX_DEPTH, def: CRAWL_DEFAULT_DEPTH });
@@ -786,3 +809,14 @@ export const CRAWL_TOOLS = [
 
 // Test seam: pure helpers + constants (never the handlers' network path).
 export const __test = { Budget, budgetedFetch, CONFIG };
+
+// Free text in these results is written by third parties (headlines, posts,
+// casts, token names and descriptions, page titles). Anyone can mint a token or
+// publish a post, so this is the cheapest prompt-injection delivery vehicle in
+// the catalog: flag it as data, never instructions, the way site-crawl does.
+const UNTRUSTED_TEXT_SLUGS = new Set(["site-map"]);
+for (const t of CRAWL_TOOLS) {
+  if (!UNTRUSTED_TEXT_SLUGS.has(t.slug)) continue;
+  const inner = t.handler;
+  t.handler = async (...args) => markUntrusted(await inner(...args));
+}

@@ -36,6 +36,18 @@
 // coverage: scripts/test-defi-kit.js (stubbed fetch, fixtures from live
 // shapes, cache behaviour, filters, mapping).
 
+const MAX_BODY_BYTES = 24 * 1024 * 1024;  // DefiLlama bulk docs run ~11MB; this is the hard ceiling.
+// Refuse an over-large body BEFORE reading it into a string: `res.text()` has
+// no cap of its own, so a broken or hostile upstream could push an unbounded
+// buffer into memory once per concurrent call.
+function assertBodyWithinCap(res, capBytes, label) {
+  const declared = Number(res.headers?.get?.("content-length") || 0);
+  if (declared && declared > capBytes) {
+    const e = new Error(`${label} response is larger than the ${Math.round(capBytes / 1048576)}MB cap`);
+    e.statusCode = 502; throw e;
+  }
+}
+
 const TIMEOUT_MS = 10_000;
 const BULK_TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 5 * 60_000;
@@ -170,6 +182,7 @@ async function rawFetch(url, { timeout = TIMEOUT_MS, label = "DefiLlama" } = {})
     throw bad(`${label} request timed out or was unreachable`, 504);
   }
   let text = "";
+  assertBodyWithinCap(res, MAX_BODY_BYTES, "Upstream");
   try { text = await res.text(); } catch { text = ""; }
   if (res.status === 429) throw bad(`${label} rate limit reached upstream - retry shortly`, 503);
   return { status: res.status, text };

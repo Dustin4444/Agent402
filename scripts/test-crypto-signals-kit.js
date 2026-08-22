@@ -210,7 +210,7 @@ ok(Object.keys(NEWS_SOURCES).length >= 5 && Object.keys(NEWS_SOURCES).length <= 
   ok(lf[0].summary.length <= 300 && !lf[0].summary.endsWith(" ") && lf[0].summary.length > 250, `summary capped at 300 chars on a word boundary (${lf[0].summary.length})`);
   ok(__test.canonicalUrl("https://x.example/a?utm_source=rss&id=5#frag") === "https://x.example/a?id=5", "canonicalUrl keeps non-tracking params, drops fragment");
   ok(__test.canonicalUrl("javascript:alert(1)") === null && __test.canonicalUrl("not a url") === null, "canonicalUrl refuses non-http");
-  ok(__test.cleanText("a b &#x41;&amp;&nbsp;<i>c</i>") === "ab A& c", `cleanText strips control chars + tags, decodes entities (${JSON.stringify(__test.cleanText("a b &#x41;&amp;&nbsp;<i>c</i>"))})`);
+  ok(__test.cleanText("a\u0000b &#x41;&amp;&nbsp;<i>c</i>") === "ab A& c", `cleanText strips control chars + tags, decodes entities (${JSON.stringify(__test.cleanText("a\u0000b &#x41;&amp;&nbsp;<i>c</i>"))})`);
 }
 
 // ----------------------------------------------------------------------------

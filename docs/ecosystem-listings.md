@@ -9,6 +9,25 @@ claim below is served live; verify prices against `/api/pricing` before pasting.
   100+ skill packs): live web search and cited answers, headless browser, PDFs, OCR,
   financial / SEC EDGAR / macro / on-chain data, an OpenAI-compatible LLM gateway
   (`/v1`), durable wallet-keyed memory, 200+ pure-CPU utilities.
+- **Market and onchain intel (keyless, deterministic, per call):** live perpetuals
+  (`perp-markets`, `perp-funding`, `perp-funding-screener`, `perp-basis`,
+  `perp-open-interest`, `perp-klines`, `perp-orderbook`, $0.002 to $0.003) and the
+  options book (`options-summary`, `crypto-options-chain`, `options-ticker`,
+  `options-volume`, $0.002 to $0.005); DeFi yields, TVL, fees, DEX volume and
+  stablecoin supply with history siblings (`defi-*`, `stablecoins`, $0.002 to
+  $0.003); Solana token due diligence (`sol-token-safety` $0.005,
+  `sol-token-report` $0.010, holders, pairs, trending, prices, swap quotes);
+  crypto news, computed technical indicators and a whole-market pulse
+  ($0.004 to $0.005); broad coin/exchange coverage including price by token
+  contract address; indexed EVM chain reads (transfers, balances, allowances,
+  decoded receipts, block receipts, token price history); Farcaster social
+  (search, feeds, threads, engagement metrics); and whole-site crawling
+  (`site-map` $0.005, `site-crawl` $0.02).
+- **Images and video, flat per call:** `POST /v1/images/fast` $0.02,
+  `POST /v1/images/pro` $0.05, `POST /v1/images/generations` $0.08,
+  `POST /v1/videos/generations` $0.20 (one silent 4-second 720p clip). OpenAI
+  wire, so any OpenAI SDK works against base_url `https://agent402.tools/v1`;
+  priced per picture or per clip rather than per token.
 - **Pay any way:** x402 (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo,
   Avalanche, Sei, Optimism, Stellar, Algorand; USDG on Robinhood Chain - 12 chains),
   MPP (Machine Payments Protocol) on the same 402 (Base/Celo, or natively on Tempo),

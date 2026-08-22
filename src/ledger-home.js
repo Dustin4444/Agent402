@@ -53,6 +53,41 @@ function externalLeaderboardRows(leaderboardSnapshot, limit = 6) {
     }));
 }
 
+// Capability chips - a concrete row of what the catalog answers, each chip a
+// direct internal link to that tool's own page (the pages search engines and
+// LLM crawlers actually land on). Labels are ours; every PRICE is read from
+// the live catalog, never typed here: a hand-typed price on the homepage is
+// the same rot class test-docs-truth exists to catch in the docs. A slug the
+// running server does not serve (env-gated kit, self-host without a key)
+// simply drops its chip rather than linking to a 404.
+const CAPABILITY_CHIPS = [
+  ["perp-funding", "Perp funding rates"],
+  ["perp-markets", "Every listed perp"],
+  ["crypto-options-chain", "Options chain"],
+  ["defi-yields", "DeFi yield screener"],
+  ["stablecoins", "Stablecoin supply"],
+  ["sol-token-safety", "Solana token safety"],
+  ["sol-token-report", "Solana risk report"],
+  ["crypto-market-pulse", "Crypto market pulse"],
+  ["coin-profile", "Coin profile"],
+  ["asset-transfers", "Wallet transfers"],
+  ["site-crawl", "Crawl a site to markdown"],
+  ["v1-images-fast", "Text to image"],
+  ["v1-videos", "Text to video"],
+];
+
+function capabilityChipsHtml(tools) {
+  const bySlug = new Map(tools.map((t) => [t.slug, t]));
+  return CAPABILITY_CHIPS
+    .map(([slug, label]) => {
+      const t = bySlug.get(slug);
+      if (!t) return "";
+      return `<a href="/tools/${esc(slug)}" class="hm-chip"><span style="color:var(--ink);">${esc(label)}</span><span style="color:var(--faint);">${esc(t.price)}</span></a>`;
+    })
+    .filter(Boolean)
+    .join("");
+}
+
 export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, skillPacks) {
   const tools = toolList(catalog);
   const count = tools.length;
@@ -67,6 +102,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const rails = railsByVolume(stats);
   const attributed = rails.reduce((sum, r) => sum + r.n, 0);
   const board = externalLeaderboardRows(leaderboardSnapshot);
+  const chipsHtml = capabilityChipsHtml(tools);
 
   const canonical = baseUrl + "/";
   const title = `Agent402.Tools - 500+ pay-per-call tools for AI agents, finished reports by card, the open x402 + MPP index`;
@@ -235,6 +271,15 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-mono);font-size:26px;letter-spacing:-.02em;color:var(--accent);">0%</span><span style="font-size:13px;color:var(--faint);">deducted from sellers · open source</span></div>
   </div>
 </section>
+
+${chipsHtml ? `<section style="max-width:1180px;margin:0 auto;padding:34px 30px 0;">
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+    <span class="hm-kicker" style="margin:0;">$ GET /api/find?q=funding+rate</span>
+    <span style="font-size:13.5px;color:var(--muted);">Live derivatives, DeFi, Solana and market data as deterministic JSON. Flat price per call, no exchange account and no data-vendor contract.</span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px;">${chipsHtml}</div>
+  <div style="margin-top:14px;font-family:var(--font-mono);font-size:13px;"><a href="/tools/category/crypto" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ink);padding-bottom:1px;">all crypto and DeFi tools →</a></div>
+</section>` : ""}
 
 <section style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
   <div class="hm-kicker">$ GET /api/pow/challenge?slug=hash</div>

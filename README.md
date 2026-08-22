@@ -131,6 +131,13 @@ Boots straight from the repo's `railway.toml` + `Dockerfile`. Optional plugins a
 | **Geo** | `geo-distance` (haversine, pure-CPU), `geocode`, `reverse-geocode`, `place-search`, `geo-lookup` |
 | **Live data** | `fx-rate` (ECB), `barcode-lookup` (Open Food Facts), `gov-data` (data.gov), `weather-forecast`/`weather-alerts`, `earthquakes` (USGS) |
 | **Finance & crypto** | `stock-quote`/`stock-history`/`earnings-calendar` (Yahoo), `crypto-price`/`crypto-market`/`crypto-history`/`crypto-trending`/`crypto-global` (CoinGecko) |
+| **Crypto derivatives & options** | `perp-markets`, `perp-funding`, `perp-funding-screener`, `perp-basis`, `perp-open-interest`, `perp-klines`, `perp-orderbook` (live perpetuals: mark/oracle price, funding, OI, candles, depth); `options-summary`, `crypto-options-chain`, `options-ticker`, `options-volume` (options book, IV and greeks, onchain options volume) - $0.002 to $0.005 a call, no exchange account |
+| **DeFi & stablecoins** | `defi-yields` (screen pools by chain, project, TVL and stablecoin-only), `defi-yield-history`, `defi-protocols`, `defi-protocol`, `defi-chains`, `defi-chain-tvl-history`, `defi-fees`, `defi-dex-volume`, `stablecoins`, `stablecoin-supply-history` - $0.002 to $0.003 a call |
+| **Solana token intel** | `sol-token-safety` (authorities, liquidity, holder concentration, graded), `sol-token-report` (full risk write-up), `sol-token-holders`, `sol-token-pairs`, `sol-token-search`, `sol-trending`, `sol-price`, `sol-swap-quote`, `sol-token-lookup` - the due-diligence pass an agent needs before it touches a mint |
+| **Crypto market coverage** | `crypto-news`, `crypto-indicators` (RSI, MACD, moving averages, computed here), `crypto-market-pulse`, `coin-profile`, `coin-history`, `coin-ohlc`, `coin-market-chart-range`, `coin-categories`, `coin-price-by-contract` (price by token ADDRESS, no coin id needed), `global-defi`, `exchanges`, `exchange-tickers`, `exchange-rates`, `coin-search`, `coins-list` |
+| **Indexed chain data** | `asset-transfers` (filtered transfer history), `token-balances`, `token-allowance`, `tx-receipt` (decoded transfers), `block-receipts`, `token-price-history` - indexed reads across the major EVM chains, no node and no key of your own |
+| **Farcaster social** | `fc-cast-search`, `fc-channel-feed`, `fc-trending`, `fc-user-casts`, `fc-cast`, `fc-cast-replies`, `fc-channel`, `fc-user-search`, `fc-cast-metrics` - search, feeds and engagement metrics on the onchain social graph |
+| **Site crawling** | `site-map` (enumerate a site's URLs) and `site-crawl` (breadth-first crawl to clean markdown, robots-respecting, hard page/depth/time budgets) - the deterministic pair behind any "read this whole site" task |
 | **Macro (FRED + more)** | yield curve, treasury, fiscal, Fed funds, CPI, unemployment, Sahm rule, ECB FX, World Bank, FRED bulk release observations |
 | **SEC EDGAR** | ticker→CIK, filing list, 10-K/10-Q text, XBRL frames, insider transactions, 13F holdings, IPO calendar, full-text search |
 | **Finished reports (cited)** | `research`/`research-pro`/`research-max` (grounded deep research), `market-brief`, `dossier`/`dossier-max` (company due diligence), `fund-report`/`fund-report-max` (13F portfolio), `domain-audit`/`domain-audit-pro` (graded security + deliverability), `recall-report` (FDA), `insider-report` (Form 4 flow), `token-risk`/`token-risk-pro` (on-chain contract risk), `ipo-report` (S-1 + 424B4 digest, deterministic) - $3 to $19 per report, same price by wallet or by card at [/reports](https://agent402.tools/reports); see the `/v1` table below |
@@ -173,6 +180,9 @@ prepaid credits key, see [For humans](#for-humans-reports-monitors-and-prepaid-c
 | `POST /v1/embeddings` | $0.002 | OpenAI embeddings, batch up to 64 inputs - identical repeats are **free** (deterministic output, cache default-on) |
 | `POST /v1/rerank` | $0.002 | Cohere-compatible rerank (`{query, documents[], top_n}`), up to 50 documents, cache default-on |
 | `POST /v1/images/generations` | $0.08 | image generation (Gemini 2.5 Flash Image) - OpenAI images wire, inline base64 out |
+| `POST /v1/images/fast` | $0.02 | budget text-to-image, same OpenAI images wire, about two seconds a picture |
+| `POST /v1/images/pro` | $0.05 | higher-fidelity text-to-image, one picture a call |
+| `POST /v1/videos/generations` | $0.20 | text-to-video: one silent 4-second 720p clip, MP4 inline base64, 16:9 or 9:16 |
 | `POST /v1/audio/speech` | $0.06 | text-to-speech, OpenAI `audio.speech.create()` wire - up to 2,000 chars in, raw mp3 (default) or pcm bytes out, five-model failover chain |
 
 Streaming (`stream: true`), full tools/function-calling passthrough, an opt-in

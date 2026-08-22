@@ -80,6 +80,27 @@ function headers() {
 
 // One upstream GET with the cache in front. `ttlMs` picks the cache class.
 // Returns { data, fetchedAt, cached }.
+// Demo plan allows 30 requests a minute for the whole deployment, so paid
+// traffic has to be paced here rather than discovered at the upstream 429. A
+// caller that arrives with an empty bucket gets 503 (capacity) and is not
+// charged; a cache hit never takes a token.
+const cgRatePerMin = () => Math.max(1, parseInt(process.env.COINGECKO_MAX_PER_MIN || "25", 10) || 25);
+let cgTokens = null, cgRefilledAt = 0;
+function takeCgToken(now) {
+  const cap = cgRatePerMin();
+  if (cgTokens === null) { cgTokens = cap; cgRefilledAt = now; }
+  const elapsed = now - cgRefilledAt;
+  if (elapsed > 0) {
+    cgTokens = Math.min(cap, cgTokens + (elapsed / 60_000) * cap);
+    cgRefilledAt = now;
+  }
+  if (cgTokens < 1) return false;
+  cgTokens -= 1;
+  return true;
+}
+/** Test seam: refill the bucket (offline suites make dozens of stubbed calls). */
+export function resetCgRateLimit() { cgTokens = null; cgRefilledAt = 0; }
+
 async function cgGet(path, params, ttlMs) {
   const url = new URL(CG_BASE + path);
   for (const [k, v] of Object.entries(params || {})) {
@@ -90,6 +111,7 @@ async function cgGet(path, params, ttlMs) {
   const hit = cacheGet(key);
   if (hit) return { data: hit.data, fetchedAt: hit.fetchedAt, cached: true };
 
+  if (!takeCgToken(Date.now())) throw bad("Market data is rate limited right now, retry in a few seconds. You were not charged.", 503);
   const attempt = () => fetch(key, { headers: headers(), signal: AbortSignal.timeout(TIMEOUT_MS) });
   let res;
   try {

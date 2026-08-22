@@ -20,6 +20,18 @@
 // coverage: scripts/test-crypto-signals-kit.js (stubbed fetch, fixtures with
 // hand-computed indicator values).
 
+import { markUntrusted } from "./provenance.js";
+// Refuse an over-large body BEFORE reading it into a string: `res.text()` has
+// no cap of its own, so a broken or hostile upstream could push an unbounded
+// buffer into memory once per concurrent call.
+function assertBodyWithinCap(res, capBytes, label) {
+  const declared = Number(res.headers?.get?.("content-length") || 0);
+  if (declared && declared > capBytes) {
+    const e = new Error(`${label} response is larger than the ${Math.round(capBytes / 1048576)}MB cap`);
+    e.statusCode = 502; throw e;
+  }
+}
+
 const HL_INFO = "https://api.hyperliquid.xyz/info";
 const UA = "Mozilla/5.0 (compatible; Agent402/1.0; +https://agent402.tools)";
 const HL_TIMEOUT_MS = 10_000;
@@ -114,6 +126,7 @@ async function rawFetch(url, { method = "GET", body, label, timeoutMs, accept })
     throw bad(`${label} request timed out or was unreachable`, 504);
   }
   let text = "";
+  assertBodyWithinCap(res, FEED_MAX_BYTES, "Feed");
   try { text = await res.text(); } catch { text = ""; }
   if (res.status === 429) throw bad(`${label} rate limit reached upstream - retry shortly`, 503);
   return { status: res.status, text };
@@ -299,10 +312,24 @@ export function parseFeed(text, outletName = null) {
 
 // --- feed cache + fetch ------------------------------------------------------
 const feedCache = new Map(); // id -> { at, items, error }
+// In-flight map so a burst arriving on a cold or just-expired cache makes ONE
+// request per publisher, not one per caller: without it, N concurrent callers
+// fan out N times across every feed, which is how an egress IP gets blocked.
+const feedInFlight = new Map();
+
 async function loadFeed(id) {
   const hit = feedCache.get(id);
   const now = Date.now();
   if (hit && now - hit.at < (hit.error ? FEED_FAIL_TTL_MS : FEED_TTL_MS)) return { ...hit, cached: true };
+  const pending = feedInFlight.get(id);
+  if (pending) return pending.then((e) => ({ ...e, cached: true }));
+  const p = fetchFeed(id).finally(() => feedInFlight.delete(id));
+  feedInFlight.set(id, p);
+  return p.then((e) => ({ ...e, cached: false }));
+}
+
+async function fetchFeed(id) {
+  const now = Date.now();
   const src = NEWS_SOURCES[id];
   let entry;
   try {
@@ -320,7 +347,7 @@ async function loadFeed(id) {
     entry = { at: now, items: [], error: reason };
   }
   feedCache.set(id, entry);
-  return { ...entry, cached: false };
+  return entry;
 }
 
 function queryTerms(raw) {
@@ -823,3 +850,14 @@ export const __test = {
   cleanText,
   canonicalUrl,
 };
+
+// Free text in these results is written by third parties (headlines, posts,
+// casts, token names and descriptions, page titles). Anyone can mint a token or
+// publish a post, so this is the cheapest prompt-injection delivery vehicle in
+// the catalog: flag it as data, never instructions, the way site-crawl does.
+const UNTRUSTED_TEXT_SLUGS = new Set(["crypto-news"]);
+for (const t of CRYPTO_SIGNALS_TOOLS) {
+  if (!UNTRUSTED_TEXT_SLUGS.has(t.slug)) continue;
+  const inner = t.handler;
+  t.handler = async (...args) => markUntrusted(await inner(...args));
+}

@@ -35,6 +35,7 @@
 // Covered by scripts/test-farcaster-social-kit.js (offline, stubbed fetch).
 // Live calls need a real key and are not exercised in CI.
 
+import { markUntrusted } from "./provenance.js";
 const NEYNAR_API = "https://api.neynar.com/v2/farcaster";
 const TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 60_000;
@@ -527,9 +528,9 @@ const CHANNEL_EXAMPLE = {
 
 const USER_EXAMPLE = {
   fid: 3,
-  username: "dwr",
-  displayName: "Dan Romero",
-  bio: "Interested in technology and other stuff.",
+  username: "example-user",
+  displayName: "Example User",
+  bio: "Example profile used only to show the response shape.",
   pfpUrl: "https://imagedelivery.net/.../original",
   followerCount: 630338,
   followingCount: 77,
@@ -791,7 +792,7 @@ export const FARCASTER_SOCIAL_TOOLS = [
     tags: ["farcaster", "social", "user", "search", "profile"],
     discovery: {
       bodyType: "json",
-      input: { q: "dwr", limit: 3 },
+      input: { q: "example", limit: 3 },
       inputSchema: {
         type: "object",
         required: ["q"],
@@ -801,7 +802,7 @@ export const FARCASTER_SOCIAL_TOOLS = [
           cursor: CURSOR_PROP,
         },
       },
-      output: { example: { ...ENVELOPE_EXAMPLE, query: "dwr", count: 1, users: [USER_EXAMPLE], nextCursor: null } },
+      output: { example: { ...ENVELOPE_EXAMPLE, query: "example", count: 1, users: [USER_EXAMPLE], nextCursor: null } },
     },
     handler: fcUserSearch,
   },
@@ -858,3 +859,14 @@ export const __test = {
   flattenReplies,
   readRateLimit,
 };
+
+// Free text in these results is written by third parties (headlines, posts,
+// casts, token names and descriptions, page titles). Anyone can mint a token or
+// publish a post, so this is the cheapest prompt-injection delivery vehicle in
+// the catalog: flag it as data, never instructions, the way site-crawl does.
+const UNTRUSTED_TEXT_SLUGS = new Set(["fc-cast-search", "fc-channel-feed", "fc-trending", "fc-user-casts", "fc-cast", "fc-cast-replies", "fc-channel", "fc-user-search"]);
+for (const t of FARCASTER_SOCIAL_TOOLS) {
+  if (!UNTRUSTED_TEXT_SLUGS.has(t.slug)) continue;
+  const inner = t.handler;
+  t.handler = async (...args) => markUntrusted(await inner(...args));
+}

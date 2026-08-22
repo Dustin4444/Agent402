@@ -45,6 +45,7 @@
 // without it - measured) and returned inline as base64, never as a URL that
 // would expose our job ids.
 import { bad, fetchOpenRouter, throwUpstreamError, MARGIN } from "./llm-gateway-kit.js";
+import { redactSecrets } from "./redact.js";
 
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
 export const OPENROUTER_VIDEOS_URL = "https://openrouter.ai/api/v1/videos";
@@ -97,7 +98,12 @@ export const VIDEOS_MAX_PROMPT_CHARS = 2_000;
 // Listed SKU `duration_seconds_without_audio_720p` = $0.03/s x 4 s; measured $0.12.
 export const VIDEOS_WORST_CASE_USD = 0.12;
 const VIDEOS_POLL_MS = () => Math.max(100, parseInt(process.env.VIDEOS_POLL_MS || "5000", 10) || 5000);
-const VIDEOS_MAX_WAIT_MS = () => Math.max(1_000, parseInt(process.env.VIDEOS_MAX_WAIT_MS || "240000", 10) || 240_000);
+const VIDEOS_MAX_WAIT_MS = () => Math.max(1_000, parseInt(process.env.VIDEOS_MAX_WAIT_MS || "180000", 10) || 180_000);
+// Per-link generation timeout. Deliberately short: a timeout AFTER the image was
+// generated is billed upstream while the chain walks on to the next link, so the
+// chain sum can exceed the tier price. 45 s sits past every measured generation
+// (klein 2 s, flux.2-pro 9 s, qwen 66 s is the exception and is the LAST link).
+const IMAGE_LINK_TIMEOUT_MS = Math.max(5_000, parseInt(process.env.IMAGE_LINK_TIMEOUT_MS || "45000", 10) || 45_000);
 
 /** Margin table for the pricing-margin CI test: every link's bound against
  *  its tier price, plus the video tier. Integer micro-dollars, so 70% of
@@ -194,7 +200,7 @@ async function imageTierHandler(tierSlug, input) {
     }
     const body = { model: link.model, prompt, n: 1, ...link.params, provider: { only: [link.provider] } };
     try {
-      const res = await fetchOpenRouter(body, { url: OPENROUTER_IMAGES_URL, timeoutMs: 120_000 });
+      const res = await fetchOpenRouter(body, { url: OPENROUTER_IMAGES_URL, timeoutMs: IMAGE_LINK_TIMEOUT_MS });
       if (!res.ok) await throwUpstreamError(res);
       const text = await res.text();
       let parsed;
@@ -297,7 +303,7 @@ async function videosHandler(input) {
   while (status !== "completed") {
     if (status === "failed") {
       const why = typeof st?.error === "string" ? st.error : (st?.error?.message || "");
-      throw bad(`Video generation failed upstream${why ? `: ${String(why).slice(0, 160)}` : ""} - not charged`, 502);
+      throw bad(`Video generation failed upstream${why ? `: ${redactSecrets(String(why)).slice(0, 160)}` : ""} - not charged`, 502);
     }
     if (Date.now() - started > VIDEOS_MAX_WAIT_MS()) {
       throw bad(`Video generation did not finish within ${Math.round(VIDEOS_MAX_WAIT_MS() / 1000)} s - not charged; retry`, 504);

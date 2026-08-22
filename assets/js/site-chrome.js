@@ -1,7 +1,7 @@
 /* Theme: dark is the default (the :root tokens). A stored light preference is
    applied HERE, synchronously in <head>, so the first paint is already right -
-   no flash, no inline script (CSP). Key: a402-theme = "light" | "dark". */
-(function(){try{var t=localStorage.getItem('a402-theme');if(t==='light'){document.documentElement.setAttribute('data-theme','light');}}catch(e){}})();
+   no flash, no inline script (CSP). Key: a402-theme = "light" | "dark"; light is the default, so only "dark" stamps. */
+(function(){try{var t=localStorage.getItem('a402-theme');if(t==='dark'){document.documentElement.setAttribute('data-theme','dark');}}catch(e){}})();
 // Shared, site-wide chrome behavior: the hamburger menu toggle and
 // reveal-on-scroll. Every page rendered through ledgerShell() loads this
 // (CSP hardening, 2026-08-16 - was two inline <script> blocks; the burger
@@ -101,4 +101,4 @@ var revealTimer=null;
 window.addEventListener('scroll',function(){clearTimeout(revealTimer);revealTimer=setTimeout(revealPassed,150);},{passive:true});
 setTimeout(revealPassed,500);
 }catch(e){}});
-document.addEventListener('DOMContentLoaded',function(){try{var btns=document.querySelectorAll('.ml-theme-toggle');if(!btns.length)return;function setTheme(light){try{if(light){document.documentElement.setAttribute('data-theme','light');localStorage.setItem('a402-theme','light');}else{document.documentElement.removeAttribute('data-theme');localStorage.setItem('a402-theme','dark');}}catch(e){}}Array.prototype.forEach.call(btns,function(b){b.addEventListener('click',function(){setTheme(document.documentElement.getAttribute('data-theme')!=='light');});});}catch(e){}});
+document.addEventListener('DOMContentLoaded',function(){try{var btns=document.querySelectorAll('.ml-theme-toggle');if(!btns.length)return;function setTheme(light){try{if(light){document.documentElement.removeAttribute('data-theme');localStorage.setItem('a402-theme','light');}else{document.documentElement.setAttribute('data-theme','dark');localStorage.setItem('a402-theme','dark');}}catch(e){}}Array.prototype.forEach.call(btns,function(b){b.addEventListener('click',function(){setTheme(document.documentElement.getAttribute('data-theme')==='dark');});});}catch(e){}});

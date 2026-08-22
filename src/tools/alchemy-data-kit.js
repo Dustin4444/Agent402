@@ -243,7 +243,7 @@ async function alchemyFetch(url, opts = {}, { notFound } = {}) {
     // Upstream 4xx/5xx bodies carry their own error text - log (redacted,
     // the key rides the URL and could be echoed), never relay.
     let excerpt = "";
-    try { excerpt = redactSecrets((await res.text()).slice(0, 200)); } catch { /* ignore */ }
+    try { excerpt = redactSecrets(await res.text()).slice(0, 200); } catch { /* ignore */ }
     console.warn(`[alchemy-data] upstream HTTP ${res.status} from ${hostOf(url)}: ${excerpt}`);
     throw bad(`Chain data upstream error (HTTP ${res.status})`, 502);
   }

@@ -84,9 +84,12 @@ regexes = [
   '''apollo-test-key-0123456789''',
   '''test-key-123456789''',
   '''1f449b0c-09ee-48dd-a5ec-5c7c98038a31''',
-  '''b26v89c19zqg8o3fpzbl7(xxxxx)?''',
-  '''7140dibdnow9c7btw4(xxxxx)?''',
-  '''180000000000000000[12]''',
+  '''b26v89c19zqg8o3fpzbl7''',
+  '''b26v89c19zqg8o3fpzbl7xxxxx''',
+  '''7140dibdnow9c7btw4''',
+  '''7140dibdnow9c7btw4xxxxx''',
+  '''1800000000000000001''',
+  '''1800000000000000002''',
 ]
 # The standard demo JWT ({"alg":"HS256","typ":"JWT"} header) used as the
 # decode-jwt tool's worked example in kit.js / kit2.js / skills.js. Stopwords

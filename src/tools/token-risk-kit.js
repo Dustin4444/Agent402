@@ -28,8 +28,8 @@ const GROUND = "google/gemini-2.5-flash";
 export const TOKEN_RISK_MODELS = [SYNTH, GROUND];
 
 export const TOKEN_RISK_TIERS = {
-  "token-risk": { price: "$3", maxUpstreamUsd: 1.5, holders: 20, scan: false, web: 0, synthMaxTokens: 3500, words: "~1,200" },
-  "token-risk-pro": { price: "$6", maxUpstreamUsd: 4, holders: 50, scan: true, web: 1, synthMaxTokens: 5000, words: "~1,900" },
+  "token-risk": { price: "$3", maxUpstreamUsd: 1.2, holders: 20, scan: false, web: 0, synthMaxTokens: 3500, words: "~1,200" },
+  "token-risk-pro": { price: "$6", maxUpstreamUsd: 2.4, holders: 50, scan: true, web: 1, synthMaxTokens: 5000, words: "~1,900" },
 };
 
 const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;

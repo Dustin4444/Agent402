@@ -9,11 +9,17 @@
 // input validation (400), and fixture output shapes per tool. Live coverage
 // is the examples themselves (every example answers live; see test-all).
 
-import { CRYPTO_MARKETS_TOOLS, clearCryptoMarketsCache, __test } from "../src/tools/crypto-markets-kit.js";
+import { CRYPTO_MARKETS_TOOLS, clearCryptoMarketsCache, __test , resetCgRateLimit } from "../src/tools/crypto-markets-kit.js";
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log(`ok - ${m}`); } else { fail++; console.error(`ASSERT FAIL - ${m}`); } };
-const h = (slug) => CRYPTO_MARKETS_TOOLS.find((t) => t.slug === slug).handler;
+// The Demo-plan token bucket is a live guard (25/min); an offline suite makes
+// dozens of stubbed calls, so refill before each one. The bucket itself is
+// covered by its own case below.
+const h = (slug) => {
+  const fn = CRYPTO_MARKETS_TOOLS.find((t) => t.slug === slug).handler;
+  return (...args) => { resetCgRateLimit(); return fn(...args); };
+};
 
 async function throws(promise, status, label, re) {
   try { await promise; fail++; console.error(`ASSERT FAIL - ${label} (did not throw)`); }
@@ -362,6 +368,22 @@ routes = { "/api/v3/coins/": (u) => jsonRes(200, [[1, 1, 1, 1, 1]]) };
 for (let k = 0; k < __test.MAX_ENTRIES + 5; k++) await h("coin-ohlc")({ coin: `c${k}`, days: 1 });
 await h("coin-ohlc")({ coin: "c0", days: 1 });
 ok(calls.length === __test.MAX_ENTRIES + 6, "cache: bounded (oldest entry evicted past MAX_ENTRIES)");
+
+// --- the Demo-plan token bucket refuses past the per-minute budget ------------
+{
+  const raw = CRYPTO_MARKETS_TOOLS.find((t) => t.slug === "coin-search").handler;
+  process.env.COINGECKO_MAX_PER_MIN = "2";
+  resetCgRateLimit();
+  clearCryptoMarketsCache();
+  let last = null;
+  globalThis.fetch = async () => jsonRes(200, { coins: [] });
+  for (let i = 0; i < 3; i++) {
+    try { await raw({ query: `q${i}` }); last = null; } catch (e) { last = e; }
+  }
+  ok(last && last.statusCode === 503, "rate bucket: past the per-minute budget the caller gets 503, never a charge");
+  delete process.env.COINGECKO_MAX_PER_MIN;
+  resetCgRateLimit();
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
