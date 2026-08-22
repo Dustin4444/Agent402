@@ -211,7 +211,11 @@ Write a well-structured report of up to ${t.words} words with these sections whe
       net_open_market_usd: Math.round(sum(buys, "valueUsd") - sum(sells, "valueUsd")), awards, option_exercises: exercises, tax_withholding: withheld, sources_cited: numbered.length, synthesis_model: SYNTH,
       disclaimer: "Form 4 data as filed with the SEC; not investment advice." };
     const out = { report, company: name, ticker: symbol, cik: pf.cik, sources: numbered, tables, meta };
-    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(INSIDER_TIERS[tierSlug]) });
+    // A composite that CALLS this one in-process passes `accountAs`, so the sale is
+    // booked once against the product the buyer actually paid for; the caller folds
+    // this leg's spend into its own. Direct callers are unaffected.
+    if (input?.accountAs) input.accountAs(spent);
+    else recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(INSIDER_TIERS[tierSlug]) });
     return out;
   };
 }

@@ -224,6 +224,17 @@ function isTransientMalformedPriceFeed(status, body, threw) {
   return status === 502 && /Price feed upstream returned malformed JSON/i.test(errText(body, threw));
 }
 
+/**
+ * crt.sh (the free Certificate Transparency mirror behind cert-transparency)
+ * relays its own 5xx through our handler as a quoted upstream status. That is a
+ * third-party outage on a free public service, not a dead tool: the message
+ * names crt.sh AND the status it returned, which a permanently retired endpoint
+ * cannot produce (that shape is a bare 502). Soft-skip LOUDLY after the retry.
+ */
+function isCertTransparencyUpstreamFlake(slug, status, body, threw) {
+  return slug === "cert-transparency" && status === 502 && /crt\.sh returned HTTP \d{3}/i.test(errText(body, threw));
+}
+
 /** Client AbortSignal / connect flake (status 0). Server 502/504 stay hard fails. */
 function isClientTimeoutFlake(status, body, threw) {
   return status === 0 && /timeout|aborted|AbortError|ETIMEDOUT|UND_ERR_CONNECT|ECONNRESET|fetch failed/i.test(errText(body, threw));
@@ -426,6 +437,7 @@ async function main() {
   let skippedRateLimit = 0;
   let skippedMediaSource = 0;
   let skippedPriceFeed = 0;
+  let skippedCertTransparency = 0;
   let skippedClientTimeout = 0;
   const liveFails = [];
 
@@ -464,6 +476,12 @@ async function main() {
       return;
     }
 
+    if (isCertTransparencyUpstreamFlake(t.slug, r.status, r.body, r.threw)) {
+      skippedCertTransparency++;
+      console.log(`\nskip - ${t.slug}: crt.sh (free public CT mirror) is returning 5xx after retry (${errText(r.body, r.threw).slice(0, 80)})`);
+      return;
+    }
+
     if (isClientTimeoutFlake(r.status, r.body, r.threw)) {
       skippedClientTimeout++;
       console.log(`\nskip - ${t.slug}: client timeout after retry (${errText(r.body, r.threw).slice(0, 100)})`);
@@ -485,6 +503,9 @@ async function main() {
   if (skippedMediaSource) {
     console.log(`skip - ${skippedMediaSource} media tool(s) soft-skipped after upstream media-source flake (handlers covered by test-media.js)`);
   }
+  if (skippedCertTransparency) {
+    console.log(`skip - ${skippedCertTransparency} cert-transparency call(s) soft-skipped: crt.sh outage`);
+  }
   if (skippedPriceFeed) {
     console.log(`skip - ${skippedPriceFeed} price-feed tool(s) soft-skipped after malformed-JSON upstream flake`);
   }
@@ -492,7 +513,7 @@ async function main() {
     console.log(`skip - ${skippedClientTimeout} tool(s) soft-skipped after client timeout (retry exhausted)`);
   }
 
-  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed + skippedClientTimeout;
+  const softSkipped = skippedBrowser + skippedRateLimit + skippedMediaSource + skippedPriceFeed + skippedClientTimeout + skippedCertTransparency;
   const asserted = work.length - softSkipped;
   ok(liveFails.length === 0,
     liveFails.length

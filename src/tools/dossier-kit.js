@@ -287,7 +287,11 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
       ? { dossier, company, ticker, sources: numbered, tables, meta }
       : { dossier, company, ticker, sources: numbered, tables, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { webAnswers: webGood.map((r) => ({ q: r.q, answer: r.answer })), quoteBlock, insiderBlock, financialsBlock, webSources: numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => ({ n: s.n, snippet: s.snippet })) };
-    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(DOSSIER_TIERS[tierSlug]) });
+    // A composite that CALLS this one in-process passes `accountAs`, so the sale is
+    // booked once against the product the buyer actually paid for; the caller folds
+    // this leg's spend into its own. Direct callers are unaffected.
+    if (input?.accountAs) input.accountAs(spent);
+    else recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(DOSSIER_TIERS[tierSlug]) });
     return out;
   };
 }

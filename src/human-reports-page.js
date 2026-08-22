@@ -23,6 +23,13 @@ export const REPORTS_CSS = `
   .pcard{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 var(--card-inset),0 1px 2px rgba(0,0,0,.08)}
   .pcard h3{font-weight:500;font-size:21px;letter-spacing:-.02em;margin:0;color:var(--ink)}.pcard .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
   .pcard p{color:var(--muted);font-size:15px;line-height:1.5;margin:8px 0 16px;font-weight:300}
+  /* Report bodies can carry markdown tables (filings, holders). Wide tables get
+     their own scroll so the page body never scrolls sideways. */
+  .tablewrap{overflow-x:auto;margin:14px 0;border:1px solid var(--hairline);border-radius:12px}
+  .tablewrap table{width:100%;border-collapse:collapse;font-size:14px}
+  .tablewrap th{text-align:left;font-weight:500;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:9px 12px;border-bottom:1px solid var(--hairline);white-space:nowrap}
+  .tablewrap td{padding:9px 12px;border-bottom:1px solid var(--hairline);vertical-align:top;font-variant-numeric:tabular-nums}
+  .tablewrap tr:last-child td{border-bottom:0}
   .pcard.sel{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
   .field{display:flex;gap:8px;background:var(--paper);border:1px solid var(--dash);border-radius:12px;padding:6px 6px 6px 14px;margin-bottom:12px}
   .field:focus-within{border-color:var(--ink)}

@@ -84,15 +84,24 @@ const TICKER_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
 // inside the 300 s ceiling a long-running x402 EVM authorization allows. The
 // hard deadline below skips the pack synthesis rather than overrun it.
 const PROBE_TIMEOUT_MS = 30_000;
-const PART_TIMEOUT_MS = 190_000;
+const PART_TIMEOUT_MS = 150_000;
 const SYNTH_TIMEOUT_MS = 45_000;
 const XML_TIMEOUT_MS = 20_000;
-const RUN_DEADLINE_MS = 285_000;
+// The x402 clock starts when the BUYER SIGNS, not when this handler starts, so
+// the 300 s ceiling has to cover transit and the settle broadcast too. A run
+// also cannot outlive a redeploy: the drain deadline is 75 s, and every second
+// past it is upstream we paid for and never charged. Kept as tight as the parts
+// allow; the synthesis is skipped (deterministic fallback) rather than overrun.
+const RUN_DEADLINE_MS = 230_000;
 const HOLDER_CONCURRENCY = 4;
 // A single <infoTable> block is a few hundred bytes; the scan is STREAMING and
 // keeps only matching blocks, so this bounds the read, never the memory. The
 // largest tables seen live are ~11 MB.
-const HOLDER_MAX_BYTES = 32_000_000;
+const HOLDER_MAX_BYTES = 16_000_000;
+// Cumulative across every information table in one run. Per-file caps alone let
+// a mega-cap ticker (the caller picks it) pull hundreds of MB of egress for one
+// $15 call; this is the bound that actually holds.
+const HOLDER_RUN_MAX_BYTES = 96_000_000;
 
 const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
 const isoDate = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -308,9 +317,15 @@ export async function probeHolders({ ticker, cik, name, maxFilings = 12, windowD
   }
   const candidates = [...byFiler.values()].slice(0, maxFilings);
   const state = { want: normIssuerName(issuerName), cusip6: null };
+  // Run-wide egress budget: the caller picks the ticker, and a mega-cap has both
+  // more filers and bigger tables. Once the budget is spent the remaining
+  // candidates are reported as skipped rather than silently dropped.
+  let runBytes = 0;
   const scanned = await mapLimit(candidates, concurrency, async (c) => {
+    if (runBytes >= HOLDER_RUN_MAX_BYTES) return { ...c, skipped: "run byte budget reached" };
     try {
-      const r = await scanInfoTableForIssuer(c.url, state, { fetchImpl, reportDate: c.filed });
+      const r = await scanInfoTableForIssuer(c.url, state, { fetchImpl, reportDate: c.filed, maxBytes: Math.min(HOLDER_MAX_BYTES, HOLDER_RUN_MAX_BYTES - runBytes) });
+      runBytes += r.bytes || 0;
       return { ...c, ...r };
     } catch (e) { return { ...c, error: String(e?.message || e).slice(0, 160) }; }
   });
@@ -328,6 +343,7 @@ export async function probeHolders({ ticker, cik, name, maxFilings = 12, windowD
   const managers = [];
   let failed = 0;
   for (const s of scanned) {
+    if (s.skipped) { failed++; managers.push({ manager: s.manager, cik: s.cik, period: s.period, filed: s.filed, url: s.url, error: s.skipped }); continue; }
     if (s.error) { failed++; managers.push({ manager: s.manager, cik: s.cik, period: s.period, filed: s.filed, url: s.url, error: s.error }); continue; }
     const mine = (s.rows || []).filter((r) => !modal || String(r.cusip || "").toUpperCase().slice(0, 6) === modal);
     if (!mine.length) continue;
@@ -511,16 +527,22 @@ function makeTickerPackHandlerInner(tierSlug, depsIn) {
 
     // 3) THE EXPENSIVE PARTS, in parallel. Each is settled: a failed part is
     //    NAMED as failed in the report and its numbers are left null, never 0.
+    let partSpend = 0;
     const [dossierR, insiderR] = await Promise.all([
-      settle(() => d.runDossier({ ticker, ...(focus.length ? { focus } : {}) }, req), PART_TIMEOUT_MS, "dossier"),
+      // `accountAs` makes each part fold its upstream spend into THIS run instead
+      // of booking a separate sale: one $15 purchase must produce one usage row,
+      // not three rows totalling $28 of "price" with a fictitious 98% margin.
+      settle(() => d.runDossier({ ticker, ...(focus.length ? { focus } : {}), accountAs: (usd) => { partSpend += Number(usd) || 0; } }, req), PART_TIMEOUT_MS, "dossier"),
       haveInsider
-        ? settle(() => d.runInsider({ ticker, days: insiderDays }, req), PART_TIMEOUT_MS, "insider flow")
+        ? settle(() => d.runInsider({ ticker, days: insiderDays, accountAs: (usd) => { partSpend += Number(usd) || 0; } }, req), PART_TIMEOUT_MS, "insider flow")
         : Promise.resolve({ ok: false, error: `no Form 4 filings against ${ticker} in the last ${insiderDays} days` }),
     ]);
 
     // 4) POST-RUN EVIDENCE GATE: the three CONTENT legs of the finished pack.
     const producedLegs = [dossierR.ok, insiderR.ok, haveHolders].filter(Boolean).length;
-    if (producedLegs < 2) {
+    // Weighted, not a bare count: the dossier is the substance of this bundle.
+    // Insider + holders alone is a $4 report's worth of content sold for $15.
+    if (producedLegs < 2 || !dossierR.ok) {
       const why = [
         dossierR.ok ? null : `dossier leg failed (${dossierR.error})`,
         insiderR.ok ? null : `insider leg failed (${insiderR.error})`,
@@ -590,6 +612,7 @@ function makeTickerPackHandlerInner(tierSlug, depsIn) {
           `**How to read this.** SEC EDGAR full-text search returned ${holders.matchingRelation === "gte" ? `at least ${nf(holders.matchingFilings)}` : nf(holders.matchingFilings)} 13F-HR information tables naming this issuer between ${holders.startDate} and ${holders.endDate}; this pack scanned ${holders.scanned} of them${holders.failedScans ? ` (${holders.failedScans} could not be read)` : ""} and reports each manager's most recent table in that window. **It is a sample of holders, not the complete holder list**, and the search result window is capped by EDGAR, so absence from this table is not evidence that a manager does not hold the stock. A 13F-HR reports only long US-listed equity and option positions, is filed up to 45 days after quarter end, and excludes shorts, cash, non-US holdings and most fixed income.`,
           "",
           `Share counts are summed only from rows a filer marked SH; rows marked PRN are principal amounts on the issuer's debt, which shares the CUSIP prefix, and are excluded. Values are reproduced exactly as each manager reported them: the SEC moved 13F values to whole dollars for filings submitted from 2023-01-03, a minority of filers still report thousands, and the implied price per share column makes that visible rather than folding it into a total. For that reason the dollar column is not summed here.`,
+          ...(holders.managers.some((m) => m.truncated) ? ["", "One or more of these information tables was larger than this run reads, so those managers' share counts are a FLOOR, not a total. The table's \"Partial read\" column names them."] : []),
         ].join("\n")
       : `No 13F-HR information table naming this issuer was read for this run${holdersP.ok ? "" : ` (${holdersP.error})`}. Institutional holdings are not reported in this pack.`;
 
@@ -718,8 +741,8 @@ ${factLines.join("\n")}`;
     for (const tb of (insiderR.ok ? (insiderR.data?.tables || []) : [])) tables.push({ ...tb, name: `insider-${tb.name}`, label: `Insider flow: ${tb.label}` });
     if (holderCount) tables.push({
       name: "holders", label: "Institutional holders (13F sample)",
-      columns: ["Manager", "CIK", "Period", "Filed", "Shares reported", "Value reported (as filed)", "Implied USD/share", "Option rows", "Option shares", "Principal rows", "Share classes", "Information table"],
-      rows: holders.managers.map((m) => [m.manager || "", m.cik || "", m.period || "", m.filed || "", String(m.shares || 0), String(Math.round(m.valueUsd || 0)), m.impliedPriceUsd == null ? "" : m.impliedPriceUsd.toFixed(4), String(m.optionRows || 0), String(m.optionShares || 0), String(m.principalRows || 0), (m.classes || []).join(" / "), m.url || ""]),
+      columns: ["Manager", "CIK", "Period", "Filed", "Shares reported", "Value reported (as filed)", "Implied USD/share", "Option rows", "Option shares", "Principal rows", "Partial read", "Share classes", "Information table"],
+      rows: holders.managers.map((m) => [m.manager || "", m.cik || "", m.period || "", m.filed || "", String(m.shares || 0), String(Math.round(m.valueUsd || 0)), m.impliedPriceUsd == null ? "" : m.impliedPriceUsd.toFixed(4), String(m.optionRows || 0), String(m.optionShares || 0), String(m.principalRows || 0), m.truncated ? "yes (share count is a floor)" : "", (m.classes || []).join(" / "), m.url || ""]),
     });
 
     const evidence = {
@@ -759,7 +782,7 @@ ${factLines.join("\n")}`;
 
     const out = { report, company: meta.company, ticker, cik, sources: merged, tables, evidence, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { synthPrompt, factLines };
-    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(t) });
+    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent + partSpend, ok: true, priceUsd: priceUsdOf(t) });
     return out;
   };
 }

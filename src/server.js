@@ -1687,7 +1687,7 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     // appendix (sources always; financials + insider tables on dossiers, holdings
     // + changes on fund reports, checks + headers on domain audits).
     const fallbackTitle = typeof input === "string" ? input : (input?.manager || input?.cik || input?.domain || input?.ticker || input?.query || input?.keyword || "");
-    const titleOf = { dossier: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), fund: () => out?.manager || fallbackTitle, domain: () => out?.domain || fallbackTitle, recall: () => (out?.query ? `FDA recalls: ${out.query}` : fallbackTitle), ipo: () => out?.title || "IPO pipeline", insider: () => (out?.company ? `Insider flow: ${out.company} (${out.ticker})` : fallbackTitle) };
+    const titleOf = { ticker: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), dossier: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), fund: () => out?.manager || fallbackTitle, domain: () => out?.domain || fallbackTitle, recall: () => (out?.query ? `FDA recalls: ${out.query}` : fallbackTitle), ipo: () => out?.title || "IPO pipeline", insider: () => (out?.company ? `Insider flow: ${out.company} (${out.ticker})` : fallbackTitle) };
     return {
       report,
       kind,

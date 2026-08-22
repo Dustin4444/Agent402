@@ -21,8 +21,14 @@ import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
  * @param {string} kind  a report kind ("domain", "fund", "recall", "insider", "token", "research", ...)
  * @returns {null | { product: string, label: string, kind: string, price: number, priceUsd: string, inputLabel: string, blurb: string }}
  */
+// A report kind with no monitor of its own but an obvious recurring cousin on
+// the SAME input. The ticker pack is the highest-value one-shot we sell and had
+// no follow-on at all; its insider leg is exactly what a holder wants watched.
+const KIND_ALIAS = { ticker: "insider" };
+
 export function monitorForKind(kind) {
-  const k = String(kind ?? "").trim();
+  const k0 = String(kind ?? "").trim();
+  const k = KIND_ALIAS[k0] || k0;
   if (!k) return null;
   for (const [product, p] of Object.entries(MONITOR_PRODUCTS)) {
     if (p.kind === k) return { product, label: p.label, kind: p.kind, price: p.price, priceUsd: priceUsd(p.price), inputLabel: p.inputLabel, blurb: p.blurb };
