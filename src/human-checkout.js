@@ -1,16 +1,16 @@
-// human-checkout — the HUMAN front door for the premium products. Standard
+// human-checkout - the HUMAN front door for the premium products. Standard
 // Stripe Checkout (card + Link), NOT the agent SPT/MPP flow: it sells the SAME
-// endpoints agents already buy over x402, so one backend has two payment
-// surfaces (the Agent402 dual-rail moat - nobody else serves a human's card AND
-// an autonomous agent's wallet from one product).
+// endpoints agents already buy over x402, so one backend serves two payment
+// surfaces - a human's card and an agent's wallet - from one product.
 //
 // Design for v1:
-// - Single purchase per report (no account, no subscription - honours the
-//   "pay once and leave" wedge; credit packs are a later optimization).
+// - Single purchase per report (no account, no subscription); credit packs are
+//   a possible later addition.
 // - Payment is verified with Stripe BEFORE any report is generated - a buyer
 //   can never get a free report by guessing a session id.
 // - Generation is idempotent per checkout session and generate-once (a reload or
-//   a double-poll never re-spends our upstream).
+//   a double-poll does not re-spend upstream; the claim is persisted so a
+//   second replica does not regenerate either).
 // - A failed report AUTO-REFUNDS the card (the restricted key carries Refunds
 //   write) - the "if it's bad, we refund" promise, enforced in code.
 // Rollout switch = STRIPE_SECRET_KEY (same key as the MPP gate). The key needs
@@ -25,14 +25,14 @@ import { sendReportReadyEmail } from "./email.js";
 // handler so humans and agents run the identical pipeline.
 export const HUMAN_PRODUCTS = {
   "research": { label: "Deep research report", price: 500, kind: "research", slug: "research", inputField: "query", inputLabel: "your research question" },
-  "research-pro": { label: "Deep research report — Pro", price: 1500, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
-  "research-max": { label: "Deep research report — Max", price: 3000, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
+  "research-pro": { label: "Deep research report - Pro", price: 1500, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
+  "research-max": { label: "Deep research report - Max", price: 3000, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
   "dossier": { label: "Company due-diligence dossier", price: 1900, kind: "dossier", slug: "dossier", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "dossier-max": { label: "Due-diligence dossier — Max", price: 3900, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "dossier-max": { label: "Due-diligence dossier - Max", price: 3900, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
   "fund-report": { label: "Fund portfolio report (13F)", price: 900, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
-  "fund-report-max": { label: "Fund portfolio report — Deep", price: 1900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "fund-report-max": { label: "Fund portfolio report - Deep", price: 1900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
   "domain-audit": { label: "Domain security audit", price: 500, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
-  "domain-audit-pro": { label: "Domain security audit — Pro", price: 900, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "domain-audit-pro": { label: "Domain security audit - Pro", price: 900, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
 };
 
 export function humanCheckoutEnabled() {
@@ -97,6 +97,12 @@ export function createHumanCheckout({ stripe, generate, baseUrl }) {
     if (typeof sessionId !== "string" || !/^cs_[A-Za-z0-9_]+$/.test(sessionId)) return { status: "invalid" };
     const done = store.get(sessionId);
     if (done && (done.status === "done" || done.status === "error")) return done;
+    // Cross-process: prod runs multiple replicas, so re-read the shared store to
+    // pick up a claim/result another replica may have written since we loaded -
+    // otherwise a poll routed to a second replica re-generates (2-3x upstream).
+    const disk = loadStore().get(sessionId);
+    if (disk && (disk.status === "done" || disk.status === "error")) { store.set(sessionId, disk); return disk; }
+    if (disk && disk.status === "generating") { store.set(sessionId, disk); return { status: "generating" }; }
 
     let session;
     try { session = await stripe.checkout.sessions.retrieve(sessionId); } catch { return { status: "not_found" }; }
@@ -108,7 +114,9 @@ export function createHumanCheckout({ stripe, generate, baseUrl }) {
     if (!p || !input) return { status: "error", error: "This purchase is missing its report details. It will be refunded." };
 
     if (inFlight.has(sessionId)) return { status: "generating" };
-    store.set(sessionId, { status: "generating", kind: p.kind, slug: p.slug });
+    // Persist the "generating" claim immediately so other replicas see it.
+    store.set(sessionId, { status: "generating", kind: p.kind, slug: p.slug, at: new Date().toISOString() });
+    saveStore(store);
     const job = (async () => {
       try {
         // generate() may return a plain report string (legacy / tests) or a

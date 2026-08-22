@@ -76,7 +76,7 @@ ${bar()}
 }
 
 export function monitorThanksPage(sessionId) {
-  return `<!doctype html><html lang="en"><head><title>Subscription active — Agent402</title>${HEAD}</head><body>
+  return `<!doctype html><html lang="en"><head><title>Subscription active - Agent402</title>${HEAD}</head><body>
 ${bar()}
 <main class="wrap">
   <div id="app" data-session="${esc(sessionId)}"><div class="status"><h2><span class="spin"></span>Confirming your subscription…</h2><p>One moment.</p></div></div>

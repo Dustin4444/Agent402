@@ -1088,6 +1088,11 @@ const PH_UPSTREAM_TIMEOUT_MS = Number(process.env.POSTHOG_PROXY_TIMEOUT_MS) || 1
 const PH_MAX_CONCURRENT = Number(process.env.POSTHOG_PROXY_MAX_CONCURRENT) || 64;
 let phInFlight = 0;
 const phProxyLimiter = createRateLimiter("posthog-proxy", { perMin: PH_MAX_PER_MIN, perHour: PH_MAX_PER_MIN * 30 });
+// Per-IP limiter for the unauthenticated Stripe-session-creating endpoints
+// (/api/buy, /api/subscribe) - each makes an outbound Stripe API call, so cap
+// the amplification a spammer can drive.
+const checkoutLimiter = createRateLimiter("checkout", { perMin: 20, perHour: 120 });
+const clientIp = (req) => (req.ip || req.socket?.remoteAddress || "?").trim();
 // Recurring subscriptions engine (Phase 2). Initialized EARLY so the Stripe
 // webhook route can mount with a RAW body parser BEFORE the global express.json()
 // below - webhook signature verification needs the unparsed body.
@@ -1600,6 +1605,7 @@ if (humanCheckoutEnabled()) {
   if (_humanCheckout) {
     app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
     app.post("/api/buy", async (req, res) => {
+      if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
       try { res.json({ url: (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url }); }
       catch (e) { res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 200) }); }
     });
@@ -1618,6 +1624,7 @@ if (_subs) {
   app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage()));
   app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""))));
   app.post("/api/subscribe", async (req, res) => {
+    if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     try { res.json({ url: (await _subs.createCheckout(req.body?.product, req.body?.target)).url }); }
     catch (e) { res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 200) }); }
   });
@@ -1625,12 +1632,20 @@ if (_subs) {
     res.set("Cache-Control", "no-store");
     try {
       const r = await _subs.recordFromSession(String(req.query.session || ""));
-      let portalUrl = null;
-      if (r.status === "active" && r.customer) {
-        try { portalUrl = (await _subs.portalSession(r.customer)).url; } catch { /* Customer Portal not configured yet */ }
-      }
-      res.json({ status: r.status, label: r.label, target: r.target, portalUrl });
+      // Do NOT mint a billing portal on the auto-poll (a portal can view invoices
+      // + payment method and cancel). The manage link mints it on explicit click.
+      res.json({ status: r.status, label: r.label, target: r.target });
     } catch (e) { res.status(500).json({ status: "error", error: String(e?.message || e).slice(0, 200) }); }
+  });
+  // Explicit manage/cancel: mint the Stripe Customer Portal at click time, then
+  // redirect. (The session id is the buyer's bearer for this purchase.)
+  app.get("/monitors/manage", async (req, res) => {
+    try {
+      const r = await _subs.recordFromSession(String(req.query.session || ""));
+      if (r.status !== "active" || !r.customer) return res.redirect("/monitors");
+      const { url } = await _subs.portalSession(r.customer);
+      res.redirect(url);
+    } catch { res.redirect("/monitors"); }
   });
 }
 // Sales ledger — AGGREGATE beacon: totals, the recording window, and counts.

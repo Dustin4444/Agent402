@@ -71,23 +71,42 @@ function fmtUsd(v) {
 const numShares = (h) => Number(h?.shares) || 0;
 const numVal = (h) => Number(h?.valueUsd) || 0;
 
-// Diff the latest holdings against the prior quarter's, keyed by CUSIP. Returns
+// A 13F info-table has one ROW per (security, investment discretion, voting)
+// split, and options share the underlying's CUSIP. Aggregate to one row per
+// economic POSITION (cusip + put/call + class), summing shares and value, so
+// concentration and the quarter diff are per position, not per filing row
+// (otherwise duplicate rows on one CUSIP net incorrectly and a real position
+// can vanish from the changes section).
+function positionKey(h) { return `${h.cusip}|${h.putCall || ""}|${h.titleOfClass || ""}`; }
+function aggregateHoldings(holdings) {
+  const m = new Map();
+  for (const h of holdings || []) {
+    if (!h || !h.cusip) continue;
+    const k = positionKey(h);
+    const cur = m.get(k) || { key: k, issuer: h.issuer || "?", cusip: h.cusip, titleOfClass: h.titleOfClass || "", putCall: h.putCall || "", shares: 0, valueUsd: 0 };
+    cur.shares += numShares(h);
+    cur.valueUsd += numVal(h);
+    m.set(k, cur);
+  }
+  return [...m.values()].sort((a, b) => b.valueUsd - a.valueUsd);
+}
+// Diff two AGGREGATED holdings lists (per-position) by position key. Returns
 // per-position action rows (NEW / ADD / TRIM / HOLD / EXIT) with share deltas.
-function diff13f(latestHoldings, priorHoldings) {
-  const byCusip = (arr) => { const m = new Map(); for (const x of arr || []) if (x && x.cusip) m.set(x.cusip, x); return m; };
-  const L = byCusip(latestHoldings), P = byCusip(priorHoldings);
+function diff13f(latestAgg, priorAgg) {
+  const L = new Map((latestAgg || []).map((x) => [x.key, x]));
+  const P = new Map((priorAgg || []).map((x) => [x.key, x]));
   const rows = [];
-  for (const [cusip, l] of L) {
-    const p = P.get(cusip);
-    const ls = numShares(l), ps = p ? numShares(p) : 0;
+  for (const [k, l] of L) {
+    const p = P.get(k);
+    const ls = l.shares, ps = p ? p.shares : 0;
     let action;
     if (!p) action = "NEW";
     else if (ls > ps) action = "ADD";
     else if (ls < ps) action = "TRIM";
     else action = "HOLD";
-    rows.push({ issuer: l.issuer || "?", cusip, action, shares: ls, priorShares: ps, sharesDelta: ls - ps, valueUsd: numVal(l), putCall: l.putCall || "" });
+    rows.push({ issuer: l.issuer, cusip: l.cusip, action, shares: ls, priorShares: ps, sharesDelta: ls - ps, valueUsd: l.valueUsd, putCall: l.putCall });
   }
-  if (priorHoldings) for (const [cusip, p] of P) if (!L.has(cusip)) rows.push({ issuer: p.issuer || "?", cusip, action: "EXIT", shares: 0, priorShares: numShares(p), sharesDelta: -numShares(p), valueUsd: 0, putCall: p.putCall || "" });
+  if (priorAgg) for (const [k, p] of P) if (!L.has(k)) rows.push({ issuer: p.issuer, cusip: p.cusip, action: "EXIT", shares: 0, priorShares: p.shares, sharesDelta: -p.shares, valueUsd: 0, putCall: p.putCall });
   return rows;
 }
 const pct = (part, whole) => (whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : "?");
@@ -113,8 +132,11 @@ export function makeFundHandler(tierSlug) {
     if (!latest || !latest.holdings || !latest.holdings.length) throw bad(`No 13F-HR holdings found for "${manager || resolved.cik}" - confirm this is an institutional manager (>$100M AUM). Not charged.`, 422);
     const managerName = latest.managerName || resolved.name || manager || `CIK ${resolved.cik}`;
 
-    const totalValue = latest.totalValueUsd || latest.holdings.reduce((a, h) => a + numVal(h), 0);
-    const changes = diff13f(latest.holdings, prior && prior.holdings);
+    const latestAgg = aggregateHoldings(latest.holdings);
+    const priorAgg = prior ? aggregateHoldings(prior.holdings) : null;
+    const totalValue = latestAgg.reduce((a, h) => a + h.valueUsd, 0) || latest.totalValueUsd || 0;
+    const positions = latestAgg.length;
+    const changes = diff13f(latestAgg, priorAgg);
     const bySignal = (arr, a) => arr.filter((r) => r.action === a);
     const news = bySignal(changes, "NEW").sort((a, b) => b.valueUsd - a.valueUsd);
     const adds = bySignal(changes, "ADD").sort((a, b) => b.valueUsd - a.valueUsd);
@@ -151,8 +173,8 @@ export function makeFundHandler(tierSlug) {
     const maxCite = numbered.length;
 
     // 4) GROUNDING BLOCKS for the synthesizer.
-    const topHoldings = latest.holdings.slice(0, t.topN).map((h, i) =>
-      `${i + 1}. ${h.issuer || "?"} ${h.putCall ? `(${h.putCall}) ` : ""}- ${fmtUsd(numVal(h))} (${pct(numVal(h), totalValue)} of portfolio), ${numShares(h).toLocaleString("en-US")} shares`).join("\n");
+    const topHoldings = latestAgg.slice(0, t.topN).map((h, i) =>
+      `${i + 1}. ${h.issuer || "?"} ${h.putCall ? `(${h.putCall}) ` : ""}- ${fmtUsd(h.valueUsd)} (${pct(h.valueUsd, totalValue)} of portfolio), ${h.shares.toLocaleString("en-US")} shares`).join("\n");
     const changeBlock = prior
       ? [
           `NEW positions (${news.length}): ${news.slice(0, 12).map((r) => `${r.issuer} ${fmtUsd(r.valueUsd)}`).join("; ") || "none"}`,
@@ -176,7 +198,7 @@ export function makeFundHandler(tierSlug) {
 
 Write a thorough, well-structured report of up to ${t.words} words with these sections where the material supports them: SNAPSHOT (the manager, reported portfolio value, number of positions, the report period and filing date), TOP HOLDINGS (the largest positions and how concentrated the book is), PORTFOLIO CHANGES (what they bought/added/trimmed/exited versus the prior quarter - this is the most important section), NOTABLE MOVES & WHAT THEY SIGNAL (interpret the biggest changes), and a CLOSING READ. Be specific and analytical.
 
-=== MANAGER ===\n${managerName} (CIK ${resolved.cik}). Latest 13F-HR period ${latest.reportDate || "?"}, filed ${latest.filedDate || "?"}. Reported 13F portfolio value ${fmtUsd(totalValue)} across ${latest.totalHoldings} positions.${prior ? ` Prior 13F-HR period ${prior.reportDate || "?"}.` : ""}
+=== MANAGER ===\n${managerName} (CIK ${resolved.cik}). Latest 13F-HR period ${latest.reportDate || "?"}, filed ${latest.filedDate || "?"}. Reported 13F portfolio value ${fmtUsd(totalValue)} across ${positions} positions.${prior ? ` Prior 13F-HR period ${prior.reportDate || "?"}.` : ""}
 === TOP HOLDINGS (latest 13F, by value) ===\n${topHoldings}
 === QUARTER-OVER-QUARTER CHANGES ===\n${changeBlock}
 === WEB RESEARCH ===\n${webBlock}
@@ -195,7 +217,7 @@ Write a thorough, well-structured report of up to ${t.words} words with these se
     tables.push({
       name: "holdings", label: "13F holdings (latest)",
       columns: ["Issuer", "Class", "CUSIP", "Shares", "Value (USD)", "% of portfolio", "Put/Call"],
-      rows: latest.holdings.map((h) => [h.issuer || "", h.titleOfClass || "", h.cusip || "", String(numShares(h)), String(numVal(h)), pct(numVal(h), totalValue), h.putCall || ""]),
+      rows: latestAgg.map((h) => [h.issuer || "", h.titleOfClass || "", h.cusip || "", String(h.shares), String(h.valueUsd), pct(h.valueUsd, totalValue), h.putCall || ""]),
     });
     if (prior) tables.push({
       name: "changes", label: "Quarter-over-quarter changes",
@@ -208,7 +230,7 @@ Write a thorough, well-structured report of up to ${t.words} words with these se
       tier: tierSlug, manager: managerName, cik: resolved.cik,
       report_period: latest.reportDate || null, filed: latest.filedDate || null,
       prior_period: prior ? (prior.reportDate || null) : null,
-      positions: latest.totalHoldings, portfolio_value_usd: totalValue,
+      positions, portfolio_value_usd: totalValue,
       new_positions: news.length, exited_positions: exits.length,
       added: adds.length, trimmed: trims.length,
       web_angles: webGood.length, sources_cited: numbered.length, synthesis_model: SYNTH,

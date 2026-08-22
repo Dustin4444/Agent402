@@ -1,10 +1,8 @@
-// dossier-kit — Company Due-Diligence Dossier. The flagship premium (card-tier)
-// product identified by the PMF analysis: the deliverable with the widest
-// incumbent price gap, proven per-report demand (Fiverr $25-70), and the one our
-// data serves best. It grounds in OUR structured data - SEC EDGAR filings +
-// Form 4 insider trades + a live quote - which generic-web research agents
-// cannot reach, plus grounded web search for recent developments, then
-// synthesizes a cited, structured dossier.
+// dossier-kit — Company Due-Diligence Dossier. A premium (card-tier) report that
+// grounds in OUR structured data - SEC EDGAR filings + Form 4 insider filings +
+// a live quote - which generic-web research agents cannot reach, plus grounded
+// web search for recent developments, then synthesizes a cited, structured
+// dossier.
 //
 // Same discipline as research-deep: grounding-strict synthesis (every specific
 // must trace to the provided data/sources, no invented figures, cite [n] only
@@ -234,16 +232,16 @@ export function makeDossierHandler(tierSlug) {
 === ABSOLUTE GROUNDING RULES ===
 1. Use ONLY the SEC DATA, INSIDER DATA, LIVE QUOTE, and WEB RESEARCH provided below. Treat them as your only knowledge about this company.
 2. Every SPECIFIC fact - financial figures, dates, share counts, prices, filing references, named events - MUST appear in the provided material. NEVER introduce a number, metric, or claim from your own training/memory. If the material lacks a figure, describe it qualitatively rather than inventing one.
-3. CITATIONS: the sources are numbered [1] to [${maxCite}]. NEVER cite a number outside that range - if you cannot ground a claim in sources [1]-[${maxCite}], do not attach a citation to it. Cite every substantive claim with [n], and ONLY attach [n] to a claim that source's own text supports - for a WEB source, that means the claim appears in that source's quoted snippet or the web research; do NOT infer a source's content from its title alone. A citation is ONLY a bracketed number, e.g. [14] or [3][7] - NEVER put words, notes, ranges, or explanations inside the brackets (not "[14 for the release]", not "[13-adjacent]"), and never use a word-tag or source name like [research]/[web]/[data]/[morningstar]/[reuters] - EVERY citation must be a numbered [n] from the list, never a publication name or domain. The LIVE QUOTE, SEC XBRL FINANCIALS, and FORM 4 INSIDER data are given directly: for financial figures, cite the corresponding 10-K/10-Q filing [n] they came from; for the quote and insider data, reference them in prose ("the live quote shows...", "Form 4 filings in the window show...") WITHOUT a bracket.
+3. CITATIONS: the sources are numbered [1] to [${maxCite}]. NEVER cite a number outside that range - if you cannot ground a claim in sources [1]-[${maxCite}], do not attach a citation to it. Cite every substantive claim with [n], and ONLY attach [n] to a claim that source's own text supports - for a WEB source, that means the claim appears in that source's quoted snippet or the web research; do NOT infer a source's content from its title alone. A citation is ONLY a bracketed number, e.g. [14] or [3][7] - NEVER put words, notes, ranges, or explanations inside the brackets (not "[14 for the release]", not "[13-adjacent]"), and never use a word-tag or source name like [research]/[web]/[data]/[morningstar]/[reuters] - EVERY citation must be a numbered [n] from the list, never a publication name or domain. The LIVE QUOTE, SEC XBRL FINANCIALS, and FORM 4 INSIDER data are given to you DIRECTLY - reference all three in prose WITHOUT a bracketed citation ("the live quote shows...", "the latest reported revenue was...", "Form 4 filings in the window show..."); do NOT attach a [n] to a financial figure (the specific filing that reported an XBRL fact is often not in the numbered list). The FORM 4 data is FILING METADATA ONLY - who filed and when - with NO buy/sell direction, share count, or price: report only that Form 4s were filed and by whom, and do NOT infer or state whether insiders bought or sold, or any amount.
 4. Do not overstate: reproduce magnitudes and dates exactly as given. Where sources disagree or are silent, say so. Being less specific beats stating something you cannot ground.
 5. Do NOT write a "Sources" section - a complete numbered source list is appended automatically. Prioritize COMPLETING the dossier (finish your final sentence and section) over length.
 
-Write a thorough, well-structured dossier of up to ${t.words} words, with these sections where the material supports them: an opening SNAPSHOT (what the company is, current quote, one-paragraph bottom line), BUSINESS & RECENT FILINGS (what the latest 10-K/10-Q/8-K disclose), FINANCIAL POSTURE, RECENT DEVELOPMENTS (from the web research), INSIDER ACTIVITY (interpret the Form 4 data), RISKS & RED FLAGS, and a closing DILIGENCE READ (the balanced takeaway). Be specific and analytical, not a data dump; call out what matters for someone deciding whether to trust, invest in, or partner with this company.${focus.length ? `\nEmphasize: ${focus.join(", ")}.` : ""}
+Write a thorough, well-structured dossier of up to ${t.words} words, with these sections where the material supports them: an opening SNAPSHOT (what the company is, current quote, one-paragraph bottom line), BUSINESS & RECENT FILINGS (what the latest 10-K/10-Q/8-K disclose), FINANCIAL POSTURE, RECENT DEVELOPMENTS (from the web research), INSIDER ACTIVITY (which insiders filed Form 4s and when - NOT buy/sell direction or amounts, which these filings do not contain), RISKS & RED FLAGS, and a closing DILIGENCE READ (the balanced takeaway). Be specific and analytical, not a data dump; call out what matters for someone deciding whether to trust, invest in, or partner with this company.${focus.length ? `\nEmphasize: ${focus.join(", ")}.` : ""}
 
 === LIVE QUOTE ===\n${quoteBlock}
-=== SEC XBRL FINANCIALS (reported in the filings - cite the 10-K/10-Q they came from) ===\n${financialsBlock}
+=== SEC XBRL FINANCIALS (reported figures - reference in prose, no bracket) ===\n${financialsBlock}
 === SEC FILINGS (numbered sources) ===\n${filingLines}
-=== FORM 4 INSIDER TRANSACTIONS (last ${t.insiderDays} days) ===\n${insiderBlock}
+=== FORM 4 INSIDER FILINGS (last ${t.insiderDays} days - filing metadata only: NO buy/sell, share count, or price) ===\n${insiderBlock}
 === WEB RESEARCH ===\n${webBlock}
 === WEB SOURCES (numbered, with snippet content) ===\n${webSourceLines}`;
 
@@ -279,7 +277,7 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
       filings_10k: (k10.ok && k10.data?.filings?.length) || 0,
       filings_10q: (q10.ok && q10.data?.filings?.length) || 0,
       filings_8k: (k8.ok && k8.data?.filings?.length) || 0,
-      insider_transactions: insiderTrades.length,
+      insider_filings: insiderTrades.length,
       web_angles: webGood.length,
       sources_cited: numbered.length,
       synthesis_model: SYNTH,
@@ -306,7 +304,7 @@ const OUT_EXAMPLE = {
   company: "Example Corp", ticker: "EXMP",
   sources: [{ n: 1, title: "10-K filed 2025-11-01 - SEC EDGAR", url: "https://www.sec.gov/..." }],
   tables: [{ name: "financials", label: "SEC XBRL financials", columns: ["Metric", "Latest annual", "Annual period", "Most recent", "Recent period"], rows: [["Total revenue", "$1.2B", "FY 2024 10-K filed 2025-11-01", "$0.3B", "2025-09-30 (10-Q)"]] }],
-  meta: { tier: "dossier", company: "Example Corp", ticker: "EXMP", filings_10k: 1, filings_10q: 3, filings_8k: 5, insider_transactions: 8, web_angles: 4, sources_cited: 18, synthesis_model: "anthropic/claude-opus-5" },
+  meta: { tier: "dossier", company: "Example Corp", ticker: "EXMP", filings_10k: 1, filings_10q: 3, filings_8k: 5, insider_filings: 8, web_angles: 4, sources_cited: 18, synthesis_model: "anthropic/claude-opus-5" },
 };
 
 export const DOSSIER_TOOLS = [

@@ -7,7 +7,7 @@
   function render(s) {
     if (s.status === "active") {
       app.innerHTML = '<div class="status"><h2>You’re subscribed ✓</h2><p>We’re now monitoring <b>' + esc(s.target || "") + '</b> (' + esc(s.label || "monitor") + '). You’ll get an email whenever something changes.</p>' +
-        (s.portalUrl ? '<p style="margin-top:18px"><a class="btn btn-ghost" href="' + esc(s.portalUrl) + '">Manage or cancel</a></p>' : '<p style="margin-top:10px;font-size:14px">Manage or cancel any time from the link in your receipt email.</p>') +
+        '<p style="margin-top:18px"><a class="btn btn-ghost" href="/monitors/manage?session=' + encodeURIComponent(id) + '">Manage or cancel</a></p>' +
         '</div>';
       return;
     }

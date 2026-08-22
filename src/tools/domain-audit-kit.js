@@ -7,8 +7,7 @@
 //
 // The value is packaging + interpretation: the probes already exist as tools;
 // this composes them, grades the whole domain, and synthesizes a prioritized
-// remediation plan. Near-zero upstream cost (the probes are free; only the
-// synthesis touches OpenRouter), so it is the highest-margin report product.
+// remediation plan. The probes are free (only the synthesis touches OpenRouter).
 // Settlement-safe (throws >=400 on failure), WALLET_ONLY, not cached. Gated on
 // OPENROUTER_API_KEY for the synthesis (503 without it).
 import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
@@ -104,17 +103,23 @@ export function makeDomainAuditHandler(tierSlug) {
     const email = emailR.ok ? emailR.data : null;
     const tls = tlsR.ok ? tlsR.data : null;
     const hdr = hdrR.ok ? hdrR.data : null;
-    const emailScore = email?.score ?? 0;
-    const headerScore = hdr?.security?.score ?? 0;
+    // A probe that failed (or returned no numeric score) is UNASSESSED, not a
+    // zero - a network blip on the email probe must not silently print grade A
+    // for a domain with broken email auth, nor drag it to F.
+    const emailScore = typeof email?.score === "number" ? email.score : null;
+    const headerScore = typeof hdr?.security?.score === "number" ? hdr.security.score : null;
     const tlsScore = tlsScoreOf(tls);
-    // Composite over the dimensions we could measure (renormalize weights).
-    const dims = [];
-    if (email) dims.push([0.40, emailScore]);
-    if (hdr) dims.push([0.35, headerScore]);
-    if (tlsScore != null) dims.push([0.25, tlsScore]);
+    const dims = [], assessed = [];
+    if (emailScore != null) { dims.push([0.40, emailScore]); assessed.push("email auth"); }
+    if (headerScore != null) { dims.push([0.35, headerScore]); assessed.push("security headers"); }
+    if (tlsScore != null) { dims.push([0.25, tlsScore]); assessed.push("TLS"); }
+    if (!dims.length) throw bad(`Could not assess any security dimension for "${domain}" (all probes failed). Not charged.`, 422);
     const wsum = dims.reduce((a, [w]) => a + w, 0) || 1;
     const composite = Math.round(dims.reduce((a, [w, s]) => a + w * s, 0) / wsum);
     const grade = letterFor(composite);
+    // The grade only covers dimensions we could measure - say so in the headline
+    // so a missing dimension is visible, not buried in prose.
+    const gradeCaveat = assessed.length === 3 ? "" : ` (assessed on ${assessed.join(", ")} only)`;
 
     // 2) GROUNDING BLOCKS (the probe results are the only source of truth).
     const emailBlock = email
@@ -135,8 +140,8 @@ export function makeDomainAuditHandler(tierSlug) {
     // 3) SYNTHESIZE - grounded, graded, actionable.
     const synthPrompt = `You are a security analyst writing a DOMAIN SECURITY & DELIVERABILITY AUDIT for ${domain} that will be SOLD to a paying customer. Every statement must come from the LIVE PROBE RESULTS below - do not invent a finding, header, or record that is not in the data.
 
-The overall grade is ${grade} (composite ${composite}/100). Write a clear, well-structured report of up to ${t.words} words with these sections:
-- OVERALL GRADE: state the letter grade ${grade} and composite ${composite}/100, and a one-paragraph bottom line.
+The overall grade is ${grade} (composite ${composite}/100)${gradeCaveat}. Write a clear, well-structured report of up to ${t.words} words with these sections:
+- OVERALL GRADE: state the letter grade ${grade} and composite ${composite}/100, a one-paragraph bottom line, AND if the grade covers only some dimensions (${assessed.join(", ")}) say so plainly - the grade does not cover any probe that could not be completed.
 - EMAIL AUTHENTICATION: SPF, DMARC, DKIM, and MX - what is configured, what is missing or weak, and specifically why it affects whether mail lands in the inbox vs spam.
 - WEB SECURITY HEADERS: which security headers are present or missing (HSTS, CSP, X-Frame-Options, etc.) and the risk each missing one creates.
 - TLS CERTIFICATE: issuer, expiry, and days remaining - flag clearly if it is expiring soon.${t.pro ? "\n- ATTACK SURFACE & STACK: notable subdomains from Certificate Transparency, the detected tech stack, and domain registration." : ""}
@@ -153,7 +158,7 @@ Do NOT write a sources section. Ground every claim in the probe data; where a pr
     spent += costOf(sd);
     const prose = textOf(sd);
     if (!prose) throw bad("Domain audit synthesis produced nothing - not charged", 502);
-    const header = `# Domain Security Audit: ${domain}\n\n**Overall grade: ${grade}** (${composite}/100)\n`;
+    const header = `# Domain Security Audit: ${domain}\n\n**Overall grade: ${grade}** (${composite}/100)${gradeCaveat}\n`;
     const report = `${header}\n${prose}`;
 
     // 4) DOWNLOADABLE DATA APPENDIX.
@@ -174,9 +179,9 @@ Do NOT write a sources section. Ground every claim in the probe data; where a pr
     }
 
     const meta = {
-      tier: tierSlug, domain, grade, composite,
-      email_score: email ? emailScore : null,
-      header_score: hdr ? headerScore : null,
+      tier: tierSlug, domain, grade, composite, assessed,
+      email_score: emailScore,
+      header_score: headerScore,
       tls_days_remaining: tls?.daysRemaining ?? null,
       probes: { email: emailR.ok, tls: tlsR.ok, headers: hdrR.ok, ...(t.pro ? { certTransparency: !!ct, techStack: !!tech, whois: !!whois } : {}) },
       synthesis_model: SYNTH,

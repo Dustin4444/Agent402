@@ -26,7 +26,16 @@ g.recordCompositeSpendFailure(Q);
 g.recordCompositeSpendFailure(Q);
 ok(!g.compositeGuardBlocked(Q), "a paid success resets the counter (legit buyers never blocked)");
 
-ok(["research", "research-pro", "research-max", "dossier", "dossier-max"].every((s) => g.EXPENSIVE_COMPOSITE_SLUGS.has(s)), "all 5 expensive composite slugs are covered");
+// EVERY composite that fans out to metered upstream must be guarded, or its
+// agent path is an unguarded upstream-drain. Locks the class so a new expensive
+// product can't ship outside the guard (token-risk spends REAL chain money).
+const EXPECTED = [
+  "research", "research-pro", "research-max", "dossier", "dossier-max",
+  "fund-report", "fund-report-max", "domain-audit", "domain-audit-pro",
+  "token-risk", "token-risk-pro",
+];
+ok(EXPECTED.every((s) => g.EXPENSIVE_COMPOSITE_SLUGS.has(s)), "every expensive composite slug (research/dossier/fund/domain/token-risk) is covered");
+ok(g.EXPENSIVE_COMPOSITE_SLUGS.size === EXPECTED.length, "the guard set matches the expected composites exactly (no drift)");
 ok(!g.EXPENSIVE_COMPOSITE_SLUGS.has("uuid"), "cheap tools are NOT in the guard set");
 
 await new Promise((r) => setTimeout(r, 700));

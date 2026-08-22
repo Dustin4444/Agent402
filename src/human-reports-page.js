@@ -113,7 +113,7 @@ ${bar()}
       <div class="pcard" data-kind="dossier">
         <div class="k">Due-diligence dossier</div>
         <h3>Everything on a public company</h3>
-        <p>SEC filings, insider trades, financials, and red flags — cited. Data a chatbot can't reach.</p>
+        <p>SEC filings, insider trades, financials, and red flags - cited. Data a chatbot can't reach.</p>
         <div class="field"><input id="in-dossier" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
         <div class="tiers">
           <button class="tierbtn sel" data-p="dossier"><div class="nm">Dossier</div><div class="pr">$19</div></button>
@@ -157,12 +157,12 @@ ${bar()}
 
 // Delivery page: polls /api/r/:id and renders the report (client-side markdown).
 export function reportDeliveryPage(sessionId) {
-  return `<!doctype html><html lang="en"><head><title>Your report — Agent402</title>${HEAD}</head><body>
+  return `<!doctype html><html lang="en"><head><title>Your report - Agent402</title>${HEAD}</head><body>
 ${bar()}
 <main class="wrap">
-  <div id="app" data-session="${esc(sessionId)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>This takes about a minute. Please keep this page open — it will appear here automatically.</p></div></div>
+  <div id="app" data-session="${esc(sessionId)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>This takes about a minute. Please keep this page open - it will appear here automatically.</p></div></div>
 </main>
-<footer><div class="wrap">Agent402 · your report is yours to keep — copy or bookmark this page</div></footer>
+<footer><div class="wrap">Agent402 · your report is yours to keep - copy or bookmark this page</div></footer>
 <script src="/js/report-view.js"></script>
 </body></html>`;
 }

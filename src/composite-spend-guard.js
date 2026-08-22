@@ -19,9 +19,15 @@ const BLOCK_MS = Number(process.env.COMPOSITE_GUARD_BLOCK_MS) || 30 * 60_000;
 const fails = new Map();        // payer -> number[] (failure timestamps in window)
 const blockedUntil = new Map(); // payer -> timestamp the block lifts
 
-/** Slugs whose handlers run long, expensive upstream work before settlement. */
+/** Slugs whose handlers run long, expensive upstream work before settlement.
+ * Every composite that fans out to metered upstream (OpenRouter synthesis, and
+ * for token-risk real Blockscout x402 buys) MUST be here, or its agent path is
+ * an unguarded upstream-drain. `scripts/test-composite-guard.js` asserts the
+ * full set so a new expensive product can't ship outside the guard. */
 export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
   "research", "research-pro", "research-max", "dossier", "dossier-max",
+  "fund-report", "fund-report-max", "domain-audit", "domain-audit-pro",
+  "token-risk", "token-risk-pro",
 ]);
 
 /** True if this payer is currently blocked (checked BEFORE the handler spends). */

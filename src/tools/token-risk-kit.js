@@ -79,6 +79,14 @@ function extractSource(cs) {
   return parts.join("\n\n").slice(0, 500 * 1024);
 }
 const fmtPct = (n) => (n == null ? "?" : `${n.toFixed(2)}%`);
+// Burn / dead addresses hold supply that is out of circulation. They are EOAs
+// (no bytecode) so token-holders reports isContract=false; without this they'd
+// be labeled a large "wallet", misreading burned supply as concentration risk.
+function isBurn(a) {
+  const s = String(a || "").toLowerCase().replace(/^0x/, "");
+  return /^0{40}$/.test(s) || /^0*0*dead$/.test(s) || /0{6,}dead$/.test(s) || s === "000000000000000000000000000000000000dead";
+}
+const holderType = (r) => (r.burn ? "burn/dead" : r.isContract ? "contract" : "EOA");
 
 export function makeTokenRiskHandler(tierSlug) {
   const t = TOKEN_RISK_TIERS[tierSlug];
@@ -107,6 +115,7 @@ export function makeTokenRiskHandler(tierSlug) {
     const ranked = holders.map((h) => ({
       address: h.address || null,
       isContract: !!h.isContract,
+      burn: isBurn(h.address),
       name: h.name || null,
       share: totalSupply ? shareOf(h.value, totalSupply) : null,
     }));
@@ -138,7 +147,7 @@ export function makeTokenRiskHandler(tierSlug) {
       ? (verified ? `Source is VERIFIED (${src.match || "match"}) - compiler ${src.compiler?.version || "?"}, verified at ${src.verifiedAt || "?"}.` : "Source is NOT VERIFIED on Sourcify - the contract's code cannot be independently reviewed. This is a notable risk signal (though some legitimate contracts are unverified).")
       : `contract-source probe FAILED: ${srcR.error}`;
     const holderBlock = ranked.length
-      ? `Top holders (share of total supply; note which are contracts/pools vs externally-owned wallets):\n` + ranked.slice(0, t.holders).map((r, i) => `${i + 1}. ${r.address || "?"} - ${fmtPct(r.share)}${r.isContract ? " [contract]" : " [EOA]"}${r.name ? ` (${r.name})` : ""}`).join("\n") + `\nConcentration: top holder ${fmtPct(top1)}, top 10 ${fmtPct(top10)} of supply.`
+      ? `Top holders (share of total supply; [burn/dead] = out of circulation, [contract] = pool/bridge/staking/etc., [EOA] = externally-owned wallet):\n` + ranked.slice(0, t.holders).map((r, i) => `${i + 1}. ${r.address || "?"} - ${fmtPct(r.share)} [${holderType(r)}]${r.name ? ` (${r.name})` : ""}`).join("\n") + `\nConcentration: top holder ${fmtPct(top1)}, top 10 ${fmtPct(top10)} of supply (this includes any burn/dead and pool/contract holders - weigh those differently from wallet concentration).`
       : `token-holders probe ${holdersR.ok ? "returned no holders" : `FAILED: ${holdersR.error}`}.`;
     const scanBlock = t.scan
       ? (scan ? `Static pattern scan (heuristic, not an audit) of the verified source: ${scan.summary ? JSON.stringify(scan.summary) : `${(scan.findings || []).length} findings`}. Findings: ${(scan.findings || []).slice(0, 25).map((f) => `${f.severity || "?"}: ${f.title || f.rule || f.pattern || "finding"}${f.line ? ` (line ${f.line})` : ""}`).join("; ") || "none"}.`
@@ -152,7 +161,7 @@ export function makeTokenRiskHandler(tierSlug) {
 === ABSOLUTE RULES ===
 1. Use ONLY the on-chain probe data and (if present) web reputation below. Never invent a holder, figure, finding, or fact.
 2. This is an EVIDENCE-BASED RISK ASSESSMENT, NOT financial advice and NOT a guarantee. NEVER declare the token "safe", "legitimate", "a scam", or "a rug". Instead describe the concrete risk SIGNALS and what they do and do not tell us. State explicitly that on-chain analysis cannot detect off-chain rug mechanisms, social-engineering scams, malicious future upgrades, or hidden owner privileges not visible here, and that a clean report is NOT an endorsement - the reader must do their own research.
-3. Interpret holder concentration CAREFULLY: a large holder that is a contract (a DEX liquidity pool, bridge, staking contract, or a burn/dead address) is materially different from a large externally-owned wallet (EOA). Say which kind it is; do not call pool-held or burned supply "concentration risk" without that nuance.
+3. Interpret holder concentration CAREFULLY using the LABELS given ([burn/dead], [contract], [EOA]): [burn/dead] holdings are supply OUT of circulation (not concentration risk); [contract] holdings are pools/bridges/staking contracts (weigh differently from a person's wallet); only large [EOA] holdings are true single-wallet concentration. Never call burned or pool-held supply "concentration risk"; say which kind each large holder is.
 4. Treat an UNVERIFIED source as a real but not conclusive signal; treat static-scan findings as heuristic triage, not a formal audit.
 
 Write a clear, structured report of up to ${t.words} words: SNAPSHOT (what the token is, supply, holders, market context), SOURCE VERIFICATION, HOLDER CONCENTRATION (with the contract-vs-EOA nuance), ${t.scan ? "STATIC CODE SIGNALS, " : ""}${t.web ? "REPUTATION & CONTEXT, " : ""}and a RISK SUMMARY that lists the specific signals found (elevated, neutral, or reassuring) and closes with the plain caveat that this is not advice and not exhaustive. Do NOT write a sources section.
@@ -172,7 +181,7 @@ Write a clear, structured report of up to ${t.words} words: SNAPSHOT (what the t
     if (ranked.length) tables.push({
       name: "holders", label: "Top holders",
       columns: ["Rank", "Address", "Share of supply", "Type", "Label"],
-      rows: ranked.map((r, i) => [String(i + 1), r.address || "", fmtPct(r.share), r.isContract ? "contract" : "EOA", r.name || ""]),
+      rows: ranked.map((r, i) => [String(i + 1), r.address || "", fmtPct(r.share), holderType(r), r.name || ""]),
     });
     if (scan?.findings?.length) tables.push({
       name: "scan-findings", label: "Static scan findings",

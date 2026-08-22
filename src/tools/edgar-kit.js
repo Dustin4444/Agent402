@@ -971,7 +971,10 @@ export async function get13fHoldings({ cik, ticker, index = 0 }) {
   const tableUrl = await fetchInformationTableUrl(cikInt, accession);
   if (!tableUrl) throw bad("13F-HR filing has no informationtable.xml attachment (older filing format?)", 502);
   const xml = await fetchXmlText(tableUrl);
-  const all = parse13fInformationTable(xml, reportDate);
+  // The SEC's whole-dollars value change is effective for filings SUBMITTED on
+  // or after 2023-01-03, so the unit multiplier must key on the FILED date, not
+  // the period end (a Q4-2022 report filed in Feb 2023 uses whole dollars).
+  const all = parse13fInformationTable(xml, filedDate);
   all.sort((a, b) => (b.valueUsd ?? 0) - (a.valueUsd ?? 0));
   const totalValueUsd = all.reduce((acc, r) => acc + (r.valueUsd ?? 0), 0);
   return { cik: _cik, managerName: sub?.name ?? resolved.name ?? null, accessionNumber: accession, filedDate, reportDate, informationTableUrl: tableUrl, totalHoldings: all.length, totalValueUsd, holdings: all };
@@ -1017,5 +1020,13 @@ export async function resolveManager({ cik, ticker, name }) {
     return base - en.length * 10 + Math.min(x.count, 50);
   };
   const best = [...cand.values()].sort((a, b) => score(b) - score(a))[0];
+  // Confidence floor: the candidate pool is polluted by funds that merely HOLD a
+  // security whose issuer name matches the query (issuer names appear in the
+  // info-tables), so a winner whose OWN registered name does not contain the
+  // query is not a reliable match - refuse rather than silently sell a report
+  // for the wrong manager.
+  if (!best || !(best.name || "").toUpperCase().includes(nmUp)) {
+    throw bad(`Could not confidently resolve "${nm}" to a 13F filer - try the manager's exact registered name or its SEC CIK (find it on sec.gov EDGAR).`, 404);
+  }
   return { cik: best.cik, name: best.name || nm };
 }
