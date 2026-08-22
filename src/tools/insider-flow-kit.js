@@ -49,7 +49,21 @@ const TICKER_RE = /^[A-Z][A-Z0-9.\-]{0,9}$/;
 // schema is stable and our needs are a handful of leaf values) ---------------
 const tag = (xml, name) => { const m = xml.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`)); return m ? m[1].trim() : ""; };
 const val = (xml, name) => { const inner = tag(xml, name); return inner ? (tag(inner, "value") || inner).trim() : ""; };
-const blocks = (xml, name) => [...xml.matchAll(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`, "g"))].map((m) => m[1]);
+// Opening tag may carry attributes (Form 4 footnotes are `<footnote id="F1">`).
+const blocks = (xml, name) => [...xml.matchAll(new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, "g"))].map((m) => m[1]);
+
+/** Text content of an XML fragment: drops every tag by splitting on "<" and
+ *  keeping what follows each tag's closing ">" (no regex, so there is nothing a
+ *  nested "<scr<script>ipt>" can survive), then removes any stray angle bracket. */
+function stripXmlTags(fragment) {
+  const parts = String(fragment).split("<");
+  let out = parts[0];
+  for (let i = 1; i < parts.length; i++) {
+    const seg = parts[i], gt = seg.indexOf(">");
+    out += " " + (gt >= 0 ? seg.slice(gt + 1) : "");
+  }
+  return out.replace(/[<>]/g, "");
+}
 
 export function parseForm4(xml) {
   const owners = blocks(xml, "reportingOwner").map((o) => {
@@ -68,7 +82,7 @@ export function parseForm4(xml) {
     ownership: val(t, "directOrIndirectOwnership") || "",
   }));
   const derivativeCount = blocks(xml, "derivativeTransaction").length;
-  const footnotes = blocks(xml, "footnote").map((f) => f.replace(/<[^>]*>/g, "").replace(/[<>]/g, "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 12);
+  const footnotes = blocks(xml, "footnote").map((f) => stripXmlTags(f).replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 12);
   const plan10b5 = footnotes.some((f) => /10b5-1/i.test(f));
   return { issuer: tag(xml, "issuerName"), symbol: tag(xml, "issuerTradingSymbol"), period: tag(xml, "periodOfReport"), owners, transactions: tx, derivativeCount, footnotes, plan10b5 };
 }
