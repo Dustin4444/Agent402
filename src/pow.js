@@ -286,6 +286,9 @@ export const WALLET_ONLY_SLUGS = new Set([
   "recall-report", "ipo-report",
   // insider-report (EDGAR Form 4 XML + Opus synthesis); market-brief (research pipeline).
   "insider-report", "market-brief",
+  // ticker-pack (src/tools/ticker-pack-kit.js): runs the dossier + insider
+  // composites in-process and reads SEC EDGAR - metered upstream, never PoW.
+  "ticker-pack",
   // domain-audit composites (src/tools/domain-audit-kit.js) — live network
   // probes (egress) + Opus synthesis; egressing + metered, never PoW-eligible.
   "domain-audit", "domain-audit-pro",

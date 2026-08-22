@@ -6,6 +6,7 @@
 // (keep the class names stable - the scripts select on them).
 import { HUMAN_PRODUCTS } from "./human-checkout.js";
 import { ledgerShell, ledgerFooterCompact, esc } from "./ledger-chrome.js";
+import { monitorMapJson } from "./report-upgrade.js";
 
 // Shared by /reports, /r/:id, /m/:id and the monitors pages.
 export const REPORTS_CSS = `
@@ -22,6 +23,7 @@ export const REPORTS_CSS = `
   .pcard{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 var(--card-inset),0 1px 2px rgba(0,0,0,.08)}
   .pcard h3{font-weight:500;font-size:21px;letter-spacing:-.02em;margin:0;color:var(--ink)}.pcard .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
   .pcard p{color:var(--muted);font-size:15px;line-height:1.5;margin:8px 0 16px;font-weight:300}
+  .pcard.sel{border-color:var(--ink);box-shadow:0 0 0 1px var(--ink)}
   .field{display:flex;gap:8px;background:var(--paper);border:1px solid var(--dash);border-radius:12px;padding:6px 6px 6px 14px;margin-bottom:12px}
   .field:focus-within{border-color:var(--ink)}
   .field input{flex:1;border:0;background:transparent;color:var(--ink);font-family:var(--font-body);font-size:16px;outline:none;min-width:0}
@@ -51,6 +53,11 @@ export const REPORTS_CSS = `
   .rpt-brand .n{font-weight:500;color:var(--ink);font-size:15px}.rpt-brand .s{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
   .rpt-title{font-weight:500;font-size:34px;letter-spacing:-.03em;line-height:1.08;margin:0;color:var(--ink);text-wrap:balance}
   .rpt-meta{font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:10px}
+  .upsell{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px 26px;margin-top:24px;box-shadow:inset 0 1px 0 var(--card-inset)}
+  .upsell .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+  .upsell h3{font-weight:500;font-size:21px;letter-spacing:-.02em;margin:0;color:var(--ink)}
+  .upsell p{color:var(--muted);font-size:15px;line-height:1.5;margin:8px 0 16px;font-weight:300}
+  .upsell .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   @media print{
     @page{margin:18mm 16mm}
     nav,footer,.no-print,.ml-mobile-menu{display:none!important}
@@ -100,6 +107,24 @@ export function humanReportsPage(baseUrl) {
         <div class="err" id="err-dossier"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="dossier">Get dossier →</button>
         <div class="note" style="margin-top:10px;"><a href="/tools/dossier" style="color:var(--muted);">Sample output + API docs →</a></div>
+      </div>
+      <div class="pcard" data-kind="ticker">
+        <div class="k">Ticker pack</div>
+        <h3>One ticker, the whole picture</h3>
+        <p>Company dossier, recent SEC filings, insider buying and selling, and which institutions hold it, in one cited report. Cheaper than buying the parts.</p>
+        <div class="field"><input id="in-ticker" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="err" id="err-ticker"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="ticker">Get the pack &rarr;</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/ticker-pack" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
+      </div>
+      <div class="pcard" data-kind="token">
+        <div class="k">Token due diligence</div>
+        <h3>Is this Solana token safe to touch</h3>
+        <p>Mint and freeze authority, LP lock, holder concentration, liquidity and every named risk flag, graded and cited from on-chain sources.</p>
+        <div class="field"><input id="in-token" type="text" placeholder="A Solana mint address"></div>
+        <div class="err" id="err-token"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="token">Get the brief &rarr;</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/token-brief" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
       </div>
       <div class="pcard" data-kind="fund">
         <div class="k">Fund tracker</div>
@@ -170,7 +195,7 @@ ${ledgerFooterCompact()}
 export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "This takes about a minute. Please keep this page open - it will appear here automatically.", baseUrl = "https://agent402.tools", robots = "noindex, nofollow" } = {}) {
   const body = `
 <div class="wrap" style="padding-top:28px;">
-  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p></div></div>
+  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}" data-monitors="${esc(monitorMapJson())}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p></div></div>
   <p class="note no-print">Your report is yours to keep - bookmark this page or use the link we emailed you.</p>
 </div>
 ${ledgerFooterCompact()}

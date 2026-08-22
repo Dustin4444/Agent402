@@ -1,8 +1,8 @@
 // Checkout page (/reports) behavior. External file because the site-wide CSP
 // drops 'unsafe-inline' from script-src, so an inline <script> can't run.
 (function () {
-  var sel = { research: "research", dossier: "dossier", fund: "fund-report", domain: "domain-audit", recall: "recall-report", insider: "insider-report", market: "market-brief" };
-  var need = { dossier: "a ticker.", research: "a question.", fund: "a fund name, ticker, or CIK.", domain: "a domain, e.g. example.com", recall: "a drug, food, brand or device.", insider: "a US ticker.", market: "a market, category or company." };
+  var sel = { research: "research", dossier: "dossier", fund: "fund-report", domain: "domain-audit", recall: "recall-report", insider: "insider-report", market: "market-brief", token: "token-brief", ticker: "ticker-pack" };
+  var need = { dossier: "a ticker.", research: "a question.", fund: "a fund name, ticker, or CIK.", domain: "a domain, e.g. example.com", recall: "a drug, food, brand or device.", insider: "a US ticker.", market: "a market, category or company.", token: "a Solana token mint address.", ticker: "a US ticker." };
   document.querySelectorAll(".pcard").forEach(function (card) {
     card.querySelectorAll(".tierbtn").forEach(function (b) {
       b.addEventListener("click", function () {

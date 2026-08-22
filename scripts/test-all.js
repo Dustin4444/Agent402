@@ -282,6 +282,9 @@ const NETWORK = new Set([
   // recall-report (openFDA + synthesis, 503 without OPENROUTER_API_KEY) and the
   // deterministic ipo-report (EDGAR full-text search) - live upstreams.
   "/v1/token-brief", "/v1/recall-report", "/v1/ipo-report", "/v1/insider-report", "/v1/research/market-brief",
+  // ticker-pack: the bundle - runs the dossier + insider composites in-process
+  // plus live SEC EDGAR reads; 503 without OPENROUTER_API_KEY, same tolerance.
+  "/v1/ticker-pack",
   // token-risk composites: Blockscout x402 buys + synthesis; 503 without the
   // upstream-buyer wallet / OPENROUTER_API_KEY, same NETWORK tolerance.
   "/v1/token-risk", "/v1/token-risk/pro",

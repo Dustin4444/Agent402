@@ -816,6 +816,9 @@ jobs:
       - name: Monitor scheduler (welcome/scheduled/change/TLS/filing delivery, paid-run bounds, backoff, lock)
         run: node scripts/test-monitor-scheduler.js
 
+      - name: Report -> monitor upgrade loop (kind mapping, table-driven price, escaping, prefill-only deep link)
+        run: node scripts/test-report-upgrade.js
+
       - name: Prepaid card credits (mint-once, exact micro-dollar balances, gate debits only on 200, 402 on insufficient, operator view)
         run: node scripts/test-credits.js
 
@@ -1531,6 +1534,8 @@ jobs:
         run: node scripts/test-solana-intel-kit.js
       - name: token brief kit (offline)
         run: node scripts/test-token-brief-kit.js
+      - name: ticker pack kit (offline)
+        run: node scripts/test-ticker-pack-kit.js
       - name: programmatic report pages (offline)
         run: node scripts/test-programmatic-pages.js
       - name: images-fast kit (offline)

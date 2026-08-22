@@ -49,6 +49,7 @@ export const HUMAN_PRODUCTS = {
   "recall-report": { label: "FDA recall report", price: 300, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
   "insider-report": { label: "Insider flow report (Form 4)", price: 400, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
   "market-brief": { label: "Market / competitor brief", price: 700, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
+  "ticker-pack": { label: "Ticker pack: dossier, insider flow and holders", price: 1500, kind: "ticker", slug: "ticker-pack", inputField: "ticker", inputLabel: "a US stock ticker" },
 };
 
 // Stripe metadata: <= 50 keys, value <= 500 chars. Inputs are capped at 2000
@@ -228,7 +229,10 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
         writeRec(sessionId, rec);
         patchIndex(INFLIGHT, sessionId, null);
         const email = session.customer_details?.email || session.customer_email;
-        if (email) sendReportReadyEmail({ to: email, reportUrl: `${baseUrl}/r/${sessionId}`, productLabel: p.label, subjectOf: input }).catch(() => {});
+        // `kind` + baseUrl let the email carry the matching MONITOR offer with
+        // this target prefilled (the retention loop); a kind with no monitor
+        // simply gets no offer. See src/report-upgrade.js.
+        if (email) sendReportReadyEmail({ to: email, reportUrl: `${baseUrl}/r/${sessionId}`, productLabel: p.label, subjectOf: input, kind: p.kind, baseUrl }).catch(() => {});
         try { onSale?.({ sessionId, product: p.slug, priceUsd: p.price / 100, paymentIntent: typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null }); } catch { /* accounting never breaks delivery */ }
         return rec;
       } catch (err) {

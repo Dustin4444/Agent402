@@ -138,6 +138,7 @@ import { IPO_TOOLS, probeIpos, normIpoKeyword } from "./tools/ipo-report-kit.js"
 import { INSIDER_TOOLS, probeInsiderFilings } from "./tools/insider-flow-kit.js";
 import { TOKEN_RISK_TOOLS } from "./tools/token-risk-kit.js";
 import { DOSSIER_TOOLS } from "./tools/dossier-kit.js";
+import { TICKER_PACK_TOOLS } from "./tools/ticker-pack-kit.js";
 import { NETWORK_TOOLS } from "./tools/network-kit.js";
 import { NETWORK_TOOLS2 } from "./tools/network-kit2.js";
 import { HTML_TOOLS } from "./tools/html-kit.js";
@@ -251,7 +252,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS, ...DERIVATIVES_TOOLS, ...SOLANA_INTEL_TOOLS, ...X_DATA_TOOLS_ENABLED, ...B2B_ENRICH_TOOLS_ENABLED, ...CRAWL_TOOLS, ...CRYPTO_SIGNALS_TOOLS, ...DEFI_TOOLS, ...CRYPTO_MARKETS_TOOLS, ...FARCASTER_SOCIAL_TOOLS_ENABLED, ...ALCHEMY_DATA_TOOLS, ...IMAGES_FAST_TOOLS, ...TOKEN_BRIEF_TOOLS, ...TICKER_PACK_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
@@ -1668,11 +1669,11 @@ app.get("/revenue", async (_req, res) => {
 // monitor scheduler (recurring): slug -> the SAME handler agents buy over x402.
 // `input` is a string (wrapped per kind) or an object passed straight through
 // (the scheduler pins a resolved CIK for fund monitors that way).
-const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS].map((t) => [t.slug, t.handler]));
+const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TICKER_PACK_TOOLS].map((t) => [t.slug, t.handler]));
 const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     const h = _premiumHandlers[slug];
     if (!h) throw new Error("no handler for " + slug);
-    const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }), recall: (v) => ({ query: v }), ipo: (v) => ({ days: 7, keyword: v }), insider: (v) => ({ ticker: v, days: 90 }) };
+    const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }), recall: (v) => ({ query: v }), ipo: (v) => ({ days: 7, keyword: v }), insider: (v) => ({ ticker: v, days: 90 }), ticker: (v) => ({ ticker: v, days: 90 }) };
     const arg = (input && typeof input === "object") ? input : (argOf[kind] || argOf.research)(input);
     // A minimal request-shaped context so upstreamUserId() scopes OpenRouter's
     // per-user provider policy to THIS buyer (session / subscription), instead
@@ -1700,7 +1701,16 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
 // /api/subscribe, /api/r/:id, confirm/manage) mount only with
 // STRIPE_SECRET_KEY. Without it a buy click gets a clear 503 from the API.
 app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
-app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
+// `?product=&target=` PREFILLS the form (the deep link a delivered report and a
+// delivery email carry, so the upgrade survives an email client with no JS).
+// Prefill only: it fills a field in, it never creates a Stripe session, and the
+// prefilled variant is not cached (it carries someone's target).
+app.get("/monitors", (req, res) => {
+  const product = String(req.query.product || "").slice(0, 64);
+  const target = String(req.query.target || "").slice(0, 200);
+  const prefill = product ? { product, target } : null;
+  res.set("Cache-Control", prefill ? "no-store" : "public, max-age=120").type("html").send(monitorsPage(BASE_URL, prefill));
+});
 app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
 // Programmatic SEO landing pages for the SEC-filing products: one free,
 // crawlable page per ticker (insider / dossier) and per 13F manager (fund),

@@ -105,6 +105,8 @@ const METERED_SLUGS = new Set([
   "domain-audit", "domain-audit-pro",
   // recall-report - openFDA probes + Opus synthesis over OpenRouter.
   "recall-report", "insider-report", "market-brief", "token-brief",
+  // ticker-pack - runs the dossier + insider composites in-process.
+  "ticker-pack",
   // token-risk composites — Blockscout x402 buys (upstream-buyer wallet) +
   // Opus synthesis over OpenRouter; metered upstream both ways.
   "token-risk", "token-risk-pro",
