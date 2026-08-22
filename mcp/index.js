@@ -614,7 +614,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       const computePayable = [...catalog.values()].filter((t) => t.computePayable).length;
       return mcpJsonResult({
         service: BASE,
-        mode: HAS_WALLET ? "usdc" : "proof-of-work",
+        mode: HAS_WALLET ? "usdc" : HAS_CREDITS ? "credits" : "proof-of-work",
         wallet: address,
         solanaWallet: solanaAddress,
         network: pricingInfo?.payment?.network ?? "base",
@@ -623,7 +623,8 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         payableWithCompute: computePayable,
         walletOnly: catalog.size - computePayable,
         workflows: skillPacks.length,
-        spendControls: HAS_WALLET
+        credits: HAS_CREDITS ? { configured: true, how: "prepaid card credits (Authorization: Bearer a402_...) - every tool pays by card, debited only on a successful call", balance: `${BASE}/api/credits/balance`, topup: `${BASE}/credits` } : { configured: false, buy: `${BASE}/credits` },
+        spendControls: (HAS_WALLET || HAS_CREDITS)
           ? {
               maxPerCallUsd: MAX_PER_CALL === Infinity ? "unlimited" : MAX_PER_CALL,
               sessionBudgetUsd: BUDGET === Infinity ? "unlimited" : BUDGET,
@@ -632,8 +633,10 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
             }
           : "n/a (proof-of-work mode spends CPU, not money)",
         note: HAS_WALLET
-          ? "Every tool is available; each call is paid in USDC via x402 from the configured wallet(s) — EVM chains via AGENT_KEY, Solana via SOLANA_AGENT_KEY — within the spend controls above."
-          : `No wallet configured: ${computePayable} pure-CPU tools are free via proof-of-work; the ${catalog.size - computePayable} network/browser/memory tools need a funded wallet (set AGENT_KEY for Base/Polygon/Arbitrum and/or SOLANA_AGENT_KEY for Solana).`,
+          ? "Every tool is available; each call is paid in USDC via x402 from the configured wallet(s) - EVM chains via AGENT_KEY, Solana via SOLANA_AGENT_KEY - within the spend controls above."
+          : HAS_CREDITS
+            ? "Every tool is available; each call is paid from the prepaid card credits key (AGENT402_CREDITS_KEY), debited only on a successful call, within the spend controls above."
+            : `No wallet or credits key configured: ${computePayable} pure-CPU tools are free via proof-of-work; the ${catalog.size - computePayable} network/browser/memory tools need a funded wallet (AGENT_KEY / SOLANA_AGENT_KEY) or a prepaid credits key (AGENT402_CREDITS_KEY, buy at ${BASE}/credits).`,
         install: {
           claudeCodeHosted: `claude mcp add --transport http agent402 ${BASE}/mcp`,
           claudeCodeNpm: "claude mcp add agent402 -s user -- npx -y agent402-mcp@latest",
@@ -653,7 +656,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
         positioning: `Agent402 is the applied layer of Agentic Finance: software agents that pay and get paid on their own, per request, over x402 or MPP (Machine Payments Protocol) - both answered on the same 402. ${BASE}/agentic-finance, ${BASE}/glossary.`,
         startHere: {
           firstJob: "Search the web and answer questions. Call web.search or web.answer directly, or catalog.find with your task.",
-          mode: HAS_WALLET ? "usdc" : "proof-of-work",
+          mode: HAS_WALLET ? "usdc" : HAS_CREDITS ? "credits" : "proof-of-work",
         },
         install: {
           claudeCodeHosted: `claude mcp add --transport http agent402 ${BASE}/mcp`,

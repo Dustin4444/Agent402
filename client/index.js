@@ -18,7 +18,7 @@ import { createHash } from "node:crypto";
 // `User-Agent: agent402-client/<version>` — a standard header, no extra
 // network calls — so a seller can attribute traffic (and settled payments)
 // to this SDK. Product token only; nothing about the caller rides along.
-const VERSION = "0.6.1";
+const VERSION = "0.7.0";
 const USER_AGENT = `agent402-client/${VERSION}`;
 
 const leadingZeroBits = (buf) => { let n = 0; for (const b of buf) { if (b === 0) { n += 8; continue; } n += Math.clz32(b) - 24; break; } return n; };
