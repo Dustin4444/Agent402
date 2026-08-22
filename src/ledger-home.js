@@ -113,7 +113,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 @media (max-width: 900px) { .hm-hero, .hm-2col, .hm-doors { grid-template-columns: minmax(0,1fr) !important; } .hm-proof { grid-template-columns: 1fr 1fr !important; } .hm-row { grid-template-columns: 1fr !important; gap: 6px; } .hm-h2 { font-size: 32px; } }
 @media (max-width: 480px) { .hm-reg-row { flex-direction: column !important; } .hm-reg-row button { width: 100%; } .hm-proof { grid-template-columns: 1fr !important; } }
 #hm-demo-in { border: 1px solid var(--dash); border-radius: 10px; }
-#hm-demo-in:focus { border-color: var(--ink); outline: none; }
+#hm-demo-in:focus { border-color: var(--accent); outline: none; }
 `;
 
   const railLinksHtml = CHAIN_ORDER.map(([slug, name]) =>
