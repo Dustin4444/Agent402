@@ -933,6 +933,20 @@ export function createSseUsageScrubber({ onUsage } = {}) {
   };
 }
 
+/**
+ * Attribution headers for EVERY OpenRouter request we make. OpenRouter files a
+ * call under this app name; without it the call shows up unattributed on the
+ * activity export, which is how upstream spend goes missing from a margin
+ * review. `scripts/test-openrouter-attribution.js` fails if any call site in
+ * src/ reaches openrouter.ai without them.
+ */
+export const OPENROUTER_ATTRIBUTION = Object.freeze({
+  "HTTP-Referer": "https://agent402.tools",
+  "X-Title": "Agent402.Tools x402 gateway",
+  "X-OpenRouter-Title": "Agent402.Tools x402 gateway",
+  "X-OpenRouter-Categories": "personal-agent,api",
+});
+
 export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTER_URL } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
@@ -942,10 +956,7 @@ export async function fetchOpenRouter(body, { timeoutMs, signal, url = OPENROUTE
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://agent402.tools",
-        "X-Title": "Agent402.Tools x402 gateway",
-        "X-OpenRouter-Title": "Agent402.Tools x402 gateway",
-        "X-OpenRouter-Categories": "personal-agent,api",
+        ...OPENROUTER_ATTRIBUTION,
       },
       body: JSON.stringify(body),
       signal: signal ?? AbortSignal.timeout(timeoutMs ?? 90_000),
@@ -1380,7 +1391,7 @@ async function rerankHandler(input, req) {
   try {
     res = await fetch(RERANK_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", "HTTP-Referer": "https://agent402.tools", "X-Title": "Agent402.Tools x402 gateway", "X-OpenRouter-Title": "Agent402.Tools x402 gateway", "X-OpenRouter-Categories": "personal-agent,api" },
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...OPENROUTER_ATTRIBUTION },
       body: JSON.stringify({ ...body, ...(user ? { user } : {}) }),
       signal: AbortSignal.timeout(30_000),
     });
@@ -1693,8 +1704,7 @@ async function speechHandler(input) {
           headers: {
             Authorization: `Bearer ${key}`,
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://agent402.tools",
-            "X-Title": "Agent402.Tools x402 gateway",
+            ...OPENROUTER_ATTRIBUTION,
           },
           body: JSON.stringify(body),
           signal: AbortSignal.timeout(60_000),

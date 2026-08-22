@@ -1532,6 +1532,8 @@ jobs:
         run: node scripts/test-b2b-enrich-kit.js
       - name: solana-intel kit (offline)
         run: node scripts/test-solana-intel-kit.js
+      - name: OpenRouter attribution + composite accounting guard (offline)
+        run: node scripts/test-openrouter-attribution.js
       - name: filing watch kit (offline)
         run: node scripts/test-filing-watch-kit.js
       - name: token brief kit (offline)

@@ -44,7 +44,7 @@
 // the chat tiers). Content is fetched with our key (the unsigned URLs 401
 // without it - measured) and returned inline as base64, never as a URL that
 // would expose our job ids.
-import { bad, fetchOpenRouter, throwUpstreamError, MARGIN } from "./llm-gateway-kit.js";
+import { bad, fetchOpenRouter, throwUpstreamError, MARGIN, OPENROUTER_ATTRIBUTION } from "./llm-gateway-kit.js";
 import { redactSecrets } from "./redact.js";
 
 export const OPENROUTER_IMAGES_URL = "https://openrouter.ai/api/v1/images";
@@ -159,7 +159,7 @@ async function listedEndpoints(model) {
   if (hit && Date.now() - hit.at < LISTING_TTL_MS) return hit.endpoints;
   let endpoints = null;
   try {
-    const res = await fetch(`${OPENROUTER_IMAGES_URL}/models/${model}/endpoints`, { signal: AbortSignal.timeout(6_000) });
+    const res = await fetch(`${OPENROUTER_IMAGES_URL}/models/${model}/endpoints`, { headers: { ...OPENROUTER_ATTRIBUTION }, signal: AbortSignal.timeout(6_000) });
     if (res.ok) {
       const j = await res.json();
       const eps = (j?.data ?? j)?.endpoints;
@@ -278,7 +278,7 @@ async function openRouterGet(url, { timeoutMs = 30_000, accept } = {}) {
   const key = OPENROUTER_KEY();
   if (!key) throw bad("LLM gateway not configured (OPENROUTER_API_KEY unset)", 503);
   try {
-    return await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${key}`, ...(accept ? { Accept: accept } : {}) }, signal: AbortSignal.timeout(timeoutMs) });
+    return await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${key}`, ...OPENROUTER_ATTRIBUTION, ...(accept ? { Accept: accept } : {}) }, signal: AbortSignal.timeout(timeoutMs) });
   } catch (e) {
     throw bad(`Upstream request failed: ${e.message}`, 504);
   }
