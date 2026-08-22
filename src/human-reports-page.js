@@ -89,6 +89,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("research", "Standard", true)}${tierBtn("research-pro", "Pro", false)}${tierBtn("research-max", "Max", false)}</div>
         <div class="err" id="err-research"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="research">Get report →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/research" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="dossier">
         <div class="k">Due-diligence dossier</div>
@@ -98,6 +99,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("dossier", "Dossier", true)}${tierBtn("dossier-max", "Max", false)}</div>
         <div class="err" id="err-dossier"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="dossier">Get dossier →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/dossier" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="fund">
         <div class="k">Fund tracker</div>
@@ -107,6 +109,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("fund-report", "Standard", true)}${tierBtn("fund-report-max", "Deep", false)}</div>
         <div class="err" id="err-fund"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="fund">Get report →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/fund-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="insider">
         <div class="k">Insider flow</div>
@@ -116,6 +119,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("insider-report", "Report", true)}</div>
         <div class="err" id="err-insider"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="insider">Get report →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/insider-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="market">
         <div class="k">Market / competitor brief</div>
@@ -125,6 +129,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("market-brief", "Brief", true)}</div>
         <div class="err" id="err-market"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="market">Get brief →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/market-brief" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="recall">
         <div class="k">FDA recall report</div>
@@ -134,6 +139,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("recall-report", "Report", true)}</div>
         <div class="err" id="err-recall"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="recall">Get report →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/recall-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="domain">
         <div class="k">Domain audit</div>
@@ -143,6 +149,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("domain-audit", "Standard", true)}${tierBtn("domain-audit-pro", "Pro", false)}</div>
         <div class="err" id="err-domain"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="domain">Get audit →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/domain-audit" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
     </div>
     <p class="note">One-time charge · card or Link · no subscription, no auto-renew · agents buy the same reports over x402 / MPP in USDC · want it re-run on change? <a href="/monitors" style="color:var(--ink);">Monitors</a></p>

@@ -17,6 +17,8 @@
 //   SOLANA_AGENT_KEY      base58 (or JSON byte-array) secret key of a funded Solana wallet (USDC on Solana) — optional
 //   AGENT402_TOOLS        comma-separated slugs to expose first-class (overrides default)
 //   AGENT402_MAX_PER_CALL refuse any single call priced above this many USD (e.g. 0.01)
+//   AGENT402_CREDITS_KEY  a prepaid card-credits key (a402_...) from https://agent402.tools/credits -
+//                         pays every tool by card with no wallet; debited per successful call
 //   AGENT402_BUDGET       hard cap on total USDC spent this session (e.g. 1.00)
 //   AGENT402_NETWORKS     restrict + order the chains to pay on (e.g. "robinhood" for USDG on
 //                         Robinhood Chain, "base,solana", or a raw CAIP-2 like eip155:4663) — optional
@@ -51,6 +53,11 @@ const AGENT_KEY = process.env.AGENT_KEY || "";
 // settle on whichever chain the seller offers (EVM accepts are tried first).
 const SOLANA_AGENT_KEY = process.env.SOLANA_AGENT_KEY || "";
 const HAS_WALLET = Boolean(AGENT_KEY || SOLANA_AGENT_KEY);
+// Prepaid card credits (no wallet): a key bought at https://agent402.tools/credits.
+// Sent as Authorization: Bearer on every catalog call; the server debits the
+// list price only on a successful (200) call and returns X-Credits-Balance.
+const CREDITS_KEY = (process.env.AGENT402_CREDITS_KEY || "").trim();
+const HAS_CREDITS = /^a402_[A-Za-z0-9_-]{32,64}$/.test(CREDITS_KEY);
 // Version comes from package.json — the serverInfo self-report drifted from
 // the published version once (0.11.5 vs 0.12.1) because this was a hardcoded
 // string bumped by hand. Reading the manifest makes drift impossible.
@@ -188,6 +195,7 @@ function walletRequiredText(tool) {
     `To enable it: set AGENT_KEY on this MCP server to the hex private key of an EVM wallet funded with USDC`,
     `on Base (or Polygon/Arbitrum), and/or SOLANA_AGENT_KEY to the base58 secret key of a Solana wallet funded`,
     `with USDC on Solana. Payment is per call via the x402 protocol — no signup or API key.`,
+    `No wallet? Buy prepaid card credits at ${BASE}/credits and set AGENT402_CREDITS_KEY to the a402_ key - every tool then pays by card, debited per successful call.`,
     `Pricing and details: ${BASE}/tools/${tool.slug}`,
   ].join(" ");
 }
@@ -206,7 +214,23 @@ async function callEndpoint(tool, args = {}) {
   }
 
   let res;
-  if (HAS_WALLET) {
+  if (!HAS_WALLET && HAS_CREDITS) {
+    // Card credits: same budget guards as the wallet path (the server enforces
+    // the balance; these keep a runaway session from draining a pack).
+    const price = parseFloat(String(tool.price).replace(/[^0-9.]/g, "")) || 0;
+    if (price > MAX_PER_CALL) {
+      return { content: [{ type: "text", text: `Refused: "${tool.slug}" costs ${tool.price}/call, above the AGENT402_MAX_PER_CALL cap of $${MAX_PER_CALL}.` }], isError: true };
+    }
+    if (spentUsd + price > BUDGET) {
+      return { content: [{ type: "text", text: `Refused: session budget exhausted ($${spentUsd.toFixed(4)} of $${BUDGET} spent; "${tool.slug}" costs ${tool.price}).` }], isError: true };
+    }
+    res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${CREDITS_KEY}` } });
+    if (res.ok) spentUsd += price;
+    if (res.status === 402) {
+      let body = {}; try { body = await res.clone().json(); } catch { /* plain */ }
+      return { content: [{ type: "text", text: `Credits refused for "${tool.slug}": ${body.error || "payment required"}${body.balanceUsd != null ? ` (balance $${body.balanceUsd})` : ""}. Top up at ${body.topup || `${BASE}/credits`}.` }], isError: true };
+    }
+  } else if (HAS_WALLET) {
     const price = parseFloat(String(tool.price).replace(/[^0-9.]/g, "")) || 0;
     if (price > MAX_PER_CALL) {
       return {

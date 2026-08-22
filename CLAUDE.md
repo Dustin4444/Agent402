@@ -481,6 +481,13 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Linked from footers, mobile menu, homepage people door, llms.txt, sitemap. `scripts/test-credits.js`
   (26, in CI). **Stripe Tax:** `STRIPE_AUTOMATIC_TAX=true` adds `automatic_tax` to every Checkout Session
   (one-shot, subscription, credits) - enable Stripe Tax in the dashboard FIRST or sessions 400.
+- **Brand marks + packages on the new system (2026-08-22):** `/logo.svg|png`, `/favicon.svg|ico`, `/card.svg|png`
+  (homepage OG card, letterboxes to GitHub's 1280x640), per-tool `/tools/:slug/card.png` and the AIFI card
+  (`src/aifi-card.js`) all render in the obsidian + milled system with embedded Geist / Geist Mono (woff2 from
+  `assets/fonts`); `BRAND` in server.js is the token set (`BRAND_DEFS` carries the milled/panel gradients).
+  `agent402-mcp` 0.13.0 and `agent402-client` 0.7.0 accept a prepaid credits key (`AGENT402_CREDITS_KEY` env /
+  `{ creditsKey }`) and pay wallet-only tools by card through it; `/reports` cards link each product's
+  `/tools/<slug>` page as "Sample output + API docs".
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

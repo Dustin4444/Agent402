@@ -33,9 +33,12 @@ export class Agent402 {
    * @param {number} [opts.maxPerCallUsd]    hard ceiling on a single paid call (USD); over → SpendingLimitError before paying
    * @param {number} [opts.dailyLimitUsd]    hard ceiling on rolling-24h paid spend (USD)
    * @param {number} [opts.maxPerHostUsd]    hard ceiling on rolling-24h paid spend to one seller host (USD)
+   * @param {string} [opts.creditsKey]       a prepaid card-credits key (a402_...) from agent402.tools/credits -
+   *                                         pays wallet-only tools by card when no payFetch is given
    */
   constructor({ baseUrl = "https://agent402.tools", fetch: payFetch, cache = true, fetchImpl = globalThis.fetch,
-    maxPerCallUsd = null, dailyLimitUsd = null, maxPerHostUsd = null } = {}) {
+    maxPerCallUsd = null, dailyLimitUsd = null, maxPerHostUsd = null, creditsKey = null } = {}) {
+    this.creditsKey = typeof creditsKey === "string" && /^a402_[A-Za-z0-9_-]{32,64}$/.test(creditsKey) ? creditsKey : null;
     if (typeof fetchImpl !== "function") throw new Error("No fetch available — pass { fetchImpl } on Node < 18");
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
     this.payFetch = payFetch || null;
@@ -227,9 +230,27 @@ export class Agent402 {
           throw e;
         }
       }
+      if (this.creditsKey) {
+        // Prepaid card credits: the server authorizes against the key's balance
+        // before the handler and debits only on a 200 (X-Credits-Balance tells
+        // what is left). The same spend caps apply as on the wallet path.
+        const host = hostOf(this.baseUrl);
+        const usd = parseUsd(tool.price);
+        const reservation = this._spendReserve(host, usd, slug);
+        try {
+          const r = await send({ Authorization: `Bearer ${this.creditsKey}` });
+          if (r.status === 402) {
+            const body = await r.json().catch(() => ({}));
+            throw new Error(`call "${slug}" refused by credits: ${body.error || "payment required"}${body.balanceUsd != null ? ` (balance $${body.balanceUsd})` : ""} - top up at ${body.topup || `${this.baseUrl}/credits`}`);
+          }
+          if (!r.ok) throw new Error(`call "${slug}" failed: HTTP ${r.status}`);
+          this._spendSettle(reservation);
+          return this._store(cacheKey, await r.json(), cache);
+        } catch (e) { this._spendRelease(reservation); throw e; }
+      }
       const r = await send(); // no wallet — succeeds only on a FREE_MODE instance
       if (r.ok) return this._store(cacheKey, await r.json(), cache);
-      throw new Error(`call "${slug}" failed: HTTP ${r.status} — wallet-only tool; construct with { fetch: payFetch } (an @x402/fetch-wrapped fetch)`);
+      throw new Error(`call "${slug}" failed: HTTP ${r.status} — wallet-only tool; construct with { fetch: payFetch } (an @x402/fetch-wrapped fetch) or { creditsKey } (prepaid card credits from ${this.baseUrl}/credits)`);
     }
 
     // Free (compute-payable) tool: succeeds plainly on a FREE_MODE instance,

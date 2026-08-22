@@ -208,3 +208,14 @@ Pairs with `maxPerCallUsd` / `dailyLimitUsd` (how much) and
 ## Legal
 
 Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). This package is MIT-licensed; the hosted server is AGPL-3.0. Both are provided as-is without warranty, and self-hosted deployments are their operator's responsibility.
+
+## Pay by card instead of a wallet
+
+Buy prepaid credits at https://agent402.tools/credits and pass the key:
+
+```js
+const client = new Agent402({ creditsKey: "a402_..." });
+await client.call("whois", { domain: "example.com" }); // debited per successful call
+```
+
+The same `maxPerCallUsd` / `dailyLimitUsd` / `maxPerHostUsd` caps apply. A wallet `fetch` still wins when both are given.
