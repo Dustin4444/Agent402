@@ -1641,6 +1641,17 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
       tables: Array.isArray(out?.tables) ? out.tables : [],
     };
 };
+// The storefront PAGES are always served (they are linked from the nav and
+// footer on every page); the Stripe-backed routes behind them (/api/buy,
+// /api/subscribe, /api/r/:id, confirm/manage) mount only with
+// STRIPE_SECRET_KEY. Without it a buy click gets a clear 503 from the API.
+app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
+app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
+app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
+if (!humanCheckoutEnabled()) {
+  app.post("/api/buy", (_req, res) => res.status(503).json({ error: "Card checkout is not configured on this server." }));
+  app.post("/api/subscribe", (_req, res) => res.status(503).json({ error: "Subscriptions are not configured on this server." }));
+}
 if (humanCheckoutEnabled()) {
   let _humanCheckout;
   try {
@@ -1661,7 +1672,6 @@ if (humanCheckoutEnabled()) {
       if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
       res.set("Cache-Control", "no-store").json({ ...(_humanCheckout.listIssues()), compositeGuard: _compositeGuardState() });
     });
-    app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
     app.post("/api/buy", async (req, res) => {
       if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
       try { res.json({ url: (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url }); }
@@ -1686,8 +1696,6 @@ if (humanCheckoutEnabled()) {
 // confirm route records the sub from the paid session; the webhook keeps the
 // lifecycle (renewals/cancellations) in sync.
 if (_subs) {
-  app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
-  app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
   app.post("/api/subscribe", async (req, res) => {
     if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     try { res.json({ url: (await _subs.createCheckout(req.body?.product, req.body?.target)).url }); }
