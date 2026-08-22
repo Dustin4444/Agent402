@@ -101,6 +101,12 @@ const NETWORK = new Set([
   "/api/weather-history", "/api/weather-air-quality",
   // B20 log scans: chunked eth_getLogs against public Base RPCs — flappy in CI.
   "/api/b20-new-tokens", "/api/b20-memos",
+  // B20 eth_call tools: the SAME public-RPC egress (15s abort x 3 RPCs x 2
+  // passes in b20-kit rpc()), wallet-only in pow.js, but they were never filed
+  // here - one stalled public RPC tripped the 20s strict abort and blocked the
+  // deploy gate (2026-08-22, run 32541121323). b20-feature-id is pure CPU and
+  // stays strict.
+  "/api/b20-token-info", "/api/b20-verify", "/api/b20-activation-check",
   // CDP kit: live Coinbase Developer Platform calls, env-gated on CDP keys
   // (503 without them — the CI test env has none; scripts/test-cdp-live.js
   // covers the real calls where the secrets exist).
