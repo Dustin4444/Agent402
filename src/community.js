@@ -129,7 +129,7 @@ export function communityPage(baseUrl) {
 /* stat cards */
 .cm-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px}
 @media(max-width:640px){.cm-stats{grid-template-columns:repeat(2,1fr)}.cm-hero h1{font-size:36px !important}}
-.cm-stat{background:var(--card);border:1.5px solid var(--ink);padding:20px 22px;text-align:center}
+.cm-stat{background:var(--card);border:1px solid var(--hairline);padding:20px 22px;text-align:center}
 .cm-stat-value{font-size:24px;font-weight:700;color:var(--accent);font-family:var(--font-mono);margin-bottom:4px}
 .cm-stat-label{font-size:14px;color:var(--muted)}
 
@@ -138,7 +138,7 @@ export function communityPage(baseUrl) {
 @media(max-width:800px){.cm-grid-3{grid-template-columns:1fr}}
 .cm-grid-4{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-bottom:32px}
 @media(max-width:640px){.cm-grid-4{grid-template-columns:1fr}}
-.cm-card{background:var(--card);border:1.5px solid var(--ink);padding:22px 24px}
+.cm-card{background:var(--card);border:1px solid var(--hairline);padding:22px 24px}
 .cm-card h3{margin:0 0 8px;font-family:var(--font-body);font-weight:800;font-size:18px;color:var(--ink)}
 .cm-card-desc{color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 12px}
 .cm-card-link{color:var(--accent);text-decoration:none;font-family:var(--font-mono);font-size:13px;font-weight:700}

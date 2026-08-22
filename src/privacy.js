@@ -22,7 +22,7 @@ export function privacyPage(baseUrl) {
 .pv-body a:hover{text-decoration:underline}
 .pv-body b,.pv-body strong{color:var(--ink);font-weight:600}
 .pv-body i{font-style:italic}
-.pv-body code{font-family:var(--font-mono);font-size:13px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1.5px solid var(--ink)}
+.pv-body code{font-family:var(--font-mono);font-size:13px;background:var(--surface);color:var(--on-dark);padding:2px 7px;border:1px solid var(--hairline)}
 @media(max-width:600px){.pv-h1{font-size:36px !important}}
 `;
 

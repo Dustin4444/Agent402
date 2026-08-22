@@ -50,7 +50,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
   const extraCss = `
 @media (max-width: 900px) {
   .ml-pricing-plans { grid-template-columns: 1fr !important; }
-  .ml-pricing-plans > div:first-child { border-right: none !important; border-bottom: 1.5px solid var(--ink) !important; }
+  .ml-pricing-plans > div:first-child { border-right: none !important; border-bottom: 1px solid var(--hairline) !important; }
   .ml-token-math { grid-template-columns: 1fr !important; }
   .ml-token-math > div:last-child { border-left: none !important; border-top: 1px dashed var(--dash) !important; padding-left: 0 !important; padding-top: 24px !important; }
 }
@@ -75,9 +75,9 @@ export function ledgerPricingPage(baseUrl, catalog) {
 
   <!-- TWO PLANS -->
   <section data-reveal-eager style="max-width:1180px;margin:0 auto;padding:0 30px;">
-    <div class="ml-pricing-plans" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1.5px solid var(--ink);">
+    <div class="ml-pricing-plans" style="display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--hairline);">
       <!-- FREE -->
-      <div style="padding:30px;border-right:1.5px solid var(--ink);background:var(--card);">
+      <div style="padding:30px;border-right:1px solid var(--hairline);background:var(--card);">
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);letter-spacing:.08em;margin-bottom:12px;">FREE \u00b7 PROOF-OF-WORK</div>
         <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:6px;">
           <span style="font-family:var(--font-body);font-weight:900;font-size:56px;letter-spacing:-.03em;">$0.00</span>
@@ -114,7 +114,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">// from-price by category</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 22px;">What each call costs.</h2>
-    <div style="border:1.5px solid var(--ink);background:var(--card);font-family:var(--font-mono);font-size:14px;">
+    <div style="border:1px solid var(--hairline);background:var(--card);font-family:var(--font-mono);font-size:14px;">
       ${receiptRows.map((r, i) => receiptRow(r[0], r[1], i === receiptRows.length - 1)).join("\n      ")}
     </div>
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:12px;">live machine-readable prices: GET /api/pricing \u00b7 GET /openapi.json</div>
@@ -125,7 +125,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">// POST /v1/*</div>
     <h2 style="font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 12px;">The /v1 LLM gateway.</h2>
     <p style="font-size:15px;line-height:1.55;color:var(--muted);max-width:640px;margin:0 0 22px;">Point any OpenAI SDK at <code>base_url https://agent402.tools/v1</code> - same wallet-is-the-identity model as every other tool, no API key, no signup. Omit the model on the auto tier and the gateway picks one for the prompt.</p>
-    <div style="border:1.5px solid var(--ink);background:var(--card);font-family:var(--font-mono);font-size:14px;">
+    <div style="border:1px solid var(--hairline);background:var(--card);font-family:var(--font-mono);font-size:14px;">
       ${gatewayRows.map((r, i) => receiptRow(r[0], r[1], i === gatewayRows.length - 1)).join("\n      ")}
     </div>
     <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-top:12px;">full wire format: <a href="/docs#gateway" style="color:var(--faint);">/docs</a></div>
@@ -133,7 +133,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
 
   <!-- TOKEN MATH NOTE -->
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 0;">
-    <div class="ml-token-math" style="border:1.5px solid var(--ink);background:var(--card);padding:28px 30px;display:grid;grid-template-columns:1fr 1fr;gap:30px;">
+    <div class="ml-token-math" style="border:1px solid var(--hairline);background:var(--card);padding:28px 30px;display:grid;grid-template-columns:1fr 1fr;gap:30px;">
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;color:var(--accent);letter-spacing:.1em;margin-bottom:10px;">WHY IT'S CHEAP</div>
         <h3 style="font-family:var(--font-body);font-weight:800;font-size:24px;letter-spacing:-.02em;margin:0 0 8px;">Beat the token math.</h3>
@@ -148,7 +148,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
 
   <!-- CTA -->
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 64px;">
-    <div style="border:1.5px solid var(--ink);background:var(--surface);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
+    <div style="border:1px solid var(--hairline);background:var(--surface);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--on-dark);">Start on the free tier. No wallet.</h2>
       <div style="display:flex;gap:11px;">
         <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART \u2192</a>

@@ -5,12 +5,13 @@
 // Composes gateway primitives in-process (never loopback HTTP to our own paid
 // routes): fetchOpenRouter for plan/search/synthesis, OpenRouter's `web` (Exa)
 // plugin for grounding, and the cohere/rerank-v3.5 router for relevance.
-// Upstream token cost is small against the price; the pipeline shape is FIXED
-// per tier and a per-tier upstream cap is the circuit breaker, so no input can
-// blow the margin. NOT deterministic (LLM + live web) → WALLET_ONLY, lenient
+// The pipeline shape is FIXED per tier and a per-tier upstream cap is the
+// circuit breaker, so no input can blow the per-call cost bound. NOT
+// deterministic (LLM + live web) → WALLET_ONLY, lenient
 // NETWORK test set, never cached (the web moves). Gated on OPENROUTER_API_KEY
 // (503 without it), independent of Stripe keys.
 import { fetchOpenRouter, throwUpstreamError, RERANK_MODEL, bad, upstreamUserId } from "./llm-gateway-kit.js";
+import { recordCompositeUsage } from "../composite-spend-guard.js";
 
 // Per-buyer OpenRouter `user` id, so one abusive buyer can't get our whole
 // account provider-blocked (matches every gateway tier). Never throws.
@@ -37,11 +38,10 @@ const M = {
 // none of this budget is spent retyping URLs.
 // ALL tiers synthesize with Opus (synthPrem). A 10-query eval (fair Opus judge +
 // deterministic grounding audit) showed Opus beats Sonnet on every dimension for
-// this task - citation-quality 8.11->8.50 (the metric a separate verification
-// pass could NOT move), depth 7.78->8.00 (min=max=8), would_pay 7.78->7.90, 0
-// fabricated numbers. On the $5 tier Opus is ~$0.55-0.65 upstream (~87% margin,
-// well under maxUpstreamUsd), so the entry product is top-quality too. Tiers
-// differentiate by research breadth (searches/sources/length), not model.
+// this task - citation quality, depth, would-pay, and zero fabricated numbers -
+// and the fixed per-tier upstream cap keeps it well bounded, so the entry
+// product is top-quality too. Tiers differentiate by research breadth
+// (searches/sources/length), not model.
 export const RESEARCH_TIERS = {
   "research": { price: "$5", maxUpstreamUsd: 1.5, subQ: 3, searches: 3, topK: 15, synth: M.synthPrem, synthMaxTokens: 5000, words: "~1,500" },
   "research-pro": { price: "$15", maxUpstreamUsd: 4.5, subQ: 6, searches: 8, topK: 30, synth: M.synthPrem, synthMaxTokens: 7000, words: "~2,200" },
@@ -81,7 +81,7 @@ function sourcesFrom(data) {
   return out;
 }
 
-export function makeResearchHandler(tierSlug) {
+function makeResearchHandlerInner(tierSlug) {
   const t = RESEARCH_TIERS[tierSlug];
   return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"query": "…"}');
@@ -127,7 +127,11 @@ export function makeResearchHandler(tierSlug) {
     )));
     const good = results.filter(Boolean);
     for (const r of good) spent += r.cost;
-    if (!good.length) throw bad("All grounded searches failed upstream - not charged", 502);
+    // Minimum evidence: a report sold as multi-angle research must rest on a
+    // real share of its searches, not one survivor of twelve - under a third
+    // answering is an upstream incident, and a thin report is not charged.
+    const need = Math.max(1, Math.ceil(toRun.length / 3));
+    if (good.length < need) throw bad(`Only ${good.length} of ${toRun.length} grounded searches succeeded upstream - not enough evidence for this report. Not charged; please retry.`, 502);
 
     // Dedupe sources by URL across all searches.
     const byUrl = new Map();
@@ -190,6 +194,7 @@ Write a thorough, well-structured, well-organized report of up to ${t.words} wor
     // Debug seam (never in prod): expose the grounding material so an eval can
     // check that every specific in the report traces to retrieved content.
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { subAnswers: good.map((r) => ({ q: r.q, answer: r.answer })), snippets: sources.map((s) => ({ n: s.n, snippet: s.snippet })) };
+    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(RESEARCH_TIERS[tierSlug]) });
     return out;
   };
 }
@@ -216,7 +221,7 @@ const OUT_EXAMPLE = {
 export const RESEARCH_DEEP_TOOLS = [
   {
     route: "POST /v1/research", name: "Deep research report (grounded, cited)", slug: "research", category: "llm", price: RESEARCH_TIERS["research"].price,
-    description: "Hand over a whole research question and get one cited report back. The gateway plans sub-questions, runs multiple live Exa web searches, reranks the sources by relevance, and synthesizes a ~1,500-word report with inline [n] citations and a source list - one payment, one outcome. Priced per report, not per call. Payable in USDC (x402/MPP) or by card (Stripe, >= $0.50 minimum - this clears it). Not cached (the web moves).",
+    description: "Hand over a whole research question and get one cited report back. The gateway plans sub-questions, runs multiple live web searches, reranks the sources by relevance, and synthesizes a ~1,500-word report with inline [n] citations and a source list - one payment, one outcome. Priced per report, not per call. Payable in USDC (x402/MPP) or by card (Stripe, >= $0.50 minimum - this clears it). Not cached (the web moves).",
     tags: ["llm", "research", "web-search", "grounded", "citations", "deep-research", "agent", "premium"],
     discovery: { bodyType: "json", input: EXAMPLE, inputSchema: SCHEMA, output: { example: OUT_EXAMPLE } },
     handler: makeResearchHandler("research"),
@@ -236,3 +241,15 @@ export const RESEARCH_DEEP_TOOLS = [
     handler: makeResearchHandler("research-max"),
   },
 ];
+
+// Upstream-usage telemetry wrapper: a successful run records its exact spend at
+// the return site; a failed run (thrown >= 400, not charged) is recorded here
+// so the burn on failures is visible too (spend unknown at this point -> 0).
+const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
+export function makeResearchHandler(tierSlug) {
+  const run = makeResearchHandlerInner(tierSlug);
+  return async (input, req) => {
+    try { return await run(input, req); }
+    catch (e) { try { recordCompositeUsage({ slug: tierSlug, upstreamUsd: 0, ok: false, priceUsd: priceUsdOf(RESEARCH_TIERS[tierSlug]) }); } catch { /* never mask the real error */ } throw e; }
+  };
+}

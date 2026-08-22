@@ -101,6 +101,12 @@ const NETWORK = new Set([
   "/api/weather-history", "/api/weather-air-quality",
   // B20 log scans: chunked eth_getLogs against public Base RPCs — flappy in CI.
   "/api/b20-new-tokens", "/api/b20-memos",
+  // B20 eth_call tools: the SAME public-RPC egress (15s abort x 3 RPCs x 2
+  // passes in b20-kit rpc()), wallet-only in pow.js, but they were never filed
+  // here - one stalled public RPC tripped the 20s strict abort and blocked the
+  // deploy gate (2026-08-22, run 32541121323). b20-feature-id is pure CPU and
+  // stays strict.
+  "/api/b20-token-info", "/api/b20-verify", "/api/b20-activation-check",
   // CDP kit: live Coinbase Developer Platform calls, env-gated on CDP keys
   // (503 without them — the CI test env has none; scripts/test-cdp-live.js
   // covers the real calls where the secrets exist).
@@ -255,6 +261,15 @@ const NETWORK = new Set([
   // over the gateway; not deterministic (LLM + live web), 503 without
   // OPENROUTER_API_KEY. Same NETWORK tolerance as the gateway tiers.
   "/v1/research", "/v1/research/pro", "/v1/research/max",
+  // fund-report composites: SEC 13F diff + grounded search + synthesis; 503
+  // without OPENROUTER_API_KEY, same NETWORK tolerance.
+  "/v1/fund", "/v1/fund/max",
+  // domain-audit composites: live probes + synthesis; 503 without
+  // OPENROUTER_API_KEY, same NETWORK tolerance.
+  "/v1/domain-audit", "/v1/domain-audit/pro",
+  // token-risk composites: Blockscout x402 buys + synthesis; 503 without the
+  // upstream-buyer wallet / OPENROUTER_API_KEY, same NETWORK tolerance.
+  "/v1/token-risk", "/v1/token-risk/pro",
   // dossier-kit composites: EDGAR + grounded web search + synthesis, 503 without key.
   "/v1/dossier", "/v1/dossier/max",
   // Anthropic Messages wire (OpenRouter /messages upstream) - same tolerance.

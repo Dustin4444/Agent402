@@ -269,7 +269,7 @@ export function changelogPage(baseUrl) {
 .timeline::before{content:"";position:absolute;left:7px;top:0;bottom:0;width:1.5px;background:var(--hairline);}
 .tl-entry{position:relative;margin-bottom:24px;}
 .tl-dot{position:absolute;left:-28px;top:8px;width:16px;height:16px;background:var(--accent);border:3px solid var(--paper);}
-.tl-card{background:var(--card);border:1.5px solid var(--ink);padding:20px 24px;}
+.tl-card{background:var(--card);border:1px solid var(--hairline);padding:20px 24px;}
 .tl-date{display:inline-block;font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:4px;}
 .tl-card h2{font-family:var(--font-body);font-weight:800;font-size:20px;line-height:1.15;letter-spacing:-.02em;margin:4px 0 12px;color:var(--ink);}
 .tl-card ul{margin:0;padding-left:20px;color:var(--muted);font-size:15px;line-height:1.55;}

@@ -24,10 +24,16 @@ import {
   PERSISTENT as memoryPersistent,
 } from "./tools/memory.js";
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
-import { compositeGuardBlocked, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS } from "./composite-spend-guard.js";
+import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, _compositeGuardState } from "./composite-spend-guard.js";
 import Stripe from "stripe";
 import { createHumanCheckout, humanCheckoutEnabled } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
+import { createStripeSubscriptions, subscriptionsEnabled } from "./stripe-subscriptions.js";
+import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
+import { createMonitorScheduler } from "./monitor-scheduler.js";
+import { sendMonitorEmail } from "./email.js";
+import { probeDomain, normDomain } from "./tools/domain-audit-kit.js";
+import { latest13fFiling, resolveManager as edgarResolveManager } from "./tools/edgar-kit.js";
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
@@ -117,6 +123,9 @@ import { FINANCE_TOOLS } from "./tools/finance-kit.js";
 import { CRYPTO_TOOLS } from "./tools/crypto-kit.js";
 import { RESEARCH_TOOLS } from "./tools/research-kit.js";
 import { RESEARCH_DEEP_TOOLS } from "./tools/research-deep-kit.js";
+import { FUND_TOOLS } from "./tools/fund-report-kit.js";
+import { DOMAIN_AUDIT_TOOLS } from "./tools/domain-audit-kit.js";
+import { TOKEN_RISK_TOOLS } from "./tools/token-risk-kit.js";
 import { DOSSIER_TOOLS } from "./tools/dossier-kit.js";
 import { NETWORK_TOOLS } from "./tools/network-kit.js";
 import { NETWORK_TOOLS2 } from "./tools/network-kit2.js";
@@ -196,7 +205,7 @@ import { workflowsPage } from "./workflows.js";
 import { badgesPage, badgeSvg } from "./badges.js";
 import { adapterDocsIndex, adapterDocPage, ADAPTERS } from "./adapter-docs.js";
 import { webhooksPage } from "./webhooks.js";
-import { setOgImageVersion, setNavIndexProvider } from "./ledger-chrome.js";
+import { setOgImageVersion, setNavIndexProvider, ledgerShell, ledgerFooterCompact } from "./ledger-chrome.js";
 import { ledgerHomePage } from "./ledger-home.js";
 import { ledgerCatalogPage } from "./ledger-catalog.js";
 import { ledgerPricingPage } from "./ledger-pricing.js";
@@ -215,7 +224,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
@@ -1014,6 +1023,9 @@ for (const tier of EXEC_TIERS) {
 // routes. Every other tool is untouched and keeps all configured chains.
 for (const def of Object.values(CATALOG)) {
   if (isIdentityBoundRoute(def)) def.identityBound = true;
+  // Long-running composites settle AFTER a 2-4 min handler: EVM exact only
+  // (see acceptsForItem) and no Tempo challenge (see mpp-tempo).
+  if (EXPENSIVE_COMPOSITE_SLUGS.has(def.slug)) def.longRunning = true;
 }
 
 // Boot-time guard: the retired pairwise-converter 410 handler (see the
@@ -1083,6 +1095,48 @@ const PH_UPSTREAM_TIMEOUT_MS = Number(process.env.POSTHOG_PROXY_TIMEOUT_MS) || 1
 const PH_MAX_CONCURRENT = Number(process.env.POSTHOG_PROXY_MAX_CONCURRENT) || 64;
 let phInFlight = 0;
 const phProxyLimiter = createRateLimiter("posthog-proxy", { perMin: PH_MAX_PER_MIN, perHour: PH_MAX_PER_MIN * 30 });
+// Per-IP limiter for the unauthenticated Stripe-session-creating endpoints
+// (/api/buy, /api/subscribe) - each makes an outbound Stripe API call, so cap
+// the amplification a spammer can drive.
+const checkoutLimiter = createRateLimiter("checkout", { perMin: 20, perHour: 120 });
+// Per-IP limiter for the unauthenticated Stripe-READING routes (/api/r/:id poll,
+// /api/monitors/confirm, /monitors/manage): an unknown id costs a Stripe
+// retrieve (and manage a portal write), so a scanner could push our key into
+// Stripe's rate limit. A legitimate report poll is ~20/min.
+const sessionReadLimiter = createRateLimiter("session-read", { perMin: 90, perHour: 1500 });
+const clientIp = (req) => (req.ip || req.socket?.remoteAddress || "?").trim();
+// Recurring subscriptions engine (Phase 2). Initialized EARLY so the Stripe
+// webhook route can mount with a RAW body parser BEFORE the global express.json()
+// below - webhook signature verification needs the unparsed body.
+let _subs = null;
+try {
+  _subs = subscriptionsEnabled() ? createStripeSubscriptions({
+    stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
+    // Validate targets BEFORE the recurring charge: a domain must parse; a fund
+    // manager must resolve on EDGAR (the resolved registered name is stored).
+    validateTarget: {
+      domain: (t) => normDomain({ domain: t }),
+      fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
+    },
+    onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
+  }) : null;
+} catch (e) { console.warn("[monitors] subscriptions init failed:", String(e?.message || e).slice(0, 200)); _subs = null; }
+// Manage/cancel bearer for monitor subscribers: a keyed token over the report
+// id, carried ONLY in the subscriber's email - never in the report JSON or on
+// the report page, which subscribers are told to share. Derived from the
+// Stripe key so it needs no new secret; rotating the key invalidates links.
+const _manageToken = (reportId) => createHmac("sha256", `${(process.env.STRIPE_SECRET_KEY || "").trim()}:monitor-manage`).update(String(reportId)).digest("base64url").slice(0, 32);
+const _manageTokenOk = (reportId, k) => {
+  const want = Buffer.from(_manageToken(reportId)), got = Buffer.from(String(k || ""));
+  return want.length === got.length && timingSafeEqual(want, got);
+};
+if (_subs) {
+  app.post("/api/stripe/webhook", express.raw({ type: "application/json", limit: "1mb" }), async (req, res) => {
+    try { res.json(await _subs.handleWebhook(req.body, req.headers["stripe-signature"])); }
+    catch (e) { res.status(e?.statusCode || 400).json({ error: String(e?.message || e).slice(0, 200) }); }
+  });
+}
+
 app.all(/^\/e\/(.*)$/, express.raw({ type: () => true, limit: "2mb" }), async (req, res) => {
   if (!PH_METHODS.has(req.method)) return res.status(405).end();
   const ip = (req.ip || req.socket.remoteAddress || "?").trim();
@@ -1556,31 +1610,177 @@ app.get("/revenue", async (_req, res) => {
 // report is NEVER generated without a verified-paid Stripe session, generation
 // is generate-once per session, and a failed report auto-refunds the card
 // (see src/human-checkout.js + test-human-checkout.js).
-if (humanCheckoutEnabled()) {
-  const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS].map((t) => [t.slug, t.handler]));
-  const _humanGenerate = async (kind, slug, input) => {
+// The premium report pipeline shared by the human checkout (one-shot) and the
+// monitor scheduler (recurring): slug -> the SAME handler agents buy over x402.
+// `input` is a string (wrapped per kind) or an object passed straight through
+// (the scheduler pins a resolved CIK for fund monitors that way).
+const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS].map((t) => [t.slug, t.handler]));
+const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     const h = _premiumHandlers[slug];
     if (!h) throw new Error("no handler for " + slug);
-    const out = await h(kind === "dossier" ? { ticker: input } : { query: input });
+    const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }) };
+    const arg = (input && typeof input === "object") ? input : (argOf[kind] || argOf.research)(input);
+    // A minimal request-shaped context so upstreamUserId() scopes OpenRouter's
+    // per-user provider policy to THIS buyer (session / subscription), instead
+    // of every card buyer sharing one anonymous bucket.
+    const key = String(ctx?.buyerKey || "human:anonymous");
+    const pseudoReq = { header: (n) => (String(n).toLowerCase() === "authorization" ? key : undefined), headers: { authorization: key } };
+    const out = await h(arg, pseudoReq);
     const report = out?.dossier || out?.report;
     if (!report) throw new Error("empty report");
-    return report;
-  };
+    // Deliver a BUNDLE, not just prose: the report plus the structured data
+    // appendix (sources always; financials + insider tables on dossiers, holdings
+    // + changes on fund reports, checks + headers on domain audits).
+    const fallbackTitle = typeof input === "string" ? input : (input?.manager || input?.cik || input?.domain || input?.ticker || input?.query || "");
+    const titleOf = { dossier: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), fund: () => out?.manager || fallbackTitle, domain: () => out?.domain || fallbackTitle };
+    return {
+      report,
+      kind,
+      title: (titleOf[kind] || (() => fallbackTitle))(),
+      sources: Array.isArray(out?.sources) ? out.sources : [],
+      tables: Array.isArray(out?.tables) ? out.tables : [],
+    };
+};
+// The storefront PAGES are always served (they are linked from the nav and
+// footer on every page); the Stripe-backed routes behind them (/api/buy,
+// /api/subscribe, /api/r/:id, confirm/manage) mount only with
+// STRIPE_SECRET_KEY. Without it a buy click gets a clear 503 from the API.
+app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
+app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
+app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
+if (!humanCheckoutEnabled()) {
+  app.post("/api/buy", (_req, res) => res.status(503).json({ error: "Card checkout is not configured on this server." }));
+  app.post("/api/subscribe", (_req, res) => res.status(503).json({ error: "Subscriptions are not configured on this server." }));
+}
+if (humanCheckoutEnabled()) {
   let _humanCheckout;
-  try { _humanCheckout = createHumanCheckout({ stripe: new Stripe(process.env.STRIPE_SECRET_KEY), generate: _humanGenerate, baseUrl: BASE_URL }); } catch { _humanCheckout = null; }
-  if (_humanCheckout) {
-    app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
-    app.post("/api/buy", async (req, res) => {
-      try { res.json({ url: (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url }); }
-      catch (e) { res.status(e?.statusCode || 500).json({ error: String(e?.message || e).slice(0, 200) }); }
+  try {
+    _humanCheckout = createHumanCheckout({
+      stripe: new Stripe(process.env.STRIPE_SECRET_KEY), generate: _humanGenerate, baseUrl: BASE_URL,
+      // Card sales land in the SAME sales ledger as x402 settlements (rail
+      // "card", network "stripe", the PaymentIntent as tx) so /revenue and the
+      // operator surfaces see the human front door.
+      onSale: ({ product, priceUsd, paymentIntent }) => recordSale({ slug: product, priceUsd, rail: "card", network: "stripe", payer: null, tx: paymentIntent, wire: "stripe-checkout" }),
     });
-    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""))));
+  } catch (e) { console.warn("[human-checkout] init failed:", String(e?.message || e).slice(0, 200)); _humanCheckout = null; }
+  if (_humanCheckout) {
+    // Abandoned claims from a previous process (deploy mid-generation) are
+    // re-driven shortly after boot - the buyer may have closed the tab.
+    const _sweep = setTimeout(() => { _humanCheckout.recoverAbandoned().catch(() => {}); }, 45_000);
+    _sweep.unref?.();
+    app.get("/__operator/human-checkout.json", (req, res) => {
+      if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+      res.set("Cache-Control", "no-store").json({ ...(_humanCheckout.listIssues()), compositeGuard: _compositeGuardState() });
+    });
+    app.post("/api/buy", async (req, res) => {
+      if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+      try { res.json({ url: (await _humanCheckout.createSession(req.body?.product, req.body?.input)).url }); }
+      catch (e) {
+        // Our own 4xx messages are safe to show; a Stripe/SDK error is logged
+        // and answered generically (its text can echo key mode/request detail).
+        if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+        console.warn("[human-checkout] createSession failed:", String(e?.message || e).slice(0, 200));
+        res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
+      }
+    });
+    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL })));
     app.get("/api/r/:sessionId", async (req, res) => {
+      if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
       try { res.set("Cache-Control", "no-store").json(await _humanCheckout.fulfill(String(req.params.sessionId || ""))); }
       catch (e) { res.status(500).json({ status: "error", error: String(e?.message || e).slice(0, 200) }); }
     });
   }
 }
+// Monitoring subscriptions (Phase 2) - JSON routes + pages. The webhook is
+// mounted EARLY (raw body) above. Provisioning is belt-and-suspenders: the
+// confirm route records the sub from the paid session; the webhook keeps the
+// lifecycle (renewals/cancellations) in sync.
+if (_subs) {
+  app.post("/api/subscribe", async (req, res) => {
+    if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    try { res.json({ url: (await _subs.createCheckout(req.body?.product, req.body?.target)).url }); }
+    catch (e) {
+      if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+      console.warn("[monitors] createCheckout failed:", String(e?.message || e).slice(0, 200));
+      res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
+    }
+  });
+  app.get("/api/monitors/confirm", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
+    try {
+      const r = await _subs.recordFromSession(String(req.query.session || ""));
+      // Do NOT mint a billing portal on the auto-poll (a portal can view invoices
+      // + payment method and cancel). The manage link mints it on explicit click.
+      res.json({ status: r.status, label: r.label, target: r.target });
+    } catch (e) { console.warn("[monitors] confirm failed:", String(e?.message || e).slice(0, 200)); res.status(500).json({ status: "error", error: "Could not confirm the subscription right now." }); }
+  });
+  // Explicit manage/cancel: mint the Stripe Customer Portal at click time, then
+  // redirect. (The session id is the buyer's bearer for this purchase.)
+  // Two bearers reach the portal: the checkout session id (the thanks page) or
+  // a delivered report id PLUS its keyed manage token `k` (the subscriber's
+  // email only). The bare report id is deliberately NOT enough: subscribers are
+  // told to share report links, and the portal shows card/billing details.
+  app.get("/monitors/manage", async (req, res) => {
+    if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).type("text").send("Too many requests");
+    try {
+      let customer = null;
+      if (req.query.report && _monitors) {
+        const reportId = String(req.query.report || "");
+        if (!_manageTokenOk(reportId, req.query.k)) return res.redirect("/monitors");
+        const subId = _monitors.subIdOfReport(reportId);
+        const rec = subId ? _subs.get(subId) : null;
+        if (rec?.customer) customer = rec.customer;
+      } else {
+        const r = await _subs.recordFromSession(String(req.query.session || ""));
+        if (r.status === "active" && r.customer) customer = r.customer;
+      }
+      if (!customer) return res.redirect("/monitors");
+      const { url } = await _subs.portalSession(customer);
+      res.redirect(url);
+    } catch { res.redirect("/monitors"); }
+  });
+  // Delivered monitor reports: same page + viewer as one-shot reports, served
+  // from the scheduler's store (no Stripe session - the report id is the bearer).
+  app.get("/m/:reportId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.reportId || ""), { api: "/api/m/", waitCopy: "Loading your monitor report.", baseUrl: BASE_URL })));
+  app.get("/api/m/:reportId", (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const id = String(req.params.reportId || "");
+    const v = _monitors && /^[A-Za-z0-9_-]{10,64}$/.test(id) ? _monitors.reportView(id) : null;
+    res.json(v || { status: "not_found" });
+  });
+}
+// Monitor scheduler (Phase 2b): the recurring fulfilment engine. Runs only when
+// subscriptions are enabled (Stripe key) - it reuses the premium pipeline.
+let _monitors = null;
+if (_subs) {
+  try {
+    _monitors = createMonitorScheduler({
+      subs: _subs, generate: _humanGenerate, probeDomain, normDomain,
+      latestFiling: latest13fFiling, resolveManager: edgarResolveManager,
+      notify: sendMonitorEmail, baseUrl: BASE_URL,
+      manageUrlFor: (reportId) => `${BASE_URL}/monitors/manage?report=${encodeURIComponent(reportId)}&k=${_manageToken(reportId)}`,
+      refreshStatus: (subId) => _subs.refreshStatus(subId),
+    });
+  } catch (e) { console.warn("[monitors] scheduler failed to initialize:", String(e?.message || e)); _monitors = null; }
+}
+app.get("/__operator/monitors.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(_monitors ? _monitors.status() : { enabled: false });
+});
+// Manual tick (all due subs, or ?sub=<id> with force): paid re-runs + email, so
+// it takes the heavy-route limiter like the other upstream-reaching operator
+// routes. Fire-and-report.
+app.post("/__operator/monitors/run", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  if (!_monitors) return res.status(503).json({ error: "monitor scheduler not enabled" });
+  const subId = req.query.sub ? String(req.query.sub) : null;
+  _monitors.tick({ force: !!subId || req.query.force === "1", subId }).then(
+    (r) => res.json(r),
+    (e) => res.status(500).json({ error: String(e?.message || e).slice(0, 200) })
+  );
+});
 // Sales ledger — AGGREGATE beacon: totals, the recording window, and counts.
 // Deliberately carries no per-call rows, no payer addresses, and no per-tool
 // ranking (see salesSummary's contract in src/sales-ledger.js for why each of
@@ -3407,7 +3607,7 @@ const fontB64 = (f) => readFileSync(new URL(`../assets/fonts/${f}`, import.meta.
 // render-blocking third-party Google Fonts stylesheet (worth ~1.9s of mobile
 // render-block + a cross-origin request chain) and gives repeat visits a free
 // cache hit. Filenames are strictly validated — no path traversal.
-const FONT_FILE_RE = /^(archivo|spacemono)-(400|500|600|700|800|900)\.woff2$/;
+const FONT_FILE_RE = /^((archivo|spacemono)-(400|500|600|700|800|900)|(geist|geist-mono)-(300|400|500|600|700)-(latin|latin-ext))\.woff2$/;
 app.get("/fonts/:file", (req, res) => {
   const file = String(req.params.file || "");
   if (!FONT_FILE_RE.test(file)) return res.status(404).end();
@@ -4009,7 +4209,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def) };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) };
     },
   });
   if (tempoAppender) app.use(tempoAppender);
@@ -4025,7 +4225,7 @@ if (!FREE_MODE) {
       if (!def) return null;
       const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
       if (!priceUsd) return null;
-      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def) };
+      return { priceUsd, description: def.name, identityBound: isIdentityBoundRoute(def), longRunning: EXPENSIVE_COMPOSITE_SLUGS.has(def.slug) };
     },
   });
   if (stripeAppender) app.use(stripeAppender);
@@ -4974,19 +5174,30 @@ for (const tool of ALL_KIT) {
       // a paid 200 clears it). Registered before the handler so it fires even if
       // the handler throws. Same doctrine as the external-spend guard below.
       if (EXPENSIVE_COMPOSITE_SLUGS.has(tool.slug)) {
-        if (payer && compositeGuardBlocked(payer)) {
-          const e = new Error("This wallet has too many recent failed settlements on this route; blocked briefly to prevent upstream abuse. A successful payment clears it.");
+        // Guard key: the signed EVM payer when present; otherwise the Tempo
+        // payer the gate verified, or the client IP (card/SPT buyers and any
+        // rail whose payer is only known post-settlement) - nobody is unkeyed.
+        const guardKey = payer || (req.mppTempoPayer ? `tempo:${req.mppTempoPayer}` : `ip:${clientIp(req)}`);
+        if (compositeGuardGlobalPaused()) {
+          const e = new Error("Premium report generation is briefly paused after a burst of unsettled runs; please retry in a few minutes. Not charged.");
+          e.statusCode = 503;
+          throw e;
+        }
+        if (compositeGuardBlocked(guardKey)) {
+          const e = new Error("Too many recent failed settlements on this route from this buyer; blocked briefly to prevent upstream abuse. A successful payment clears it.");
           e.statusCode = 429;
           throw e;
         }
         res.on("finish", () => {
           try {
-            // A settled 200 clears the payer; any non-200 (a settlement failure
-            // rewrites to 402, an empty-synthesis to 502) counts as a spend-then-
-            // fail. A wallet that repeatedly fails to settle IS the drain vector,
-            // whether malicious or a broken wallet - blocking it is correct.
-            if (res.statusCode === 200) recordCompositeSpendSuccess(payer);
-            else recordCompositeSpendFailure(payer);
+            // A settled 200 clears the key. A spend-then-fail is a 402 (the
+            // settlement-failure rewrite) or a 5xx AFTER the run (empty
+            // synthesis, upstream outage): both burned upstream with no revenue.
+            // A 4xx input/evidence error happens before meaningful spend and is
+            // NOT counted - three typos must not block a legitimate buyer.
+            const st = res.statusCode;
+            if (st === 200) recordCompositeSpendSuccess(guardKey);
+            else if (st === 402 || st >= 500) recordCompositeSpendFailure(guardKey);
           } catch { /* never break a response */ }
         });
       }
@@ -5133,6 +5344,25 @@ app.use((req, res, next) => {
 // routes (anything starting with /api or /__operator) return a small JSON
 // error; for HTML routes return a tiny page. Never expose `err.stack` to the
 // network. Has to be defined after every other route + middleware.
+// Unknown route: a branded 404 (the shell) for HTML, the same JSON shape the
+// error handler uses for /api + /__operator. Registered after every route
+// and before the error handler. Status stays 404 so route-existence probes
+// (test-mcp-self-consistency's live GET oracle) are unaffected.
+app.use((req, res) => {
+  const wantsJson = req.path.startsWith("/api") || req.path.startsWith("/__operator") || req.accepts(["html", "json"]) === "json";
+  if (wantsJson) return res.status(404).json({ ok: false, error: "not-found" });
+  const body = `<div style="max-width:640px;margin:0 auto;padding:96px 26px 80px;text-align:center;">
+      <div style="font-family:var(--font-mono);font-weight:500;font-size:72px;line-height:1;letter-spacing:-.03em;color:var(--ink);margin-bottom:14px;">404</div>
+      <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Page not found</h1>
+      <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">The page you're looking for doesn't exist.</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <a href="/" style="display:inline-block;padding:11px 18px;background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+        <a href="/tools" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Browse tools</a>
+        <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
+      </div>
+    </div>${ledgerFooterCompact()}`;
+  res.status(404).type("html").send(ledgerShell({ title: "Page not found - Agent402", description: "Page not found", canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", body }));
+});
 app.use((err, req, res, _next) => {
   if (res.headersSent) return; // already started streaming — let it go
   const status = err && typeof err.statusCode === "number" ? err.statusCode
@@ -5155,7 +5385,18 @@ app.use((err, req, res, _next) => {
     const is404 = status === 404;
     const t = is404 ? "Page not found" : `Error ${status}`;
     const m = is404 ? "The page you\u2019re looking for doesn\u2019t exist." : "Something went wrong. Try again in a moment.";
-    res.status(status).type("html").send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${CHROME_HEAD_LINKS}<title>${t} - Agent402</title><style>${CHROME_CSS}:root{--bg:#0b0e14;--text:#e6e9f0;--muted:#8b93a7;--accent:#4ade80;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,sans-serif}.e{max-width:600px;margin:0 auto;padding:80px 20px;text-align:center}.e .code{font:700 5rem/1 var(--mono);color:var(--accent);text-shadow:0 0 30px rgba(74,222,128,.3);margin-bottom:16px}.e h1{font-size:1.5rem;margin:0 0 12px}.e p{color:var(--muted);margin:0 0 28px}.e a.btn{display:inline-block;padding:10px 20px;background:var(--accent);color:#06210f;border-radius:10px;text-decoration:none;font-weight:600;margin:0 6px}.e a.ghost{background:transparent;border:1px solid #2a3550;color:var(--text)}.e a.ghost:hover{border-color:var(--accent)}.e .links{margin-top:32px;color:var(--muted);font-size:.9rem}.e .links a{color:var(--accent);margin:0 8px}</style></head><body>${renderHeader("")}<div class="e"><div class="code">${status}</div><h1>${t}</h1><p>${m}</p><a class="btn" href="/">Home</a><a class="btn ghost" href="/tools">Browse tools</a><a class="btn ghost" href="/api/find">Find a tool</a><div class="links">or try: <a href="/playground">Playground</a><a href="/docs">Docs</a><a href="/quickstart">Quickstart</a></div></div>${renderFooter()}</body></html>`);
+    const errBody = `<div style="max-width:640px;margin:0 auto;padding:96px 26px 80px;text-align:center;">
+      <div style="font-family:var(--font-mono);font-weight:500;font-size:72px;line-height:1;letter-spacing:-.03em;color:var(--ink);margin-bottom:14px;">${status}</div>
+      <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">${t}</h1>
+      <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">${m}</p>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+        <a href="/" style="display:inline-block;padding:11px 18px;background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+        <a href="/tools" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Browse tools</a>
+        <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
+      </div>
+      <div style="margin-top:30px;color:var(--faint);font-size:13.5px;font-family:var(--font-mono);">or try: <a href="/playground" style="color:var(--ink);">playground</a> · <a href="/docs" style="color:var(--ink);">docs</a> · <a href="/quickstart" style="color:var(--ink);">quickstart</a></div>
+    </div>${ledgerFooterCompact()}`;
+    res.status(status).type("html").send(ledgerShell({ title: `${t} - Agent402`, description: t, canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", body: errBody }));
   }
 });
 
@@ -5248,6 +5489,10 @@ if (String(process.env.MPP_INDEX_CRAWL || "").toLowerCase() === "off") {
 // Nightly offsite backup of /data (src/backup.js). No-op without the
 // BACKUP_S3_* creds; the timer is unref'd so it never holds the process.
 startBackupScheduler();
+
+// Monitor scheduler timer (recurring report fulfilment). MONITOR_SCHEDULER=off
+// keeps the manual operator run available while disarming the timer.
+if (_monitors && process.env.MONITOR_SCHEDULER !== "off") _monitors.start();
 
 // Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot serves
 // stale-while-revalidating, so the only request that could ever block on the

@@ -131,7 +131,7 @@ export function glossaryPage(baseUrl) {
   }).join("");
 
   const body = `
-<header style="border-bottom:1.5px solid var(--ink);">
+<header style="border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:52px 30px 44px;">
     <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:22px;">
       <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <a href="/agentic-finance" style="color:var(--muted);text-decoration:none;">agentic finance (aifi)</a> / <span style="color:var(--ink);">glossary</span>
@@ -142,7 +142,7 @@ export function glossaryPage(baseUrl) {
         <p style="font-size:19px;line-height:1.5;color:var(--on-dark2);margin:0 0 20px;"><strong style="color:var(--ink);font-weight:700;">Every term the agentic-finance stack uses, defined once.</strong> From the HTTP status code that started it to the facilitators, receipts and routers built on top. Each entry links to the page that goes deep, and each has its own anchor so any page can point at a definition instead of restating it.</p>
         <p style="font-size:16px;line-height:1.6;color:var(--muted);margin:0;">Start with <a href="/agentic-finance" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">what Agentic Finance (AIFI) is</a>, then the two wires: <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">x402</a> and <a href="/what-is-mpp" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">MPP</a>.</p>
       </div>
-      <div style="border:1.5px solid var(--ink);background:var(--card);padding:16px 18px 12px;">
+      <div style="border:1px solid var(--hairline);background:var(--card);padding:16px 18px 12px;">
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--faint);margin-bottom:12px;">${GLOSSARY.length} TERMS</div>
         <div class="gl-index">${indexHtml}</div>
       </div>
@@ -151,11 +151,11 @@ export function glossaryPage(baseUrl) {
 </header>
 
 <section style="max-width:1180px;margin:0 auto;padding:48px 30px 0;">
-  <div style="border:1.5px solid var(--ink);background:var(--paper);">${termsHtml}</div>
+  <div style="border:1px solid var(--hairline);background:var(--paper);">${termsHtml}</div>
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:56px 30px 56px;">
-  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:52px 44px;position:relative;overflow:hidden;">
+  <div style="background:var(--surface);border:1px solid var(--hairline);padding:52px 44px;position:relative;overflow:hidden;">
     <div style="position:absolute;right:26px;top:-36px;font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
     <div style="position:relative;">
       <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Now see it settle.</h2>

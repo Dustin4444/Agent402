@@ -37,10 +37,11 @@ try {
     await input.focus();
     const after = await borderTarget.evaluate((el) => getComputedStyle(el).borderColor);
     ok(before !== after, `${c.label}: border color visibly changes on focus (${before} -> ${after})`);
-    // The accent color is #F0522E = rgb(240, 82, 46) - confirm it's THAT
-    // color specifically, not just "some change" (e.g. an unrelated hover
-    // rule coincidentally firing).
-    ok(after === "rgb(240, 82, 46)", `${c.label}: focused border is the accent color specifically (got ${after})`);
+    // Confirm it's the ACCENT token specifically (read live from :root, so a
+    // palette change cannot desync this test), not just "some change" (e.g. an
+    // unrelated hover rule coincidentally firing).
+    const accent = await page.evaluate(() => { const d = document.createElement("div"); d.style.color = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim(); document.body.appendChild(d); const c = getComputedStyle(d).color; d.remove(); return c; });
+    ok(after === accent, `${c.label}: focused border is the accent color specifically (got ${after}, accent ${accent})`);
   }
 } finally {
   await browser.close();

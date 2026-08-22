@@ -21,12 +21,14 @@ const base = `http://localhost:${PORT}`;
 // this test is timing, on a shared CI runner already hosting other spawned
 // servers. Slower boot, noisier neighbours, no coverage gained.
 let childLog = "";
+const T_SPAWN = Date.now();
 const child = spawn(process.execPath, ["src/server.js"], {
   env: { ...process.env, FREE_MODE: "true", PORT: String(PORT), X402_SYNC_ON_START: "false", X402_INDEX_CRAWL: "off" },
   stdio: ["ignore", "pipe", "pipe"],
 });
-child.stdout.on("data", (d) => { childLog += d; });
-child.stderr.on("data", (d) => { childLog += d; });
+const stamp = (d) => String(d).split(/\r?\n/).filter(Boolean).map((l) => `[+${((Date.now() - T_SPAWN) / 1000).toFixed(1)}s] ${l}`).join("\n") + "\n";
+child.stdout.on("data", (d) => { childLog += stamp(d); });
+child.stderr.on("data", (d) => { childLog += stamp(d); });
 let exited = null;
 child.on("exit", (code, signal) => { exited = `exit=${code} signal=${signal}`; });
 const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.exit(code); };
@@ -35,7 +37,21 @@ const done = (code) => { try { child.kill("SIGKILL"); } catch { /* */ } process.
   let up = false;
   // 60s, not 20s: the budget has to cover a cold boot on a loaded runner, and
   // the old one was tight enough that ordinary contention read as a failure.
-  for (let i = 0; i < 240; i++) { try { if ((await fetch(`${base}/health`)).ok) { up = true; break; } } catch { /* */ } await wait(250); }
+  // Keep the LAST /health outcome: a 503 (health check false), a non-2xx, and
+  // "connection refused" are different failures, and the old loop discarded
+  // which one it saw - a run failed here once with the server log reading
+  // "listening" and nothing to say whether /health answered 503 or nothing.
+  let last = "no attempt";
+  const t0 = Date.now();
+  for (let i = 0; i < 240; i++) {
+    try {
+      const r = await fetch(`${base}/health`);
+      if (r.ok) { up = true; break; }
+      last = `HTTP ${r.status} ${(await r.text()).slice(0, 200)}`;
+    } catch (e) { last = `fetch error: ${String(e?.cause?.code || e?.message || e).slice(0, 120)}`; }
+    await wait(250);
+  }
+  if (!up) console.error(`--- last /health outcome after ${Math.round((Date.now() - t0) / 1000)}s: ${last} ---`);
   ok(up, `server booted${up ? "" : ` on :${PORT}`}`);
   if (!up) {
     console.error(`--- server never answered /health on :${PORT} (${exited || "still running"}) ---`);

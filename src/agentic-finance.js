@@ -74,7 +74,7 @@ export function agenticFinancePage(baseUrl) {
   ).join("");
 
   const body = `
-<header style="border-bottom:1.5px solid var(--ink);">
+<header style="border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:52px 30px 44px;">
     <nav aria-label="Breadcrumb" style="font-family:var(--font-mono);font-size:12px;color:var(--faint);margin-bottom:22px;">
       <a href="/" style="color:var(--muted);text-decoration:none;">agent402</a> / <span style="color:var(--ink);">agentic finance (aifi)</span>
@@ -85,7 +85,7 @@ export function agenticFinancePage(baseUrl) {
         <p id="definition" style="font-size:19px;line-height:1.5;color:var(--on-dark2);margin:0 0 20px;"><strong style="color:var(--ink);font-weight:700;">Agentic Finance is software agents transacting on their own:</strong> discovering a service, reading a machine-readable price, paying per request from a non-custodial wallet over open protocols like <a href="/what-is-x402" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">x402</a> and <a href="/what-is-mpp" style="color:var(--ink);text-decoration:none;border-bottom:1px solid var(--accent);">MPP</a>, receiving a verifiable receipt, and, on the other side, earning per request for what they serve.</p>
         <p style="font-size:16px;line-height:1.6;color:var(--muted);margin:0;">No accounts, no API keys, no invoices. The payment is the identity and every settlement is on a public ledger. <strong style="color:var(--ink);">Agent402 is the applied layer of agentic finance</strong>: the tools agents buy, the index and router that find and pay the best seller, the tollbooth that lets any site earn from agents, and the transparency that proves it all on chain.</p>
       </div>
-      <div style="border:1.5px solid var(--ink);background:var(--surface);">
+      <div style="border:1px solid var(--hairline);background:var(--surface);">
         <div style="padding:12px 18px;border-bottom:1px solid var(--dark-border2);font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;color:var(--dk-muted);">ON THIS PAGE</div>
         <div style="display:flex;flex-direction:column;">${tocHtml}</div>
       </div>
@@ -97,10 +97,10 @@ export function agenticFinancePage(baseUrl) {
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">01 / THE STACK</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--ink);">Four layers, top to bottom.</h2>
   <p style="font-size:17px;line-height:1.65;color:var(--muted);max-width:820px;margin:0 0 30px;">Agentic payments are the wire. Agentic finance is what forms on top of it once thousands of agents and sellers are transacting: price discovery, routing between competing sellers, reliability signals, spend controls, receipts and transparent revenue. The middle two layers are where the leverage is.</p>
-  <div style="border:1.5px solid var(--ink);background:var(--card);">${stackHtml}</div>
+  <div style="border:1px solid var(--hairline);background:var(--card);">${stackHtml}</div>
 </section>
 
-<section id="agent402" style="background:var(--surface);margin-top:64px;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);">
+<section id="agent402" style="background:var(--surface);margin-top:64px;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);">
   <div style="max-width:1180px;margin:0 auto;padding:56px 30px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">02 / THE APPLIED LAYER</div>
     <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 20px;color:var(--on-dark);">Where Agent402 sits.</h2>
@@ -118,11 +118,11 @@ export function agenticFinancePage(baseUrl) {
 <section id="faq" style="max-width:900px;margin:0 auto;padding:64px 30px 0;">
   <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:12px;">04 / QUESTIONS</div>
   <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 30px;color:var(--ink);">Questions people and agents ask about agentic finance.</h2>
-  <div style="display:flex;flex-direction:column;gap:0;border-top:1.5px solid var(--ink);">${faqHtml}</div>
+  <div style="display:flex;flex-direction:column;gap:0;border-top:1px solid var(--hairline);">${faqHtml}</div>
 </section>
 
 <section style="max-width:1180px;margin:0 auto;padding:56px 30px 56px;">
-  <div style="background:var(--surface);border:1.5px solid var(--ink);padding:52px 44px;position:relative;overflow:hidden;">
+  <div style="background:var(--surface);border:1px solid var(--hairline);padding:52px 44px;position:relative;overflow:hidden;">
     <div style="position:absolute;right:26px;top:-36px;font-weight:900;font-size:220px;line-height:1;color:transparent;-webkit-text-stroke:2px #ffffff10;pointer-events:none;">402</div>
     <div style="position:relative;">
       <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Take part in agentic finance.</h2>

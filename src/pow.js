@@ -264,6 +264,15 @@ export const WALLET_ONLY_SLUGS = new Set([
   // to multiple metered gateway calls (grounded search + rerank + synthesis),
   // so they cost real upstream money and are never free-tier/PoW-eligible.
   "research", "research-pro", "research-max",
+  // fund-report composites (src/tools/fund-report-kit.js) — SEC 13F diff +
+  // grounded search + Opus synthesis; metered upstream, never PoW-eligible.
+  "fund-report", "fund-report-max",
+  // domain-audit composites (src/tools/domain-audit-kit.js) — live network
+  // probes (egress) + Opus synthesis; egressing + metered, never PoW-eligible.
+  "domain-audit", "domain-audit-pro",
+  // token-risk composites (src/tools/token-risk-kit.js) — buy Blockscout token/
+  // holder data over x402 (upstream spend) + Opus synthesis; never PoW-eligible.
+  "token-risk", "token-risk-pro",
   // dossier-kit: company due-diligence dossier, fans out to EDGAR + grounded
   // web search + Opus synthesis - metered upstream, never free-tier/PoW.
   "dossier", "dossier-max",

@@ -91,7 +91,7 @@ export function useCasesPage(baseUrl) {
 .uc-intro{max-width:760px;font-size:15px;line-height:1.55;color:var(--muted);margin:0 0 40px}
 .uc-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;margin-bottom:48px}
 @media(max-width:740px){.uc-grid{grid-template-columns:1fr}.uc-h1{font-size:36px !important}}
-.uc-card{background:var(--card);border:1.5px solid var(--ink);padding:24px 26px}
+.uc-card{background:var(--card);border:1px solid var(--hairline);padding:24px 26px}
 .uc-card h3{margin:0 0 10px;font-family:var(--font-body);font-weight:800;font-size:20px;color:var(--ink)}
 .uc-story{color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 16px}
 .uc-tools,.uc-cost{font-size:14px;margin:6px 0;color:var(--muted)}

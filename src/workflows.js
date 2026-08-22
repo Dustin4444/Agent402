@@ -99,11 +99,11 @@ export function workflowsPage(baseUrl) {
 .wf-h1{font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px}
 .wf-intro{max-width:760px;font-size:15px;line-height:1.55;color:var(--muted);margin:0 0 40px}
 .wf-grid{display:flex;flex-direction:column;gap:20px;margin-bottom:48px}
-.wf-card{background:var(--card);border:1.5px solid var(--ink);padding:24px 26px}
+.wf-card{background:var(--card);border:1px solid var(--hairline);padding:24px 26px}
 .wf-card h3{margin:0 0 8px;font-family:var(--font-body);font-weight:800;font-size:22px;color:var(--ink)}
 .wf-desc{color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 20px}
 .wf-flow{display:flex;align-items:stretch;gap:0;flex-wrap:nowrap;overflow-x:auto;padding:4px 0}
-.wf-step{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--card);border:1.5px solid var(--ink);padding:12px 16px;min-width:120px;max-width:170px;text-decoration:none;transition:border-color .15s;flex-shrink:0}
+.wf-step{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--card);border:1px solid var(--hairline);padding:12px 16px;min-width:120px;max-width:170px;text-decoration:none;transition:border-color .15s;flex-shrink:0}
 .wf-step:hover{border-color:var(--accent)}
 .wf-step-name{color:var(--accent);font-family:var(--font-mono);font-size:13px;font-weight:700;margin-bottom:4px}
 .wf-step-desc{color:var(--muted);font-size:12px;line-height:1.35;text-align:center}

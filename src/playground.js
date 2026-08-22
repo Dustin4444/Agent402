@@ -54,14 +54,14 @@ export function playgroundPage(baseUrl, catalog) {
   .pg-left{flex:0 0 60%;min-width:0}
   .pg-right{flex:1;min-width:0}
   @media(max-width:760px){.pg-wrap{flex-direction:column}.pg-left,.pg-right{flex:none;width:100%}}
-  .pg-search{width:100%;padding:10px 14px;border:1.5px solid var(--ink);background:var(--card);color:var(--ink);font-size:.95rem;outline:none;font-family:var(--font-body)}
+  .pg-search{width:100%;padding:10px 14px;border:1px solid var(--hairline);background:var(--card);color:var(--ink);font-size:.95rem;outline:none;font-family:var(--font-body)}
   .pg-search:focus{border-color:var(--accent)}
   .pg-search::placeholder{color:var(--faint)}
-  .pg-select{width:100%;margin-top:10px;padding:10px 14px;border:1.5px solid var(--ink);background:var(--card);color:var(--ink);font-size:.95rem;outline:none;font-family:var(--font-body);cursor:pointer}
+  .pg-select{width:100%;margin-top:10px;padding:10px 14px;border:1px solid var(--hairline);background:var(--card);color:var(--ink);font-size:.95rem;outline:none;font-family:var(--font-body);cursor:pointer}
   .pg-select:focus{border-color:var(--accent)}
   .pg-select optgroup{color:var(--faint);font-style:normal}
   .pg-select option{color:var(--ink);background:var(--card)}
-  .pg-info{margin-top:16px;padding:14px 16px;border:1.5px solid var(--ink);background:var(--card)}
+  .pg-info{margin-top:16px;padding:14px 16px;border:1px solid var(--hairline);background:var(--card)}
   .pg-info .tool-name{font-size:1.1rem;font-weight:700}
   .pg-info .tool-desc{color:var(--muted);font-size:.9rem;margin-top:4px}
   .pg-info .tool-meta{margin-top:8px;font-size:.82rem;color:var(--faint);font-family:var(--font-mono)}
@@ -69,7 +69,7 @@ export function playgroundPage(baseUrl, catalog) {
   .pg-fields{margin-top:14px}
   .pg-field{margin-bottom:10px}
   .pg-field label{display:block;font-size:.85rem;color:var(--faint);margin-bottom:3px;font-family:var(--font-mono)}
-  .pg-field input[type="text"],.pg-field input[type="number"]{width:100%;padding:8px 12px;border:1.5px solid var(--ink);background:var(--paper);color:var(--ink);font-size:.9rem;font-family:var(--font-mono);outline:none}
+  .pg-field input[type="text"],.pg-field input[type="number"]{width:100%;padding:8px 12px;border:1px solid var(--hairline);background:var(--paper);color:var(--ink);font-size:.9rem;font-family:var(--font-mono);outline:none}
   .pg-field input:focus{border-color:var(--accent)}
   .pg-field .chk-wrap{display:flex;align-items:center;gap:8px}
   .pg-field input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px}
@@ -77,12 +77,12 @@ export function playgroundPage(baseUrl, catalog) {
   .pg-btn.run{background:var(--surface);color:var(--on-dark)}
   .pg-btn.run:hover{opacity:.85}
   .pg-btn.run:disabled{opacity:.5;cursor:not-allowed}
-  .pg-btn.disabled-info{background:var(--card);border:1.5px solid var(--ink);color:var(--faint);cursor:default}
+  .pg-btn.disabled-info{background:var(--card);border:1px solid var(--hairline);color:var(--faint);cursor:default}
   .pg-btn.disabled-info a{color:var(--accent);margin-left:6px}
   .pg-status{margin-top:10px;font-size:.85rem;color:var(--faint);font-family:var(--font-mono)}
   .pg-status .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--faint);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px}
   @keyframes spin{to{transform:rotate(360deg)}}
-  .pg-result{padding:16px;border:1.5px solid var(--ink);background:var(--card);min-height:300px;position:sticky;top:80px}
+  .pg-result{padding:16px;border:1px solid var(--hairline);background:var(--card);min-height:300px;position:sticky;top:80px}
   .pg-result .placeholder{color:var(--faint);font-size:.9rem;text-align:center;padding-top:100px}
   .pg-result pre{white-space:pre-wrap;word-break:break-word;font-family:var(--font-mono);font-size:.82rem;line-height:1.55;max-height:70vh;overflow:auto}
   .pg-result .timing{font-size:.8rem;color:var(--faint);margin-bottom:10px;font-family:var(--font-mono)}

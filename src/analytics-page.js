@@ -51,11 +51,11 @@ const AN_EXTRA_CSS = `
 .an-sub{color:var(--muted);margin:0 0 22px;font-size:15px;max-width:680px;line-height:1.55}
 .an-sub b{color:var(--ink);font-weight:600}
 .an-grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin:0 0 22px}
-.an-stat{background:var(--surface);border:1.5px solid var(--ink);padding:18px}
+.an-stat{background:var(--surface);border:1px solid var(--hairline);padding:18px}
 .an-stat .an-k{color:var(--dk-muted);font-family:var(--font-mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 .an-stat .an-v{font-family:var(--font-mono);font-size:1.65rem;color:var(--on-dark);margin-top:4px;word-break:break-word}
 .an-stat .an-s{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px;margin-top:3px}
-.an-panel{background:var(--surface);border:1.5px solid var(--ink);overflow:hidden;margin-bottom:18px}
+.an-panel{background:var(--surface);border:1px solid var(--hairline);overflow:hidden;margin-bottom:18px}
 .an-ph{padding:14px 18px;border-bottom:1px solid var(--dark-border)}
 .an-ph h2{margin:0;font-size:1rem;color:var(--accent);font-family:var(--font-body);font-weight:700}
 .an-ph .an-pn{color:var(--dk-muted);font-family:var(--font-mono);font-size:12px;margin-top:2px}
@@ -79,7 +79,7 @@ pre{background:var(--ink-panel);border:1px solid var(--dark-border);padding:14px
 .an-foot a{color:var(--accent);text-decoration:none}
 .an-foot a:hover{text-decoration:underline}
 .an-winbar{display:flex;gap:8px;margin:0 0 18px;flex-wrap:wrap}
-.an-winbar a{padding:6px 12px;border:1.5px solid var(--ink);font-family:var(--font-mono);color:var(--faint);text-decoration:none;font-size:13px}
+.an-winbar a{padding:6px 12px;border:1px solid var(--hairline);font-family:var(--font-mono);color:var(--faint);text-decoration:none;font-size:13px}
 .an-winbar a.active{color:var(--accent);border-color:var(--accent)}
 .an-winbar a:hover{color:var(--ink)}
 @media(max-width:600px){.an-h1{font-size:36px !important}}

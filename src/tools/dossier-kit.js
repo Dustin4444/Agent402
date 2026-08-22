@@ -1,10 +1,8 @@
-// dossier-kit — Company Due-Diligence Dossier. The flagship premium (card-tier)
-// product identified by the PMF analysis: the deliverable with the widest
-// incumbent price gap, proven per-report demand (Fiverr $25-70), and the one our
-// data serves best. It grounds in OUR structured data - SEC EDGAR filings +
-// Form 4 insider trades + a live quote - which generic-web research agents
-// cannot reach, plus grounded web search for recent developments, then
-// synthesizes a cited, structured dossier.
+// dossier-kit — Company Due-Diligence Dossier. A premium (card-tier) report that
+// grounds in OUR structured data - SEC EDGAR filings + Form 4 insider filings +
+// a live quote - which generic-web research agents cannot reach, plus grounded
+// web search for recent developments, then synthesizes a cited, structured
+// dossier.
 //
 // Same discipline as research-deep: grounding-strict synthesis (every specific
 // must trace to the provided data/sources, no invented figures, cite [n] only
@@ -13,6 +11,7 @@
 // charged), cost read for the internal accumulator and never returned,
 // WALLET_ONLY, not cached. Gated on OPENROUTER_API_KEY (503 without it).
 import { fetchOpenRouter, throwUpstreamError, bad, upstreamUserId } from "./llm-gateway-kit.js";
+import { recordCompositeUsage } from "../composite-spend-guard.js";
 import { EDGAR_TOOLS } from "./edgar-kit.js";
 import { FINANCE_TOOLS } from "./finance-kit.js";
 
@@ -102,7 +101,7 @@ const FIN_CONCEPTS = [
 async function pullFinancials(ticker, edgarConcept) {
   const results = await Promise.all(FIN_CONCEPTS.map(([tag, label]) =>
     settle(edgarConcept, { ticker, taxonomy: "us-gaap", tag }, DATA_TIMEOUT_MS).then((r) => ({ tag, label, r }))));
-  const seen = new Set(); const lines = [];
+  const seen = new Set(); const lines = []; const rows = [];
   for (const { tag, label, r } of results) {
     if (seen.has(label)) continue;
     const units = r.ok ? (r.data?.units || {}) : {};
@@ -119,11 +118,20 @@ async function pullFinancials(ticker, edgarConcept) {
     if (annual) parts.push(`latest annual ${val(annual)} (${annual.fp || "FY"}${annual.fy ? " " + annual.fy : ""}, ${annual.form || "?"} filed ${annual.filed || "?"})`);
     if (latest && latest !== annual) parts.push(`most recent ${val(latest)} (period ending ${latest.end}, ${latest.form || "?"})`);
     if (parts.length) lines.push(`- ${label}: ${parts.join("; ")}`);
+    // Structured row for the downloadable data appendix (same figures the prose
+    // is grounded in, machine-readable for a spreadsheet).
+    rows.push({
+      metric: label,
+      latestAnnual: annual ? val(annual) : "",
+      annualPeriod: annual ? `${annual.fp || "FY"}${annual.fy ? " " + annual.fy : ""} ${annual.form || ""} filed ${annual.filed || "?"}`.trim() : "",
+      mostRecent: (latest && latest !== annual) ? val(latest) : "",
+      recentPeriod: (latest && latest !== annual) ? `${latest.end} (${latest.form || "?"})` : "",
+    });
   }
-  return lines;
+  return { lines, rows };
 }
 
-export function makeDossierHandler(tierSlug) {
+function makeDossierHandlerInner(tierSlug) {
   const t = DOSSIER_TIERS[tierSlug];
   return async (input, req) => {
     if (!input || typeof input !== "object") throw bad('Body must be a JSON object: {"ticker": "AAPL"}');
@@ -201,14 +209,22 @@ export function makeDossierHandler(tierSlug) {
     const quoteBlock = q ? `Live quote (${q.symbol || ticker}): last ${q.price ?? q.last ?? "?"} ${q.currency || ""}, day range ${q.dayLow ?? "?"}-${q.dayHigh ?? "?"}, 52-week ${q.week52Low ?? q.fiftyTwoWeekLow ?? "?"}-${q.week52High ?? q.fiftyTwoWeekHigh ?? "?"}, prev close ${q.previousClose ?? "?"}, change ${q.change ?? q.changePercent ?? "?"}.` : "Live quote: unavailable.";
     const filingLines = numbered.filter((s) => s.title.includes("SEC EDGAR")).map((s) => `[${s.n}] ${s.title} - ${s.url}`).join("\n") || "(no filings retrieved)";
     const insiderTrades = insider.ok ? (insider.data?.trades || insider.data?.transactions || []) : [];
+    // edgar-insider-trades returns Form 4 FILINGS (who filed, when, the filing
+    // URL) via full-text search - it does not parse the transaction table, so
+    // there is no code/shares/price here. Represent what we actually have.
+    const insiderName = (tr) => {
+      const dn = Array.isArray(tr.displayNames) ? tr.displayNames : (tr.displayNames ? [tr.displayNames] : []);
+      const cleaned = dn.map((n) => String(n).replace(/\s*\(CIK[^)]*\)\s*$/i, "").trim()).filter(Boolean);
+      return cleaned.join("; ") || tr.reportingOwner || tr.name || tr.insider || "insider";
+    };
     const insiderBlock = insiderTrades.length
-      ? insiderTrades.slice(0, 25).map((tr) => `- ${tr.reportingOwner || tr.name || tr.insider || "insider"}${tr.relationship || tr.title ? ` (${tr.relationship || tr.title})` : ""}: ${tr.transactionCode || tr.code || tr.type || "?"} ${tr.shares ?? tr.amount ?? "?"} sh on ${tr.transactionDate || tr.date || tr.filedAt || "?"}`).join("\n")
-      : (insider.ok ? "No Form 4 insider transactions in the window." : "Insider data unavailable.");
+      ? insiderTrades.slice(0, 25).map((tr) => `- ${insiderName(tr)} filed Form ${tr.form || "4"} on ${tr.filedDate || tr.date || tr.filedAt || "?"}`).join("\n")
+      : (insider.ok ? "No Form 4 insider filings in the window." : "Insider data unavailable.");
     const webBlock = webGood.map((r, i) => `WEB ANGLE ${i + 1}: ${r.q}\n${stripInlineCites(r.answer)}`).join("\n\n") || "(web research unavailable)";
     // Web sources WITH their snippet content, so the model can only cite [n] for
     // what a source actually says - not guess a claim from a title alone.
     const webSourceLines = numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => `[${s.n}] ${s.title}${s.snippet ? `\n    "${s.snippet.slice(0, 320)}"` : ""} - ${s.url}`).join("\n") || "(none)";
-    const financialsBlock = financials.length ? financials.join("\n") : "SEC XBRL financial facts unavailable for this issuer.";
+    const financialsBlock = financials.lines.length ? financials.lines.join("\n") : "SEC XBRL financial facts unavailable for this issuer.";
     const maxCite = numbered.length;
 
     // 5) SYNTHESIZE - grounding-strict cited dossier.
@@ -217,16 +233,16 @@ export function makeDossierHandler(tierSlug) {
 === ABSOLUTE GROUNDING RULES ===
 1. Use ONLY the SEC DATA, INSIDER DATA, LIVE QUOTE, and WEB RESEARCH provided below. Treat them as your only knowledge about this company.
 2. Every SPECIFIC fact - financial figures, dates, share counts, prices, filing references, named events - MUST appear in the provided material. NEVER introduce a number, metric, or claim from your own training/memory. If the material lacks a figure, describe it qualitatively rather than inventing one.
-3. CITATIONS: the sources are numbered [1] to [${maxCite}]. NEVER cite a number outside that range - if you cannot ground a claim in sources [1]-[${maxCite}], do not attach a citation to it. Cite every substantive claim with [n], and ONLY attach [n] to a claim that source's own text supports - for a WEB source, that means the claim appears in that source's quoted snippet or the web research; do NOT infer a source's content from its title alone. A citation is ONLY a bracketed number, e.g. [14] or [3][7] - NEVER put words, notes, ranges, or explanations inside the brackets (not "[14 for the release]", not "[13-adjacent]"), and never use a word-tag or source name like [research]/[web]/[data]/[morningstar]/[reuters] - EVERY citation must be a numbered [n] from the list, never a publication name or domain. The LIVE QUOTE, SEC XBRL FINANCIALS, and FORM 4 INSIDER data are given directly: for financial figures, cite the corresponding 10-K/10-Q filing [n] they came from; for the quote and insider data, reference them in prose ("the live quote shows...", "Form 4 filings in the window show...") WITHOUT a bracket.
+3. CITATIONS: the sources are numbered [1] to [${maxCite}]. NEVER cite a number outside that range - if you cannot ground a claim in sources [1]-[${maxCite}], do not attach a citation to it. Cite every substantive claim with [n], and ONLY attach [n] to a claim that source's own text supports - for a WEB source, that means the claim appears in that source's quoted snippet or the web research; do NOT infer a source's content from its title alone. A citation is ONLY a bracketed number, e.g. [14] or [3][7] - NEVER put words, notes, ranges, or explanations inside the brackets (not "[14 for the release]", not "[13-adjacent]"), and never use a word-tag or source name like [research]/[web]/[data]/[morningstar]/[reuters] - EVERY citation must be a numbered [n] from the list, never a publication name or domain. The LIVE QUOTE, SEC XBRL FINANCIALS, and FORM 4 INSIDER data are given to you DIRECTLY - reference all three in prose WITHOUT a bracketed citation ("the live quote shows...", "the latest reported revenue was...", "Form 4 filings in the window show..."); do NOT attach a [n] to a financial figure (the specific filing that reported an XBRL fact is often not in the numbered list). The FORM 4 data is FILING METADATA ONLY - who filed and when - with NO buy/sell direction, share count, or price: report only that Form 4s were filed and by whom, and do NOT infer or state whether insiders bought or sold, or any amount.
 4. Do not overstate: reproduce magnitudes and dates exactly as given. Where sources disagree or are silent, say so. Being less specific beats stating something you cannot ground.
 5. Do NOT write a "Sources" section - a complete numbered source list is appended automatically. Prioritize COMPLETING the dossier (finish your final sentence and section) over length.
 
-Write a thorough, well-structured dossier of up to ${t.words} words, with these sections where the material supports them: an opening SNAPSHOT (what the company is, current quote, one-paragraph bottom line), BUSINESS & RECENT FILINGS (what the latest 10-K/10-Q/8-K disclose), FINANCIAL POSTURE, RECENT DEVELOPMENTS (from the web research), INSIDER ACTIVITY (interpret the Form 4 data), RISKS & RED FLAGS, and a closing DILIGENCE READ (the balanced takeaway). Be specific and analytical, not a data dump; call out what matters for someone deciding whether to trust, invest in, or partner with this company.${focus.length ? `\nEmphasize: ${focus.join(", ")}.` : ""}
+Write a thorough, well-structured dossier of up to ${t.words} words, with these sections where the material supports them: an opening SNAPSHOT (what the company is, current quote, one-paragraph bottom line), BUSINESS & RECENT FILINGS (what the latest 10-K/10-Q/8-K disclose), FINANCIAL POSTURE, RECENT DEVELOPMENTS (from the web research), INSIDER ACTIVITY (which insiders filed Form 4s and when - NOT buy/sell direction or amounts, which these filings do not contain), RISKS & RED FLAGS, and a closing DILIGENCE READ (the balanced takeaway). Be specific and analytical, not a data dump; call out what matters for someone deciding whether to trust, invest in, or partner with this company.${focus.length ? `\nEmphasize: ${focus.join(", ")}.` : ""}
 
 === LIVE QUOTE ===\n${quoteBlock}
-=== SEC XBRL FINANCIALS (reported in the filings - cite the 10-K/10-Q they came from) ===\n${financialsBlock}
+=== SEC XBRL FINANCIALS (reported figures - reference in prose, no bracket) ===\n${financialsBlock}
 === SEC FILINGS (numbered sources) ===\n${filingLines}
-=== FORM 4 INSIDER TRANSACTIONS (last ${t.insiderDays} days) ===\n${insiderBlock}
+=== FORM 4 INSIDER FILINGS (last ${t.insiderDays} days - filing metadata only: NO buy/sell, share count, or price) ===\n${insiderBlock}
 === WEB RESEARCH ===\n${webBlock}
 === WEB SOURCES (numbered, with snippet content) ===\n${webSourceLines}`;
 
@@ -238,20 +254,40 @@ Write a thorough, well-structured dossier of up to ${t.words} words, with these 
     const sourceList = numbered.map((s) => `[${s.n}] ${s.title} - ${s.url}`).join("\n");
     const dossier = sourceList ? `${prose}\n\n## Sources\n${sourceList}` : prose;
 
+    // Downloadable DATA APPENDIX - the structured tables the prose is grounded
+    // in, so the buyer gets a spreadsheet-ready dataset, not only narrative.
+    const insiderRows = insiderTrades.slice(0, 100).map((tr) => [
+      insiderName(tr),
+      String(tr.form || "4"),
+      String(tr.filedDate || tr.date || tr.filedAt || ""),
+      String(tr.url || tr.link || ""),
+    ]);
+    const tables = [];
+    if (insiderRows.length) tables.push({
+      name: "insider-filings", label: "Form 4 insider filings",
+      columns: ["Insider", "Form", "Filed", "Filing URL"], rows: insiderRows,
+    });
+    if (financials.rows.length) tables.push({
+      name: "financials", label: "SEC XBRL financials",
+      columns: ["Metric", "Latest annual", "Annual period", "Most recent", "Recent period"],
+      rows: financials.rows.map((r) => [r.metric, r.latestAnnual, r.annualPeriod, r.mostRecent, r.recentPeriod]),
+    });
+
     const meta = {
       tier: tierSlug, company, ticker,
       filings_10k: (k10.ok && k10.data?.filings?.length) || 0,
       filings_10q: (q10.ok && q10.data?.filings?.length) || 0,
       filings_8k: (k8.ok && k8.data?.filings?.length) || 0,
-      insider_transactions: insiderTrades.length,
+      insider_filings: insiderTrades.length,
       web_angles: webGood.length,
       sources_cited: numbered.length,
       synthesis_model: SYNTH,
     };
     const out = format === "json"
-      ? { dossier, company, ticker, sources: numbered, meta }
-      : { dossier, company, ticker, sources: numbered, meta };
+      ? { dossier, company, ticker, sources: numbered, tables, meta }
+      : { dossier, company, ticker, sources: numbered, tables, meta };
     if (process.env.RESEARCH_DEBUG === "1") out._debug = { webAnswers: webGood.map((r) => ({ q: r.q, answer: r.answer })), quoteBlock, insiderBlock, financialsBlock, webSources: numbered.filter((s) => !s.title.includes("SEC EDGAR")).map((s) => ({ n: s.n, snippet: s.snippet })) };
+    recordCompositeUsage({ slug: tierSlug, upstreamUsd: spent, ok: true, priceUsd: priceUsdOf(DOSSIER_TIERS[tierSlug]) });
     return out;
   };
 }
@@ -269,7 +305,8 @@ const OUT_EXAMPLE = {
   dossier: "# Due-Diligence Dossier: Example Corp (EXMP)\n\n## Snapshot\nExample Corp trades at ... [1]\n\n## Sources\n[1] 10-K filed ... - https://www.sec.gov/...",
   company: "Example Corp", ticker: "EXMP",
   sources: [{ n: 1, title: "10-K filed 2025-11-01 - SEC EDGAR", url: "https://www.sec.gov/..." }],
-  meta: { tier: "dossier", company: "Example Corp", ticker: "EXMP", filings_10k: 1, filings_10q: 3, filings_8k: 5, insider_transactions: 8, web_angles: 4, sources_cited: 18, synthesis_model: "anthropic/claude-opus-5" },
+  tables: [{ name: "financials", label: "SEC XBRL financials", columns: ["Metric", "Latest annual", "Annual period", "Most recent", "Recent period"], rows: [["Total revenue", "$1.2B", "FY 2024 10-K filed 2025-11-01", "$0.3B", "2025-09-30 (10-Q)"]] }],
+  meta: { tier: "dossier", company: "Example Corp", ticker: "EXMP", filings_10k: 1, filings_10q: 3, filings_8k: 5, insider_filings: 8, web_angles: 4, sources_cited: 18, synthesis_model: "anthropic/claude-opus-5" },
 };
 
 export const DOSSIER_TOOLS = [
@@ -288,3 +325,15 @@ export const DOSSIER_TOOLS = [
     handler: makeDossierHandler("dossier-max"),
   },
 ];
+
+// Upstream-usage telemetry wrapper: a successful run records its exact spend at
+// the return site; a failed run (thrown >= 400, not charged) is recorded here
+// so the burn on failures is visible too (spend unknown at this point -> 0).
+const priceUsdOf = (t) => Number(String(t?.price ?? "").replace(/[^0-9.]/g, "")) || null;
+export function makeDossierHandler(tierSlug) {
+  const run = makeDossierHandlerInner(tierSlug);
+  return async (input, req) => {
+    try { return await run(input, req); }
+    catch (e) { try { recordCompositeUsage({ slug: tierSlug, upstreamUsd: 0, ok: false, priceUsd: priceUsdOf(DOSSIER_TIERS[tierSlug]) }); } catch { /* never mask the real error */ } throw e; }
+  };
+}

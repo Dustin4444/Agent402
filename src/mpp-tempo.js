@@ -331,6 +331,7 @@ export function checkTempoCredentialBinding(authorizationHeader, { secretKey, re
   // reach those handlers (it would be served under whatever payer header the
   // request also carried).
   if (item.identityBound) return bad("this route is wallet-identity bound (the payment IS the identity); Tempo credentials carry no payer this server verifies - pay it over an x402 rail");
+  if (item.longRunning) return bad("this route runs longer than a Tempo credential stays valid (settlement happens after the handler); pay it over an EVM x402 rail or by card");
   const expected = BigInt(Math.round(priceUsd * 10 ** envDecimals()));
   let amount;
   try { amount = BigInt(String(r.amount)); } catch { return bad("challenge amount is not an integer base-units string"); }
@@ -429,7 +430,7 @@ export function createTempoChallengeAppender({ realm, secretKey, priceFor }) {
           // Identity-bound routes (wallet-keyed memory, my-usage) are paid
           // with the payer AS the identity; a tempo credential carries no
           // verified payer, so no tempo challenge is offered for them.
-          if (item && !item.identityBound) {
+          if (item && !item.identityBound && !item.longRunning) {
             const header = mintTempoChallenge({
               priceUsd: item.priceUsd,
               description: item.description,

@@ -30,15 +30,15 @@ export function tollboothCloudPage(baseUrl) {
   a { color:var(--accent); text-decoration:none; }
   a:hover { text-decoration:underline; }
   code { font-family:var(--font-mono); font-size:.86rem; }
-  .pill { display:inline-block; padding:2px 8px; border:1.5px solid var(--ink); color:var(--faint); font-family:var(--font-mono); font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; }
+  .pill { display:inline-block; padding:2px 8px; border:1px solid var(--hairline); color:var(--faint); font-family:var(--font-mono); font-size:.72rem; letter-spacing:.06em; text-transform:uppercase; }
   .pill.warn { color:var(--accent); border-color:var(--accent); }
   .who { display:grid; gap:14px; grid-template-columns:repeat(3,1fr); margin:18px 0 30px; }
   @media (max-width:780px){ .who { grid-template-columns:1fr; } }
-  .who .c { background:var(--card); border:1.5px solid var(--ink); padding:18px; }
+  .who .c { background:var(--card); border:1px solid var(--hairline); padding:18px; }
   .who .c .k { color:var(--accent); font-family:var(--font-mono); font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
   .who .c p { margin:6px 0 0; color:var(--muted); font-size:.92rem; }
   .hero-cta { display:flex; flex-wrap:wrap; gap:10px; margin:0 0 28px; }
-  .hero-cta a { display:inline-block; padding:10px 18px; font-family:var(--font-mono); font-size:.92rem; border:1.5px solid var(--ink); color:var(--ink); }
+  .hero-cta a { display:inline-block; padding:10px 18px; font-family:var(--font-mono); font-size:.92rem; border:1px solid var(--hairline); color:var(--ink); }
   .hero-cta a.primary { background:var(--surface); color:var(--on-dark); font-weight:700; }
   .hero-cta a.primary:hover { text-decoration:none; opacity:.9; }
   .hero-cta a:hover { border-color:var(--accent); text-decoration:none; }
@@ -55,22 +55,22 @@ export function tollboothCloudPage(baseUrl) {
   @media (max-width:560px){ .preview .row { grid-template-columns:1.2fr .7fr .7fr; } .preview .row .hide-sm { display:none; } }
   .outcomes { display:grid; gap:14px; grid-template-columns:repeat(3,1fr); margin:18px 0 8px; }
   @media (max-width:780px){ .outcomes { grid-template-columns:1fr; } }
-  .outcomes .o { background:var(--card); border:1.5px solid var(--ink); padding:16px 18px; }
+  .outcomes .o { background:var(--card); border:1px solid var(--hairline); padding:16px 18px; }
   .outcomes .o .when { color:var(--accent); font-family:var(--font-mono); font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
   .outcomes .o p { margin:4px 0 0; color:var(--muted); font-size:.92rem; }
   .badge-pop { position:absolute; top:-10px; right:14px; background:var(--accent); color:#fff; font-family:var(--font-mono); font-size:.68rem; letter-spacing:.08em; text-transform:uppercase; font-weight:700; padding:3px 8px; }
   .plan.featured { position:relative; }
-  .cta-strip { background:var(--card); border:1.5px solid var(--ink); padding:22px; margin:24px 0 8px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; }
+  .cta-strip { background:var(--card); border:1px solid var(--hairline); padding:22px; margin:24px 0 8px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; }
   .cta-strip .copy h3 { margin:0 0 4px; color:var(--ink); font-size:1.1rem; }
   .cta-strip .copy p { margin:0; color:var(--muted); font-size:.92rem; max-width:560px; }
   .cta-strip .actions { display:flex; gap:8px; flex-wrap:wrap; }
-  .cta-strip .actions a { display:inline-block; padding:9px 16px; font-family:var(--font-mono); font-size:.9rem; border:1.5px solid var(--ink); color:var(--ink); }
+  .cta-strip .actions a { display:inline-block; padding:9px 16px; font-family:var(--font-mono); font-size:.9rem; border:1px solid var(--hairline); color:var(--ink); }
   .cta-strip .actions a.primary { background:var(--surface); color:var(--on-dark); font-weight:700; }
   .cta-strip .actions a:hover { border-color:var(--accent); text-decoration:none; }
   .grid { display:grid; gap:14px; grid-template-columns:repeat(4,1fr); margin:0 0 18px; }
   @media (max-width:980px){ .grid { grid-template-columns:repeat(2,1fr); } }
   @media (max-width:560px){ .grid { grid-template-columns:1fr; } }
-  .plan { background:var(--card); border:1.5px solid var(--ink); padding:20px; display:flex; flex-direction:column; }
+  .plan { background:var(--card); border:1px solid var(--hairline); padding:20px; display:flex; flex-direction:column; }
   .plan.featured { border-color:var(--accent); border-width:2px; }
   .plan h3 { color:var(--ink); font-size:1.05rem; margin:0 0 2px; }
   .plan .sub { color:var(--muted); font-size:.82rem; margin:0 0 14px; min-height:32px; }
@@ -81,14 +81,14 @@ export function tollboothCloudPage(baseUrl) {
   .plan ul li:last-child { border-bottom:0; }
   .plan ul li b { color:var(--accent); font-weight:600; }
   .plan .cta { margin-top:auto; padding-top:14px; }
-  .plan .cta a { display:inline-block; padding:8px 14px; border:1.5px solid var(--ink); font-family:var(--font-mono); color:var(--ink); font-size:.88rem; }
+  .plan .cta a { display:inline-block; padding:8px 14px; border:1px solid var(--hairline); font-family:var(--font-mono); color:var(--ink); font-size:.88rem; }
   .plan.featured .cta a { background:var(--surface); color:var(--on-dark); font-weight:700; }
   .plan .cta a:hover { border-color:var(--accent); text-decoration:none; }
   .annual { color:var(--muted); font-size:.88rem; margin:0 0 14px; }
   .annual b { color:var(--ink); }
   .tcols { display:grid; gap:14px; grid-template-columns:1fr 1fr; margin:18px 0; }
   @media (max-width:780px){ .tcols { grid-template-columns:1fr; } }
-  .tcols .b { background:var(--card); border:1.5px solid var(--ink); padding:18px; }
+  .tcols .b { background:var(--card); border:1px solid var(--hairline); padding:18px; }
   .tcols .b p { margin:8px 0 0; color:var(--muted); font-size:.92rem; }
   .flywheel { background:var(--surface); border:1.5px solid var(--dark-border); padding:18px 20px; color:var(--on-dark); }
   .flywheel .h { color:var(--accent); font-family:var(--font-mono); font-size:.78rem; letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }

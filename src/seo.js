@@ -68,6 +68,8 @@ export function sitemapXml(baseUrl, catalog) {
   const staticUrls = [
     { loc: `${baseUrl}/`, priority: "1.0" },
     { loc: `${baseUrl}/tools`, priority: "0.9" },
+    { loc: `${baseUrl}/reports`, priority: "0.9" },
+    { loc: `${baseUrl}/monitors`, priority: "0.8" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
     // Every x402 marketplace page (one per CHAIN_PAGES entry) — new chain
     // page = new sitemap entry, zero edits here.
@@ -162,6 +164,8 @@ export function sitemapPages(baseUrl, catalog) {
   const urls = [
     { loc: `${baseUrl}/`, priority: "1.0" },
     { loc: `${baseUrl}/tools`, priority: "0.9" },
+    { loc: `${baseUrl}/reports`, priority: "0.9" },
+    { loc: `${baseUrl}/monitors`, priority: "0.8" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
     { loc: `${baseUrl}/quickstart`, priority: "0.9" },
     { loc: `${baseUrl}/what-is-x402`, priority: "0.9" },
