@@ -19,6 +19,16 @@
 > [`agent402-tollbooth`](tollbooth) - an open pay-per-crawl gate for the other
 > side of x402.
 >
+> **Two doors, one price list.** Agents pay per call in USDC (x402 / MPP) or
+> free via proof-of-work. People pay by card: finished, cited **reports** at
+> [agent402.tools/reports](https://agent402.tools/reports) (company dossier, 13F fund
+> report, insider flow, market brief, deep research, FDA recall, domain audit),
+> **monitors** that re-run on change at [/monitors](https://agent402.tools/monitors),
+> and **prepaid credits** at [/credits](https://agent402.tools/credits) - one
+> `a402_` key that pays every tool by card (`Authorization: Bearer a402_…`,
+> debited per successful call; supported by `agent402-mcp` via
+> `AGENT402_CREDITS_KEY` and `agent402-client` via `{ creditsKey }`).
+>
 > **Two payment wires, one URL.** Every paid endpoint accepts **x402**
 > (`PAYMENT-SIGNATURE`, USDC on 12 chains) **and MPP** (Machine Payments
 > Protocol, the IETF-track `Payment` HTTP auth scheme co-authored by Tempo and

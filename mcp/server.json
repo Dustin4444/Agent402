@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MikeyPetrillo/agent402",
   "title": "Agent402.Tools — pay-per-call web tools",
-  "description": "Agent402: 500+ pay-per-call tools for agents over x402 + MPP or free via PoW. Agentic Finance",
+  "description": "Agent402: 500+ pay-per-call tools for agents over x402 + MPP, free via PoW, or by card with prepaid credits (AGENT402_CREDITS_KEY). Cited reports and monitors too. Agentic Finance",
   "version": "0.12.12",
   "repository": {
     "url": "https://github.com/MikeyPetrillo/Agent402",
