@@ -980,6 +980,23 @@ export async function get13fHoldings({ cik, ticker, index = 0 }) {
   return { cik: _cik, managerName: sub?.name ?? resolved.name ?? null, accessionNumber: accession, filedDate, reportDate, informationTableUrl: tableUrl, totalHoldings: all.length, totalValueUsd, holdings: all };
 }
 
+// The latest 13F-HR filing's identity ONLY (accession + dates) from the
+// submissions index - ONE small JSON read, no information table. The monitor
+// scheduler polls this daily per subscribed manager and only pays for a full
+// report when the accession changes, so the check must stay this cheap.
+export async function latest13fFiling({ cik }) {
+  const resolved = await resolveCompany({ cik });
+  const _cik = resolved.cik;
+  const sub = await edgarGetJson(`https://data.sec.gov/submissions/CIK${_cik}.json`);
+  const recent = sub?.filings?.recent;
+  if (!recent || !Array.isArray(recent.form)) throw bad("Manager has no recent filings", 422);
+  for (let k = 0; k < recent.form.length; k++) {
+    if (String(recent.form[k]).toUpperCase() !== "13F-HR") continue;
+    return { cik: _cik, managerName: sub?.name ?? resolved.name ?? null, accessionNumber: recent.accessionNumber[k], filedDate: recent.filingDate[k], reportDate: recent.reportDate[k] };
+  }
+  return null;
+}
+
 // Resolve an institutional manager by cik, ticker, or NAME. Most funds have no
 // ticker, so a name resolves via EDGAR full-text search filtered to 13F-HR,
 // taking the CIK that appears most across recent hits.

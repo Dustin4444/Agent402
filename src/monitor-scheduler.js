@@ -1,0 +1,363 @@
+// monitor-scheduler - Phase 2b of the recurring engine. Turns an ACTIVE
+// monitoring subscription (src/stripe-subscriptions.js) into delivered reports:
+// a welcome report on first sight, a cheap free re-check on a cadence, a paid
+// full re-run only when the cadence says so or something actually CHANGED, and
+// an email with a durable report link each time one is produced.
+//
+// Per kind:
+// - domain  (domain-monitor): full graded audit on first sight and every
+//   FULL_MS (30d). Every CHECK_MS (24h) a FREE re-probe (probeDomain: the same
+//   function the paid handler grades with, no LLM) whose fingerprint is compared
+//   to the last one; a change (grade, SPF/DMARC/DKIM/MX, header set, TLS issuer
+//   or renewal) or a certificate inside TLS_ALERT_DAYS triggers a full re-run +
+//   an alert email. A flapping domain is bounded by MIN_FULL_GAP_MS (one paid
+//   re-run per 12h); a TLS-expiry alert is sent once per certificate.
+// - fund    (fund-monitor): resolve the manager once, then every CHECK_MS read
+//   the latest 13F-HR accession (one small EDGAR JSON read); a NEW accession
+//   triggers the full report + a "new filing" email. First sight = welcome
+//   report. The accession only advances after a SUCCESSFUL report, so a failed
+//   run is retried (with backoff) against the same filing.
+//
+// Cost bounds: MAX_FULL_PER_TICK paid reports per tick (the rest wait for the
+// next tick, logged), per-sub exponential backoff on failure (1h doubling to
+// 24h, never an email on failure), 12 retained reports per sub.
+// Multi-replica: one tick runs at a time via a lock in the shared /data store
+// (owner + timestamp, stale after LOCK_STALE_MS); a second replica's tick sees
+// the lock and skips - it is not an error.
+// Nothing here charges the subscriber: billing is Stripe's recurring invoice;
+// this is fulfilment only. Rollout: mounts only when subscriptions are enabled;
+// MONITOR_SCHEDULER=off disables the timer (manual runs still work).
+import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { randomBytes } from "node:crypto";
+import { MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
+
+const HOUR = 3600_000, DAY = 24 * HOUR;
+export const DOMAIN_CHECK_MS = DAY;
+export const DOMAIN_FULL_MS = 30 * DAY;
+export const FUND_CHECK_MS = DAY;
+export const MIN_FULL_GAP_MS = 12 * HOUR;
+export const TLS_ALERT_DAYS = 14;
+export const MAX_FULL_PER_TICK = 10;
+export const MAX_BACKOFF_MS = DAY;
+export const LOCK_STALE_MS = 20 * 60_000;
+export const TICK_MS = 10 * 60_000;
+const REPORTS_PER_SUB = 12;
+const MAX_RUNS_KEPT = 24;
+
+const STORE_PATH = () => join(existsSync("/data") ? "/data" : "/tmp", "monitor-runs.json");
+
+function loadStore(path) {
+  try {
+    const j = JSON.parse(readFileSync(path, "utf8"));
+    return { lock: j.lock || null, subs: j.subs || {}, reports: j.reports || {}, lastTickAt: j.lastTickAt || null, lastTick: j.lastTick || null };
+  } catch { return { lock: null, subs: {}, reports: {}, lastTickAt: null, lastTick: null }; }
+}
+function saveStore(path, store) {
+  try {
+    const tmp = `${path}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(store));
+    renameSync(tmp, path);
+  } catch { /* best-effort; in-memory still works this process */ }
+}
+const newReportId = () => randomBytes(16).toString("base64url");
+const errMsg = (e) => String(e?.message || e).replace(/[A-Za-z0-9_-]{32,}/g, "[redacted]").slice(0, 200);
+
+// Target -> handler input, by kind. A string is wrapped by the generate()
+// pipeline's per-kind argOf (server.js _humanGenerate); an OBJECT passes
+// through as the handler input, which is how the fund kind pins the resolved
+// CIK rather than re-resolving a name every run.
+function inputFor(kind, target, st) {
+  if (kind === "fund") return st?.cik ? { cik: st.cik } : { manager: target };
+  return target;
+}
+
+// Human-readable diff between two domain signal snapshots (the alert body).
+export function describeDomainChanges(prev, next) {
+  const out = [];
+  if (!prev || !next) return out;
+  if (prev.grade !== next.grade || prev.composite !== next.composite) out.push(`Overall grade ${prev.grade} (${prev.composite}/100) -> ${next.grade} (${next.composite}/100)`);
+  if (prev.spf !== next.spf) out.push(`SPF: ${prev.spf ?? "unassessed"} -> ${next.spf ?? "unassessed"}`);
+  if (prev.dmarc !== next.dmarc) out.push(`DMARC: ${prev.dmarc ?? "unassessed"} -> ${next.dmarc ?? "unassessed"}`);
+  if (JSON.stringify(prev.dkim) !== JSON.stringify(next.dkim)) out.push(`DKIM selectors: ${(prev.dkim || []).join(", ") || "none"} -> ${(next.dkim || []).join(", ") || "none"}`);
+  if (prev.mx !== next.mx) out.push(`MX records: ${prev.mx ?? "?"} -> ${next.mx ?? "?"}`);
+  if (JSON.stringify(prev.headers) !== JSON.stringify(next.headers)) {
+    const a = new Set(prev.headers || []), b = new Set(next.headers || []);
+    const added = [...b].filter((h) => !a.has(h)), removed = [...a].filter((h) => !b.has(h));
+    out.push(`Security headers: ${added.length ? "added " + added.join(", ") : ""}${added.length && removed.length ? "; " : ""}${removed.length ? "removed " + removed.join(", ") : ""}`.trim());
+  }
+  if (prev.tls_issuer !== next.tls_issuer) out.push(`TLS issuer: ${prev.tls_issuer || "?"} -> ${next.tls_issuer || "?"}`);
+  else if (prev.tls_valid_to !== next.tls_valid_to) out.push(`Certificate renewed (now valid to ${next.tls_valid_to || "?"})`);
+  return out;
+}
+
+/**
+ * @param {object} deps
+ * @param {{listActive:(kind?:string)=>any[], get:(id:string)=>any}} deps.subs
+ * @param {(kind:string, slug:string, input:string)=>Promise<object>} deps.generate  the real report pipeline (bundle)
+ * @param {(domain:string, opts?:object)=>Promise<object>} deps.probeDomain          free domain probe + grade
+ * @param {(input:string)=>string} deps.normDomain
+ * @param {(a:{cik:string})=>Promise<object|null>} deps.latestFiling               latest 13F-HR identity
+ * @param {(a:{cik?:string,name?:string,ticker?:string})=>Promise<{cik:string,name:string}>} deps.resolveManager
+ * @param {(mail:object)=>Promise<boolean>} deps.notify                              sendMonitorEmail (best-effort)
+ * @param {string} deps.baseUrl
+ * @param {string} [deps.storePath]
+ * @param {()=>number} [deps.now]
+ * @param {string} [deps.ownerId]
+ * @param {(s:string)=>void} [deps.log]
+ * @param {(ms:number)=>Promise<void>} [deps.sleep]
+ */
+export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+  const path = storePath || STORE_PATH();
+  let store = loadStore(path);
+  const me = ownerId || `${process.env.RAILWAY_REPLICA_ID || "local"}:${process.pid}:${randomBytes(3).toString("hex")}`;
+  const persist = () => saveStore(path, store);
+  const stateOf = (subId) => (store.subs[subId] ||= { failures: 0, runs: [] });
+
+  // --- shared-store lock -----------------------------------------------------
+  function acquireLock() {
+    const disk = loadStore(path);
+    const l = disk.lock;
+    if (l && l.owner !== me && now() - l.at < LOCK_STALE_MS) return false;
+    // Disk is the freshest view: only a lock holder writes state, and we are
+    // not one yet - so another replica's results win over our stale memory.
+    store = { ...store, lock: { owner: me, at: now() }, subs: { ...store.subs, ...disk.subs }, reports: { ...store.reports, ...disk.reports } };
+    persist();
+    const check = loadStore(path).lock;
+    return !!(check && check.owner === me);
+  }
+  function releaseLock() { if (store.lock?.owner === me) { store.lock = null; persist(); } }
+
+  // --- delivery ---------------------------------------------------------------
+  function pruneReports(subId) {
+    const mine = Object.entries(store.reports).filter(([, r]) => r.subId === subId).sort((a, b) => String(a[1].at).localeCompare(String(b[1].at)));
+    while (mine.length > REPORTS_PER_SUB) { const [id] = mine.shift(); delete store.reports[id]; }
+  }
+
+  async function runFull(rec, st, reason, changes = []) {
+    const p = MONITOR_PRODUCTS[rec.product];
+    const input = inputFor(p.kind, rec.target, st);
+    const g = await generate(p.kind, p.slug, input);
+    const bundle = (g && typeof g === "object") ? g : { report: String(g ?? "") };
+    if (!bundle.report) throw new Error("empty report");
+    const id = newReportId();
+    const at = new Date(now()).toISOString();
+    store.reports[id] = {
+      subId: rec.subId, kind: p.kind, product: rec.product, label: p.label, target: rec.target,
+      title: bundle.title || rec.target, report: bundle.report,
+      sources: Array.isArray(bundle.sources) ? bundle.sources : [], tables: Array.isArray(bundle.tables) ? bundle.tables : [],
+      at, reason, changes,
+    };
+    st.lastFullAt = now(); st.lastReportId = id; st.failures = 0; st.nextAttemptAt = null; st.lastError = null;
+    st.runs = [...(st.runs || []), { at, reason, reportId: id }].slice(-MAX_RUNS_KEPT);
+    pruneReports(rec.subId);
+    persist();
+    if (rec.email) {
+      notify({ to: rec.email, reason, label: p.label, target: rec.target, changes, reportUrl: `${baseUrl}/m/${id}`, manageUrl: `${baseUrl}/monitors/manage?report=${id}` }).catch(() => {});
+    }
+    return id;
+  }
+
+  // An alert that does NOT regenerate (the anti-flap gap blocked a paid re-run):
+  // links the latest report and says what changed.
+  async function alertOnly(rec, st, reason, changes) {
+    const p = MONITOR_PRODUCTS[rec.product];
+    const at = new Date(now()).toISOString();
+    st.runs = [...(st.runs || []), { at, reason, reportId: st.lastReportId || null, alertOnly: true }].slice(-MAX_RUNS_KEPT);
+    persist();
+    if (rec.email) {
+      const id = st.lastReportId;
+      notify({ to: rec.email, reason, label: p.label, target: rec.target, changes, reportUrl: id ? `${baseUrl}/m/${id}` : `${baseUrl}/monitors`, manageUrl: id ? `${baseUrl}/monitors/manage?report=${id}` : `${baseUrl}/monitors` }).catch(() => {});
+    }
+  }
+
+  // A successful step (probe, filing check, or report) ends a backoff episode.
+  function recovered(st) { st.failures = 0; st.nextAttemptAt = null; st.lastError = null; }
+
+  function fail(st, e) {
+    st.failures = (st.failures || 0) + 1;
+    const backoff = Math.min(HOUR * 2 ** (st.failures - 1), MAX_BACKOFF_MS);
+    st.nextAttemptAt = now() + backoff;
+    st.lastError = errMsg(e);
+    st.lastErrorAt = new Date(now()).toISOString();
+    persist();
+  }
+
+  // --- per-kind logic ----------------------------------------------------------
+  // Returns one of: "full" | "alert" | "checked" | "skip" | "error"
+  async function processDomain(rec, st, { force, budget }) {
+    let domain;
+    try { domain = normDomain(rec.target); }
+    catch (e) { st.invalidTarget = errMsg(e); st.nextAttemptAt = now() + DAY; persist(); return "skip"; }
+    const first = !st.lastFullAt;
+    const fullDue = first || now() - st.lastFullAt >= DOMAIN_FULL_MS;
+    // A pending retry (failures > 0) is always due: the backoff in nextAttemptAt
+    // already governs WHEN, and a check interval must not push it out a day.
+    const retryPending = (st.failures || 0) > 0;
+    const checkDue = force || retryPending || !st.lastCheckAt || now() - st.lastCheckAt >= DOMAIN_CHECK_MS;
+    if (fullDue) {
+      if (!budget.allow()) return "skip";
+      try {
+        // Probe first so the fingerprint baseline is set by the same run.
+        const pr = await probeDomain(domain);
+        st.signals = pr.signals; st.fingerprint = pr.fingerprint; st.lastCheckAt = now();
+        await runFull(rec, st, first ? "welcome" : "scheduled");
+        return "full";
+      } catch (e) { fail(st, e); return "error"; }
+    }
+    if (!checkDue) return "skip";
+    let pr;
+    try { pr = await probeDomain(domain); }
+    catch (e) { fail(st, e); return "error"; }
+    const prev = st.signals || null, prevFp = st.fingerprint, prevTlsAlerted = st.tlsAlertedFor;
+    const changes = describeDomainChanges(prev, pr.signals);
+    const changed = !!(st.fingerprint && pr.fingerprint !== st.fingerprint);
+    st.signals = pr.signals; st.fingerprint = pr.fingerprint; st.lastCheckAt = now();
+    const days = pr.signals?.tls_days_remaining;
+    const validTo = pr.signals?.tls_valid_to || null;
+    const tlsExpiring = typeof days === "number" && days <= TLS_ALERT_DAYS && st.tlsAlertedFor !== validTo;
+    if (!changed && !tlsExpiring) { recovered(st); persist(); return "checked"; }
+    const reason = tlsExpiring && !changed ? "tls-expiring" : "change";
+    if (tlsExpiring) { st.tlsAlertedFor = validTo; changes.unshift(`TLS certificate expires in ${days} day${days === 1 ? "" : "s"} (valid to ${validTo || "?"})`); }
+    const gapOk = !st.lastFullAt || now() - st.lastFullAt >= MIN_FULL_GAP_MS;
+    if (gapOk && budget.allow()) {
+      try { await runFull(rec, st, reason, changes); return "full"; }
+      catch (e) {
+        // The change is NOT delivered yet: restore the previous baseline so the
+        // retry re-detects it (otherwise the new fingerprint would read as
+        // "unchanged" and the subscriber would never hear about it).
+        st.signals = prev; st.fingerprint = prevFp; st.tlsAlertedFor = prevTlsAlerted;
+        fail(st, e); return "error";
+      }
+    }
+    recovered(st);
+    await alertOnly(rec, st, reason, changes);
+    return "alert";
+  }
+
+  async function processFund(rec, st, { force, budget }) {
+    const retryPending = (st.failures || 0) > 0;
+    const checkDue = force || retryPending || !st.lastCheckAt || now() - st.lastCheckAt >= FUND_CHECK_MS || !st.accession;
+    if (!checkDue) return "skip";
+    let latest;
+    try {
+      if (!st.cik) {
+        const t = String(rec.target || "").trim();
+        const r = /^\d{1,10}$/.test(t) ? await resolveManager({ cik: t }) : await resolveManager({ name: t });
+        st.cik = r.cik; st.managerName = r.name || null;
+      }
+      latest = await latestFiling({ cik: st.cik });
+    } catch (e) { fail(st, e); return "error"; }
+    st.lastCheckAt = now();
+    if (!latest) { recovered(st); st.lastError = "no 13F-HR filings yet"; persist(); return "checked"; }
+    const first = !st.accession;
+    if (!first && latest.accessionNumber === st.accession) { recovered(st); persist(); return "checked"; }
+    if (!budget.allow()) { persist(); return "skip"; }
+    try {
+      const reason = first ? "welcome" : "filing";
+      const changes = first ? [] : [`New 13F-HR filed ${latest.filedDate || "?"} (period ${latest.reportDate || "?"}), accession ${latest.accessionNumber}`];
+      await runFull(rec, st, reason, changes);
+      st.accession = latest.accessionNumber; st.filedDate = latest.filedDate || null; st.reportDate = latest.reportDate || null;
+      persist();
+      return "full";
+    } catch (e) { fail(st, e); return "error"; }
+  }
+
+  async function processSub(rec, opts) {
+    const p = MONITOR_PRODUCTS[rec.product];
+    if (!p) return "skip";
+    const st = stateOf(rec.subId);
+    st.product = rec.product; st.target = rec.target;
+    if (!opts.force && st.nextAttemptAt && now() < st.nextAttemptAt) return "skip";
+    if (p.kind === "domain") return processDomain(rec, st, opts);
+    if (p.kind === "fund") return processFund(rec, st, opts);
+    return "skip";
+  }
+
+  // --- the tick ---------------------------------------------------------------
+  let ticking = false;
+  async function tick({ force = false, subId = null } = {}) {
+    if (ticking) return { skipped: "busy" };
+    if (!acquireLock()) return { skipped: "locked" };
+    ticking = true;
+    const started = now();
+    const summary = { full: 0, alert: 0, checked: 0, skip: 0, error: 0, deferred: 0, active: 0 };
+    let fullCount = 0;
+    const budget = { allow: () => { if (fullCount >= MAX_FULL_PER_TICK) { summary.deferred++; return false; } fullCount++; return true; } };
+    try {
+      const active = subs.listActive().filter((r) => !subId || r.subId === subId);
+      summary.active = active.length;
+      for (const rec of active) {
+        let r;
+        try { r = await processSub(rec, { force, budget }); }
+        catch (e) { fail(stateOf(rec.subId), e); r = "error"; }
+        summary[r] = (summary[r] || 0) + 1;
+        // Keep the lock fresh ON DISK during long ticks (10 paid reports can
+        // take longer than LOCK_STALE_MS) so another replica does not reclaim it.
+        if (store.lock?.owner === me) { store.lock.at = now(); persist(); }
+        await sleep(0);
+      }
+      // Drop state for subscriptions that no longer exist at all (not merely
+      // canceled - a resubscribe reuses nothing, and canceled history is kept).
+      store.lastTickAt = new Date(now()).toISOString();
+      store.lastTick = { ...summary, ms: now() - started, owner: me };
+      persist();
+    } finally { ticking = false; releaseLock(); }
+    log(`[monitors] tick: ${summary.active} active, ${summary.full} full, ${summary.alert} alerts, ${summary.checked} checked, ${summary.error} errors, ${summary.deferred} deferred (${now() - started}ms)`);
+    return summary;
+  }
+
+  // --- read surfaces ------------------------------------------------------------
+  // The delivered-report shape the report page polls (same as /api/r/:id).
+  // A miss re-reads the shared store at most once per 5s (another replica may
+  // have just delivered it) - an id scanner cannot turn every miss into a read.
+  let lastMissReadAt = 0;
+  function fromDisk(reportId) {
+    if (now() - lastMissReadAt < 5000) return null;
+    lastMissReadAt = now();
+    return loadStore(path).reports[reportId] || null;
+  }
+  function reportView(reportId) {
+    const r = store.reports[reportId] || fromDisk(reportId);
+    if (!r) return null;
+    if (!store.reports[reportId]) store.reports[reportId] = r;
+    return {
+      status: "done", kind: r.kind, title: r.title, report: r.report, sources: r.sources, tables: r.tables, at: r.at,
+      monitor: { label: r.label, target: r.target, reason: r.reason, changes: r.changes || [], manageUrl: `/monitors/manage?report=${reportId}` },
+    };
+  }
+  const subIdOfReport = (reportId) => (store.reports[reportId] || fromDisk(reportId))?.subId || null;
+
+  function status() {
+    const active = subs.listActive();
+    const rows = active.map((rec) => {
+      const st = store.subs[rec.subId] || {};
+      return {
+        subId: rec.subId, product: rec.product, kind: MONITOR_PRODUCTS[rec.product]?.kind || null, target: rec.target,
+        lastCheckAt: st.lastCheckAt ? new Date(st.lastCheckAt).toISOString() : null,
+        lastFullAt: st.lastFullAt ? new Date(st.lastFullAt).toISOString() : null,
+        lastReportId: st.lastReportId || null, failures: st.failures || 0, lastError: st.lastError || null,
+        nextAttemptAt: st.nextAttemptAt ? new Date(st.nextAttemptAt).toISOString() : null,
+        accession: st.accession || null, grade: st.signals?.grade ?? null, tlsDays: st.signals?.tls_days_remaining ?? null,
+        runs: (st.runs || []).slice(-5),
+      };
+    });
+    return { owner: me, lock: store.lock, lastTickAt: store.lastTickAt || null, lastTick: store.lastTick || null, active: rows.length, reports: Object.keys(store.reports).length, subs: rows };
+  }
+
+  let timer = null;
+  function start() {
+    if (timer) return timer;
+    timer = setInterval(() => { tick().catch((e) => log(`[monitors] tick threw: ${errMsg(e)}`)); }, TICK_MS);
+    timer.unref?.();
+    // First tick shortly after boot so a fresh subscriber's welcome report is
+    // not a 10-minute wait after a deploy.
+    const first = setTimeout(() => { tick().catch((e) => log(`[monitors] first tick threw: ${errMsg(e)}`)); }, 90_000);
+    first.unref?.();
+    log(`[monitors] scheduler armed (tick ${TICK_MS / 60000}m, domain check ${DOMAIN_CHECK_MS / HOUR}h / full ${DOMAIN_FULL_MS / DAY}d, fund check ${FUND_CHECK_MS / HOUR}h, max ${MAX_FULL_PER_TICK} full/tick)`);
+    return timer;
+  }
+  function stop() { if (timer) { clearInterval(timer); timer = null; } }
+
+  return { tick, reportView, subIdOfReport, status, start, stop, _store: () => store };
+}

@@ -156,11 +156,12 @@ ${bar()}
 }
 
 // Delivery page: polls /api/r/:id and renders the report (client-side markdown).
-export function reportDeliveryPage(sessionId) {
+// `api` overrides the polled endpoint (monitor reports at /m/:id poll /api/m/).
+export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "This takes about a minute. Please keep this page open - it will appear here automatically." } = {}) {
   return `<!doctype html><html lang="en"><head><title>Your report - Agent402</title>${HEAD}</head><body>
 ${bar()}
 <main class="wrap">
-  <div id="app" data-session="${esc(sessionId)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>This takes about a minute. Please keep this page open - it will appear here automatically.</p></div></div>
+  <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p></div></div>
 </main>
 <footer><div class="wrap">Agent402 · your report is yours to keep - copy or bookmark this page</div></footer>
 <script src="/js/report-view.js"></script>

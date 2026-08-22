@@ -52,7 +52,7 @@ async function settle(p, timeoutMs) {
   } catch (e) { return { ok: false, error: e?.message || String(e) }; }
 }
 
-function normDomain(input) {
+export function normDomain(input) {
   let d = String(input?.domain ?? input?.url ?? input?.host ?? "").trim();
   if (!d) throw bad('"domain" is required, e.g. "example.com"');
   d = d.replace(/^[a-z]+:\/\//i, "").replace(/\/.*$/, "").replace(/:\d+$/, "").replace(/^www\./i, "").toLowerCase();
@@ -71,6 +71,75 @@ function tlsScoreOf(tls) {
 }
 function letterFor(n) { return n >= 90 ? "A" : n >= 80 ? "B" : n >= 70 ? "C" : n >= 60 ? "D" : "F"; }
 
+// The LIVE PROBE + GRADE stage, with no LLM: parallel probes (each non-fatal),
+// per-dimension scores, the weighted composite and letter grade, and a
+// deterministic FINGERPRINT of the security-relevant facts. Exported so the
+// monitor scheduler can re-probe a subscribed domain for free on a cadence and
+// only pay for a fresh synthesis when something actually changed; the paid
+// handler below uses the SAME function, so the two can never grade differently.
+export async function probeDomain(domain, { pro = false } = {}) {
+  const emailH = H("email-deliverability"), tlsH = H("tls-cert"), hdrH = H("http-headers");
+  const core = await Promise.all([
+    settle(emailH({ domain }), PROBE_TIMEOUT_MS),
+    settle(tlsH({ host: domain }), PROBE_TIMEOUT_MS),
+    settle(hdrH({ url: `https://${domain}` }), PROBE_TIMEOUT_MS),
+  ]);
+  const [emailR, tlsR, hdrR] = core;
+  let ct = null, tech = null, whois = null;
+  if (pro) {
+    const proTools = await Promise.all([
+      settle(H("cert-transparency")({ domain }), PROBE_TIMEOUT_MS),
+      settle(H("tech-stack")({ url: `https://${domain}` }), PROBE_TIMEOUT_MS),
+      settle(H("whois")({ domain }), PROBE_TIMEOUT_MS),
+    ]);
+    ct = proTools[0].ok ? proTools[0].data : null;
+    tech = proTools[1].ok ? proTools[1].data : null;
+    whois = proTools[2].ok ? proTools[2].data : null;
+  }
+  // If EVERY core probe failed, we cannot produce an audit (not charged).
+  if (!emailR.ok && !tlsR.ok && !hdrR.ok) throw bad(`Could not reach "${domain}" on any probe (DNS, TLS, or HTTP). Confirm the domain is live. Not charged.`, 422);
+
+  const email = emailR.ok ? emailR.data : null;
+  const tls = tlsR.ok ? tlsR.data : null;
+  const hdr = hdrR.ok ? hdrR.data : null;
+  // A probe that failed (or returned no numeric score) is UNASSESSED, not a
+  // zero - a network blip on the email probe must not silently print grade A
+  // for a domain with broken email auth, nor drag it to F.
+  const emailScore = typeof email?.score === "number" ? email.score : null;
+  const headerScore = typeof hdr?.security?.score === "number" ? hdr.security.score : null;
+  const tlsScore = tlsScoreOf(tls);
+  const dims = [], assessed = [];
+  if (emailScore != null) { dims.push([0.40, emailScore]); assessed.push("email auth"); }
+  if (headerScore != null) { dims.push([0.35, headerScore]); assessed.push("security headers"); }
+  if (tlsScore != null) { dims.push([0.25, tlsScore]); assessed.push("TLS"); }
+  if (!dims.length) throw bad(`Could not assess any security dimension for "${domain}" (all probes failed). Not charged.`, 422);
+  const wsum = dims.reduce((a, [w]) => a + w, 0) || 1;
+  const composite = Math.round(dims.reduce((a, [w, s]) => a + w * s, 0) / wsum);
+  const grade = letterFor(composite);
+  // The grade only covers dimensions we could measure - say so in the headline
+  // so a missing dimension is visible, not buried in prose.
+  const gradeCaveat = assessed.length === 3 ? "" : ` (assessed on ${assessed.join(", ")} only)`;
+
+  // Security-relevant FACTS only (no timestamps, no free-text, no volatile
+  // fields like days-remaining) so a re-probe of an unchanged domain yields the
+  // same fingerprint. tls_days_remaining rides separately for expiry alerts.
+  const signals = {
+    grade, composite, assessed,
+    spf: email ? (email.spf?.hasRecord ? `present:${email.spf.all || "?"}all:valid=${!!email.spf.valid}` : "missing") : null,
+    dmarc: email ? (email.dmarc?.hasRecord ? `p=${email.dmarc.policy}:pct=${email.dmarc.percent}:valid=${!!email.dmarc.valid}` : "missing") : null,
+    dkim: email ? (email.dkim?.found || []).map((d) => `${d.selector}:${d.bits}`).sort() : null,
+    mx: email ? (email.mx?.count ?? 0) : null,
+    headers: hdr ? (hdr.security?.findings || []).filter((f) => f.present).map((f) => String(f.header || "").toLowerCase()).sort() : null,
+    tls_issuer: tls?.issuer || null,
+    tls_valid_to: tls?.validTo || null,
+    tls_days_remaining: tls?.daysRemaining ?? null,
+  };
+  const { tls_days_remaining: _d, ...stable } = signals;
+  const fingerprint = JSON.stringify(stable);
+
+  return { domain, emailR, tlsR, hdrR, email, tls, hdr, ct, tech, whois, emailScore, headerScore, tlsScore, composite, grade, assessed, gradeCaveat, signals, fingerprint };
+}
+
 export function makeDomainAuditHandler(tierSlug) {
   const t = DOMAIN_AUDIT_TIERS[tierSlug];
   return async (input, req) => {
@@ -78,48 +147,8 @@ export function makeDomainAuditHandler(tierSlug) {
     const domain = normDomain(input);
     const user = safeUser(req);
 
-    // 1) LIVE PROBES (parallel, each non-fatal).
-    const emailH = H("email-deliverability"), tlsH = H("tls-cert"), hdrH = H("http-headers");
-    const core = await Promise.all([
-      settle(emailH({ domain }), PROBE_TIMEOUT_MS),
-      settle(tlsH({ host: domain }), PROBE_TIMEOUT_MS),
-      settle(hdrH({ url: `https://${domain}` }), PROBE_TIMEOUT_MS),
-    ]);
-    const [emailR, tlsR, hdrR] = core;
-    let ct = null, tech = null, whois = null;
-    if (t.pro) {
-      const proTools = await Promise.all([
-        settle(H("cert-transparency")({ domain }), PROBE_TIMEOUT_MS),
-        settle(H("tech-stack")({ url: `https://${domain}` }), PROBE_TIMEOUT_MS),
-        settle(H("whois")({ domain }), PROBE_TIMEOUT_MS),
-      ]);
-      ct = proTools[0].ok ? proTools[0].data : null;
-      tech = proTools[1].ok ? proTools[1].data : null;
-      whois = proTools[2].ok ? proTools[2].data : null;
-    }
-    // If EVERY core probe failed, we cannot produce an audit (not charged).
-    if (!emailR.ok && !tlsR.ok && !hdrR.ok) throw bad(`Could not reach "${domain}" on any probe (DNS, TLS, or HTTP). Confirm the domain is live. Not charged.`, 422);
-
-    const email = emailR.ok ? emailR.data : null;
-    const tls = tlsR.ok ? tlsR.data : null;
-    const hdr = hdrR.ok ? hdrR.data : null;
-    // A probe that failed (or returned no numeric score) is UNASSESSED, not a
-    // zero - a network blip on the email probe must not silently print grade A
-    // for a domain with broken email auth, nor drag it to F.
-    const emailScore = typeof email?.score === "number" ? email.score : null;
-    const headerScore = typeof hdr?.security?.score === "number" ? hdr.security.score : null;
-    const tlsScore = tlsScoreOf(tls);
-    const dims = [], assessed = [];
-    if (emailScore != null) { dims.push([0.40, emailScore]); assessed.push("email auth"); }
-    if (headerScore != null) { dims.push([0.35, headerScore]); assessed.push("security headers"); }
-    if (tlsScore != null) { dims.push([0.25, tlsScore]); assessed.push("TLS"); }
-    if (!dims.length) throw bad(`Could not assess any security dimension for "${domain}" (all probes failed). Not charged.`, 422);
-    const wsum = dims.reduce((a, [w]) => a + w, 0) || 1;
-    const composite = Math.round(dims.reduce((a, [w, s]) => a + w * s, 0) / wsum);
-    const grade = letterFor(composite);
-    // The grade only covers dimensions we could measure - say so in the headline
-    // so a missing dimension is visible, not buried in prose.
-    const gradeCaveat = assessed.length === 3 ? "" : ` (assessed on ${assessed.join(", ")} only)`;
+    // 1) LIVE PROBES + GRADE (shared with the monitor scheduler's free re-probe).
+    const { emailR, tlsR, hdrR, email, tls, hdr, ct, tech, whois, emailScore, headerScore, composite, grade, assessed, gradeCaveat } = await probeDomain(domain, { pro: t.pro });
 
     // 2) GROUNDING BLOCKS (the probe results are the only source of truth).
     const emailBlock = email

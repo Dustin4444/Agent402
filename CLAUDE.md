@@ -386,6 +386,25 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Blockscout upstream 500s, not charged). Images `usage.cache_discount` stripped; SSE scrubber matches
   `data:` with no space. Open/accepted: flex attempt that times out after generation may bill twice on
   that call (bounded 1.4x tier price, rare; shorter flex abort would cut legitimate slow flex answers).
+- **Human front door + report products + recurring engine (2026-08-21):** `src/human-checkout.js`
+  (Stripe Checkout for the premium report products, `/reports`, `POST /api/buy`, `/r/:sessionId`; no
+  report without a Stripe-verified paid session, generate-once cross-replica, auto-refund on failure),
+  `src/stripe-subscriptions.js` (Phase 2a: `MONITOR_PRODUCTS` domain-monitor + fund-monitor $9/mo,
+  subscription-mode Checkout, durable subscriber store, signature-verified webhook, Customer Portal;
+  `/monitors`, `POST /api/subscribe`, `/monitors/thanks`, `/monitors/manage`), and **Phase 2b
+  `src/monitor-scheduler.js`** (fulfilment: 10-min tick, unref'd, first tick +90s; per active sub -
+  domain: welcome report on first sight, FREE daily re-probe via `probeDomain()` (the SAME grade
+  stage the paid handler uses, exported from domain-audit-kit, no LLM) with a security-facts
+  fingerprint, full paid re-run on change / cert <= 14 days (once per cert) / every 30 days, 12h
+  anti-flap gap (alert-only email inside it); fund: manager resolved once, daily `latest13fFiling()`
+  (one EDGAR submissions read), full report only on a NEW accession which advances only after
+  success; MAX 10 paid reports per tick, 1h-doubling-to-24h backoff per sub with no email on failure,
+  a failed change-run restores the old baseline so the retry re-detects; shared-store lock in
+  `/data/monitor-runs.json` so one replica ticks; reports served at `/m/:id` (the id is the bearer,
+  same viewer as `/r/`) + `/api/m/:id`; `/monitors/manage?report=<id>` reaches the portal; email via
+  `sendMonitorEmail` (ZeptoMail). Ops: `GET /__operator/monitors.json`, `POST /__operator/monitors/run`
+  (`?sub=<id>` forces one; heavy-limited). `MONITOR_SCHEDULER=off` disarms the timer. Rollout switch
+  for all of it = `STRIPE_SECRET_KEY`. `scripts/test-monitor-scheduler.js` (35, offline, in CI).
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

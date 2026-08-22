@@ -813,6 +813,9 @@ jobs:
       - name: Stripe subscriptions (checkout, provisioning, webhook signature discipline)
         run: node scripts/test-stripe-subscriptions.js
 
+      - name: Monitor scheduler (welcome/scheduled/change/TLS/filing delivery, paid-run bounds, backoff, lock)
+        run: node scripts/test-monitor-scheduler.js
+
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
 

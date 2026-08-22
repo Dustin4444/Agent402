@@ -17,16 +17,16 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 // The monitoring products. Each subscribes to a `target` (a domain, a fund,
-// etc.) and re-runs a report kind on a cadence (the scheduler is Phase 2b).
-// price is in cents, billed monthly.
+// etc.) and re-runs a report kind on a cadence (src/monitor-scheduler.js).
+// `slug` = the paid report handler the scheduler runs; price in cents, monthly.
 export const MONITOR_PRODUCTS = {
   "domain-monitor": {
-    label: "Domain security monitor", price: 900, kind: "domain",
+    label: "Domain security monitor", price: 900, kind: "domain", slug: "domain-audit",
     inputField: "domain", inputLabel: "a domain, e.g. example.com",
     blurb: "Monthly re-audit of your domain's email auth, TLS and security headers, with an alert the moment your certificate is expiring or your config drifts.",
   },
   "fund-monitor": {
-    label: "Fund 13F watch", price: 900, kind: "fund",
+    label: "Fund 13F watch", price: 900, kind: "fund", slug: "fund-report",
     inputField: "manager", inputLabel: "a fund name, ticker, or CIK",
     blurb: "We watch this manager's SEC 13F filings and email you a fresh holdings + changes report each time they file.",
   },

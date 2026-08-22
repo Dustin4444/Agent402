@@ -30,6 +30,10 @@ import { createHumanCheckout, humanCheckoutEnabled } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled } from "./stripe-subscriptions.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
+import { createMonitorScheduler } from "./monitor-scheduler.js";
+import { sendMonitorEmail } from "./email.js";
+import { probeDomain, normDomain } from "./tools/domain-audit-kit.js";
+import { latest13fFiling, resolveManager as edgarResolveManager } from "./tools/edgar-kit.js";
 import { resolveSpend as resolveExternalSpend } from "./external-spend-guard.js";
 import { registerWellKnown, removeWellKnown, getWellKnown, listWellKnown } from "./well-known-store.js";
 import { backupPlan, backupStatus, runBackup, startBackupScheduler } from "./backup.js";
@@ -1579,27 +1583,33 @@ app.get("/revenue", async (_req, res) => {
 // report is NEVER generated without a verified-paid Stripe session, generation
 // is generate-once per session, and a failed report auto-refunds the card
 // (see src/human-checkout.js + test-human-checkout.js).
-if (humanCheckoutEnabled()) {
-  const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS].map((t) => [t.slug, t.handler]));
-  const _humanGenerate = async (kind, slug, input) => {
+// The premium report pipeline shared by the human checkout (one-shot) and the
+// monitor scheduler (recurring): slug -> the SAME handler agents buy over x402.
+// `input` is a string (wrapped per kind) or an object passed straight through
+// (the scheduler pins a resolved CIK for fund monitors that way).
+const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS].map((t) => [t.slug, t.handler]));
+const _humanGenerate = async (kind, slug, input) => {
     const h = _premiumHandlers[slug];
     if (!h) throw new Error("no handler for " + slug);
     const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }) };
-    const out = await h((argOf[kind] || argOf.research)(input));
+    const arg = (input && typeof input === "object") ? input : (argOf[kind] || argOf.research)(input);
+    const out = await h(arg);
     const report = out?.dossier || out?.report;
     if (!report) throw new Error("empty report");
     // Deliver a BUNDLE, not just prose: the report plus the structured data
     // appendix (sources always; financials + insider tables on dossiers, holdings
     // + changes on fund reports, checks + headers on domain audits).
-    const titleOf = { dossier: () => (out?.company ? `${out.company} (${out.ticker})` : input), fund: () => out?.manager || input, domain: () => out?.domain || input };
+    const fallbackTitle = typeof input === "string" ? input : (input?.manager || input?.cik || input?.domain || input?.ticker || input?.query || "");
+    const titleOf = { dossier: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), fund: () => out?.manager || fallbackTitle, domain: () => out?.domain || fallbackTitle };
     return {
       report,
       kind,
-      title: (titleOf[kind] || (() => input))(),
+      title: (titleOf[kind] || (() => fallbackTitle))(),
       sources: Array.isArray(out?.sources) ? out.sources : [],
       tables: Array.isArray(out?.tables) ? out.tables : [],
     };
-  };
+};
+if (humanCheckoutEnabled()) {
   let _humanCheckout;
   try { _humanCheckout = createHumanCheckout({ stripe: new Stripe(process.env.STRIPE_SECRET_KEY), generate: _humanGenerate, baseUrl: BASE_URL }); } catch { _humanCheckout = null; }
   if (_humanCheckout) {
@@ -1639,15 +1649,63 @@ if (_subs) {
   });
   // Explicit manage/cancel: mint the Stripe Customer Portal at click time, then
   // redirect. (The session id is the buyer's bearer for this purchase.)
+  // Two bearers reach the portal: the checkout session id (the thanks page) or a
+  // delivered monitor report id (the email / report page) - both unguessable.
   app.get("/monitors/manage", async (req, res) => {
     try {
-      const r = await _subs.recordFromSession(String(req.query.session || ""));
-      if (r.status !== "active" || !r.customer) return res.redirect("/monitors");
-      const { url } = await _subs.portalSession(r.customer);
+      let customer = null;
+      if (req.query.report && _monitors) {
+        const subId = _monitors.subIdOfReport(String(req.query.report || ""));
+        const rec = subId ? _subs.get(subId) : null;
+        if (rec?.customer) customer = rec.customer;
+      } else {
+        const r = await _subs.recordFromSession(String(req.query.session || ""));
+        if (r.status === "active" && r.customer) customer = r.customer;
+      }
+      if (!customer) return res.redirect("/monitors");
+      const { url } = await _subs.portalSession(customer);
       res.redirect(url);
     } catch { res.redirect("/monitors"); }
   });
+  // Delivered monitor reports: same page + viewer as one-shot reports, served
+  // from the scheduler's store (no Stripe session - the report id is the bearer).
+  app.get("/m/:reportId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.reportId || ""), { api: "/api/m/", waitCopy: "Loading your monitor report." })));
+  app.get("/api/m/:reportId", (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const id = String(req.params.reportId || "");
+    const v = _monitors && /^[A-Za-z0-9_-]{10,64}$/.test(id) ? _monitors.reportView(id) : null;
+    res.json(v || { status: "not_found" });
+  });
 }
+// Monitor scheduler (Phase 2b): the recurring fulfilment engine. Runs only when
+// subscriptions are enabled (Stripe key) - it reuses the premium pipeline.
+let _monitors = null;
+if (_subs) {
+  try {
+    _monitors = createMonitorScheduler({
+      subs: _subs, generate: _humanGenerate, probeDomain, normDomain,
+      latestFiling: latest13fFiling, resolveManager: edgarResolveManager,
+      notify: sendMonitorEmail, baseUrl: BASE_URL,
+    });
+  } catch (e) { console.warn("[monitors] scheduler failed to initialize:", String(e?.message || e)); _monitors = null; }
+}
+app.get("/__operator/monitors.json", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  res.set("Cache-Control", "no-store").json(_monitors ? _monitors.status() : { enabled: false });
+});
+// Manual tick (all due subs, or ?sub=<id> with force): paid re-runs + email, so
+// it takes the heavy-route limiter like the other upstream-reaching operator
+// routes. Fire-and-report.
+app.post("/__operator/monitors/run", (req, res) => {
+  if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+  if (operatorHeavyLimited(req, res)) return;
+  if (!_monitors) return res.status(503).json({ error: "monitor scheduler not enabled" });
+  const subId = req.query.sub ? String(req.query.sub) : null;
+  _monitors.tick({ force: !!subId || req.query.force === "1", subId }).then(
+    (r) => res.json(r),
+    (e) => res.status(500).json({ error: String(e?.message || e).slice(0, 200) })
+  );
+});
 // Sales ledger — AGGREGATE beacon: totals, the recording window, and counts.
 // Deliberately carries no per-call rows, no payer addresses, and no per-tool
 // ranking (see salesSummary's contract in src/sales-ledger.js for why each of
@@ -5315,6 +5373,10 @@ if (String(process.env.MPP_INDEX_CRAWL || "").toLowerCase() === "off") {
 // Nightly offsite backup of /data (src/backup.js). No-op without the
 // BACKUP_S3_* creds; the timer is unref'd so it never holds the process.
 startBackupScheduler();
+
+// Monitor scheduler timer (recurring report fulfilment). MONITOR_SCHEDULER=off
+// keeps the manual operator run available while disarming the timer.
+if (_monitors && process.env.MONITOR_SCHEDULER !== "off") _monitors.start();
 
 // Warm the revenue snapshot at boot (fire-and-forget): revenueSnapshot serves
 // stale-while-revalidating, so the only request that could ever block on the

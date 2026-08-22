@@ -8,6 +8,8 @@
 (function () {
   var app = document.getElementById("app");
   var id = app && app.getAttribute("data-session");
+  // Monitor reports (/m/:id) are served by a different API but render identically.
+  var api = (app && app.getAttribute("data-api")) || "/api/r/";
   if (!id) { if (app) app.innerHTML = notFound(); return; }
 
   function esc(s) { return String(s == null ? "" : s).replace(/[&<>]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]; }); }
@@ -32,7 +34,15 @@
     return out.join("\n");
   }
 
-  function productLabel(kind) { return kind === "dossier" ? "Company Due-Diligence Dossier" : "Deep Research Report"; }
+  function productLabel(kind) {
+    return kind === "dossier" ? "Company Due-Diligence Dossier"
+      : kind === "fund" ? "Fund Portfolio Report (13F)"
+      : kind === "domain" ? "Domain Security Audit"
+      : "Deep Research Report";
+  }
+  function reasonLabel(r) {
+    return { welcome: "first report", scheduled: "scheduled re-run", change: "change detected", "tls-expiring": "certificate expiring", filing: "new 13F filing" }[r] || r;
+  }
   function fmtDate(iso) {
     try { var d = new Date(iso); if (isNaN(d)) return ""; return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }); }
     catch (e) { return ""; }
@@ -85,7 +95,16 @@
       (included.length ? '<div class="keep-hint no-print">Includes ' + included.join(" · ") + ". This page is yours to keep, bookmark it or use the link we emailed you.</div>"
                        : '<div class="keep-hint no-print">This page is yours to keep, bookmark it or use the link we emailed you.</div>');
 
-    app.innerHTML = actions + '<div class="report" id="report-body">' + head + mdToHtml(s.report || "") + "</div>";
+    // Monitor deliveries carry what triggered them + a manage/cancel link.
+    var mon = "";
+    if (s.monitor) {
+      var ch = Array.isArray(s.monitor.changes) ? s.monitor.changes : [];
+      mon = '<div class="keep-hint no-print">' + esc(s.monitor.label || "Monitor") + " · " + esc(s.monitor.target || "") +
+        (s.monitor.reason ? " · " + esc(reasonLabel(s.monitor.reason)) : "") +
+        (ch.length ? "<ul>" + ch.map(function (c) { return "<li>" + esc(c) + "</li>"; }).join("") + "</ul>" : "") +
+        (s.monitor.manageUrl ? ' <a href="' + esc(s.monitor.manageUrl) + '">Manage or cancel this monitor</a>' : "") + "</div>";
+    }
+    app.innerHTML = actions + mon + '<div class="report" id="report-body">' + head + mdToHtml(s.report || "") + "</div>";
 
     var pdf = document.getElementById("dl-pdf");
     if (pdf) pdf.addEventListener("click", function () { window.print(); });
@@ -119,7 +138,7 @@
   }
   async function poll() {
     try {
-      var r = await fetch("/api/r/" + encodeURIComponent(id));
+      var r = await fetch(api + encodeURIComponent(id));
       var s = await r.json();
       if (render(s)) return;
     } catch (e) { /* transient; keep polling */ }

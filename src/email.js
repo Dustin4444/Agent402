@@ -62,5 +62,39 @@ export async function sendReportReadyEmail({ to, reportUrl, productLabel, subjec
   return sendEmail({ to, subject: subj, html, text });
 }
 
+/** Monitor delivery / alert email. reason: welcome | scheduled | change | tls-expiring | filing. Best-effort. */
+export async function sendMonitorEmail({ to, reason, label, target, changes = [], reportUrl, manageUrl }) {
+  const t = String(target ?? "").slice(0, 100);
+  const lbl = label || "monitor";
+  const subjects = {
+    welcome: `Your ${lbl} is live: first report for ${t}`,
+    scheduled: `${lbl}: fresh report for ${t}`,
+    change: `Change detected on ${t}`,
+    "tls-expiring": `Certificate for ${t} is expiring`,
+    filing: `New 13F filing: ${t}`,
+  };
+  const leads = {
+    welcome: `Your monitor for ${t} is active. Here is your first report, and we will email you again whenever something changes.`,
+    scheduled: `Your scheduled re-run for ${t} is done. Nothing further is needed from you.`,
+    change: `Our latest check of ${t} found changes since the last report:`,
+    "tls-expiring": `Heads up: the TLS certificate for ${t} is close to expiry.`,
+    filing: `${t} has a new SEC 13F filing. Your fresh holdings + changes report is ready.`,
+  };
+  const subj = subjects[reason] || `${lbl}: update for ${t}`;
+  const lead = leads[reason] || `Your ${lbl} has an update for ${t}.`;
+  const list = (changes || []).slice(0, 12);
+  const changesHtml = list.length ? `<ul style="color:#35443c;padding-left:18px">${list.map((c) => `<li>${escapeHtml(c)}</li>`).join("")}</ul>` : "";
+  const changesText = list.length ? `\n${list.map((c) => `- ${c}`).join("\n")}\n` : "";
+  const html = `<div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;margin:0 auto;color:#14201b">
+    <h2 style="font-weight:500;color:#14201b">${escapeHtml(subj)}</h2>
+    <p style="color:#35443c">${escapeHtml(lead)}</p>${changesHtml}
+    <p style="margin:26px 0"><a href="${escapeAttr(reportUrl)}" style="background:#15654a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;display:inline-block">Open the report →</a></p>
+    <p style="color:#8a948c;font-size:13px">Or paste this link into your browser:<br>${escapeHtml(reportUrl)}</p>
+    <p style="color:#8a948c;font-size:12px;margin-top:28px">Agent402 · ${escapeHtml(lbl)} · <a href="${escapeAttr(manageUrl || reportUrl)}" style="color:#8a948c">manage or cancel</a></p>
+  </div>`;
+  const text = `${subj}\n\n${lead}\n${changesText}\nOpen the report: ${reportUrl}\n\nManage or cancel: ${manageUrl || reportUrl}\n\nAgent402`;
+  return sendEmail({ to, subject: subj, html, text });
+}
+
 function escapeHtml(s) { return String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 function escapeAttr(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
