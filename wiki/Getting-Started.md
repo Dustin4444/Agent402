@@ -49,7 +49,9 @@ To settle in real USDC instead, fund a wallet on Base and run `AGENT_KEY=0xYOUR_
 | On OpenAI / Anthropic / Vercel AI SDK / LangChain / LlamaIndex | One of the framework adapter packages - see [[Adapters]] |
 | Calling over HTTP with a wallet | One x402-wrapped fetch - see [[Paying with x402]] |
 | Wallet-less / sandboxed | Proof-of-work on 200+ tools - see [[Paying with Compute]] |
+| Have a card, no wallet | Load prepaid credits at [`/credits`](https://agent402.tools/credits) ($20 / $50 / $100) and send `Authorization: Bearer a402_…` on any paid route; `agent402-mcp` and `agent402-client` take the same key - see [[Reports, Monitors and Credits|Reports-and-Monitors]] |
+| A person who wants one finished report | Buy it by card at [`/reports`](https://agent402.tools/reports), or a $9/month monitor at [`/monitors`](https://agent402.tools/monitors) - see [[Reports, Monitors and Credits|Reports-and-Monitors]] |
 
 ## What things cost
 
-Flat per-call prices from **$0.001** (utilities, conversions); most tools are **$0.001–$0.02** (e.g. browser rendering), with premium AI, media, and multi-tool skill packs priced higher. No tiers, no subscriptions, no rate-limit plans - every call settles on-chain in seconds and the next one is independent. Prices are in the catalog and in every 402 response.
+Flat per-call prices from **$0.001** (utilities, conversions); most tools are **$0.001–$0.02** (e.g. browser rendering), with premium AI, media, and multi-tool skill packs priced higher. Report products are priced per outcome ($5 to $39 a report: research, dossier, fund, domain audit, recall, insider flow, token risk) and monitors are $9 per month per target. No tiers, no rate-limit plans - every call settles in seconds and the next one is independent. Prices are in the catalog and in every 402 response.

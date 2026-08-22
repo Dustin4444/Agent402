@@ -16,7 +16,7 @@ export function ledgerPricingPage(baseUrl, catalog) {
 
   const canonical = baseUrl + "/pricing";
   const title = `Pricing - x402 pay-per-call, ${fmtNum(totalCount)} tools | Agent402`;
-  const description = `Two ways to pay: free via proof-of-work, or ${RAILS_SHORT} from $0.001/call over x402 or MPP. No subscription, no signup, no minimum. ${fmtNum(freeCount)} tools free, all ${fmtNum(totalCount)} tools from $0.001.`;
+  const description = `Two ways to pay: free via proof-of-work, or ${RAILS_SHORT} from $0.001/call over x402 or MPP. No signup, no minimum; card welcome (reports, credits); monitors are the one subscription. ${fmtNum(freeCount)} tools free, all ${fmtNum(totalCount)} tools from $0.001.`;
 
   // -- feature-list helpers --------------------------------------------------
   const check = (text) =>
@@ -69,8 +69,8 @@ export function ledgerPricingPage(baseUrl, catalog) {
   <!-- HEAD -->
   <section style="max-width:1180px;margin:0 auto;padding:56px 30px 30px;">
     <div style="font-family:var(--font-mono);font-size:13px;color:var(--accent);margin-bottom:14px;">$ GET /pricing</div>
-    <h1 style="font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;">Two ways to pay.<br>No subscription, ever.</h1>
-    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:600px;margin:0;">Pay in compute with a proof-of-work puzzle, or settle micro-amounts per call - ${RAILS_OR}. No card, no signup, no minimum, no monthly fee. The wallet is the identity.</p>
+    <h1 style="font-family:var(--font-body);font-weight:800;font-size:58px;line-height:.96;letter-spacing:-.03em;margin:0 0 14px;">Pay per call.<br>Pay per report.</h1>
+    <p style="font-size:17px;line-height:1.55;color:var(--muted);max-width:600px;margin:0;">Pay in compute with a proof-of-work puzzle, or settle micro-amounts per call - ${RAILS_OR}. No signup, no minimum; card welcome at /reports and /credits, and monitors are the one subscription ($9 a month, cancel anytime). The wallet is the identity.</p>
   </section>
 
   <!-- TWO PLANS -->
@@ -151,8 +151,8 @@ export function ledgerPricingPage(baseUrl, catalog) {
     <div style="border:1px solid var(--hairline);background:var(--surface);padding:32px 30px;display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
       <h2 style="font-family:var(--font-body);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;margin:0;color:var(--on-dark);">Start on the free tier. No wallet.</h2>
       <div style="display:flex;gap:11px;">
-        <a href="/docs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART \u2192</a>
-        <a href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
+        <a href="/docs" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART \u2192</a>
+        <a href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">Browse tools</a>
       </div>
     </div>
   </section>

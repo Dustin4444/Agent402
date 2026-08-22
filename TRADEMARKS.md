@@ -3,12 +3,12 @@
 "Agent402", "Agent402.Tools", and the Agent402 logo are trademarks of
 **Havok Holdings LLC** (™, unregistered). The AGPL-3.0 license covers the
 code in this repository; it does **not** grant any right to use these marks.
-Copyright law protects the code — trademark protects the name, and the two
+Copyright law protects the code - trademark protects the name, and the two
 are independent: forking the code is welcome, adopting the identity is not.
 
 ## You may, without asking
 
-- Use "Agent402" **nominatively** — to truthfully refer to this project:
+- Use "Agent402" **nominatively** - to truthfully refer to this project:
   "compatible with Agent402", "a fork of Agent402", "built on the Agent402
   catalog", reviews, articles, tutorials, package-manager dependency listings.
 - Keep the name in unmodified redistributions of this repository.
@@ -28,7 +28,7 @@ are independent: forking the code is welcome, adopting the identity is not.
   held for resale, or company names.
 
 **The simple rule for forks:** change the name and logo, keep a truthful
-"forked from Agent402" attribution, and you are fully compliant — the
+"forked from Agent402" attribution, and you are fully compliant - the
 AGPL-3.0 gives you every code right you need.
 
 Questions or permission requests: **mike@agent402.tools**.

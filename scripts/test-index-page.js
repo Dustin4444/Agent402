@@ -181,7 +181,7 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   ok(/Is it open source, and can I run my own\?/.test(html), "homepage: visible FAQ includes the open-source question");
   ok(html.includes('"@type":"FAQPage"'), "homepage: FAQPage JSON-LD present");
   const faqQCount = (html.match(/"@type":"Question"/g) || []).length;
-  ok(faqQCount === 4, `homepage: FAQPage JSON-LD has exactly 4 questions matching the visible 4 (got ${faqQCount})`);
+  ok(faqQCount === 6, `homepage: FAQPage JSON-LD has exactly 6 questions matching the visible 6 (got ${faqQCount})`);
 }
 
 // --- F23: seller homepage href scheme guard (dormant legacy renderer) --------

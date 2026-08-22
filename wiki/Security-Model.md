@@ -6,7 +6,14 @@ The whole server is open source - these claims are checkable in code.
 
 ## No accounts = no account attack surface
 
-There is nothing to sign up for, so there are no passwords, sessions, password resets, or PII stores to breach. Identity, where needed (memory), is proof of wallet control via the x402 payment itself.
+There is nothing to sign up for, so there are no passwords, sessions, password resets, or PII stores to breach. Identity, where needed (memory), is proof of wallet control via the x402 payment itself. The card paths keep that shape: a prepaid credits key is a hashed bearer balance (no login), a report link is the bearer for that one report, and the Stripe webhook is signature-verified (`STRIPE_WEBHOOK_SECRET`), so nothing trusts an unsigned claim of payment.
+
+## Credits, cards and identity-bound routes
+
+- **Identity-bound tools take wallet payments only.** Memory and `my-usage` read the payer from the signed EIP-3009 authorization. A prepaid credits key or a Tempo/Stripe MPP credential carries no verified wallet, so those gates refuse identity-bound routes (`402`, `reason: "identity-bound"`) and strip any x402 payment headers that ride along when they accept a request, so a forged `authorization.from` can never reach a memory handler for a sub-cent credit.
+- **Credits are held, then settled.** The credits gate reserves the list price before the handler and converts the hold to a debit only on a final `200`; concurrent calls on one key cannot overspend it, a client abort releases the hold, and keys are stored hashed. A refund or dispute on the pack disables the key.
+- **Card report sessions generate once.** A report is produced only for a Stripe-verified paid session, exactly once per session; a failed run is refunded automatically and an unissued refund is recorded as owed and retried. Monitor status is re-read from Stripe before every paid run, so a canceled subscriber is not fulfilled.
+- Long-running composite routes (the report products) are offered on rails whose payment cannot expire before the handler finishes (EVM exact), never on a rail whose signed payment would lapse mid-run.
 
 ## SSRF defense (the big one for a URL-fetching service)
 
@@ -30,6 +37,7 @@ Proof-of-work proves *effort*, not *cost coverage*. Anything that spends real re
 
 - Hosted MCP connector: only the pure-CPU set executes; per-IP sliding window (20/min, 120/hr).
 - Operator surfaces (`/__operator/*`, `POST /api/status/probe`): token auth with a timing-safe compare. The uptime probe endpoint is authed precisely because an open one would let anyone forge our availability record.
+- Card endpoints that make an outbound Stripe call (`/api/buy`, `/api/subscribe`, `/api/credits/checkout`, session reads) are per-IP rate-limited, and unknown or unpaid session ids are negatively cached, so nobody can amplify requests into Stripe through us.
 
 ## Payment safety (for buyers)
 

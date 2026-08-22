@@ -70,7 +70,7 @@ export function transparencyPage(baseUrl, traffic = null) {
 .tp-receipts th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:600;padding:6px 10px 6px 0;border-bottom:1px solid var(--hairline)}
 .tp-receipts td{padding:8px 10px 8px 0;border-bottom:1px solid var(--hairline);color:var(--muted);vertical-align:top}
 .tp-receipts td a{word-break:break-all}
-.tp-note{border:1px solid var(--hairline);background:var(--card-bg,transparent);padding:16px 18px;margin:22px 0}
+.tp-note{border:1px solid var(--hairline);background:var(--card);padding:16px 18px;margin:22px 0}
 .tp-note p{margin:0}
 .tp-fold{border:1.5px solid var(--hairline);background:var(--card);padding:14px 18px;margin:0 0 26px}
 .tp-fold summary{cursor:pointer;font-size:15px;color:var(--ink)}

@@ -112,7 +112,7 @@ export function workflowsPage(baseUrl) {
 .wf-label{color:var(--ink);font-weight:600}
 .wf-price{color:var(--accent);font-family:var(--font-mono);font-weight:700}
 .wf-cta{text-align:center;margin:32px 0 48px}
-.wf-cta a{display:inline-block;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;text-decoration:none;font-size:14px;padding:14px 30px;border:1.5px solid var(--accent)}
+.wf-cta a{display:inline-block;background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;text-decoration:none;font-size:14px;padding:14px 30px;border:1.5px solid var(--accent)}
 .wf-cta a:hover{opacity:.88}
 @media(max-width:740px){
   .wf-h1{font-size:36px !important}

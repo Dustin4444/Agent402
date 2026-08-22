@@ -37,7 +37,7 @@ export function apiExplorerPage(baseUrl) {
 .ae-prop-name{color:var(--accent)}
 .ae-prop-type{color:var(--dk-muted)}
 .ae-prop-desc{color:var(--dk-muted2);font-style:italic;margin-left:8px}
-.ae-try-btn{display:inline-block;padding:9px 15px;background:var(--accent);color:#fff;font-weight:700;font-size:13px;border:none;cursor:pointer;text-decoration:none;font-family:var(--font-mono)}
+.ae-try-btn{display:inline-block;padding:9px 15px;background:var(--accent);color:var(--on-accent);font-weight:700;font-size:13px;border:none;cursor:pointer;text-decoration:none;font-family:var(--font-mono)}
 .ae-try-btn:hover{opacity:.85}
 @media(max-width:640px){.ae-ep-name{display:none}}
 `;

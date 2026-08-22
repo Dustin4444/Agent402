@@ -90,6 +90,9 @@ The simplest home for a pure-CPU tool is `AGENT_TOOLS` in
 ### Ground rules (a tool ships only if it can be served *honestly*)
 
 1. **Deterministic** - no LLM in the serving path; same input, same output.
+   (The `/v1` gateway and the finished report products under `src/tools/*-report-kit.js`,
+   `research-deep-kit.js`, `dossier-kit.js`, `token-risk-kit.js` are the explicit
+   exceptions: priced as LLM surfaces, wallet-only, never proof-of-work.)
 2. **Self-describing** - price, description, `inputSchema`, and a working
    `example` all live in the one catalog entry. Docs, OpenAPI, llms.txt, MCP
    exposure, and CI tests are generated from it.
@@ -126,6 +129,7 @@ node scripts/test-all.js                 # every endpoint vs its own example (th
 node scripts/test-kit2.js                # exact-output tests for pure-CPU tools
 node scripts/test-mcp-http.js            # the hosted MCP connector
 node scripts/test-mcp-all.js             # every tool through the MCP connector
+TARGET_URL=http://localhost:3000 node scripts/test-docs-truth.js   # docs vs the served catalog (routes, prices, slug links)
 ```
 
 Each kit also has a focused test under [`scripts/`](scripts) (e.g.

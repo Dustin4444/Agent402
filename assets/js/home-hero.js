@@ -224,9 +224,10 @@
           var arc = arcs[j], a = arc.a, b = arc.b;
           var span = Math.hypot(a[0] - b[0], a[1] - b[1]);
           var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 - span * 0.34;
-          ctx.globalAlpha = 0.2; ctx.strokeStyle = '#F0522E'; ctx.lineWidth = 1;
+          var accent = (getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#34A877').trim();
+          ctx.globalAlpha = 0.2; ctx.strokeStyle = accent; ctx.lineWidth = 1;
           ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(mx, my, b[0], b[1]); ctx.stroke();
-          ctx.fillStyle = '#F0522E'; ctx.globalAlpha = 0.7;
+          ctx.fillStyle = accent; ctx.globalAlpha = 0.7;
           ctx.beginPath(); ctx.arc(a[0], a[1], 2, 0, 6.2832); ctx.fill();
           ctx.beginPath(); ctx.arc(b[0], b[1], 2, 0, 6.2832); ctx.fill();
           if (!reduce) {

@@ -30,6 +30,21 @@ export const MONITOR_PRODUCTS = {
     inputField: "manager", inputLabel: "a fund name, ticker, or CIK",
     blurb: "We watch this manager's SEC 13F filings and email you a fresh holdings + changes report each time they file.",
   },
+  "recall-monitor": {
+    label: "FDA recall watch", price: 900, kind: "recall", slug: "recall-report",
+    inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan",
+    blurb: "We check the FDA drug, food and device recall feeds for your term every day and email you a fresh cited report the moment a new recall appears.",
+  },
+  "insider-monitor": {
+    label: "Insider flow watch", price: 900, kind: "insider", slug: "insider-report",
+    inputField: "ticker", inputLabel: "a US stock ticker",
+    blurb: "We watch Form 4 filings against this company every day and email you a fresh insider-flow report - buys, sells, who and how much - each time a new filing lands.",
+  },
+  "ipo-monitor": {
+    label: "IPO pipeline watch", price: 900, kind: "ipo", slug: "ipo-report",
+    inputField: "keyword", inputLabel: "a keyword in the filer's name, or \"all\"",
+    blurb: "A weekly digest of every IPO that priced (424B4) and every new S-1 registration on SEC EDGAR, filtered to your keyword or the whole market. Filing facts only, no guessing.",
+  },
 };
 
 export function subscriptionsEnabled() {
@@ -64,7 +79,7 @@ function saveKeys(path, map, keys) {
  * @param {string} deps.baseUrl
  * @param {string} [deps.storePath]  override for tests
  */
-export function createStripeSubscriptions({ stripe, baseUrl, storePath, validateTarget = {}, onInvoicePaid }) {
+export function createStripeSubscriptions({ stripe, baseUrl, storePath, validateTarget = {}, onInvoicePaid, onPaymentSession, onChargeReversed }) {
   const path = storePath || STORE_PATH();
   const store = loadStore(path);          // subId -> record
 
@@ -93,6 +108,7 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
     }
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
+      ...(String(process.env.STRIPE_AUTOMATIC_TAX || "").toLowerCase() === "true" ? { automatic_tax: { enabled: true } } : {}),
       line_items: [{
         quantity: 1,
         price_data: {
@@ -161,6 +177,10 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
     switch (event.type) {
       case "checkout.session.completed": {
         const s = event.data.object;
+        // One-shot PAYMENT sessions (credit packs, reports) reach the optional
+        // hook so a buyer whose success redirect never loaded still gets
+        // fulfilled (credits: key minted + emailed) - claim is idempotent.
+        if (s.mode === "payment" && typeof onPaymentSession === "function") { try { await onPaymentSession(s); } catch { /* never fail the webhook on a hook */ } }
         if (s.mode === "subscription" && s.subscription) {
           const id = typeof s.subscription === "string" ? s.subscription : s.subscription.id;
           // Stripe retries and reorders events: a completed-checkout event must
@@ -202,6 +222,14 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
           try { onInvoicePaid({ invoiceId: inv.id, subId, product: rec?.product || null, amountUsd: inv.amount_paid / 100, customer: inv.customer }); } catch { /* accounting never breaks the webhook */ }
         }
         if (subId && rec) upsert(subId, { lastInvoiceId: inv.id, lastPaidAt: new Date().toISOString() });
+        break;
+      }
+      case "charge.refunded":
+      case "charge.dispute.created": {
+        // Money went back (or is contested): let the credits store claw back.
+        const obj = event.data.object;
+        const pi = typeof obj?.payment_intent === "string" ? obj.payment_intent : obj?.payment_intent?.id || null;
+        if (pi && typeof onChargeReversed === "function") { try { await onChargeReversed(pi, event.type); } catch { /* never fail the webhook on a hook */ } }
         break;
       }
       default: break; // ignore unrelated events

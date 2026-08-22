@@ -36,6 +36,9 @@ const HOUR = 3600_000, DAY = 24 * HOUR;
 export const DOMAIN_CHECK_MS = DAY;
 export const DOMAIN_FULL_MS = 30 * DAY;
 export const FUND_CHECK_MS = DAY;
+export const RECALL_CHECK_MS = DAY;
+export const INSIDER_CHECK_MS = DAY;
+export const IPO_DIGEST_MS = 7 * DAY;
 export const MIN_FULL_GAP_MS = 12 * HOUR;
 export const TLS_ALERT_DAYS = 14;
 export const MAX_FULL_PER_TICK = 10;
@@ -71,6 +74,9 @@ const errMsg = (e) => String(e?.message || e).replace(/[A-Za-z0-9_-]{32,}/g, "[r
 // CIK rather than re-resolving a name every run.
 function inputFor(kind, target, st) {
   if (kind === "fund") return st?.cik ? { cik: st.cik } : { manager: target };
+  if (kind === "recall") return { query: target, allowEmpty: true }; // a welcome report may find nothing yet
+  if (kind === "ipo") return { days: 7, keyword: target === "all" ? "" : target };
+  if (kind === "insider") return { ticker: target, days: 90 };
   return target;
 }
 
@@ -109,7 +115,7 @@ export function describeDomainChanges(prev, next) {
  * @param {(s:string)=>void} [deps.log]
  * @param {(ms:number)=>Promise<void>} [deps.sleep]
  */
-export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), manageUrlFor = () => `${baseUrl}/monitors`, refreshStatus = null }) {
+export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), manageUrlFor = () => `${baseUrl}/monitors`, refreshStatus = null, probeRecalls = null, probeIpos = null, probeInsiderFilings = null }) {
   const path = storePath || STORE_PATH();
   let store = loadStore(path);
   const me = ownerId || `${process.env.RAILWAY_REPLICA_ID || "local"}:${process.pid}:${randomBytes(3).toString("hex")}`;
@@ -283,6 +289,10 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     if (!latest) { recovered(st); st.lastError = "no 13F-HR filings yet"; persist(); return "checked"; }
     const first = !st.accession;
     if (!first && latest.accessionNumber === st.accession) { recovered(st); persist(); return "checked"; }
+    if (!first && capReached(st)) { // 30d paid cap: tell them, advance, no paid run
+      await alertOnly(rec, st, "filing", [`New 13F-HR filed ${latest.filedDate || "?"} (period ${latest.reportDate || "?"}), accession ${latest.accessionNumber}`]);
+      st.accession = latest.accessionNumber; recovered(st); persist(); return "alert";
+    }
     if (!budget.allow()) { persist(); return "skip"; }
     try {
       const reason = first ? "welcome" : "filing";
@@ -290,6 +300,87 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
       await runFull(rec, st, reason, changes);
       st.accession = latest.accessionNumber; st.filedDate = latest.filedDate || null; st.reportDate = latest.reportDate || null;
       persist();
+      return "full";
+    } catch (e) { fail(st, e, rec); return "error"; }
+  }
+
+  // recall: welcome report on first sight; every RECALL_CHECK_MS a FREE probe
+  // of the FDA feeds; a recall number not seen before = paid re-run + "recall"
+  // email listing the new records. The seen-set advances only after success.
+  async function processRecall(rec, st, { force, budget }) {
+    if (typeof probeRecalls !== "function") return "skip";
+    const retryPending = (st.failures || 0) > 0;
+    const checkDue = force || retryPending || !st.lastCheckAt || now() - st.lastCheckAt >= RECALL_CHECK_MS || !st.recallIds;
+    if (!checkDue) return "skip";
+    let pr;
+    try { pr = await probeRecalls(rec.target); }
+    catch (e) { fail(st, e, rec); return "error"; }
+    st.lastCheckAt = now();
+    const seen = new Set(st.recallIds || []);
+    const first = !st.recallIds;
+    const fresh = first ? [] : pr.items.filter((x) => x.recallNumber && !seen.has(x.recallNumber));
+    if (!first && !fresh.length) { recovered(st); persist(); return "checked"; }
+    const recallChanges = fresh.slice(0, 10).map((x) => `${x.recallInitiated || "?"} · ${x.classification || "?"} · ${x.firm || "?"}: ${x.product || "?"} (${x.reason || "no reason given"})`);
+    if (fresh.length > 10) recallChanges.push(`...and ${fresh.length - 10} more`);
+    if (!first && capReached(st)) { await alertOnly(rec, st, "recall", recallChanges); st.recallIds = pr.ids; recovered(st); persist(); return "alert"; }
+    if (!budget.allow()) { persist(); return "skip"; }
+    try {
+      const changes = recallChanges;
+      await runFull(rec, st, first ? "welcome" : "recall", changes);
+      st.recallIds = pr.ids; persist();
+      return "full";
+    } catch (e) { fail(st, e, rec); return "error"; }
+  }
+
+  // ipo: a weekly digest (deterministic, cheap). First sight = welcome; then
+  // every IPO_DIGEST_MS a "digest" run - only when the week had filings
+  // matching the keyword (a no-filings week is a checked, no email).
+  async function processIpo(rec, st, { force, budget }) {
+    if (typeof probeIpos !== "function") return "skip";
+    const retryPending = (st.failures || 0) > 0;
+    const first = !st.lastFullAt;
+    const due = force || retryPending || first || now() - st.lastFullAt >= IPO_DIGEST_MS;
+    if (!due) return "skip";
+    let pr;
+    try { pr = await probeIpos({ days: 7, keyword: rec.target === "all" ? "" : rec.target }); }
+    catch (e) { fail(st, e, rec); return "error"; }
+    st.lastCheckAt = now();
+    if (!first && !pr.rows.length) { recovered(st); st.lastFullAt = now(); persist(); return "checked"; }
+    if (!first && capReached(st)) { recovered(st); st.lastFullAt = now(); persist(); return "checked"; }
+    if (!budget.allow()) { persist(); return "skip"; }
+    try {
+      const priced = pr.rows.filter((r) => r.stage === "priced").length;
+      const changes = pr.rows.length ? [`${priced} priced IPO${priced === 1 ? "" : "s"} and ${pr.rows.length - priced} new registration${pr.rows.length - priced === 1 ? "" : "s"} this week`] : [];
+      await runFull(rec, st, first ? "welcome" : "digest", changes);
+      st.ipoIds = pr.ids; persist();
+      return "full";
+    } catch (e) { fail(st, e, rec); return "error"; }
+  }
+
+  // insider: welcome report on first sight; daily FREE probe of Form 4
+  // accessions against the ticker; a new accession = paid re-run + "filing"
+  // email. The seen-set advances only after a successful report.
+  async function processInsider(rec, st, { force, budget }) {
+    if (typeof probeInsiderFilings !== "function") return "skip";
+    const retryPending = (st.failures || 0) > 0;
+    const checkDue = force || retryPending || !st.lastCheckAt || now() - st.lastCheckAt >= INSIDER_CHECK_MS || !st.form4Ids;
+    if (!checkDue) return "skip";
+    let pf;
+    try { pf = await probeInsiderFilings({ ticker: rec.target, days: 90, limit: 40 }); }
+    catch (e) { fail(st, e, rec); return "error"; }
+    st.lastCheckAt = now();
+    const seen = new Set(st.form4Ids || []);
+    const first = !st.form4Ids;
+    const fresh = first ? [] : pf.filings.filter((f) => !seen.has(f.accessionNumber));
+    if (!first && !fresh.length) { recovered(st); persist(); return "checked"; }
+    const f4Changes = fresh.slice(0, 8).map((f) => `Form 4 filed ${f.filedDate}: ${String(f.displayNames?.[0] || "reporting person").replace(/\s*\(CIK[^)]*\)\s*$/i, "")}`);
+    if (fresh.length > 8) f4Changes.push(`...and ${fresh.length - 8} more`);
+    if (!first && capReached(st)) { await alertOnly(rec, st, "filing", f4Changes); st.form4Ids = pf.ids; recovered(st); persist(); return "alert"; }
+    if (!budget.allow()) { persist(); return "skip"; }
+    try {
+      const changes = f4Changes;
+      await runFull(rec, st, first ? "welcome" : "filing", changes);
+      st.form4Ids = pf.ids; persist();
       return "full";
     } catch (e) { fail(st, e, rec); return "error"; }
   }
@@ -302,6 +393,9 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     if (!opts.force && st.nextAttemptAt && now() < st.nextAttemptAt) return "skip";
     if (p.kind === "domain") return processDomain(rec, st, opts);
     if (p.kind === "fund") return processFund(rec, st, opts);
+    if (p.kind === "recall") return processRecall(rec, st, opts);
+    if (p.kind === "ipo") return processIpo(rec, st, opts);
+    if (p.kind === "insider") return processInsider(rec, st, opts);
     return "skip";
   }
 

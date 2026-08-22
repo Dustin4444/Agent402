@@ -150,7 +150,7 @@ export function communityPage(baseUrl) {
 
 /* cta */
 .cm-cta{text-align:center;margin:40px 0 48px}
-.cm-cta a{display:inline-block;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;text-decoration:none;font-size:14px;padding:14px 30px;border:1.5px solid var(--accent)}
+.cm-cta a{display:inline-block;background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;text-decoration:none;font-size:14px;padding:14px 30px;border:1.5px solid var(--accent)}
 .cm-cta a:hover{opacity:.9}
 `;
 

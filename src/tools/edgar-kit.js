@@ -1047,3 +1047,7 @@ export async function resolveManager({ cik, ticker, name }) {
   }
   return { cik: best.cik, name: best.name || nm };
 }
+
+// Shared EDGAR primitives for the composite report kits (insider-flow, ipo):
+// same User-Agent policy, same politeness, one implementation.
+export { resolveCompany, eftsSearch, fetchXmlText, edgarGetJson };

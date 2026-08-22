@@ -1,9 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.MikeyPetrillo/agent402",
-  "title": "Agent402.Tools — pay-per-call web tools",
-  "description": "Agent402: 500+ pay-per-call tools for agents over x402 + MPP or free via PoW. Agentic Finance",
-  "version": "0.12.12",
+  "title": "Agent402.Tools: pay-per-call web tools",
+  "description": "Agentic Finance: 500+ tools for AI agents over x402 or MPP, free via PoW, or prepaid card credits",
+  "version": "0.13.0",
   "repository": {
     "url": "https://github.com/MikeyPetrillo/Agent402",
     "source": "github"
@@ -20,7 +20,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "agent402-mcp",
-      "version": "0.12.12",
+      "version": "0.13.0",
       "transport": {
         "type": "stdio"
       },
@@ -40,6 +40,24 @@
         {
           "name": "AGENT402_MAX_PER_CALL",
           "description": "Optional max USD price for any single call (e.g. 0.01).",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "AGENT402_CREDITS_KEY",
+          "description": "Prepaid card-credits key (a402_...) from https://agent402.tools/credits. With it set and no wallet key, every tool pays by card; the list price is debited only on a successful call.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "SOLANA_AGENT_KEY",
+          "description": "Optional base58 (or JSON byte-array) secret key of a Solana wallet funded with USDC on Solana.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "AGENT402_NETWORKS",
+          "description": "Optional: restrict and order the chains to pay on (e.g. \"base,solana\" or a CAIP-2 like eip155:4663).",
           "isRequired": false,
           "isSecret": false
         }

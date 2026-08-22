@@ -1,4 +1,4 @@
-import { RAILS_OR, RAILS_SHORT } from "./rails.js";
+import { RAILS_OR, RAILS_SHORT, RAILS } from "./rails.js";
 // Railway's egress has NO working IPv6 (every AAAA is ENETUNREACH). Node's
 // happy-eyeballs races the IPv6 address on dual-stack upstreams and fails ~15% of
 // the time (UND_ERR_SOCKET / "could not connect"). Force IPv4 process-wide for the
@@ -26,11 +26,13 @@ import {
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, _compositeGuardState } from "./composite-spend-guard.js";
 import Stripe from "stripe";
-import { createHumanCheckout, humanCheckoutEnabled } from "./human-checkout.js";
+import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
-import { createStripeSubscriptions, subscriptionsEnabled } from "./stripe-subscriptions.js";
+import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { createMonitorScheduler } from "./monitor-scheduler.js";
+import { createCredits, CREDIT_PACKS } from "./credits.js";
+import { creditsPage, creditsThanksPage } from "./credits-page.js";
 import { sendMonitorEmail } from "./email.js";
 import { probeDomain, normDomain } from "./tools/domain-audit-kit.js";
 import { latest13fFiling, resolveManager as edgarResolveManager } from "./tools/edgar-kit.js";
@@ -125,6 +127,9 @@ import { RESEARCH_TOOLS } from "./tools/research-kit.js";
 import { RESEARCH_DEEP_TOOLS } from "./tools/research-deep-kit.js";
 import { FUND_TOOLS } from "./tools/fund-report-kit.js";
 import { DOMAIN_AUDIT_TOOLS } from "./tools/domain-audit-kit.js";
+import { RECALL_TOOLS, probeRecalls, normRecallQuery } from "./tools/recall-report-kit.js";
+import { IPO_TOOLS, probeIpos, normIpoKeyword } from "./tools/ipo-report-kit.js";
+import { INSIDER_TOOLS, probeInsiderFilings } from "./tools/insider-flow-kit.js";
 import { TOKEN_RISK_TOOLS } from "./tools/token-risk-kit.js";
 import { DOSSIER_TOOLS } from "./tools/dossier-kit.js";
 import { NETWORK_TOOLS } from "./tools/network-kit.js";
@@ -224,7 +229,7 @@ import { ledgerLeaderboardPage } from "./ledger-leaderboard.js";
 import { ledgerDocsPage } from "./ledger-docs.js";
 import { ledgerIntegrationsPage } from "./ledger-integrations.js";
 
-const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS];
+const ALL_KIT = [...KIT, ...KIT2, ...SEARCH_TOOLS, ...PDF_TOOLS, ...PDF_SUMMARIZE_TOOLS, ...DEMAND_TOOLS, ...MEDIA_TOOLS, ...GOV_TOOLS, ...GEO_TOOLS, ...OCR_TOOLS, ...AGENT_TOOLS, ...BARCODE_TOOLS, ...DATA_TOOLS, ...IMAGE_TOOLS, ...X402_TOOLS, ...B20_TOOLS, ...UTIL_TOOLS, ...API_TOOLS, ...MACRO_TOOLS, ...EDGAR_TOOLS, ...FINANCE_TOOLS, ...CRYPTO_TOOLS, ...RESEARCH_TOOLS, ...NETWORK_TOOLS, ...NETWORK_TOOLS2, ...HTML_TOOLS, ...COMPRESSION_TOOLS, ...STATS_TOOLS, ...FORECAST_TOOLS, ...FINANCE_MATH_TOOLS, ...COLOR_TOOLS, ...CHAIN_TOOLS, ...CONTRACT_TOOLS, ...ENRICH_TOOLS, ...WEB_TOOLS, ...PRICE_FEED_TOOLS, ...DEX_TOOLS, ...PREDICTION_MARKET_TOOLS, ...MEV_AND_L2_TOOLS, ...ONCHAIN_IDENTITY_TOOLS, ...NFT_MARKET_TOOLS, ...WEATHER_TOOLS, ...DATE_TIME_TOOLS, ...TEXT_ANALYSIS_TOOLS, ...VALIDATION_TOOLS, ...ENCODING_TOOLS, ...MATH_TOOLS, ...CRYPTO_HASH_TOOLS, ...STRING_TOOLS, ...CALENDAR_TOOLS, ...LLM_TOOLS, ...GATEWAY_TOOLS_ENABLED, ...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS, ...TOKEN_RISK_TOOLS, ...IMAGE_GEN_TOOLS, ...CODE_RUN_TOOLS, ...TTS_TOOLS, ...STT_TOOLS, ...EMBED_TOOLS, ...MODERATE_TOOLS, ...CDP_TOOLS, ...USAGE_TOOLS, ...BLOCKSCOUT_TOOLS, ...CAPTCHA_TOOLS, ...SQL_GUARD_TOOLS, ...ACTION_GATE_TOOLS];
 import { buildSkillTools } from "./tools/skill-runner.js";
 import { buildRouteExecuteTool, EXEC_TIERS } from "./tools/route-execute.js";
 import { buildSellerTrustTool } from "./tools/seller-trust.js";
@@ -1117,10 +1122,31 @@ try {
     validateTarget: {
       domain: (t) => normDomain({ domain: t }),
       fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
+      recall: (t) => normRecallQuery(t),
+      ipo: (t) => normIpoKeyword(t) || "all",
+      insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; throw e; } return k; },
     },
     onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
+    // Credit-pack sessions: mint + email the key from the webhook too (claim is
+    // idempotent; the thanks page then shows "claimed"). _credits is wired below.
+    onPaymentSession: (session) => (session?.metadata?.credits_pack && _credits ? _credits.claim(session.id) : null),
+    onChargeReversed: (paymentIntent, type) => (_credits ? _credits.disableByPaymentIntent(paymentIntent, type === "charge.dispute.created" ? "disputed" : "refunded") : null),
   }) : null;
 } catch (e) { console.warn("[monitors] subscriptions init failed:", String(e?.message || e).slice(0, 200)); _subs = null; }
+// Prepaid card credits (src/credits.js): same rollout switch
+// as the human checkout. The GATE mounts inside the paywall block below
+// (before x402mw); the routes/pages mount with the other storefront routes.
+let _credits = null;
+try {
+  _credits = humanCheckoutEnabled() ? createCredits({
+    stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
+    // A pack PURCHASE is cash received, not revenue earned: booked on the
+    // non-paying rail "card-prepaid" for reconciliation, so /revenue counts
+    // the money once - when it is spent (rail "credits" below).
+    onLoad: ({ pack, priceUsd, keyId, paymentIntent }) => recordSale({ slug: `credits:${pack}`, priceUsd, rail: "card-prepaid", network: "stripe", payer: keyId, tx: paymentIntent, wire: "stripe-checkout" }),
+    onDebit: ({ slug, priceUsd, keyId }) => recordSale({ slug, priceUsd, rail: "credits", network: "stripe", payer: keyId, tx: null, wire: "credits" }),
+  }) : null;
+} catch (e) { console.warn("[credits] init failed:", String(e?.message || e).slice(0, 200)); _credits = null; }
 // Manage/cancel bearer for monitor subscribers: a keyed token over the report
 // id, carried ONLY in the subscriber's email - never in the report JSON or on
 // the report page, which subscribers are told to share. Derived from the
@@ -1614,11 +1640,11 @@ app.get("/revenue", async (_req, res) => {
 // monitor scheduler (recurring): slug -> the SAME handler agents buy over x402.
 // `input` is a string (wrapped per kind) or an object passed straight through
 // (the scheduler pins a resolved CIK for fund monitors that way).
-const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS].map((t) => [t.slug, t.handler]));
+const _premiumHandlers = Object.fromEntries([...RESEARCH_DEEP_TOOLS, ...DOSSIER_TOOLS, ...FUND_TOOLS, ...DOMAIN_AUDIT_TOOLS, ...RECALL_TOOLS, ...IPO_TOOLS, ...INSIDER_TOOLS].map((t) => [t.slug, t.handler]));
 const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     const h = _premiumHandlers[slug];
     if (!h) throw new Error("no handler for " + slug);
-    const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }) };
+    const argOf = { dossier: (v) => ({ ticker: v }), fund: (v) => ({ manager: v }), domain: (v) => ({ domain: v }), research: (v) => ({ query: v }), recall: (v) => ({ query: v }), ipo: (v) => ({ days: 7, keyword: v }), insider: (v) => ({ ticker: v, days: 90 }) };
     const arg = (input && typeof input === "object") ? input : (argOf[kind] || argOf.research)(input);
     // A minimal request-shaped context so upstreamUserId() scopes OpenRouter's
     // per-user provider policy to THIS buyer (session / subscription), instead
@@ -1631,8 +1657,8 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
     // Deliver a BUNDLE, not just prose: the report plus the structured data
     // appendix (sources always; financials + insider tables on dossiers, holdings
     // + changes on fund reports, checks + headers on domain audits).
-    const fallbackTitle = typeof input === "string" ? input : (input?.manager || input?.cik || input?.domain || input?.ticker || input?.query || "");
-    const titleOf = { dossier: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), fund: () => out?.manager || fallbackTitle, domain: () => out?.domain || fallbackTitle };
+    const fallbackTitle = typeof input === "string" ? input : (input?.manager || input?.cik || input?.domain || input?.ticker || input?.query || input?.keyword || "");
+    const titleOf = { dossier: () => (out?.company ? `${out.company} (${out.ticker})` : fallbackTitle), fund: () => out?.manager || fallbackTitle, domain: () => out?.domain || fallbackTitle, recall: () => (out?.query ? `FDA recalls: ${out.query}` : fallbackTitle), ipo: () => out?.title || "IPO pipeline", insider: () => (out?.company ? `Insider flow: ${out.company} (${out.ticker})` : fallbackTitle) };
     return {
       report,
       kind,
@@ -1647,7 +1673,44 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
 // STRIPE_SECRET_KEY. Without it a buy click gets a clear 503 from the API.
 app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
 app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
-app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
+app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
+app.get("/credits", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(creditsPage(BASE_URL)));
+app.get("/credits/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(creditsThanksPage(String(req.query.session || ""), BASE_URL)));
+if (_credits) {
+  app.post("/api/credits/checkout", async (req, res) => {
+    if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    try { res.json({ url: (await _credits.createCheckout(req.body?.pack)).url }); }
+    catch (e) {
+      if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+      console.warn("[credits] createCheckout failed:", String(e?.message || e).slice(0, 200));
+      res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
+    }
+  });
+  app.get("/api/credits/claim", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
+    try { res.json(await _credits.claim(String(req.query.session || ""))); }
+    catch (e) { console.warn("[credits] claim failed:", String(e?.message || e).slice(0, 200)); res.status(500).json({ status: "error", error: "Could not claim the key right now." }); }
+  });
+  app.get("/api/credits/balance", (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const auth = String(req.headers.authorization || "");
+    const b = /^Bearer a402_/.test(auth) ? _credits.balance(auth.slice(7).trim()) : null;
+    if (!b) return res.status(401).json({ error: "Send your credits key as Authorization: Bearer a402_…", topup: `${BASE_URL}/credits` });
+    res.json(b);
+  });
+  app.get("/__operator/credits.json", (req, res) => {
+    if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+    res.set("Cache-Control", "no-store").json(_credits.status());
+  });
+  app.post("/__operator/credits/disable", express.json(), (req, res) => {
+    if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+    const { keyId, disabled = true } = req.body || {};
+    res.json({ ok: _credits.setDisabled(String(keyId || ""), !!disabled) });
+  });
+} else {
+  app.post("/api/credits/checkout", (_req, res) => res.status(503).json({ error: "Card credits are not configured on this server." }));
+}
 if (!humanCheckoutEnabled()) {
   app.post("/api/buy", (_req, res) => res.status(503).json({ error: "Card checkout is not configured on this server." }));
   app.post("/api/subscribe", (_req, res) => res.status(503).json({ error: "Subscriptions are not configured on this server." }));
@@ -1683,7 +1746,7 @@ if (humanCheckoutEnabled()) {
         res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
       }
     });
-    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL })));
+    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL, robots: "noindex, nofollow" })));
     app.get("/api/r/:sessionId", async (req, res) => {
       if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
       try { res.set("Cache-Control", "no-store").json(await _humanCheckout.fulfill(String(req.params.sessionId || ""))); }
@@ -1742,7 +1805,7 @@ if (_subs) {
   });
   // Delivered monitor reports: same page + viewer as one-shot reports, served
   // from the scheduler's store (no Stripe session - the report id is the bearer).
-  app.get("/m/:reportId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.reportId || ""), { api: "/api/m/", waitCopy: "Loading your monitor report.", baseUrl: BASE_URL })));
+  app.get("/m/:reportId", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.reportId || ""), { api: "/api/m/", waitCopy: "Loading your monitor report.", baseUrl: BASE_URL, robots: "noindex, nofollow" })));
   app.get("/api/m/:reportId", (req, res) => {
     res.set("Cache-Control", "no-store");
     const id = String(req.params.reportId || "");
@@ -1761,6 +1824,7 @@ if (_subs) {
       notify: sendMonitorEmail, baseUrl: BASE_URL,
       manageUrlFor: (reportId) => `${BASE_URL}/monitors/manage?report=${encodeURIComponent(reportId)}&k=${_manageToken(reportId)}`,
       refreshStatus: (subId) => _subs.refreshStatus(subId),
+      probeRecalls, probeIpos, probeInsiderFilings,
     });
   } catch (e) { console.warn("[monitors] scheduler failed to initialize:", String(e?.message || e)); _monitors = null; }
 }
@@ -3664,24 +3728,30 @@ app.get("/sdk-playground/sandbox", (req, res) => {
 });
 
 const BRAND_FONT_STYLE = `<style>
-@font-face{font-family:'Space Mono';font-weight:400;src:url(data:font/woff2;base64,${fontB64("spacemono-400.woff2")}) format('woff2')}
-@font-face{font-family:'Space Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("spacemono-700.woff2")}) format('woff2')}
-@font-face{font-family:'Archivo';font-weight:800;src:url(data:font/woff2;base64,${fontB64("archivo-800.woff2")}) format('woff2')}
+@font-face{font-family:'Geist Mono';font-weight:400;src:url(data:font/woff2;base64,${fontB64("geist-mono-400-latin.woff2")}) format('woff2')}
+@font-face{font-family:'Geist Mono';font-weight:700;src:url(data:font/woff2;base64,${fontB64("geist-mono-700-latin.woff2")}) format('woff2')}
+@font-face{font-family:'Geist';font-weight:500;src:url(data:font/woff2;base64,${fontB64("geist-500-latin.woff2")}) format('woff2')}
+@font-face{font-family:'Geist';font-weight:600;src:url(data:font/woff2;base64,${fontB64("geist-600-latin.woff2")}) format('woff2')}
 </style>`;
-const BRAND = { paper: "#F5F5F5", card: "#FFFFFF", ink: "#0b0b0b", muted: "#4A4A4A", hairline: "#E0E0DE", accent: "#D63C1A", mono: "'Space Mono',Consolas,monospace", display: "'Archivo',system-ui,sans-serif" };
+// Brand tokens for the rendered marks (logo, favicon, social cards): the
+// obsidian + milled system of the 2026-08-22 redesign (dark ground, light
+// milled mark, phosphor accent for signal text only - never as a fill under
+// dark text).
+const BRAND = { paper: "#0B0C0E", card: "#141619", panel: "#141619", panel2: "#1C2024", ink: "#E9EAEC", muted: "#B3B9C0", faint: "#868D95", hairline: "#2C3136", accent: "#9EF0B0", amber: "#F0B35E", milledA: "#F6F7F8", milledB: "#C9CED3", mono: "'Geist Mono',Menlo,Consolas,monospace", display: "'Geist',system-ui,sans-serif" };
+const BRAND_DEFS = `<defs><linearGradient id="milled" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${BRAND.milledA}"/><stop offset="1" stop-color="${BRAND.milledB}"/></linearGradient><linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${BRAND.panel2}"/><stop offset="1" stop-color="${BRAND.paper}"/></linearGradient></defs>`;
 
-// Brand mark — the ink slab: cream 402 with the accent period on dark ink,
-// matching the ledger chrome (and the X avatar). The PNG is rasterized once
-// via the existing headless Chromium and cached for the process lifetime
-// (marketplaces and link previews often refuse SVG).
-const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}<rect width="512" height="512" fill="${BRAND.ink}"/><text x="256" y="308" font-size="150" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-4" fill="${BRAND.paper}">402<tspan fill="${BRAND.accent}">.</tspan></text></svg>`;
+// Brand mark — the milled square: a light brushed-aluminum rounded square on
+// the obsidian ground with "402" in dark mono, matching the nav/footer mark.
+// The PNG is rasterized once via the existing headless Chromium and cached for
+// the process lifetime (marketplaces and link previews often refuse SVG).
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}${BRAND_DEFS}<rect width="512" height="512" rx="96" fill="${BRAND.paper}"/><rect x="106" y="106" width="300" height="300" rx="72" fill="url(#milled)"/><text x="256" y="301" font-size="118" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-6" fill="${BRAND.paper}">402</text></svg>`;
 app.get("/logo.svg", (_req, res) => res.type("image/svg+xml").set("Cache-Control", "public, max-age=86400").send(LOGO_SVG));
 
 // Favicon-scale mark: the logo's 150px glyphs cover ~40% of the canvas, which
 // reads as a plain black square in a 16px browser tab. This variant fills the
 // frame ("402" at 82% width, the brand period as a corner dot) so the mark
 // survives tab scale. Marketplaces/link previews keep the roomier LOGO_SVG.
-const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}<rect width="512" height="512" fill="${BRAND.ink}"/><text x="246" y="342" font-size="252" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-14" fill="${BRAND.paper}">402</text><rect x="408" y="408" width="68" height="68" fill="${BRAND.accent}"/></svg>`;
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">${BRAND_FONT_STYLE}${BRAND_DEFS}<rect width="512" height="512" rx="112" fill="${BRAND.paper}"/><rect x="40" y="40" width="432" height="432" rx="104" fill="url(#milled)"/><text x="256" y="322" font-size="196" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-12" fill="${BRAND.paper}">402</text></svg>`;
 
 let logoPngCache = null;
 app.get("/logo.png", async (_req, res) => {
@@ -3720,21 +3790,24 @@ const cardSvg = (width = 1200, height = 630) => {
   const ty = (height - 630 * s) / 2;
   const mono = JSON.stringify(BRAND.mono);
   const display = JSON.stringify(BRAND.display);
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${BRAND_FONT_STYLE}
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${BRAND_FONT_STYLE}${BRAND_DEFS}
   <rect width="${width}" height="${height}" fill="${BRAND.paper}"/>
   <g transform="translate(${tx},${ty}) scale(${s})">
-  <rect x="36" y="36" width="1128" height="558" fill="${BRAND.card}" stroke="${BRAND.ink}" stroke-width="3"/>
-  <!-- nav row: bordered 402 badge + wordmark, ruled off like the site header -->
-  <rect x="84" y="84" width="64" height="64" fill="none" stroke="${BRAND.ink}" stroke-width="5"/>
-  <text x="116" y="126" font-size="26" font-weight="700" font-family=${mono} text-anchor="middle" fill="${BRAND.ink}">402</text>
-  <text x="170" y="127" font-size="34" font-weight="800" font-family=${display} letter-spacing="-0.5" fill="${BRAND.ink}">AGENT402<tspan fill="${BRAND.accent}">.</tspan>TOOLS</text>
-  <text x="1116" y="127" font-size="24" font-weight="700" font-family=${mono} text-anchor="end" fill="${BRAND.accent}">agent402.tools</text>
-  <line x1="84" y1="172" x2="1116" y2="172" stroke="${BRAND.ink}" stroke-width="2.5"/>
-  <text x="84" y="330" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">Tools your agent</text>
-  <text x="84" y="416" font-size="84" font-weight="800" font-family=${display} letter-spacing="-2" fill="${BRAND.ink}">can pay for<tspan fill="${BRAND.accent}">.</tspan></text>
-  <line x1="84" y1="462" x2="1116" y2="462" stroke="${BRAND.hairline}" stroke-width="2"/>
-  <text x="84" y="510" font-size="27" font-family=${mono} fill="${BRAND.muted}">The open x402 index: ${n.toLocaleString("en-US")} tools + ${SKILL_PACKS.length} skill packs.</text>
-  <text x="84" y="554" font-size="23" font-family=${mono} fill="${BRAND.muted}">${RAILS_SHORT}</text>
+  <!-- nav row: milled mark + wordmark -->
+  <rect x="72" y="64" width="44" height="44" rx="12" fill="url(#milled)"/>
+  <text x="132" y="96" font-size="30" font-weight="600" font-family=${display} letter-spacing="-0.5" fill="${BRAND.ink}">Agent402</text>
+  <text x="1128" y="95" font-size="20" font-family=${mono} text-anchor="end" fill="${BRAND.faint}">agent402.tools</text>
+  <!-- headline -->
+  <text x="72" y="238" font-size="86" font-weight="600" font-family=${display} letter-spacing="-3.5" fill="${BRAND.ink}">The web's paid door,</text>
+  <text x="72" y="330" font-size="86" font-weight="600" font-family=${display} letter-spacing="-3.5" fill="${BRAND.faint}">finally open.</text>
+  <text x="72" y="392" font-size="23" font-family=${display} fill="${BRAND.muted}">${n.toLocaleString("en-US")} tools priced in cents. Reports priced in dollars. USDC over x402 / MPP, or card.</text>
+  <!-- handshake panel -->
+  <rect x="72" y="430" width="1056" height="140" rx="16" fill="url(#panel)" stroke="${BRAND.hairline}" stroke-width="1.5"/>
+  <text x="100" y="472" font-size="19" font-family=${mono} fill="${BRAND.faint}">$ curl agent402.tools/api/whois?domain=example.com</text>
+  <text x="100" y="506" font-size="19" font-family=${mono} fill="${BRAND.amber}">HTTP/2 402  <tspan fill="${BRAND.muted}">payment-required: usdc · base · 0.001</tspan></text>
+  <text x="100" y="540" font-size="19" font-family=${mono} fill="${BRAND.accent}">HTTP/2 200  <tspan fill="${BRAND.muted}">payment-response: settled · tx 0x9ec4…</tspan></text>
+  <text x="1100" y="472" font-size="15" font-family=${mono} text-anchor="end" fill="${BRAND.faint}">x402 · MPP · card</text>
+  <text x="1100" y="506" font-size="15" font-family=${mono} text-anchor="end" fill="${BRAND.faint}">${RAILS.length} rails · USDC · USDG</text>
   </g>
 </svg>`;
 };
@@ -3922,7 +3995,7 @@ app.get("/tools/:slug/card.png", async (req, res) => {
   const nameT = tool.name.length > 36 ? tool.name.slice(0, 34) + "\u2026" : tool.name;
   const descT = tool.description.length > 74 ? tool.description.slice(0, 72) + "\u2026" : tool.description;
   const free = POW_SLUGS.has(tool.slug) ? "FREE w/ PoW \u00b7 " : "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">${BRAND_FONT_STYLE}<rect width="1200" height="630" fill="${BRAND.paper}"/><g><rect x="36" y="36" width="1128" height="558" fill="${BRAND.card}" stroke="${BRAND.ink}" stroke-width="3"/><rect x="84" y="84" width="64" height="64" fill="none" stroke="${BRAND.ink}" stroke-width="5"/><text x="116" y="126" font-size="26" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" fill="${BRAND.ink}">402</text><text x="170" y="118" font-size="26" font-weight="800" font-family=${JSON.stringify(BRAND.display)} fill="${BRAND.ink}">AGENT402<tspan fill="${BRAND.accent}">.</tspan>TOOLS</text><text x="170" y="146" font-size="20" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(catLabel)}</text><line x1="84" y1="172" x2="1116" y2="172" stroke="${BRAND.ink}" stroke-width="2.5"/><text x="84" y="308" font-size="58" font-weight="800" font-family=${JSON.stringify(BRAND.display)} letter-spacing="-1" fill="${BRAND.ink}">${svgEsc(nameT)}</text><text x="84" y="372" font-size="22" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(descT)}</text><line x1="84" y1="440" x2="1116" y2="440" stroke="${BRAND.hairline}" stroke-width="2"/><text x="84" y="496" font-size="29" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.accent}">${svgEsc(free)}${svgEsc(tool.price)} per call \u00b7 ${svgEsc(tool.method)} ${svgEsc(tool.path)}</text><text x="84" y="550" font-size="23" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">Pay in USDC on Base via x402 - no API key, no signup</text></g></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">${BRAND_FONT_STYLE}${BRAND_DEFS}<rect width="1200" height="630" fill="${BRAND.paper}"/><g><rect x="36" y="36" width="1128" height="558" rx="20" fill="${BRAND.card}" stroke="${BRAND.hairline}" stroke-width="2"/><rect x="84" y="88" width="56" height="56" rx="14" fill="url(#milled)"/><text x="112" y="128" font-size="24" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} text-anchor="middle" letter-spacing="-1" fill="${BRAND.paper}">402</text><text x="162" y="118" font-size="26" font-weight="600" font-family=${JSON.stringify(BRAND.display)} fill="${BRAND.ink}">Agent402</text><text x="170" y="146" font-size="20" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(catLabel)}</text><line x1="84" y1="172" x2="1116" y2="172" stroke="${BRAND.hairline}" stroke-width="2"/><text x="84" y="308" font-size="58" font-weight="600" font-family=${JSON.stringify(BRAND.display)} letter-spacing="-2" fill="${BRAND.ink}">${svgEsc(nameT)}</text><text x="84" y="372" font-size="22" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">${svgEsc(descT)}</text><line x1="84" y1="440" x2="1116" y2="440" stroke="${BRAND.hairline}" stroke-width="2"/><text x="84" y="496" font-size="29" font-weight="700" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.accent}">${svgEsc(free)}${svgEsc(tool.price)} per call \u00b7 ${svgEsc(tool.method)} ${svgEsc(tool.path)}</text><text x="84" y="550" font-size="23" font-family=${JSON.stringify(BRAND.mono)} fill="${BRAND.muted}">Pay in USDC on Base via x402 - no API key, no signup</text></g></svg>`;
   try {
     if (!toolCardCache.has(tool.slug)) toolCardCache.set(tool.slug, await rasterizeSvg(svg, { width: 1200, height: 630 }));
     res.set("Cache-Control", "public, max-age=86400").type("image/png").send(toolCardCache.get(tool.slug));
@@ -4089,6 +4162,16 @@ app.get("/api/pricing", (_req, res) => {
     // tiers at the top level instead of burying them among ${endpointCount}
     // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows
     // the worst case before sending.
+    // Card paths (derived from the product tables, never hand-listed): prepaid
+    // credits for every tool, and the human report/monitor products. Stripe-
+    // gated - absent rather than advertised when card checkout is off.
+    ...(humanCheckoutEnabled() ? {
+      credits: { how: "buy a pack by card at /credits, then Authorization: Bearer a402_<key> on any paid route; the list price is held before the call and debited only on a 200", buy: `${BASE_URL}/credits`, packsUsd: Object.values(CREDIT_PACKS).map((p) => p.cents / 100), balance: `${BASE_URL}/api/credits/balance` },
+      humanProducts: {
+        reports: Object.entries(HUMAN_PRODUCTS).map(([k, p]) => ({ product: k, label: p.label, priceUsd: p.price / 100, slug: p.slug, buy: `${BASE_URL}/reports` })),
+        monitors: Object.entries(MONITOR_PRODUCTS).map(([k, p]) => ({ product: k, label: p.label, priceUsdPerMonth: p.price / 100, slug: p.slug, subscribe: `${BASE_URL}/monitors` })),
+      },
+    } : {}),
     llmGateway: {
       wire: "OpenAI-compatible",
       base: `${BASE_URL}/v1`,
@@ -4292,6 +4375,19 @@ if (!FREE_MODE) {
   if (stripeGate) {
     app.use(stripeGate);
     console.log("Stripe MPP settlement enabled (stripe/charge cards via Shared Payment Tokens)");
+  }
+  // Prepaid credits gate: `Authorization: Bearer a402_…` on a priced catalog
+  // route authorizes against the key's balance BEFORE the handler and debits
+  // on a final 200 (src/credits.js). Mounted before x402mw like the tempo and
+  // stripe gates; the dispatcher below bypasses x402 for req.creditsSettling.
+  if (_credits) {
+    app.use(_credits.gate((method, path) => {
+      const def = CATALOG[`${method} ${path}`];
+      if (!def) return null;
+      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      return priceUsd ? { priceUsd, slug: def.slug, identityBound: isIdentityBoundRoute(def) } : null;
+    }));
+    console.log("Prepaid card credits enabled (Bearer a402_ keys)");
   }
 }
 
@@ -4651,7 +4747,7 @@ if (FREE_MODE) {
     // validated the credential and own settlement for this request end to end.
     // Without the stripe bypass a validated card payment would be 402'd here
     // and never served (fails safe — no charge — but the feature is dead).
-    if (req.tempoSettling || req.stripeSettling) return next();
+    if (req.tempoSettling || req.stripeSettling || req.creditsSettling) return next();
     // Retired converters aren't catalog routes, so POW_ROUTES can't know them —
     // which briefly made them the only paid paths on the site with NO free
     // tier, while unit-convert (the identical work, same engine, same table)
@@ -4849,7 +4945,7 @@ app.use((req, res, next) => {
         const isHeartbeat = powAccepted && verifyHeartbeatToken(req.header("x-heartbeat-token"));
         // "usdc" is the ELSE branch, so any free path that forgets to name
         // itself here is booked as a sale. A trial moves no money.
-        const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : trialAccepted ? "trial" : "usdc";
+        const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : trialAccepted ? "trial" : req.creditsSettled ? "credits" : "usdc";
         // Tempo settlements (src/mpp-tempo.js) never carry a PAYMENT-RESPONSE
         // header — @x402/express never runs on that path — so without this
         // flag they'd fall through networkFromPaymentResponse(null) and get
@@ -4878,7 +4974,7 @@ app.use((req, res, next) => {
         // was paid, so a "settlement" event would be a lie.
         if (!FREE_MODE) {
           const rail = method;
-          const network = method === "usdc" ? networkFor() : null;
+          const network = method === "usdc" ? networkFor() : method === "credits" ? "stripe" : null;
           const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
           const synthetic = method === "heartbeat" || isSyntheticRequest(req);
           // Request-payload attribution covers EVM (EIP-3009 authorization.from);
@@ -4894,7 +4990,7 @@ app.use((req, res, next) => {
           // Stripe settles carry no wallet payer (the payer is a Stripe
           // customer behind the SPT, not an on-chain address) — record null,
           // like a Solana buyer with no server-visible payer.
-          const payer = (req.tempoSettled || req.stripeSettled) ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+          const payer = req.creditsSettled ? (req.creditsKeyId || null) : (req.tempoSettled || req.stripeSettled) ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           // Client attribution: the User-Agent PRODUCT TOKEN only (first
           // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
           // "node") so payment_settled can answer "which SDK/client do paying
@@ -4907,7 +5003,7 @@ app.use((req, res, next) => {
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
           // buy" is answerable forever (the question the odometer can't).
-          recordSale({
+          if (rail !== "credits") recordSale({ // credits debits are booked by src/credits.js onDebit (exact charged amount)
             slug: def.slug, priceUsd, rail, network,
             payer,
             tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : req.stripeSettled ? stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : txFromPaymentResponse(settleReceipt),
@@ -5356,12 +5452,12 @@ app.use((req, res) => {
       <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Page not found</h1>
       <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">The page you're looking for doesn't exist.</p>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-        <a href="/" style="display:inline-block;padding:11px 18px;background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+        <a href="/" style="display:inline-block;padding:11px 18px;background:var(--btn-bg);color:var(--btn-fg);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
         <a href="/tools" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Browse tools</a>
         <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
       </div>
     </div>${ledgerFooterCompact()}`;
-  res.status(404).type("html").send(ledgerShell({ title: "Page not found - Agent402", description: "Page not found", canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", body }));
+  res.status(404).type("html").send(ledgerShell({ title: "Page not found - Agent402", description: "Page not found", canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", robots: "noindex, nofollow", body }));
 });
 app.use((err, req, res, _next) => {
   if (res.headersSent) return; // already started streaming — let it go
@@ -5390,7 +5486,7 @@ app.use((err, req, res, _next) => {
       <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">${t}</h1>
       <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">${m}</p>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-        <a href="/" style="display:inline-block;padding:11px 18px;background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+        <a href="/" style="display:inline-block;padding:11px 18px;background:var(--btn-bg);color:var(--btn-fg);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
         <a href="/tools" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Browse tools</a>
         <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
       </div>

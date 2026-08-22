@@ -27,7 +27,14 @@
 // in sales-ledger.js and in the settled-revenue dashboard. Naming it once
 // means a new paying rail cannot be added to some readers and forgotten in
 // others - the failure mode where revenue quietly stops being counted.
-export const PAYING_RAILS = Object.freeze(["usdc", "marketplace"]);
+// "card" = Stripe Checkout (one-shot reports) and paid subscription invoices
+// (src/human-checkout.js / stripe-subscriptions.js -> recordSale rail "card");
+// "credits" = prepaid card credits DEBITED per call (src/credits.js); the pack
+// purchase itself is booked on the non-paying rail "card-prepaid" so a $20 pack
+// is counted once (when spent), never twice (caught 2026-08-22). Both are real
+// money from others - without them here the human front door was invisible to
+// /revenue.
+export const PAYING_RAILS = Object.freeze(["usdc", "marketplace", "card", "credits"]);
 
 /** Did money actually move on this rail? Free tiers (pow/trial/heartbeat) are false. */
 export function isPaidRail(rail) {

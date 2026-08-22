@@ -45,6 +45,9 @@ export const HUMAN_PRODUCTS = {
   "fund-report-max": { label: "Fund portfolio report - Deep", price: 1900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
   "domain-audit": { label: "Domain security audit", price: 500, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
   "domain-audit-pro": { label: "Domain security audit - Pro", price: 900, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "recall-report": { label: "FDA recall report", price: 500, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
+  "insider-report": { label: "Insider flow report (Form 4)", price: 900, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "market-brief": { label: "Market / competitor brief", price: 1500, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
 };
 
 // Stripe metadata: <= 50 keys, value <= 500 chars. Inputs are capped at 2000
@@ -148,6 +151,7 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
     if (input.length > 2000) { const e = new Error("Input is too long."); e.statusCode = 400; throw e; }
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+      ...(String(process.env.STRIPE_AUTOMATIC_TAX || "").toLowerCase() === "true" ? { automatic_tax: { enabled: true } } : {}),
       line_items: [{
         quantity: 1,
         price_data: {

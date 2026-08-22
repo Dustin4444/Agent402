@@ -16,17 +16,14 @@ via x402 + USDC nanopayments. Agent402 is a natural fit - we already speak x402.
 3. Provide:
    - Service name: `Agent402.Tools`
    - URL: `https://agent402.tools`
-   - Description: "500+ deterministic pay-per-call tools for AI agents (search, finance, EDGAR, crypto, PDFs, OCR, and more). x402 native."
+   - Description: "500+ deterministic pay-per-call tools for AI agents (search, finance, EDGAR, crypto, PDFs, OCR, and more), plus report products ($5-$39 deep research, dossier, fund, domain audit, token risk, recall, insider) and $9/month monitors. x402 native; MPP on the same 402; free proof-of-work tier; prepaid card credits."
    - Payment: x402 / USDC on Base (primary), Solana, Polygon, Arbitrum, Monad,
      Celo, Avalanche, Sei, Optimism, Stellar, Algorand, plus USDG on Robinhood
-     Chain (12 chains)
+     Chain (12 chains); MPP (Base/Celo, native Tempo); card credits
    - MCP endpoint: `https://agent402.tools/mcp`
    - Discovery: `https://agent402.tools/.well-known/x402`
    - Tool count: 500+ (400+ tools + 100+ skill packs)
 4. Reference our Bazaar registration (already indexed by Coinbase CDP)
-
-**Why it matters:** Circle has "high enterprise visibility" - their marketplace is where
-corporate agents look first. Being listed here = discovery by enterprise buyers.
 
 ---
 
@@ -44,13 +41,11 @@ include Google, Visa, Stripe, AWS, Mastercard, Circle, Microsoft, Shopify, Anthr
 3. Apply as: Individual / Startup tier (likely free or nominal)
 4. Provide:
    - Project: Agent402.Tools (https://agent402.tools)
-   - Role: x402 seller (500+ tool endpoints, 1,500+ settlements)
+   - Role: x402 seller (500+ tool endpoints, settled on-chain; verifiable on the
+     revenue wallet and at https://agent402.tools/revenue)
    - Open source: https://github.com/MikeyPetrillo/Agent402
-   - Contribution: First large-scale open-source x402 tool marketplace; ships
-     agent402-tollbooth (pay-per-crawl) and agent402-client (buyer SDK)
-
-**Why it matters:** Foundation membership = credibility + influence on the protocol.
-Agent402 is one of the most active x402 sellers by endpoint count.
+   - Contribution: open-source x402 + MPP tool server; ships agent402-tollbooth
+     (pay-per-crawl, x402 + MPP + native Tempo) and agent402-client (buyer SDK)
 
 ---
 
@@ -70,26 +65,26 @@ or via the GitHub sample repo: github.com/aws-samples/sample-agentcore-cloudfron
 
 ## Stripe ACP (Agentic Commerce Protocol)
 
-**Status:** Building `/acp/feed` endpoint (this session)
+**Status:** Live - `GET https://agent402.tools/acp/feed` serves the full tool
+catalog as ACP products (`src/acp.js`).
 
-Stripe + OpenAI + Meta's open standard for agent commerce. Once our ACP feed is live,
-any agent using Stripe's payment rails can discover Agent402 tools programmatically.
-
-**Endpoint:** `GET https://agent402.tools/acp/feed`
+The open standard for agent commerce. Any agent reading ACP feeds can discover
+Agent402 tools programmatically.
 
 ---
 
 ## Cloudflare Agents SDK
 
-**Status:** Building integration docs (this session)
+**Status:** Integration guide written - `docs/cloudflare-agents.md`.
 
-Cloudflare has first-class x402 support (`withX402`, `paidTool`). Our docs show
-CF developers how to use Agent402 as a tool provider from their Workers/Agents.
+Cloudflare has first-class x402 support (`withX402`, `paidTool`). The guide shows
+how a Worker or Agent discovers and calls Agent402 tools, and how to connect the
+hosted MCP endpoint.
 
 ---
 
 ## Apify
 
-**URL:** https://apify.com (they launched x402 integration)
-**Opportunity:** Cross-listing / partnership. They have 20,000+ tools on x402.
-Complementary catalog (their tools are web scraping; ours are computation + data).
+**URL:** https://apify.com (x402 integration available)
+**Opportunity:** Cross-listing. Agent402 tools are callable from any x402 client,
+so a listing there needs only the catalog URL + `/.well-known/x402`.

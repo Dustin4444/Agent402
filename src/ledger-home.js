@@ -69,12 +69,12 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
   const board = externalLeaderboardRows(leaderboardSnapshot);
 
   const canonical = baseUrl + "/";
-  const title = `Agent402.Tools - 500+ pay-per-call tools, open x402 + MPP index and router for AI agents`;
+  const title = `Agent402.Tools - 500+ pay-per-call tools for AI agents, finished reports by card, the open x402 + MPP index`;
   const description = `Agent402 is the applied layer of Agentic Finance: the open index, Smart Order Router and on-chain ranking for agents that pay and get paid over x402 and MPP. Sell your API for USDC per call, or give your AI agent ${fmtNum(count)} pay-per-call tools. No signup, no API keys - the wallet is the identity.`;
 
   const orgLd = { "@type": "Organization", "@id": `${baseUrl}/#organization`, name: "Agent402", alternateName: "Agent402.Tools", url: baseUrl, knowsAbout: ["Agentic Finance", "AIFI", "x402", "Machine Payments Protocol (MPP)", "agentic payments", "AI agents"], logo: { "@type": "ImageObject", url: `${baseUrl}/logo.png` }, email: "mike@agent402.tools", parentOrganization: { "@type": "Organization", name: "Havok Holdings LLC" }, sameAs: ["https://github.com/MikeyPetrillo/Agent402", "https://x.com/Agent402Tools", "https://www.npmjs.com/package/agent402-mcp", "https://www.npmjs.com/package/agent402-client", "https://www.npmjs.com/package/agent402-tollbooth", "https://pypi.org/project/agent402-langchain/", "https://www.x402scan.com/server/07eb3020-932a-436d-a739-557b6e47101d"] };
   const websiteLd = { "@type": "WebSite", "@id": `${baseUrl}/#website`, name: "Agent402.Tools", alternateName: "Agent402 - applied layer of Agentic Finance", url: baseUrl, publisher: { "@id": `${baseUrl}/#organization` }, description: "The applied layer of Agentic Finance: open index, Smart Order Router and on-chain ranking for agents paying and getting paid over x402 and MPP.", about: { "@type": "DefinedTerm", name: "Agentic Finance", alternateName: "AIFI", url: `${baseUrl}/agentic-finance` }, potentialAction: { "@type": "SearchAction", target: `${baseUrl}/api/find?q={search_term_string}`, "query-input": "required name=search_term_string" } };
-  const appLd = { "@type": "SoftwareApplication", "@id": `${baseUrl}/#app`, name: "Agent402", url: baseUrl, applicationCategory: "DeveloperApplication", operatingSystem: RAILS.map((r) => r.name).join(", "), license: "https://www.gnu.org/licenses/agpl-3.0.html", description: `Open-source, self-hostable Agentic Finance server for x402 + MPP: ${fmtNum(count)} deterministic pay-per-call tools and ${packCount}+ skill packs for AI agents, plus an open index, Smart Order Router and on-chain seller leaderboard.`, offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "1.50", priceCurrency: "USD", description: "Per-call micropayments in USDC on eleven chains plus USDG on Robinhood Chain, or free with proof-of-work" } };
+  const appLd = { "@type": "SoftwareApplication", "@id": `${baseUrl}/#app`, name: "Agent402", url: baseUrl, applicationCategory: "DeveloperApplication", operatingSystem: RAILS.map((r) => r.name).join(", "), license: "https://www.gnu.org/licenses/agpl-3.0.html", description: `Open-source, self-hostable Agentic Finance server for x402 + MPP: ${fmtNum(count)} deterministic pay-per-call tools and ${packCount}+ skill packs for AI agents, plus an open index, Smart Order Router and on-chain seller leaderboard.`, offers: { "@type": "AggregateOffer", offerCount: String(count), lowPrice: "0.001", highPrice: "39", priceCurrency: "USD", description: "Per-call micropayments in USDC on eleven chains plus USDG on Robinhood Chain, free with proof-of-work, or by card: finished reports $5 to $39, prepaid credits from $20" } };
   const datasetLd = { "@type": "Dataset", "@id": `${baseUrl}/#leaderboard`, name: "x402 seller leaderboard - Base USDC settled volume", description: "Hourly on-chain snapshot ranking every indexed x402 seller by Base USDC settled volume: calls settled, total USD, unique buyers per seller.", creator: { "@id": `${baseUrl}/#organization` }, license: "https://www.gnu.org/licenses/agpl-3.0.html", isAccessibleForFree: true, distribution: { "@type": "DataDownload", encodingFormat: "application/json", contentUrl: `${baseUrl}/api/leaderboard` } };
   const surfacesLd = { "@type": "ItemList", "@id": `${baseUrl}/#surfaces`, name: "Free x402 discovery primitives", itemListElement: [
     { "@type": "ListItem", position: 1, name: "Find - resolve a task to the best-matching tool", url: `${baseUrl}/api/find` },
@@ -86,6 +86,8 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
     { q: "What is agentic finance?", a: "Agentic finance (AIFI for short) is software agents transacting on their own: discovering a service, paying per request from a non-custodial wallet over open protocols such as x402 and MPP, receiving a verifiable receipt, and earning per request in return. Agent402 is its applied layer: the tools agents buy, the index and Smart Order Router that find and pay the best seller, the tollbooth that lets any site earn from agents, and on-chain transparency for all of it. Full explainer at /agentic-finance." },
     { q: "How do I sell my API for USDC per call?", a: "Register your origin in the \"Sell into the agent economy\" section above, or read the full seller guide at /sell for pricing, routing and health details. If your site is not x402-native yet, agent402-tollbooth is an open pay-per-crawl gate you can install instead." },
     { q: "Do I need a wallet to try it?", a: "No. The pure-CPU tools are payable in compute: your own machine solves a single-use, slug-scoped sha256 proof-of-work instead of paying, which costs about a second of CPU. A wallet only matters for tools that cost real money to run, and those quote their price in the 402 challenge before anything is charged." },
+    { q: "Can I pay by card instead of crypto?", a: "Yes. Finished, cited reports at /reports ($5 to $39, auto-refunded if a report fails), monitors at /monitors ($9 a month, cancel anytime), and prepaid credits at /credits: buy $20, $50 or $100 once, get a key, and call any tool with Authorization: Bearer a402_..., debited only when a call succeeds. Agents keep paying per call in USDC over x402 or MPP - same endpoints, same price list." },
+    { q: "What is a report, and what if it fails?", a: "A report is a finished deliverable, not a chat answer: live data (SEC EDGAR, openFDA, your domain's DNS and TLS, grounded web search) composed and synthesized with every claim cited, plus a downloadable data appendix and PDF. Payment is verified before anything is generated; if generation fails after payment, the card is refunded automatically and the x402 settlement is cancelled." },
     { q: "Is it open source, and can I run my own?", a: "Yes. The server is AGPL-3.0 and self-hostable; the client SDK, MCP connector and tollbooth packages are MIT. Clone it and run FREE_MODE=true npm start for all tools as an HTTP API plus MCP, with no payments and no keys." },
   ];
   const faqLd = { "@type": "FAQPage", "@id": `${baseUrl}/#faq`, mainEntity: faqs.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })) };
@@ -95,20 +97,20 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 .hm-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .hm-doors { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .hm-proof { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
-.hm-card { border-radius: 18px; background: var(--card); border: 1px solid var(--hairline); box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgba(17,19,21,.04); }
-.hm-milled { border-radius: 18px; background: linear-gradient(160deg, #F9FAFB 0%, #E3E6E9 70%, #EEF0F2 100%); border: 1px solid rgba(17,19,21,.12); box-shadow: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(0,0,0,.06), 0 18px 40px rgba(17,19,21,.08); }
-.hm-obsidian { border-radius: 18px; background: linear-gradient(160deg, #1A1D20, #0C0D0F); color: var(--on-dark); border: 1px solid rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 18px 40px rgba(0,0,0,.22); }
+.hm-card { border-radius: 18px; background: var(--card); border: 1px solid var(--hairline); box-shadow: inset 0 1px 0 var(--card-inset), 0 1px 2px rgba(0,0,0,.08); }
+.hm-milled { border-radius: 18px; background: var(--milled-bg); border: 1px solid var(--milled-border); box-shadow: inset 0 1px 0 var(--card-inset), inset 0 -1px 0 rgba(0,0,0,.06), var(--shadow-lg); }
+.hm-obsidian { border-radius: 18px; background: var(--obsidian-bg); color: var(--on-dark); border: 1px solid var(--obsidian-border); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 18px 40px rgba(0,0,0,.22); }
 .hm-btn { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-body); font-weight: 500; font-size: 15px; text-decoration: none; padding: 13px 22px; border-radius: 999px; white-space: nowrap; transition: transform .12s ease, box-shadow .12s ease; }
 .hm-btn:hover { transform: translateY(-1px); }
-.hm-btn-dark { color: #fff; background: linear-gradient(180deg, #2A2D31, #111315); box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 10px 24px rgba(0,0,0,.18); border: 0; cursor: pointer; }
-.hm-btn-ghost { color: var(--ink); border: 1px solid var(--dash); background: rgba(255,255,255,.55); }
+.hm-btn-dark { color: var(--btn-fg); background: var(--btn-bg); box-shadow: var(--btn-shadow); border: 0; cursor: pointer; }
+.hm-btn-ghost { color: var(--ink); border: 1px solid var(--dash); background: var(--chip-bg); }
 .hm-btn-ghost:hover { border-color: var(--ink); }
-.hm-btn-lit { color: #0B0C0E; background: var(--accent-lit); border: 0; cursor: pointer; }
+.hm-btn-lit { color: #0B0C0E; background: var(--accent-lit); border: 0; cursor: pointer; } /* phosphor reads dark-on-green in both themes */
 .hm-kicker { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent); margin-bottom: 12px; }
 .hm-h2 { font-weight: 500; font-size: 40px; line-height: 1.05; letter-spacing: -.03em; margin: 0; color: var(--ink); text-wrap: balance; }
 .hm-lede { font-size: 16.5px; line-height: 1.55; color: var(--muted); font-weight: 300; }
 .hm-row { display: grid; grid-template-columns: 170px 1fr 200px; gap: 24px; padding: 22px 0; border-bottom: 1px solid var(--hairline); align-items: baseline; }
-.hm-chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); padding: 8px 12px; border: 1px solid var(--dash); border-radius: 8px; background: rgba(255,255,255,.55); text-decoration: none; }
+.hm-chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); padding: 8px 12px; border: 1px solid var(--dash); border-radius: 8px; background: var(--chip-bg); text-decoration: none; }
 .hm-term { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.8; color: var(--on-dark2); white-space: pre-wrap; word-break: break-word; margin: 0; }
 @media (max-width: 900px) { .hm-hero, .hm-2col, .hm-doors { grid-template-columns: minmax(0,1fr) !important; } .hm-proof { grid-template-columns: 1fr 1fr !important; } .hm-row { grid-template-columns: 1fr !important; gap: 6px; } .hm-h2 { font-size: 32px; } }
 @media (max-width: 480px) { .hm-reg-row { flex-direction: column !important; } .hm-reg-row button { width: 100%; } .hm-proof { grid-template-columns: 1fr !important; } }
@@ -206,6 +208,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Domain audit $5</a>
         <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Research $5</a>
         <a href="/monitors" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Monitor $9/mo</a>
+        <a href="/credits" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Credits for any tool, from $20</a>
       </div>
       <a href="/reports" style="margin-top:6px;font-size:14.5px;font-weight:500;color:var(--ink);text-decoration:none;">Browse reports →</a>
     </div>
@@ -295,7 +298,7 @@ curl -X POST /api/hash \\
       <div id="hm-reg-out" style="font-family:var(--font-mono);font-size:11.5px;color:var(--faint);margin-top:8px;">Free, no account - we probe your origin's x402 surface and list you if it answers.</div>
     </div>
     <div class="hm-card" style="padding:26px;display:flex;flex-direction:column;">
-      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">02 / TOLLBOOTH A SITE</div>
+      <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:14px;">02 / Tollbooth a site</div>
       <h3 style="font-weight:500;font-size:22px;margin:0 0 10px;color:var(--ink);letter-spacing:-.02em;">Charge AI crawlers per page</h3>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;font-weight:300;">Humans browse free; known bots get <span style="font-family:var(--font-mono);font-size:13px;color:var(--ink);">402 Payment Required</span> and either pay in USDC or solve a proof-of-work. The open, crypto-native answer to closed pay-per-crawl: no CDN lock-in, no merchant-of-record, no signup.</p>
       <pre class="hm-term" style="margin:0 0 18px;background:var(--surface);color:var(--on-dark);padding:14px;border-radius:12px;font-size:11.5px;"><span style="color:var(--dk-muted3);"># express · next.js · cloudflare · proxy · wordpress
@@ -380,7 +383,7 @@ curl -X POST /api/hash \\
 
 <section style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
   <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px;">settles on</div>
-  <div style="display:flex;flex-wrap:wrap;gap:10px;">${railLinksHtml}${tempoChipHtml}<a href="/reports" class="hm-chip" style="background:var(--ink);color:#fff;border-color:var(--ink);">Card via Stripe</a></div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px;">${railLinksHtml}${tempoChipHtml}<a href="/reports" class="hm-chip" style="background:var(--btn-bg);color:var(--btn-fg);border-color:transparent;">Card via Stripe</a></div>
 </section>
 
 <section style="max-width:900px;margin:0 auto;padding:70px 30px 20px;">

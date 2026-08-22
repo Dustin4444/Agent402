@@ -2,7 +2,7 @@
 
 > **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
-If your agent isn't an MCP client, there's a zero-dependency npm package that turns the Agent402 catalog into native tool objects for your framework — with payment handled underneath (proof-of-work for free tools, USDC via x402 for wallet-only).
+If your agent isn't an MCP client, there's a zero-dependency npm package that turns the Agent402 catalog into native tool objects for your framework - with payment handled underneath (proof-of-work for free tools, USDC via x402 for wallet-only).
 
 | Stack | npm package | Returns |
 |---|---|---|
@@ -15,7 +15,7 @@ If your agent isn't an MCP client, there's a zero-dependency npm package that tu
 
 Sources live at [`adapters/`](https://github.com/MikeyPetrillo/Agent402/tree/main/adapters).
 
-> Already a Claude/MCP user? Use the hosted [[MCP Connector]] — it's the better path. Adapters are for direct API integrations where MCP isn't available.
+> Already a Claude/MCP user? Use the hosted [[MCP Connector]] - it's the better path. Adapters are for direct API integrations where MCP isn't available.
 
 ## Shared surface
 
@@ -24,8 +24,8 @@ Every adapter exports the same `agent402Tools()` function:
 ```ts
 agent402Tools(opts?: {
   baseUrl?: string;       // default "https://agent402.tools"
-  slugs?: string[];       // restrict to these tool slugs (recommended — smaller list = better tool-selection)
-  freeOnly?: boolean;     // default true — only include compute-payable tools (no wallet needed)
+  slugs?: string[];       // restrict to these tool slugs (recommended - smaller list = better tool-selection)
+  freeOnly?: boolean;     // default true - only include compute-payable tools (no wallet needed)
   fetch?: typeof fetch;   // an @x402/fetch-wrapped fetch; only needed for wallet-only tools
 }): Promise<{
   tools: <framework-shape>;
@@ -133,7 +133,7 @@ const agent = new Agent({ tools });
 const res = await agent.invoke("Get the title of https://example.com/article");
 ```
 
-Designed for [AWS Bedrock AgentCore Payments](AWS-Bedrock-AgentCore) — AgentCore orchestrates x402 over the same protocol Agent402 speaks natively, so the adapter is the only glue you need. Wallet-only tools sign via the CDP `PaymentCredentialProvider` you configure in AgentCore Identity.
+Designed for [AWS Bedrock AgentCore Payments](AWS-Bedrock-AgentCore) - AgentCore orchestrates x402 over the same protocol Agent402 speaks natively, so the adapter is the only glue you need. Wallet-only tools sign via the CDP `PaymentCredentialProvider` you configure in AgentCore Identity.
 
 ## Pay with USDC (wallet-only tools)
 
@@ -162,6 +162,6 @@ const { tools } = await agent402Tools({ baseUrl: "https://agent402.example.com" 
 
 ## Trust & `baseUrl`
 
-The catalog server you point `baseUrl` at controls the **name, description, and JSON Schema** of every generated tool — and tool descriptions are passed to your LLM. Only point `baseUrl` at an Agent402 instance you operate or trust. The default (`https://agent402.tools`) is the maintained, open-source hosted instance. Catalog/pricing fetches are bounded by a 15s `AbortSignal.timeout()` to cap the discovery hang if a misconfigured `baseUrl` is unreachable.
+The catalog server you point `baseUrl` at controls the **name, description, and JSON Schema** of every generated tool - and tool descriptions are passed to your LLM. Only point `baseUrl` at an Agent402 instance you operate or trust. The default (`https://agent402.tools`) is the maintained, open-source hosted instance. Catalog/pricing fetches are bounded by a 15s `AbortSignal.timeout()` to cap the discovery hang if a misconfigured `baseUrl` is unreachable.
 
 See also: [[Security Model]] · [[Getting Started]] · [[Paying with x402]] · [[Paying with Compute]].

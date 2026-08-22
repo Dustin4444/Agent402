@@ -126,7 +126,7 @@ table{border-collapse:collapse;width:100%}
 `;
 
   const tocHtml = TOC.map(([href, label]) =>
-    `<a href="${href}" style="padding:11px 18px;border-bottom:1px solid var(--hairline-dark);text-decoration:none;color:var(--on-dark2);font-size:14px;">${esc(label)}</a>`
+    `<a href="${href}" style="padding:11px 18px;border-bottom:1px solid var(--dark-border);text-decoration:none;color:var(--on-dark2);font-size:14px;">${esc(label)}</a>`
   ).join("");
 
   const stepsHtml = STEPS.map(([n, t, b]) =>
@@ -279,7 +279,7 @@ Payment-Receipt: 0x8f2a&hellip;c41d
 </span>curl -X POST https://agent402.tools/api/index/register \
   -H 'content-type: application/json' \
   -d '{"origin":"https://api.you.com"}'</pre>
-      <a href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:12px 18px;align-self:flex-start;">LIST YOUR API →</a>
+      <a href="/sell" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:12px 18px;align-self:flex-start;">List your API →</a>
     </div>
     <div style="padding:26px;background:var(--card);display:flex;flex-direction:column;">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">BUY</div>
@@ -288,7 +288,7 @@ Payment-Receipt: 0x8f2a&hellip;c41d
       <pre style="margin:0 0 18px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># zero install
 </span>claude mcp add --transport http \
   agent402 https://agent402.tools/mcp</pre>
-      <a href="/docs#add" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">ADD TO CLAUDE →</a>
+      <a href="/docs#add" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">Add to your agent →</a>
     </div>
   </div>
 </section>
@@ -306,7 +306,7 @@ Payment-Receipt: 0x8f2a&hellip;c41d
       <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Now put it to work.</h2>
       <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 28px;max-width:540px;">Agent402 is the applied layer for both protocols: an open index, a neutral router, and an on-chain ranking of every x402 seller. Free to list, free to browse.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
-        <a href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">LIST YOUR API - FREE →</a>
+        <a href="/sell" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">List your API - free →</a>
         <a href="/" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">SEE THE INDEX</a>
       </div>
     </div>

@@ -17,7 +17,7 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
 | Server URL | `https://agent402.tools/mcp` |
 | Transport | Streamable HTTP |
 | Auth type | None (anonymous; no account, no API key) |
-| Read/write | Mostly read-only; `request_tool` and `write_memory` are the only writers (`readOnlyHint: false`). All other tools carry `readOnlyHint: true`. |
+| Read/write | Mostly read-only; `demand.request` and `memory.write` are the only writers (`readOnlyHint: false`). All other tools carry `readOnlyHint: true`. |
 | Website | https://agent402.tools |
 | Public docs | https://agent402.tools/llms.txt (also /tools and /openapi.json) |
 | Privacy policy | https://agent402.tools/privacy |
@@ -33,47 +33,54 @@ privacy policy, public docs, and a no-auth streamable-HTTP endpoint.
 
 > Agent402 is a deterministic tools layer for Claude: search the web and get
 > cited answers as first-class MCP tools, then reach 500+ pay-per-call utilities
-> (render, data, memory, encoding, conversions, and more) via find_tool /
-> search_tools / call_tool. There is no account and no API key. Pure-CPU tools
-> run free on the hosted connector (rate-limited); flagship egress tools are
-> listed and return paid-path setup unless you run the npm server with a funded
-> wallet. No LLM is involved in serving deterministic tools: same input, same
-> output, with full input schemas. Open source. Also reachable over the x402
-> payment protocol for autonomous agents with their own wallets.
+> (render, data, memory, encoding, conversions, and more) via catalog.find /
+> catalog.search / catalog.call. There is no account and no API key. Pure-CPU
+> tools run free on the hosted connector (rate-limited); wallet-only tools are
+> payable on the connector itself over MPP (a paid call answers JSON-RPC error
+> -32042 with the challenges; an mppx-wrapped client pays and retries), or run
+> the npm server with a funded wallet or a prepaid card-credits key. No LLM is
+> involved in serving deterministic tools: same input, same output, with full
+> input schemas. Report products (deep research, company dossier, 13F fund
+> report, domain audit, token risk, FDA recall, insider flow) are catalog slugs
+> too. Open source. Also reachable over the x402 and MPP payment protocols for
+> autonomous agents with their own wallets.
 
-## Tools exposed (~15, each with title + safety annotations)
+## Tools exposed (15, each with title + safety annotations)
 
-Flagship demand tools first, then meta discovery for the long catalog.
+Flagship demand tools first, then meta discovery for the long catalog. Names
+are dotted (`web.search`, `catalog.call`, …); the earlier snake_case names
+(`search_web`, `call_tool`, …) remain accepted as CallTool aliases but are not
+listed.
 
-1. **search_web** - "Live web search". Ranked results (title, URL, snippet).
-   Wallet-required on this authless host (returns paid-access setup). Open-world.
-2. **answer_question** - "Cited answer". Grounded answer from live search.
-   Wallet-required on this authless host. Open-world.
-3. **search_news** - "News search". Wallet-required on this authless host.
-4. **render_page** - "Render page". Headless Chromium → markdown.
-   Wallet-required on this authless host.
-5. **get_stock_quote** - "Stock quote". Wallet-required on this authless host.
-6. **transcribe_audio** - "Transcribe audio". Wallet-required on this authless host.
-7. **read_memory** - "Read durable memory". Wallet-required (wallet = identity).
-8. **write_memory** - "Write durable memory". Writer; wallet-required.
-9. **search_tools** - "Search the Agent402 tool catalog". Browse 500+ tools by
-   description; returns slugs, prices, and input schemas. Read-only.
-10. **find_tool** - "Resolve a task to the one best Agent402 tool". Returns the
+1. **web.search** - "Live web search". Ranked results (title, URL, snippet).
+   Wallet-only: payable on this connector over MPP, else returns paid-access setup. Open-world.
+2. **web.answer** - "Cited answer". Grounded answer from live search.
+   Wallet-only (MPP-payable here). Open-world.
+3. **web.news** - "News search". Wallet-only (MPP-payable here).
+4. **browser.render** - "Render page". Headless Chromium → markdown.
+   Wallet-only (MPP-payable here).
+5. **market.quote** - "Stock quote". Wallet-only (MPP-payable here).
+6. **audio.transcribe** - "Transcribe audio". Wallet-only (MPP-payable here).
+7. **memory.read** - "Read durable memory". Wallet-only (wallet = identity).
+8. **memory.write** - "Write durable memory". Writer; wallet-only.
+9. **catalog.search** - "Search the Agent402 tool catalog". Browse 500+ tools by
+   description; returns slugs, prices, input schemas, and matching skill packs. Read-only.
+10. **catalog.find** - "Resolve a task to the one best Agent402 tool". Returns the
     single best-matching tool call-ready: slug, price, input schema, and a worked
     example. Read-only.
-11. **call_tool** - "Run an Agent402 tool". Executes a catalog tool by slug.
+11. **catalog.call** - "Run an Agent402 tool". Executes a catalog tool by slug.
     On this hosted connector the pure-CPU, deterministic tools execute (200+ of
-    them); wallet-only tools return guidance instead of running. Read-only for
+    them); wallet-only tools are payable over MPP or return guidance. Read-only for
     free tools.
-12. **get_payment_info** - "Payment and wallet setup". Explains the free vs paid
+12. **payment.info** - "Payment and wallet setup". Explains the free vs paid
     split, wallet setup, spend caps, and settlement rails. Static guidance,
     read-only.
-13. **describe_server** - "About this Agent402 connector". Flagship-first
+13. **server.describe** - "About this Agent402 connector". Flagship-first
     orientation, Claude/Cursor/npm install one-liners, free vs paid, discovery
     URLs. Free, read-only. Also returned in initialize.instructions.
-14. **request_tool** - "Request a missing tool". Writer; records demand.
-15. **list_top_sellers** - "List top x402 sellers". Ranked sellers from the on-chain
-    settlement leaderboard. Free, read-only.
+14. **demand.request** - "Request a missing tool". Writer; records demand.
+15. **sellers.list** - "List top x402 sellers". Ranked sellers from the on-chain
+    settlement leaderboards (x402 on Base, or MPP on Tempo with `wire: "mpp"`). Free, read-only.
 
 ## Connection requirements
 
@@ -87,7 +94,7 @@ self-contained). Per-client rate limit: 20 calls/min, 120/hour.
 - "Render https://example.com and summarize the page."
 - "Find a tool that hashes text with sha256, then run it."
 - "What payment rails does Agent402 accept?"
-- "Decode this JWT and tell me when it expires." (via find_tool → call_tool)
+- "Decode this JWT and tell me when it expires." (via catalog.find → catalog.call)
 
 ## Reliability / review notes
 

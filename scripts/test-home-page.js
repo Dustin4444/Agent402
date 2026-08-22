@@ -84,8 +84,8 @@ const catalog = {
   const faqLdCount = (html.match(/"@type":"Question"/g) || []).length;
   const faqVisibleCount = (html.match(/<summary style=/g) || []).length;
   // 4 since 2026-08-18: the Agentic Finance (AIFI) definition leads the FAQ.
-  ok(faqLdCount === 4, `FAQPage JSON-LD carries exactly 4 questions (got ${faqLdCount})`);
-  ok(faqVisibleCount === 4, `visible FAQ prose carries exactly 4 questions, matching the schema 1:1 (got ${faqVisibleCount})`);
+  ok(faqLdCount === 6, `FAQPage JSON-LD carries exactly 6 questions (got ${faqLdCount})`);
+  ok(faqVisibleCount === 6, `visible FAQ prose carries exactly 6 questions, matching the schema 1:1 (got ${faqVisibleCount})`);
 }
 
 // --- copy hygiene --------------------------------------------------------------

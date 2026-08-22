@@ -53,6 +53,16 @@ User-agent: *
 Allow: /
 Disallow: /api/memory
 Disallow: /__operator
+Disallow: /r/
+Disallow: /m/
+Disallow: /monitors/thanks
+Disallow: /monitors/manage
+Disallow: /credits/thanks
+Disallow: /api/r/
+Disallow: /api/m/
+Disallow: /api/credits/
+Disallow: /api/monitors/
+Disallow: /api/buy
 ${costly}
 
 # Machine-readable catalogs for agents: ${baseUrl}/SKILL.md , ${baseUrl}/llms.txt , ${baseUrl}/openapi.json , ${baseUrl}/api/pricing , ${baseUrl}/api/cacheable , ${baseUrl}/.well-known/x402 , ${baseUrl}/api/reliability , ${baseUrl}/api/find?q={task} , ${baseUrl}/api/route , ${baseUrl}/api/leaderboard
@@ -70,6 +80,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/tools`, priority: "0.9" },
     { loc: `${baseUrl}/reports`, priority: "0.9" },
     { loc: `${baseUrl}/monitors`, priority: "0.8" },
+    { loc: `${baseUrl}/credits`, priority: "0.8" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
     // Every x402 marketplace page (one per CHAIN_PAGES entry) — new chain
     // page = new sitemap entry, zero edits here.
@@ -166,6 +177,7 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/tools`, priority: "0.9" },
     { loc: `${baseUrl}/reports`, priority: "0.9" },
     { loc: `${baseUrl}/monitors`, priority: "0.8" },
+    { loc: `${baseUrl}/credits`, priority: "0.8" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
     { loc: `${baseUrl}/quickstart`, priority: "0.9" },
     { loc: `${baseUrl}/what-is-x402`, priority: "0.9" },
@@ -298,7 +310,7 @@ export function llmsTxt(baseUrl, catalog) {
 
   return `# Agent402.Tools
 
-> Pay-per-call web tools for AI agents, payable over **x402 or MPP** - the applied layer of Agentic Finance: agents that pay and get paid on their own (explainer: /agentic-finance). **First job: search the web and answer questions** (\`/api/search\`, \`/api/answer\`, \`/api/search-news\`) — then the long catalog of 500+ deterministic tools via \`/api/find\`. Call an endpoint, receive an HTTP 402 carrying both offers (x402 PAYMENT-REQUIRED and MPP WWW-Authenticate: Payment), and settle from your own wallet - USDC via x402, or MPP on Base/Celo (USDC) or Tempo (USDC.e or PathUSD, native)${stripeEnabled() ? ", or by **card** on premium tools >= $0.50 (Stripe Shared Payment Token over MPP stripe/charge - no wallet, no stablecoin)" : ""} - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity. Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
+> Pay-per-call web tools for AI agents, payable over **x402 or MPP** - the applied layer of Agentic Finance: agents that pay and get paid on their own (explainer: /agentic-finance). **First job: search the web and answer questions** (\`/api/search\`, \`/api/answer\`, \`/api/search-news\`) — then the long catalog of 500+ deterministic tools via \`/api/find\`. Call an endpoint, receive an HTTP 402 carrying both offers (x402 PAYMENT-REQUIRED and MPP WWW-Authenticate: Payment), and settle from your own wallet - USDC via x402, or MPP on Base/Celo (USDC) or Tempo (USDC.e or PathUSD, native)${stripeEnabled() ? ", or by **card** on premium tools >= $0.50 (Stripe Shared Payment Token over MPP stripe/charge - no wallet, no stablecoin)" : ""} - or, on ${powCount} of the ${tools.length} tools, pay with proof-of-work (CPU) and skip the wallet entirely. No human, no signup, no API key: the payment is the identity (optional: a prepaid card-credits key, see below). Flat per-call prices from $0.001 - most tools $0.001–$0.02, with premium AI, media and multi-tool packs higher (up to $1.50); every price is in /api/pricing and quoted in the 402.
 
 Base URL: ${baseUrl}
 
@@ -311,6 +323,10 @@ Base URL: ${baseUrl}
 **No wallet? Pay with compute (proof-of-work).** ${powCount} of the ${tools.length} tools accept a sha256 proof-of-work puzzle (a fraction of a second of CPU) instead of USDC - no money and no AI tokens (there is no LLM in the serving path). Get a challenge at \`${baseUrl}/api/pow/challenge?slug=hash\`, find an integer nonce so that \`sha256(challenge + ":" + nonce)\` has at least ${POW_DIFFICULTY} leading zero bits, then resend the request with header \`X-Pow-Solution: <token>:<nonce>\`. **The response has two different fields and you use both: hash the \`challenge\` (32 hex chars), submit the \`token\` (the longer signed string).** Submitting the challenge you just hashed returns a 402 that looks exactly like an unpaid request, so this is the one step worth reading twice. The network / browser / storage tools that need wallet-bound identity or live egress stay wallet-only.
 
 **Pay with USDC (x402).** Wrap fetch with \`@x402/fetch\`, register the exact EVM scheme with your signer, and call normally - the 402 is decoded, paid, and the result returned. Settlement uses ${RAILS_OR}; gas is sponsored by the facilitator on EVM chains, so callers need only hold the stablecoin. Send an \`Idempotency-Key\` header for safe retries: replaying the same key with the same payment/PoW credential returns the original result without paying again.
+
+**No wallet, need the paid tools? Pay with prepaid card credits.** Buy $20, $50 or $100 at ${baseUrl}/credits (card, no account), get an a402_ key once, and send it as \`Authorization: Bearer a402_...\` on any paid tool - the list price is held before the call and debited only on a successful (200) response; \`X-Credits-Balance\` rides on every answer and \`GET ${baseUrl}/api/credits/balance\` reports the key. agent402-mcp (AGENT402_CREDITS_KEY) and agent402-client ({ creditsKey }) support it. Identity-bound tools (memory, my-usage) still need an x402 wallet - the payment is the identity there.
+
+**Finished reports, for agents and people.** Cited, grounded report products with a data appendix - the same endpoint over x402/MPP or by card (humans buy at ${baseUrl}/reports). Deep research: POST /v1/research ($5), POST /v1/research/pro ($15), POST /v1/research/max ($30). Company due-diligence dossier: POST /v1/dossier ($19), POST /v1/dossier/max ($39). Fund 13F report: POST /v1/fund ($9), POST /v1/fund/max ($19). Domain security audit: POST /v1/domain-audit ($5), POST /v1/domain-audit/pro ($9). FDA recall report: POST /v1/recall-report ($5). Insider flow report: POST /v1/insider-report ($9). Market / competitor brief: POST /v1/research/market-brief ($15). Token risk: POST /v1/token-risk ($5), POST /v1/token-risk/pro ($12). Monitors ($9/month by card at ${baseUrl}/monitors) re-run a report on change and email the diff - domain security, fund 13F, FDA recall, insider flow, IPO pipeline.
 
 **A failed call is not charged - structurally, and you can check it per response rather than trust us.** Settlement runs AFTER the tool handler and only completes for a successful (under-400) response: an error, a capacity 503, or an upstream 502 cancels settlement inside the payment middleware itself, so no money moves and there is nothing to claim.
 
@@ -354,7 +370,7 @@ We state it this way deliberately: the honest guarantee is "settlement ordering 
   - Claude Code: \`claude mcp add --transport http agent402 ${baseUrl}/mcp\`
   - Cursor: add to \`~/.cursor/mcp.json\` → \`{"mcpServers":{"agent402":{"url":"${baseUrl}/mcp"}}}\`
   - Smithery: listed at https://smithery.ai/servers/mike-kq9d/agent402 (paste \`${baseUrl}/mcp\` at https://smithery.ai/new)
-- [agent402-mcp](https://www.npmjs.com/package/agent402-mcp): npm MCP server with payment underneath (\`npx -y agent402-mcp\`, optional \`AGENT_KEY\` for USDC via x402). Claude Code: \`claude mcp add agent402 -s user -- npx -y agent402-mcp@latest\`
+- [agent402-mcp](https://www.npmjs.com/package/agent402-mcp): npm MCP server with payment underneath (\`npx -y agent402-mcp\`, optional \`AGENT_KEY\` for USDC via x402 or \`AGENT402_CREDITS_KEY\` for prepaid card credits). Claude Code: \`claude mcp add agent402 -s user -- npx -y agent402-mcp@latest\`
 
 ## Framework adapters (zero-dependency npm)
 - [agent402-openai-tools](https://www.npmjs.com/package/agent402-openai-tools): OpenAI function-calling (chat.completions / Assistants / Responses)
@@ -378,6 +394,7 @@ ${toolSections}
 - [agent402-tollbooth](${baseUrl}/tollbooth): open-source, self-hostable x402 pay-per-crawl gate for your own site
 - [Skill packs JSON](${baseUrl}/api/skill-packs.json): machine-readable pack index
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool
+- [Prepaid card credits](${baseUrl}/credits): no wallet? buy $20-$100 of credits by card, then call any paid tool with the header "Authorization: Bearer a402_..." (debited per call on success; balance at GET /api/credits/balance)
 - [Agentic Finance](${baseUrl}/agentic-finance): what the category is and where Agent402 sits in it
 - [x402 & MPP 101](${baseUrl}/101): the ten-minute walkthrough for people new to the space - plain language, speaker notes, and a live demo (402 quote decoded, pay with a puzzle, real receipts)
 - [Glossary](${baseUrl}/glossary): x402, MPP, HTTP 402, facilitator, EIP-3009, receipts, settlement, rails, dual-stack, PoW tier, SOR, tollbooth - every term defined once, with anchors

@@ -3,7 +3,7 @@
 > **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
 Agent402 settles x402 payments in **USDG (Global Dollar)** on **Robinhood
-Chain** — an Arbitrum Orbit L2, chain id **4663**, mainnet since 2026-07-01.
+Chain** - an Arbitrum Orbit L2, chain id **4663**, mainnet since 2026-07-01.
 The rail went live on the chain's second day and is re-proven daily by an
 automated on-chain canary purchase. Everything below is also on the live
 [/robinhood](https://agent402.tools/robinhood) page and in the
@@ -16,7 +16,7 @@ automated on-chain canary purchase. Everything below is also on the live
 | Chain id | 4663 (CAIP-2 `eip155:4663`) |
 | RPC | `https://rpc.mainnet.chain.robinhood.com` |
 | Explorer | `robinhoodchain.blockscout.com` |
-| Stablecoin | USDG (Global Dollar) — `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`, 6 decimals |
+| Stablecoin | USDG (Global Dollar) - `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168`, 6 decimals |
 | EIP-712 domain | name `"Global Dollar"`, version `"1"` |
 
 ## Buy in USDG
@@ -32,7 +32,7 @@ import { withNetworkPreference } from "agent402-client";
 withNetworkPreference(x402client, ["robinhood"]); // or ["eip155:4663"]
 ```
 
-Multi-chain sellers list Base first, so pinning the chain is required — an
+Multi-chain sellers list Base first, so pinning the chain is required - an
 unmodified client effectively always settles on Base. The preference throws
 **before** paying if the seller doesn't offer the chain.
 
@@ -40,7 +40,7 @@ unmodified client effectively always settles on Base. The preference throws
 
 - **Agent402 server**: `PAYMENT_NETWORKS=…,robinhood` +
   `ROBINHOOD_FACILITATOR_URL=<an x402 facilitator that settles eip155:4663>`.
-  If the facilitator URL is unset the rail is omitted gracefully — every other
+  If the facilitator URL is unset the rail is omitted gracefully - every other
   chain keeps serving. See [[Self-Hosting]].
 - **Tollbooth (≥ 0.4.0)**: `TOLLBOOTH_NETWORK=eip155:4663 TOLLBOOTH_ASSET=USDG`
   charges crawlers in USDG. See [[Pay-per-crawl]].
@@ -48,7 +48,7 @@ unmodified client effectively always settles on Base. The preference throws
 ## Find other sellers on the chain
 
 The neutral router takes a network filter:
-`GET /api/route?q=<task>&network=robinhood` — only sellers whose crawled 402
+`GET /api/route?q=<task>&network=robinhood` - only sellers whose crawled 402
 advertises `eip155:4663` are ranked (sellers with unknown accepts are kept;
 the filter excludes sellers known *not* to settle there).
 
@@ -63,7 +63,7 @@ example: [`0xae8e3e40…f826`](https://robinhoodchain.blockscout.com/tx/0xae8e3e
 ## Ops notes
 
 - The **paid canary** makes one real $0.001 USDG settlement daily (pinned to
-  the chain via accepts filtering — no silent Base fallback).
+  the chain via accepts filtering - no silent Base fallback).
 - The **heartbeat** decodes the live 402 every 15 minutes and opens an issue
   if the rail drops out of the offer while the `ROBINHOOD_FACILITATOR_URL`
   secret says it should be there.

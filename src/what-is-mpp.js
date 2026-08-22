@@ -62,7 +62,7 @@ table{border-collapse:collapse;width:100%}
 `;
 
   const tocHtml = TOC.map(([href, label]) =>
-    `<a href="${href}" style="padding:11px 18px;border-bottom:1px solid var(--hairline-dark);text-decoration:none;color:var(--on-dark2);font-size:14px;">${esc(label)}</a>`
+    `<a href="${href}" style="padding:11px 18px;border-bottom:1px solid var(--dark-border);text-decoration:none;color:var(--on-dark2);font-size:14px;">${esc(label)}</a>`
   ).join("");
 
   const stepsHtml = STEPS.map(([n, t, b]) =>
@@ -157,13 +157,13 @@ Payment-Receipt: 0x8f2a&hellip;c41d
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">SELL</div>
       <h3 style="font-weight:800;font-size:21px;margin:0 0 12px;color:var(--ink);">List your API, both wires included</h3>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">Serve x402, register your origin, and MPP dual-stack support ships free alongside it. No signup, nothing deducted from your price.</p>
-      <a href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:12px 18px;align-self:flex-start;">LIST YOUR API →</a>
+      <a href="/sell" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:12px 18px;align-self:flex-start;">List your API →</a>
     </div>
     <div style="padding:26px;background:var(--card);display:flex;flex-direction:column;">
       <div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);margin-bottom:16px;">BUY</div>
       <h3 style="font-weight:800;font-size:21px;margin:0 0 12px;color:var(--ink);">Pay in either dialect</h3>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">An mppx client and an @x402/fetch client both work unmodified against every paid route on Agent402 - the buyer's client picks.</p>
-      <a href="/docs#add" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">ADD TO CLAUDE →</a>
+      <a href="/docs#add" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">Add to your agent →</a>
     </div>
   </div>
 </section>
@@ -181,7 +181,7 @@ Payment-Receipt: 0x8f2a&hellip;c41d
       <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Now put it to work.</h2>
       <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 28px;max-width:540px;">Agent402 speaks x402 and MPP on the same routes at the same price. Free to list, free to browse.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
-        <a href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">LIST YOUR API - FREE →</a>
+        <a href="/sell" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">List your API - free →</a>
         <a href="/what-is-x402" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">WHAT IS x402?</a>
       </div>
     </div>

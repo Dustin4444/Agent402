@@ -32,7 +32,7 @@ const ROSTER_CSS = `
 .mlr-stat.bad{color:var(--accent)}
 .mlr-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
 .mlr-stat.bad .mlr-dot{background:var(--accent)}
-.mlr-badge{background:var(--accent);color:#fff;font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px}
+.mlr-badge{background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:1px 5px}
 .mlr-mpp{border:1px solid var(--green);color:var(--green);font-family:var(--font-mono);font-size:10px;font-weight:700;padding:0 4px;margin-left:4px}
 .ml-chain-h1-wrap{min-height:80px}
 @media (max-width: 900px) { .ml-chain-h1-wrap{min-height:120px} }
@@ -438,7 +438,7 @@ export function marketActivityHtml(chainKey, activity, selected) {
         const v = Number(b[key]) || 0;
         const h = max > 0 && v > 0 ? Math.max(3, Math.round((v / max) * 46)) : 2;
         const label = key === "usd" ? usd(v) : v;
-        return `<div title="${esc(b.date)}: ${esc(label)}" style="flex:1;height:${h}px;background:${v > 0 ? "var(--accent)" : "#E4E4E2"};"></div>`;
+        return `<div title="${esc(b.date)}: ${esc(label)}" style="flex:1;height:${h}px;background:${v > 0 ? "var(--accent)" : "var(--hairline)"};"></div>`;
       })
       .join("")}</div>`;
   };
@@ -1196,7 +1196,7 @@ function marketPageAll(baseUrl, { snapshot, leaderboardSnap, economySnap, all = 
       <h2 style="font-weight:800;font-size:30px;letter-spacing:-.02em;margin:0 0 12px;color:var(--on-dark);">Add your API to the index.</h2>
       <p style="font-size:15.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 22px;max-width:520px;">Free, no signup, nothing deducted. Serve a 402, register the origin, and the crawler picks you up on the next hourly pass.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
-        <a href="/sell" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">LIST YOUR API - FREE →</a>
+        <a href="/sell" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">List your API - free →</a>
         <a href="/leaderboard" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 22px;">SEE THE LEADERBOARD</a>
       </div>
     </div>

@@ -39,7 +39,9 @@ There's also a **charged-but-failed** counter: any non-200 response that left an
 
 - **Railway**, single service, Docker (Node 22 + Chromium + ffmpeg), persistent volume at `/data` (SQLite: stats, memory, PoW replay). Without the volume, counters and paid memory reset on every redeploy - this was a real incident; the volume is now asserted by the deploy job.
 - **Graceful SIGTERM**: in-flight (already-paid) requests drain before exit.
-- Env that matters: `WALLET_ADDRESS`, `NETWORK`, `CDP_API_KEY_ID/SECRET` (facilitator), `BASE_URL`, `BRAVE_API_KEY` (search), `POW_SECRET` (durable PoW + heartbeat-token signer), `X402_INDEX_SEEDS` (extra origins for the Index, optional), `FREE_MODE` (never in production).
+- Env that matters: `WALLET_ADDRESS`, `NETWORK`, `CDP_API_KEY_ID/SECRET` (facilitator), `BASE_URL`, `BRAVE_API_KEY` (search), `POW_SECRET` (durable PoW + heartbeat-token signer), `X402_INDEX_SEEDS` (extra origins for the Index, optional), `MPP_SECRET_KEY` (MPP shim), `TEMPO_API_KEY` (native Tempo), `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (card reports, monitors, credits; `STRIPE_PROFILE_ID` adds cards over MPP), `EMAIL_FROM` + `ZEPTOMAIL_TOKEN` (report and monitor emails), `FREE_MODE` (never in production). Full table on [[Self-Hosting]].
+- **Recurring engine:** the monitor scheduler ticks every 10 minutes in-process (one replica holds a lock in `/data`); `MONITOR_SCHEDULER=off` disarms it. Operator views: `GET /__operator/monitors.json`, `POST /__operator/monitors/run` (force one subscription with `?sub=<id>`), `GET /__operator/human-checkout.json` (paid sessions, owed refunds), `GET /__operator/credits.json` (totals and key ids, never key material), `POST /__operator/credits/disable`.
+- **Payment wires in ops terms:** x402 settles through the facilitators, MPP `evm` through the same facilitators via the shim, MPP `tempo` through Tempo's relay, MPP `stripe` and the card pages through Stripe, prepaid credits against a local balance. Card sales and subscription invoices land in the same sales ledger as on-chain settlements (rail `card` / `credits`).
 
 ## Incident playbook
 

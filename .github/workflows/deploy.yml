@@ -816,6 +816,9 @@ jobs:
       - name: Monitor scheduler (welcome/scheduled/change/TLS/filing delivery, paid-run bounds, backoff, lock)
         run: node scripts/test-monitor-scheduler.js
 
+      - name: Prepaid card credits (mint-once, exact micro-dollar balances, gate debits only on 200, 402 on insufficient, operator view)
+        run: node scripts/test-credits.js
+
       - name: Fetch-guard error attribution (upstream 4xx→422, 5xx→502; media Content-Type fail-fast)
         run: node scripts/test-fetch-guard.js
 

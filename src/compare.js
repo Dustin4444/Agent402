@@ -33,12 +33,12 @@ export function comparePage(baseUrl) {
 .cmp-win{color:var(--accent);font-weight:500}
 .cmp-lose{color:var(--faint)}
 .check{color:var(--accent);font-size:1.1rem}
-.cross{color:#D63C1A;font-size:1.1rem}
+.cross{color:var(--faint);font-size:1.1rem}
 @media(max-width:640px){.cmp-table{font-size:13px}.cmp-table th,.cmp-table td{padding:10px 12px}.cmp-h1{font-size:36px !important}}
 .cmp-cta{text-align:center;margin:40px 0 48px;padding:36px 24px;background:var(--card);border:1px solid var(--hairline)}
 .cmp-cta h2{font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 12px;color:var(--ink)}
 .cmp-cta p{color:var(--muted);font-size:15px;margin:0 0 20px;line-height:1.55}
-.cmp-cta a.btn{display:inline-block;background:var(--accent);color:#fff;padding:12px 30px;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;border:1.5px solid var(--accent)}
+.cmp-cta a.btn{display:inline-block;background:var(--accent);color:var(--on-accent);padding:12px 30px;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;border:1.5px solid var(--accent)}
 .cmp-cta a.btn:hover{opacity:.9}
 `;
 

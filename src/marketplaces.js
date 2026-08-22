@@ -101,13 +101,13 @@ export function marketplacesPage(baseUrl, { chainSellerCounts = {}, indexSnapsho
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:10px;">For sellers</div>
         <div style="font-family:var(--font-body);font-weight:800;font-size:26px;letter-spacing:-.02em;margin-bottom:8px;">List your API</div>
         <p style="font-size:14.5px;line-height:1.5;color:var(--muted);margin:0 0 16px;">Serve an x402 endpoint and get discovered across all ${chainCount} chains, in the router, and on the leaderboard. Free, no account, 0% take on your settlements.</p>
-        <a href="/sell" style="display:inline-block;background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;">START SELLING →</a>
+        <a href="/sell" style="display:inline-block;background:var(--surface);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;">Start selling →</a>
       </div>
       <div style="border:1px solid var(--hairline);background:var(--paper);padding:26px 24px;">
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:10px;">For agents</div>
         <div style="font-family:var(--font-body);font-weight:800;font-size:26px;letter-spacing:-.02em;margin-bottom:8px;">Route your agent</div>
         <p style="font-size:14.5px;line-height:1.5;color:var(--muted);margin:0 0 16px;">Find and pay for any tool with one call - the router picks the best across every seller, pays on ${chainCount} chains, and hands back the result. Free tier via proof-of-work.</p>
-        <a href="/quickstart" style="display:inline-block;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;">QUICKSTART →</a>
+        <a href="/quickstart" style="display:inline-block;background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;">QUICKSTART →</a>
       </div>
     </div>
   </section>`;

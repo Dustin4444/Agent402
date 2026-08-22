@@ -2,13 +2,13 @@
 
 ## What is Agent402?
 
-Agent402.Tools is an open-source, self-hostable x402 + MCP server with 500+ pay-per-call tools and 100+ multi-tool skill packs for AI agents. Agents pay per API call in USDC - no signup, no API keys. The wallet IS the identity.
+Agent402.Tools is an open-source, self-hostable x402 + MCP server with 500+ pay-per-call tools and 100+ multi-tool skill packs for AI agents. Agents pay per API call in USDC over x402 (or MPP, the Machine Payments Protocol, on the same 402) - no signup, no API keys. The wallet IS the identity.
 
 ## Stellar Integration
 
-Agent402 accepts USDC payments on Stellar via the x402 protocol using the Built on Stellar x402 facilitator (OpenZeppelin Relayer). First confirmed Stellar settlement: July 4, 2026.
+Agent402 accepts USDC payments on Stellar via the x402 protocol through an x402 Stellar facilitator (the OpenZeppelin channel service is the default; a self-hosted facilitator is supported via `STELLAR_FACILITATOR_URL`). First confirmed Stellar settlement: July 4, 2026.
 
-- **Facilitator:** OpenZeppelin (`channels.openzeppelin.com/x402`)
+- **Facilitator:** x402 Stellar facilitator (OpenZeppelin channel service by default, or self-hosted)
 - **Asset:** USDC on Stellar (Soroban token contract `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`)
 - **Seller wallet:** `GDNJXCKW7ZM7GEEVP674TWPU26YJNBQ2FI4ZIPRKTPTNUEJMDHFJWWRL`
 - **Settlement:** ~5 seconds, fees sponsored by facilitator
@@ -31,7 +31,8 @@ Agent402 accepts USDC payments on Stellar via the x402 protocol using the Built 
 - **MCP native** - works with Claude Code, Cursor, and any MCP-compatible agent
 - **Open source** - https://github.com/MikeyPetrillo/Agent402
 - **Buyer SDK** - `agent402-client` (npm) with auto-payment via PoW or x402
-- **Tollbooth** - `agent402-tollbooth` lets site owners charge AI crawlers per page
+- **Tollbooth** - `agent402-tollbooth` lets site owners charge AI crawlers per page (x402 + MPP)
+- **Report products** - deep research, company dossier, 13F fund report, domain audit, token risk, FDA recall and insider flow reports ($5-$39) on the same paid endpoints, also sold by card at https://agent402.tools/reports; $9/month monitors at /monitors; prepaid card credits at /credits
 
 ## Why Stellar?
 
@@ -45,4 +46,4 @@ Stellar's sub-5-second finality and near-zero fees make it ideal for micropaymen
 - Discovery: https://agent402.tools/.well-known/x402
 - npm: https://www.npmjs.com/package/agent402-mcp
 - X/Twitter: https://x.com/Agent402Tools
-- Contact: mike@agent402.tools
+- Contact: https://github.com/MikeyPetrillo/Agent402/issues (maintainer: Havok Holdings LLC)

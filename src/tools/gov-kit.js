@@ -102,6 +102,10 @@ const STATE_NAME_TO_CODE = {
   guam: "GU", "american samoa": "AS", "northern mariana islands": "MP",
 };
 
+// openFDA: keyless is 1,000 req/day/IP (shared by every tool on this host and
+// the recall monitor's probes); OPENFDA_API_KEY raises it to 120k/day. Appended
+// as a query param only when set - never logged (the URL is never surfaced).
+const openFdaKeyParam = () => (process.env.OPENFDA_API_KEY ? `&api_key=${encodeURIComponent(process.env.OPENFDA_API_KEY.trim())}` : "");
 export const GOV_TOOLS = [
   {
     route: "GET /api/gov-data", name: "US gov dataset search", slug: "gov-data", category: "data", price: "$0.003",
@@ -257,7 +261,7 @@ export const GOV_TOOLS = [
       if (!q) throw bad('"q" (drug name or product term) is required');
       const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
       const search = encodeURIComponent(`product_description:"${q}"`);
-      const data = await getJsonAllowEmpty(`https://api.fda.gov/drug/enforcement.json?search=${search}&limit=${limit}`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/drug/enforcement.json?search=${search}&limit=${limit}${openFdaKeyParam()}`);
       const results = data?.results ?? [];
       return {
         query: q,
@@ -305,7 +309,7 @@ export const GOV_TOOLS = [
       // Search both the product description and the reason so "peanut" matches an
       // undeclared-allergen recall even when the product name doesn't say peanut.
       const search = encodeURIComponent(`product_description:"${q}"+reason_for_recall:"${q}"`);
-      const data = await getJsonAllowEmpty(`https://api.fda.gov/food/enforcement.json?search=${search}&limit=${limit}`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/food/enforcement.json?search=${search}&limit=${limit}${openFdaKeyParam()}`);
       const results = data?.results ?? [];
       return {
         query: q,
@@ -487,7 +491,7 @@ export const GOV_TOOLS = [
       if (!q) throw bad('"q" (device name or product term) is required');
       const limit = Math.min(Math.max(parseInt(i.limit, 10) || 5, 1), 20);
       const search = encodeURIComponent(`product_description:"${q}"`);
-      const data = await getJsonAllowEmpty(`https://api.fda.gov/device/enforcement.json?search=${search}&limit=${limit}`);
+      const data = await getJsonAllowEmpty(`https://api.fda.gov/device/enforcement.json?search=${search}&limit=${limit}${openFdaKeyParam()}`);
       const results = data?.results ?? [];
       return {
         query: q,

@@ -76,6 +76,8 @@ export async function sendMonitorEmail({ to, reason, label, target, changes = []
     "tls-expiring": `Certificate for ${t} is expiring`,
     filing: `New 13F filing: ${t}`,
     problem: `We could not complete your ${lbl} for ${t}`,
+    recall: `New FDA recall activity: ${t}`,
+    digest: `${lbl}: this week's filings${t && t !== "all" ? ` for ${t}` : ""}`,
   };
   const leads = {
     welcome: `Your monitor for ${t} is active. Here is your first report, and we will email you again whenever something changes.`,
@@ -84,6 +86,8 @@ export async function sendMonitorEmail({ to, reason, label, target, changes = []
     "tls-expiring": `Heads up: the TLS certificate for ${t} is close to expiry.`,
     filing: `${t} has a new SEC 13F filing. Your fresh holdings + changes report is ready.`,
     problem: `We have tried several times and could not produce a report for ${t}. We will keep trying daily; if the target is wrong, you can cancel or re-subscribe with a corrected one from the manage link below.`,
+    recall: `The FDA recall feeds show new activity for ${t} since your last report:`,
+    digest: `Your weekly IPO pipeline digest is ready${t && t !== "all" ? ` (filers matching "${t}")` : ""}.`,
   };
   const subj = subjects[reason] || `${lbl}: update for ${t}`;
   const lead = leads[reason] || `Your ${lbl} has an update for ${t}.`;

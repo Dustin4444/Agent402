@@ -13,13 +13,13 @@ export const REPORTS_CSS = `
   .eyebrow{font-family:var(--font-mono);font-size:11.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
   .btn{font-family:var(--font-body);font-size:15px;font-weight:500;border-radius:999px;border:1px solid transparent;cursor:pointer;padding:11px 18px;transition:transform .12s ease,border-color .15s ease;display:inline-flex;gap:8px;align-items:center;text-decoration:none;white-space:nowrap}
   .btn:hover{transform:translateY(-1px)}
-  .btn-primary{background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 8px 20px rgba(0,0,0,.16)}
-  .btn-ghost{background:rgba(255,255,255,.55);color:var(--ink);border-color:var(--dash)}.btn-ghost:hover{border-color:var(--ink);color:var(--ink)}
+  .btn-primary{background:var(--btn-bg);color:var(--btn-fg);box-shadow:var(--btn-shadow)}
+  .btn-ghost{background:var(--chip-bg);color:var(--ink);border-color:var(--dash)}.btn-ghost:hover{border-color:var(--ink);color:var(--ink)}
   .btn:disabled{opacity:.5;cursor:default;transform:none}
   .hero{padding:64px 0 20px}.hero h1{font-weight:500;font-size:clamp(34px,5vw,56px);line-height:1.02;letter-spacing:-.035em;margin:14px 0 0;color:var(--ink);text-wrap:balance}.hero h1 em{font-style:normal;color:var(--faint)}
   .lede{font-size:19px;line-height:1.5;color:var(--muted);max-width:620px;margin:16px 0 0;font-weight:300}.lede b{color:var(--ink);font-weight:500}
   .products{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-top:8px}
-  .pcard{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 #fff,0 1px 2px rgba(17,19,21,.04)}
+  .pcard{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 var(--card-inset),0 1px 2px rgba(0,0,0,.08)}
   .pcard h3{font-weight:500;font-size:21px;letter-spacing:-.02em;margin:0;color:var(--ink)}.pcard .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
   .pcard p{color:var(--muted);font-size:15px;line-height:1.5;margin:8px 0 16px;font-weight:300}
   .field{display:flex;gap:8px;background:var(--paper);border:1px solid var(--dash);border-radius:12px;padding:6px 6px 6px 14px;margin-bottom:12px}
@@ -89,6 +89,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("research", "Standard", true)}${tierBtn("research-pro", "Pro", false)}${tierBtn("research-max", "Max", false)}</div>
         <div class="err" id="err-research"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="research">Get report →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/research" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="dossier">
         <div class="k">Due-diligence dossier</div>
@@ -98,6 +99,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("dossier", "Dossier", true)}${tierBtn("dossier-max", "Max", false)}</div>
         <div class="err" id="err-dossier"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="dossier">Get dossier →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/dossier" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="fund">
         <div class="k">Fund tracker</div>
@@ -107,6 +109,37 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("fund-report", "Standard", true)}${tierBtn("fund-report-max", "Deep", false)}</div>
         <div class="err" id="err-fund"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="fund">Get report →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/fund-report" style="color:var(--muted);">Sample output + API docs →</a></div>
+      </div>
+      <div class="pcard" data-kind="insider">
+        <div class="k">Insider flow</div>
+        <h3>Who's buying, who's selling</h3>
+        <p>Every Form 4 against a company with the actual transactions parsed: open-market buys and sales by insider, awards and exercises set apart, a grounded signal read. SEC EDGAR, cited.</p>
+        <div class="field"><input id="in-insider" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="tiers">${tierBtn("insider-report", "Report", true)}</div>
+        <div class="err" id="err-insider"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="insider">Get report →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/insider-report" style="color:var(--muted);">Sample output + API docs →</a></div>
+      </div>
+      <div class="pcard" data-kind="market">
+        <div class="k">Market / competitor brief</div>
+        <h3>Who's in the market, and how they differ</h3>
+        <p>Market at a glance, the key players and pricing, recent moves, differentiation, risks and a bottom line. Live web research with citations, nothing from memory.</p>
+        <div class="field"><input id="in-market" type="text" placeholder="A market, category or company, e.g. AI agent payment rails"></div>
+        <div class="tiers">${tierBtn("market-brief", "Brief", true)}</div>
+        <div class="err" id="err-market"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="market">Get brief →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/market-brief" style="color:var(--muted);">Sample output + API docs →</a></div>
+      </div>
+      <div class="pcard" data-kind="recall">
+        <div class="k">FDA recall report</div>
+        <h3>Is it recalled?</h3>
+        <p>Every FDA drug, food and device recall record for a product, brand or ingredient: firm, class, reason, status, distribution. Organized and explained, cited to the FDA feeds.</p>
+        <div class="field"><input id="in-recall" type="text" placeholder="A drug, food, brand or device, e.g. losartan"></div>
+        <div class="tiers">${tierBtn("recall-report", "Report", true)}</div>
+        <div class="err" id="err-recall"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="recall">Get report →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/recall-report" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
       <div class="pcard" data-kind="domain">
         <div class="k">Domain audit</div>
@@ -116,6 +149,7 @@ export function humanReportsPage(baseUrl) {
         <div class="tiers">${tierBtn("domain-audit", "Standard", true)}${tierBtn("domain-audit-pro", "Pro", false)}</div>
         <div class="err" id="err-domain"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="domain">Get audit →</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/domain-audit" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
     </div>
     <p class="note">One-time charge · card or Link · no subscription, no auto-renew · agents buy the same reports over x402 / MPP in USDC · want it re-run on change? <a href="/monitors" style="color:var(--ink);">Monitors</a></p>
@@ -124,14 +158,15 @@ export function humanReportsPage(baseUrl) {
 ${ledgerFooterCompact()}
 <script src="/js/reports.js"></script>`;
   return ledgerShell({
-    title: "Agent402 Reports - cited research, dossiers, 13F and domain audits, pay per report",
-    description: "Finished, cited reports by card or USDC: deep research, company due-diligence dossier, fund 13F report, domain security audit. No account, no subscription, refunded if it fails.",
+    title: "Agent402 Reports: research, dossiers, 13F, insider flow, audits",
+    description: "Cited reports by card or USDC, $5 to $39: deep research, company dossier, fund 13F, insider flow, market brief, FDA recall, domain audit. No account, refunded if it fails.",
     canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body,
+    jsonLd: { "@context": "https://schema.org", "@type": "ItemList", "@id": `${baseUrl}/reports#products`, name: "Agent402 reports", itemListElement: Object.entries(R).map(([key, p], i) => ({ "@type": "ListItem", position: i + 1, item: { "@type": "Product", name: p.label, url: `${baseUrl}/reports`, brand: { "@type": "Brand", name: "Agent402" }, offers: { "@type": "Offer", price: (p.price / 100).toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: `${baseUrl}/reports`, seller: { "@type": "Organization", name: "Havok Holdings LLC" } } } })) },
   });
 }
 
 // Delivery page: polls /api/r/:id (or `api`) and renders the report client-side.
-export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "This takes about a minute. Please keep this page open - it will appear here automatically.", baseUrl = "https://agent402.tools" } = {}) {
+export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "This takes about a minute. Please keep this page open - it will appear here automatically.", baseUrl = "https://agent402.tools", robots = "noindex, nofollow" } = {}) {
   const body = `
 <div class="wrap" style="padding-top:28px;">
   <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p></div></div>
@@ -142,6 +177,6 @@ ${ledgerFooterCompact()}
   return ledgerShell({
     title: "Your report - Agent402",
     description: "Your Agent402 report.",
-    canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body,
+    canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body, robots,
   });
 }

@@ -61,7 +61,7 @@ export function agenticFinancePage(baseUrl) {
 @media (min-width:901px) and (max-width:1100px){.af-4col{grid-template-columns:1fr 1fr!important}}
 `;
   const tocHtml = TOC.map(([href, label]) =>
-    `<a href="${href}" style="padding:11px 18px;border-bottom:1px solid var(--hairline-dark);text-decoration:none;color:var(--on-dark2);font-size:14px;">${esc(label)}</a>`
+    `<a href="${href}" style="padding:11px 18px;border-bottom:1px solid var(--dark-border);text-decoration:none;color:var(--on-dark2);font-size:14px;">${esc(label)}</a>`
   ).join("");
   const stackHtml = STACK.map(([layer, what, who], i) =>
     `<div style="display:grid;grid-template-columns:150px 1fr 220px;gap:20px;padding:20px 24px;border-bottom:1px solid var(--hairline);align-items:baseline;" class="af-stack-row"><div style="font-family:var(--font-mono);font-size:12px;color:var(--accent);">0${i + 1} · <span style="color:var(--ink);font-weight:800;font-family:var(--font-body);font-size:16px;">${esc(layer)}</span></div><p style="font-size:15px;line-height:1.6;color:var(--muted);margin:0;">${esc(what)}</p><div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);">${esc(who)}</div></div>`
@@ -128,7 +128,7 @@ export function agenticFinancePage(baseUrl) {
       <h2 style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 16px;color:var(--on-dark);">Take part in agentic finance.</h2>
       <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 28px;max-width:560px;">Give your agent 500+ tools it can pay for over x402 or MPP, or put a price on your own API and let agents pay you. Both are free to start.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
-        <a href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO YOUR AGENT →</a>
+        <a href="/docs#add" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO YOUR AGENT →</a>
         <a href="/sell" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">SELL YOUR API</a>
       </div>
     </div>

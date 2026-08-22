@@ -441,6 +441,75 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Prod runs ONE replica (Railway `numReplicas: 1`), so the cross-replica lost-update class is theoretical;
   the file stores are now safe for it anyway. Tests: test-human-checkout (39), test-stripe-subscriptions
   (28), test-monitor-scheduler (41), test-composite-guard (16, incl. EVM-only accepts + global breaker).
+- **Recall watch + IPO watch (2026-08-22):** `src/tools/recall-report-kit.js` (`recall-report` $5, POST
+  `/v1/recall-report {query}`: free openFDA drug/food/device enforcement probes -> grounding-strict Opus
+  synthesis, records appendix; `probeRecalls()` exported - the monitor's free daily probe, fingerprint =
+  recall numbers; `allowEmpty:true` lets a welcome report find nothing yet; WALLET_ONLY, composite-guarded,
+  METERED) and `src/tools/ipo-report-kit.js` (`ipo-report` $0.05, POST `/v1/ipo-report {days, keyword}`:
+  DETERMINISTIC S-1 + 424B4 digest from EDGAR full-text search, no LLM; `probeIpos()`; WALLET_ONLY for
+  egress, not composite-guarded). Monitor kinds in `monitor-scheduler.js`: `recall` (daily probe, paid
+  re-run + "recall" email only on a NEW recall number, seen-set advances after success) and `ipo`
+  (weekly "digest" run, no email on an empty week). Products: `recall-monitor` + `ipo-monitor` ($9/mo) in
+  MONITOR_PRODUCTS, `recall-report` ($5) in HUMAN_PRODUCTS + `/reports` card. Adding a monitor kind =
+  kit with a cheap `probeX()` + a `processX` branch + MONITOR_PRODUCTS entry + email reason.
+- **Insider flow + market brief (2026-08-22):** `src/tools/insider-flow-kit.js` (`insider-report` $9, POST
+  `/v1/insider-report {ticker|cik, days}`: Form 4 filings against the issuer via EDGAR full-text search,
+  each filing's XML fetched (`fetchXmlText`, concurrency 4) and PARSED (`parseForm4`: owners/roles,
+  non-derivative transactions with code/shares/price/owned-after, 10b5-1 footnote flag) -> open-market
+  buys/sells vs awards/exercises/withholding, per-insider + net flow -> grounding-strict Opus synthesis,
+  transactions + insiders appendix; `probeInsiderFilings()` = the monitor's cheap daily probe
+  (fingerprint = accession set); `insider-monitor` $9/mo, kind `insider`, "filing" email on a new
+  accession). `market-brief` ($15, POST `/v1/research/market-brief`) = the research-deep pipeline with a
+  competitive-intelligence `planFrame` + fixed `synthFrame` (RESEARCH_TIERS supports both). Both in
+  WALLET_ONLY, composite guard, METERED, test-all NETWORK, HUMAN_PRODUCTS + `/reports` cards. EDGAR
+  primitives (`resolveCompany`, `eftsSearch`, `fetchXmlText`, `edgarGetJson`) are now exported from
+  edgar-kit for the composite kits. **`PAYING_RAILS` now includes `card` + `credits`** - Stripe card
+  sales/subscription invoices were recorded with rail `card` but not counted as paying, so the human
+  front door was invisible to `/revenue` (caught 2026-08-22).
+- **Prepaid card credits (2026-08-22, `src/credits.js`):** buy $20/$50/$100 by card
+  (`/credits`, `POST /api/credits/checkout`), claim the key ONCE on `/credits/thanks` (`GET
+  /api/credits/claim?session=`; a second claim returns `claimed`, never the key; emailed too), spend it on
+  any priced catalog route with `Authorization: Bearer a402_…` - the GATE (mounted before x402mw next to
+  the tempo/stripe gates; dispatcher bypasses x402 for `req.creditsSettling`) authorizes against the
+  balance BEFORE the handler and DEBITS only on a final 200 (integer micro-dollars, sub-cent exact;
+  `X-Credits-Balance` header; 402 `{reason, balanceUsd, topup}` on insufficient/unknown/disabled).
+  Keys stored hashed (sha256) in per-key files under `/data/credits` (atomic), claim-once index.
+  Accounting: pack purchase = row `credits:<pack>` on the NON-paying rail `card-prepaid` (cash received);
+  each debit = sale on rail `credits` (PAYING_RAILS) with the key id as payer - counted once, when spent;
+  the gate RESERVES the price at authorize (hold) and settles on a final 200 / releases otherwise, so
+  concurrent calls can never overspend a key; debit fires on "finish" only (a client abort releases); stats `viaCredits`; the route binder skips its own recordSale
+  for credits (onDebit books the exact charge). Ops: `GET /__operator/credits.json` (totals + key ids,
+  never key material), `POST /__operator/credits/disable {keyId}`. `GET /api/credits/balance` (Bearer).
+  Linked from footers, mobile menu, homepage people door, llms.txt, sitemap. `scripts/test-credits.js`
+  (26, in CI). **Stripe Tax:** `STRIPE_AUTOMATIC_TAX=true` adds `automatic_tax` to every Checkout Session
+  (one-shot, subscription, credits) - enable Stripe Tax in the dashboard FIRST or sessions 400.
+- **Brand marks + packages on the new system (2026-08-22):** `/logo.svg|png`, `/favicon.svg|ico`, `/card.svg|png`
+  (homepage OG card, letterboxes to GitHub's 1280x640), per-tool `/tools/:slug/card.png` and the AIFI card
+  (`src/aifi-card.js`) all render in the obsidian + milled system with embedded Geist / Geist Mono (woff2 from
+  `assets/fonts`); `BRAND` in server.js is the token set (`BRAND_DEFS` carries the milled/panel gradients).
+  `agent402-mcp` 0.13.0 and `agent402-client` 0.7.0 accept a prepaid credits key (`AGENT402_CREDITS_KEY` env /
+  `{ creditsKey }`) and pay wallet-only tools by card through it; `/reports` cards link each product's
+  `/tools/<slug>` page as "Sample output + API docs".
+- **Security + cost review of the 2026-08-22 builds (dark theme, new products, credits, brand; three lenses + PMF):**
+  HIGH credits gate bypassed x402 but left unsigned `payment-signature`/`x-payment` in place - a $0.001
+  credits call could forge `authorization.from` on identity-bound routes (memory/my-usage takeover) - now
+  the gate REFUSES identity-bound routes (`priceFor` carries `identityBound`, 402 `identity-bound`) and
+  STRIPS the three payment headers on acceptance (same as Tempo/Stripe gates; pinned in test-credits).
+  HIGH authorize-then-charge had no reservation (N concurrent calls on one key all passed; only
+  floor(balance/price) debits landed) - authorize now HOLDS the price, settle() converts the hold on a
+  final 200, release() returns it otherwise; the debit fires on "finish" only (Node's default statusCode
+  is 200 before any write, so a client abort was being charged). HIGH `/revenue` double-counted credits
+  (pack purchase on rail `card` AND debits on rail `credits`) - packs are now `card-prepaid` (non-paying,
+  cash received), debits stay `credits`. MED the 30-day paid cap applied to domain only - every kind now
+  caps (alert-only + seen-set advance past it); a prompt-cache hit releases the hold (x402 buyers get
+  hits free); `charge.refunded` / `charge.dispute.created` disable the key (`disableByPaymentIntent`);
+  `allowEmpty` honoured only for the scheduler's own calls; insider needs >= 50% of Form 4 filings read,
+  recall >= 2 of 3 feeds; openFDA `OPENFDA_API_KEY` support (keyless is 1k/day/IP); credit packs also
+  mint from `checkout.session.completed`. Leak scan: a public example attributed invented figures to a
+  real Form 4 filer - anonymized; "roadmap/phase" framing dropped from public text. PMF/moat assessment
+  is the "Agent402 Fit and Moat" artifact (dossier-led card sales are the signal; programmatic SEC landing
+  pages + retention are the lever; stop adding rails/micro-tools). Prod is one replica, so the credits
+  in-memory cache is single-writer; revisit (sqlite/redis) before scaling replicas.
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.
@@ -841,7 +910,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   protection; the `max-age=120` on the response is a browser-only hint. Contract pinned by
   `scripts/test-x402-economy.js` (dedup + warm-cache identity, never-throws).
 - **Site redesign 2026-08-22 ("milled + obsidian", approved from the Agent402 Site Directions canvas):**
-  ONE light theme on `:root` (`--paper #F3F4F5`, `--card #FFF`, `--ink #111315`, obsidian panels keep
+  TWO themes, DARK IS THE DEFAULT (same day, Mike): the dark palette sits on bare `:root` (first paint
+  dark, no script, no flash); the light "milled" palette is `:root[data-theme="light"]`, applied by
+  `assets/js/site-chrome.js` (synchronous in `<head>`, reads `localStorage a402-theme` pre-paint) and
+  flipped by the nav `.ml-theme-toggle`; no OS media query. Theme-specific surfaces ride tokens
+  (`--btn-bg/--btn-fg`, `--nav-bg`, `--brand-mark`, `--milled-bg`, `--obsidian-bg`, `--chip-bg`,
+  `--card-inset`, `--on-accent`) - never a hardcoded hex in a page class; `test-theme.js` pins all of
+  it (dark default tokens, complete light override, toggle present + CSP-clean, no server-stamped
+  data-theme). Mobile menu: CTA first, groups people/buy/index/sell/more, chains as a 2-col chip grid.
+  (Earlier the same day it shipped as ONE light theme on `:root` (`--paper #F3F4F5`, `--card #FFF`, `--ink #111315`, obsidian panels keep
   `--surface #0C0D0F` / `--on-dark`; `--accent #0F5E43` deep green for text/kickers on light,
   `--accent-lit #9EF0B0` phosphor ONLY on dark; `color-scheme: light`, no toggle, no OS media query -
   `test-theme.js` pins the new palette + the no-toggle rules). Fonts self-hosted Geist + Geist Mono
@@ -1230,6 +1307,16 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   committed** - it rides the dispatch `text` input only (docs/announcements files
   are the legacy push-trigger path; card PNGs under docs/announcements/media are
   fine to commit). No posted-tweet log or conversation state in this file.
+
+- **Machine-surface sync for products + credits (2026-08-22, batch A):** `/api/pricing` carries `credits`
+  (packs) + `humanProducts` (reports/monitors) next to the catalog; `/openapi.json` is 2.1.0 with
+  `securitySchemes` x402 / mpp / creditsKey (bearer `a402_…`) + `x-guidance`; `/llms.txt` has credits + reports
+  paragraphs (FULL paths only - `test-mcp-self-consistency` extracts every `/path` token, so shorthand like
+  "/pro, /max" or a path followed by ":" reads as a route); receipts (`/r/`, `/m/`, thanks pages) send
+  `X-Robots-Tag: noindex` + `<meta name="robots">` via `ledgerShell({robots})`; robots.txt Disallows them;
+  sitemap lists /reports /monitors /credits; homepage FAQ is 6 Q&As (visible == JSON-LD, pinned by
+  test-home-page + test-index-page); hosted (`src/mcp-flagship.js`) and stdio (`mcp/output-schemas.js`)
+  initialize instructions are separate copies that `test-surface-copy` requires byte-identical - edit both.
 
 ## Environment / ops (set on Railway, not in repo)
 `WALLET_ADDRESS`, `WALLET_ENS`, `NETWORK`, `CDP_API_KEY_ID/SECRET`, `FACILITATOR_URL`,
