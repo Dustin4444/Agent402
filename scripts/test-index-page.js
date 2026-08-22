@@ -157,13 +157,21 @@ ok(/24H calls ↑/.test(callsAscPage), "sort: active header shows the direction 
   ok(/a neutral index has to be checkable/.test(html), "homepage: neutral-index positioning survives as prose");
   // 2026-08-18: positioned under the Agentic Finance (AIFI) moniker - the
   // hero names the category and links its explainer; x402 + MPP are the wires.
-  ok(/The applied layer<br>for <span[^>]*>x402<\/span> and <span[^>]*>MPP<\/span>/.test(html) && /<title>Agent402\.Tools - /.test(html) && !/<title>[^<]*AIFI/.test(html) && /href="\/agentic-finance"/.test(html), "homepage: brand-first title (no AIFI acronym), hero leads with x402 + MPP, agentic finance linked from the body (2026-08-18: Mike wants Agent402 prominent, AIFI not)");
+  // 2026-08-22 redesign: the hero is "The web's paid door, finally open." with
+  // x402 + MPP linked in the lede; the invariants that survive are the ones
+  // that matter - brand-first title, no AIFI acronym in it, x402 and MPP both
+  // named + linked in the hero, agentic finance linked from the body.
+  const heroHtml = html.slice(html.indexOf("<header"), html.indexOf("</header>"));
+  ok(/<title>Agent402\.Tools - /.test(html) && !/<title>[^<]*AIFI/.test(html) && /href="\/what-is-x402"[^>]*>x402</.test(heroHtml) && /href="\/what-is-mpp"[^>]*>MPP</.test(heroHtml) && /href="\/agentic-finance"/.test(heroHtml), "homepage: brand-first title (no AIFI acronym), hero names + links x402 and MPP, agentic finance linked from the hero (2026-08-18: Mike wants Agent402 prominent, AIFI not)");
   ok(/href="\/status"/.test(html), "homepage: trust strip links to live /status");
   // The old "flagship jobs" section (a standalone search+answer callout ahead
   // of a skill-packs teaser) doesn't exist in the new structure - the design
   // folds that same search-then-answer job into the real agent transcript
   // instead. Lock that the transcript still demonstrates it, live-callable.
-  ok(/agent402_find\(q: "sec 10-K filing text"\)/.test(html) && /agent402_call\(answer,/.test(html), "homepage: agent-pays transcript still demonstrates a real search-then-answer job");
+  // 2026-08-22 redesign: the agent-pays demonstration is the hero's 402
+  // handshake terminal (find -> 402 -> paid JSON, on the x402 wire AND the MPP
+  // wire) plus the agent door's price ladder. Lock that both stay live-callable.
+  ok(/GET \/api\/find\?q=/.test(html) && /HTTP\/2 402/.test(html) && /PAYMENT-SIGNATURE/.test(html) && /Authorization: Payment/.test(html) && /Payment-Receipt/.test(html), "homepage: agent-pays demonstration shows find -> 402 -> paid JSON on both wires (x402 + MPP)");
   // The old 7-question FAQ (incl. "How do I connect my agent?") is now a
   // deliberately trimmed set matching the FAQPage JSON-LD 1:1: the AIFI
   // definition (2026-08-18) plus the three product questions.
