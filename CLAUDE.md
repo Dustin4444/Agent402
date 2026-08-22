@@ -1308,6 +1308,33 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   are the legacy push-trigger path; card PNGs under docs/announcements/media are
   fine to commit). No posted-tweet log or conversation state in this file.
 
+- **Second seller-landscape wave (2026-08-22, Mike: "build everything we can serve right away and profitably; existing keys
+  are fair game"):** seven more kits, all wallet-only, offline tests in CI. KEYLESS: `crawl-kit.js` (`CRAWL_TOOLS`: site-map
+  $0.005 robots+sitemap+homepage links <= 6 fetches; site-crawl $0.02 BFS <= 20 pages/depth 2, robots honoured, SSRF guard on
+  every hop incl. redirects, 200+truncated once a page succeeded else 504), `crypto-signals-kit.js` (`CRYPTO_SIGNALS_TOOLS`:
+  crypto-news $0.004 from 8 public RSS/Atom feeds with a dependency-free parser + 5-min per-source cache; crypto-indicators
+  $0.005 RSI/MACD/EMA/SMA/Bollinger/ATR/VWAP on Hyperliquid candles; crypto-market-pulse $0.004 breadth/OI/funding snapshot),
+  `defi-kit.js` (`DEFI_TOOLS`, 10 tools $0.002-$0.003 on DefiLlama's FREE endpoints - yields, yield history, protocols,
+  protocol, chains, chain TVL history, stablecoins, stablecoin supply history, fees, dex volume; bulk docs (pools 11MB,
+  protocols 8.6MB) fetched once per 5 min and trimmed; `/bridges` and `/overview/derivatives` are 402-paywalled, not built).
+  EXISTING KEYS: `crypto-markets-kit.js` (`CRYPTO_MARKETS_TOOLS`, 12 CoinGecko Demo-plan gaps at $0.005-$0.008 vs a reseller's
+  $0.06 - token price by contract, coin profile/history/ohlc/range, categories, global-defi, exchanges/tickers/rates, search,
+  coins-list; `top_gainers_losers` is Pro-only, skipped; 60s-10min caches), `alchemy-data-kit.js` (`ALCHEMY_DATA_TOOLS`, 6 tools
+  $0.002-$0.005 on `ALCHEMY_API_KEY`: asset-transfers, token-balances (named list + capped metadata fan-out), token-allowance,
+  tx-receipt (one batched RPC, transfer events decoded locally), block-receipts, token-price-history; one request per call,
+  CU-bounded), `farcaster-social-kit.js` (`FARCASTER_SOCIAL_TOOLS` + `farcasterSocialEnabled()` on NEYNAR_API_KEY |
+  WARPCAST_API_KEY - prod has WARPCAST only, the alias is load-bearing; listed only with a key: fc-cast-search, fc-channel-feed,
+  fc-trending (trending CHANNELS - Neynar's /feed/trending no longer exists), fc-user-casts, fc-cast, fc-cast-replies,
+  fc-channel, fc-user-search, fc-cast-metrics, $0.003-$0.005), and `llm-images-fast-kit.js` (`IMAGES_FAST_TOOLS` on
+  OpenRouter's dedicated Image + Video APIs, flat per-image pricing, all-or-nothing billing: `/v1/images/fast` $0.02
+  (flux.2-klein-4b $0.014 -> gpt-image-1-mini medium), `/v1/images/pro` $0.05 (flux.2-pro $0.03 -> qwen-image-3 1K),
+  `/v1/videos/generations` $0.20 (veo-3.1-lite, 4 s locked, 720p, no audio, $0.12; submit -> poll <= 240 s -> authed
+  download -> inline b64 mp4); each link re-checks the model's LIVE listed price against the bound it was priced from and is
+  skipped when repriced, chain repriced end to end -> 503 with nothing spent; `v1-videos` is in `LONG_RUNNING_SLUGS`
+  (server.js: EVM exact only like the composites, since it runs 40 s+ settle-after). Live measured before pricing: klein
+  $0.014 / 2 s, flux.2-pro $0.030, veo-lite 4 s $0.12 / 40 s. Registration helper pattern for a new kit: import + spread in
+  ALL_KIT, slugs in WALLET_ONLY_SLUGS, routes in test-all NETWORK, test step in deploy.yml; a `slug:` regex over a kit file also
+  matches example INPUTS named slug (defi-kit) - derive slugs from routes.
 - **Seller-landscape builds (2026-08-22, from the x402scan/MPPScan top-seller research):** four kits. KEYLESS and listed:
   `src/tools/derivatives-kit.js` (`DERIVATIVES_TOOLS`, 11 tools $0.002-$0.005: perp-markets/funding/funding-screener/
   open-interest/klines/orderbook/basis on Hyperliquid's public info API, options-summary / crypto-options-chain / options-ticker on Deribit public (finance-kit already owns `options-chain` for equities),

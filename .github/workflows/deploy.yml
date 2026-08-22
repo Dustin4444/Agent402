@@ -1529,6 +1529,8 @@ jobs:
         run: node scripts/test-b2b-enrich-kit.js
       - name: solana-intel kit (offline)
         run: node scripts/test-solana-intel-kit.js
+      - name: images-fast kit (offline)
+        run: node scripts/test-images-fast-kit.js
       - name: alchemy-data kit (offline)
         run: node scripts/test-alchemy-data-kit.js
       - name: farcaster-social kit (offline)
