@@ -3418,7 +3418,7 @@ export function skillsIndex(baseUrl) {
         <p style="font-size:18px;line-height:1.55;color:var(--muted);margin:0 0 16px;">A real job is never one call. Auditing a domain takes seven tools; parsing a document takes seven more. Orchestrate that yourself and you are running seven payments, seven round trips and seven failure modes - and writing the code that holds it together.</p>
         <p style="font-size:16px;line-height:1.6;color:var(--faint);margin:0 0 30px;">A skill pack runs the sequence server-side. One request, one settlement, one response with every step in it. <strong style="color:var(--ink);font-weight:700;">${packCount}+ packs, $0.05 to $1.50.</strong></p>
         <div style="display:flex;flex-wrap:wrap;gap:11px;">
-          <a class="ml-cta" href="#packs" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">BROWSE THE PACKS →</a>
+          <a class="ml-cta" href="#packs" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">BROWSE THE PACKS →</a>
           <a class="ml-cta" href="/api/skill-packs.json" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">skill-packs.json</a>
         </div>
       </div>
@@ -3503,7 +3503,7 @@ export function skillsIndex(baseUrl) {
       <h2 style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Stop writing the glue.</h2>
       <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 26px;max-width:520px;">Describe the job and let the pack run the sequence. One payment, one response, and a result you can use even when a step fails.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
-        <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO CLAUDE →</a>
+        <a class="ml-cta" href="/docs#add" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO CLAUDE →</a>
         <a class="ml-cta" href="#packs" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">BROWSE THE PACKS</a>
         <a class="ml-cta" href="/tools" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--dk-muted);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">SINGLE TOOLS</a>
       </div>

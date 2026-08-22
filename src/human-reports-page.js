@@ -13,13 +13,13 @@ export const REPORTS_CSS = `
   .eyebrow{font-family:var(--font-mono);font-size:11.5px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
   .btn{font-family:var(--font-body);font-size:15px;font-weight:500;border-radius:999px;border:1px solid transparent;cursor:pointer;padding:11px 18px;transition:transform .12s ease,border-color .15s ease;display:inline-flex;gap:8px;align-items:center;text-decoration:none;white-space:nowrap}
   .btn:hover{transform:translateY(-1px)}
-  .btn-primary{background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 8px 20px rgba(0,0,0,.16)}
-  .btn-ghost{background:rgba(255,255,255,.55);color:var(--ink);border-color:var(--dash)}.btn-ghost:hover{border-color:var(--ink);color:var(--ink)}
+  .btn-primary{background:var(--btn-bg);color:var(--btn-fg);box-shadow:var(--btn-shadow)}
+  .btn-ghost{background:var(--chip-bg);color:var(--ink);border-color:var(--dash)}.btn-ghost:hover{border-color:var(--ink);color:var(--ink)}
   .btn:disabled{opacity:.5;cursor:default;transform:none}
   .hero{padding:64px 0 20px}.hero h1{font-weight:500;font-size:clamp(34px,5vw,56px);line-height:1.02;letter-spacing:-.035em;margin:14px 0 0;color:var(--ink);text-wrap:balance}.hero h1 em{font-style:normal;color:var(--faint)}
   .lede{font-size:19px;line-height:1.5;color:var(--muted);max-width:620px;margin:16px 0 0;font-weight:300}.lede b{color:var(--ink);font-weight:500}
   .products{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px;margin-top:8px}
-  .pcard{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 #fff,0 1px 2px rgba(17,19,21,.04)}
+  .pcard{border:1px solid var(--hairline);border-radius:18px;background:var(--card);padding:24px;box-shadow:inset 0 1px 0 var(--card-inset),0 1px 2px rgba(0,0,0,.08)}
   .pcard h3{font-weight:500;font-size:21px;letter-spacing:-.02em;margin:0;color:var(--ink)}.pcard .k{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
   .pcard p{color:var(--muted);font-size:15px;line-height:1.5;margin:8px 0 16px;font-weight:300}
   .field{display:flex;gap:8px;background:var(--paper);border:1px solid var(--dash);border-radius:12px;padding:6px 6px 6px 14px;margin-bottom:12px}

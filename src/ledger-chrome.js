@@ -86,14 +86,63 @@ export const LEDGER_CSS = `
    working. Wide data tables get their own internal scroll below; everything
    else is made to wrap/fit at mobile widths in the media queries. */
 html { overflow-x: clip; }
+/* TWO themes, dark is the DEFAULT (2026-08-22): the dark palette sits directly
+   on bare :root so the first paint is already dark - no flash, no pre-paint
+   inline script (CSP forbids inline scripts anyway). The light "milled" palette
+   is an override under :root[data-theme="light"], set by /js/site-chrome.js
+   (synchronous in <head>) from the stored preference BEFORE body paints, and
+   toggled by the .ml-theme-toggle button. No OS media query decides the theme.
+   Every page-level class that needs a theme-specific surface (milled card,
+   obsidian panel, primary button, nav glass, brand mark) goes through the
+   tokens below - never a hardcoded hex - so both themes render every page. */
 :root {
-  /* Milled palette (2026-08-22 redesign): a light brushed-aluminum ground with
-     obsidian panels. Accent is a deep signal green (6.9:1 on paper, 4.5:1+ on
-     every light surface it is used as small text on); --accent-lit is the
-     phosphor green used ONLY as text/marks on dark surfaces (--surface,
-     --ink-panel) - never as a background under white text. */
+  --accent: #34A877;
+  --accent-lit: #9EF0B0;
+  --on-accent: #0B0C0E;
+  --paper: #0B0C0E;
+  --card: #141619;
+  --card-zebra: #1A1D21;
+  --footer-bg: #0E1012;
+  --ink: #E9EAEC;
+  --ink-panel: #F3F4F5;
+  --muted: #B3B9C0;
+  /* --faint at 10-13px in shared chrome must clear WCAG AA 4.5:1 against
+     --paper, --card, --card-zebra and --footer-bg (test-faint-contrast
+     computes it from the FIRST :root block = this default theme). */
+  --faint: #8B929A;
+  --hairline: #24282C;
+  --dash: #353B41;
+  --dark-border: #2C3136;
+  --dark-border2: #3A4148;
+  --cream: #0B0C0E;
+  --cream2: #141619;
+  --surface: #16191D;
+  --on-dark: #E9EAEC;
+  --on-dark2: #C9CED3;
+  --dk-muted: #9AA1A9;
+  --dk-muted2: #B3B9C0;
+  --dk-muted3: #868D95;
+  --green: #6FCF97;
+  --nav-bg: rgba(11,12,14,.82);
+  --btn-bg: linear-gradient(180deg,#F6F7F8,#D9DDE1);
+  --btn-fg: #0B0C0E;
+  --btn-shadow: inset 0 1px 0 #fff,0 8px 20px rgba(0,0,0,.35);
+  --brand-mark: linear-gradient(145deg,#F6F7F8,#C9CED3);
+  --milled-bg: linear-gradient(160deg,#1C2024 0%,#121417 70%,#16191D 100%);
+  --milled-border: rgba(255,255,255,.10);
+  --obsidian-bg: linear-gradient(160deg,#1F2328,#121417);
+  --obsidian-border: rgba(255,255,255,.10);
+  --card-inset: rgba(255,255,255,.04);
+  --chip-bg: rgba(255,255,255,.04);
+  --shadow-lg: 0 18px 40px rgba(0,0,0,.35);
+  --font-body: 'Geist', 'Geist Fallback', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
+}
+:root { color-scheme: dark; }
+:root[data-theme="light"] {
   --accent: #0F5E43;
   --accent-lit: #9EF0B0;
+  --on-accent: #FFFFFF;
   --paper: #F3F4F5;
   --card: #FFFFFF;
   --card-zebra: #EDEFF1;
@@ -101,9 +150,6 @@ html { overflow-x: clip; }
   --ink: #111315;
   --ink-panel: #0C0D0F;
   --muted: #3A3F45;
-  /* --faint is used at 10-13px in shared nav/footer chrome on every page:
-     must clear WCAG AA 4.5:1 against --paper, --card, --card-zebra and
-     --footer-bg (test-faint-contrast computes it). #626970 clears all four. */
   --faint: #626970;
   --hairline: #D9DDE1;
   --dash: #C3C9CF;
@@ -118,30 +164,39 @@ html { overflow-x: clip; }
   --dk-muted2: #B3B9C0;
   --dk-muted3: #868D95;
   --green: #23774F;
-  --font-body: 'Geist', 'Geist Fallback', system-ui, sans-serif;
-  --font-mono: 'Geist Mono', 'Geist Mono Fallback', monospace;
+  --nav-bg: rgba(243,244,245,.86);
+  --btn-bg: linear-gradient(180deg,#2A2D31,#111315);
+  --btn-fg: #FFFFFF;
+  --btn-shadow: inset 0 1px 0 rgba(255,255,255,.14),0 10px 24px rgba(0,0,0,.18);
+  --brand-mark: linear-gradient(145deg,#2A2D31,#0B0C0D);
+  --milled-bg: linear-gradient(160deg,#F9FAFB 0%,#E3E6E9 70%,#EEF0F2 100%);
+  --milled-border: rgba(17,19,21,.12);
+  --obsidian-bg: linear-gradient(160deg,#1A1D20,#0C0D0F);
+  --obsidian-border: rgba(255,255,255,.08);
+  --card-inset: #FFFFFF;
+  --chip-bg: rgba(255,255,255,.55);
+  --shadow-lg: 0 18px 40px rgba(17,19,21,.10);
+  color-scheme: light;
 }
-/* ONE theme, set directly on :root so the first paint is final: no flash, no
-   pre-paint script, no stored preference, no toggle, no OS-preference media query.
-   (The palette flipped from dark to the milled light ground in the 2026-08-22
-   redesign; the single-theme discipline is unchanged.) Dark SURFACES do not
-   invert - a panel that was background:var(--surface) with color:var(--on-dark)
-   is the obsidian element of the design, which is why --surface / --on-dark
-   stay separate from the dual-use --ink. */
-:root { color-scheme: light; }
+
 body { transition: background-color .18s ease, color .18s ease; }
 /* --- mobile hamburger menu (the hover nav dropdowns don't work on touch, and
    the inline links get squeezed to zero on a phone - so ≤880px collapses the
    whole nav into a tap menu) --- */
 .ml-burger { display:none; align-items:center; justify-content:center; width:38px; height:34px; padding:0; border:1px solid var(--hairline); border-radius:8px; background:var(--card); color:var(--ink); cursor:pointer; }
 .ml-burger .ml-burger-close { display:none; }
+.ml-theme-toggle { display:inline-flex; align-items:center; justify-content:center; width:36px; height:34px; padding:0; border:1px solid var(--hairline); border-radius:999px; background:var(--card); color:var(--ink); cursor:pointer; }
+.ml-theme-toggle .ml-sun { display:none; } :root[data-theme="light"] .ml-theme-toggle .ml-sun { display:inline; } :root[data-theme="light"] .ml-theme-toggle .ml-moon { display:none; }
 .ml-mobile-menu { display:none; border-top:1px solid var(--hairline); background:var(--paper); max-height:calc(100vh - 62px); overflow-y:auto; -webkit-overflow-scrolling:touch; }
-.ml-mm-h { padding:14px 20px 6px; font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
+.ml-mm-h { padding:12px 20px 4px; font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
 .ml-mm-group { display:flex; flex-direction:column; }
-.ml-mm-link { padding:13px 20px; font-family:var(--font-body); font-size:15px; color:var(--ink); text-decoration:none; border-bottom:1px solid var(--hairline); }
+.ml-mm-link { padding:12px 20px; font-family:var(--font-body); font-size:15px; color:var(--ink); text-decoration:none; border-bottom:1px solid var(--hairline); }
+.ml-mm-chains { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; padding:12px 20px; border-bottom:1px solid var(--hairline); }
+.ml-mm-chip { display:block; padding:9px 12px; border:1px solid var(--hairline); border-radius:8px; background:var(--card); color:var(--ink); text-decoration:none; font-family:var(--font-mono); font-size:13px; text-align:center; }
+.ml-mm-chip.ml-mm-active { border-color:var(--accent); color:var(--accent); }
 .ml-mm-link:hover, .ml-mm-link:active { background:var(--card-zebra); }
 .ml-mm-active { color:var(--accent); font-weight:700; }
-.ml-mm-cta { background:var(--surface); color:var(--on-dark); font-weight:700; border-bottom:none; }
+.ml-mm-cta { background:var(--btn-bg); color:var(--btn-fg); font-weight:500; border-bottom:none; margin:12px 20px; border-radius:999px; text-align:center; padding:12px 18px; }
 /* Two-stage collapse (Aug 2026 revamp): the link row + github hide first at
    1100px and the burger takes over; the CTA button keeps its own slot next to
    the burger until 900px, then folds into the burger menu too (as its first
@@ -163,7 +218,7 @@ body { transition: background-color .18s ease, color .18s ease; }
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
 body { background: var(--paper); font-family: var(--font-body); color: var(--ink); -webkit-font-smoothing: antialiased; }
-::selection { background: #0F5E4326; }
+::selection { background: #34A87744; }
 a { color: inherit; }
 
 /* --- nav dropdowns (CSS-only, zero-JS safe) --- */
@@ -243,7 +298,7 @@ a { color: inherit; }
 }
 
 /* --- home hero (settled-calls proof, spec strip, staggered load) --- */
-@keyframes ml-ring { 0% { box-shadow: 0 0 0 0 #0F5E4366; } 70% { box-shadow: 0 0 0 7px #0F5E4300; } 100% { box-shadow: 0 0 0 0 #0F5E4300; } }
+@keyframes ml-ring { 0% { box-shadow: 0 0 0 0 #34A87766; } 70% { box-shadow: 0 0 0 7px #34A87700; } 100% { box-shadow: 0 0 0 0 #34A87700; } }
 @keyframes ml-rise { to { opacity: 1; transform: none; } }
 .ml-stagger > * { opacity: 0; transform: translateY(8px); animation: ml-rise .6s ease forwards; }
 .ml-stagger > *:nth-child(1) { animation-delay: .02s; }
@@ -275,7 +330,7 @@ a { color: inherit; }
 /* Active tab: accent-as-background - the one pattern that stays legible in BOTH
    themes (white on #BF360C is 5.8:1; --ink/--on-dark flip light in dark mode and
    made the active tab a white blob with invisible text). */
-.mfb-tab.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+.mfb-tab.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent);}
 .mfb-sel,.mfb-search{font-family:var(--font-mono);font-size:12px;padding:6px 10px;border:1px solid var(--hairline);border-radius:8px;background:var(--card);color:var(--ink);}
 .mfb-search{flex:1;min-width:120px;}
 `;
@@ -520,18 +575,23 @@ const mmLink = (href, label, active, extra = "") =>
 // hidden on desktop. Groups match the desktop dropdown panels one-for-one
 // (Sell / The index / Buy=our-tools / More) - Aug 2026 revamp.
 function mobileMenuHtml(chainInfo, activePath) {
-  const chains = chainInfo.chains.map((c) => mmLink(c.href, c.label, c.href === activePath)).join("");
+  // Chains as a compact 2-column chip grid (12 full-width rows pushed every
+  // other destination below the fold on a phone); each still a real <a href>
+  // (test-nav-chains asserts every rail's href is present here).
+  const chains = chainInfo.chains.map((c) => `<a href="${esc(c.href)}" class="ml-mm-chip${c.href === activePath ? " ml-mm-active" : ""}">${esc(c.label)}</a>`).join("");
   return `<div id="ml-mobile-menu" class="ml-mobile-menu">
+    ${activePath === "/reports" ? "" : `<div class="ml-mm-group">${mmLink("/reports", "Get a report →", false, " ml-mm-cta")}</div>`}
     <div class="ml-mm-h">For people</div>
     <div class="ml-mm-group">
       ${mmLink("/reports", "reports · card or USDC", activePath === "/reports")}
       ${mmLink("/monitors", "monitors · $9 / month", activePath === "/monitors")}
     </div>
-    <div class="ml-mm-h">Sell</div>
+    <div class="ml-mm-h">Buy</div>
     <div class="ml-mm-group">
-      ${mmLink("/sell", "list your API", activePath === "/sell")}
-      ${mmLink("/tollbooth", "tollbooth · pay-per-crawl", activePath === "/tollbooth")}
-      ${mmLink("/contribute", "contribute a tool", activePath === "/contribute")}
+      ${mmLink("/tools", "our tools · 500+", activePath === "/tools")}
+      ${mmLink("/skills", "skill packs", activePath === "/skills")}
+      ${mmLink("/playground", "playground · free", activePath === "/playground")}
+      ${mmLink("/pricing", "pricing", activePath === "/pricing")}
     </div>
     <div class="ml-mm-h">The index</div>
     <div class="ml-mm-group">
@@ -540,27 +600,26 @@ function mobileMenuHtml(chainInfo, activePath) {
       ${mmLink("/leaderboard", "leaderboard", activePath === "/leaderboard")}
       ${mmLink("/guides/smart-order-router", "smart order router", activePath === "/guides/smart-order-router")}
       ${mmLink("/marketplace/tools", "every tool indexed", activePath === "/marketplace/tools")}
-      ${chains}
+      <div class="ml-mm-chains">${chains}</div>
     </div>
-    <div class="ml-mm-h">Buy</div>
+    <div class="ml-mm-h">Sell</div>
     <div class="ml-mm-group">
-      ${mmLink("/tools", "our tools · 500+", activePath === "/tools")}
-      ${mmLink("/skills", "skill packs", activePath === "/skills")}
-      ${mmLink("/playground", "playground", activePath === "/playground")}
-      ${mmLink("/pricing", "pricing", activePath === "/pricing")}
+      ${mmLink("/sell", "list your API", activePath === "/sell")}
+      ${mmLink("/tollbooth", "tollbooth · pay-per-crawl", activePath === "/tollbooth")}
+      ${mmLink("/contribute", "contribute a tool", activePath === "/contribute")}
     </div>
     <div class="ml-mm-h">More</div>
     <div class="ml-mm-group">
-      ${mmLink("/agentic-finance", "agentic finance", activePath === "/agentic-finance")}
-      ${mmLink("/glossary", "glossary", activePath === "/glossary")}
+      ${mmLink("/docs", "docs", activePath === "/docs")}
       ${mmLink("/101", "x402 & MPP 101 · walkthrough", activePath === "/101")}
       ${mmLink("/what-is-x402", "what is x402 / MPP", activePath === "/what-is-x402")}
-      ${mmLink("/docs", "docs", activePath === "/docs")}
+      ${mmLink("/agentic-finance", "agentic finance", activePath === "/agentic-finance")}
+      ${mmLink("/glossary", "glossary", activePath === "/glossary")}
       ${mmLink("/revenue", "transactions · on-chain", activePath === "/revenue")}
       ${mmLink("/status", "status · uptime", activePath === "/status")}
       ${mmLink("/integrations", "integrations", activePath === "/integrations")}
+      ${mmLink("/llms.txt", "llms.txt · for agents", false)}
       <a href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" class="ml-mm-link">github</a>
-      ${activePath === "/reports" ? "" : mmLink("/reports", "Get a report →", false, " ml-mm-cta")}
     </div>
   </div>`;
 }
@@ -593,10 +652,10 @@ function nav(activePath) {
   const zone3 = NAV_ZONES[2].map((item) => navItemHtml(item, activePath, chainInfo, groupHrefs)).join("\n      ");
   const divider = `<span style="width:1px;height:15px;background:var(--hairline);flex:none;"></span>`;
 
-  return `<nav style="border-bottom:1px solid var(--hairline);background:rgba(243,244,245,.86);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);position:sticky;top:0;z-index:50;">
+  return `<nav style="border-bottom:1px solid var(--hairline);background:var(--nav-bg);backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px);position:sticky;top:0;z-index:50;">
   <div class="ml-nav-in" style="max-width:1180px;margin:0 auto;padding:15px 30px;display:flex;align-items:center;gap:26px;">
     <a href="/" style="display:flex;align-items:center;gap:11px;text-decoration:none;color:var(--ink);">
-      <span aria-hidden="true" style="width:22px;height:22px;border-radius:6px;background:linear-gradient(145deg,#2A2D31,#0B0C0D);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 1px 2px rgba(0,0,0,.25);display:inline-block;"></span>
+      <span aria-hidden="true" style="width:22px;height:22px;border-radius:6px;background:var(--brand-mark);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 1px 2px rgba(0,0,0,.25);display:inline-block;"></span>
       <span style="font-weight:600;font-size:16px;letter-spacing:-.01em;">Agent402</span>
     </a>
     <div class="ml-nav-links" style="display:flex;align-items:center;gap:22px;margin-left:10px;font-family:var(--font-body);font-size:14px;">
@@ -609,7 +668,11 @@ function nav(activePath) {
     <div style="margin-left:auto;display:flex;align-items:center;gap:12px;">
       <a class="ml-nav-gh" href="https://github.com/MikeyPetrillo/Agent402" rel="noopener" aria-label="GitHub" title="GitHub" style="display:flex;align-items:center;color:var(--muted);text-decoration:none;">${GITHUB_ICON_SVG}</a>
       <a class="ml-nav-gh" href="/llms.txt" style="font-family:var(--font-mono);font-size:12px;color:var(--muted);text-decoration:none;padding:8px 13px;border:1px solid var(--hairline);border-radius:999px;background:var(--card);white-space:nowrap;">llms.txt</a>
-      ${activePath === "/reports" ? "" : `<a class="ml-nav-cta" href="/reports" style="background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;font-family:var(--font-body);font-weight:500;font-size:13.5px;text-decoration:none;padding:9px 16px;border-radius:999px;box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 6px 16px rgba(0,0,0,.18);white-space:nowrap;">Get a report</a>`}
+      ${activePath === "/reports" ? "" : `<a class="ml-nav-cta" href="/reports" style="background:var(--btn-bg);color:var(--btn-fg);font-family:var(--font-body);font-weight:500;font-size:13.5px;text-decoration:none;padding:9px 16px;border-radius:999px;box-shadow:var(--btn-shadow);white-space:nowrap;">Get a report</a>`}
+      <button type="button" class="ml-theme-toggle" aria-label="Switch between dark and light theme" title="Theme">
+        <svg class="ml-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg class="ml-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
       <button type="button" class="ml-burger" aria-label="Open menu" aria-expanded="false">
         <svg class="ml-burger-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
         <svg class="ml-burger-close" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -630,7 +693,7 @@ export function ledgerFooterFull() {
     <div class="ml-ft-grid" style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr 1fr 1fr 1fr;gap:24px;">
       <div>
         <a href="/" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;text-decoration:none;color:var(--ink);">
-          <span aria-hidden="true" style="width:22px;height:22px;border-radius:6px;background:linear-gradient(145deg,#2A2D31,#0B0C0D);display:inline-block;"></span>
+          <span aria-hidden="true" style="width:22px;height:22px;border-radius:6px;background:var(--brand-mark);display:inline-block;"></span>
           <span style="font-weight:600;font-size:16px;letter-spacing:-.01em;">Agent402</span>
         </a>
         <p style="font-size:13px;line-height:1.6;color:var(--muted);margin:0;max-width:260px;">500+ pay-per-call tools and finished reports for people and agents. USDC over x402 and MPP, or card. Open source.</p>
@@ -676,7 +739,7 @@ export function ledgerFooterCompact() {
   return `<footer style="border-top:1px solid var(--hairline);background:var(--footer-bg);">
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
-      <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span aria-hidden="true" style="width:18px;height:18px;border-radius:5px;background:linear-gradient(145deg,#2A2D31,#0B0C0D);display:inline-block;"></span><span style="font-weight:600;font-family:var(--font-body);font-size:14px;">Agent402</span></a>
+      <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span aria-hidden="true" style="width:18px;height:18px;border-radius:5px;background:var(--brand-mark);display:inline-block;"></span><span style="font-weight:600;font-family:var(--font-body);font-size:14px;">Agent402</span></a>
       <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/playground" style="color:var(--muted);text-decoration:none;">playground</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/skills" style="color:var(--muted);text-decoration:none;">skills</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">

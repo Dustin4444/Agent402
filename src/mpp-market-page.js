@@ -201,7 +201,7 @@ export function mppMarketPage(baseUrl, snapshot, leaderboard = null) {
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <input id="reg-origin" type="url" placeholder="https://api.yourdomain.com" style="flex:2 1 220px;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1px solid var(--hairline);background:var(--paper);color:var(--ink);">
           <input id="reg-path" type="text" placeholder="/v1/priced-endpoint (optional)" aria-label="Priced path to probe (optional)" style="flex:1 1 160px;font-family:var(--font-mono);font-size:13px;padding:9px 12px;border:1px solid var(--hairline);background:var(--paper);color:var(--ink);">
-          <button id="reg-go" data-endpoint="/api/mpp-index/register" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
+          <button id="reg-go" data-endpoint="/api/mpp-index/register" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:13px;border:none;padding:9px 16px;cursor:pointer;">SUBMIT</button>
         </div>
         <div id="reg-out" role="status" aria-live="polite" data-listed-note="Appears on /mpp-marketplace." style="font-family:var(--font-mono);font-size:12.5px;color:var(--muted);margin-top:8px;">Free, no account - we probe your origin for a genuine MPP challenge and list you if it answers. A seller not yet in the mpp.dev registry needs its paywall reachable at the bare origin root to verify today.</div>
       </div>

@@ -1,19 +1,17 @@
-// Dark-only theme — offline unit tests. No network.
+// Theme contract — offline unit tests. No network.
 //
-// The site used to ship a light default plus a moon/sun toggle, a pre-paint
-// script reading localStorage, and a :root[data-theme="dark"] override block.
-// That is all gone: dark is now the ONLY theme, set directly on :root.
+// 2026-08-22: TWO themes, dark is the DEFAULT. The dark palette sits directly
+// on bare :root (first paint is already dark, no script needed, no flash); the
+// light "milled" palette is an override block under :root[data-theme="light"],
+// applied by /js/site-chrome.js (synchronous in <head>, reads the stored
+// preference BEFORE body paints) and flipped by the .ml-theme-toggle button.
+// No OS media query decides the theme, no inline script, no inline onclick.
 //
-// Why that shape rather than just defaulting the toggle to dark: a palette
-// applied through an attribute needs JavaScript to set it, which means a frame
-// of the wrong colours before the script runs, plus a stored preference that
-// can disagree with the markup. Dark values on :root make the first paint
-// already correct with no script at all.
-//
-// These assertions exist because a HALF-removed theme is worse than either
-// state. Reintroducing a light token, an override block, or a toggle should
-// fail here rather than ship a page that is dark in some places and white in
-// others.
+// These assertions exist because a HALF-done theme is worse than either state:
+// a light token that lives only in the override, a toggle without the pre-paint
+// read (flash), or a page class with a hardcoded hex that only works in one
+// theme should fail here rather than ship a page that is dark in some places
+// and white in others.
 //
 //   node scripts/test-theme.js
 import { ledgerShell, LEDGER_CSS } from "../src/ledger-chrome.js";
@@ -30,89 +28,63 @@ const html = ledgerShell({
   baseUrl: "https://agent402.tools", body: "<main>hi</main>",
 });
 
-// --- the :root palette IS the dark palette ----------------------------------
-const rootBlock = LEDGER_CSS.slice(LEDGER_CSS.indexOf(":root {"), LEDGER_CSS.indexOf("}", LEDGER_CSS.indexOf("--font-mono")));
-const tok = (name) => (rootBlock.match(new RegExp(`${name}:\\s*(\\S+);`)) || [])[1] || "";
-const isDark = (h) => /^#[0-3]/.test(h);      // #0C0D0F, #111315, #24282C…
+// --- the bare :root palette IS the dark (default) palette ---------------------
+const rootStart = LEDGER_CSS.indexOf(":root {");
+const rootBlock = LEDGER_CSS.slice(rootStart, LEDGER_CSS.indexOf("\n}", rootStart));
+const lightStart = LEDGER_CSS.indexOf(':root[data-theme="light"] {');
+const lightBlock = lightStart >= 0 ? LEDGER_CSS.slice(lightStart, LEDGER_CSS.indexOf("\n}", lightStart)) : "";
+const tokIn = (block, name) => (block.match(new RegExp(`${name}:\\s*([^;]+);`)) || [])[1]?.trim() || "";
+const tok = (name) => tokIn(rootBlock, name);
+const ltok = (name) => tokIn(lightBlock, name);
+const isDark = (h) => /^#[0-3]/.test(h);      // #0B0C0E, #141619, #24282C…
 const isLight = (h) => /^#[C-Fc-f]/.test(h);  // #F3F4F5, #FFFFFF, #E9EAEC…
 
-// 2026-08-22 redesign: the milled LIGHT ground is the one theme (was dark).
-ok(isLight(tok("--paper")), `page background is the light milled ground (--paper ${tok("--paper")})`);
-ok(isDark(tok("--ink")), `foreground is dark ink (--ink ${tok("--ink")})`);
-ok(isLight(tok("--card")), `cards are light (--card ${tok("--card")})`);
-// --ink and --cream must stay paired: ~100 chips are background:var(--ink)
-// with color:var(--cream), so if only one of them flips they go invisible.
-ok(isDark(tok("--surface")), `obsidian panels stay dark (--surface ${tok("--surface")})`);
-ok(isLight(tok("--on-dark")), `text on dark surfaces stays light (--on-dark ${tok("--on-dark")})`);
-ok(/color-scheme:\s*light/.test(LEDGER_CSS), "color-scheme is light so form controls and scrollbars match");
-ok(!/color-scheme:\s*dark/.test(LEDGER_CSS), "no dark color-scheme survives (one theme)");
+ok(isDark(tok("--paper")), `default page background is dark (--paper ${tok("--paper")})`);
+ok(isLight(tok("--ink")), `default foreground is light (--ink ${tok("--ink")})`);
+ok(isDark(tok("--card")), `default cards are dark (--card ${tok("--card")})`);
+ok(isLight(tok("--on-dark")), `text on obsidian surfaces stays light in both themes (--on-dark ${tok("--on-dark")})`);
+ok(/:root \{ color-scheme: dark; \}/.test(LEDGER_CSS), "bare :root declares color-scheme: dark (form controls + scrollbars match the default)");
 
-// --- nothing of the toggle mechanism is left --------------------------------
-ok(!LEDGER_CSS.includes('[data-theme="dark"]'), "no [data-theme] override block in the CSS");
-// Matches the ATTRIBUTE form (`data-theme=`) and the selector form
-// (`[data-theme`), not the bare word: the CSS comment above legitimately
-// explains why the attribute is gone, and a test that fails on its own
-// documentation is testing prose rather than behaviour.
-ok(!/data-theme\s*=/.test(html), "no data-theme attribute is set on any element");
-ok(!/\[data-theme/.test(html.replace(/\/\*[\s\S]*?\*\//g, "")), "no [data-theme] selector outside comments");
-ok(!html.includes("a402ToggleTheme"), "no toggle function ships");
-ok(!html.includes("a402-theme"), "no stored theme preference is read or written");
-ok(!html.includes("prefers-color-scheme"), "the OS preference no longer decides the palette");
-ok(!html.includes("ml-theme-toggle"), "the toggle button is gone from the nav");
-ok(!html.includes("ml-moon") && !html.includes("ml-sun"), "moon and sun glyphs are gone");
+// --- the light theme is a complete override, not a partial one -----------------
+ok(lightBlock.length > 0, "a :root[data-theme=\"light\"] override block exists");
+ok(isLight(ltok("--paper")) && isDark(ltok("--ink")) && isLight(ltok("--card")), `light override flips paper/ink/card (${ltok("--paper")} / ${ltok("--ink")} / ${ltok("--card")})`);
+ok(/color-scheme:\s*light/.test(lightBlock), "light override sets color-scheme: light");
+const rootNames = [...rootBlock.matchAll(/--([a-z0-9-]+):/g)].map((m) => m[1]).filter((n) => !n.startsWith("font-"));
+const lightNames = new Set([...lightBlock.matchAll(/--([a-z0-9-]+):/g)].map((m) => m[1]));
+const missing = rootNames.filter((n) => !lightNames.has(n));
+ok(missing.length === 0, `every default token has a light counterpart${missing.length ? ` - MISSING: ${missing.map((n) => "--" + n).join(", ")}` : ""}`);
+ok(!/prefers-color-scheme/.test(LEDGER_CSS) && !html.includes("prefers-color-scheme"), "no OS preference media query decides the palette (dark is the default, the user flips it)");
 
-// --- no orphaned selector where the toggle rules used to be -----------------
-// The first removal pass matched from `.ml-theme-toggle` to end of line, which
-// stranded `:root[data-theme="dark"] ` in front of the following comment and
-// produced a malformed selector - the kind that silently invalidates the rule
-// after it. Whole-line removal fixed it; this keeps it fixed.
-ok((LEDGER_CSS.match(/\{/g) || []).length === (LEDGER_CSS.match(/\}/g) || []).length,
-  "LEDGER_CSS braces balance");
-const stranded = [...LEDGER_CSS.matchAll(/\}\s*([^\n{}]*)\/\*/g)].map((m) => m[1].trim()).filter(Boolean);
-ok(stranded.length === 0,
-  `no selector text stranded before a comment${stranded.length ? ` (found "${stranded[0].slice(0, 60)}")` : ""}`);
+// --- theme-specific surfaces go through tokens, never hardcoded hex -------------
+for (const name of ["--btn-bg", "--btn-fg", "--nav-bg", "--brand-mark", "--milled-bg", "--obsidian-bg", "--chip-bg", "--card-inset", "--on-accent"]) {
+  ok(tok(name) && ltok(name), `${name} is defined in BOTH themes (surfaces that differ per theme ride tokens)`);
+}
 
-// --- the shell must not leak raw JavaScript into the page -------------------
-// SHIPPED BROKEN once. Removing the theme IIFE with a regex ate its `<script>`
-// OPENING tag and left the next function as bare text in <head>, followed by an
-// orphaned `</script>`. Browsers hoist stray head text into the body, so a
-// wall of JavaScript rendered at the top of every page - and a402ToggleMenu was
-// never defined, which silently broke the mobile burger menu on every route.
-// Neither the theme assertions nor the page tests noticed: the markup was still
-// well-formed by div-balance standards and every route still returned 200.
-// Case-insensitive on purpose. A tag counter that only sees lowercase would
-// undercount `<SCRIPT>` openings and report a balance that isn't there, which
-// is the exact failure this assertion exists to catch.
-ok((html.match(/<script[\s>]/gi) || []).length === (html.match(/<\/script>/gi) || []).length,
-  "script tags balance (an orphaned </script> means a stripped opening tag)");
-const headOnly = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
-ok(!/\n\s*function\s+\w+\s*\(/.test(headOnly),
-  "no bare function declaration sitting outside a <script> in <head>");
-// CSP hardening (2026-08-16) moved the toggle function + its wiring out of
-// an inline <script> into assets/js/site-chrome.js (an inline
-// onclick="..." attribute is exactly as CSP-blocked as an inline <script>
-// tag, so it's gone too) - the burger menu now works via addEventListener
-// in that external file instead. The original historical-incident risk
-// this test guards (a stripped opening <script> tag stranding a function as
-// bare head text) is still fully covered by the two assertions above this
-// one, which apply to the page's OWN script tags regardless of what's in
-// them.
-ok(html.includes('<script src="/js/site-chrome.js">'),
-  "the page references the external site-chrome script that defines the burger toggle");
-ok(!html.includes('onclick="a402ToggleMenu()"') && !/\bonclick\s*=/.test(html),
-  "no inline onclick attribute anywhere - CSP-blocked, must be wired via addEventListener instead");
+// --- the toggle: present, CSP-clean, no flash --------------------------------
+ok(html.includes('class="ml-theme-toggle"'), "the theme toggle button is in the nav");
+ok(html.includes("ml-moon") && html.includes("ml-sun"), "moon + sun glyphs ship (CSS shows one per theme)");
+ok(!/\bonclick\s*=/.test(html), "no inline onclick attribute anywhere - CSP-blocked, must be wired via addEventListener");
+ok(!/<script>[^<]*localStorage/.test(html) && !/<script>[\s\S]{0,400}data-theme/.test(html), "no inline pre-paint theme script in the page (CSP); the external site-chrome.js does it");
+ok(!/<html[^>]*data-theme/.test(html) && !/<body[^>]*data-theme/.test(html), "the server never stamps data-theme on the document (the default is the bare :root; only the client's stored preference sets light)");
 const siteChromeJs = readFileSync(new URL("../assets/js/site-chrome.js", import.meta.url), "utf8");
-ok(/function\s+toggleMenu\s*\(/.test(siteChromeJs) && siteChromeJs.includes(".ml-burger") && siteChromeJs.includes("addEventListener('click'"),
-  "site-chrome.js defines the toggle and wires it to the burger button via addEventListener");
+const headOnly = html.slice(html.indexOf("<head>"), html.indexOf("</head>"));
+ok(headOnly.includes('<script src="/js/site-chrome.js">'), "site-chrome.js is referenced in <head> (synchronous) so the stored theme applies before first paint");
+ok(/localStorage\.getItem\('a402-theme'\)/.test(siteChromeJs.slice(0, 1200)) && /setAttribute\('data-theme','light'\)/.test(siteChromeJs.slice(0, 1200)), "site-chrome.js applies a stored light preference at the very top (pre-paint)");
+ok(/\.ml-theme-toggle/.test(siteChromeJs) && /localStorage\.setItem\('a402-theme'/.test(siteChromeJs) && siteChromeJs.includes("addEventListener('click'"), "site-chrome.js wires the toggle via addEventListener and stores the choice");
+ok(!html.includes("a402ToggleTheme"), "no global toggle function is referenced from markup");
 
-// --- the revenue chart palette had to follow the theme ----------------------
-// Its dark series colours were keyed on [data-theme="dark"]. With the attribute
-// gone that rule could never match, so the chart would have kept LIGHT series
-// colours on a permanently dark page: still legible, easy to miss in review,
-// and wrong.
+// --- CSS hygiene (historical incidents) ----------------------------------------
+ok((LEDGER_CSS.match(/\{/g) || []).length === (LEDGER_CSS.match(/\}/g) || []).length, "LEDGER_CSS braces balance");
+const stranded = [...LEDGER_CSS.matchAll(/\}\s*([^\n{}]*)\/\*/g)].map((m) => m[1].trim()).filter(Boolean);
+ok(stranded.length === 0, `no selector text stranded before a comment${stranded.length ? ` (found "${stranded[0].slice(0, 60)}")` : ""}`);
+ok(!/\n\s*\/\/[^\n]*\n[^}]*\}/.test(rootBlock), "no // comment inside the :root block (it would kill every token after it)");
+ok((html.match(/<script[\s>]/gi) || []).length === (html.match(/<\/script>/gi) || []).length, "script tags balance (an orphaned </script> means a stripped opening tag)");
+ok(!/\n\s*function\s+\w+\s*\(/.test(headOnly), "no bare function declaration sitting outside a <script> in <head>");
+ok(/function\s+toggleMenu\s*\(/.test(siteChromeJs) && siteChromeJs.includes(".ml-burger"), "site-chrome.js still defines the burger menu toggle");
+
+// --- the revenue chart palette follows the theme ---------------------------------
 const revenueSrc = readFileSync(new URL("../src/revenue-live.js", import.meta.url), "utf8");
-ok(!revenueSrc.includes('[data-theme="dark"]'), "revenue chart has no dead [data-theme] rule");
-ok(/\.rvz\{--s1:#3987e5/.test(revenueSrc), "the chart's dark series palette is the one that ships");
+ok(/\.rvz\{--s1:#3987e5/.test(revenueSrc), "the chart's dark series palette is the one that ships by default");
 
 console.log(`\n${failed ? "FAILED" : "OK"}: ${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

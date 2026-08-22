@@ -167,7 +167,7 @@ html{scroll-behavior:smooth}
 .s101-step-h{font-size:16.5px;line-height:1.5;color:var(--ink);margin-bottom:10px}
 .s101-num{display:inline-block;width:24px;height:24px;border:1px solid var(--hairline);text-align:center;font-family:var(--font-mono);font-size:12px;line-height:22px;margin-right:10px}
 .s101-muted{color:var(--muted);font-weight:400}
-.s101-btn{background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13.5px;border:none;padding:11px 16px;cursor:pointer}
+.s101-btn{background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:13.5px;border:none;padding:11px 16px;cursor:pointer}
 .s101-btn[disabled]{background:var(--hairline);color:var(--faint);cursor:not-allowed}
 .s101-out{font-family:var(--font-mono);font-size:13px;line-height:1.7;margin-top:12px;white-space:pre-wrap;word-break:break-word;color:var(--ink)}
 .s101-out .ok{color:var(--green,#1f7a3a);font-weight:700}

@@ -5356,7 +5356,7 @@ app.use((req, res) => {
       <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">Page not found</h1>
       <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">The page you're looking for doesn't exist.</p>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-        <a href="/" style="display:inline-block;padding:11px 18px;background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+        <a href="/" style="display:inline-block;padding:11px 18px;background:var(--btn-bg);color:var(--btn-fg);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
         <a href="/tools" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Browse tools</a>
         <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
       </div>
@@ -5390,7 +5390,7 @@ app.use((err, req, res, _next) => {
       <h1 style="font-weight:500;font-size:26px;letter-spacing:-.02em;margin:0 0 10px;color:var(--ink);">${t}</h1>
       <p style="color:var(--muted);margin:0 0 28px;font-weight:300;">${m}</p>
       <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-        <a href="/" style="display:inline-block;padding:11px 18px;background:linear-gradient(180deg,#2A2D31,#111315);color:#fff;border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
+        <a href="/" style="display:inline-block;padding:11px 18px;background:var(--btn-bg);color:var(--btn-fg);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Home</a>
         <a href="/tools" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Browse tools</a>
         <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
       </div>

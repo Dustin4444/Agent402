@@ -265,7 +265,7 @@ export function toolPage(baseUrl, tool, related, { computePayable = false, powDi
     cacheTtl ? ` · <span style="color:var(--dk-muted);" title="Server caches identical responses for ${e(fmtTtl(cacheTtl))}. Repeated calls return X-Cache: hit and don't re-hit the upstream.">Cached ${e(fmtTtl(cacheTtl))}</span>` : ""
   }</div>
   <p class="tp-sub">${e(tool.description)}</p>
-  <p style="margin:16px 0 0;"><a class="ml-cta" href="/playground?slug=${e(tool.slug)}" style="display:inline-block;background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 16px;">TRY IN PLAYGROUND →</a></p>
+  <p style="margin:16px 0 0;"><a class="ml-cta" href="/playground?slug=${e(tool.slug)}" style="display:inline-block;background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 16px;">TRY IN PLAYGROUND →</a></p>
 
   <h2 class="tp-h2">Input</h2>
   ${schemaRows ? `<table class="tp-table"><tr><th>Field</th><th>Type</th><th>Description</th></tr>${schemaRows}</table>` : `<p class="tp-sub">No parameters.</p>`}

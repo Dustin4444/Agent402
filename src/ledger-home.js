@@ -95,20 +95,20 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
 .hm-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .hm-doors { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 .hm-proof { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 24px; }
-.hm-card { border-radius: 18px; background: var(--card); border: 1px solid var(--hairline); box-shadow: inset 0 1px 0 #fff, 0 1px 2px rgba(17,19,21,.04); }
-.hm-milled { border-radius: 18px; background: linear-gradient(160deg, #F9FAFB 0%, #E3E6E9 70%, #EEF0F2 100%); border: 1px solid rgba(17,19,21,.12); box-shadow: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(0,0,0,.06), 0 18px 40px rgba(17,19,21,.08); }
-.hm-obsidian { border-radius: 18px; background: linear-gradient(160deg, #1A1D20, #0C0D0F); color: var(--on-dark); border: 1px solid rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 18px 40px rgba(0,0,0,.22); }
+.hm-card { border-radius: 18px; background: var(--card); border: 1px solid var(--hairline); box-shadow: inset 0 1px 0 var(--card-inset), 0 1px 2px rgba(0,0,0,.08); }
+.hm-milled { border-radius: 18px; background: var(--milled-bg); border: 1px solid var(--milled-border); box-shadow: inset 0 1px 0 var(--card-inset), inset 0 -1px 0 rgba(0,0,0,.06), var(--shadow-lg); }
+.hm-obsidian { border-radius: 18px; background: var(--obsidian-bg); color: var(--on-dark); border: 1px solid var(--obsidian-border); box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 18px 40px rgba(0,0,0,.22); }
 .hm-btn { display: inline-flex; align-items: center; gap: 8px; font-family: var(--font-body); font-weight: 500; font-size: 15px; text-decoration: none; padding: 13px 22px; border-radius: 999px; white-space: nowrap; transition: transform .12s ease, box-shadow .12s ease; }
 .hm-btn:hover { transform: translateY(-1px); }
-.hm-btn-dark { color: #fff; background: linear-gradient(180deg, #2A2D31, #111315); box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 10px 24px rgba(0,0,0,.18); border: 0; cursor: pointer; }
-.hm-btn-ghost { color: var(--ink); border: 1px solid var(--dash); background: rgba(255,255,255,.55); }
+.hm-btn-dark { color: var(--btn-fg); background: var(--btn-bg); box-shadow: var(--btn-shadow); border: 0; cursor: pointer; }
+.hm-btn-ghost { color: var(--ink); border: 1px solid var(--dash); background: var(--chip-bg); }
 .hm-btn-ghost:hover { border-color: var(--ink); }
 .hm-btn-lit { color: #0B0C0E; background: var(--accent-lit); border: 0; cursor: pointer; }
 .hm-kicker { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent); margin-bottom: 12px; }
 .hm-h2 { font-weight: 500; font-size: 40px; line-height: 1.05; letter-spacing: -.03em; margin: 0; color: var(--ink); text-wrap: balance; }
 .hm-lede { font-size: 16.5px; line-height: 1.55; color: var(--muted); font-weight: 300; }
 .hm-row { display: grid; grid-template-columns: 170px 1fr 200px; gap: 24px; padding: 22px 0; border-bottom: 1px solid var(--hairline); align-items: baseline; }
-.hm-chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); padding: 8px 12px; border: 1px solid var(--dash); border-radius: 8px; background: rgba(255,255,255,.55); text-decoration: none; }
+.hm-chip { display: inline-flex; align-items: center; gap: 7px; font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); padding: 8px 12px; border: 1px solid var(--dash); border-radius: 8px; background: var(--chip-bg); text-decoration: none; }
 .hm-term { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.8; color: var(--on-dark2); white-space: pre-wrap; word-break: break-word; margin: 0; }
 @media (max-width: 900px) { .hm-hero, .hm-2col, .hm-doors { grid-template-columns: minmax(0,1fr) !important; } .hm-proof { grid-template-columns: 1fr 1fr !important; } .hm-row { grid-template-columns: 1fr !important; gap: 6px; } .hm-h2 { font-size: 32px; } }
 @media (max-width: 480px) { .hm-reg-row { flex-direction: column !important; } .hm-reg-row button { width: 100%; } .hm-proof { grid-template-columns: 1fr !important; } }
@@ -380,7 +380,7 @@ curl -X POST /api/hash \\
 
 <section style="max-width:1180px;margin:0 auto;padding:64px 30px 0;">
   <div style="font-family:var(--font-mono);font-size:12px;color:var(--faint);letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px;">settles on</div>
-  <div style="display:flex;flex-wrap:wrap;gap:10px;">${railLinksHtml}${tempoChipHtml}<a href="/reports" class="hm-chip" style="background:var(--ink);color:#fff;border-color:var(--ink);">Card via Stripe</a></div>
+  <div style="display:flex;flex-wrap:wrap;gap:10px;">${railLinksHtml}${tempoChipHtml}<a href="/reports" class="hm-chip" style="background:var(--btn-bg);color:var(--btn-fg);border-color:transparent;">Card via Stripe</a></div>
 </section>
 
 <section style="max-width:900px;margin:0 auto;padding:70px 30px 20px;">

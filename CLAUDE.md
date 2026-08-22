@@ -841,7 +841,15 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   protection; the `max-age=120` on the response is a browser-only hint. Contract pinned by
   `scripts/test-x402-economy.js` (dedup + warm-cache identity, never-throws).
 - **Site redesign 2026-08-22 ("milled + obsidian", approved from the Agent402 Site Directions canvas):**
-  ONE light theme on `:root` (`--paper #F3F4F5`, `--card #FFF`, `--ink #111315`, obsidian panels keep
+  TWO themes, DARK IS THE DEFAULT (same day, Mike): the dark palette sits on bare `:root` (first paint
+  dark, no script, no flash); the light "milled" palette is `:root[data-theme="light"]`, applied by
+  `assets/js/site-chrome.js` (synchronous in `<head>`, reads `localStorage a402-theme` pre-paint) and
+  flipped by the nav `.ml-theme-toggle`; no OS media query. Theme-specific surfaces ride tokens
+  (`--btn-bg/--btn-fg`, `--nav-bg`, `--brand-mark`, `--milled-bg`, `--obsidian-bg`, `--chip-bg`,
+  `--card-inset`, `--on-accent`) - never a hardcoded hex in a page class; `test-theme.js` pins all of
+  it (dark default tokens, complete light override, toggle present + CSP-clean, no server-stamped
+  data-theme). Mobile menu: CTA first, groups people/buy/index/sell/more, chains as a 2-col chip grid.
+  (Earlier the same day it shipped as ONE light theme on `:root` (`--paper #F3F4F5`, `--card #FFF`, `--ink #111315`, obsidian panels keep
   `--surface #0C0D0F` / `--on-dark`; `--accent #0F5E43` deep green for text/kickers on light,
   `--accent-lit #9EF0B0` phosphor ONLY on dark; `color-scheme: light`, no toggle, no OS media query -
   `test-theme.js` pins the new palette + the no-toggle rules). Fonts self-hosted Geist + Geist Mono

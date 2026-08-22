@@ -159,7 +159,7 @@ table{border-collapse:collapse;width:100%}
       <h2 style="font-weight:800;font-size:36px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Don't browse. Just ask.</h2>
       <p style="font-size:16px;line-height:1.6;color:var(--dk-muted2);margin:0 0 26px;max-width:520px;">Paste the MCP URL and describe the job. The connector picks the tool, solves the proof-of-work or signs the payment, and hands back the result.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
-        <a href="/docs#add" style="background:var(--accent);color:#fff;font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO CLAUDE →</a>
+        <a href="/docs#add" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">ADD TO CLAUDE →</a>
         <a href="/playground" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">TRY THE PLAYGROUND</a>
         <a href="/skills" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--dk-muted);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">BIGGER JOBS → SKILL PACKS</a>
       </div>
