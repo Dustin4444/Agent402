@@ -103,6 +103,7 @@ export function serviceManifest({ baseUrl, network, networks, wallet, walletName
     differentiators: [
       "Open-source and self-hostable - read every line, run it yourself (AGPL-3.0).",
       `One integration covers all 500+ tools - no per-service SDKs or signups.`,
+      "People pay too: finished, cited reports by card at /reports, $9/month monitors at /monitors, and prepaid credits at /credits (an a402_ key that pays every tool by card, debited only on success).",
       "Two-sided: also ships agent402-tollbooth, an open pay-per-crawl gate for the demand side of x402.",
       "Deterministic tool catalog - no LLM in that serving path; same input, same output, full OpenAPI schemas. (The optional /v1 gateway is a separate, opt-in LLM proxy.)",
       "Free without a wallet via proof-of-work on the pure-CPU tools.",

@@ -1,6 +1,6 @@
 // The Agentic Finance (AIFI) card - one 1200x630 image that says what the
 // category is and where Agent402 sits, in the site's own card language
-// (paper/card/ink/accent, Archivo display + Space Mono; same tokens as the
+// (obsidian + milled, Geist + Geist Mono; same tokens as the
 // homepage /card.png in server.js). It is BOTH the og:image / twitter:image of
 // /agentic-finance and /glossary (served at /og/agentic-finance.png, rasterized
 // once per process like /card.png) AND the announcement image

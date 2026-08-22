@@ -158,14 +158,15 @@ export function humanReportsPage(baseUrl) {
 ${ledgerFooterCompact()}
 <script src="/js/reports.js"></script>`;
   return ledgerShell({
-    title: "Agent402 Reports - cited research, dossiers, 13F and domain audits, pay per report",
-    description: "Finished, cited reports by card or USDC: deep research, company due-diligence dossier, fund 13F report, domain security audit. No account, no subscription, refunded if it fails.",
+    title: "Agent402 Reports: research, dossiers, 13F, insider flow, audits",
+    description: "Cited reports by card or USDC, $5 to $39: deep research, company dossier, fund 13F, insider flow, market brief, FDA recall, domain audit. No account, refunded if it fails.",
     canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body,
+    jsonLd: { "@context": "https://schema.org", "@type": "ItemList", "@id": `${baseUrl}/reports#products`, name: "Agent402 reports", itemListElement: Object.entries(R).map(([key, p], i) => ({ "@type": "ListItem", position: i + 1, item: { "@type": "Product", name: p.label, url: `${baseUrl}/reports`, brand: { "@type": "Brand", name: "Agent402" }, offers: { "@type": "Offer", price: (p.price / 100).toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: `${baseUrl}/reports`, seller: { "@type": "Organization", name: "Havok Holdings LLC" } } } })) },
   });
 }
 
 // Delivery page: polls /api/r/:id (or `api`) and renders the report client-side.
-export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "This takes about a minute. Please keep this page open - it will appear here automatically.", baseUrl = "https://agent402.tools" } = {}) {
+export function reportDeliveryPage(sessionId, { api = "/api/r/", waitCopy = "This takes about a minute. Please keep this page open - it will appear here automatically.", baseUrl = "https://agent402.tools", robots = "noindex, nofollow" } = {}) {
   const body = `
 <div class="wrap" style="padding-top:28px;">
   <div id="app" data-session="${esc(sessionId)}" data-api="${esc(api)}"><div class="status"><h2><span class="spin"></span>Preparing your report…</h2><p>${esc(waitCopy)}</p></div></div>
@@ -176,6 +177,6 @@ ${ledgerFooterCompact()}
   return ledgerShell({
     title: "Your report - Agent402",
     description: "Your Agent402 report.",
-    canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body,
+    canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body, robots,
   });
 }

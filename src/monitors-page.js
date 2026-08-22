@@ -32,9 +32,10 @@ export function monitorsPage(baseUrl = "https://agent402.tools") {
 ${ledgerFooterCompact()}
 <script src="/js/monitors.js"></script>`;
   return ledgerShell({
-    title: "Agent402 Monitors - domain security and fund 13F monitoring, $9 a month",
-    description: "Standing reports that re-run on their own: domain security monitor and fund 13F watch. Emailed on change, card via Stripe, cancel anytime.",
+    title: "Agent402 Monitors: domain, 13F, recall, insider, IPO watch",
+    description: "$9 a month monitors: domain security, fund 13F, FDA recall, insider flow, IPO pipeline. Re-run on their own, emailed on change, card via Stripe, cancel anytime.",
     canonical: `${baseUrl}/monitors`, baseUrl, activePath: "/monitors", extraCss: REPORTS_CSS, body,
+    jsonLd: { "@context": "https://schema.org", "@type": "ItemList", "@id": `${baseUrl}/monitors#products`, name: "Agent402 monitors", itemListElement: Object.entries(MONITOR_PRODUCTS).map(([key, p], i) => ({ "@type": "ListItem", position: i + 1, item: { "@type": "Product", name: p.label, description: p.blurb, url: `${baseUrl}/monitors`, brand: { "@type": "Brand", name: "Agent402" }, offers: { "@type": "Offer", url: `${baseUrl}/monitors`, priceCurrency: "USD", price: (p.price / 100).toFixed(2), priceSpecification: { "@type": "UnitPriceSpecification", price: (p.price / 100).toFixed(2), priceCurrency: "USD", billingDuration: "P1M" }, availability: "https://schema.org/InStock", seller: { "@type": "Organization", name: "Havok Holdings LLC" } } } })) },
   });
 }
 
@@ -48,6 +49,6 @@ ${ledgerFooterCompact()}
   return ledgerShell({
     title: "Subscription active - Agent402",
     description: "Your Agent402 monitor is being confirmed.",
-    canonical: `${baseUrl}/monitors`, baseUrl, activePath: "/monitors", extraCss: REPORTS_CSS, body,
+    canonical: `${baseUrl}/monitors`, baseUrl, activePath: "/monitors", extraCss: REPORTS_CSS, body, robots: "noindex, nofollow",
   });
 }

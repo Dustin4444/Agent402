@@ -625,7 +625,7 @@ function mobileMenuHtml(chainInfo, activePath) {
   </div>`;
 }
 
-// Nav CTA is "LIST YOUR API →" -> /sell (Aug 2026 revamp): seller signup is
+// Nav CTA is "List your API →" -> /sell (Aug 2026 revamp): seller signup is
 // now priority 1 across the whole site (every page's nav CTA points at
 // /sell), replacing the old buyer-facing "ADD TO CLAUDE" -> /docs#add button.
 // Suppressed on / and /sell themselves, where each page's own hero already
@@ -795,6 +795,7 @@ function agoStr(iso) {
  * @param {string} [opts.ogImage]   - OG image URL (defaults to baseUrl/card.png)
  * @param {object|object[]} [opts.jsonLd] - JSON-LD structured data
  * @param {string} [opts.extraCss]  - page-specific CSS
+ * @param {string} [opts.robots]    - robots meta (default index,follow; pass "noindex, nofollow" for bearer-URL pages)
  * @param {string} opts.body        - main content HTML (including footer)
  */
 // Social crawlers (X, Slack, Discord, …) cache the card image by its exact URL,
@@ -831,7 +832,7 @@ function posthogSnippet(baseUrl) {
   // text (CSP hardening, 2026-08-16).
   return jsonScriptTag("posthog-config", { key, cfg }) + '<script src="/js/posthog-loader.js"></script>';
 }
-export function ledgerShell({ title, description, canonical, baseUrl, activePath = "", ogImage, jsonLd, extraCss = "", body }) {
+export function ledgerShell({ title, description, canonical, baseUrl, activePath = "", ogImage, jsonLd, extraCss = "", body, robots = "index, follow, max-image-preview:large" }) {
   const og = ogImage || (baseUrl + "/card.png" + (ogImageVersion ? `?v=${ogImageVersion}` : ""));
   // Base ecosystem JSON-LD - every page rendered through the ledger shell
   // carries this so crawlers and discovery agents see Base chain support
@@ -858,6 +859,7 @@ export function ledgerShell({ title, description, canonical, baseUrl, activePath
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)}</title>
 <meta name="description" content="${esc(description)}">
+<meta name="robots" content="${esc(robots)}">
 ${process.env.GOOGLE_SITE_VERIFICATION ? `<meta name="google-site-verification" content="${esc(process.env.GOOGLE_SITE_VERIFICATION)}">\n` : ""}
 <link rel="canonical" href="${esc(canonical)}">
 <meta property="og:type" content="website">

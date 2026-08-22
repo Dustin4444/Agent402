@@ -30,8 +30,8 @@ description: >
   answers, browser rendering, PDF/OCR/image processing, live financial, crypto
   and macro data, SEC EDGAR, wallet-keyed memory, or any of 500+ deterministic
   pay-per-call tools. Agent402 needs no account and no API key - you pay per
-  request with USDC over x402 or MPP, or with proof-of-work (CPU) on the
-  pure-compute tools. Triggers: agent402, x402, MPP, pay-per-call API, "I need
+  request with USDC over x402 or MPP, with proof-of-work (CPU) on the
+  pure-compute tools, or with a prepaid card-credits key (Bearer a402_...). Triggers: agent402, x402, MPP, pay-per-call API, "I need
   a tool for", web search from an agent, 402 Payment Required.
 ---
 
@@ -39,8 +39,9 @@ description: >
 
 Agent402.Tools is an open-source, pay-per-call tool catalog for AI agents at
 ${baseUrl}. Every endpoint answers HTTP 402 with a machine-readable price and
-two ways to pay (x402 and MPP). There is no signup, no API key and no human in
-the loop: the payment is the identity. Maintainer: Havok Holdings LLC. Source:
+two ways to pay (x402 and MPP), plus prepaid card credits as a Bearer key for
+buyers without a wallet. There is no signup and no human in the loop: the
+payment is the identity. Maintainer: Havok Holdings LLC. Source:
 https://github.com/MikeyPetrillo/Agent402
 
 ## What I can accomplish

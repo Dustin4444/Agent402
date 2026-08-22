@@ -203,7 +203,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
     const rows = scored.slice(0, Math.min(Number(limit) || 10, 25)).map(([, def, free]) => ({
       slug: def.slug,
       price: def.price,
-      access: free ? "free here (rate-limited)" : "wallet required (USDC via x402 - use the agent402-mcp npm server)",
+      access: free ? "free here (rate-limited)" : "paid (USDC via x402 / MPP, or prepaid card credits - agent402-mcp with AGENT_KEY or AGENT402_CREDITS_KEY)",
       description: def.description.length > 200 ? `${def.description.slice(0, 200)}…` : def.description,
       inputSchema: schemaOf(def),
     }));
@@ -212,11 +212,11 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
 
   function walletRequiredText(def) {
     return [
-      `"${def.slug}" (${def.price}/call) needs per-call USDC payment and is not part of this hosted free tier.`,
+      `"${def.slug}" (${def.price}/call) needs per-call payment and is not part of this hosted free tier.`,
       ...(mppLoopback ? [`Pay it RIGHT HERE over MPP: call again with an MPP credential in _meta["org.paymentauth/credential"] - mppx's McpClient.wrap() does this automatically (USDC on Base/Celo via evm.charge, or native Tempo via tempo.charge); the receipt comes back in _meta["org.paymentauth/receipt"].`] : []),
       `Or from Claude/any MCP client: run the npm server with a funded Base wallet -`,
       `npx agent402-mcp with env AGENT_KEY=0x<private key> (USDC on Base/Polygon/Arbitrum, or USDG on Robinhood Chain via AGENT402_NETWORKS=robinhood) and/or SOLANA_AGENT_KEY=<base58 secret> (USDC on Solana); spend caps: AGENT402_MAX_PER_CALL, AGENT402_BUDGET.`,
-      `Or call it over HTTP with any x402 client. Docs: ${baseUrl}/tools/${def.slug}`,
+      `Or without a wallet: buy prepaid card credits at ${baseUrl}/credits and run npx agent402-mcp with AGENT402_CREDITS_KEY=a402_... (or send Authorization: Bearer a402_... over HTTP). Or call it over HTTP with any x402 client. Docs: ${baseUrl}/tools/${def.slug}`,
     ].join(" ");
   }
 
@@ -335,7 +335,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             : `[wallet-required, ${def.price}/call]`;
           const walletNote = free
             ? ""
-            : " This hosted connector holds no wallet, so calling it here returns paid-access setup; run it with a funded wallet via npx agent402-mcp or any x402 client.";
+            : " This hosted connector holds no wallet: pay it here over MPP, or run npx agent402-mcp with a funded wallet (AGENT_KEY) or prepaid card credits (AGENT402_CREDITS_KEY), or any x402 client.";
           const outSchema = FLAGSHIP_OUTPUT_SCHEMAS[slug]
             || outputSchemaFromExample(def.discovery?.output?.example);
           return {
@@ -536,7 +536,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
             ...(r.packs?.length ? { workflows: r.packs, workflowsUsage: "One call: catalog.call { slug: 'skill-' + workflows[i].slug, params: { …promptArgs } } (or POST workflows[i].route) runs every step for the single price in workflows[i].price. To orchestrate the steps yourself instead: prompts/get { name: workflows[i].promptName, arguments: { …promptArgs } } - that bills each underlying tool separately." } : {}),
             ...(relatedSellers ? { relatedSellers } : {}),
             ...(weak && !relatedSellers ? { hint: WISH_HINT_TEXT } : {}),
-            usage: "Run catalog.call with the chosen {slug, params}. Free results execute here; wallet-only need the agent402-mcp npm server.",
+            usage: "Run catalog.call with the chosen {slug, params}. Free results execute here; paid tools are payable here over MPP or via the agent402-mcp npm server (wallet or prepaid card credits).",
           });
         }
         if (name === "demand.request") {
@@ -589,7 +589,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
               })),
             },
             clientsSeenSinceBoot: Object.fromEntries([...mcpClients].sort((a, b) => b[1] - a[1]).slice(0, 20)),
-            paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or any x402 HTTP client - or over MPP (Machine Payments Protocol) with an mppx client, settling USDC on Base/Celo or USDC.e (and PathUSD) natively on Tempo. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50.`,
+            paidAccess: `Every tool, no rate limit: pay per call in ${RAILS_PAREN} via the x402 protocol - npx agent402-mcp with AGENT_KEY (EVM) and/or SOLANA_AGENT_KEY (Solana), or prepaid card credits (AGENT402_CREDITS_KEY, buy at ${baseUrl}/credits), or any x402 HTTP client - or over MPP (Machine Payments Protocol) with an mppx client, settling USDC on Base/Celo or USDC.e (and PathUSD) natively on Tempo. No signup, no API key; most tools $0.001–$0.02/call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50.`,
             ...(getLeaderboard ? { ecosystem: "Call sellers.list to see which x402 sellers (any wallet, not just this host) are settling the most USDC (primarily on Base) in the last 24h, or sellers.list with wire=mpp for MPP sellers ranked by on-chain USDC.e transfers on Tempo - discovers the live economy beyond this catalog." } : {}),
             missingATool: "Call demand.request (or POST /api/wish) with what you needed. We cluster and track demand - repeated requests get built.",
             docs: `${baseUrl}/llms.txt`,
@@ -688,6 +688,8 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
         if (name === "payment.info") {
           return mcpJsonResult({
             connector: "hosted free tier - no wallet is held on this connector (authless)",
+            credits: { how: "prepaid card credits: buy a pack at /credits, then Authorization: Bearer a402_<key> on any paid HTTP route, or AGENT402_CREDITS_KEY on the agent402-mcp npm server; the list price is held before the call and debited only on success", buy: `${baseUrl}/credits`, balance: `${baseUrl}/api/credits/balance` },
+            reports: { what: "finished, cited report products with a data appendix - research $5-$30, dossier $19/$39, fund 13F $9/$19, domain audit $5/$9, FDA recall $5, insider flow $9, market brief $15, token risk $5/$12 - same endpoints over x402/MPP or by card", human: `${baseUrl}/reports`, monitors: `${baseUrl}/monitors` },
             freeTier: {
               pureCpuToolsFree: freeCount,
               how: "pure-CPU tools run free here (rate-limited); wallet-only tools are payable on this connector over MPP (JSON-RPC -32042 carries the challenges; send the credential in _meta[\"org.paymentauth/credential\"], receipt returns in _meta[\"org.paymentauth/receipt\"] - mppx's McpClient.wrap() handles it) or via the npm server with a wallet",
@@ -698,7 +700,7 @@ export function mountMcp(app, catalog, { baseUrl, isComputePayable, onServed = (
               mpp: `every paid endpoint also accepts MPP (Machine Payments Protocol, the Payment HTTP auth scheme): the same 402 carries a WWW-Authenticate: Payment challenge, an mppx client pays out of the box, settling USDC on Base/Celo or USDC.e (and PathUSD) natively on Tempo - see ${baseUrl}/what-is-mpp`,
               rails: RAILS_PAREN,
               setup: "run the agent402-mcp npm server: `npx agent402-mcp` with AGENT_KEY=0x<private key> for EVM (USDC on Base/Polygon/Arbitrum, USDG on Robinhood via AGENT402_NETWORKS) and/or SOLANA_AGENT_KEY=<base58 secret> for Solana. No signup, no API key.",
-              prices: "most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50 - see each tool's exact price in catalog.search results",
+              prices: "most tools $0.001–$0.02 per call, LLM gateway tiers $0.002–$0.50, multi-tool skill packs up to $1.50, report products $5–$39 - see each tool's exact price in catalog.search results",
               llmGateway: `the /v1 OpenAI-compatible endpoints (chat nano $0.003, auto $0.01, embeddings $0.002) settle the same way - point any OpenAI SDK at ${baseUrl}/v1 through an x402-paying fetch; no API key, the wallet is the account`,
             },
             spendControls: { perCall: "AGENT402_MAX_PER_CALL caps any single call", totalBudget: "AGENT402_BUDGET caps cumulative spend for the session" },

@@ -172,7 +172,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress 
           ${partialNote ? `<p style="font-size:13px;font-family:var(--font-mono);color:var(--accent);max-width:620px;margin:0 0 20px;">${esc(partialNote)}</p>` : ""}
           <div style="display:flex;flex-wrap:wrap;gap:11px;">
             <a class="ml-cta" href="/api/leaderboard?include=external" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13.5px;text-decoration:none;padding:12px 18px;">GET /api/leaderboard</a>
-            <a class="ml-cta" href="/marketplace" style="background:transparent;border:1.5px solid var(--dash);color:var(--muted);font-family:var(--font-mono);font-weight:700;font-size:13.5px;text-decoration:none;padding:12px 18px;">BROWSE EVERY SELLER</a>
+            <a class="ml-cta" href="/marketplace" style="background:transparent;border:1.5px solid var(--dash);color:var(--muted);font-family:var(--font-mono);font-weight:700;font-size:13.5px;text-decoration:none;padding:12px 18px;">Browse every seller</a>
           </div>
         </div>
         <div style="border:1px solid var(--hairline);background:var(--surface);">
@@ -237,7 +237,7 @@ export function ledgerLeaderboardPage(baseUrl, snapshot, { stats, walletAddress 
         <h2 class="lb-h2" style="font-weight:800;font-size:38px;line-height:1.02;letter-spacing:-.025em;margin:0 0 14px;color:var(--on-dark);">Want a row here?</h2>
         <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 26px;max-width:540px;">Serve x402 challenges, register your origin, and the crawler picks you up on the next pass. Free, no signup, nothing deducted from your price.</p>
         <div style="display:flex;gap:11px;flex-wrap:wrap;">
-          <a class="ml-cta" href="/sell" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">LIST YOUR API - FREE →</a>
+          <a class="ml-cta" href="/sell" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">List your API - free →</a>
           <a class="ml-cta" href="/what-is-x402" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">WHAT IS x402?</a>
         </div>
       </div>

@@ -45,9 +45,10 @@ curl -H "Authorization: Bearer a402_…" ${esc(baseUrl)}/api/credits/balance</pr
 ${ledgerFooterCompact()}
 <script src="/js/credits.js"></script>`;
   return ledgerShell({
-    title: "Agent402 Credits - prepaid card credits for every pay-per-call tool",
-    description: "Buy $20, $50 or $100 of credits by card, get a key, and spend it across 500+ pay-per-call tools and every report at list price. Debited only on a successful call. No account, no wallet.",
+    title: "Agent402 Credits: prepaid card credits for 500+ tools",
+    description: "Buy $20, $50 or $100 by card, get a key, spend it on 500+ pay-per-call tools and every report at list price. Debited only on success. No account, no wallet.",
     canonical: `${baseUrl}/credits`, baseUrl, activePath: "/credits", extraCss: REPORTS_CSS, body,
+    jsonLd: { "@context": "https://schema.org", "@type": "Product", "@id": `${baseUrl}/credits#product`, name: "Agent402 prepaid credits", description: "Prepaid card credits for every pay-per-call tool and report, debited per successful call.", url: `${baseUrl}/credits`, brand: { "@type": "Brand", name: "Agent402" }, offers: Object.entries(CREDIT_PACKS).map(([key, p]) => ({ "@type": "Offer", name: `${p.label} ($${(p.cents / 100).toFixed(0)})`, price: (p.cents / 100).toFixed(2), priceCurrency: "USD", url: `${baseUrl}/credits`, availability: "https://schema.org/InStock", seller: { "@type": "Organization", name: "Havok Holdings LLC" } })) },
   });
 }
 
@@ -61,6 +62,6 @@ ${ledgerFooterCompact()}
   return ledgerShell({
     title: "Your credits key - Agent402",
     description: "Your Agent402 prepaid credits key.",
-    canonical: `${baseUrl}/credits`, baseUrl, activePath: "/credits", extraCss: REPORTS_CSS, body,
+    canonical: `${baseUrl}/credits`, baseUrl, activePath: "/credits", extraCss: REPORTS_CSS, body, robots: "noindex, nofollow",
   });
 }

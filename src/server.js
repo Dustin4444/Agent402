@@ -26,12 +26,12 @@ import {
 import { payerFromRequest, payerFromPaymentResponse, paymentHeaderOf, paymentIdentifierOf } from "./payer.js";
 import { compositeGuardBlocked, compositeGuardGlobalPaused, recordCompositeSpendFailure, recordCompositeSpendSuccess, EXPENSIVE_COMPOSITE_SLUGS, _compositeGuardState } from "./composite-spend-guard.js";
 import Stripe from "stripe";
-import { createHumanCheckout, humanCheckoutEnabled } from "./human-checkout.js";
+import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./human-checkout.js";
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
-import { createStripeSubscriptions, subscriptionsEnabled } from "./stripe-subscriptions.js";
+import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { createMonitorScheduler } from "./monitor-scheduler.js";
-import { createCredits } from "./credits.js";
+import { createCredits, CREDIT_PACKS } from "./credits.js";
 import { creditsPage, creditsThanksPage } from "./credits-page.js";
 import { sendMonitorEmail } from "./email.js";
 import { probeDomain, normDomain } from "./tools/domain-audit-kit.js";
@@ -1673,9 +1673,9 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
 // STRIPE_SECRET_KEY. Without it a buy click gets a clear 503 from the API.
 app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
 app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
-app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
+app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
 app.get("/credits", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(creditsPage(BASE_URL)));
-app.get("/credits/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(creditsThanksPage(String(req.query.session || ""), BASE_URL)));
+app.get("/credits/thanks", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(creditsThanksPage(String(req.query.session || ""), BASE_URL)));
 if (_credits) {
   app.post("/api/credits/checkout", async (req, res) => {
     if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
@@ -1746,7 +1746,7 @@ if (humanCheckoutEnabled()) {
         res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
       }
     });
-    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL })));
+    app.get("/r/:sessionId", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.sessionId || ""), { baseUrl: BASE_URL, robots: "noindex, nofollow" })));
     app.get("/api/r/:sessionId", async (req, res) => {
       if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
       try { res.set("Cache-Control", "no-store").json(await _humanCheckout.fulfill(String(req.params.sessionId || ""))); }
@@ -1805,7 +1805,7 @@ if (_subs) {
   });
   // Delivered monitor reports: same page + viewer as one-shot reports, served
   // from the scheduler's store (no Stripe session - the report id is the bearer).
-  app.get("/m/:reportId", (req, res) => res.set("Cache-Control", "no-store").type("html").send(reportDeliveryPage(String(req.params.reportId || ""), { api: "/api/m/", waitCopy: "Loading your monitor report.", baseUrl: BASE_URL })));
+  app.get("/m/:reportId", (req, res) => res.set("Cache-Control", "no-store").set("X-Robots-Tag", "noindex, nofollow").type("html").send(reportDeliveryPage(String(req.params.reportId || ""), { api: "/api/m/", waitCopy: "Loading your monitor report.", baseUrl: BASE_URL, robots: "noindex, nofollow" })));
   app.get("/api/m/:reportId", (req, res) => {
     res.set("Cache-Control", "no-store");
     const id = String(req.params.reportId || "");
@@ -4162,6 +4162,16 @@ app.get("/api/pricing", (_req, res) => {
     // tiers at the top level instead of burying them among ${endpointCount}
     // endpoint rows. Flat per-call pricing (not token-metered): a buyer knows
     // the worst case before sending.
+    // Card paths (derived from the product tables, never hand-listed): prepaid
+    // credits for every tool, and the human report/monitor products. Stripe-
+    // gated - absent rather than advertised when card checkout is off.
+    ...(humanCheckoutEnabled() ? {
+      credits: { how: "buy a pack by card at /credits, then Authorization: Bearer a402_<key> on any paid route; the list price is held before the call and debited only on a 200", buy: `${BASE_URL}/credits`, packsUsd: Object.values(CREDIT_PACKS).map((p) => p.cents / 100), balance: `${BASE_URL}/api/credits/balance` },
+      humanProducts: {
+        reports: Object.entries(HUMAN_PRODUCTS).map(([k, p]) => ({ product: k, label: p.label, priceUsd: p.price / 100, slug: p.slug, buy: `${BASE_URL}/reports` })),
+        monitors: Object.entries(MONITOR_PRODUCTS).map(([k, p]) => ({ product: k, label: p.label, priceUsdPerMonth: p.price / 100, slug: p.slug, subscribe: `${BASE_URL}/monitors` })),
+      },
+    } : {}),
     llmGateway: {
       wire: "OpenAI-compatible",
       base: `${BASE_URL}/v1`,
@@ -5447,7 +5457,7 @@ app.use((req, res) => {
         <a href="/api/find" style="display:inline-block;padding:10px 18px;border:1px solid var(--dash);color:var(--ink);border-radius:999px;text-decoration:none;font-weight:500;font-size:14px;">Find a tool</a>
       </div>
     </div>${ledgerFooterCompact()}`;
-  res.status(404).type("html").send(ledgerShell({ title: "Page not found - Agent402", description: "Page not found", canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", body }));
+  res.status(404).type("html").send(ledgerShell({ title: "Page not found - Agent402", description: "Page not found", canonical: `${BASE_URL}/`, baseUrl: BASE_URL, activePath: "__none__", robots: "noindex, nofollow", body }));
 });
 app.use((err, req, res, _next) => {
   if (res.headersSent) return; // already started streaming — let it go

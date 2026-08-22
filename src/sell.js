@@ -163,7 +163,7 @@ table{border-collapse:collapse;width:100%}
         <p style="font-size:16px;line-height:1.6;color:var(--muted);margin:0 0 30px;">Serve an x402 challenge, register your origin, and the index routes matching buyer tasks to you. Money moves buyer wallet to your wallet. We never hold it, and nothing is deducted from your price.</p>
         <div style="display:flex;flex-wrap:wrap;gap:11px;">
           <a href="#register" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 22px;">LIST AN x402 API →</a>
-          <a href="/tollbooth" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">TOLLBOOTH A SITE</a>
+          <a href="/tollbooth" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 22px;">Tollbooth a site</a>
         </div>
       </div>
       <div style="border:1px solid var(--hairline);background:var(--surface);">
@@ -228,7 +228,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
       <p style="font-size:14.5px;line-height:1.6;color:var(--muted);margin:0 0 18px;flex:1;">If AI crawlers are already taking your content for free, tollbooth is the open answer. Humans browse normally; known bots get a 402 and either pay in USDC or solve a proof-of-work. MIT licensed, one middleware, no CDN lock-in and no merchant of record standing between you and the money.</p>
       <pre style="margin:0 0 18px;background:var(--paper);border:1px solid var(--hairline);color:var(--on-dark);padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.75;white-space:pre-wrap;word-break:break-word;"><span style="color:var(--dk-muted3);"># express · next.js · cloudflare · proxy · wordpress
 </span>npm i agent402-tollbooth</pre>
-      <a href="/tollbooth" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">GATE YOUR CRAWLERS →</a>
+      <a href="/tollbooth" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:13px;text-decoration:none;padding:11px 18px;align-self:flex-start;">Gate your crawlers →</a>
     </div>
   </div>
 </section>
@@ -311,7 +311,7 @@ x402-pay-to: 0xYourWallet&hellip;</pre>
       <p style="font-size:16.5px;line-height:1.6;color:var(--dk-muted2);margin:0 0 28px;max-width:520px;">No account, no review, nothing deducted. If the crawler can reach your 402, you are in the index on the next pass.</p>
       <div style="display:flex;gap:11px;flex-wrap:wrap;">
         <a href="#register" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:14px 24px;">REGISTER YOUR ORIGIN →</a>
-        <a href="/tollbooth" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">TOLLBOOTH A SITE</a>
+        <a href="/tollbooth" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--on-dark);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">Tollbooth a site</a>
         <a href="/leaderboard" style="background:transparent;border:1.5px solid var(--dark-border2);color:var(--dk-muted);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 24px;">SEE THE LEADERBOARD</a>
       </div>
     </div>

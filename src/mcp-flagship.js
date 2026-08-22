@@ -510,7 +510,7 @@ export function mcpInitializeInstructions(baseUrl) {
     "Orientation: call server.describe. Payment rails / wallet setup: call payment.info.",
     "Missing a tool: call demand.request. Ecosystem sellers: call sellers.list.",
     `Install (hosted, zero wallet): ${install.claudeCodeHosted}`,
-    `Install (npm + wallet for paid flagships): ${install.claudeCodeNpm}`,
+    `Install (npm + wallet or prepaid card credits for paid flagships): ${install.claudeCodeNpm}`,
     `Cursor mcp.json: { "mcpServers": { "agent402": { "url": "${hosted}" } } }`,
     `Docs: ${baseUrl}/llms.txt · ${baseUrl}/api/find?q=… · status ${baseUrl}/status`,
   ].join("\n");

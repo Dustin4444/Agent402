@@ -76,7 +76,7 @@ const { tools, execute } = await agent402Tools({ slugs: ["extract","hash","rende
       </div>
       <div style="display:flex;gap:11px;">
         <a href="/docs" style="background:var(--accent);color:var(--on-accent);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:13px 20px;">QUICKSTART &rarr;</a>
-        <a href="/tools" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">BROWSE TOOLS</a>
+        <a href="/tools" style="background:transparent;border:1px solid var(--hairline);color:var(--ink);font-family:var(--font-mono);font-weight:700;font-size:14px;text-decoration:none;padding:12px 20px;">Browse tools</a>
       </div>
     </div>
   </section>

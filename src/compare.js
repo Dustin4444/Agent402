@@ -33,7 +33,7 @@ export function comparePage(baseUrl) {
 .cmp-win{color:var(--accent);font-weight:500}
 .cmp-lose{color:var(--faint)}
 .check{color:var(--accent);font-size:1.1rem}
-.cross{color:#D63C1A;font-size:1.1rem}
+.cross{color:var(--faint);font-size:1.1rem}
 @media(max-width:640px){.cmp-table{font-size:13px}.cmp-table th,.cmp-table td{padding:10px 12px}.cmp-h1{font-size:36px !important}}
 .cmp-cta{text-align:center;margin:40px 0 48px;padding:36px 24px;background:var(--card);border:1px solid var(--hairline)}
 .cmp-cta h2{font-family:var(--font-body);font-weight:800;font-size:34px;line-height:1;letter-spacing:-.02em;margin:0 0 12px;color:var(--ink)}

@@ -3402,9 +3402,9 @@ export function indexPage(snapshot, { baseUrl, network, economySnap, leaderboard
   td a { color:var(--ink); text-decoration:none; border-bottom:1px solid transparent; }
   td a:hover { border-color:var(--accent); color:var(--accent); }
   .badge { display:inline-block; font-family:var(--font-mono); font-size:.62rem; font-weight:600; padding:1px 6px; margin-left:6px; letter-spacing:.04em; }
-  .badge.local { background:rgba(214,60,26,.08); color:var(--accent); border:1px solid rgba(214,60,26,.3); }
-  .badge.err { background:rgba(249,115,22,.1); color:#f97316; border:1px solid rgba(249,115,22,.3); }
-  .badge.ok { background:rgba(214,60,26,.06); color:var(--accent); border:1px solid rgba(214,60,26,.2); letter-spacing:.1em; }
+  .badge.local { background:rgba(52,168,119,.10); color:var(--accent); border:1px solid rgba(52,168,119,.35); }
+  .badge.err { background:rgba(240,179,94,.12); color:#F0B35E; border:1px solid rgba(240,179,94,.35); }
+  .badge.ok { background:rgba(52,168,119,.08); color:var(--accent); border:1px solid rgba(52,168,119,.25); letter-spacing:.1em; }
   code { background:var(--surface); color:var(--on-dark); padding:1px 5px; font-family:var(--font-mono); font-size:.85em; }
   pre { background:var(--surface); color:var(--on-dark); border:1.5px solid var(--dark-border); padding:14px 16px; overflow:auto; font-family:var(--font-mono); font-size:.84rem; }
   .foot { color:var(--faint); font-size:.82rem; margin-top:24px; }
