@@ -164,7 +164,7 @@ for the npm package and deploy templates.
 
 Prices: most tools $0.001–$0.02 per call; the routing tiers top out at $0.55,
 multi-tool skill packs run up to $1.50, and the report products (research,
-dossier, fund, domain audit, token risk, recall, insider) run $5 to $39.
+dossier, fund, domain audit, token risk, recall, insider) run $3 to $19.
 Networks: Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei,
 Optimism, Stellar and Algorand (USDC), plus Robinhood Chain (USDG) - 12 in
 total. MPP (Machine Payments Protocol) is accepted on the same 402 (Base/Celo,

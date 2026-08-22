@@ -159,7 +159,7 @@ ${ledgerFooterCompact()}
 <script src="/js/reports.js"></script>`;
   return ledgerShell({
     title: "Agent402 Reports: research, dossiers, 13F, insider flow, audits",
-    description: "Cited reports by card or USDC, $5 to $39: deep research, company dossier, fund 13F, insider flow, market brief, FDA recall, domain audit. No account, refunded if it fails.",
+    description: "Cited reports by card or USDC, $3 to $19: deep research, company dossier, fund 13F, insider flow, market brief, FDA recall, domain audit. No account, refunded if it fails.",
     canonical: `${baseUrl}/reports`, baseUrl, activePath: "/reports", extraCss: REPORTS_CSS, body,
     jsonLd: { "@context": "https://schema.org", "@type": "ItemList", "@id": `${baseUrl}/reports#products`, name: "Agent402 reports", itemListElement: Object.entries(R).map(([key, p], i) => ({ "@type": "ListItem", position: i + 1, item: { "@type": "Product", name: p.label, url: `${baseUrl}/reports`, brand: { "@type": "Brand", name: "Agent402" }, offers: { "@type": "Offer", price: (p.price / 100).toFixed(2), priceCurrency: "USD", availability: "https://schema.org/InStock", url: `${baseUrl}/reports`, seller: { "@type": "Organization", name: "Havok Holdings LLC" } } } })) },
   });

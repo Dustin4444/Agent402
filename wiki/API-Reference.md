@@ -94,7 +94,7 @@ behavior and the honest scope of the check.
 
 ### Report products (`/v1`)
 
-Outcome-priced reports on the same 402: `POST /v1/research` ($5; `/pro` $15, `/max` $30, `/market-brief` $15), `POST /v1/dossier` ($19; `/max` $39), `POST /v1/fund` ($9; `/max` $19), `POST /v1/domain-audit` ($5; `/pro` $9), `POST /v1/recall-report` ($5), `POST /v1/insider-report` ($9), `POST /v1/token-risk` ($5; `/pro` $12), `POST /v1/ipo-report` ($0.05, deterministic). JSON bodies and inputs are on [[Reports, Monitors and Credits|Reports-and-Monitors]]; all are wallet-only (x402 / MPP / prepaid credits), never proof-of-work, never cached.
+Outcome-priced reports on the same 402: `POST /v1/research` ($3; `/pro` $7, `/max` $12, `/market-brief` $7), `POST /v1/dossier` ($9; `/max` $19), `POST /v1/fund` ($4; `/max` $9), `POST /v1/domain-audit` ($3; `/pro` $5), `POST /v1/recall-report` ($3), `POST /v1/insider-report` ($4), `POST /v1/token-risk` ($3; `/pro` $6), `POST /v1/ipo-report` ($0.05, deterministic). JSON bodies and inputs are on [[Reports, Monitors and Credits|Reports-and-Monitors]]; all are wallet-only (x402 / MPP / prepaid credits), never proof-of-work, never cached.
 
 ### Card front door and credits
 

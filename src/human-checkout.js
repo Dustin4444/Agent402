@@ -32,22 +32,22 @@ import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, unlinkS
 import { join } from "node:path";
 import { sendReportReadyEmail } from "./email.js";
 
-// The premium products the human door sells. All >= $5 (the card floor); the
+// The premium products the human door sells. All >= $3 (the card floor); the
 // cheap agent tools stay crypto/agent-only. `slug` maps to the paid endpoint's
 // handler so humans and agents run the identical pipeline.
 export const HUMAN_PRODUCTS = {
-  "research": { label: "Deep research report", price: 500, kind: "research", slug: "research", inputField: "query", inputLabel: "your research question" },
-  "research-pro": { label: "Deep research report - Pro", price: 1500, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
-  "research-max": { label: "Deep research report - Max", price: 3000, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
-  "dossier": { label: "Company due-diligence dossier", price: 1900, kind: "dossier", slug: "dossier", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "dossier-max": { label: "Due-diligence dossier - Max", price: 3900, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "fund-report": { label: "Fund portfolio report (13F)", price: 900, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
-  "fund-report-max": { label: "Fund portfolio report - Deep", price: 1900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
-  "domain-audit": { label: "Domain security audit", price: 500, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
-  "domain-audit-pro": { label: "Domain security audit - Pro", price: 900, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
-  "recall-report": { label: "FDA recall report", price: 500, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
-  "insider-report": { label: "Insider flow report (Form 4)", price: 900, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
-  "market-brief": { label: "Market / competitor brief", price: 1500, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
+  "research": { label: "Deep research report", price: 300, kind: "research", slug: "research", inputField: "query", inputLabel: "your research question" },
+  "research-pro": { label: "Deep research report - Pro", price: 700, kind: "research", slug: "research-pro", inputField: "query", inputLabel: "your research question" },
+  "research-max": { label: "Deep research report - Max", price: 1200, kind: "research", slug: "research-max", inputField: "query", inputLabel: "your research question" },
+  "dossier": { label: "Company due-diligence dossier", price: 900, kind: "dossier", slug: "dossier", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "dossier-max": { label: "Due-diligence dossier - Max", price: 1900, kind: "dossier", slug: "dossier-max", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "fund-report": { label: "Fund portfolio report (13F)", price: 400, kind: "fund", slug: "fund-report", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "fund-report-max": { label: "Fund portfolio report - Deep", price: 900, kind: "fund", slug: "fund-report-max", inputField: "manager", inputLabel: "a fund name, ticker, or CIK" },
+  "domain-audit": { label: "Domain security audit", price: 300, kind: "domain", slug: "domain-audit", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "domain-audit-pro": { label: "Domain security audit - Pro", price: 500, kind: "domain", slug: "domain-audit-pro", inputField: "domain", inputLabel: "a domain, e.g. example.com" },
+  "recall-report": { label: "FDA recall report", price: 300, kind: "recall", slug: "recall-report", inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan" },
+  "insider-report": { label: "Insider flow report (Form 4)", price: 400, kind: "insider", slug: "insider-report", inputField: "ticker", inputLabel: "a US stock ticker" },
+  "market-brief": { label: "Market / competitor brief", price: 700, kind: "research", slug: "market-brief", inputField: "query", inputLabel: "a market, category or company" },
 };
 
 // Stripe metadata: <= 50 keys, value <= 500 chars. Inputs are capped at 2000

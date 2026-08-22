@@ -16,14 +16,14 @@ claim below is served live; verify prices against `/api/pricing` before pasting.
   $20 / $50 / $100 packs at https://agent402.tools/credits, spent on any priced
   route with `Authorization: Bearer a402_…`, debited only on a successful call, never expire.
 - **Report products** (same endpoint over x402/MPP, or by card at
-  https://agent402.tools/reports): deep research `POST /v1/research` $5,
-  `/v1/research/pro` $15, `/v1/research/max` $30, market brief
-  `/v1/research/market-brief` $15; company dossier `/v1/dossier` $19,
-  `/v1/dossier/max` $39; 13F fund report `/v1/fund` $9, `/v1/fund/max` $19;
-  domain audit `/v1/domain-audit` $5, `/v1/domain-audit/pro` $9; FDA recall
-  `/v1/recall-report` $5; insider flow `/v1/insider-report` $9; token risk
-  `/v1/token-risk` $5, `/v1/token-risk/pro` $12.
-- **Monitors** ($9/month each, card, https://agent402.tools/monitors): domain
+  https://agent402.tools/reports): deep research `POST /v1/research` $3,
+  `/v1/research/pro` $7, `/v1/research/max` $12, market brief
+  `/v1/research/market-brief` $7; company dossier `/v1/dossier` $9,
+  `/v1/dossier/max` $19; 13F fund report `/v1/fund` $4, `/v1/fund/max` $9;
+  domain audit `/v1/domain-audit` $3, `/v1/domain-audit/pro` $5; FDA recall
+  `/v1/recall-report` $3; insider flow `/v1/insider-report` $4; token risk
+  `/v1/token-risk` $3, `/v1/token-risk/pro` $6.
+- **Monitors** ($5/month each, card, https://agent402.tools/monitors): domain
   security, 13F fund, FDA recall, insider flow, IPO pipeline - a cheap daily probe,
   a full paid re-run and an email only when something changes.
 - **MCP:** hosted connector `https://agent402.tools/mcp` (dotted tools:

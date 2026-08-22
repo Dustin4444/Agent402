@@ -37,7 +37,7 @@ These exist because an agent mid-task cannot give itself a browser, a paid searc
 
 ## Report products (outcome-priced, same 402)
 
-When the job is a whole report rather than a call, the `/v1` report routes sell one finished, cited report per payment - `POST /v1/research` ($5, pro $15, max $30), `/v1/research/market-brief` ($15), `/v1/dossier` ($19, max $39), `/v1/fund` ($9, max $19), `/v1/domain-audit` ($5, pro $9), `/v1/recall-report` ($5), `/v1/insider-report` ($9), `/v1/token-risk` ($5, pro $12), and the deterministic `/v1/ipo-report` digest ($0.05). Same x402 / MPP 402 as every other route, plus prepaid card credits; people buy the same reports by card at `/reports`. Inputs, cadences and the $9/month monitors are on [[Reports, Monitors and Credits|Reports-and-Monitors]].
+When the job is a whole report rather than a call, the `/v1` report routes sell one finished, cited report per payment - `POST /v1/research` ($3, pro $7, max $12), `/v1/research/market-brief` ($7), `/v1/dossier` ($9, max $19), `/v1/fund` ($4, max $9), `/v1/domain-audit` ($3, pro $5), `/v1/recall-report` ($3), `/v1/insider-report` ($4), `/v1/token-risk` ($3, pro $6), and the deterministic `/v1/ipo-report` digest ($0.05). Same x402 / MPP 402 as every other route, plus prepaid card credits; people buy the same reports by card at `/reports`. Inputs, cadences and the $5/month monitors are on [[Reports, Monitors and Credits|Reports-and-Monitors]].
 
 ## The long tail (pure-CPU, also payable with compute)
 

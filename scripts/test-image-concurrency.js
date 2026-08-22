@@ -22,7 +22,12 @@ import { Jimp, JimpMime } from "jimp";
 const PORT = 3221;
 const B = `http://localhost:${PORT}`;
 const BURST = 8;
-const HEALTH_BUDGET_MS = 500;
+// Worst single sample across the burst. Total starvation measured 363ms MEDIAN with
+// most probes never landing, so a worst-case bound in the low seconds still catches
+// the class; the MEDIAN bound below is the precise guard. A shared CI runner's single
+// slowest sample sits in the 400-600ms range on a healthy pool (528ms observed
+// 2026-08-22 on main with the median at a few ms), so the worst-case bound is 1000ms.
+const HEALTH_BUDGET_MS = 1000;
 const HEALTH_MEDIAN_BUDGET_MS = 100;
 
 let pass = 0, failed = 0;
