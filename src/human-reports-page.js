@@ -115,6 +115,15 @@ export function humanReportsPage(baseUrl) {
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="dossier">Get dossier →</button>
         <div class="note" style="margin-top:10px;"><a href="/tools/dossier" style="color:var(--muted);">Sample output + API docs →</a></div>
       </div>
+      <div class="pcard" data-kind="filing">
+        <div class="k">SEC filing report</div>
+        <h3>What did they just file</h3>
+        <p>The company's newest SEC filings, with the document itself read and explained in plain language, cited to the filing.</p>
+        <div class="field"><input id="in-filing" type="text" placeholder="A US ticker, e.g. AAPL" style="text-transform:uppercase"></div>
+        <div class="err" id="err-filing"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="filing">Get the report &rarr;</button>
+        <div class="note" style="margin-top:10px;"><a href="/tools/filing-report" style="color:var(--muted);">Sample output + API docs &rarr;</a></div>
+      </div>
       <div class="pcard" data-kind="ticker">
         <div class="k">Ticker pack</div>
         <h3>One ticker, the whole picture</h3>

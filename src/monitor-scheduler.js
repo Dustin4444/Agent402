@@ -38,6 +38,7 @@ export const DOMAIN_FULL_MS = 30 * DAY;
 export const FUND_CHECK_MS = DAY;
 export const RECALL_CHECK_MS = DAY;
 export const TOKEN_CHECK_MS = DAY;
+export const FILING_CHECK_MS = DAY;
 export const INSIDER_CHECK_MS = DAY;
 export const IPO_DIGEST_MS = 7 * DAY;
 export const MIN_FULL_GAP_MS = 12 * HOUR;
@@ -84,6 +85,7 @@ function inputFor(kind, target, st) {
   if (kind === "ipo") return { days: 7, keyword: target === "all" ? "" : target };
   if (kind === "insider") return { ticker: target, days: 90 };
   if (kind === "token") return { mint: target };
+  if (kind === "filing") return { ticker: target, days: 30, allowEmpty: true, ...(st?.filingNew?.length ? { focus: st.filingNew } : {}) };
   return target;
 }
 
@@ -122,7 +124,7 @@ export function describeDomainChanges(prev, next) {
  * @param {(s:string)=>void} [deps.log]
  * @param {(ms:number)=>Promise<void>} [deps.sleep]
  */
-export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), manageUrlFor = () => `${baseUrl}/monitors`, refreshStatus = null, probeRecalls = null, probeIpos = null, probeInsiderFilings = null, probeTokenBrief = null, describeTokenChanges = null }) {
+export function createMonitorScheduler({ subs, generate, probeDomain, normDomain, latestFiling, resolveManager, notify, baseUrl, storePath, now = () => Date.now(), ownerId, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), manageUrlFor = () => `${baseUrl}/monitors`, refreshStatus = null, probeRecalls = null, probeIpos = null, probeInsiderFilings = null, probeTokenBrief = null, describeTokenChanges = null, probeCompanyFilings = null, describeFilingChanges = null }) {
   const path = storePath || STORE_PATH();
   let store = loadStore(path);
   const me = ownerId || `${process.env.RAILWAY_REPLICA_ID || "local"}:${process.pid}:${randomBytes(3).toString("hex")}`;
@@ -318,6 +320,35 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
   // TOKEN_CHECK_MS. A changed safety fingerprint (authority flipped, LP lock
   // bucket moved, concentration bucket moved, risk band changed) triggers one
   // paid re-run and a "safety-change" email. The baseline advances only after a
+  // filing: welcome report on first sight; then a FREE one-request probe of the
+  // company's EDGAR submissions index every FILING_CHECK_MS. An accession not
+  // seen before means a paid re-run plus a "filing-new" email naming what
+  // landed. The seen-set advances only after a SUCCESSFUL run, so a failed run
+  // re-detects the same filings on the retry.
+  async function processFiling(rec, st, { force, budget }) {
+    if (typeof probeCompanyFilings !== "function") return "skip";
+    const retryPending = (st.failures || 0) > 0;
+    const checkDue = force || retryPending || !st.lastCheckAt || now() - st.lastCheckAt >= FILING_CHECK_MS || !st.filingKeys;
+    if (!checkDue) return "skip";
+    let pf;
+    try { pf = await probeCompanyFilings(rec.target); }
+    catch (e) { fail(st, e, rec); return "error"; }
+    st.lastCheckAt = now();
+    const first = !st.filingKeys;
+    const seen = new Set(st.filingKeys || []);
+    const fresh = first ? [] : (pf.filings || []).filter((f) => !seen.has(`${f.accession}|${String(f.form || "").toUpperCase()}`));
+    if (!first && !fresh.length) { recovered(st); persist(); return "checked"; }
+    const changes = first || typeof describeFilingChanges !== "function" ? [] : describeFilingChanges({ keys: st.filingKeys }, pf);
+    if (!first && capReached(st)) { await alertOnly(rec, st, "filing-new", changes); st.filingKeys = pf.keys; recovered(st); persist(); return "alert"; }
+    if (!budget.allow()) { persist(); return "skip"; }
+    st.filingNew = fresh.slice(0, 3).map((f) => f.accession);   // read what just landed FIRST
+    try {
+      await runFull(rec, st, first ? "welcome" : "filing-new", changes);
+      st.filingKeys = pf.keys; st.filingNew = null; persist();
+      return "full";
+    } catch (e) { fail(st, e, rec); return "error"; }
+  }
+
   // SUCCESSFUL run, so a failed run re-detects the change on the retry.
   async function processToken(rec, st, { force, budget }) {
     if (typeof probeTokenBrief !== "function") return "skip";
@@ -427,6 +458,7 @@ export function createMonitorScheduler({ subs, generate, probeDomain, normDomain
     if (!opts.force && st.nextAttemptAt && now() < st.nextAttemptAt) return "skip";
     if (p.kind === "domain") return processDomain(rec, st, opts);
     if (p.kind === "fund") return processFund(rec, st, opts);
+    if (p.kind === "filing") return processFiling(rec, st, opts);
     if (p.kind === "token") return processToken(rec, st, opts);
     if (p.kind === "recall") return processRecall(rec, st, opts);
     if (p.kind === "ipo") return processIpo(rec, st, opts);

@@ -75,11 +75,11 @@
     // "Deep Research Report" on someone else's delivered report.
     return { dossier: "Company Due-Diligence Dossier", fund: "Fund Portfolio Report (13F)",
       domain: "Domain Security Audit", recall: "FDA Recall Report", insider: "Insider Flow Report (Form 4)",
-      token: "Solana Token Due-Diligence Brief", ipo: "IPO Pipeline Digest", ticker: "Ticker Pack",
+      filing: "SEC Filing Report", token: "Solana Token Due-Diligence Brief", ipo: "IPO Pipeline Digest", ticker: "Ticker Pack",
       research: "Deep Research Report" }[kind] || "Deep Research Report";
   }
   function reasonLabel(r) {
-    return { welcome: "first report", scheduled: "scheduled re-run", change: "change detected", "tls-expiring": "certificate expiring", filing: "new 13F filing", recall: "new recall activity", "safety-change": "token safety changed", digest: "weekly digest", problem: "we could not complete this run" }[r] || r;
+    return { welcome: "first report", scheduled: "scheduled re-run", change: "change detected", "tls-expiring": "certificate expiring", filing: "new 13F filing", recall: "new recall activity", "safety-change": "token safety changed", "filing-new": "new SEC filing", digest: "weekly digest", problem: "we could not complete this run" }[r] || r;
   }
   function fmtDate(iso) {
     try { var d = new Date(iso); if (isNaN(d)) return ""; return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" }); }

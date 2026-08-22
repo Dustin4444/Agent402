@@ -25,6 +25,11 @@ export const MONITOR_PRODUCTS = {
     inputField: "domain", inputLabel: "a domain, e.g. example.com",
     blurb: "Monthly re-audit of your domain's email auth, TLS and security headers, with an alert the moment your certificate is expiring or your config drifts.",
   },
+  "filing-monitor": {
+    label: "SEC filing watch", price: 500, kind: "filing", slug: "filing-report",
+    inputField: "ticker", inputLabel: "a US stock ticker",
+    blurb: "We check this company's SEC filings index every day and email you a fresh cited report the moment anything new lands, an 8-K, a 10-Q, a 10-K, a proxy or a registration statement, with the new document read and explained in plain language.",
+  },
   "token-monitor": {
     label: "Solana token safety watch", price: 500, kind: "token", slug: "token-brief",
     inputField: "mint", inputLabel: "a Solana token mint address",

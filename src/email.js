@@ -102,6 +102,7 @@ export function buildMonitorEmail({ reason, label, target, changes = [], reportU
     problem: `We could not complete your ${lbl} for ${t}`,
     recall: `New FDA recall activity: ${t}`,
     "safety-change": `Token safety changed: ${t}`,
+    "filing-new": `New SEC filing: ${t}`,
     digest: `${lbl}: this week's filings${t && t !== "all" ? ` for ${t}` : ""}`,
   };
   const leads = {
@@ -113,6 +114,7 @@ export function buildMonitorEmail({ reason, label, target, changes = [], reportU
     problem: `We have tried several times and could not produce a report for ${t}. We will keep trying daily; if the target is wrong, you can cancel or re-subscribe with a corrected one from the manage link below.`,
     recall: `The FDA recall feeds show new activity for ${t} since your last report:`,
     "safety-change": `The on-chain safety picture for this token changed since your last brief:`,
+    "filing-new": `${t} has filed with the SEC since your last report. Here is what landed, with the new document read and explained:`,
     digest: `Your weekly IPO pipeline digest is ready${t && t !== "all" ? ` (filers matching "${t}")` : ""}.`,
   };
   const subj = subjects[reason] || `${lbl}: update for ${t}`;
