@@ -108,6 +108,15 @@ export function humanReportsPage(baseUrl) {
         <div class="err" id="err-fund"></div>
         <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="fund">Get report →</button>
       </div>
+      <div class="pcard" data-kind="recall">
+        <div class="k">FDA recall report</div>
+        <h3>Is it recalled?</h3>
+        <p>Every FDA drug, food and device recall record for a product, brand or ingredient: firm, class, reason, status, distribution. Organized and explained, cited to the FDA feeds.</p>
+        <div class="field"><input id="in-recall" type="text" placeholder="A drug, food, brand or device, e.g. losartan"></div>
+        <div class="tiers">${tierBtn("recall-report", "Report", true)}</div>
+        <div class="err" id="err-recall"></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:12px" data-buy="recall">Get report →</button>
+      </div>
       <div class="pcard" data-kind="domain">
         <div class="k">Domain audit</div>
         <h3>Is your domain secure?</h3>

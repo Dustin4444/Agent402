@@ -30,6 +30,16 @@ export const MONITOR_PRODUCTS = {
     inputField: "manager", inputLabel: "a fund name, ticker, or CIK",
     blurb: "We watch this manager's SEC 13F filings and email you a fresh holdings + changes report each time they file.",
   },
+  "recall-monitor": {
+    label: "FDA recall watch", price: 900, kind: "recall", slug: "recall-report",
+    inputField: "query", inputLabel: "a drug, food, brand or device, e.g. losartan",
+    blurb: "We check the FDA drug, food and device recall feeds for your term every day and email you a fresh cited report the moment a new recall appears.",
+  },
+  "ipo-monitor": {
+    label: "IPO pipeline watch", price: 900, kind: "ipo", slug: "ipo-report",
+    inputField: "keyword", inputLabel: "a keyword in the filer's name, or \"all\"",
+    blurb: "A weekly digest of every IPO that priced (424B4) and every new S-1 registration on SEC EDGAR, filtered to your keyword or the whole market. Filing facts only, no guessing.",
+  },
 };
 
 export function subscriptionsEnabled() {

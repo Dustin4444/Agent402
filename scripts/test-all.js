@@ -267,6 +267,9 @@ const NETWORK = new Set([
   // domain-audit composites: live probes + synthesis; 503 without
   // OPENROUTER_API_KEY, same NETWORK tolerance.
   "/v1/domain-audit", "/v1/domain-audit/pro",
+  // recall-report (openFDA + synthesis, 503 without OPENROUTER_API_KEY) and the
+  // deterministic ipo-report (EDGAR full-text search) - live upstreams.
+  "/v1/recall-report", "/v1/ipo-report",
   // token-risk composites: Blockscout x402 buys + synthesis; 503 without the
   // upstream-buyer wallet / OPENROUTER_API_KEY, same NETWORK tolerance.
   "/v1/token-risk", "/v1/token-risk/pro",

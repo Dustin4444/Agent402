@@ -441,6 +441,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Prod runs ONE replica (Railway `numReplicas: 1`), so the cross-replica lost-update class is theoretical;
   the file stores are now safe for it anyway. Tests: test-human-checkout (39), test-stripe-subscriptions
   (28), test-monitor-scheduler (41), test-composite-guard (16, incl. EVM-only accepts + global breaker).
+- **Recall watch + IPO watch (2026-08-22):** `src/tools/recall-report-kit.js` (`recall-report` $5, POST
+  `/v1/recall-report {query}`: free openFDA drug/food/device enforcement probes -> grounding-strict Opus
+  synthesis, records appendix; `probeRecalls()` exported - the monitor's free daily probe, fingerprint =
+  recall numbers; `allowEmpty:true` lets a welcome report find nothing yet; WALLET_ONLY, composite-guarded,
+  METERED) and `src/tools/ipo-report-kit.js` (`ipo-report` $0.05, POST `/v1/ipo-report {days, keyword}`:
+  DETERMINISTIC S-1 + 424B4 digest from EDGAR full-text search, no LLM; `probeIpos()`; WALLET_ONLY for
+  egress, not composite-guarded). Monitor kinds in `monitor-scheduler.js`: `recall` (daily probe, paid
+  re-run + "recall" email only on a NEW recall number, seen-set advances after success) and `ipo`
+  (weekly "digest" run, no email on an empty week). Products: `recall-monitor` + `ipo-monitor` ($9/mo) in
+  MONITOR_PRODUCTS, `recall-report` ($5) in HUMAN_PRODUCTS + `/reports` card. Adding a monitor kind =
+  kit with a cheap `probeX()` + a `processX` branch + MONITOR_PRODUCTS entry + email reason.
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

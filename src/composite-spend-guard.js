@@ -40,6 +40,7 @@ export const EXPENSIVE_COMPOSITE_SLUGS = new Set([
   "research", "research-pro", "research-max", "dossier", "dossier-max",
   "fund-report", "fund-report-max", "domain-audit", "domain-audit-pro",
   "token-risk", "token-risk-pro",
+  "recall-report",
 ]);
 
 /** True if this payer is currently blocked (checked BEFORE the handler spends). */
