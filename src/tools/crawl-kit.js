@@ -353,7 +353,9 @@ export function parseSitemap(text) {
     const index = /<sitemapindex[\s>]/i.test(s);
     const locs = [];
     for (const m of s.matchAll(/<loc>\s*([^<]+?)\s*<\/loc>/gi)) {
-      locs.push(m[1].replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'"));
+      // ONE pass: decoding &amp; first would turn "&amp;lt;" into "<" (the
+      // classic double-unescape), so every entity is replaced in a single scan.
+      locs.push(m[1].replace(/&(amp|lt|gt|quot|#39);/g, (_, e) => ({ amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'" }[e])));
       if (locs.length >= 5000) break;
     }
     return { index, locs };

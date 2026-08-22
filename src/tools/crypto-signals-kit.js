@@ -287,7 +287,15 @@ function stripTitlePrefix(summary, title, outletName) {
 
 export function parseFeed(text, outletName = null) {
   const body = String(text || "").replace(/^\uFEFF/, "");
-  const head = body.slice(0, 4096).replace(/<\?xml[\s\S]*?\?>/i, "").replace(/<!--[\s\S]*?-->/g, "").replace(/<!DOCTYPE[^>]*>/i, "").trimStart();
+  // Strip to a FIXED POINT: a single pass leaves a nested "<!--<!-- -->" behind,
+  // which would let a hostile body hide the real root element from this sniff.
+  let head = body.slice(0, 4096).replace(/<\?xml[\s\S]*?\?>/i, "").replace(/<!DOCTYPE[^>]*>/i, "");
+  for (let i = 0; i < 8; i++) {
+    const next = head.replace(/<!--[\s\S]*?-->/g, "");
+    if (next === head) break;
+    head = next;
+  }
+  head = head.trimStart();
   const isAtom = /^<feed[\s>]/i.test(head);
   const isRss = /^<rss[\s>]/i.test(head) || /^<rdf:RDF[\s>]/i.test(head);
   if (!isAtom && !isRss) throw new Error("not a valid RSS/Atom feed");

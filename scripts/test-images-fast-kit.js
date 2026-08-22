@@ -34,7 +34,9 @@ ok(IMAGES_FAST_TOOLS.every((t) => t.discovery?.bodyType === "json" && t.discover
 ok(IMAGES_FAST_TOOLS.every((t) => !/\u2014/.test(t.description + t.name)), "no em dashes in tool copy");
 for (const [tier, t] of Object.entries(IMAGE_TIERS)) {
   ok(t.chain.length === 2 && t.chain.every((l) => l.model && l.provider && typeof l.worstCaseUsd === "number" && l.listed?.unit && typeof l.listed.maxCostUsd === "number"), `${tier}: primary + one failover, each with a provider pin, a bound and a listed-price check`);
-  ok(String(t.price) === bySlug(tier).price.replace("$", "").replace(/0+$/, "").replace(/\.$/, "") || Math.abs(t.price - Number(bySlug(tier).price.slice(1))) < 1e-9, `${tier}: tool price string matches the tier price`);
+  // Compare NUMBERS, not trimmed strings: a chain of trailing-zero replaces is
+  // both fragile ("$10" would become "$1") and reads as a sanitizer.
+  ok(Math.abs(Number(t.price) - Number(String(bySlug(tier).price).replace(/^\$/, ""))) < 1e-9, `${tier}: tool price matches the tier price`);
 }
 const table = mediaMarginTable();
 ok(table.length === 5 && table.every((r) => withinMargin(r.price, r.worst)), `margin: every link's bound is <= ${MARGIN * 100}% of its tier price (${table.map((r) => `${r.model}@$${r.price}:$${r.worst}`).join(", ")})`);

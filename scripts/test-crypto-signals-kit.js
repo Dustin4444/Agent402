@@ -239,7 +239,7 @@ ok(Object.keys(NEWS_SOURCES).length >= 5 && Object.keys(NEWS_SOURCES).length <= 
   const urls = r.items.map((i) => i.url);
   ok(new Set(urls).size === urls.length && urls.filter((u) => u === "https://a.example/news/btc-etf").length === 1, "same story from two feeds deduped by canonical URL");
   ok(r.items.length === 5 && r.totalMatched === 5, `5 unique in-window items across feeds (got ${r.items.length}/${r.totalMatched})`);
-  ok(!urls.includes("https://a.example/news/old"), "item older than the hours window excluded");
+  ok(!urls.some((u) => u === "https://a.example/news/old"), "item older than the hours window excluded");
   const times = r.items.map((i) => Date.parse(i.publishedAt));
   ok(times.every((t, k) => k === 0 || times[k - 1] >= t), "items sorted newest first");
   ok(r.items[0].source === "coindesk" && r.items[0].sourceName === "CoinDesk" && r.items[0].title && r.items[0].summary !== undefined, "item shape: title/url/source/sourceName/publishedAt/summary");

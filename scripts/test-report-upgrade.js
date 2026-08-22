@@ -147,7 +147,7 @@ const ctaPrices = [...box.textContent.matchAll(/\$[0-9.]+ a month/g)].map((x) =>
 ok(ctaPrices.length >= 2 && ctaPrices.every((x) => x === `${priceUsd(MONITOR_PRODUCTS["domain-monitor"].price)} a month`),
   "EVERY price the CTA quotes comes from MONITOR_PRODUCTS (no copy carries its own number)");
 ok(box.querySelector("a").getAttribute("href") === "/monitors?product=domain-monitor&target=example.com", "the CTA's plain link is the prefill deep link");
-ok(box.textContent.includes("example.com"), "the CTA names what will be watched");
+ok(/\bexample\.com\b/.test(box.textContent), "the CTA names what will be watched");
 
 // clicking POSTs the existing subscribe flow with the target prefilled
 r.doc.getElementById("up-go").click();

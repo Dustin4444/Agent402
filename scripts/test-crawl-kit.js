@@ -158,11 +158,11 @@ ok(map.url === "https://example.com/" && map.host === "example.com", "site-map: 
 ok(map.fetches === 5 && map.fetches <= 6, `site-map: home + robots + index + 2 children = 5 fetches (got ${map.fetches})`);
 ok(fetchedPaths()[0] === "/" && fetchedPaths()[1] === "/robots.txt", "site-map: start page first, robots second");
 ok(map.sitemapsRead === 3, `site-map: index + gz child + plain child read (got ${map.sitemapsRead})`);
-ok(map.urls.includes("https://example.com/blog/2") && map.urls.includes("https://example.com/docs"), "site-map: gzipped child sitemap URLs present");
-ok(map.urls.includes("https://example.com/about") && map.urls.includes("https://example.com/target") === false, "site-map: link + sitemap URLs merged (redirect target not fetched here)");
-ok(!map.urls.some((u) => u.includes("other.test") || u.includes("iana.org")), "site-map: offsite URLs filtered");
+ok(map.urls.some((u) => u === "https://example.com/blog/2") && map.urls.some((u) => u === "https://example.com/docs"), "site-map: gzipped child sitemap URLs present");
+ok(map.urls.some((u) => u === "https://example.com/about") && !map.urls.some((u) => u === "https://example.com/target"), "site-map: link + sitemap URLs merged (redirect target not fetched here)");
+ok(!map.urls.some((u) => { const h = new URL(u).host; return h === "other.test" || h.endsWith(".other.test") || h === "iana.org" || h.endsWith(".iana.org"); }), "site-map: offsite URLs filtered");
 ok(!map.urls.some((u) => u.includes("10.0.0") || u.includes("127.0.0.1")), "site-map: private-IP URLs filtered");
-ok(!map.urls.some((u) => u.includes("docs.example.com")), "site-map: subdomain excluded by default");
+ok(!map.urls.some((u) => new URL(u).host === "docs.example.com"), "site-map: subdomain excluded by default");
 ok(!map.urls.some((u) => u.includes("#") || u.startsWith("mailto")), "site-map: fragments + non-http dropped");
 ok(new Set(map.urls).size === map.urls.length, "site-map: deduped");
 ok(map.sources.sitemap + map.sources.links === map.total && map.sources.sitemap >= 2 && map.sources.links >= 5, `site-map: sources add up (${JSON.stringify(map.sources)} total ${map.total})`);
@@ -175,7 +175,7 @@ fetched = [];
 const mapSub = await h("site-map")({ url: "https://www.example.com/", includeSubdomains: true, limit: 3, search: "DOCS" });
 ok(mapSub.urls.length <= 3 && mapSub.truncated === (mapSub.total > 3), `site-map: limit + truncated flag (${mapSub.total} total, ${mapSub.urls.length} returned)`);
 ok(mapSub.urls.every((u) => u.toLowerCase().includes("docs")), "site-map: search is a case-insensitive substring filter");
-ok(mapSub.urls.includes("https://docs.example.com/p"), "site-map: includeSubdomains keeps subdomain URLs");
+ok(mapSub.urls.some((u) => u === "https://docs.example.com/p"), "site-map: includeSubdomains keeps subdomain URLs");
 ok(mapSub.host === "www.example.com" && mapSub.urls.some((u) => u.startsWith("https://example.com/")), "site-map: www start counts bare host as the same site");
 
 // fetch-count bound: a sitemap index with many children stops at 6 fetches and says so

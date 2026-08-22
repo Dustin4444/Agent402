@@ -288,7 +288,7 @@ ok(!/\n## Sources\n[\s\S]*\n## Sources\n/.test(out.report), "there is exactly ON
 // merged + deduped sources, renumbered citations
 const urls = out.sources.map((x) => x.url);
 eq(new Set(urls).size, urls.length, "the merged source list has no duplicate URLs");
-ok(urls.includes("https://www.sec.gov/dossier-1") && urls.includes("https://www.sec.gov/insider-1"), "both parts' sources are merged in");
+ok(urls.some((u) => u === "https://www.sec.gov/dossier-1") && urls.some((u) => u === "https://www.sec.gov/insider-1"), "both parts' sources are merged in");
 ok(urls.includes(HOLDERS.managers[0].url) && urls.includes(HOLDERS.searchUrl), "the holders leg contributes its information tables and its search");
 ok(urls.includes(FILINGS.browseUrl), "the EDGAR filing history is a source");
 eq(out.sources.map((x) => x.n).join(","), out.sources.map((_x, i) => i + 1).join(","), "the merged source list is numbered 1..N with no gaps");
