@@ -106,10 +106,13 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
     // domain that does not parse or a manager EDGAR cannot resolve would
     // otherwise be billed monthly for nothing. validateTarget[kind] returns the
     // canonical target or throws a 4xx with a buyer-facing message.
-    const v = validateTarget[p.kind];
+    const v = validateTarget[p.kind];  // errors from here may quote an upstream body - see the relay guard below
     if (typeof v === "function") {
       try { const t = await v(target); if (typeof t === "string" && t.trim()) target = t.trim().slice(0, 200); }
-      catch (err) { const e = new Error(String(err?.message || `We could not validate ${p.inputLabel}.`).slice(0, 200)); e.statusCode = err?.statusCode && err.statusCode < 500 ? err.statusCode : 400; throw e; }
+      // NEVER relay the validator's message verbatim: an EDGAR/upstream helper
+      // puts a slice of the upstream BODY into it, and this route is
+      // unauthenticated. Only a message we minted ourselves (buyerSafe) passes.
+      catch (err) { const e = new Error(err?.buyerSafe ? String(err.message).slice(0, 200) : `We could not validate ${p.inputLabel}. Check it and try again.`); e.statusCode = err?.statusCode && err.statusCode < 500 ? err.statusCode : 400; throw e; }
     }
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",

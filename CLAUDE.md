@@ -1311,6 +1311,31 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   are the legacy push-trigger path; card PNGs under docs/announcements/media are
   fine to commit). No posted-tweet log or conversation state in this file.
 
+- **Programmatic SEC pages + token brief (2026-08-22, reviewed same day):** `/reports/insider/:ticker`,
+  `/reports/fund/:manager`, `/reports/dossier/:ticker` plus three crawlable hubs (`src/programmatic-pages.js`,
+  `src/programmatic-seeds.js`: 100 tickers + 50 managers, each verified against EDGAR, 253 seeded URLs in
+  `/sitemap-reports.xml`). Free teaser from real filings, paid CTA priced from HUMAN_PRODUCTS, Dataset +
+  Breadcrumb + Product JSON-LD. **Cost design is the whole game here (free public pages on a paid egress):**
+  shape regex before any upstream call; insider/dossier resolve against the 1h-cached `company_tickers.json` so a
+  random ticker costs ZERO EDGAR calls; **an off-list FUND slug builds nothing at all** (it would otherwise be one
+  live EDGAR full-text-search per unique slug on an unbounded slug space, aimed at the same egress the paid EDGAR
+  products use - a builder returning null is a 404 plus a negative-cache entry); positive and negative caches are
+  SEPARATE bounded maps (one shared map let a spray of bad slugs evict every seeded page, which then rebuilt
+  through a saturated gate and served crawlers "could not be read"); an EDGAR gate of 2 concurrent with a queue of
+  8, `while` not `if` so a resumed waiter cannot barge; `EDGAR_FETCH_TIMEOUT_MS` (12s) on every EDGAR socket,
+  because a caller-side deadline frees its gate slot while an unbounded fetch keeps running; the limiter PEEKS to
+  refuse and spends 1 per render / 2 per EDGAR build at 1200/min, sized so one full-sitemap crawl fits and a spray
+  does not, and a 429 carries `Retry-After` (a 429 to Googlebot costs the page in the index); a `degraded` page
+  sends `X-Robots-Tag: noindex`; a `partial` page says the filings could not be READ rather than "no filings".
+  **`ledgerShell`'s JSON-LD now escapes `<` as `\u003c`** like `jsonScriptTag` already did - a filer name containing
+  `</script>` broke out of the block, and that affects every page that puts third-party text in JSON-LD.
+  `/api/subscribe` no longer relays a validator's message unless we minted it (`err.buyerSafe`): an EDGAR helper
+  puts a slice of the UPSTREAM BODY in there and that route is unauthenticated.
+  `src/tools/token-brief-kit.js`: `token-brief` $9 (`POST /v1/token-brief`), one Opus synthesis over five keyless
+  Solana probes, grounding-strict, thin-evidence refusals (<2 of 5 sources, or no market AND no holder data);
+  WALLET_ONLY + EXPENSIVE_COMPOSITE (so longRunning = EVM exact only) + METERED. Card product `token-brief` $9 and
+  `token-monitor` $5/mo (kind `token`, daily free probe, paid re-run only on a changed safety fingerprint;
+  liquidity-derived risk NAMES are excluded from the fingerprint or a thin token flaps daily and burns its cap).
 - **Review round on the seller-landscape kits (2026-08-22, three lenses: leaks/SSRF/PII, money/economics, abuse/DoS/hygiene):**
   no HIGH left open. PII: served discovery examples for the enrichment + Farcaster tools named a REAL person with a work email,
   title and social handle (same class as the Form 4 example) - all placeholders now, and the offline fixtures with them.

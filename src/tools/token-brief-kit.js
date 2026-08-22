@@ -45,6 +45,11 @@ export const TOKEN_BRIEF_MODELS = [SYNTH];
 // well under the cap; every other leg is keyless (zero upstream cost).
 export const TOKEN_BRIEF_TIERS = {
   "token-brief": {
+    // NOTE: `maxUpstreamUsd` is a DECLARED bound, not an enforced one - only
+    // research-deep reads its own field (to downgrade the synthesis model). The
+    // real bound here is structural: one call, one locked model, `synthMaxTokens`
+    // below, and the keyless probes cost nothing. Keep this number honest so the
+    // margin review can compare it against the price.
     price: "$9", maxUpstreamUsd: 3.0,
     holders: 15, pairs: 8, markets: 6, lockers: 6, risks: 20,
     synthMaxTokens: 6000, words: "~2,000",
@@ -122,6 +127,13 @@ export function authorityBucket(mintDisabled, freezeDisabled) {
  *  to the safety facts a monitor should re-run on. Returns the signals, a
  *  deterministic fingerprint of them, and the raw safety payload for callers
  *  that want the named risks. */
+// Risk NAMES that move with ordinary intra-day liquidity rather than with the
+// token's safety posture ("low liquidity", "low amount of LP providers", ...).
+// They belong in the paid brief, which reports them, but not in the monitor's
+// fingerprint: a thin token would otherwise change fingerprint most days and
+// burn its whole paid-run budget in the first fortnight, then alert forever.
+const FLAPPY_RISK_RE = /(liquidity|LP providers|volume|market cap|price)/i;
+
 export async function probeTokenBrief(mintInput) {
   const mint = normMint(mintInput);
   const safety = await H("sol-token-safety")({ mint });
@@ -138,7 +150,7 @@ export async function probeTokenBrief(mintInput) {
     topHolders: concentrationBucket(safety?.holders?.topHoldersPct),
     riskLevel: safety?.riskLevel || "unknown",
     dangerRisks: n(safety?.riskCounts?.danger) ?? 0,
-    risks: [...new Set((safety?.risks || []).map((r) => String(r?.name || "")).filter(Boolean))].sort(),
+    risks: [...new Set((safety?.risks || []).map((r) => String(r?.name || "")).filter(Boolean).filter((nm) => !FLAPPY_RISK_RE.test(nm)))].sort(),
   };
   return {
     mint,

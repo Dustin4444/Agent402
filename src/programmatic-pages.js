@@ -8,7 +8,7 @@
 // These pages are FREE and PUBLIC, so the cost discipline is the design:
 //
 //   1. SEC EDGAR is the only upstream, and a page makes at most a handful of
-//      requests (dossier 1, fund 3, insider 1 + up to 3 filing XMLs).
+//      requests (dossier 1, fund 3, insider 1-2 + up to 4 filing XMLs).
 //   2. Every result is cached in-process for 12 hours in a BOUNDED map with
 //      oldest-first eviction, so a crawler walking 100 tickers pays EDGAR once
 //      per entity per half-day, not once per hit.
@@ -75,18 +75,25 @@ const MAX_ENTRIES = Number(process.env.PROGRAMMATIC_CACHE_MAX) || 600;
  *  never evict more than MAX_ENTRIES worth of anything. */
 export function createTeaserCache({ ttlMs = TTL_MS, negTtlMs = NEG_TTL_MS, max = MAX_ENTRIES, now = () => Date.now() } = {}) {
   const map = new Map();
+  // Misses live in their OWN bounded map. Sharing one map let a spray of
+  // unresolvable slugs evict every seeded page, which then rebuilt through a
+  // gate the same caller was saturating and served degraded to crawlers.
+  const misses = new Map();
   const evict = () => { while (map.size > max) { const k = map.keys().next().value; map.delete(k); } };
+  const evictMisses = () => { while (misses.size > max) { const k = misses.keys().next().value; misses.delete(k); } };
   return {
     get(key) {
       const e = map.get(key);
-      if (!e) return null;
-      if (e.exp <= now()) { map.delete(key); return null; }
-      return e;
+      if (e) { if (e.exp > now()) return e; map.delete(key); }
+      const m = misses.get(key);
+      if (m) { if (m.exp > now()) return m; misses.delete(key); }
+      return null;
     },
     setValue(key, value, ttl = ttlMs) { map.delete(key); map.set(key, { value, exp: now() + ttl }); evict(); return value; },
-    setMiss(key, ttl = negTtlMs) { map.delete(key); map.set(key, { miss: true, exp: now() + ttl }); evict(); return null; },
+    setMiss(key, ttl = negTtlMs) { misses.delete(key); misses.set(key, { miss: true, exp: now() + ttl }); evictMisses(); return null; },
     get size() { return map.size; },
-    clear() { map.clear(); },
+    get missSize() { return misses.size; },
+    clear() { map.clear(); misses.clear(); },
   };
 }
 
@@ -109,7 +116,9 @@ let active = 0;
 const waiters = [];
 export const gateDepth = () => ({ active, waiting: waiters.length });
 async function withGate(fn) {
-  if (active >= MAX_CONCURRENT) {
+  // Loop, do not test once: a request that arrives while a waiter is being
+  // resumed would otherwise barge straight past MAX_CONCURRENT.
+  while (active >= MAX_CONCURRENT) {
     if (waiters.length >= MAX_QUEUE) throw GATE_BUSY;
     await new Promise((r) => waiters.push(r));
   }
@@ -201,7 +210,14 @@ export async function buildFundTeaser(slug, deps = {}) {
   const findTable = deps.findInformationTable || findInformationTable;
   const getXml = deps.fetchXmlText || fetchXmlText;
   const parseTable = deps.parse13fInformationTable || parse13fInformationTable;
-  const who = seed ? { cik: seed.cik, name: seed.name } : await resolve({ name: slugToName(slug) });
+  // An off-list fund slug would resolve through EDGAR FULL-TEXT SEARCH - one live
+  // query per unique slug, on a slug space of [a-z0-9-]{2,60}. That is an
+  // amplifier pointed at the same SEC egress our PAID report products use, so a
+  // spray here could 403 us out of $4-$25 handlers. Only seeded managers build;
+  // everyone else 404s and can still be reached by name or CIK through the paid
+  // tool, which is rate-limited and paid for.
+  if (!seed) return null;
+  const who = { cik: seed.cik, name: seed.name };
   const filing = await latest({ cik: who.cik });
   if (!filing) { const e = new Error("no 13F-HR filings"); e.statusCode = 422; throw e; }
   // Prefer the curated display name for a seeded manager: EDGAR's registered
@@ -296,6 +312,11 @@ export async function loadTeaser(kind, slug, { seeded = false, builders = {}, te
   if (!build) return { status: "missing" };
   try {
     const data = await withGate(() => deadline(build(slug), BUILD_TIMEOUT_MS));
+    // A builder that returns nothing is declining the slug outright (the fund
+    // builder does this for anything off the seed list, so an unbounded slug
+    // space can never become EDGAR full-text-search traffic). That is a 404 and
+    // a negative-cache entry, never a page carrying a made-up name in its title.
+    if (!data) { teaserCache.setMiss(key); return { status: "missing" }; }
     return { status: "ok", data: teaserCache.setValue(key, data, data?.partial ? PARTIAL_TTL_MS : undefined) };
   } catch (e) {
     // A SEEDED entity is known to exist - we curated it - so no read failure
@@ -434,7 +455,7 @@ export function insiderPage({ ticker, data, baseUrl, degraded = false }) {
     ? `<div class="pg-table-wrap"><table class="pg-table">
 <thead><tr><th>Date</th><th>Insider</th><th>Role</th><th>Transaction</th><th>Code</th><th>Shares</th><th>Price</th><th>Owned after</th></tr></thead>
 <tbody>${rows.map((r) => `<tr><td class="num">${esc(r.date || "")}</td><td class="who">${esc(r.insider || "")}</td><td>${esc(r.role || "")}</td><td>${esc(r.kind || "")}</td><td class="num">${esc(r.code || "")}</td><td class="num">${esc(fmtInt(r.shares))}</td><td class="num">${esc(fmtPrice(r.price))}</td><td class="num">${esc(r.ownedAfter == null ? "" : fmtInt(r.ownedAfter))}</td></tr>`).join("")}</tbody></table></div>`
-    : `<div class="pg-empty">${degraded || !data ? "SEC EDGAR could not be read for this company just now. The filings themselves are unaffected: try again shortly, or buy the full report, which reads them at request time." : `No Form 4 transactions were filed against ${esc(name)} in the last ${data.windowDays} days. The paid report can look back up to 365 days.`}</div>`;
+    : `<div class="pg-empty">${degraded || !data ? "SEC EDGAR could not be read for this company just now. The filings themselves are unaffected: try again shortly, or buy the full report, which reads them at request time." : data.partial ? `Form 4 filings exist for ${esc(name)} in this window, but their transaction detail could not be read just now. The paid report reads every filing at request time.` : `No Form 4 transactions were filed against ${esc(name)} in the last ${data.windowDays} days. The paid report can look back up to 365 days.`}</div>`;
   const body = `
 <section class="hero">
   <div class="eyebrow">SEC Form 4 · insider transactions · free</div>

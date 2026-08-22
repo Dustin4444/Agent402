@@ -1141,6 +1141,9 @@ try {
     stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
     // Validate targets BEFORE the recurring charge: a domain must parse; a fund
     // manager must resolve on EDGAR (the resolved registered name is stored).
+    // Our own validator messages are safe to show a buyer; anything thrown from
+    // an upstream helper is not (it can quote the upstream body), which is why
+    // the subscribe route only relays `buyerSafe` messages.
     validateTarget: {
       domain: (t) => normDomain({ domain: t }),
       fund: async (t) => { const r = /^\d{1,10}$/.test(t) ? await edgarResolveManager({ cik: t }) : await edgarResolveManager({ name: t }); return r?.name || t; },
@@ -1149,7 +1152,7 @@ try {
       // Validates base58 AND that the mint actually resolves upstream, so a
       // recurring charge never starts against a target we cannot watch.
       token: async (t) => (await probeTokenBrief(String(t).trim())).mint,
-      insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; throw e; } return k; },
+      insider: (t) => { const k = String(t).trim().toUpperCase(); if (!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(k)) { const e = new Error(`"${t}" is not a valid US ticker`); e.statusCode = 400; e.buyerSafe = true; throw e; } return k; },
     },
     onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
     // Credit-pack sessions: mint + email the key from the webhook too (claim is
@@ -1716,7 +1719,10 @@ app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").s
 // full-sitemap crawl is ~250 requests in one burst. The UPSTREAM bound is the
 // EDGAR gate inside programmatic-pages.js (2 concurrent, queue of 8, 12-hour
 // cache), not this limit, which only stops the absurd case.
-const programmaticLimiter = createRateLimiter("programmatic-pages", { perMin: 600, perHour: 6000 });
+// Sized so ONE legitimate full-sitemap crawl (253 pages, cold, 2 units each)
+// fits comfortably, while a 50 rps spray trips within seconds. The upstream
+// bound is the EDGAR gate, not this.
+const programmaticLimiter = createRateLimiter("programmatic-pages", { perMin: 1200, perHour: 12000 });
 // A 429 to a search-engine crawler costs us the page in the index, which is the
 // whole point of these URLs, so the limiter answers 429 only with `Retry-After`
 // (crawlers back off and return rather than dropping the URL), and a request the
@@ -1731,7 +1737,10 @@ const _pgLimited = (req, res) => {
   res.status(429).type("text").send("Too many requests, retry shortly");
   return true;
 };
-const _pgSpend = (req) => { try { programmaticLimiter.check(clientIp(req)); } catch { /* limiter never breaks a page */ } };
+// Every request spends 1 (a cached hit still re-renders the page synchronously),
+// and a build that reached EDGAR spends a larger amount, so the budget tracks
+// real cost rather than only upstream calls.
+const _pgSpend = (req, n = 1) => { try { for (let i = 0; i < n; i++) programmaticLimiter.check(clientIp(req)); } catch { /* limiter never breaks a page */ } };
 // `next()` on an unresolvable slug falls through to the branded shell 404 at
 // the bottom of this file - one 404 page for the whole site.
 async function _programmaticEntity(req, res, next, kind) {
@@ -1747,9 +1756,12 @@ async function _programmaticEntity(req, res, next, kind) {
   let r;
   try { r = await loadTeaser(kind, slug, { seeded }); }
   catch { r = seeded ? { status: "degraded" } : { status: "missing" }; }
-  if (!r.cached) _pgSpend(req);  // only an EDGAR-touching build spends budget
+  _pgSpend(req, r.cached ? 1 : 2);  // a cached render is cheap, an EDGAR build is not
   if (r.status === "missing") return next();
   const degraded = r.status === "degraded";
+  // A degraded page states no numbers; keep it out of the index rather than let
+  // a bad minute be what a crawler records for this entity.
+  if (degraded) res.set("X-Robots-Tag", "noindex");
   const html = isFund
     ? fundPage({ slug, data: r.data || null, baseUrl: BASE_URL, degraded })
     : kind === "insider"

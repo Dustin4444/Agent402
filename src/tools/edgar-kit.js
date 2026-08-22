@@ -19,6 +19,8 @@
 //     so we use assertPublicUrl + native fetch for the EDGAR-specific UA.
 import { assertPublicUrl } from "./fetch-guard.js";
 
+// Hard per-request socket bound for every EDGAR read (undici defaults to 300 s).
+const EDGAR_FETCH_TIMEOUT_MS = Math.max(2_000, parseInt(process.env.EDGAR_FETCH_TIMEOUT_MS || "12000", 10) || 12_000);
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
 }
@@ -41,6 +43,11 @@ async function edgarGetJson(url) {
         "User-Agent": edgarUserAgent(),
         Accept: "application/json",
       },
+      // Without this the socket has no bound of its own: a caller-side deadline
+      // (the programmatic pages use 12 s) frees its concurrency slot while the
+      // request keeps running, so a throttling SEC grows in-flight sockets far
+      // past whatever gate is supposed to be holding the line.
+      signal: AbortSignal.timeout(EDGAR_FETCH_TIMEOUT_MS),
     });
   } catch (e) {
     throw bad(`EDGAR request failed: ${e.message}`, 504);
@@ -626,6 +633,7 @@ async function fetchXmlText(url) {
   try {
     res = await fetch(safeUrl, {
       headers: { "User-Agent": edgarUserAgent(), Accept: "application/xml,text/xml,*/*" },
+      signal: AbortSignal.timeout(EDGAR_FETCH_TIMEOUT_MS),
     });
   } catch (e) {
     throw bad(`EDGAR XML fetch failed: ${e.message}`, 504);

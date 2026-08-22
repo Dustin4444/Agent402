@@ -246,11 +246,14 @@ ${Array.from({ length: 15 }, (_, i) => `<nonDerivativeTransaction><securityTitle
   const readFail = await buildFundTeaser("example-capital", { ...deps, fetchXmlText: async () => { throw new Error("EDGAR 403"); } });
   eq(readFail.partial, true, "a holdings table we could not READ marks the teaser PARTIAL (short cache)");
 
-  // An off-list slug goes through the name resolver instead of a seed.
-  let resolvedWith = null;
-  const offList = await buildFundTeaser("some-other-fund", { ...deps, seededManager: () => null, resolveManager: async ({ name }) => { resolvedWith = name; return { cik: "0000000999", name: "Some Other Fund LP" }; } });
-  eq(resolvedWith, "Some Other Fund", "an off-list slug is turned back into a searchable name for EDGAR");
-  eq(offList.name, "EXAMPLE CAPITAL MANAGEMENT LLC", "an unseeded manager shows the name EDGAR returns");
+  // An off-list slug must NEVER reach EDGAR full-text search: that is one live
+  // SEC query per unique slug on an unbounded slug space, pointed at the same
+  // egress our paid EDGAR products use. Off-list resolves to nothing and the
+  // route 404s; the paid tool still takes any manager by name or CIK.
+  let resolveCalls = 0;
+  const offList = await buildFundTeaser("some-other-fund", { ...deps, seededManager: () => null, resolveManager: async () => { resolveCalls++; return { cik: "1", name: "x" }; } });
+  eq(offList, null, "an off-list fund slug builds nothing");
+  eq(resolveCalls, 0, "an off-list fund slug never calls the EDGAR resolver (no full-text-search amplifier)");
 }
 
 {
