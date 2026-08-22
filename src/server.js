@@ -31,6 +31,8 @@ import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled } from "./stripe-subscriptions.js";
 import { monitorsPage, monitorThanksPage } from "./monitors-page.js";
 import { createMonitorScheduler } from "./monitor-scheduler.js";
+import { createCredits } from "./credits.js";
+import { creditsPage, creditsThanksPage } from "./credits-page.js";
 import { sendMonitorEmail } from "./email.js";
 import { probeDomain, normDomain } from "./tools/domain-audit-kit.js";
 import { latest13fFiling, resolveManager as edgarResolveManager } from "./tools/edgar-kit.js";
@@ -1127,6 +1129,17 @@ try {
     onInvoicePaid: ({ invoiceId, product, amountUsd }) => recordSale({ slug: product || "monitor", priceUsd: amountUsd, rail: "card", network: "stripe", payer: null, tx: invoiceId, wire: "stripe-subscription" }),
   }) : null;
 } catch (e) { console.warn("[monitors] subscriptions init failed:", String(e?.message || e).slice(0, 200)); _subs = null; }
+// Prepaid card credits (roadmap Phase 3, src/credits.js): same rollout switch
+// as the human checkout. The GATE mounts inside the paywall block below
+// (before x402mw); the routes/pages mount with the other storefront routes.
+let _credits = null;
+try {
+  _credits = humanCheckoutEnabled() ? createCredits({
+    stripe: new Stripe(process.env.STRIPE_SECRET_KEY), baseUrl: BASE_URL,
+    onLoad: ({ pack, priceUsd, keyId, paymentIntent }) => recordSale({ slug: `credits:${pack}`, priceUsd, rail: "card", network: "stripe", payer: keyId, tx: paymentIntent, wire: "stripe-checkout" }),
+    onDebit: ({ slug, priceUsd, keyId }) => recordSale({ slug, priceUsd, rail: "credits", network: "stripe", payer: keyId, tx: null, wire: "credits" }),
+  }) : null;
+} catch (e) { console.warn("[credits] init failed:", String(e?.message || e).slice(0, 200)); _credits = null; }
 // Manage/cancel bearer for monitor subscribers: a keyed token over the report
 // id, carried ONLY in the subscriber's email - never in the report JSON or on
 // the report page, which subscribers are told to share. Derived from the
@@ -1654,6 +1667,43 @@ const _humanGenerate = async (kind, slug, input, ctx = {}) => {
 app.get("/reports", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(humanReportsPage(BASE_URL)));
 app.get("/monitors", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(monitorsPage(BASE_URL)));
 app.get("/monitors/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(monitorThanksPage(String(req.query.session || ""), BASE_URL)));
+app.get("/credits", (_req, res) => res.set("Cache-Control", "public, max-age=120").type("html").send(creditsPage(BASE_URL)));
+app.get("/credits/thanks", (req, res) => res.set("Cache-Control", "no-store").type("html").send(creditsThanksPage(String(req.query.session || ""), BASE_URL)));
+if (_credits) {
+  app.post("/api/credits/checkout", async (req, res) => {
+    if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
+    try { res.json({ url: (await _credits.createCheckout(req.body?.pack)).url }); }
+    catch (e) {
+      if (e?.statusCode && e.statusCode < 500 && !e.type && !e.raw) return res.status(e.statusCode).json({ error: String(e.message).slice(0, 200) });
+      console.warn("[credits] createCheckout failed:", String(e?.message || e).slice(0, 200));
+      res.status(500).json({ error: "Could not start checkout. Please try again in a moment." });
+    }
+  });
+  app.get("/api/credits/claim", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ status: "error", error: "Too many requests, please slow down." });
+    try { res.json(await _credits.claim(String(req.query.session || ""))); }
+    catch (e) { console.warn("[credits] claim failed:", String(e?.message || e).slice(0, 200)); res.status(500).json({ status: "error", error: "Could not claim the key right now." }); }
+  });
+  app.get("/api/credits/balance", (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const auth = String(req.headers.authorization || "");
+    const b = /^Bearer a402_/.test(auth) ? _credits.balance(auth.slice(7).trim()) : null;
+    if (!b) return res.status(401).json({ error: "Send your credits key as Authorization: Bearer a402_…", topup: `${BASE_URL}/credits` });
+    res.json(b);
+  });
+  app.get("/__operator/credits.json", (req, res) => {
+    if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+    res.set("Cache-Control", "no-store").json(_credits.status());
+  });
+  app.post("/__operator/credits/disable", express.json(), (req, res) => {
+    if (!operatorAuthed(req)) return res.status(404).json({ error: "Not found" });
+    const { keyId, disabled = true } = req.body || {};
+    res.json({ ok: _credits.setDisabled(String(keyId || ""), !!disabled) });
+  });
+} else {
+  app.post("/api/credits/checkout", (_req, res) => res.status(503).json({ error: "Card credits are not configured on this server." }));
+}
 if (!humanCheckoutEnabled()) {
   app.post("/api/buy", (_req, res) => res.status(503).json({ error: "Card checkout is not configured on this server." }));
   app.post("/api/subscribe", (_req, res) => res.status(503).json({ error: "Subscriptions are not configured on this server." }));
@@ -4300,6 +4350,19 @@ if (!FREE_MODE) {
     app.use(stripeGate);
     console.log("Stripe MPP settlement enabled (stripe/charge cards via Shared Payment Tokens)");
   }
+  // Prepaid credits gate: `Authorization: Bearer a402_…` on a priced catalog
+  // route authorizes against the key's balance BEFORE the handler and debits
+  // on a final 200 (src/credits.js). Mounted before x402mw like the tempo and
+  // stripe gates; the dispatcher below bypasses x402 for req.creditsSettling.
+  if (_credits) {
+    app.use(_credits.gate((method, path) => {
+      const def = CATALOG[`${method} ${path}`];
+      if (!def) return null;
+      const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
+      return priceUsd ? { priceUsd, slug: def.slug } : null;
+    }));
+    console.log("Prepaid card credits enabled (Bearer a402_ keys)");
+  }
 }
 
 // Opt-in idempotency (safe retry for paid/proven calls). If a client sends an
@@ -4658,7 +4721,7 @@ if (FREE_MODE) {
     // validated the credential and own settlement for this request end to end.
     // Without the stripe bypass a validated card payment would be 402'd here
     // and never served (fails safe — no charge — but the feature is dead).
-    if (req.tempoSettling || req.stripeSettling) return next();
+    if (req.tempoSettling || req.stripeSettling || req.creditsSettling) return next();
     // Retired converters aren't catalog routes, so POW_ROUTES can't know them —
     // which briefly made them the only paid paths on the site with NO free
     // tier, while unit-convert (the identical work, same engine, same table)
@@ -4856,7 +4919,7 @@ app.use((req, res, next) => {
         const isHeartbeat = powAccepted && verifyHeartbeatToken(req.header("x-heartbeat-token"));
         // "usdc" is the ELSE branch, so any free path that forgets to name
         // itself here is booked as a sale. A trial moves no money.
-        const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : trialAccepted ? "trial" : "usdc";
+        const method = isHeartbeat ? "heartbeat" : powAccepted ? "pow" : trialAccepted ? "trial" : req.creditsSettled ? "credits" : "usdc";
         // Tempo settlements (src/mpp-tempo.js) never carry a PAYMENT-RESPONSE
         // header — @x402/express never runs on that path — so without this
         // flag they'd fall through networkFromPaymentResponse(null) and get
@@ -4885,7 +4948,7 @@ app.use((req, res, next) => {
         // was paid, so a "settlement" event would be a lie.
         if (!FREE_MODE) {
           const rail = method;
-          const network = method === "usdc" ? networkFor() : null;
+          const network = method === "usdc" ? networkFor() : method === "credits" ? "stripe" : null;
           const priceUsd = Number(String(def.price ?? "").replace(/[^0-9.]/g, "")) || 0;
           const synthetic = method === "heartbeat" || isSyntheticRequest(req);
           // Request-payload attribution covers EVM (EIP-3009 authorization.from);
@@ -4901,7 +4964,7 @@ app.use((req, res, next) => {
           // Stripe settles carry no wallet payer (the payer is a Stripe
           // customer behind the SPT, not an on-chain address) — record null,
           // like a Solana buyer with no server-visible payer.
-          const payer = (req.tempoSettled || req.stripeSettled) ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
+          const payer = req.creditsSettled ? (req.creditsKeyId || null) : (req.tempoSettled || req.stripeSettled) ? (req.mppTempoPayer || null) : payerFromRequest(req) || payerFromPaymentResponse(settleReceipt);
           // Client attribution: the User-Agent PRODUCT TOKEN only (first
           // whitespace-delimited token, ≤40 chars — e.g. "agent402-client/0.6.1",
           // "node") so payment_settled can answer "which SDK/client do paying
@@ -4914,7 +4977,7 @@ app.use((req, res, next) => {
           // Sales ledger — the same sale, BY NAME, persisted on /data with the
           // verified payer + settle tx so "what do external wallets actually
           // buy" is answerable forever (the question the odometer can't).
-          recordSale({
+          if (rail !== "credits") recordSale({ // credits debits are booked by src/credits.js onDebit (exact charged amount)
             slug: def.slug, priceUsd, rail, network,
             payer,
             tx: req.tempoSettled ? tempoTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : req.stripeSettled ? stripeTxFromReceiptHeader(res.getHeader("Payment-Receipt")) : txFromPaymentResponse(settleReceipt),

@@ -206,6 +206,7 @@ export function ledgerHomePage(baseUrl, catalog, stats, leaderboardSnapshot, ski
         <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Domain audit $5</a>
         <a href="/reports" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Research $5</a>
         <a href="/monitors" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Monitor $9/mo</a>
+        <a href="/credits" class="hm-chip" style="font-family:var(--font-body);font-size:13px;border-radius:999px;">Credits for any tool, from $20</a>
       </div>
       <a href="/reports" style="margin-top:6px;font-size:14.5px;font-weight:500;color:var(--ink);text-decoration:none;">Browse reports →</a>
     </div>

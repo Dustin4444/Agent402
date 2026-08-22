@@ -151,6 +151,7 @@ export function createHumanCheckout({ stripe, generate, baseUrl, storeDir, onSal
     if (input.length > 2000) { const e = new Error("Input is too long."); e.statusCode = 400; throw e; }
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
+      ...(String(process.env.STRIPE_AUTOMATIC_TAX || "").toLowerCase() === "true" ? { automatic_tax: { enabled: true } } : {}),
       line_items: [{
         quantity: 1,
         price_data: {

@@ -585,6 +585,7 @@ function mobileMenuHtml(chainInfo, activePath) {
     <div class="ml-mm-group">
       ${mmLink("/reports", "reports · card or USDC", activePath === "/reports")}
       ${mmLink("/monitors", "monitors · $9 / month", activePath === "/monitors")}
+      ${mmLink("/credits", "credits · pay by card, use every tool", activePath === "/credits")}
     </div>
     <div class="ml-mm-h">Buy</div>
     <div class="ml-mm-group">
@@ -700,7 +701,7 @@ export function ledgerFooterFull() {
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for people</div>
-        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/reports" style="color:var(--muted);text-decoration:none;">Reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">Monitors</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a></div>
+        <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;"><a href="/reports" style="color:var(--muted);text-decoration:none;">Reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">Monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">Credits</a><a href="/faq" style="color:var(--muted);text-decoration:none;">FAQ</a></div>
       </div>
       <div>
         <div style="font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:12px;">for agents</div>
@@ -740,7 +741,7 @@ export function ledgerFooterCompact() {
   <div style="max-width:1180px;margin:0 auto;padding:26px 30px;font-family:var(--font-mono);font-size:12px;color:var(--faint);">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
       <a href="/" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--ink);"><span aria-hidden="true" style="width:18px;height:18px;border-radius:5px;background:var(--brand-mark);display:inline-block;"></span><span style="font-weight:600;font-family:var(--font-body);font-size:14px;">Agent402</span></a>
-      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/playground" style="color:var(--muted);text-decoration:none;">playground</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/skills" style="color:var(--muted);text-decoration:none;">skills</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
+      <span style="display:flex;gap:16px;flex-wrap:wrap;"><a href="/reports" style="color:var(--muted);text-decoration:none;">reports</a><a href="/monitors" style="color:var(--muted);text-decoration:none;">monitors</a><a href="/credits" style="color:var(--muted);text-decoration:none;">credits</a><a href="/playground" style="color:var(--muted);text-decoration:none;">playground</a><a href="/tools" style="color:var(--muted);text-decoration:none;">catalog</a><a href="/skills" style="color:var(--muted);text-decoration:none;">skills</a><a href="/pricing" style="color:var(--muted);text-decoration:none;">pricing</a><a href="/marketplace" style="color:var(--muted);text-decoration:none;">marketplace</a><a href="/leaderboard" style="color:var(--muted);text-decoration:none;">leaderboard</a><a href="/sell" style="color:var(--muted);text-decoration:none;">sell</a><a href="/docs" style="color:var(--muted);text-decoration:none;">docs</a><a href="/integrations" style="color:var(--muted);text-decoration:none;">integrations</a></span>
     </div>
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--hairline);">
       <span>© 2026 Havok Holdings LLC · <a href="mailto:mike@agent402.tools" style="color:var(--muted);text-decoration:underline;">mike@agent402.tools</a></span>

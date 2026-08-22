@@ -70,6 +70,7 @@ export function sitemapXml(baseUrl, catalog) {
     { loc: `${baseUrl}/tools`, priority: "0.9" },
     { loc: `${baseUrl}/reports`, priority: "0.9" },
     { loc: `${baseUrl}/monitors`, priority: "0.8" },
+    { loc: `${baseUrl}/credits`, priority: "0.8" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
     // Every x402 marketplace page (one per CHAIN_PAGES entry) — new chain
     // page = new sitemap entry, zero edits here.
@@ -166,6 +167,7 @@ export function sitemapPages(baseUrl, catalog) {
     { loc: `${baseUrl}/tools`, priority: "0.9" },
     { loc: `${baseUrl}/reports`, priority: "0.9" },
     { loc: `${baseUrl}/monitors`, priority: "0.8" },
+    { loc: `${baseUrl}/credits`, priority: "0.8" },
     { loc: `${baseUrl}/shop`, priority: "0.9" },
     { loc: `${baseUrl}/quickstart`, priority: "0.9" },
     { loc: `${baseUrl}/what-is-x402`, priority: "0.9" },
@@ -378,6 +380,7 @@ ${toolSections}
 - [agent402-tollbooth](${baseUrl}/tollbooth): open-source, self-hostable x402 pay-per-crawl gate for your own site
 - [Skill packs JSON](${baseUrl}/api/skill-packs.json): machine-readable pack index
 - [Tool docs](${baseUrl}/tools): human-readable documentation per tool
+- [Prepaid card credits](${baseUrl}/credits): no wallet? buy $20-$100 of credits by card, then call any paid tool with the header "Authorization: Bearer a402_..." (debited per call on success; balance at GET /api/credits/balance)
 - [Agentic Finance](${baseUrl}/agentic-finance): what the category is and where Agent402 sits in it
 - [x402 & MPP 101](${baseUrl}/101): the ten-minute walkthrough for people new to the space - plain language, speaker notes, and a live demo (402 quote decoded, pay with a puzzle, real receipts)
 - [Glossary](${baseUrl}/glossary): x402, MPP, HTTP 402, facilitator, EIP-3009, receipts, settlement, rails, dual-stack, PoW tier, SOR, tollbooth - every term defined once, with anchors

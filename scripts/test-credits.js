@@ -1,0 +1,100 @@
+// Prepaid card credits - offline test with a stubbed Stripe. Proves the money
+// discipline: a key is minted only for a PAID session and exactly once (a
+// second claim never re-shows it); balances are exact sub-cent micro-dollars;
+// the gate authorizes before the handler and debits ONLY on a final 200; an
+// insufficient/unknown/disabled key gets a 402 with the balance; a non-credits
+// request passes through untouched; accounting hooks fire; state survives a
+// reload; operator status never exposes key material.
+import { createCredits, CREDIT_PACKS, KEY_RE, usdToMicro, microToUsd } from "../src/credits.js";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { EventEmitter } from "node:events";
+
+const DIR = join("/tmp", `test-credits-${process.pid}`);
+try { rmSync(DIR, { recursive: true, force: true }); } catch { /* first run */ }
+let pass = 0, fail = 0;
+const ok = (c, m) => { c ? pass++ : fail++; console.log((c ? "ok" : "NOT OK") + " - " + m); };
+
+const sessions = {
+  cs_paid: { id: "cs_paid", mode: "payment", payment_status: "paid", payment_intent: "pi_1", customer_details: { email: "c@x.com" }, metadata: { credits_pack: "credits-20" } },
+  cs_unpaid: { id: "cs_unpaid", mode: "payment", payment_status: "unpaid", metadata: { credits_pack: "credits-20" } },
+  cs_other: { id: "cs_other", mode: "payment", payment_status: "paid", metadata: { product: "dossier" } },
+};
+const stripe = { checkout: { sessions: { create: async (a) => { stripe._last = a; return { id: "cs_new", url: "https://checkout.stripe.com/c/cs_new" }; }, retrieve: async (id) => { const s = sessions[id]; if (!s) throw new Error("no"); return s; } } } };
+const debits = [], loads = [];
+const mk = () => createCredits({ stripe, baseUrl: "https://agent402.tools", storeDir: DIR, onDebit: (d) => debits.push(d), onLoad: (l) => loads.push(l), log: () => {} });
+let cr = mk();
+
+ok(Object.values(CREDIT_PACKS).every((p) => p.cents >= 2000), "every pack is >= $20");
+ok(usdToMicro(0.001) === 1000 && microToUsd(1000) === 0.001 && usdToMicro(19) === 19_000_000, "micro-dollar math is exact for sub-cent prices");
+
+// checkout
+const c = await cr.createCheckout("credits-50");
+ok(c.url && stripe._last.mode === "payment" && stripe._last.metadata.credits_pack === "credits-50" && stripe._last.line_items[0].price_data.unit_amount === 5000, "createCheckout: payment-mode session for the pack with the pack in metadata");
+let threw = false; try { await cr.createCheckout("constructor"); } catch { threw = true; }
+ok(threw, "unknown / inherited pack key is refused");
+
+// claim: paid once -> minted; again -> claimed (no key); unpaid/other/unknown
+const m1 = await cr.claim("cs_paid");
+ok(m1.status === "minted" && KEY_RE.test(m1.key) && m1.balanceUsd === 20 && loads.length === 1 && loads[0].priceUsd === 20, "a PAID session mints a key once with the pack balance (accounting hook fires)");
+const KEY = m1.key;
+const m2 = await cr.claim("cs_paid");
+ok(m2.status === "claimed" && !m2.key && m2.keyId === m1.keyId, "SECURITY: a second claim of the same session never re-shows the key");
+ok((await cr.claim("cs_unpaid")).status === "unpaid", "an unpaid session mints nothing");
+ok((await cr.claim("cs_other")).status === "invalid", "a paid session that is not a credits pack mints nothing");
+ok((await cr.claim("cs_nope")).status === "not_found" && (await cr.claim("garbage")).status === "invalid", "unknown / malformed session ids mint nothing");
+
+// authorize + charge
+const a = cr.authorize(KEY, 0.001);
+ok(a.ok && a.balanceUsd === 20, "authorize: a funded key covers a $0.001 call");
+const ch = cr.charge(a.hash, 0.001, "whois");
+ok(ch.chargedUsd === 0.001 && ch.balanceUsd === 19.999 && debits.length === 1 && debits[0].slug === "whois", "charge debits exactly the list price and fires the accounting hook");
+ok(!cr.authorize("a402_nope", 0.001).ok && cr.authorize("a402_nope", 0.001).reason === "malformed", "a malformed key is refused");
+ok(cr.authorize("a402_" + "x".repeat(32), 0.001).reason === "unknown", "an unknown (well-formed) key is refused");
+ok(cr.authorize(KEY, 25).reason === "insufficient" && cr.authorize(KEY, 25).balanceUsd === 19.999, "a call priced above the balance is refused with the balance");
+const b = cr.balance(KEY);
+ok(b.balanceUsd === 19.999 && b.spentUsd === 0.001 && b.calls === 1 && b.keyId === m1.keyId, "balance reports balance/spent/calls");
+
+// the Express gate: authorize before, debit only on a 200, pass-through otherwise
+const priceFor = (method, path) => (path === "/api/whois" ? { priceUsd: 0.001, slug: "whois" } : path === "/v1/dossier" ? { priceUsd: 19, slug: "dossier" } : null);
+const gate = cr.gate(priceFor);
+function fakeRes() { const r = new EventEmitter(); r.statusCode = 200; r.headers = {}; r.setHeader = (k, v) => { r.headers[k] = v; }; r.status = (c) => { r.statusCode = c; return r; }; r.json = (j) => { r.body = j; r.emit("finish"); return r; }; return r; }
+let nexted = false; let res = fakeRes();
+gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+ok(nexted && res.headers["X-Credits-Balance"] === "19.999", "gate: a funded key on a priced route is authorized (next called, balance header set)");
+res.statusCode = 200; res.emit("finish");
+ok(cr.balance(KEY).balanceUsd === 19.998, "gate: a 200 is debited on finish");
+nexted = false; res = fakeRes();
+gate({ method: "GET", path: "/api/whois", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+res.statusCode = 502; res.emit("finish");
+ok(nexted && cr.balance(KEY).balanceUsd === 19.998, "gate: a non-200 (upstream 502) is NOT debited");
+nexted = false; res = fakeRes();
+const priceFor2 = (m, p) => (p === "/v1/big" ? { priceUsd: 25, slug: "big" } : priceFor(m, p));
+cr.gate(priceFor2)({ method: "POST", path: "/v1/big", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+ok(!nexted && res.statusCode === 402 && res.body.reason === "insufficient" && res.body.balanceUsd === 19.998 && /\/credits$/.test(res.body.topup), "gate: insufficient balance -> 402 with balance + top-up link, handler never runs");
+nexted = false; res = fakeRes();
+gate({ method: "GET", path: "/api/whois", headers: { authorization: "Bearer a402_" + "y".repeat(32) } }, res, () => { nexted = true; });
+ok(!nexted && res.statusCode === 402 && res.body.reason === "unknown", "gate: an unknown key -> 402, handler never runs");
+nexted = false; res = fakeRes();
+gate({ method: "GET", path: "/api/whois", headers: { authorization: "Bearer sometoken" } }, res, () => { nexted = true; });
+ok(nexted && !res.headers["X-Credits-Balance"], "gate: a non-credits Bearer passes through untouched (other gates decide)");
+nexted = false; res = fakeRes();
+gate({ method: "GET", path: "/llms.txt", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+ok(nexted && !res.headers["X-Credits-Balance"], "gate: a credits key on a non-priced route passes through (no charge)");
+
+// disabled keys; operator status without key material; persistence across reload
+ok(cr.setDisabled(m1.keyId, true) && cr.authorize(KEY, 0.001).reason === "disabled", "operator can disable a key; it then refuses");
+cr.setDisabled(m1.keyId, false);
+const st = cr.status();
+ok(st.keys === 1 && st.loadedUsd === 20 && st.outstandingUsd === 19.998 && st.rows[0].keyId === m1.keyId && !JSON.stringify(st).includes(KEY) && !JSON.stringify(st).includes(a.hash), "operator status has totals + key ids and never the key or its hash");
+cr = mk();
+ok(cr.balance(KEY).balanceUsd === 19.998 && (await cr.claim("cs_paid")).status === "claimed", "a fresh instance reads balances and the claim-once index from disk");
+
+// A $19 dossier on a $19.998 key IS covered (authorizes at balance >= price).
+nexted = false; res = fakeRes();
+cr.gate(priceFor)({ method: "POST", path: "/v1/dossier", headers: { authorization: `Bearer ${KEY}` } }, res, () => { nexted = true; });
+ok(nexted, "gate: a $19 call on a $19.998 key is authorized (balance >= price)");
+
+try { rmSync(DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

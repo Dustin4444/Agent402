@@ -108,6 +108,7 @@ export function createStripeSubscriptions({ stripe, baseUrl, storePath, validate
     }
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
+      ...(String(process.env.STRIPE_AUTOMATIC_TAX || "").toLowerCase() === "true" ? { automatic_tax: { enabled: true } } : {}),
       line_items: [{
         quantity: 1,
         price_data: {

@@ -466,6 +466,21 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   edgar-kit for the composite kits. **`PAYING_RAILS` now includes `card` + `credits`** - Stripe card
   sales/subscription invoices were recorded with rail `card` but not counted as paying, so the human
   front door was invisible to `/revenue` (caught 2026-08-22).
+- **Prepaid card credits (roadmap Phase 3, 2026-08-22, `src/credits.js`):** buy $20/$50/$100 by card
+  (`/credits`, `POST /api/credits/checkout`), claim the key ONCE on `/credits/thanks` (`GET
+  /api/credits/claim?session=`; a second claim returns `claimed`, never the key; emailed too), spend it on
+  any priced catalog route with `Authorization: Bearer a402_…` - the GATE (mounted before x402mw next to
+  the tempo/stripe gates; dispatcher bypasses x402 for `req.creditsSettling`) authorizes against the
+  balance BEFORE the handler and DEBITS only on a final 200 (integer micro-dollars, sub-cent exact;
+  `X-Credits-Balance` header; 402 `{reason, balanceUsd, topup}` on insufficient/unknown/disabled).
+  Keys stored hashed (sha256) in per-key files under `/data/credits` (atomic), claim-once index.
+  Accounting: pack purchase = sale `credits:<pack>` rail `card`; each debit = sale on rail `credits`
+  (PAYING_RAILS) with the key id as payer; stats `viaCredits`; the route binder skips its own recordSale
+  for credits (onDebit books the exact charge). Ops: `GET /__operator/credits.json` (totals + key ids,
+  never key material), `POST /__operator/credits/disable {keyId}`. `GET /api/credits/balance` (Bearer).
+  Linked from footers, mobile menu, homepage people door, llms.txt, sitemap. `scripts/test-credits.js`
+  (26, in CI). **Stripe Tax:** `STRIPE_AUTOMATIC_TAX=true` adds `automatic_tax` to every Checkout Session
+  (one-shot, subscription, credits) - enable Stripe Tax in the dashboard FIRST or sessions 400.
 - **Payer attribution (`src/payer.js`):** `payerFromRequest` reads only the signed EIP-3009
   `authorization.from` — memory identity depends on it, never weaken. `payerFromPaymentResponse`
   (facilitator settle-receipt `payer`) is the fallback for SVM/Stellar, telemetry/sales only.

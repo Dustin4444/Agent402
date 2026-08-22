@@ -170,6 +170,7 @@ const recordCall = db.transaction((slug, method, network, wire, internal = false
   const counterKey =
     method === "pow" ? "viaProofOfWork"
       : method === "heartbeat" ? "viaHeartbeat"
+      : method === "credits" ? "viaCredits"
         : method === "trial" ? "viaTrial"
           : "viaUSDC";
   bumpCounter.run(counterKey);
