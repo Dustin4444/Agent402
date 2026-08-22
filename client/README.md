@@ -2,17 +2,17 @@
 
 A tiny buyer-side client for [Agent402](https://agent402.tools) (and any Agent402
 instance) - the buy side of [Agentic Finance](https://agent402.tools/agentic-finance),
-agents paying per request over x402 or MPP. **Resolve a task to a tool, then call it — with payment handled for
+agents paying per request over x402 or MPP. **Resolve a task to a tool, then call it - with payment handled for
 you.** Free pure-CPU tools settle with a built-in proof-of-work (no wallet, zero
-dependencies); wallet-only tools settle via an x402-wrapped fetch you provide.
-Results are cached, and retries reuse an `Idempotency-Key` so a lost response
-never double-charges.
+dependencies); wallet-only tools settle via an x402- or MPP-wrapped fetch you
+provide, or by card through a prepaid credits key. Results are cached, and
+retries reuse an `Idempotency-Key` so a lost response never double-charges.
 
 ```bash
 npm install agent402-client
 ```
 
-Runnable copy of the free-tier quickstart below: [`examples/hello-agent402.js`](https://github.com/MikeyPetrillo/Agent402/blob/main/examples/hello-agent402.js) — discover a tool and call it in ~15 lines, no wallet.
+Runnable copy of the free-tier quickstart below: [`examples/hello-agent402.js`](https://github.com/MikeyPetrillo/Agent402/blob/main/examples/hello-agent402.js) - discover a tool and call it in ~15 lines, no wallet.
 
 ## Free tier (proof-of-work, no wallet)
 
@@ -25,7 +25,7 @@ const a = new Agent402();                       // → https://agent402.tools
 const matches = await a.find("extract the article from a url");
 // → [{ slug: "extract", route, price, inputSchema, example, … }]
 
-// Call it — proof-of-work is solved automatically for free tools.
+// Call it - proof-of-work is solved automatically for free tools.
 const out = await a.call("hash", { text: "hello world", algo: "sha256" });
 console.log(out.hex);
 ```
@@ -69,6 +69,26 @@ const a = new Agent402({ fetch: payFetch });
 const article = await a.call("extract", { url: "https://example.com/article" });
 ```
 
+## Pay by card instead of a wallet (prepaid credits)
+
+Buy a credits pack ($20 / $50 / $100) at https://agent402.tools/credits, claim the
+`a402_...` key once, and pass it as `creditsKey`. The SDK then sends
+`Authorization: Bearer a402_...` on wallet-only calls; the server authorizes
+against the key's balance before the handler runs and debits the list price only
+on a successful (200) response (the `X-Credits-Balance` header carries what is
+left; credits never expire). A refused call throws with the balance and a top-up
+link; nothing is debited.
+
+```js
+const client = new Agent402({ creditsKey: "a402_..." });
+await client.call("whois", { domain: "example.com" }); // debited per successful call
+```
+
+The same `maxPerCallUsd` / `dailyLimitUsd` / `maxPerHostUsd` caps apply (a
+credits call reserves its price like a wallet call). A payment `fetch` still wins
+when both are given, and free pure-CPU tools keep settling with proof-of-work.
+The same Bearer header also reads the balance directly, e.g. `curl -H "Authorization: Bearer a402_..." https://agent402.tools/api/credits/balance`.
+
 ## Retries never double-charge
 
 Every paid call the SDK makes carries an `Idempotency-Key`, so a retry of a
@@ -80,8 +100,8 @@ same id is a new payment).
 
 ## Workflows (skill packs)
 
-For jobs that no single tool covers — e.g. "audit a domain", "build a stock
-brief" — Agent402 ships curated multi-tool **skill packs**: 5–7 catalog tools
+For jobs that no single tool covers - e.g. "audit a domain", "build a stock
+brief" - Agent402 ships curated multi-tool **skill packs**: 5–7 catalog tools
 composed into a Claude-ready task template. Discover them the same way you'd
 discover a tool:
 
@@ -96,7 +116,7 @@ const { messages } = await a.getWorkflowPrompt("security-audit", { domain: "stri
 
 ## Discover the live x402 economy
 
-Want to see who's actually getting paid on x402 right now — not just what tools
+Want to see who's actually getting paid on x402 right now - not just what tools
 this service exposes? `topSellers()` returns the live leaderboard of sellers
 settling USDC (primarily on Base) in the last ~24h, derived from on-chain transfers. Free
 to call (no payment, no proof-of-work):
@@ -113,12 +133,12 @@ await a.topSellers({ sort: "calls", include: "all" });
 
 | Method | What |
 |---|---|
-| `new Agent402({ baseUrl?, fetch?, cache?, fetchImpl?, maxPerCallUsd?, dailyLimitUsd?, maxPerHostUsd? })` | `fetch` is your x402-wrapped fetch for paid tools (optional); `cache` (default `true`) memoizes deterministic results; the three USD caps set optional spending limits (see below) |
+| `new Agent402({ baseUrl?, fetch?, creditsKey?, cache?, fetchImpl?, maxPerCallUsd?, dailyLimitUsd?, maxPerHostUsd? })` | `fetch` is your x402- or MPP-wrapped fetch for paid tools (optional); `creditsKey` is a prepaid card-credits key (`a402_...`) used for paid tools when no `fetch` is given; `cache` (default `true`) memoizes deterministic results; the three USD caps set optional spending limits (see below) |
 | `await a.find(task, { k = 5 })` | Resolve a plain-language task to the best-matching tools (route, price, schema, example) |
 | `await a.findWorkflows(task, { k = 2 })` | Resolve a task to matching multi-tool workflow templates (skill packs) |
 | `await a.getWorkflowPrompt(slug, args)` | Fetch the rendered prompt messages for a skill pack with arguments substituted in |
 | `await a.topSellers({ limit?, sort?, include? })` | Live x402 leaderboard: which sellers are settling the most USDC (primarily on Base) in the last ~24h (free, no payment) |
-| `await a.call(slug, params, { idempotencyKey?, cache? })` | Call a tool; auto-pays (PoW for free tools, x402 for wallet-only); returns the JSON result |
+| `await a.call(slug, params, { idempotencyKey?, cache? })` | Call a tool; auto-pays (PoW for free tools; your payment `fetch` or the credits key for wallet-only); returns the JSON result |
 | `Agent402.solvePow(pow)` | Solve a proof-of-work challenge object → an `X-Pow-Solution` value |
 | `a.spendingSummary()` | Rolling-24h paid spend so far: `{ dailyUsd, calls, byHost, limits }` |
 | `a.clearCache()` | Drop the in-memory result cache |
@@ -127,7 +147,7 @@ await a.topSellers({ sort: "calls", include: "all" });
 
 By default the client pays whatever a tool costs. Set optional hard ceilings and a
 call that would exceed one is **refused before any payment is signed** (it throws
-`SpendingLimitError` — no funds move):
+`SpendingLimitError` - no funds move):
 
 ```js
 import { Agent402, SpendingLimitError } from "agent402-client";
@@ -146,29 +166,29 @@ try {
 }
 ```
 
-Only **settled** paid calls count against the rolling window — a blocked or failed
+Only **settled** paid calls count against the rolling window - a blocked or failed
 call never consumes budget. Free proof-of-work calls are never counted. Omit a cap
 (or leave it `null`) for no limit; with none set, behavior is unchanged.
 
 **What the caps check.** When a cap is set, the client preflights the `402` and
 checks the ceiling against the **larger** of the advertised price (from the
-seller's `/api/pricing`) and the amount the `402` challenge actually quotes — so a
+seller's `/api/pricing`) and the amount the `402` challenge actually quotes - so a
 server that under-advertises and then quotes more in the `402` is refused *before*
 your wallet fetch signs anything. If the `402` can't be read (FREE_MODE, or an
 unrecognized challenge shape) it falls back to the advertised price rather than
 block a legitimate payment. Caps hold under **concurrency** too: each call reserves
 its amount synchronously, so N simultaneous calls can't each pass against the same
-pre-commit total. (The `402` amount is derived assuming stablecoin settlement —
-`atomic / 10^decimals ≈ USD` — which matches x402's USDC/USDG rails.)
+pre-commit total. (The `402` amount is derived assuming stablecoin settlement -
+`atomic / 10^decimals ≈ USD` - which matches x402's USDC/USDG rails.)
 
 - **Zero dependencies** for the free/proof-of-work path (uses `node:crypto`).
-- **Non-custodial:** paid settlement is your `@x402/fetch` + wallet; this client never sees your key.
+- **Non-custodial:** paid settlement is your `@x402/fetch` / `mppx` fetch + wallet (or a prepaid credits key you bought); this client never sees a private key.
 - MIT licensed. Part of [Agent402](https://github.com/MikeyPetrillo/Agent402).
 
 ## Pick the settlement chain (`withNetworkPreference`)
 
 Multi-chain sellers list Base first, so an unmodified x402 client effectively
-always settles there. To pin a chain — e.g. **USDG on Robinhood Chain** —
+always settles there. To pin a chain - e.g. **USDG on Robinhood Chain** -
 wrap your client before building the fetch:
 
 ```js
@@ -208,14 +228,3 @@ Pairs with `maxPerCallUsd` / `dailyLimitUsd` (how much) and
 ## Legal
 
 Use of the hosted instance at agent402.tools is subject to its [Terms of Service](https://agent402.tools/terms) (acceptable-use policy included) and [Privacy Policy](https://agent402.tools/privacy). This package is MIT-licensed; the hosted server is AGPL-3.0. Both are provided as-is without warranty, and self-hosted deployments are their operator's responsibility.
-
-## Pay by card instead of a wallet
-
-Buy prepaid credits at https://agent402.tools/credits and pass the key:
-
-```js
-const client = new Agent402({ creditsKey: "a402_..." });
-await client.call("whois", { domain: "example.com" }); // debited per successful call
-```
-
-The same `maxPerCallUsd` / `dailyLimitUsd` / `maxPerHostUsd` caps apply. A wallet `fetch` still wins when both are given.

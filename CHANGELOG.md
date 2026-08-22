@@ -1,5 +1,41 @@
 # Changelog
 
+## Unreleased - 2026-08-22 - Reports, monitors, prepaid credits, MPP on Tempo
+
+- **Finished report products on `/v1`** - one paid call returns a complete, cited report:
+  `POST /v1/research` ($5) / `/v1/research/pro` ($15) / `/v1/research/max` ($30) /
+  `/v1/research/market-brief` ($15), `/v1/dossier` ($19) / `/v1/dossier/max` ($39),
+  `/v1/fund` ($9) / `/v1/fund/max` ($19), `/v1/domain-audit` ($5) / `/v1/domain-audit/pro` ($9),
+  `/v1/recall-report` ($5), `/v1/insider-report` ($9), `/v1/token-risk` ($5) / `/v1/token-risk/pro` ($12),
+  and the deterministic `/v1/ipo-report` ($0.05). Grounded in primary data fetched by the server
+  (EDGAR, openFDA, DNS/TLS, on-chain reads, live web search) before synthesis; wallet-only.
+- **Card front door for people** - `/reports` (Stripe Checkout, `POST /api/buy`, delivery at
+  `/r/:sessionId`; a report is generated once per paid session, a failed generation is refunded),
+  `/monitors` ($9/month subscriptions: domain security, fund 13F, FDA recall, insider flow, IPO
+  pipeline - cheap daily probes, a paid re-run and an email only on change, reports at `/m/:id`,
+  Stripe Customer Portal at `/monitors/manage`), and `/credits` (prepaid $20 / $50 / $100 packs,
+  one `a402_` key, `Authorization: Bearer a402_...` on any priced route, debited only on a
+  successful response, never expires, `GET /api/credits/balance`; identity-bound routes refuse it).
+  All of it mounts only with `STRIPE_SECRET_KEY`. `agent402-mcp` 0.13.0 reads
+  `AGENT402_CREDITS_KEY`; `agent402-client` 0.7.0 takes `{ creditsKey }`.
+- **MPP everywhere** - every 402 carries `WWW-Authenticate: Payment` alongside x402; `evm`
+  credentials translate to x402 settlement, `tempo` settles natively on Tempo through Tempo's
+  relay (USDC.e or PathUSD, chain-confirmed on a relay failure), and `stripe/charge` offers cards
+  over MPP on routes priced $0.50 and up when configured. Rejected credentials answer RFC 9457
+  `application/problem+json`. The hosted MCP connector pays wallet-only tools over MPP too.
+  `agent402-tollbooth` 0.9.x gains native MPP: `createTollbooth({ x402 })` mints evm challenges
+  from your `@x402/express` middleware, `createTollbooth({ tempo })` settles on Tempo with split
+  payments and no x402 middleware at all.
+- **LLM gateway** - `POST /v1/rerank` ($0.002, Cohere wire), the Anthropic Messages wire and the
+  OpenAI Responses wire on every tier, `POST /v1/grounded/chat/completions` ($0.03, live web search
+  with `url_citation` annotations), five-model text-to-speech failover chain.
+- **MCP tool names are dotted** on both connectors - `catalog.search`, `catalog.find`,
+  `catalog.call`, `payment.info`, `server.describe`, `sellers.list`, `demand.request` plus the
+  flagships `web.search`, `web.answer`, `web.news`, `browser.render`, `market.quote`,
+  `audio.transcribe`, `memory.read`, `memory.write`; the prior snake_case names remain call aliases.
+- **Site** - dark theme by default with a light toggle; self-hosted fonts; `/reports`, `/monitors`,
+  `/credits` pages; the homepage loads no third-party script.
+
 ## v2.0.0 - 2026-07-14 - The 500
 
 Catalog reshaped. Roughly 970 generated pairwise unit-converter endpoints

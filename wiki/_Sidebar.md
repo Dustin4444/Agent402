@@ -3,6 +3,7 @@
 **Using it (for agents / buyers)**
 - [[Getting Started]]
 - [[Agentic Finance]]
+- [[Reports, Monitors and Credits|Reports-and-Monitors]]
 - [[Paying with x402]]
 - [[Paying with MPP]]
 - [[Robinhood Chain (USDG)|Robinhood-Chain]]
@@ -25,18 +26,19 @@
 - [[Memory and Coordination]]
 
 **Tollbooth (for site owners)**
-- [[Pay-per-crawl]] — what it is, install, modes
-- [[Pay-per-crawl Walkthrough]] — 5-min hands-on
-- [[Tollbooth for Agencies|Tollbooth-for-Agencies]] — many-site playbook
+- [[Pay-per-crawl]] - what it is, install, modes
+- [[Pay-per-crawl Walkthrough]] - 5-min hands-on
+- [[Tollbooth for Agencies|Tollbooth-for-Agencies]] - many-site playbook
 - [Try Tollbooth Cloud](https://agent402.tools/tollbooth/cloud) (managed)
 
 **Website & Developer**
-- [Quickstart](https://agent402.tools/quickstart) — first call in 60 seconds
-- [Playground](https://agent402.tools/playground) — try tools in your browser
-- [SDK REPL](https://agent402.tools/sdk-playground) — live code editor
-- [API Explorer](https://agent402.tools/docs/api/explorer) — browse OpenAPI
-- [Adapter Docs](https://agent402.tools/docs/adapters) — per-framework guides
-- [Workflows](https://agent402.tools/workflows) — chaining patterns
+- [Reports](https://agent402.tools/reports) · [Monitors](https://agent402.tools/monitors) · [Credits](https://agent402.tools/credits) - buy by card
+- [Quickstart](https://agent402.tools/quickstart) - first call in 60 seconds
+- [Playground](https://agent402.tools/playground) - try tools in your browser
+- [SDK REPL](https://agent402.tools/sdk-playground) - live code editor
+- [API Explorer](https://agent402.tools/docs/api/explorer) - browse OpenAPI
+- [Adapter Docs](https://agent402.tools/docs/adapters) - per-framework guides
+- [Workflows](https://agent402.tools/workflows) - chaining patterns
 - [Blog](https://agent402.tools/blog) · [Changelog](https://agent402.tools/changelog)
 
 **Under the hood**

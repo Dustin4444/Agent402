@@ -4,7 +4,7 @@
 
 **500+ endpoints + 100+ multi-tool [[Skill Packs|Skill-Packs]].** All deterministic - **no LLM in the serving path**: same input, same output, full input/output schemas. Discover them machine-readably (don't hardcode this page):
 
-- [`/api/find?q={task}`](https://agent402.tools/api/find?q=extract%20article) - **resolve a plain-language task to the right tool** (route, price, schema, ready example) in one call, so an agent skips the token-heavy "search to find a tool" step. Also a `find_tool` MCP tool on the connector.
+- [`/api/find?q={task}`](https://agent402.tools/api/find?q=extract%20article) - **resolve a plain-language task to the right tool** (route, price, schema, ready example) in one call, so an agent skips the token-heavy "search to find a tool" step. Also the `catalog.find` MCP tool on the connector.
 - [`/api/pricing`](https://agent402.tools/api/pricing) - slug, route, price, category, description for everything
 - [`/openapi.json`](https://agent402.tools/openapi.json) - OpenAPI 3.1 with schemas
 - [`/tools`](https://agent402.tools/tools) - human-readable docs, one page per tool with a working example
@@ -34,6 +34,10 @@ These exist because an agent mid-task cannot give itself a browser, a paid searc
 | `treasury-*`, `fred-*`, `cpi-yoy`, `fed-funds`, `sahm-rule`, `yield-curve-spread`, `world-bank-*` | $0.005–$0.025 | **macro-kit**: official macro time-series from the St. Louis Fed (FRED v1 + v2 bulk release observations), the US Treasury, and the World Bank |
 | `edgar-company-lookup`, `edgar-filings`, `edgar-company-concept`, `edgar-company-facts`, `edgar-xbrl-frame`, `edgar-insider-trades`, `edgar-13f-holdings`, `edgar-recent-ipos`, `edgar-search` | $0.005–$0.025 | **edgar-kit**, SEC EDGAR: ticker→CIK, filings, XBRL company facts and concepts, cross-company XBRL frames, insider Form 4, 13F holdings, recent IPOs, full-text search |
 | `image-resize`, `image-convert`, `image-thumbnail`, `barcode-decode` | $0.003–$0.005 | Pure-CPU image transforms + barcode/QR decode (jimp / zxing) |
+
+## Report products (outcome-priced, same 402)
+
+When the job is a whole report rather than a call, the `/v1` report routes sell one finished, cited report per payment - `POST /v1/research` ($5, pro $15, max $30), `/v1/research/market-brief` ($15), `/v1/dossier` ($19, max $39), `/v1/fund` ($9, max $19), `/v1/domain-audit` ($5, pro $9), `/v1/recall-report` ($5), `/v1/insider-report` ($9), `/v1/token-risk` ($5, pro $12), and the deterministic `/v1/ipo-report` digest ($0.05). Same x402 / MPP 402 as every other route, plus prepaid card credits; people buy the same reports by card at `/reports`. Inputs, cadences and the $9/month monitors are on [[Reports, Monitors and Credits|Reports-and-Monitors]].
 
 ## The long tail (pure-CPU, also payable with compute)
 

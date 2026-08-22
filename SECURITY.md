@@ -1,6 +1,7 @@
 # Security Policy
 
-Agent402 handles real money (USDC settlement via x402), runs a headless browser
+Agent402 handles real money (USDC settlement via x402 and MPP, card payments via
+Stripe for reports, monitors and prepaid credits), runs a headless browser
 against user-supplied URLs, and stores wallet-keyed data - security reports are
 taken seriously and acted on fast.
 
@@ -17,8 +18,10 @@ within a few days; fixes for real issues ship through the normal CI pipeline
 
 ## Scope
 
-- The live service at `agent402.tools`, including `/mcp`, the `/v1` LLM gateway, and the
-  x402 / MPP paywall on every paid route
+- The live service at `agent402.tools`, including `/mcp`, the `/v1` LLM gateway and report
+  products, the x402 / MPP paywall on every paid route, the prepaid-credits gate
+  (`Authorization: Bearer a402_...`), and the card front door (`/reports`, `/monitors`,
+  `/credits`, the Stripe webhook)
 - This codebase: SSRF guards, the proof-of-work scheme, payment gating, the memory access-control model
 - The `agent402-mcp` npm package (especially the spend-control enforcement)
 - The `agent402-client` buyer SDK and the `agent402-tollbooth` pay-per-crawl gate

@@ -10,17 +10,12 @@ The first self-hostable pay-per-crawl gate that speaks both wires on one 402 -
 the sell side of [Agentic Finance](https://agent402.tools/agentic-finance),
 where agents pay and sites get paid, per request, with no account in between.
 
-The big platforms are converging on the same model: Cloudflare's
-[pay-per-crawl](https://stackoverflow.blog/2026/02/26/how-pay-per-crawl-is-reshaping-data-monetization/)
-and now its [Monetization Gateway](https://blog.cloudflare.com/monetization-gateway/)
-(launched July 2026 - x402 charging in USDC on Base for anything behind Cloudflare:
-pages, APIs, datasets, MCP tools) confirm that pay-per-request is the business model
-of the agentic web. Tollbooth is the **open-source monetization gateway**: the same
-idea, but MIT-licensed and live today, running in
-front of *any* origin (even a Cloudflare Worker), non-custodial (you hold the wallet,
-no signup or Merchant-of-Record), and - the wedge the platform gateways don't offer -
-with a **proof-of-work free tier** so a walletless agent still has a path through.
-Built on the same hardened 402 + proof-of-work machinery as
+Tollbooth is an **open-source monetization gateway**: MIT-licensed, running in
+front of *any* origin (Express, a reverse proxy, Next.js, a Cloudflare Worker),
+non-custodial (you hold the wallet, no signup or Merchant-of-Record), settling
+over x402 and MPP on one 402 - including native MPP on Tempo with split
+payments - and with a **proof-of-work free tier** so a walletless agent still
+has a path through. Built on the same hardened 402 + proof-of-work machinery as
 [Agent402](https://github.com/MikeyPetrillo/Agent402).
 
 ## See it work (one command)
@@ -123,8 +118,7 @@ must pay, or `null` to let it through.
 **Ready-to-deploy templates** (copy a folder, don't assemble from docs):
 
 - **Cloudflare Workers** → [`deploy/cloudflare/`](deploy/cloudflare/) - a ready
-  `wrangler.toml` + a 3-step deploy guide (the open pay-per-crawl, on the
-  incumbent's own platform).
+  `wrangler.toml` + a 3-step deploy guide.
 - **Next.js / Vercel** → [`deploy/nextjs/`](deploy/nextjs/) - a drop-in
   `middleware.js` + a 3-step deploy guide.
 - **Docker** → [`deploy/docker/`](deploy/docker/) - a `Dockerfile` +
@@ -162,8 +156,8 @@ export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)
 > On the edge, pass a stable `secret` (PoW tokens are HMAC-signed). For
 > single-use replay protection across stateless invocations, supply a `store`
 > (e.g. a Cloudflare KV wrapper - the Worker entry wires this for you).
-> The `x402:` middleware mode and MPP are Node/Express features today; the
-> edge gate offers proof-of-work plus the `verifyX402` callback.
+> The `x402:` middleware mode, MPP and the native Tempo rail are Node/Express
+> features today; the edge gate offers proof-of-work plus the `verifyX402` callback.
 
 ## Accepting USDC: x402 and MPP on the same 402
 
@@ -240,9 +234,21 @@ app.use(createTollbooth({
 }));
 ```
 
+The `tempo` object takes `apiKey` (required), `recipient` (required, your
+Tempo payTo), `currency` or `currencies` (TIP-20 token addresses; default USDC.e
+`0x20C000000000000000000000b9537d11c60E8b50`, one challenge minted per currency,
+first = preferred), `splits` (up to 10, total below the price, same transaction),
+`chainId` (default 4217, Tempo mainnet), `apiBaseUrl` (relay, default
+`https://api.tempo.xyz`), `decimals` (6), `timeoutSeconds` (300), plus the
+confirm knobs below. A bad config throws at construction - the gate never boots
+minting unpayable challenges.
+
 Or from env on the CLI: `TOLLBOOTH_TEMPO_API_KEY`, `TOLLBOOTH_TEMPO_RECIPIENT`
-(defaults to `TOLLBOOTH_PAYTO`), optional `TOLLBOOTH_TEMPO_CURRENCY`,
-`TOLLBOOTH_TEMPO_SPLITS="0xabc:0.0002,0xdef:0.0001"`.
+(defaults to `TOLLBOOTH_PAYTO`), optional `TOLLBOOTH_TEMPO_CURRENCY` (CSV of
+token addresses), `TOLLBOOTH_TEMPO_SPLITS="0xabc:0.0002,0xdef:0.0001"`,
+`TOLLBOOTH_TEMPO_API_BASE` (relay override), `TOLLBOOTH_TEMPO_RPC_URL` (confirm
+RPC override). Tempo works with NO x402 middleware at all (a Tempo-only
+tollbooth) and next to one.
 
 Every 402 then carries a `WWW-Authenticate: Payment` tempo/charge challenge
 (next to any evm challenges from the x402 rail, if you run both); a stock
@@ -293,6 +299,9 @@ live incident transaction in the tests).
 | `mpp` | `true` when `x402` set | Accept MPP (`WWW-Authenticate: Payment` / `Authorization: Payment`) through the `x402` middleware |
 | `mppSecret` | `powSecret` / `TOLLBOOTH_SECRET` | HMAC secret binding MPP challenge ids (stable across workers) |
 | `mppNetworks` | `[8453, 42220]` | EVM chain ids to offer as MPP challenges (`"all"` = every EVM chain the middleware advertises) |
+| `tempo` | env (`TOLLBOOTH_TEMPO_*`) or off | Native MPP on Tempo (0.9.0): `{ apiKey, recipient, currency \| currencies, splits, chainId, apiBaseUrl, decimals, timeoutSeconds, confirm, confirmRpcUrl }` - mints `tempo/charge` challenges, validates with Tempo's relay before the handler, broadcasts after a <400 response. Works with or without `x402` |
+| `tempo.confirm` | `true` | Chain-truth confirm (0.9.2): on a relay broadcast failure, check the chain for the credential's own txid before answering 402; `false` disables |
+| `tempo.confirmRpcUrl` | `https://rpc.tempo.xyz` (`TOLLBOOTH_TEMPO_RPC_URL`) | Tempo JSON-RPC used by the confirm step |
 | `verifyX402(req, opts)` | – | Legacy verify-only USDC check (deprecated for settle-after-handler middlewares; see above) |
 | `resourceBaseUrl` | `""` | Absolute base used for the `resource` field / PoW binding |
 | `observe` | `false` | Observe-only: classify and count, but never 402. For pre-launch traffic measurement. |
@@ -314,6 +323,12 @@ Read by the bundled proxy / Express entry point (`index.js`):
 | `TOLLBOOTH_MPP` | on when `x402` set | `false` to switch MPP off |
 | `TOLLBOOTH_MPP_SECRET` | `TOLLBOOTH_SECRET` | HMAC secret for MPP challenge ids |
 | `TOLLBOOTH_MPP_NETWORKS` | `8453,42220` | CSV of EVM chain ids to offer as MPP challenges, or `all` |
+| `TOLLBOOTH_TEMPO_API_KEY` | – | Tempo API key (`mpp:write` scope). Presence switches on the native Tempo rail (0.9.0) |
+| `TOLLBOOTH_TEMPO_RECIPIENT` | `TOLLBOOTH_PAYTO` | Tempo payTo (0x address) |
+| `TOLLBOOTH_TEMPO_CURRENCY` | USDC.e on Tempo | CSV of TIP-20 token addresses to offer (one challenge each, first = preferred) |
+| `TOLLBOOTH_TEMPO_SPLITS` | – | `0xabc:0.0002,0xdef:0.0001` - split recipients + USD amounts paid in the same transaction (≤10, total below the price) |
+| `TOLLBOOTH_TEMPO_API_BASE` | `https://api.tempo.xyz` | Tempo relay base URL override |
+| `TOLLBOOTH_TEMPO_RPC_URL` | `https://rpc.tempo.xyz` | Tempo JSON-RPC for the chain-truth confirm step (0.9.2) |
 | `TOLLBOOTH_ASSET` | `"USDC"` | Asset symbol in the quote (`USDG` charges in USDG on Robinhood Chain) |
 | `TOLLBOOTH_POW_BITS` | `18` | Proof-of-work difficulty in leading zero bits |
 | `TOLLBOOTH_MODE` | `"bots"` | Who pays: `bots` · `all` · `strict` |
@@ -381,7 +396,7 @@ changes. Bots see a `X-Tollbooth-Observed: would-charge` header in observe mode
 ## Analytics
 
 The middleware keeps aggregate counters (no per-request data):
-- `gate.stats()` → sync, in-process mirror: `{ requests, freeAllowed, wouldCharge, charged, powSolved, x402Paid, mppPaid, difficultyNow, observe }`.
+- `gate.stats()` → sync, in-process mirror: `{ requests, freeAllowed, wouldCharge, charged, powSolved, x402Paid, mppPaid, tempoPaid, difficultyNow, observe }`.
 - `gate.snapshot()` → async, reads from the configured durable sink (defaults to memory).
 - `gate.flush()` → flush any buffered deltas to the durable sink (call inside `ctx.waitUntil` on edge runtimes).
 

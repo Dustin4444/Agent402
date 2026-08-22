@@ -77,6 +77,8 @@ const KNOWN_NON_CATALOG = new Set([
   "/api/tollbooth/waitlist", "/api/wish", "/api/route/execute", "/api/skill-packs",
   "/api/health", "/api/route/external-debug", "/api/market",
   "/api/mpp-index", "/api/mpp-leaderboard", "/api/mpp-index/register",
+  // Card front door (Stripe): served outside CATALOG, mounted with STRIPE_SECRET_KEY.
+  "/api/buy", "/api/subscribe", "/api/credits/checkout", "/api/credits/claim", "/api/credits/balance",
 ]);
 
 let deadRoutes = 0, priceMismatches = 0, badSlugLinks = 0, exactCounts = 0;

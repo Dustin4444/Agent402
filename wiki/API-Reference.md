@@ -92,6 +92,14 @@ layer calls before it obeys the agent, checking the signature, the version, the
 expiry, and that the statement hash matches. See [[Tool Catalog]] for the full
 behavior and the honest scope of the check.
 
+### Report products (`/v1`)
+
+Outcome-priced reports on the same 402: `POST /v1/research` ($5; `/pro` $15, `/max` $30, `/market-brief` $15), `POST /v1/dossier` ($19; `/max` $39), `POST /v1/fund` ($9; `/max` $19), `POST /v1/domain-audit` ($5; `/pro` $9), `POST /v1/recall-report` ($5), `POST /v1/insider-report` ($9), `POST /v1/token-risk` ($5; `/pro` $12), `POST /v1/ipo-report` ($0.05, deterministic). JSON bodies and inputs are on [[Reports, Monitors and Credits|Reports-and-Monitors]]; all are wallet-only (x402 / MPP / prepaid credits), never proof-of-work, never cached.
+
+### Card front door and credits
+
+`/reports`, `/monitors` and `/credits` are HTML pages backed by Stripe Checkout (`POST /api/buy`, `POST /api/subscribe`, `POST /api/credits/checkout`; each answers `503` when the instance has no Stripe key). A paid report renders at `/r/<session>`, a monitor report at `/m/<id>`. A prepaid credits key pays any priced catalog route with `Authorization: Bearer a402_…` (the response carries `X-Credits-Balance`; insufficient or unknown keys get `402` with `{ reason, balanceUsd, topup }`; identity-bound routes answer `402` `reason: "identity-bound"`), and `GET /api/credits/balance` with the same header returns the balance.
+
 ### OpenAI wire paths
 
 Chat, embeddings, image generation, and text-to-speech are also served OpenAI-compatibly under `/v1` - `POST /v1/{nano,auto,pro,premium}/chat/completions`, `POST /v1/chat/completions`, `POST /v1/embeddings`, `POST /v1/images/generations`, `POST /v1/audio/speech`, with `GET /v1/models` free. See [[LLM Gateway (OpenAI /v1)|LLM-Gateway]] for tiers, the model-optional auto router, streaming, and caching. `POST /api/route/execute` runs the resolver's top pick in one paid call, and `POST /api/my-usage` returns the paying wallet's own purchase history.
@@ -175,7 +183,8 @@ The cache is **settlement-aware**: a response body is captured when the handler 
 | Surface | Limit | Notes |
 |---|---|---|
 | PoW tier | Natural (CPU cost per challenge) | 200+ pure-CPU tools only; difficulty 16 = ~65k hashes |
-| MCP connector (`/mcp`) | 20/min, 120/hr per IP | Pure-CPU set only; override with `AGENT402_MCP_MAX_PER_MIN/HOUR` |
+| MCP connector (`/mcp`) | 20/min, 120/hr per IP | Free pure-CPU set via `catalog.call`; override with `AGENT402_MCP_MAX_PER_MIN/HOUR`. Wallet-only tools are payable in the call over MPP |
+| Card endpoints (`/api/buy`, `/api/subscribe`, `/api/credits/checkout`, session reads) | per-IP | Each makes an outbound Stripe call, so they are capped and unknown session ids are negatively cached |
 
 ## Error format
 
@@ -190,7 +199,7 @@ All errors return a JSON body with an `error` string field.
 | Code | Meaning |
 |---|---|
 | `400` | Bad request -- missing or invalid input parameters |
-| `402` | Payment required -- x402 quote included in body |
+| `402` | Payment required -- x402 quote in the `payment-required` header (MPP challenges in `WWW-Authenticate: Payment`); for a prepaid credits key, a JSON body with `reason` (`insufficient`, `unknown`, `disabled`, `identity-bound`) and `topup` |
 | `404` | Tool not found |
 | `409` | Conflict -- the request cannot be served as asked, and the body says how to fix it. Two cases: an execution tier too small for the resolved tool (retry on the rung named in the error, or call the tool directly), and external routing on a chain with no spending wallet (the error names the chains that are supported) |
 | `413` | Payload too large -- for the memory tools, the namespace quota is full: either the per-namespace key count (`MEMORY_MAX_NS_KEYS`, default 10,000) or the total-value byte budget (`MEMORY_MAX_NS_BYTES`, default 32 MB). Delete keys or shrink values |

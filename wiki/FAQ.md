@@ -3,13 +3,17 @@
 > **Payment wires:** every paid endpoint accepts **x402** and **MPP** (Machine Payments Protocol) on the same 402 - see [[Paying with x402]] and [[Paying with MPP]]. Agent402 is the applied layer of [[Agentic Finance]]: agents that pay and get paid on their own.
 
 **Do I need an account or API key?**
-No. Nothing here has a signup. Payment (USDC or proof-of-work) is the only credential, per call.
+No. Nothing here has a signup. Payment (USDC over x402 or MPP, or proof-of-work) is the only credential, per call. If you have a card and no wallet, prepaid credits from [`/credits`](https://agent402.tools/credits) give you an `a402_…` key that pays any tool with one header; it is a balance, not an account (see [[Reports, Monitors and Credits|Reports-and-Monitors]]).
 
 **What does it cost?**
-Flat per-call prices starting at **$0.001**. Most tools are $0.001–$0.02; premium inference, media, and multi-tool skill packs are priced higher (up to $1.50 for the biggest pack). Every price is published in [`/api/pricing`](https://agent402.tools/api/pricing) and quoted exactly in every 402 response. No subscriptions or tiers.
+Flat per-call prices starting at **$0.001**. Most tools are $0.001–$0.02; premium inference, media, and multi-tool skill packs are priced higher (up to $1.50 for the biggest pack). Every price is published in [`/api/pricing`](https://agent402.tools/api/pricing) and quoted exactly in every 402 response. Report products (`/v1/research`, `/v1/dossier`, `/v1/fund`, `/v1/domain-audit`, `/v1/recall-report`, `/v1/insider-report`, `/v1/token-risk`) are priced per finished report, $5 to $39; monitors at [`/monitors`](https://agent402.tools/monitors) are the one subscription, $9 per month per target.
+
+**Can I pay by card?**
+Yes, three ways: a finished report at [`/reports`](https://agent402.tools/reports), a monitor at [`/monitors`](https://agent402.tools/monitors), or prepaid credits at [`/credits`](https://agent402.tools/credits) that spend on every tool (debited only on a successful call, never expire). Routes at or above the card minimum (fifty cents) also accept cards over the MPP wire (Stripe `stripe/charge`) when the operator enables it.
+Identity-bound tools (memory, `my-usage`) need a wallet payment because the wallet is the identity.
 
 **Can I use it without any money?**
-Yes: 200+ pure-CPU tools accept proof-of-work (sub-second of your CPU), and the hosted MCP connector runs the same set free (rate-limited). See [[Paying with Compute]].
+Yes: 200+ pure-CPU tools accept proof-of-work (sub-second of your CPU), and the hosted MCP connector runs the same set free (rate-limited) through `catalog.call`. See [[Paying with Compute]].
 
 **What is x402?**
 An open HTTP payment standard built on the `402 Payment Required` status code, with settlement infrastructure from Coinbase and open client tooling from Stripe. See [[Paying with x402]].
@@ -18,7 +22,7 @@ An open HTTP payment standard built on the `402 Payment Required` status code, w
 USDC on Base (primary), Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar, or Algorand - plus USDG (Global Dollar) on Robinhood Chain. The buyer needs only the stablecoin - gas/fees are sponsored by the facilitator on every rail.
 
 **Does using this spend my AI tokens?**
-No. There's no LLM anywhere in the serving path - every tool is deterministic code. Proof-of-work spends your CPU; x402 spends USDC.
+No. There's no LLM anywhere in the serving path of the per-call tools - every tool is deterministic code. Proof-of-work spends your CPU; x402 or MPP spends USDC. (The report products are the exception by design: deterministic evidence gathering plus a grounded, cited synthesis, priced per report, and the `/v1` LLM gateway is inference you ask for explicitly.)
 
 **Is my data stored?**
 Tool inputs are processed in memory and not persisted - except the memory tools, whose purpose is storage (wallet-keyed, owner-deletable, TTL-able). Full policy: [agent402.tools/privacy](https://agent402.tools/privacy).

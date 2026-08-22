@@ -106,11 +106,13 @@ Agent402 exposes a hosted MCP endpoint at:
 https://agent402.tools/mcp
 ```
 
-This is a streamable-HTTP MCP server. Four meta-tools drive it - `search_tools`
-(browse candidates), `find_tool` (resolve a task to one pick), `call_tool` (run
-by slug) and `get_payment_info` (how paying and spend caps work) - alongside a
-handful of popular tools listed first-class by name. Any Cloudflare Agent that
-supports remote MCP servers can connect directly.
+This is a streamable-HTTP MCP server. Four meta-tools drive it - `catalog.search`
+(browse candidates), `catalog.find` (resolve a task to one pick), `catalog.call`
+(run by slug) and `payment.info` (how paying and spend caps work) - alongside
+`server.describe`, `sellers.list`, `demand.request` and the flagship tools listed
+first-class by name (`web.search`, `web.answer`, `web.news`, `browser.render`,
+`market.quote`, `audio.transcribe`, `memory.read`, `memory.write`). Any
+Cloudflare Agent that supports remote MCP servers can connect directly.
 
 In your `wrangler.jsonc` (or equivalent config):
 
@@ -126,10 +128,13 @@ In your `wrangler.jsonc` (or equivalent config):
 }
 ```
 
-The MCP surface handles discovery and invocation - `call_tool` solves
-proof-of-work automatically for free-tier tools. For wallet-only tools
-(search, browser, PDF, memory), pass your x402 payment header via the
-`payment` field in the `call_tool` input.
+The MCP surface handles discovery and invocation - `catalog.call` solves
+proof-of-work automatically for free-tier tools. Wallet-only tools (search,
+browser, PDF, memory) are payable on the connector over MPP: the call answers
+JSON-RPC error `-32042` carrying the challenges, and an MCP client wrapped with
+`mppx`'s `McpClient.wrap()` pays (USDC on Base/Celo, or natively on Tempo) and
+retries, receipt in `_meta`. To pay over x402 instead, run the `agent402-mcp`
+npm package with a wallet key (or a prepaid card-credits key).
 
 ---
 
@@ -138,8 +143,9 @@ proof-of-work automatically for free-tier tools. For wallet-only tools
 Site owners who want to charge AI agents (including Cloudflare Workers) for
 crawling their content can deploy `agent402-tollbooth`. It is a lightweight
 middleware that returns a 402 challenge to bot traffic and settles USDC via
-x402 before serving the page. Works with any origin - Express, Next.js,
-Cloudflare Workers, or Docker. See
+x402, or over MPP on the same 402 (including natively on Tempo, with optional
+split payments), or lets a walletless crawler through on proof-of-work. Works
+with any origin - Express, Next.js, Cloudflare Workers, or Docker. See
 [github.com/MikeyPetrillo/Agent402/tree/main/tollbooth](https://github.com/MikeyPetrillo/Agent402/tree/main/tollbooth)
 for the npm package and deploy templates.
 
@@ -156,7 +162,11 @@ for the npm package and deploy templates.
 | Any paid tool | `GET\|POST /api/{slug}` | x402 (USDC) |
 | x402 manifest | `GET /.well-known/x402` | None |
 
-Prices: most tools $0.001–$0.02 per call; the priciest single tool is $0.55 and
-multi-tool skill packs run up to $1.50. Networks: Base, Solana, Polygon,
-Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar and Algorand (USDC),
-plus Robinhood Chain (USDG) - 12 in total.
+Prices: most tools $0.001–$0.02 per call; the routing tiers top out at $0.55,
+multi-tool skill packs run up to $1.50, and the report products (research,
+dossier, fund, domain audit, token risk, recall, insider) run $5 to $39.
+Networks: Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei,
+Optimism, Stellar and Algorand (USDC), plus Robinhood Chain (USDG) - 12 in
+total. MPP (Machine Payments Protocol) is accepted on the same 402 (Base/Celo,
+or natively on Tempo), and prepaid card credits (https://agent402.tools/credits)
+work on any priced route.

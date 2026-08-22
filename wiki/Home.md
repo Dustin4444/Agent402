@@ -1,6 +1,6 @@
 # Agent402.Tools Wiki
 
-**Agent402.Tools** is the applied layer of **Agentic Finance** - agents that pay and get paid on their own over x402 and MPP (see [[Agentic Finance]]) - shipped as an **open-source, self-hostable MCP server + HTTP API with 500+ ready-to-use tools and 100+ multi-tool skill packs for AI agents** - browser rendering, web search, PDFs, OCR, images, live data, crypto/payments helpers, 200+ pure-CPU utilities, plus curated workflows ([[Skill Packs|Skill-Packs]]) for jobs no single tool covers. Clone it and run everything free in 30 seconds (no wallet, no signup), or use the hosted instance. Optionally, the same server can charge per call over the [x402 protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand - plus USDG on Robinhood Chain) **and over MPP** (the Machine Payments Protocol `Payment` HTTP auth scheme: USDC on Base and Celo, or PathUSD natively on Tempo) - both wires on the same 402, both opt-in; by default everything runs free. See [[Paying with MPP]].
+**Agent402.Tools** is the applied layer of **Agentic Finance** - agents that pay and get paid on their own over x402 and MPP (see [[Agentic Finance]]) - shipped as an **open-source, self-hostable MCP server + HTTP API with 500+ ready-to-use tools and 100+ multi-tool skill packs for AI agents** - browser rendering, web search, PDFs, OCR, images, live data, crypto/payments helpers, 200+ pure-CPU utilities, plus curated workflows ([[Skill Packs|Skill-Packs]]) for jobs no single tool covers. Clone it and run everything free in 30 seconds (no wallet, no signup), or use the hosted instance. Optionally, the same server can charge per call over the [x402 protocol](https://x402.org) (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar & Algorand - plus USDG on Robinhood Chain) **and over MPP** (the Machine Payments Protocol `Payment` HTTP auth scheme: USDC on Base and Celo, USDC.e or PathUSD natively on Tempo, and cards over MPP through Stripe on routes from $0.50) - both wires on the same 402, both opt-in; by default everything runs free. See [[Paying with MPP]]. Beside the per-call tools it sells **outcome-priced reports** (research, due-diligence dossiers, 13F fund reports, domain audits, FDA recall, insider flow, token risk - $5 to $39 each), **$9/month monitors** that re-run a report when something changes, and **prepaid card credits** that let a buyer without a wallet spend on every tool - see [[Reports, Monitors and Credits|Reports-and-Monitors]].
 
 > **Every entry earns its place** - tested against its own example on every CI run, priced to market, live-verified. CI holds a 400-entry catalog floor and verifies the “500+” claim against the running server (`scripts/sync-count.js --check`).
 
@@ -8,6 +8,7 @@ It's also **the open x402 index**: a single integration gives a buyer three prim
 
 - **Run it yourself (free):** `git clone … && npm install && FREE_MODE=true npm start` - see [[Getting Started]]
 - **Live hosted demo:** https://agent402.tools · **MCP connector (paste into Claude):** `https://agent402.tools/mcp`
+- **For people (card, no wallet):** [`/reports`](https://agent402.tools/reports) one-off reports · [`/monitors`](https://agent402.tools/monitors) $9/month watches · [`/credits`](https://agent402.tools/credits) prepaid credits for every tool - see [[Reports, Monitors and Credits|Reports-and-Monitors]]
 - **Add your own tool:** a few lines in `src/tools/` - see [CONTRIBUTING](https://github.com/MikeyPetrillo/Agent402/blob/main/CONTRIBUTING.md)
 - **The other side of x402** - charge AI bots crawling *your* site with the open-source pay-per-crawl gate: see [[Pay-per-crawl]]
 - **Machine-readable catalog:** [`/api/pricing`](https://agent402.tools/api/pricing) · [`/openapi.json`](https://agent402.tools/openapi.json) · [`/llms.txt`](https://agent402.tools/llms.txt)
@@ -22,10 +23,11 @@ It's also **the open x402 index**: a single integration gives a buyer three prim
 |---|---|
 | [[Agentic Finance]] | What Agentic Finance is, the stack, and where Agent402 sits |
 | [[Getting Started]] | Your first call in 60 seconds - free, no wallet |
+| [[Reports, Monitors and Credits|Reports-and-Monitors]] | Outcome-priced report products (`/v1/research`, `/v1/dossier`, `/v1/fund`, `/v1/domain-audit`, `/v1/recall-report`, `/v1/insider-report`, `/v1/token-risk`), the card front door (`/reports`, `/monitors`), and prepaid credits (`/credits`, `Authorization: Bearer a402_…`) |
 | [[Paying with x402]] | USDC payments: the 402 flow, code, spend controls, Stripe's `purl` |
-| [[Paying with MPP]] | The Machine Payments Protocol wire: `WWW-Authenticate: Payment`, mppx clients, Base/Celo and native Tempo settlement |
+| [[Paying with MPP]] | The Machine Payments Protocol wire: `WWW-Authenticate: Payment`, mppx clients, Base/Celo, native Tempo settlement, cards over MPP, native MPP on the `/mcp` connector |
 | [[Paying with Compute]] | The proof-of-work tier: spec + reference solver |
-| [[MCP Connector]] | Hosted connector + the `agent402-mcp` npm server |
+| [[MCP Connector]] | Hosted connector (dotted tools: `catalog.find`, `catalog.call`, `web.search`, …, payable over MPP in the call) + the `agent402-mcp` npm server (wallet or prepaid credits) |
 | [[Adapters]] | Drop-in tools for OpenAI / Anthropic / AI SDK / LangChain / LlamaIndex |
 | [[Tool Catalog]] | What the 500+ tools are and how agents discover them |
 | [[Skill-Packs]] | 100+ multi-tool workflows - `prompts/list` → `prompts/get`, ready-to-run plans |
@@ -39,7 +41,7 @@ It's also **the open x402 index**: a single integration gives a buyer three prim
 | [[Speech-to-Text|STT]] | Transcribe audio to text via OpenAI - URL-based input, multi-language |
 | [[Text Embeddings|Embeddings]] | Generate embedding vectors via OpenAI - 1536/3072 dimensions for RAG and search |
 | [[Payments and x402]] | Non-custodial multi-chain payment toolkit: quote, verify, balance, gas, transfer-auth, ENS |
-| [[Pay-per-crawl]] | `agent402-tollbooth`: charge AI crawlers to access your site (USDC via x402 or proof-of-work) |
+| [[Pay-per-crawl]] | `agent402-tollbooth`: charge AI crawlers to access your site (USDC via x402 or MPP, native MPP on Tempo with split payments, or proof-of-work) |
 | [[Memory and Coordination]] | Durable wallet-keyed state, cross-wallet grants, audit log |
 | [[Architecture]] | How the server, paywall, and facilitators fit together |
 | [[Security Model]] | SSRF defense, PoW scoping, what's wallet-only and why |
@@ -50,8 +52,9 @@ It's also **the open x402 index**: a single integration gives a buyer three prim
 
 ## The one-line pitch per audience
 
-- **An agent, mid-task:** every capability here needs only what you already hold - a wallet or a CPU. `GET https://agent402.tools/llms.txt` and go.
-- **An agent developer:** one x402-wrapped fetch (or one MCP server) buys browser rendering, live search, PDFs, durable memory, and 200+ utilities from $0.001/call (most $0.001–$0.02; premium AI/media higher), plus 100+ curated multi-tool workflows ([[Skill Packs|Skill-Packs]]) priced by the tools they bundle - all deterministic, no LLM in the serving path.
+- **An agent, mid-task:** every capability here needs only what you already hold - a wallet, a prepaid credits key, or a CPU. `GET https://agent402.tools/llms.txt` and go.
+- **A person who needs one answer:** buy a finished report by card at [`/reports`](https://agent402.tools/reports), or a monitor that emails you when a filing, recall or certificate changes at [`/monitors`](https://agent402.tools/monitors). No wallet involved.
+- **An agent developer:** one x402-wrapped fetch (or one MCP server) buys browser rendering, live search, PDFs, durable memory, and 200+ utilities from $0.001/call (most $0.001–$0.02; premium AI/media higher), plus 100+ curated multi-tool workflows ([[Skill Packs|Skill-Packs]]) priced by the tools they bundle - all deterministic, no LLM in the serving path - and outcome-priced report products ($5 to $39) on the same 402 when the job is a whole report rather than a call.
 - **A skeptic:** the whole server is open source, every endpoint is re-tested against its own documented example before every deploy, and revenue settles on-chain to **`agent402.base.eth`** (a Base name resolving to the public receiving wallet) - [verify on Basescan](https://basescan.org/address/0xaBF4FAbd7c416fB67202E5f9002389Fc75e2a9D0#tokentxns).
 
 > This wiki is generated from the [`wiki/`](https://github.com/MikeyPetrillo/Agent402/tree/HEAD/wiki) directory of the main repo and synced by CI - edit there, not here.

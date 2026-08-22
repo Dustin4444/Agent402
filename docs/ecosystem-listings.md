@@ -1,5 +1,42 @@
 # Ecosystem listing PRs - ready to submit
 
+## Current product summary (paste-ready, keep evergreen)
+
+Use this block (or any subset) wherever a directory asks what Agent402 is. Every
+claim below is served live; verify prices against `/api/pricing` before pasting.
+
+- **Catalog:** 500+ pay-per-call endpoints for AI agents (400+ deterministic tools +
+  100+ skill packs): live web search and cited answers, headless browser, PDFs, OCR,
+  financial / SEC EDGAR / macro / on-chain data, an OpenAI-compatible LLM gateway
+  (`/v1`), durable wallet-keyed memory, 200+ pure-CPU utilities.
+- **Pay any way:** x402 (USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo,
+  Avalanche, Sei, Optimism, Stellar, Algorand; USDG on Robinhood Chain - 12 chains),
+  MPP (Machine Payments Protocol) on the same 402 (Base/Celo, or natively on Tempo),
+  free proof-of-work on the pure-CPU tools, or **prepaid card credits** -
+  $20 / $50 / $100 packs at https://agent402.tools/credits, spent on any priced
+  route with `Authorization: Bearer a402_…`, debited only on a successful call, never expire.
+- **Report products** (same endpoint over x402/MPP, or by card at
+  https://agent402.tools/reports): deep research `POST /v1/research` $5,
+  `/v1/research/pro` $15, `/v1/research/max` $30, market brief
+  `/v1/research/market-brief` $15; company dossier `/v1/dossier` $19,
+  `/v1/dossier/max` $39; 13F fund report `/v1/fund` $9, `/v1/fund/max` $19;
+  domain audit `/v1/domain-audit` $5, `/v1/domain-audit/pro` $9; FDA recall
+  `/v1/recall-report` $5; insider flow `/v1/insider-report` $9; token risk
+  `/v1/token-risk` $5, `/v1/token-risk/pro` $12.
+- **Monitors** ($9/month each, card, https://agent402.tools/monitors): domain
+  security, 13F fund, FDA recall, insider flow, IPO pipeline - a cheap daily probe,
+  a full paid re-run and an email only when something changes.
+- **MCP:** hosted connector `https://agent402.tools/mcp` (dotted tools:
+  `catalog.search`, `catalog.find`, `catalog.call`, `payment.info`,
+  `server.describe`, `sellers.list`, `demand.request`, plus flagships `web.search`,
+  `web.answer`, `web.news`, `browser.render`, `market.quote`, `audio.transcribe`,
+  `memory.read`, `memory.write`); wallet-only tools are payable on the connector
+  over MPP (JSON-RPC `-32042` + challenges). npm: `agent402-mcp` (stdio, pays by
+  wallet or credits key), `agent402-client` (buyer SDK), `agent402-tollbooth`
+  (pay-per-crawl: x402 + MPP, native Tempo with split payments).
+- **Maintainer:** Havok Holdings LLC. Open source (AGPL-3.0 server, MIT packages).
+
+
 Two high-signal directories accept PRs. Both need your GitHub account (forking
 external repos), so the content below is copy-paste ready.
 
@@ -162,14 +199,16 @@ that takes a GitHub repo URL; no PR, no fork.
 
      The catalog is 500+ strong - 400+ tools + 100+ curated multi-tool skill packs
      (published as MCP prompts); every one is tested against its own example on
-     every deploy. One config block, no per-tool signups, no API keys.
+     every deploy. Every paid endpoint also accepts MPP (Machine Payments
+     Protocol) on the same 402, and prepaid card credits cover agents with no
+     wallet. One config block, no per-tool signups, no API keys.
      Self-hostable (open source AGPL-3.0) or use the hosted remote at
      https://agent402.tools/mcp.
      ```
 
    - **Category / tags (pick what's offered):** `aggregator`, `payments`,
      `web-search`, `browser-automation`, `finance`, `developer-tools`
-   - **Author:** `Havok Holdings LLC / MikeyPetrillo`
+   - **Author:** `Havok Holdings LLC`
    - **License:** AGPL-3.0 (server); MIT (client SDK, MCP, tollbooth)
    - **Logo URL:** `https://raw.githubusercontent.com/MikeyPetrillo/Agent402/main/docs/logo-400.png`
 
@@ -254,11 +293,8 @@ The directory solana.com/x402 cross-links. Form submission, no PR.
      with the Solana angle (PayAI facilitator settlement, SVM signing in the
      agent402-mcp buyer, Solana payTo in every 402).
    - **Website:** https://agent402.tools · **Repo:** github.com/MikeyPetrillo/Agent402
-3. Getting *featured* on solana.com/x402 itself (like PayAI/x402scan/T54) is
-   curated - after the directory listing exists, ping the Solana Foundation
-   devrel with the on-chain proof (Solana settlements via PayAI + the open
-   tollbooth story). The x402scan listing showing live Solana volume is the
-   strongest supporting evidence.
+3. Featured placement on solana.com/x402 is curated; the directory listing
+   plus verifiable Solana settlements are what such a request needs.
 
 ---
 

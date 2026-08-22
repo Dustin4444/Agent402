@@ -1,8 +1,8 @@
 # agent402-mcp
 
-MCP server for [Agent402](https://agent402.tools), the applied layer of [Agentic Finance](https://agent402.tools/agentic-finance) - a catalog of **500+: 400+ pay-per-call web tools + 100+ curated multi-tool skill packs** for AI agents (every one tested, priced, and settled on-chain; every one earns its place), paid per call in USDC via the [x402 protocol](https://www.x402.org), or **with compute (proof-of-work)** when no wallet is configured. (The hosted API is dual-stack: it also accepts [MPP](https://agent402.tools/what-is-mpp) clients on the same 402, settling on Base/Celo or natively on Tempo; this package pays via x402.) Built by [Havok Holdings LLC](https://github.com/MikeyPetrillo/Agent402).
+MCP server for [Agent402](https://agent402.tools), the applied layer of [Agentic Finance](https://agent402.tools/agentic-finance) - a catalog of **500+: 400+ pay-per-call web tools + 100+ curated multi-tool skill packs** for AI agents (every one tested, priced, and settled on-chain; every one earns its place), paid per call in USDC via the [x402 protocol](https://www.x402.org), **with compute (proof-of-work)** when no wallet is configured, or **by card** through a prepaid credits key. (The hosted API is dual-stack: it also accepts [MPP](https://agent402.tools/what-is-mpp) clients on the same 402, settling on Base/Celo or natively on Tempo; this package pays via x402 or credits.) Built by [Havok Holdings LLC](https://github.com/MikeyPetrillo/Agent402).
 
-Your agent gets browser rendering, screenshots, PDF text extraction, URL→markdown, live web search **+ web answers with citations**, live **financial/crypto/macro data** (Yahoo stock quotes, CoinGecko, FRED, ECB FX, World Bank, yield curve), **SEC EDGAR filings** (10-K/10-Q text, XBRL, insider, 13F, IPO calendar), **deterministic stats & forecasting** (Pearson correlation, OLS, Holt-Winters), **compression** (gzip/brotli), DNS/TLS/WHOIS + email-deliverability checks, wallet-keyed shared memory, and 200+ deterministic pure-CPU utilities - plus 100+ **skill packs** like `security-audit`, `trend-analysis`, `structured-scrape`, `decode-blob`, and `forecasting-bake-off` callable as MCP prompts. Payment handled invisibly underneath the MCP calls. No signup, no API key.
+Your agent gets browser rendering, screenshots, PDF text extraction, URL→markdown, live web search **+ web answers with citations**, live **financial/crypto/macro data** (Yahoo stock quotes, CoinGecko, FRED, ECB FX, World Bank, yield curve), **SEC EDGAR filings** (10-K/10-Q text, XBRL, insider, 13F, IPO calendar), **deterministic stats & forecasting** (Pearson correlation, OLS, Holt-Winters), **compression** (gzip/brotli), DNS/TLS/WHOIS + email-deliverability checks, wallet-keyed shared memory, and 200+ deterministic pure-CPU utilities - plus 100+ **skill packs** like `security-audit`, `trend-analysis`, `structured-scrape`, `decode-blob`, and `forecasting-bake-off` callable as MCP prompts, and the **report products** (deep research, company dossier, 13F fund report, domain audit, token risk, FDA recall, insider flow, market brief) as ordinary catalog slugs. Payment handled invisibly underneath the MCP calls. No signup, no API key.
 
 ## Quick start
 
@@ -13,7 +13,7 @@ right on the connector over [MPP](https://agent402.tools/what-is-mpp): a paid
 call answers JSON-RPC error `-32042` with the challenges, and an MCP client
 wrapped with `mppx`'s `McpClient.wrap()` (USDC on Base/Celo, or native Tempo)
 pays and retries on its own, receipt in `_meta`. For no rate limit, or to pay
-over x402 instead, run this package locally with a wallet:
+over x402 or by card instead, run this package locally:
 
 With a funded wallet (USDC on Base, Polygon, Arbitrum, Monad, or Solana, or USDG on Robinhood Chain - the underlying service accepts 12 chains in total, but this package currently signs only EVM and Solana payments) - every tool available:
 
@@ -29,7 +29,21 @@ With a funded wallet (USDC on Base, Polygon, Arbitrum, Monad, or Solana, or USDG
 }
 ```
 
-Without a wallet - the 200+ pure-CPU tools work free via proof-of-work (the network/browser/memory tools will ask for a wallet):
+With prepaid card credits (no wallet) - buy a pack at https://agent402.tools/credits, claim the `a402_...` key once, and every tool is available:
+
+```json
+{
+  "mcpServers": {
+    "agent402": {
+      "command": "npx",
+      "args": ["-y", "agent402-mcp"],
+      "env": { "AGENT402_CREDITS_KEY": "a402_YOUR_KEY" }
+    }
+  }
+}
+```
+
+Without a wallet or credits key - the 200+ pure-CPU tools work free via proof-of-work (the network/browser/memory tools will ask for a wallet or a credits key):
 
 ```json
 {
@@ -41,14 +55,40 @@ Without a wallet - the 200+ pure-CPU tools work free via proof-of-work (the netw
 
 Claude Code: `claude mcp add agent402 -- npx -y agent402-mcp`
 
+## Configuration
+
+Every variable the server reads (all optional):
+
+| env | default | meaning |
+| --- | --- | --- |
+| `AGENT_KEY` | _(unset)_ | Hex private key of an EVM wallet funded with USDC on Base (or Polygon/Arbitrum/Monad), or USDG on Robinhood Chain. |
+| `SOLANA_AGENT_KEY` | _(unset)_ | Base58 secret key (or JSON byte array) of a Solana wallet funded with USDC on Solana. |
+| `AGENT402_CREDITS_KEY` | _(unset)_ | A prepaid card-credits key (`a402_...`) from https://agent402.tools/credits. Sent as `Authorization: Bearer` on every catalog call; the server debits the list price only on a successful (200) call and answers `X-Credits-Balance`. Used only when no wallet key is set (a wallet key wins); in credits mode every call - pure-CPU tools included - is debited from the key. |
+| `AGENT402_URL` | `https://agent402.tools` | Target service (point at your own deployment). |
+| `AGENT402_TOOLS` | curated set | Comma-separated slugs to expose as first-class tools. |
+| `AGENT402_MAX_PER_CALL` | unlimited | Refuse any single call priced above this many USD (e.g. `0.01`). Applies to the wallet and the credits path. |
+| `AGENT402_BUDGET` | unlimited | Hard cap on total USD spent per session (e.g. `1.00`). Applies to the wallet and the credits path. |
+| `AGENT402_NETWORKS` | _(unset)_ | Restrict + order the chains to pay on - e.g. `robinhood` (USDG on Robinhood Chain), `base,solana`, or a raw CAIP-2 like `eip155:4663`. Unset = the client picks (effectively Base on multi-chain sellers). |
+
+Spend controls are enforced **before a payment is signed** (or a credits call is
+sent) - a runaway model is refused, not billed. `payment.info` reports the
+caps, what's been spent, and what remains. With no wallet key and no credits key,
+the server runs in proof-of-work mode (pure-CPU tools stay free). Use dedicated
+low-value wallets for `AGENT_KEY` / `SOLANA_AGENT_KEY`, funded only with what
+you intend to spend. Most tools cost $0.001–$0.02. The routing tiers top out
+at $0.55 (`route-execute-max`); multi-tool skill packs run up to $1.50; and the
+report products run $5 to $39 per report (research $5 up to dossier-max $39),
+so set `AGENT402_MAX_PER_CALL` if you want a hard per-call ceiling.
+
 ## How it works
 
 - On startup the server reads the live catalog from `https://agent402.tools/api/pricing` + `/openapi.json`.
-- **Flagship tools** (`search`, `answer`, `search-news`, `render`, `stock-quote`, `transcribe`, `memory-read`, `memory-write`) are exposed as first-class MCP tools - search/answer is the front door. Override the set with `AGENT402_TOOLS`.
-- The rest of the 500+ endpoint catalog is reachable via `find_tool` / `search_tools` + `call_tool` - keeping your context window small.
-- When a call hits HTTP 402: with a wallet key set (`AGENT_KEY` for the EVM chains - Base/Polygon/Arbitrum/Monad plus Robinhood Chain, `SOLANA_AGENT_KEY` for Solana), the server signs an x402 payment on a chain the seller accepts and retries; without a key it solves the tool's proof-of-work challenge (~0.2 s of CPU) on the eligible tools. (The service settles USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar and Algorand, plus USDG on Robinhood Chain - 12 chains total - for callers using a raw x402 client rather than this package.)
-- `payment_info` tells the model which mode it's in and what a wallet would unlock.
-- `list_top_sellers` returns the live x402 leaderboard - which sellers are settling the most USDC (primarily on Base) in the last ~24h, derived from on-chain transfers. Free to call (no payment, no proof-of-work). Useful for agents discovering the wider x402 economy beyond this single service's catalog. (Aliases: `list_x402_sellers`, `top_x402_sellers`.)
+- **Flagship tools** are exposed as first-class MCP tools under dotted names - `web.search`, `web.answer`, `web.news`, `browser.render`, `market.quote`, `audio.transcribe`, `memory.read`, `memory.write` - search/answer is the front door. Override the set with `AGENT402_TOOLS` (slugs; a non-flagship slug is listed as its snake_case name).
+- The rest of the 500+ endpoint catalog is reachable via the meta tools `catalog.search` / `catalog.find` + `catalog.call` - keeping your context window small. The same dotted names are listed on the hosted connector; the older snake names (`search_tools`, `find_tool`, `call_tool`, `get_payment_info`, `describe_server`, `list_top_sellers`, and the flagship `search_web` …) remain accepted as CallTool aliases, so existing configs keep working.
+- When a call hits HTTP 402: with a wallet key set (`AGENT_KEY` for the EVM chains - Base/Polygon/Arbitrum/Monad plus Robinhood Chain, `SOLANA_AGENT_KEY` for Solana), the server signs an x402 payment on a chain the seller accepts and retries; with only a credits key it sends `Authorization: Bearer a402_…` and the server debits the balance on success; with neither it solves the tool's proof-of-work challenge (~0.2 s of CPU) on the eligible tools. (The service settles USDC on Base, Solana, Polygon, Arbitrum, Monad, Celo, Avalanche, Sei, Optimism, Stellar and Algorand, plus USDG on Robinhood Chain - 12 chains total - for callers using a raw x402 client rather than this package.)
+- `payment.info` tells the model which mode it's in and what a wallet or a credits key would unlock.
+- `server.describe` returns orientation (flagship-first tools, install one-liners, free vs paid, discovery URLs). Call it first.
+- `sellers.list` returns the live leaderboards - `wire: "x402"` (default) ranks x402 sellers settling the most USDC (primarily on Base) in the last ~24h from on-chain transfers; `wire: "mpp"` ranks live-verified MPP sellers by inbound USDC.e transfers on Tempo. Free to call (no payment, no proof-of-work). Useful for agents discovering the wider x402 / MPP economy beyond this single service's catalog.
 - `route_and_execute` reaches tools **outside** this catalog in one call: give it a plain-language `task` and Agent402 resolves a proven external x402 seller (one with real on-chain settled volume), pays that seller on your behalf, and relays the result marked `untrustedContent`. Wallet-only. Flat routing fee, cheapest covering tier chosen from `maxUsd`:
 
   | Underlying seller price | Fee | Route |
@@ -58,6 +98,7 @@ Claude Code: `claude mcp add agent402 -- npx -y agent402-mcp`
   | ≤ $0.50 | $0.55 | `POST /api/route/execute-max` |
 
   A tool priced above the tier's ceiling returns a self-correcting 409 naming its direct route.
+- **Report products** are catalog slugs like any other, so `catalog.call` runs them with a wallet or a credits key: `research` ($5), `research-pro` ($15), `research-max` ($30), `market-brief` ($15), `dossier` ($19), `dossier-max` ($39), `fund-report` ($9), `fund-report-max` ($19), `domain-audit` ($5), `domain-audit-pro` ($9), `token-risk` ($5), `token-risk-pro` ($12), `recall-report` ($5), `insider-report` ($9). The same reports are sold by card at https://agent402.tools/reports, and the recurring monitors (domain, fund, recall, insider, IPO - $9/month) at https://agent402.tools/monitors.
 
 ## Workflows (skill packs)
 
@@ -69,32 +110,9 @@ automatically:
 - `prompts/list` returns each pack with typed arguments.
 - `prompts/get { name: "<slug>", arguments: { … } }` returns the rendered
   task template - a Claude-ready plan with the chosen tools wired in.
-- `search_tools` also surfaces matching workflows alongside individual tools,
+- `catalog.search` also surfaces matching workflows alongside individual tools,
   so a task-shaped query points the agent at the right plan, not just the
   raw tools.
-
-## Configuration
-
-| env | default | meaning |
-| --- | --- | --- |
-| `AGENT_KEY` | _(unset)_ | Hex private key of an EVM wallet funded with USDC on Base (or Polygon/Arbitrum/Monad), or USDG on Robinhood Chain. |
-| `SOLANA_AGENT_KEY` | _(unset)_ | Base58 secret key (or JSON byte array) of a Solana wallet funded with USDC on Solana. |
-| `AGENT402_URL` | `https://agent402.tools` | Target service (point at your own deployment). |
-| `AGENT402_TOOLS` | curated set | Comma-separated slugs to expose as first-class tools. |
-| `AGENT402_MAX_PER_CALL` | unlimited | Refuse any single call priced above this many USD (e.g. `0.01`). |
-- `AGENT402_CREDITS_KEY` - a prepaid card-credits key (`a402_...`) from https://agent402.tools/credits. With it set (and no wallet key), every tool pays by card: the server debits the list price only on a successful call. No wallet needed.
-
-| `AGENT402_BUDGET` | unlimited | Hard cap on total USDC spent per session (e.g. `1.00`). |
-| `AGENT402_NETWORKS` | _(unset)_ | Restrict + order the chains to pay on - e.g. `robinhood` (USDG on Robinhood Chain), `base,solana`, or a raw CAIP-2 like `eip155:4663`. Unset = the client picks (effectively Base on multi-chain sellers). |
-
-Spend controls are enforced **before a payment is signed** - a runaway model is
-refused, not billed. `payment_info` reports the caps, what's been spent, and
-what remains. With neither key set, the server runs in proof-of-work mode
-(pure-CPU tools stay free). Use dedicated low-value wallets for `AGENT_KEY` /
-`SOLANA_AGENT_KEY`, funded only with what you intend to spend. Most tools cost
-$0.001–$0.02; the priciest single tool is $0.55 (`route-execute-max`) and
-multi-tool skill packs run up to $1.50, so set `AGENT402_MAX_PER_CALL` if you
-want a hard per-call ceiling.
 
 ## Test
 

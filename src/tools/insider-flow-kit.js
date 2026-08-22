@@ -68,7 +68,7 @@ export function parseForm4(xml) {
     ownership: val(t, "directOrIndirectOwnership") || "",
   }));
   const derivativeCount = blocks(xml, "derivativeTransaction").length;
-  const footnotes = blocks(xml, "footnote").map((f) => f.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 12);
+  const footnotes = blocks(xml, "footnote").map((f) => f.replace(/<[^>]*>/g, "").replace(/[<>]/g, "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 12);
   const plan10b5 = footnotes.some((f) => /10b5-1/i.test(f));
   return { issuer: tag(xml, "issuerName"), symbol: tag(xml, "issuerTradingSymbol"), period: tag(xml, "periodOfReport"), owners, transactions: tx, derivativeCount, footnotes, plan10b5 };
 }

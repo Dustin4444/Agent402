@@ -88,13 +88,28 @@ Set these on your host. None are committed to the repo.
 | `REDIS_URL` | No | Enables Redis response caching (see below) |
 | `ANALYTICS_DATABASE_URL` | No | Postgres connection string for analytics; falls back to `DATABASE_URL` |
 | `GLAMA_MAINTAINER_EMAIL` | No | Email returned at `/.well-known/glama.json` |
+| `MPP_SECRET_KEY` | For MPP | HMAC secret binding MPP challenges; presence mounts the MPP dual-stack shim (`WWW-Authenticate: Payment` on every 402, `evm` method settled through your x402 facilitator). Unset = pure x402 |
+| `MPP_CHALLENGE_NETWORKS` | No | `all` or a CSV of chain ids that get MPP `evm` challenges (default Base + Celo) |
+| `TEMPO_API_KEY` | For native Tempo | Tempo MPP relay key (needs the `mpp:write` scope); with a recipient it offers `tempo/charge` challenges settled natively on Tempo |
+| `TEMPO_RECIPIENT_ADDRESS` | No | Tempo payTo (defaults to `WALLET_ADDRESS`) |
+| `TEMPO_CURRENCY` | No | CSV of TIP-20 token addresses to offer (first = preferred; default PathUSD, the hosted instance offers USDC.e then PathUSD) |
+| `STRIPE_SECRET_KEY` | For card paths | Rollout switch for the human front door: `/reports` (card checkout), `/monitors` (subscriptions), `/credits` (prepaid credits) and the `Authorization: Bearer a402_…` credits gate. Unset = none of it is mounted; the `/v1` report routes still sell over x402 / MPP |
+| `STRIPE_WEBHOOK_SECRET` | With Stripe | Signing secret for the Stripe webhook endpoint (subscription status, invoices, credit packs, refunds and disputes). The webhook is verified only when set |
+| `STRIPE_PROFILE_ID` | No | With `STRIPE_SECRET_KEY`, mounts cards over the MPP wire (`stripe/charge` via Shared Payment Tokens) on routes priced $0.50 or more |
+| `STRIPE_AUTOMATIC_TAX` | No | `true` adds Stripe Tax to every Checkout Session (enable Stripe Tax in the dashboard first) |
+| `EMAIL_FROM` | For emails | Verified sender address; with a provider key below, report links, monitor reports and credits keys are emailed |
+| `ZEPTOMAIL_TOKEN` | No | Zoho ZeptoMail send-mail token (with or without the `Zoho-enczapikey` prefix); `ZEPTOMAIL_URL` overrides the regional API base |
+| `RESEND_API_KEY` | No | Resend API key, the alternative email provider (ZeptoMail wins when both are set) |
+| `MONITOR_SCHEDULER` | No | `off` disarms the monitor fulfilment timer (manual operator runs still work) |
 
 ## Free mode vs paid mode
 
 - **`FREE_MODE=true`** -- every tool responds without payment. Good for development, internal deployments, or self-hosted agents that don't need metering. The PoW gate and x402 paywall are both disabled.
 - **Without `FREE_MODE`** -- the x402 paywall activates. Callers pay per request (USDC on Base, Solana, Polygon, Arbitrum, Stellar, or Algorand via x402) or solve a proof-of-work challenge for pure-CPU tools. You need `WALLET_ADDRESS`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, and `POW_SECRET` at minimum. To also accept **USDC on Monad** (EVM chain 143), add `monad` to `PAYMENT_NETWORKS` (settles via `MONAD_FACILITATOR_URL`, default the molandak-operated public facilitator). Avalanche (43114) and Sei (1329) are likewise opt-in via `PAYMENT_NETWORKS` (both settle via PayAI, no extra config). Optimism (10) is opt-in via `PAYMENT_NETWORKS` plus `SOLVADOR_KEY` (settles via the Solvador facilitator; price its per-settlement fee in with `NETWORK_PRICE_PREMIUMS=eip155:10=0.001`). To also accept **USDC on Celo** (EVM chain 42220), add `celo` to `PAYMENT_NETWORKS` and set `CELO_FACILITATOR_KEY` (free self-service key: sign a no-gas message with any wallet at [x402.celo.org](https://x402.celo.org); the facilitator's `/settle` requires it). Settles via `CELO_FACILITATOR_URL`, default the Celo-operated `api.x402.celo.org`. To accept **USDG on Robinhood Chain**, add `robinhood` to `PAYMENT_NETWORKS` and set `ROBINHOOD_FACILITATOR_URL`.
 
-See [[Paying with x402]] and [[Paying with Compute]] for the buyer-side flows.
+**MPP on the same 402:** set `MPP_SECRET_KEY` and every paid route also answers `WWW-Authenticate: Payment` (the `evm` method settles through your existing facilitator); add `TEMPO_API_KEY` for native Tempo settlement. **Cards:** `STRIPE_SECRET_KEY` (+ `STRIPE_WEBHOOK_SECRET`) mounts the report checkout, monitors and prepaid credits; `STRIPE_PROFILE_ID` adds cards over MPP. **Email:** `EMAIL_FROM` plus `ZEPTOMAIL_TOKEN` or `RESEND_API_KEY`; without them the card pages still work and the report link is shown on the page.
+
+See [[Paying with x402]], [[Paying with MPP]], [[Paying with Compute]] and [[Reports, Monitors and Credits|Reports-and-Monitors]] for the buyer-side flows.
 
 ## Optional infrastructure
 

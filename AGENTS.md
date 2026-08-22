@@ -8,8 +8,9 @@ Read those first. This file only adds cloud-agent setup/run caveats.
 
 Agent402 is a single Node/Express service (`src/server.js`) exposing 500+ tools
 over HTTP + a hosted MCP connector at `/mcp`. It runs standalone: Redis, Postgres,
-the render worker, and all x402 facilitators are optional and no-op when their env
-vars are unset. `mcp/`, `tollbooth/`, and `client/` are separate npm packages
+the render worker, Stripe (the card front door: `/reports`, `/monitors`, `/credits`,
+mounted only with `STRIPE_SECRET_KEY`), and all x402 / MPP facilitators and relays
+are optional and no-op when their env vars are unset. `mcp/`, `tollbooth/`, and `client/` are separate npm packages
 (clients/SDKs), not backing services.
 
 - **Node version.** The repo requires `node >=22.22.2` (`jsdom` and others enforce
@@ -27,10 +28,10 @@ vars are unset. `mcp/`, `tollbooth/`, and `client/` are separate npm packages
   `curl -s -X POST localhost:3000/api/hash -H 'content-type: application/json' -d '{"text":"hello","algo":"sha256"}'`.
 
 - **`/mcp` is rate-limited at the server.** The MCP sweep `scripts/test-mcp-all.js`
-  drives all 527 tools and WILL trip the limiter unless the raised limits are set on
+  drives the whole 500+ catalog and WILL trip the limiter unless the raised limits are set on
   the **server at boot** (not on the test client). Boot it as:
   `AGENT402_MCP_MAX_PER_MIN=1000000 AGENT402_MCP_MAX_PER_HOUR=1000000 FREE_MODE=true PORT=3000 node src/server.js`.
-  Without this the sweep reports every tool as "no content" / "got EXECUTION" — that
+  Without this the sweep reports every tool as "no content" / "got EXECUTION" - that
   is the rate limiter, not a real failure. If you already tripped it, wait ~60s for
   the window to reset before rerunning.
 
@@ -39,7 +40,7 @@ vars are unset. `mcp/`, `tollbooth/`, and `client/` are separate npm packages
   own example), `node scripts/test-mcp-http.js`, and `node scripts/test-mcp-all.js`.
   Offline unit tests need no server: `npm test` (kit2/convert/memory) plus the other
   `scripts/test-*.js`. `test-all.js` skips Brave (20) and E2B (2) routes when their
-  API keys are unset — expected in this environment; those are covered by the paid
+  API keys are unset - expected in this environment; those are covered by the paid
   canary/dedicated CI steps.
 
 - **No linter.** The project has no ESLint/Prettier config or `lint` script; its
@@ -47,7 +48,7 @@ vars are unset. `mcp/`, `tollbooth/`, and `client/` are separate npm packages
 
 - **Browser / render tools need Playwright Chromium** (installed by the update
   script into `~/.cache/ms-playwright`). Install it as the normal user, never with
-  `sudo` — a root-owned cache makes later non-sudo `npx playwright install` fail with
+  `sudo` - a root-owned cache makes later non-sudo `npx playwright install` fail with
   `EACCES` on `__dirlock`. If Chromium is missing, `POST /api/render` returns
   "Browser unavailable"; the rest of the catalog is unaffected. Chromium system
   libraries are present in the base image; if a future image lacks them, run
