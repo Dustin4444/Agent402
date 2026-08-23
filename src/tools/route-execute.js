@@ -318,7 +318,13 @@ export function buildRouteExecuteTool({ getCatalog, baseUrl = "", tier = EXEC_TI
           if (spendHandle && req && typeof req === "object") req.__externalSpend = spendHandle;
           let paid;
           try {
-            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain });
+            // provenPayTo: the address this seller's reliability evidence was
+            // computed FROM. The resolver already refused a probe whose 402
+            // named a different one, but the spend below is a SECOND request
+            // and the seller answers both, so the check has to happen again
+            // against the accept actually signed. Null = no chain-derived
+            // address on record, which is not a failure - see provenPayToMatches.
+            paid = await payExternal(extUrl, { method: extMethod, body: extBody, maxAtomic: BigInt(Math.round(cap * 1e6)), chain, provenPayTo: ext.provenPayTo || null });
           } catch (e) {
             // The exposure DELIBERATELY stands. It is tempting to clear it here
             // ("the buy failed, so we never spent"), but payExternal can throw

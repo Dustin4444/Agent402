@@ -34,7 +34,7 @@ import { createHumanCheckout, humanCheckoutEnabled, HUMAN_PRODUCTS } from "./hum
 import { humanReportsPage, reportDeliveryPage } from "./human-reports-page.js";
 import { createStripeSubscriptions, subscriptionsEnabled, MONITOR_PRODUCTS } from "./stripe-subscriptions.js";
 import { createMppSubscriptions, mppSubscriptionsEnabled, subscriptionFeePayerStatus } from "./mpp-subscriptions.js";
-import { meteredUsd, isMeterable } from "./gateway-meter.js";
+import { meteredUsd, isMeterable, applyMeteredSettlement } from "./gateway-meter.js";
 import { setSettlementOverrides } from "@x402/express";
 // Metered settlement ships DARK, like the upto scheme it rides on: it changes
 // what a buyer is charged, so it turns on deliberately and can be turned off
@@ -1005,7 +1005,13 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
         }
       }
     } catch { live = false; }
-    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled };
+    // provenPayTo travels with the candidate. The check above ran against the
+    // PROBE's 402; payX402 then issues its OWN request and signs whatever that
+    // second 402 names, and the seller controls both responses - so a probe-only
+    // check is defeated by serving a clean address to the probe and any address
+    // to the payer. Carrying it lets the spend re-check the accept it is about
+    // to SIGN, which is the same discipline as the F2 accept pin.
+    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled, provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null };
   }
   return null;
 }
@@ -5760,24 +5766,14 @@ for (const tool of ALL_KIT) {
       // ceiling. Must run BEFORE the body is sent: the override rides a
       // response HEADER that @x402/express reads at settle time.
       //
-      // Fails SAFE in every direction. Not an upto payment, no reported cost,
-      // metering disabled, or anything thrown here: no override is set and the
-      // buyer settles at the ceiling exactly as before.
-      if (result && typeof result.__meterUpstreamUsd !== "undefined") {
-        const upstream = result.__meterUpstreamUsd;
-        delete result.__meterUpstreamUsd;
-        try {
-          if (GATEWAY_METER_ON && isMeterable(req)) {
-            const amount = meteredUsd({ upstreamUsd: upstream, ceilingUsd: Number(def.price?.toString().replace(/[^0-9.]/g, "")) });
-            if (amount != null && !res.headersSent) {
-              setSettlementOverrides(res, { amount: `$${amount.toFixed(6)}` });
-              res.setHeader("X-Metered-Usd", amount.toFixed(6));
-            }
-          }
-        } catch (e) {
-          console.warn(`[meter] ${def.slug}: not metered (${String(e?.message || e).slice(0, 120)}) - settling at the ceiling`);
-        }
-      }
+      // The decision itself lives in gateway-meter.js so it can be executed by
+      // a test. As twelve lines inline here it could not be, and it shipped two
+      // defects CI could not see - see applyMeteredSettlement's header.
+      applyMeteredSettlement({
+        result, req, tool, res,
+        enabled: GATEWAY_METER_ON,
+        setOverrides: setSettlementOverrides,
+      });
       if (result && result.__binary) return res.type(result.contentType).send(result.__binary);
       // SSE escape hatch (LLM gateway streaming): the handler returns a
       // writer instead of a body and takes over the response. Runs after the

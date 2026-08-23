@@ -1264,6 +1264,9 @@ jobs:
       - name: Metered settlement is wired and fails safe (sentinel never reaches a buyer - offline)
         run: node scripts/test-gateway-meter-wiring.js
 
+      - name: Payment scheme is read where @x402/core actually puts it (v1 top-level vs v2 accepted - pins the INSTALLED dep, offline)
+        run: node scripts/test-payer-scheme-shape.js
+
       - name: Leaderboard RPC failures never carry the Alchemy key (host-only naming + redaction on the public lastError path — offline)
         run: node scripts/test-leaderboard-redaction.js
 

@@ -64,6 +64,77 @@ let t3 = null;
 try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }); } catch (e) { t3 = e; }
 ok(t3 && /no \w+\/exact\/USDC accept/i.test(t3.message), "F2: non-mainnet-USDC asset refused (chain pinned by asset)");
 
+// --- payTo binding: pay the address that EARNED the proven-ness ---------------
+//
+// The reliability gate joins an origin's ADVERTISED payTo to settlements we
+// watched arrive, so the evidence is about an ADDRESS. A seller can advertise
+// one it does not own, inherit that wallet's history, clear the gate, and then
+// ask to be paid somewhere else. resolveExternalSeller checks the PROBE's 402,
+// but the spend is a second request the same seller answers, so the check has
+// to run again here against the accept actually signed.
+{
+  const { _spentThisWindow } = await import("../src/x402-buyer.js");
+  const PROVEN = "0x1111111111111111111111111111111111111111";
+  const OTHER  = "0x2222222222222222222222222222222222222222";
+  const payToEntry = (payTo) => ({ ...v1entry({ amt: "1000" }), payTo });
+
+  // MISMATCH: refuse, and refuse BEFORE anything is signed or held.
+  globalThis.fetch = async () => challenge([payToEntry(OTHER)]);
+  let m = null;
+  try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, provenPayTo: PROVEN }); } catch (e) { m = e; }
+  ok(m && /Refusing to pay/.test(m.message) && m.message.includes(OTHER) && m.message.includes(PROVEN),
+    "payTo binding: a live 402 naming a different address than the proven one is refused, naming both");
+  ok(m && /Nothing was signed/.test(m.message), "payTo binding: the refusal says nothing was signed");
+  ok(_spentThisWindow() === 0n, "payTo binding: a refused mismatch holds no spend budget (it throws before reserveSpend)");
+
+  // The refusal must quote the NORMALIZED address, not the seller's raw string.
+  // A checksummed (mixed-case) payTo proves which one the message used: raw
+  // would echo the seller's bytes back, normalized is lowercase. The raw value
+  // is attacker-written and this message is relayed to the buyer, so echoing it
+  // is an injection surface the moment provenPayToMatches widens its address
+  // regex for a non-EVM rail.
+  globalThis.fetch = async () => challenge([payToEntry("0xAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCd")]);
+  let raw = null;
+  try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, provenPayTo: PROVEN }); } catch (e) { raw = e; }
+  ok(raw && raw.message.includes("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"),
+    "payTo binding: the refusal quotes the NORMALIZED address from the verdict");
+  ok(raw && !raw.message.includes("0xAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCd"),
+    "payTo binding: the refusal never echoes the seller's raw payTo string back (injection surface)");
+
+  // MATCH (case-insensitive, EVM): must NOT be refused for payTo reasons.
+  globalThis.fetch = async () => challenge([payToEntry(PROVEN.toUpperCase().replace("0X", "0x"))]);
+  let ma = null;
+  try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, provenPayTo: PROVEN }); } catch (e) { ma = e; }
+  ok(!(ma && /Refusing to pay/.test(ma.message)),
+    "payTo binding: the same address in different case is a MATCH, never a refusal (EVM is case-insensitive)");
+
+  // UNKNOWN 1: no proven address on record - an honest seller proven by a
+  // source that cannot name an address must not be blocked.
+  globalThis.fetch = async () => challenge([payToEntry(OTHER)]);
+  let u1 = null;
+  try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {} }); } catch (e) { u1 = e; }
+  ok(!(u1 && /Refusing to pay/.test(u1.message)), "payTo binding: no proven address on record does not block");
+
+  // UNKNOWN 2: an unreadable payTo in the live 402 is unknown, not a match and
+  // not a refusal.
+  globalThis.fetch = async () => challenge([payToEntry("not-an-address")]);
+  let u2 = null;
+  try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, provenPayTo: PROVEN }); } catch (e) { u2 = e; }
+  ok(!(u2 && /Refusing to pay/.test(u2.message)), "payTo binding: an unreadable live payTo is UNKNOWN, never a refusal");
+
+  // The check must read the accept we SIGN, not accepts[0]: a decoy first entry
+  // paying the proven address cannot launder an exact entry paying elsewhere.
+  globalThis.fetch = async () => challenge([
+    { ...v1entry({ scheme: "upto", amt: "1" }), payTo: PROVEN },
+    payToEntry(OTHER),
+  ]);
+  let d = null;
+  try { await payX402("https://seller.example/x", { maxAtomic: 500000n, trusted: true, method: "POST", body: {}, provenPayTo: PROVEN }); } catch (e) { d = e; }
+  ok(d && /Refusing to pay/.test(d.message) && d.message.includes(OTHER),
+    "payTo binding: a decoy accepts[0] paying the proven address does not launder the exact entry we sign");
+  ok(_spentThisWindow() === 0n, "payTo binding: no budget held by any refused attempt");
+}
+
 // --- NEW-1: reserveSpend holds budget, releaseSpend refunds unspent holds -----
 {
   const { reserveSpend, releaseSpend, _spentThisWindow } = await import("../src/x402-buyer.js");

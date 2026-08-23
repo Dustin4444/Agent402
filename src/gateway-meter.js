@@ -1,3 +1,5 @@
+import { paymentSchemeOf } from "./payer.js";
+
 // METERED SETTLEMENT for the LLM gateway: bill what a call actually cost,
 // not the flat tier price.
 //
@@ -16,11 +18,19 @@
 //
 // THE MARKUP IS THE PRODUCT, and it is deliberately thin: 15%, which is the
 // margin the operator asked for. Be honest about what that does and does not
-// buy. It is MUCH cheaper than a subscription for anyone under the monthly
-// break-even, and roughly 40x cheaper than the flat tier it replaces. It is NOT
-// cheaper than an agent calling OpenRouter with its own key - that agent pays
-// upstream and we pay upstream plus 15%. Anyone claiming otherwise on a served
-// page is making a claim the numbers do not support.
+// buy. It is cheaper than a subscription for anyone under the monthly
+// break-even. It is NOT cheaper than an agent calling OpenRouter with its own
+// key - that agent pays upstream and we pay upstream plus 15%. Anyone claiming
+// otherwise on a served page is making a claim the numbers do not support.
+//
+// HOW MUCH CHEAPER THAN THE FLAT TIER IS NOT OURS TO DECIDE. This once said
+// "roughly 40x cheaper", which was the markup arithmetic alone and true only in
+// a world with no floor. The binding constraint is METER_MIN_SETTLE_USD below:
+// the facilitator refuses to settle small amounts, so on a $0.02 tier with a
+// $0.01 rail floor a small call is 2x cheaper, not 40x, and tiers priced at or
+// under that floor are not metered at all. Read any multiple quoted publicly
+// off these constants at the current floor, and re-read it when the floor
+// moves.
 //
 // What the buyer gets for the 15% is access without credentials and a hard
 // per-call ceiling (see below), not a lower token price.
@@ -35,6 +45,30 @@ export const METER_MARKUP = 1.15;
 // facilitator would rather not move. If we ever measure the real number, move
 // this to it rather than defending the guess.
 export const METER_FLOOR_USD = 0.0002;
+
+// THE FACILITATOR HAS ITS OWN FLOOR, AND IT IS NOT OURS TO CHOOSE.
+//
+// Measured live 2026-08-23: a metered settle of 1,150 atomic units ($0.00115)
+// on Base was refused by CDP with `amount_too_low`. Neither CDP's facilitator
+// documentation nor the upto spec states a minimum - the spec explicitly allows
+// a settled amount of 0 - so this is undocumented facilitator behaviour that
+// only a real settle reveals. Our own `exact` routes settle at $0.001 through
+// the same facilitator every day, so the floor appears to be specific to upto's
+// Permit2 path, which costs more gas than EIP-3009.
+//
+// WHY THIS MATTERS MORE THAN THE MARKUP. A refused settle is not a smaller
+// payment, it is NO payment: @x402/express turns it into a 402, the buyer is
+// charged nothing, and we have already done the work and paid upstream. So
+// proposing an amount below the facilitator's floor is strictly worse than
+// proposing the ceiling. METER_FLOOR_USD (above) is about what a request is
+// worth to us; this is about what the rail will actually accept.
+//
+// Set ABOVE the only rejection we have measured, not at it, because we do not
+// know where the real floor sits and the error direction is asymmetric: too
+// high costs a buyer a fraction of a cent, too low costs us the entire call.
+// Lower it only with evidence from a live settle, never to make a number look
+// better.
+export const METER_MIN_SETTLE_USD = Number(process.env.GATEWAY_METER_MIN_SETTLE_USD || 0.01);
 
 /**
  * What to settle for a metered call.
@@ -57,11 +91,27 @@ export function meteredUsd({ upstreamUsd, ceilingUsd }) {
   // calls where we do not know what we spent.
   if (typeof upstreamUsd !== "number" || !Number.isFinite(upstreamUsd) || upstreamUsd < 0) return null;
   const up = upstreamUsd;
-  const metered = Math.max(METER_FLOOR_USD, up * METER_MARKUP);
+  // Our floor (what a request is worth) and the rail's floor (what it will
+  // accept) are different things and both apply.
+  const metered = Math.max(METER_FLOOR_USD, METER_MIN_SETTLE_USD, up * METER_MARKUP);
   // Never above what the buyer authorized. The margin clamp already holds
   // upstream at or under 70% of the tier price, so metered <= 0.91 x ceiling
   // and this cap should never bind - it is here because "should never" is not
   // an argument to skip the check on something that moves money.
+  // A ceiling AT OR BELOW the facilitator's floor cannot be metered: every
+  // amount we could name is either above what the buyer authorized or below
+  // what the rail accepts. Decline, and the buyer settles at the ceiling - the
+  // one outcome that is certain to work. Silently clamping to the ceiling here
+  // would be the same number but a worse story, since "metered" would then mean
+  // "charged the maximum" on those tiers.
+  //
+  // The comparison is >=, not >, so that METERING ALWAYS MEANS STRICTLY LESS
+  // THAN THE CEILING. At equality the settle would land exactly on the
+  // authorized maximum, which buys the buyer nothing and would fail the live
+  // canary's one real assertion - that the amount which moved is less than the
+  // amount authorized. A feature that reports success while charging the
+  // maximum is the thing that assertion exists to catch.
+  if (METER_MIN_SETTLE_USD >= ceiling) return null;
   const capped = Math.min(metered, ceiling);
   // Settle in whole atomic units of a 6-decimal stablecoin, rounding UP so a
   // rounding error can only favour the seller.
@@ -75,7 +125,72 @@ export function meteredUsd({ upstreamUsd, ceilingUsd }) {
 
 /** True when this request may be metered: it paid over `upto`, so the amount is
  *  ours to name. An `exact` payment fixed the amount at the 402 and overriding
- *  it is not something the scheme can express. */
+ *  it is not something the scheme can express.
+ *
+ *  THE SCHEME MUST BE DERIVED FROM THE PAYMENT ITSELF. The first version read
+ *  `req.x402?.scheme || req._x402Scheme`, and NOTHING sets either: @x402/express
+ *  does not decorate the request, and no code of ours ever assigned
+ *  `_x402Scheme`. So this returned false for every request ever made and the
+ *  whole metered path was dead - a live buy settled at the full ceiling with
+ *  GATEWAY_METERED_BILLING=on and no warning anywhere, because a skipped branch
+ *  logs nothing.
+ *
+ *  Both tests passed throughout: the unit test handed it `{x402:{scheme:"upto"}}`,
+ *  which is precisely the shape the caller has to derive and never did, and the
+ *  wiring test only grepped server.js for the call. A test that supplies the
+ *  input under test proves the function, never the caller - so the test below
+ *  now builds a real request carrying a real encoded payment header. */
 export function isMeterable(req) {
-  return String(req?.x402?.scheme || req?._x402Scheme || "").toLowerCase() === "upto";
+  return paymentSchemeOf(req) === "upto";
+}
+
+/**
+ * Apply metered settlement to a response, or leave it settling at the ceiling.
+ *
+ * WHY THIS IS A FUNCTION AND NOT AN INLINE BLOCK. It used to be twelve lines
+ * inside server.js's route-binding loop, where no test could execute it, and it
+ * shipped two defects that CI could not see:
+ *
+ *   1. it could never run at all (isMeterable read a request property nothing
+ *      sets), and a skipped branch logs nothing, so two live buys settled at
+ *      the full ceiling with no signal anywhere; then
+ *   2. the moment it DID run it threw ReferenceError - it named `def` for the
+ *      tool, which does not exist in that scope, and the catch named `def` too,
+ *      so the fail-safe raised the same error it existed to absorb and a 500
+ *      reached the buyer.
+ *
+ * Both are the kind of thing one real call finds instantly and no amount of
+ * source-grepping finds at all. So the logic lives here, where a test can call
+ * it with a fake request, tool and response.
+ *
+ * Everything is injected (`enabled`, `setOverrides`) rather than imported so
+ * this stays a pure decision with no module-load side effects.
+ *
+ * FAILS SAFE IN EVERY DIRECTION. Not an upto payment, no reported cost,
+ * metering off, headers already sent, or anything thrown: no override is set
+ * and the buyer settles at the ceiling they authorized. The sentinel is ALWAYS
+ * stripped first, so an internal cost figure can never reach a buyer even on
+ * the paths that decline to meter.
+ *
+ * @returns {number|null} the metered USD amount, or null when not metered.
+ */
+export function applyMeteredSettlement({ result, req, tool, res, enabled, setOverrides, log = console.warn }) {
+  if (!result || typeof result !== "object" || typeof result.__meterUpstreamUsd === "undefined") return null;
+  const upstream = result.__meterUpstreamUsd;
+  delete result.__meterUpstreamUsd; // strip before anything else can fail
+  // Read once, into a local the catch cannot throw on. A recovery path that can
+  // raise the error it is recovering from is not a recovery path.
+  const slug = tool?.slug;
+  try {
+    if (!enabled || !isMeterable(req)) return null;
+    const ceilingUsd = Number(String(tool?.price ?? "").replace(/[^0-9.]/g, ""));
+    const amount = meteredUsd({ upstreamUsd: upstream, ceilingUsd });
+    if (amount == null || res?.headersSent) return null;
+    setOverrides(res, { amount: `$${amount.toFixed(6)}` });
+    res.setHeader("X-Metered-Usd", amount.toFixed(6));
+    return amount;
+  } catch (e) {
+    log(`[meter] ${slug}: not metered (${String(e?.message || e).slice(0, 120)}) - settling at the ceiling`);
+    return null;
+  }
 }

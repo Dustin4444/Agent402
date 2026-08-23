@@ -106,3 +106,40 @@ export function paymentIdentifierOf(req) {
     return id;
   } catch { return null; }
 }
+
+/** The x402 SCHEME the middleware will settle this request under.
+ *
+ *  Read from the SAME header @x402/express settles from (paymentHeaderOf), and
+ *  from the payload itself, which is the field the middleware dispatches on when
+ *  it picks a scheme verifier. So this cannot disagree with what is actually
+ *  settled: a payload naming `upto` is verified as `upto` (which requires a
+ *  Permit2 signature) or it does not verify at all. That is why reading it off
+ *  an as-yet-unverified payload is safe HERE, while reading an identity field
+ *  the same way would not be - see payerFromRequest.
+ *
+ *  THE TWO WIRE VERSIONS PUT IT IN DIFFERENT PLACES, and assuming otherwise
+ *  cost a live buy. @x402/core's schemas:
+ *    v1: PaymentPayloadV1Schema { x402Version, scheme, network, payload }
+ *    v2: PaymentPayloadV2Schema { x402Version, resource?, accepted, payload }
+ *  There is NO top-level `scheme` on v2 - it lives on `accepted`, which is a
+ *  PaymentRequirementsV2. A v1-only reader returns null for every v2 payment,
+ *  which is silent: the caller reads "not this scheme" and does nothing. Pinned
+ *  against the INSTALLED @x402/core by test-payer-scheme-shape.js, so a future
+ *  bump that moves the field fails CI instead of quietly disabling metering.
+ *
+ *  Returns lowercase, or null when there is no payment header or it will not
+ *  parse. Callers must treat null as "not this scheme", never as a default.
+ */
+export function paymentSchemeOf(req) {
+  const header = paymentHeaderOf(req);
+  if (!header) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(header, "base64").toString("utf-8"));
+    // v2 first: a v2 payload has no top-level `scheme`, so order costs nothing
+    // and reading `accepted` first states which wire is current.
+    const scheme = payload?.accepted?.scheme ?? payload?.scheme;
+    return typeof scheme === "string" && scheme ? scheme.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}

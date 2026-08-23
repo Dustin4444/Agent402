@@ -9,6 +9,7 @@
 // settlement can cost us the one upstream payment (the LLM-gateway risk class),
 // so the margin guard below refuses any upstream quote over the caller's cap.
 import { assertPublicUrl, ssrfDispatcher } from "./tools/fetch-guard.js";
+import { provenPayToMatches } from "./settlement-proof.js";
 
 function bad(message, statusCode = 400) {
   return Object.assign(new Error(message), { statusCode });
@@ -230,7 +231,7 @@ export function _spentThisWindow() { return spentThisWindow; } // test hook
  * A 200 on the bare request means the endpoint is free — returned with no
  * spend. Only a 402 triggers a payment; anything else is a 502.
  */
-export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base" } = {}) {
+export async function payX402(url, { maxAtomic, method = "GET", body, headers = {}, timeoutMs = 20000, maxBytes = DEFAULT_MAX_BYTES, trusted = false, chain = "base", provenPayTo = null } = {}) {
   if (maxAtomic == null) throw bad("payX402 requires maxAtomic (the margin-guard ceiling)", 500);
   const chainCfg = BUYER_CHAINS[chain];
   if (!chainCfg) throw bad(`payX402: unknown chain "${chain}" (known: ${Object.keys(BUYER_CHAINS).join(", ")})`, 500);
@@ -286,6 +287,43 @@ export async function payX402(url, { maxAtomic, method = "GET", body, headers = 
   const quotedAtomic = payable.amount ?? payable.maxAmountRequired;
   if (!quoteWithinCap(quotedAtomic, maxAtomic)) {
     throw bad(`Seller quote ${quotedAtomic} atomic exceeds the ${maxAtomic} cap - refusing to pay`, 402);
+  }
+  // THE ADDRESS THAT EARNED PROVEN-NESS MUST BE THE ADDRESS WE PAY.
+  //
+  // The router's reliability gate joins an origin's ADVERTISED payTo to
+  // settlements we watched arrive on-chain, so the evidence is about an
+  // address, never about the origin. Nothing in the wire stops a seller
+  // advertising an address it does not own: name a heavily-settled wallet,
+  // inherit its history, clear the gate, then ask for payment somewhere else.
+  //
+  // resolveExternalSeller already refuses a PROBE whose 402 names a different
+  // address, but this is a second, independent request and the seller writes
+  // both answers - so that check alone is defeated by anyone who reads it. This
+  // one runs against `payable`, the single accept we are about to sign, for the
+  // same reason F2 cap-checks that entry rather than accepts[0]: what we verify
+  // has to be what we sign.
+  //
+  // Refuses ONLY on a positive mismatch. No address on record (a seller proven
+  // by a source that cannot name one) and an unreadable payTo are both UNKNOWN,
+  // and unknown must not block an honest seller - see provenPayToMatches.
+  if (provenPayTo) {
+    const verdict = provenPayToMatches({ provenPayTo, livePayTo: payable.payTo });
+    if (verdict.verdict === "mismatch") {
+      // Report the NORMALIZED addresses off the verdict, never the raw
+      // `payable.payTo`. That string is written by the seller and this message
+      // is relayed to the buyer (route-execute) and read by operators, so it
+      // must not be an unbounded attacker-controlled span. Today the raw value
+      // happens to be safe - a "mismatch" verdict is only reachable once the
+      // address matched /^0x[0-9a-f]{40}$/ - but that is an invariant owned by
+      // another module, and widening it there (a non-EVM rail is the obvious
+      // reason to) would silently turn this line into an injection surface.
+      // The verdict already vouches for what it returns, so use that.
+      throw bad(
+        `Refusing to pay ${verdict.livePayTo}: ${verdict.reason} (proven ${verdict.provenPayTo}). ` +
+        `Nothing was signed.`,
+        502,
+      );
+    }
   }
   const spendToken = reserveSpend(quotedAtomic); // F3 belt — before signing (throws 429 if over the window budget)
   let committed = false;

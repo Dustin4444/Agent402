@@ -526,7 +526,17 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   Unchanged-value upserts are no-ops and never race. When adding deploy-injected
   variables: expect the first [deploy] run to fail at "deployment ended REMOVED", verify
   prod health, then push a second [deploy] (vars now pre-exist, cannot race) — or
-  pre-create the variables before the code ships. Deploy also sets
+  pre-create the variables before the code ships.
+  **ANY variable WRITE does this, not just a new key, and the build it falls back to is
+  MAIN's HEAD (measured 2026-08-23):** changing `GATEWAY_METERED_BILLING` from `on` to
+  `off` on a service running a SHA-pinned dev-branch build silently rolled prod back to
+  the last main-branch deploy — the pinned deployment went REMOVED and prod served code
+  four commits older, healthy, with no failure anywhere to notice it. Railway redeploys
+  the CONNECTED BRANCH's head, and that is `main`; a dev-branch build only exists because
+  the workflow pinned it. So a flag flip on a dev-branch build is a rollback with extra
+  steps. Either merge to main first, or set the variable BEFORE the [deploy] job runs its
+  pinned deploy (during the test job is safe — the pinned deploy then carries both), and
+  re-read `/health` `build` afterwards rather than assuming the flip was inert. Deploy also sets
   `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=90` — Railway's default SIGTERM→SIGKILL grace is **0s**,
   so without it the server's graceful drain never runs. Drain (`src/server.js` shutdown):
   `closeIdleConnections()` sweep every 5s + 75s hard deadline (covers transcribe's 60s
