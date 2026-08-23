@@ -96,6 +96,43 @@ const USDC_E_ADDRESS = "0x20C000000000000000000000b9537d11c60E8b50";
 // A month is 30 days: mppx's periodUnit enum has no "month" (verified).
 export const PERIOD_COUNT = 30;
 export const PERIOD_UNIT = "day";
+
+// ---------------------------------------------------------------------------
+// The rail canary's own product. DELIBERATELY NOT in MONITOR_PRODUCTS, which is
+// what makes it safe: listActive() skips any record whose product is not in
+// that map, so a canary subscription can never reach the monitor scheduler, can
+// never produce a paid report and can never send an email. It exists only to
+// exercise the two on-chain halves of this rail against production.
+//
+// It is minted ONLY for a caller that proved the POW_SECRET-signed heartbeat
+// token (server.js gates it), so it is not reachable by an outside buyer, and
+// the same token keeps its settlements out of the external revenue series.
+//
+// The period is in mppx's `dev_second` unit, which is the whole reason a live
+// renewal is provable at all: a 30-day period would put the pull half of this
+// rail beyond any canary's reach, and the pull half - a server-held delegated
+// key moving a buyer's money with no buyer present - is the half worth proving.
+export const CANARY_PRODUCT_KEY = "rail-canary";
+export const CANARY_PERIOD_SECONDS = Math.max(30, Number(process.env.MPP_SUB_CANARY_PERIOD_SECONDS) || 60);
+export const CANARY_PRODUCT = {
+  label: "MPP subscription rail canary",
+  // One cent per period: two periods per run is the proof, and the money is
+  // ours on both ends (canary burner -> our payTo), so the real cost is the
+  // Tempo fee. Never below the smallest representable amount at our decimals.
+  price: 1,
+  kind: "canary",
+  inputLabel: "a canary label",
+};
+/** MONITOR_PRODUCTS plus the canary product. The ONLY resolver that admits the
+ *  canary; every product read that must stay real-products-only keeps using
+ *  MONITOR_PRODUCTS directly. */
+export function productDefFor(product) {
+  const key = String(product ?? "");
+  if (key === CANARY_PRODUCT_KEY) return CANARY_PRODUCT;
+  return Object.hasOwn(MONITOR_PRODUCTS, key) ? MONITOR_PRODUCTS[key] : null;
+}
+/** True for the canary product only. */
+export const isCanaryProduct = (product) => String(product ?? "") === CANARY_PRODUCT_KEY;
 // How long the standing authorization is good for. The buyer signs this, so it
 // is the hard ceiling on how long we could ever pull from them.
 export const SUBSCRIPTION_TERM_MS = 365 * 24 * 60 * 60 * 1000;
@@ -242,9 +279,6 @@ export function checkSubscriptionBinding(authorizationHeader, { secretKey, realm
   if (String(r.recipient || "").toLowerCase() !== envRecipient().toLowerCase()) return bad("challenge recipient is not this server's payTo");
   const chainId = Number(r.methodDetails?.chainId ?? r.chainId);
   if (chainId !== TEMPO_MAINNET_CHAIN_ID) return bad(`challenge chainId ${chainId} is not Tempo mainnet`);
-  if (String(r.periodUnit) !== PERIOD_UNIT || String(r.periodCount) !== String(PERIOD_COUNT)) {
-    return bad(`challenge billing period ${r.periodCount}/${r.periodUnit} is not the one this server bills on`);
-  }
   const accessKeyAddress = String(r.methodDetails?.accessKey?.accessKeyAddress || "");
   if (!/^0x[0-9a-fA-F]{40}$/.test(accessKeyAddress)) return bad("challenge names no server access key");
 
@@ -257,10 +291,21 @@ export function checkSubscriptionBinding(authorizationHeader, { secretKey, realm
   try { meta = JSON.parse(Buffer.from(String(ch.opaque || ""), "base64url").toString("utf8")); } catch { meta = null; }
   if (!meta || typeof meta !== "object") return bad("challenge carries no bound product metadata");
   const product = String(meta.product || "");
-  const p = Object.hasOwn(MONITOR_PRODUCTS, product) ? MONITOR_PRODUCTS[product] : null;
+  const p = productDefFor(product);
   if (!p) return bad("challenge names no known monitor product");
   const target = String(meta.target || "");
   if (!target) return bad("challenge names no monitor target");
+
+  // The period is bound to the PRODUCT, not chooseable by the buyer: every real
+  // product bills 30/day and the rail canary bills in dev_second. This check
+  // MUST sit after the product is read back from the HMAC-covered `opaque`
+  // above, so the expected period comes from something the buyer cannot rewrite
+  // - a buyer still cannot retarget a real subscription onto a shorter period.
+  const wantCount = p === CANARY_PRODUCT ? String(CANARY_PERIOD_SECONDS) : String(PERIOD_COUNT);
+  const wantUnit = p === CANARY_PRODUCT ? "dev_second" : PERIOD_UNIT;
+  if (String(r.periodUnit) !== wantUnit || String(r.periodCount) !== wantCount) {
+    return bad(`challenge billing period ${r.periodCount}/${r.periodUnit} is not the one this server bills this product on`);
+  }
 
   // The price binding, exactly as the charge gate does it: a legitimately
   // minted challenge for one product must not buy a dearer one.
@@ -435,13 +480,20 @@ export function createMppSubscriptions({
    *  BEFORE minting, for the same reason the card path does: a recurring
    *  authorization against a target we cannot watch is a subscription we would
    *  bill and never serve. Returns the WWW-Authenticate value. */
-  async function mintOffer({ product, target, email }) {
-    const p = Object.hasOwn(MONITOR_PRODUCTS, String(product)) ? MONITOR_PRODUCTS[product] : null;
+  async function mintOffer({ product, target, email, canary = false }) {
+    // The canary product is mintable ONLY when the caller proved the heartbeat
+    // token; server.js is what establishes that, and it must pass it here.
+    // Without the flag this resolver behaves exactly as it did: real products
+    // only, so nothing an outside buyer can ask for changes.
+    const p = canary && isCanaryProduct(product) ? CANARY_PRODUCT
+      : Object.hasOwn(MONITOR_PRODUCTS, String(product)) ? MONITOR_PRODUCTS[product] : null;
     if (!p) { const e = new Error("Unknown monitor product"); e.statusCode = 400; throw e; }
     let t = String(target ?? "").trim();
     if (!t) { const e = new Error(`Please provide ${p.inputLabel}.`); e.statusCode = 400; throw e; }
     if (t.length > 200) { const e = new Error("Input is too long."); e.statusCode = 400; throw e; }
-    const v = validateTarget[p.kind];
+    // A canary target is a label, not a thing to watch: there is no validator
+    // for kind "canary", so this is belt and braces.
+    const v = p === CANARY_PRODUCT ? null : validateTarget[p.kind];
     if (typeof v === "function") {
       // NEVER relay an upstream body to a buyer: only a message we minted
       // ourselves (buyerSafe) is shown, same rule as the card path.
@@ -489,7 +541,11 @@ export function createMppSubscriptions({
         accessKey: { accessKeyAddress: ak.accessKeyAddress, keyType: ak.keyType },
         chainId: TEMPO_MAINNET_CHAIN_ID,
         currency, decimals,
-        periodCount: PERIOD_COUNT, periodUnit: PERIOD_UNIT,
+        // dev_second periods for the canary so a renewal is due within a CI
+        // run; every real product signs the 30-day period.
+        ...(p === CANARY_PRODUCT
+          ? { periodCount: CANARY_PERIOD_SECONDS, periodUnit: "dev_second" }
+          : { periodCount: PERIOD_COUNT, periodUnit: PERIOD_UNIT }),
         recipient,
         subscriptionExpires: termEnd,
       },
@@ -594,6 +650,10 @@ export function createMppSubscriptions({
       lastChargeAt: new Date(now()).toISOString(),
       chargeFailures: 0, firstFailedAt: null, nextChargeAttemptAt: null, lastChargeError: null,
       cancelAtPeriodEnd: false, canceledAt: null, canceledReason: null,
+      // Marks a rail-proof subscription. Two consequences: its settlements are
+      // booked as our own money (never external demand), and it is the only
+      // kind of subscription whose owner may drive refreshStatus on demand.
+      canary: isCanaryProduct(b.product),
     };
     await writeRec(rec);
     bookCharge(rec, rec.lastChargedPeriod, rec.lastChargeTx);
@@ -607,7 +667,7 @@ export function createMppSubscriptions({
   }
   function bookCharge(rec, periodIndex, tx) {
     if (typeof onCharge !== "function") return;
-    try { onCharge({ subId: rec.subId, product: rec.product, priceUsd: rec.priceUsd, payer: rec.payer, tx: tx || null, periodIndex, currency: rec.currency, chainId: rec.chainId }); }
+    try { onCharge({ subId: rec.subId, product: rec.product, priceUsd: rec.priceUsd, payer: rec.payer, tx: tx || null, periodIndex, synthetic: !!rec.canary, currency: rec.currency, chainId: rec.chainId }); }
     catch { /* accounting never breaks billing */ }
   }
 
@@ -749,7 +809,7 @@ export function createMppSubscriptions({
   function publicView(rec) {
     return {
       subId: rec.subId, status: rec.status, product: rec.product, target: rec.target,
-      label: MONITOR_PRODUCTS[rec.product]?.label || "monitor",
+      label: productDefFor(rec.product)?.label || "monitor",
       priceUsdPerPeriod: rec.priceUsd, currency: rec.currency, chainId: rec.chainId,
       payer: rec.payer, rail: rec.rail,
       billingAnchor: rec.billingAnchor, periodSeconds: periodMs(rec.periodCount, rec.periodUnit) / 1000,
@@ -765,6 +825,13 @@ export function createMppSubscriptions({
   /** Is this subscription id one of ours? Lets server.js route refreshStatus
    *  and get() to the right engine without a lookup in both. */
   const isMine = (subId) => typeof subId === "string" && subId.startsWith(SUB_PREFIX);
+  /** Is this one of the rail canary's own subscriptions? Read from the STORED
+   *  record, never from a caller's word, so nothing a request says can turn a
+   *  real subscriber into a canary one. */
+  function isCanarySub(subId) {
+    const rec = cache.get(subId);
+    return !!(rec && (rec.canary || isCanaryProduct(rec.product)));
+  }
 
   // Synchronous mirrors for the scheduler, which calls listActive()/get()
   // synchronously (the Stripe engine holds its store in memory too). Kept warm
@@ -820,7 +887,7 @@ export function createMppSubscriptions({
   }
 
   return {
-    offerInfo, mintOffer, activateFromCredential, refreshStatus, cancel,
+    offerInfo, mintOffer, activateFromCredential, refreshStatus, cancel, isCanarySub,
     listActive, get, isMine, status, warm, warmSync, manageToken, manageTokenOk, publicView,
     _store: kv, _subStore: subStore, _method: method,
     _currentPeriodIndex: currentPeriodIndex, _paidThroughAt: paidThroughAt, _readRec: readRec, _writeRec: writeRec,

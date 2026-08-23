@@ -1,0 +1,40 @@
+name: Tempo subscription canary - live verification (dispatch-only)
+
+# LIVE proof of the MPP recurring subscription rail (tempo/subscription) against
+# production. Offline tests prove our logic against injected stubs; the charge
+# rail learned twice that a stub proves nothing about the wire, and this rail
+# has one half no stub can speak for at all: the RENEWAL, where our server signs
+# a transfer with a delegated access key and broadcasts it with no buyer
+# present and no relay verdict to read.
+#
+# Buys the heartbeat-gated `rail-canary` product, which bills in mppx's
+# dev_second unit so a second period comes due inside a CI run. That product is
+# not in MONITOR_PRODUCTS, so it can never reach the monitor scheduler.
+#
+# Not scheduled yet: it spends ~2 x $0.01 plus Tempo fees and holds a runner for
+# ~2 minutes. Promote to a paid-canary leg once it has run green a few times.
+on:
+  workflow_dispatch:
+
+concurrency:
+  # Two runs at once would each hold a standing authorization on the same
+  # burner and race each other's cancel.
+  group: tempo-subscription-canary
+  cancel-in-progress: false
+
+jobs:
+  subscribe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - name: Install (mppx + viem already in package.json)
+        run: npm ci --ignore-scripts
+      - name: Real Tempo subscription (activation + a pulled renewal, real money)
+        env:
+          BURNER_KEY: ${{ secrets.BURNER_KEY }}
+          POW_SECRET: ${{ secrets.POW_SECRET }}
+        run: node scripts/tempo-subscription-canary.js

@@ -23,6 +23,7 @@ import {
   mppSubscriptionMethodAvailable, periodMs, PERIOD_COUNT, PERIOD_UNIT,
   SUBSCRIPTION_TERM_MS, PAST_DUE_GRACE_MS, CHARGE_BACKOFF_MS, TEMPO_MAINNET_CHAIN_ID,
   OFFER_SWEEP_AFTER_MS, MAX_OPEN_OFFERS,
+  CANARY_PRODUCT_KEY, CANARY_PRODUCT, CANARY_PERIOD_SECONDS, productDefFor, isCanaryProduct,
 } from "../src/mpp-subscriptions.js";
 import { MONITOR_PRODUCTS } from "../src/stripe-subscriptions.js";
 
@@ -467,6 +468,87 @@ let liveSubId = null, liveHeader = null, liveToken = null, liveBuyer = null;
   advance(OFFER_SWEEP_AFTER_MS + 1000);
   await engine.mintOffer({ product: "domain-monitor", target: "d.com" });
   ok(Object.values(engine._store._snapshot()).some((v) => v && typeof v === "object" && v.privateKey && String(v.accessKeyAddress).toLowerCase() === paidAddr.toLowerCase()), "a PAID subscription's access key survives the sweep: it is the key we bill with");
+}
+
+// ---------------------------------------------------------------------------
+// Group 9: the rail canary's product. Its whole safety rests on two structural
+// facts rather than a flag anyone can set, so both are pinned here: it is not a
+// MONITOR_PRODUCT (which is what keeps it away from the scheduler), and it is
+// not mintable without the caller being proven synthetic.
+// ---------------------------------------------------------------------------
+{
+  ok(!Object.hasOwn(MONITOR_PRODUCTS, CANARY_PRODUCT_KEY),
+    "the canary product is NOT in MONITOR_PRODUCTS - listActive() skips any record whose product is absent there, so it can never reach the monitor scheduler, produce a paid report, or send an email");
+  ok(productDefFor(CANARY_PRODUCT_KEY) === CANARY_PRODUCT && isCanaryProduct(CANARY_PRODUCT_KEY),
+    "productDefFor is the only resolver that admits the canary product");
+  ok(productDefFor("domain-monitor") === MONITOR_PRODUCTS["domain-monitor"] && productDefFor("nope") === null && !isCanaryProduct("domain-monitor"),
+    "productDefFor still resolves real products and still refuses unknown ones");
+  ok(CANARY_PERIOD_SECONDS >= 30 && CANARY_PERIOD_SECONDS <= 600,
+    `canary period ${CANARY_PERIOD_SECONDS}s is long enough to be a real period and short enough to prove a renewal in one run`);
+
+  const { engine } = makeEngine({ name: "canary" });
+
+  // THE GATE. Without the flag the canary product is indistinguishable from any
+  // other unknown string, so the 400 leaks nothing about its existence.
+  let ungated = null;
+  try { await engine.mintOffer({ product: CANARY_PRODUCT_KEY, target: "x" }); }
+  catch (e) { ungated = e; }
+  ok(ungated && ungated.statusCode === 400 && /unknown monitor product/i.test(ungated.message),
+    "an UNGATED caller asking for the canary product gets the same 'Unknown monitor product' 400 as any unknown string: the gate leaks nothing");
+
+  const offer = await engine.mintOffer({ product: CANARY_PRODUCT_KEY, target: "canary-1", canary: true });
+  const ch = offer.challenge;
+  ok(ch.request.periodUnit === "dev_second" && String(ch.request.periodCount) === String(CANARY_PERIOD_SECONDS),
+    `a gated canary offer bills in dev_second x${CANARY_PERIOD_SECONDS} - the only reason a live renewal is provable at all`);
+  ok(String(ch.request.amount) === String(BigInt(CANARY_PRODUCT.price / 100 * 1e6)),
+    "the canary offer carries the canary price in base units, built through mppx's codec like every other challenge");
+
+  // A real product is untouched by the flag: the canary path must not become a
+  // way to buy a $9 monitor on a 60-second period.
+  const realGated = await engine.mintOffer({ product: "domain-monitor", target: "d.com", canary: true });
+  const realCh = realGated.challenge;
+  ok(realCh.request.periodUnit === PERIOD_UNIT && String(realCh.request.periodCount) === String(PERIOD_COUNT),
+    "the canary flag does NOT shorten a real product's period: only the canary product itself bills in dev_second");
+  ok(String(realCh.request.amount) === String(PRICE_ATOMIC),
+    "the canary flag does NOT cheapen a real product either");
+
+  // The binding check must accept the canary product (activation would be
+  // impossible otherwise) without becoming a hole: a challenge naming the
+  // canary product at a LOWER amount is still refused on price.
+  const canaryCred = Credential.from({ challenge: ch, payload: { type: "keyAuthorization", signature: "0x" + "11".repeat(65) } });
+  const b = checkSubscriptionBinding(`Payment ${Credential.serialize(canaryCred)}`, { secretKey: SECRET, realm: REALM });
+
+  // THE RETARGET the period check exists to stop, and the reason that check had
+  // to move BELOW the product read: the expected period must come from the
+  // HMAC-covered product, not from a constant. Both challenges below are
+  // legitimately OURS (minted with the real secret) and differ only in period,
+  // which is exactly the shape a mint-side bug would produce.
+  const realReq = realCh.request;
+  const fastReal = Challenge.fromMethod(Tempo.Methods.subscription, {
+    realm: REALM, expires: new Date(clock + 300_000), secretKey: SECRET,
+    meta: { product: "domain-monitor", target: "d.com" },
+    request: { ...realReq, decimals: 6, subscriptionExpires: new Date(Date.parse(realReq.subscriptionExpires)),
+      chainId: TEMPO_MAINNET_CHAIN_ID, accessKey: realReq.methodDetails.accessKey,
+      periodCount: String(CANARY_PERIOD_SECONDS), periodUnit: "dev_second" },
+  });
+  const fr = checkSubscriptionBinding((await signCredential(fastReal)).header, { secretKey: SECRET, realm: REALM, now: clock });
+  ok(fr.ok === false && /billing period/.test(String(fr.reason || "")),
+    "a REAL product's challenge on the canary's dev_second period is REFUSED: the expected period is resolved from the HMAC-covered product, never from a constant (this would be a $9 monitor billing every 60 seconds)");
+
+  // And the mirror, so the check is a binding both ways rather than a one-sided
+  // allowance that happens to admit anything short.
+  const slowCanary = Challenge.fromMethod(Tempo.Methods.subscription, {
+    realm: REALM, expires: new Date(clock + 300_000), secretKey: SECRET,
+    meta: { product: CANARY_PRODUCT_KEY, target: "canary-1" },
+    request: { ...ch.request, decimals: 6, subscriptionExpires: new Date(Date.parse(ch.request.subscriptionExpires)),
+      chainId: TEMPO_MAINNET_CHAIN_ID, accessKey: ch.request.methodDetails.accessKey,
+      periodCount: String(PERIOD_COUNT), periodUnit: PERIOD_UNIT },
+  });
+  const sc = checkSubscriptionBinding((await signCredential(slowCanary)).header, { secretKey: SECRET, realm: REALM, now: clock });
+  ok(sc.ok === false && /billing period/.test(String(sc.reason || "")),
+    "and the canary product on the real 30-day period is refused too: the period binding is two-sided");
+  ok(b.ok !== false || !/no known monitor product/.test(String(b.reason || "")),
+    "the binding check resolves the canary product rather than rejecting it as unknown");
 }
 
 rmSync(tmp, { recursive: true, force: true });

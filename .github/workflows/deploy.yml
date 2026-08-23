@@ -1243,6 +1243,9 @@ jobs:
       - name: MPP recurring subscriptions (tempo/subscription challenge shape, binding refuses forged/foreign/expired/underpriced before any settlement, period accounting, dunning, cancellation - offline)
         run: node scripts/test-mpp-subscriptions.js
 
+      - name: MPP subscription rail-canary gate (canary product is never advertised and is mintable only for a heartbeat-token caller; boots a real server, spends nothing)
+        run: node scripts/test-mpp-subscription-canary-gate.js
+
       - name: Leaderboard RPC failures never carry the Alchemy key (host-only naming + redaction on the public lastError path — offline)
         run: node scripts/test-leaderboard-redaction.js
 

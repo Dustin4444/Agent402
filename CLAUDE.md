@@ -1460,9 +1460,27 @@ with `res.statusCode === 200`. (`node_modules/@x402/express/dist/esm/index.mjs`.
   `past_due` (free probes continue, no paid report), 1h backoff doubling to 24h, `canceled` after a 7-day grace.
   Every unpaid 402 mints a keypair, so unclaimed offers are swept and minting refuses past a ceiling.
   `MPP_SUBSCRIPTIONS=off`; gated on MPP_SECRET_KEY + a recipient, NOT on TEMPO_API_KEY (no relay involved).
-  **NOT yet proven on-chain:** activation and renewal both need a funded Tempo buyer and a real RPC, and the
-  activation tx installs an access key (~4M gas). A dispatchable live canary is owed before this is trusted, for
-  exactly the reason the charge rail learned twice: a stub proves nothing about the wire.
+  **LIVE CANARY (2026-08-22, `scripts/tempo-subscription-canary.js` + `tempo-subscription-canary.yml`,
+  dispatch-only):** proves BOTH halves against production with the existing EVM canary burner. Activation is
+  charge-shaped (402 -> key authorization -> period 0 settles). The half worth proving is the RENEWAL: no buyer is
+  present, our server signs with the delegated access key and broadcasts straight to a Tempo RPC, so unlike the
+  charge rail there is NO relay verdict to read and NO confirm-fallback - a wrong wire here means a subscription
+  silently stops billing (we serve for free) or bills wrong. A 30-day period puts that beyond any canary, so the
+  canary buys a dedicated `rail-canary` product billing in mppx's `dev_second` unit (`CANARY_PERIOD_SECONDS`,
+  default 60), waits for period 1 to come due, and drives `refreshStatus` via `GET /api/mpp/monitors/:id?refresh=1`
+  - accepted ONLY for canary subscriptions, read from the STORED record, so a real subscriber's pull stays
+  scheduler-driven. It asserts a NEW on-chain reference, not just an advanced counter, and always cancels (a canary
+  that leaves standing authorizations behind is its own slow leak). Cost ~2 x $0.01 to our own payTo plus Tempo fees.
+  **Two structural safeties, both mutation-tested, neither a flag anyone can set:** `rail-canary` is NOT in
+  `MONITOR_PRODUCTS`, and `listActive()` skips any record whose product is absent there - so a canary subscription
+  can never reach the monitor scheduler, produce a paid report or send an email; and it is mintable only for a
+  caller carrying the POW_SECRET-signed heartbeat token (`isSyntheticRequest`), with an ungated ask answering the
+  same generic "Unknown monitor product" 400 as any unknown string, so the gate confirms nothing. The period
+  override keys off the RESOLVED product, never the caller's flag - the first draft keyed off the flag, which would
+  have put a real $9 monitor on a 60-second period for any token holder, and `scripts/test-mpp-subscriptions.js`
+  caught it before it ran once. `scripts/test-mpp-subscription-canary-gate.js` (10, boots a real server, in CI)
+  covers the route half the engine test cannot see. Not scheduled yet: promote to a paid-canary leg after a few
+  green runs.
 - **Server tools under a server-owned bound (2026-08-23, supersedes the 2026-08-04 blanket refusal):** the chat wire
   now allows exactly three OpenRouter server tools on the PRO and PREMIUM tiers - `openrouter:web_search`,
   `web_fetch` and `datetime` - because each has a published per-use price AND a hard `max_uses` count cap. We pin

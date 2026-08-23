@@ -2021,7 +2021,12 @@ if (_mppSubs) {
     if (checkoutLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     res.set("Cache-Control", "no-store");
     const auth = req.headers.authorization;
-    const mint = () => _mppSubs.mintOffer({ product: req.body?.product, target: req.body?.target, email: req.body?.email });
+    // The rail canary's own product is mintable ONLY for a caller that carries a
+    // valid POW_SECRET-signed heartbeat token. An outside buyer cannot mint one,
+    // so asking for it without the token resolves to "unknown product" exactly
+    // as any other unknown string would - the gate leaks nothing about it.
+    const canary = isSyntheticRequest(req);
+    const mint = () => _mppSubs.mintOffer({ product: req.body?.product, target: req.body?.target, email: req.body?.email, canary });
     if (!auth || !/^payment\s/i.test(auth)) {
       try {
         const offer = await mint();
@@ -2055,14 +2060,24 @@ if (_mppSubs) {
   // Self-serve status + cancel. The manage token minted at activation is the
   // bearer: the subscription id alone is deliberately NOT enough, the same rule
   // the Stripe portal link follows (subscribers are told to share report links).
-  app.get("/api/mpp/monitors/:subId", (req, res) => {
+  app.get("/api/mpp/monitors/:subId", async (req, res) => {
     if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
     res.set("Cache-Control", "no-store");
     const subId = String(req.params.subId || "");
     const rec = _mppSubs.isMine(subId) ? _mppSubs.get(subId) : null;
     if (!rec || !_mppSubs.manageTokenOk(subId, req.query.token)) return res.status(404).json({ error: "Unknown subscription" });
+    // ?refresh=1 drives refreshStatus - which is also where a due period is
+    // PULLED - and is therefore restricted to the rail canary's own
+    // subscriptions, read from the stored record. It is the only way to prove
+    // the pull half of this rail live: a real product's period is 30 days away,
+    // and the canary's is seconds. A real subscriber's renewal stays where it
+    // belongs, driven by the scheduler on its own clock.
+    if (req.query.refresh && _mppSubs.isCanarySub(subId)) {
+      try { await _mppSubs.refreshStatus(subId); }
+      catch (e) { console.warn("[mpp-subs] canary refresh failed:", String(e?.message || e).slice(0, 200)); }
+    }
     const reports = _monitors ? (_monitors.status().subs.find((r) => r.subId === subId) || null) : null;
-    res.json({ ..._mppSubs.publicView(rec), lastReportId: reports?.lastReportId || null, reportUrl: reports?.lastReportId ? `${BASE_URL}/m/${reports.lastReportId}` : null });
+    res.json({ ..._mppSubs.publicView(_mppSubs.get(subId) || rec), lastReportId: reports?.lastReportId || null, reportUrl: reports?.lastReportId ? `${BASE_URL}/m/${reports.lastReportId}` : null });
   });
   app.post("/api/mpp/monitors/:subId/cancel", async (req, res) => {
     if (sessionReadLimiter.check(clientIp(req)).limited) return res.status(429).json({ error: "Too many requests, please slow down." });
