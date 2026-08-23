@@ -14,14 +14,27 @@
 // seller names the settled amount afterwards, never above it. So the tier price
 // becomes a guaranteed maximum and the bill becomes the meter.
 //
-// THE MARKUP IS THE PRODUCT. Charging upstream + 30% makes routing through us
-// cheaper than a subscription while still paying for the service, which is the
-// only version of this that a buyer can verify and therefore trust.
-export const METER_MARKUP = 1.3;
+// THE MARKUP IS THE PRODUCT, and it is deliberately thin: 15%, which is the
+// margin the operator asked for. Be honest about what that does and does not
+// buy. It is MUCH cheaper than a subscription for anyone under the monthly
+// break-even, and roughly 40x cheaper than the flat tier it replaces. It is NOT
+// cheaper than an agent calling OpenRouter with its own key - that agent pays
+// upstream and we pay upstream plus 15%. Anyone claiming otherwise on a served
+// page is making a claim the numbers do not support.
+//
+// What the buyer gets for the 15% is access without credentials and a hard
+// per-call ceiling (see below), not a lower token price.
+export const METER_MARKUP = 1.15;
 // Every request costs us something no percentage of a $0.000003 call can cover
 // (the paywall, the settle, egress). This floor is what a request is worth
-// before any model runs, and it is deliberately far under the old flat price.
-export const METER_FLOOR_USD = 0.0005;
+// before any model runs.
+//
+// It is set by judgement, not measurement - we have never measured a per-request
+// fixed cost - so it is deliberately small enough that it stops mattering above
+// about a tenth of a cent of model spend, and large enough not to be dust a
+// facilitator would rather not move. If we ever measure the real number, move
+// this to it rather than defending the guess.
+export const METER_FLOOR_USD = 0.0002;
 
 /**
  * What to settle for a metered call.

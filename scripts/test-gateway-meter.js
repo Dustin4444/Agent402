@@ -10,9 +10,21 @@ const chat = meteredUsd({ upstreamUsd: 0.0001, ceilingUsd: 0.02 });
 ok(chat === METER_FLOOR_USD, `a typical v1-chat call ($0.0001 upstream) bills $${chat} instead of the $0.02 flat price`);
 ok(chat < 0.02 / 20, "which is more than 20x cheaper for the buyer than the flat tier");
 
+// The FLOOR dominates small calls, and that is worth stating rather than
+// hiding: below about $0.00017 of model spend the bill is the fixed per-request
+// component, not the markup. So a tiny call is still several times what a
+// direct API caller pays - just in absolute terms a fifth of a thousandth of a
+// dollar. Any claim of "cheaper than calling the API yourself" is false and
+// this is the arithmetic that makes it false.
+const breakeven = METER_FLOOR_USD / METER_MARKUP;
+ok(meteredUsd({ upstreamUsd: breakeven * 0.5, ceilingUsd: 0.02 }) === METER_FLOOR_USD,
+  `below the $${breakeven.toFixed(6)} breakeven the bill is the flat floor, not the markup`);
+ok(meteredUsd({ upstreamUsd: breakeven * 2, ceilingUsd: 0.02 }) > METER_FLOOR_USD,
+  "above it the markup governs");
+
 // A real, large call bills its cost plus the markup, still under the ceiling.
 const big = meteredUsd({ upstreamUsd: 0.012, ceilingUsd: 0.02 });
-ok(Math.abs(big - 0.0156) < 1e-9, `a large call ($0.012 upstream) bills $${big}, cost plus ${Math.round((METER_MARKUP - 1) * 100)}%`);
+ok(Math.abs(big - 0.012 * METER_MARKUP) < 1e-6, `a large call ($0.012 upstream) bills $${big}, cost plus ${Math.round((METER_MARKUP - 1) * 100)}%`);
 ok(big < 0.02, "and still lands under the ceiling the buyer authorized");
 
 // THE INVARIANT THAT MAKES THE CAP UNREACHABLE: the margin clamp already holds
