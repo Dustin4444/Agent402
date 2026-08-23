@@ -1005,7 +1005,13 @@ async function resolveExternalSeller(task, { cap, chain = "base" }) {
         }
       }
     } catch { live = false; }
-    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled };
+    // provenPayTo travels with the candidate. The check above ran against the
+    // PROBE's 402; payX402 then issues its OWN request and signs whatever that
+    // second 402 names, and the seller controls both responses - so a probe-only
+    // check is defeated by serving a clean address to the probe and any address
+    // to the payer. Carrying it lets the spend re-check the accept it is about
+    // to SIGN, which is the same discipline as the F2 accept pin.
+    if (live) return { seller: r.seller, slug: r.slug, url: r.url, method: r.method, price: r.price, networks: r.networks, settled: r.settled, provenPayTo: provenPayToByOrigin?.get(norm(r.seller)) || null };
   }
   return null;
 }

@@ -168,6 +168,32 @@ await expectErr({ slug: "broken-tool", params: {} }, 422, "underlying tool 422 p
   ok(r.receipt.underlyingPriceUsd === 0.12 && r.receipt.paidUsd === 0.55, "external receipt shows underlying (from live quote) vs paid tier");
   ok(r.result.proof === "0xabc" && r.result.untrustedContent === true, "external result relayed + marked untrustedContent");
 
+  // THE CALLER PATH for the payTo binding. payX402's own tests hand it a
+  // provenPayTo directly, which proves the comparison and says nothing about
+  // whether anything ever SUPPLIES one - the same shape of hole that left the
+  // metered-billing branch dead with two green tests. So assert the forwarding
+  // here, where the resolver and the payer are both injectable.
+  paidWith = null;
+  const proven = "0x1111111111111111111111111111111111111111";
+  const bound = buildRouteExecuteTool({
+    getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
+    resolveExternal: async () => ({ ...EXT, provenPayTo: proven }), payExternal, externalEnabled: () => true,
+  });
+  await bound.handler({ task: "summarize a twitter thread", include: "external", params: { circuit: "c" } }, {});
+  ok(paidWith?.opts?.provenPayTo === proven,
+    "external ON: the resolver's provenPayTo reaches payExternal, so the spend can re-check the accept it signs");
+
+  // A resolver that names no address must forward null, never undefined-by-omission
+  // dressed up as a value: the payer treats null as UNKNOWN and does not block.
+  paidWith = null;
+  const unbound = buildRouteExecuteTool({
+    getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 },
+    resolveExternal: async () => EXT, payExternal, externalEnabled: () => true,
+  });
+  await unbound.handler({ task: "summarize a twitter thread", include: "external", params: { circuit: "c" } }, {});
+  ok(paidWith?.opts && "provenPayTo" in paidWith.opts && paidWith.opts.provenPayTo === null,
+    "external ON: no proven address forwards an explicit null (UNKNOWN), never a missing key");
+
   // over-cap external is refused (not paid): resolver returns a $0.60 tool > $0.50 cap
   paidWith = null;
   const pricey = buildRouteExecuteTool({ getCatalog: () => CATALOG, tier: { slug: "route-execute-max", execPriceUsd: 0.55, underlyingMaxUsd: 0.5 }, resolveExternal: async () => ({ ...EXT, price: "$0.60" }), payExternal, externalEnabled: () => true });

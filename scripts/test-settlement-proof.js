@@ -202,5 +202,29 @@ const merchant = (m, payments, payers = 3, volumeUsd = 1) => ({ merchant: m, pay
   rmSync(dir, { recursive: true, force: true });
 }
 
+// --- the one link in the chain no behavioural test can reach -----------------
+//
+// resolveExternalSeller lives inside server.js and is not exported, so the
+// hand-off from the resolver to the payer cannot be driven from here the way
+// route-execute's can (that one IS covered, by injection, in
+// test-route-execute.js). A source scan is a weaker instrument than a
+// behavioural test and is used ONLY because the stronger one is unavailable:
+// it proves the two ends still reference each other, not that they work.
+//
+// Without it, deleting `provenPayTo` from the resolver's return breaks the
+// binding in production while every suite stays green - the payer would receive
+// undefined, read it as UNKNOWN, and refuse nothing.
+{
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  ok(/provenPayTo:\s*provenPayToByOrigin\?\.get\(norm\(r\.seller\)\)/.test(server),
+    "resolveExternalSeller returns provenPayTo, so the spend has an address to bind against");
+  const buyer = readFileSync(new URL("../src/x402-buyer.js", import.meta.url), "utf8");
+  ok(/provenPayToMatches\(\{\s*provenPayTo,\s*livePayTo:\s*payable\.payTo\s*\}\)/.test(buyer),
+    "payX402 binds against `payable` - the accept it signs - and not accepts[0]");
+  ok(buyer.indexOf("provenPayToMatches") < buyer.indexOf("const spendToken = reserveSpend"),
+    "the binding runs BEFORE any spend is held or signed, so a mismatch costs nothing");
+}
+
 console.log(`\n${fail ? "FAILED" : "OK"}: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
